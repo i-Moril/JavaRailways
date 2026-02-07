@@ -17,7 +17,7 @@ open class Bogie internal constructor(
     // direction是否与location的facing一致
     private var isSameDirectionAsFacing: Boolean,
     override var asset: Asset,
-) : ReversibleRailObject, MovingObject, Renderable {
+) : ReversibleRailObject, SynchronizedObject, Renderable {
     internal var _location = CommitBuffer(location)
     override var location: RailLocationWithFacing
         get() = _location.get()

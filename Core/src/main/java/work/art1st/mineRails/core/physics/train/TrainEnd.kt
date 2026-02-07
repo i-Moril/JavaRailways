@@ -1,10 +1,8 @@
 package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.physics.rail.RailObject
 import work.art1st.mineRails.core.physics.rail.ReversibleRailObject
 import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.util.Vector3D
 import java.lang.ref.WeakReference
 
 /**
@@ -14,7 +12,7 @@ open class TrainEnd(
     location: RailLocationWithFacing,
     train: Train,
     val type: Type
-) : ReversibleRailObject, Destroyable, MovingObject {
+) : ReversibleRailObject, Destroyable, SynchronizedObject {
     init {
         location.rail.addTrainEnd(this)
     }

@@ -25,7 +25,7 @@ open class Train private constructor(
     cars: MutableList<Car>,
     var controller: TrainController?,
     val world: World
-) : MovingObject, Destroyable {
+) : SynchronizedObject, Destroyable {
     var cars: MutableList<Car> = cars
         protected set
     private var _isDerailed: AtomicBoolean = AtomicBoolean(false)

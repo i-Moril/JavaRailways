@@ -32,7 +32,7 @@ open class Car internal constructor(
     val connectorLengthAtB: Double,
     override val world: World,
     override var asset: Asset,
-) : MovingObject, Renderable {
+) : SynchronizedObject, Renderable {
 
     data class MotionState(
         var tangentialVelocity: Vector3D,

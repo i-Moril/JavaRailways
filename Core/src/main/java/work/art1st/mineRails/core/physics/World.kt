@@ -62,7 +62,7 @@ class World(
         renderableObjects[renderable.chunk]?.remove(renderable)
     }
 
-    internal fun updateAssetPosition(renderable: Renderable, oldPosition: Vector3D?, newPosition: Vector3D) {
+    internal fun updateRenderablePosition(renderable: Renderable, oldPosition: Vector3D?, newPosition: Vector3D) {
         if (oldPosition == null) {
             renderableObjects.getOrPut(RenderChunk(newPosition)) { HashSet() }.add(renderable)
         } else {

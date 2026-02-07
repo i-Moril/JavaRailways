@@ -135,7 +135,7 @@ open class Train private constructor(
 
     private fun updateAfterHeadBogie() {
         var prevCar = cars.first()
-        prevCar.updateByBogieA(headBogie.position)
+        prevCar.updateByHeadBogie(headBogie.position)
         for (car in cars.slice(1..cars.lastIndex)) {
             car.updateByPrevCar(prevCar)
             prevCar = car

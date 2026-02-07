@@ -6,6 +6,7 @@ import work.art1st.mineRails.core.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.rail.ReversibleRailObject
 import work.art1st.mineRails.core.util.CommitBuffer
+import work.art1st.mineRails.core.util.Vector3D
 
 /**
  * 转向架类
@@ -13,15 +14,25 @@ import work.art1st.mineRails.core.util.CommitBuffer
  */
 open class Bogie internal constructor(
     location: RailLocationWithFacing,
+    // direction是否与location的facing一致
+    private var isSameDirectionAsFacing: Boolean,
     override var asset: Asset,
 ) : ReversibleRailObject, MovingObject, Renderable {
-    private var _location = CommitBuffer(location)
+    internal var _location = CommitBuffer(location)
     override var location: RailLocationWithFacing
         get() = _location.get()
         set(value) = _location.set(value)
 
-    val railView
-        get() = location.railView
+    override val position
+        get() = location.position
+    override val direction
+        get() = if (isSameDirectionAsFacing) location.tangent else -location.tangent
+    override val normal
+        get() = location.normal
+    internal var _velocity: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(0.0, 1.0, 0.0))
+    override var velocity: Vector3D
+        get() = _velocity.get()
+        set(value) = _velocity.set(value)
 
     override val world
         get() = location.rail.world
@@ -34,8 +45,14 @@ open class Bogie internal constructor(
     }
 
     override fun commit() {
-        world.updateAssetPosition(this, position, _location.getActive().position)
+        world.updateRenderablePosition(this, position, _location.getActive().position)
         _location.commit()
+        _velocity.commit()
+    }
+
+    override fun reverse() {
+        super.reverse()
+        isSameDirectionAsFacing = !isSameDirectionAsFacing
     }
 }
 

@@ -8,6 +8,7 @@ interface Renderable : Destroyable {
     val position: Vector3D
     val direction: Vector3D
     val normal: Vector3D
+    val velocity: Vector3D
     val world: World
     var asset: Asset
 

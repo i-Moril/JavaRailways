@@ -18,6 +18,8 @@ import kotlin.Throws
  * 车厢视为刚体杆，由若干转向架支撑
  * |A ---- BogieA --- Car(Centre) --- BogieB --- B|
  * TODO: 计算中间的转向架
+ *
+ * if (isReversed)： 相信分支预测器
  */
 open class Car internal constructor(
     val id: String,
@@ -31,12 +33,19 @@ open class Car internal constructor(
     override val world: World,
     override var asset: Asset,
 ) : MovingObject, Renderable {
+
+    data class MotionState(
+        var tangentialVelocity: Vector3D,
+        var angularVelocity: Vector3D,
+    )
+
     private var _position: CommitBuffer<Vector3D> = CommitBuffer(Vector3D.ZERO)
     override var position: Vector3D
         get() = _position.get()
         protected set(value) = _position.set(value)
 
     private var _direction: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(1.0, 0.0, 0.0))
+    // 渲染的朝向，与速度方向无关
     override var direction: Vector3D
         get() = _direction.get()
         protected set(value) = _direction.set(value)
@@ -46,12 +55,20 @@ open class Car internal constructor(
         get() = _normal.get()
         protected set(value) = _normal.set(value)
 
+    var _motionState: CommitBuffer<MotionState> = CommitBuffer(MotionState(Vector3D.ZERO, Vector3D.ZERO))
+    var motionState: MotionState
+        get() = _motionState.get()
+        private set(value) = _motionState.set(value)
+    override val velocity: Vector3D
+        get() = motionState.tangentialVelocity
+
     var isReversed: Boolean = false
         protected set
 
     val bogieA
         get() = bogies.first()
 
+    /* Should be positive */
     val bogieAToEndPointOffset
         get() = length / 2 + bogieAOffset
 
@@ -62,10 +79,11 @@ open class Car internal constructor(
     val bogieB
         get() = bogies.last()
 
+    /* Should be positive */
     val bogieBToEndPointOffset
         get() = length / 2 - bogieBOffset
 
-    protected val bogieDistance: Double
+    protected val bogieDistance
         get() = bogieBOffset - bogieAOffset
 
     /* Should be positive */
@@ -83,91 +101,149 @@ open class Car internal constructor(
     val tailBogieToEndPointOffset
         get() = if (isReversed) bogieAToEndPointOffset else bogieBToEndPointOffset
 
-    protected data class BogieBIntermediateResult(
-        val bogieBNewLocation: RailLocationWithFacing,
+    val headConnectorLength
+        get() = if (isReversed) connectorLengthAtB else connectorLengthAtA
+    val tailConnectorLength
+        get() = if (isReversed) connectorLengthAtA else connectorLengthAtB
+
+    protected data class TailBogieIntermediateResult(
+        val tailBogieNewLocation: RailLocationWithFacing,
         val carNewPosition: Vector3D,
         val carNewDirection: Vector3D,
     )
 
     /**
-     * 根据第一个转向架位置计算第二个
-     * @param bogieANewPosition 第一个转向架的新位置
+     * 根据第一个转向架计算第二个转向架
+     * @param headBogieNewPosition 第一个转向架的新位置
      * @return
      */
     @Throws(BogieException::class)
-    protected fun calculatePositionByBogieA(bogieANewPosition: Vector3D): BogieBIntermediateResult {
+    protected fun calculatePositionByHeadBogie(headBogieNewPosition: Vector3D): TailBogieIntermediateResult {
         // 向后查看2倍转向架间距的长度
-        val curves = bogieA.peekCurve(2 * (bogieAOffset - bogieBOffset))
+        val curves = headBogie.peekCurve(2 * (bogieAOffset - bogieBOffset))
         // 转向架与车厢连接处
-        val bogieAConnectorPosition = bogieA.position.add(bogieA.normal * floorHeight)
+        val headBogieConnectorPosition = headBogie.position.add(headBogie.normal * floorHeight)
+        // 尝试在前方的曲线段上二分查找
         for (x in curves) {
             val curve = x.second
-            val bogieBCurveIdx = BinarySearch.searchInteger(
+            val tailBogieCurveIdx = BinarySearch.searchInteger(
                 { i: Int ->
-                    val bogieBNewPoint = curve.getPointAt(i)!!
-                    val bogieBConnectorPosition = bogieBNewPoint.position.add(bogieBNewPoint.normal * floorHeight)
-                    val distance = bogieAConnectorPosition.distance(bogieBConnectorPosition)
+                    val tailBogieNewPoint = curve.getPointAt(i)!!
+                    val tailBogieConnectorPosition = tailBogieNewPoint.position.add(tailBogieNewPoint.normal * floorHeight)
+                    val distance = headBogieConnectorPosition.distance(tailBogieConnectorPosition)
 
                     DoubleCompare.compare(distance - bogieDistance, Curve.TOLERANCE)
                 },
                 0, curve.totalPoints
             )
-            if (bogieBCurveIdx != null) {
-                val bogieBNewPoint = RailLocationWithFacing(x.first, bogieBCurveIdx)
-                val bogieBConnectorPosition = bogieBNewPoint.position.add(bogieBNewPoint.normal * floorHeight)
-                val carDirection = (bogieBConnectorPosition - bogieAConnectorPosition).normalize()
-                val carPosition = bogieAConnectorPosition - carDirection.multiply(bogieAOffset)
-                return BogieBIntermediateResult(bogieBNewPoint, carPosition, carDirection)
+            if (tailBogieCurveIdx != null) {
+                val tailBogieNewPoint = RailLocationWithFacing(x.first, tailBogieCurveIdx)
+                val tailBogieConnectorPosition = tailBogieNewPoint.position + tailBogieNewPoint.normal * floorHeight
+                // 必然指向前方
+                val tailToHeadDirection = (tailBogieConnectorPosition - headBogieConnectorPosition).normalize()
+                // 正常情况下应该是负数
+                val headBogieOffset = if (isReversed) -bogieBOffset else bogieAOffset
+                val carPosition = headBogieConnectorPosition + tailToHeadDirection * headBogieOffset
+                return TailBogieIntermediateResult(tailBogieNewPoint, carPosition, tailToHeadDirection)
             }
         }
-        throw BogieException(bogieB)
+        throw BogieException(tailBogie)
     }
 
     /**
      * 此时bogieA已经被更新，根据新值计算下一个bogie的position
      */
     @Throws(BogieException::class)
-    fun updateByBogieA(bogieANewPosition: Vector3D) {
-        val (bogieBLocation, carPosition, carDirection) = calculatePositionByBogieA(bogieANewPosition)
-        bogieB.location = bogieBLocation
+    fun updateByHeadBogie(headBogieNewPosition: Vector3D) {
+        val (tailBogieLocation, carPosition, tailToHeadDirection) = calculatePositionByHeadBogie(headBogieNewPosition)
+        tailBogie.location = tailBogieLocation
         this.position = carPosition
-        this.direction = carDirection
-        this.normal = (bogieA.normal + bogieB.normal) * 0.5
+        this.direction = if (isReversed) -tailToHeadDirection else tailToHeadDirection
+        this.normal = (bogieA.normal + bogieB.normal) * 0.5     // Approx
+        updateMotionStateByHeadBogie()
     }
 
     @Throws(BogieException::class)
     fun updateByPrevCar(prevCar: Car) {
-        val prevCarBPosition = getBEndPointPosition(prevCar.position, prevCar.direction, prevCar.length)
+        val prevCarTailPosition = getTailPosition(prevCar.position, prevCar.direction, prevCar.length, prevCar.isReversed)
 
-        // 向后查看2倍转向架到端头+车厢长度的弧长
-        val curves = prevCar.bogieB.peekCurve(-2 * (length + prevCar.bogieBOffset))
+        // 向后查看2倍转向架间距的长度（前车后转向架与本车前转向架）
+        val curves = prevCar.tailBogie.peekCurve(-2 * (prevCar.tailBogieToEndPointOffset + headBogieToEndPointOffset))
         for (x in curves) {
             val intermediateResult = BinarySearch.searchInteger(
                 { i ->
                     val curve = x.second
                     val bogieAPoint = curve.getPointAt(i)!!
 
-                    calculatePositionByBogieA(bogieAPoint.position)
+                    calculatePositionByHeadBogie(bogieAPoint.position)
                 },
-                { intermediateResult: BogieBIntermediateResult ->
-                    val (bogieBLocation, carPosition, carDirection) = intermediateResult
-                    val aPosition = getAEndPointPosition(carPosition, carDirection, length)
-                    val connectorVector = aPosition - (prevCarBPosition)
+                { intermediateResult: TailBogieIntermediateResult ->
+                    val (tailBogieLocation, carPosition, tailToHeadDirection) = intermediateResult
+                    val headPosition = getHeadPosition(carPosition, tailToHeadDirection, length, isReversed)
+                    val connectorVector = headPosition - (prevCarTailPosition)
 
                     // 如果接头处向量（车钩）与车身夹角为钝角，说明太靠后了
-                    if (connectorVector.dot(carDirection) < 0) -1 else
-                        DoubleCompare.compare(connectorVector.length() - connectorLengthAtA - prevCar.connectorLengthAtB, Curve.TOLERANCE)
+                    if (connectorVector.dot(tailToHeadDirection) < 0) -1 else
+                        DoubleCompare.compare(connectorVector.length() - headConnectorLength - prevCar.tailConnectorLength, Curve.TOLERANCE)
                 },
                 0, x.second.totalPoints
             )
             if (intermediateResult != null) {
-                val (bogieBLocation, carPosition, carDirection) = intermediateResult
-                bogieB.location = bogieBLocation
+                val (tailBogieLocation, carPosition, tailToHeadDirection) = intermediateResult
+                tailBogie.location = tailBogieLocation
                 this.position = carPosition
-                this.direction = carDirection
-                this.normal = (bogieA.normal + bogieB.normal) * 0.5
+                this.direction = if (isReversed) -tailToHeadDirection else tailToHeadDirection
+                this.normal = (bogieA.normal + bogieB.normal) * 0.5     // Approx
+                updateMotionStateByHead(prevCar.tailVelocity())     // this.headVelocity = prevCar.tailVelocity
             }
         }
+    }
+
+    // 设置完转向架位置、commit前调用，更新motionState
+    private fun updateMotionStateByHeadBogie() {
+        // tail到head方向单位矢量
+        val d = if (isReversed) -_direction.getActive() else _direction.getActive()
+        // headBogie原始速度
+        val v0 = headBogie._velocity.getActive()
+        // headBogie沿杆方向速度
+        val vd0s = v0.dot(d)
+        val tailBogieTangent = tailBogie._location.getActive().tangent
+        // tailBogie方向与car方向夹角
+        val cosTheta = tailBogieTangent.dot(d)
+        // 更新tailBogie的速度矢量
+        val v1 = tailBogieTangent * (vd0s / cosTheta)
+        tailBogie.velocity = v1
+        // v1 = v0 + \omega x d
+        // 不考虑绕杆自转，有
+        // \omega = d x (v1 - v0) / |d|^2
+        val omega = d.crossProduct(v1 - v0) // |d|=1
+        val centreToHead = _position.getActive() - headBogie._location.getActive().position
+        val vCar = v0 + omega.crossProduct(centreToHead)
+        motionState = MotionState(vCar, omega)
+    }
+
+    // 已知
+    private fun updateMotionStateByHead(headVelocity: Vector3D) {
+        // tail到head方向单位矢量
+        val d = if (isReversed) -_direction.getActive() else _direction.getActive()
+        // head沿杆方向速度
+        val vd0s = headVelocity.dot(d)
+        val headBogieTangent = headBogie._location.getActive().tangent
+        // headBogie方向与car方向夹角
+        val cosTheta = headBogieTangent.dot(d)
+        // 更新tailBogie的速度矢量
+        val v1 = headBogieTangent * (vd0s / cosTheta)
+        headBogie.velocity = v1
+        updateMotionStateByHeadBogie()
+    }
+
+    private fun tailVelocity() : Vector3D {
+        // tail到head方向单位矢量
+        val d = if (isReversed) -_direction.getActive() else _direction.getActive()
+        val v = _motionState.getActive().tangentialVelocity
+        val omega = _motionState.getActive().angularVelocity
+        // v1 = v0 + \omega x d
+        return v + omega.crossProduct(d * (length / 2))
     }
 
     fun reverse() {
@@ -185,15 +261,16 @@ open class Car internal constructor(
         _position.commit()
         _direction.commit()
         _normal.commit()
+        _motionState.commit()
     }
 
     companion object {
-        protected fun getAEndPointPosition(position: Vector3D, direction: Vector3D, carLength: Double): Vector3D {
-            return position - direction.normalize().multiply(carLength / 2)
+        protected fun getHeadPosition(position: Vector3D, tailToHeadDirection: Vector3D, carLength: Double, isReversed: Boolean): Vector3D {
+            return position - tailToHeadDirection * (carLength / 2)
         }
 
-        protected fun getBEndPointPosition(position: Vector3D, direction: Vector3D, carLength: Double): Vector3D {
-            return position + direction.normalize().multiply(carLength / 2)
+        protected fun getTailPosition(position: Vector3D, tailToHeadDirection: Vector3D, carLength: Double, isReversed: Boolean): Vector3D {
+            return position + tailToHeadDirection * (carLength / 2)
         }
     }
 

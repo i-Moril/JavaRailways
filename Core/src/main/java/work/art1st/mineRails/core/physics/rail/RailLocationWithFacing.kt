@@ -22,6 +22,9 @@ class RailLocationWithFacing(
     val reversed: RailLocationWithFacing
         get() = RailLocationWithFacing(railView.reversed, idxInCurveAB)
 
+    /**
+     * @param deltaS: >= 0
+     */
     fun forward(deltaS: Double): RailLocationWithFacing? {
         var arcLength = arcLength + deltaS
         var curve = point.curve

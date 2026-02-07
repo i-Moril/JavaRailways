@@ -13,7 +13,7 @@ import work.art1st.mineRails.core.util.CommitBuffer
  */
 open class Bogie internal constructor(
     location: RailLocationWithFacing,
-    override var asset: Asset<Any>,
+    override var asset: Asset,
 ) : ReversibleRailObject, MovingObject, Renderable {
     private var _location = CommitBuffer(location)
     override var location: RailLocationWithFacing

@@ -29,8 +29,7 @@ abstract class TrainController(
         train.reverse()
     }
 
-    abstract fun tick(deltaT: Double);
-
+    @Ticks(ms = 10)
     fun doTick(deltaT: Double) {
         if (pendingCommand == null) {
             train.moveTrainForward(speed * deltaT * 0.001)

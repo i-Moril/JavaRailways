@@ -8,12 +8,10 @@ public class AccelerateCommand extends BasicControlCommand {
     
     // 预计算的常数
     private final double t1; // 达到最大加速度所需的时间
-    private final double speedDiff; // 速度差
     private final double halfJerk; // 0.5 * jerk
     private final double oneSixthJerk; // (1/6) * jerk
     private final double v1; // 第一阶段结束时的速度
     private final double s1; // 第一阶段结束时的距离
-    private final double threshold; // 判断是否需要完整 S 型曲线的阈值
     private final boolean useSimpleCurve; // 是否使用简化的两阶段曲线
     private final double t3; // 总时间
     private final double t2Start; // 第三阶段开始时间（如果是完整曲线）
@@ -29,12 +27,14 @@ public class AccelerateCommand extends BasicControlCommand {
         
         // 预计算常数
         this.t1 = acceleration / jerk;
-        this.speedDiff = targetSpeed - initialSpeed;
+        // 速度差
+        double speedDiff = targetSpeed - initialSpeed;
         this.halfJerk = 0.5 * jerk;
         this.oneSixthJerk = (1.0 / 6.0) * jerk;
         this.v1 = initialSpeed + 0.5 * acceleration * t1;
         this.s1 = initialSpeed * t1 + oneSixthJerk * t1 * t1 * t1;
-        this.threshold = 0.5 * acceleration * t1;
+        // 判断是否需要完整 S 型曲线的阈值
+        double threshold = 0.5 * acceleration * t1;
         
         // 判断是否需要完整的 S 型曲线
         this.useSimpleCurve = Math.abs(speedDiff) < threshold;
@@ -119,12 +119,13 @@ public class AccelerateCommand extends BasicControlCommand {
         if (t <= 0) {
             return 0;
         }
-        
+
+        double v = initialSpeed * t + oneSixthJerk * t * t * t;
         if (useSimpleCurve) {
             // 简化的两阶段加速过程
             if (t < t1) {
                 // 第一阶段：加速度线性增加
-                return initialSpeed * t + oneSixthJerk * t * t * t;
+                return v;
             } else if (t < t3) {
                 // 第二阶段：加速度线性减少
                 double t2 = t - t1;
@@ -137,7 +138,7 @@ public class AccelerateCommand extends BasicControlCommand {
             // 完整的三阶段 S 型曲线
             if (t < t1) {
                 // 第一阶段：加速度从 0 线性增加到最大值
-                return initialSpeed * t + oneSixthJerk * t * t * t;
+                return v;
             } else if (t < t2Start) {
                 // 第二阶段：加速度保持恒定
                 double dt = t - t1;

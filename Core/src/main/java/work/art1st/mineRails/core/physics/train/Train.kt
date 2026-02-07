@@ -112,6 +112,9 @@ open class Train private constructor(
 
             headBogie.moveForward(deltaS)
             updateAfterHeadBogie()
+
+            // All operation finished
+            commit()
         } catch (e: Collision) {
             fireCollisionEvent(e)
             throw e
@@ -193,9 +196,9 @@ open class Train private constructor(
     companion object {
         const val COLLISION_SPEED = 2.78 // ~10km/h
 
-        fun create(): Train {
-           // TODO: Create a train
-        }
+//        fun create(): Train {
+//           // TODO: Create a train
+//        }
 
         private fun fireCollisionEvent(e: Collision) {
             // 使用AtomicBoolean防止fire两遍Collision

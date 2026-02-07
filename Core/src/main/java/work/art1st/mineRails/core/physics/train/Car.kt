@@ -29,7 +29,7 @@ open class Car internal constructor(
     val connectorLengthAtA: Double,
     val connectorLengthAtB: Double,
     override val world: World,
-    override var asset: Asset<Any>,
+    override var asset: Asset,
 ) : MovingObject, Renderable {
     private var _position: CommitBuffer<Vector3D> = CommitBuffer(Vector3D.ZERO)
     override var position: Vector3D

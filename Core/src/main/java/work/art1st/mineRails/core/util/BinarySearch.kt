@@ -61,7 +61,7 @@ object BinarySearch {
         return search<Int, R>(
             f, cmp, start, end,
             { a: Int, b: Int -> a + (b - a) / 2 },
-            { a: Int, b: Int -> a == b }
+            { a: Int, b: Int -> b - a <= 1 }
         )
     }
 
@@ -70,6 +70,6 @@ object BinarySearch {
         start: Int,
         end: Int
     ): Int? {
-        return searchInteger(cmp, start, end)
+        return searchInteger({i -> i}, cmp, start, end)
     }
 }

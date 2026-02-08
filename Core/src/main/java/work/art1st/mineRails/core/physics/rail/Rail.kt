@@ -102,7 +102,7 @@ open class Rail : Destroyable {
     override fun canDestroy(): Boolean = trains.isEmpty()
 
     fun save(): JsonElement {
-        return Json.encodeToJsonElement(SavedRail(viewAB.curve))
+        return Json.encodeToJsonElement(SavedRail(id.toString(), signals, viewAB.curve))
     }
 
     override fun destroy() {

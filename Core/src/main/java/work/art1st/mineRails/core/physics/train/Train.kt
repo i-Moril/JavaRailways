@@ -17,8 +17,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * 列车类
  * 由若干节车厢组成，车厢之间头尾相连
- *
- * 假设TPS足够高，即使渲染一列车的不同部分属于不同的帧，之间的差异也不会特别大
  */
 open class Train private constructor(
     val id: String,

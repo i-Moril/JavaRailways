@@ -10,6 +10,8 @@ class RailAsset(
     override val direction: Vector3D,
     override val normal: Vector3D,
     override val world: World,
-    override var asset: Asset
+    override var asset: Asset,
 ) : Renderable {
+    override val velocity: Vector3D
+        get() = Vector3D.ZERO
 }

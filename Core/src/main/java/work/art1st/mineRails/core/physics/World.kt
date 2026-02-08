@@ -39,9 +39,9 @@ class World(
 
     }
 
-    fun getNearestRailLocation(position: Vector3D): RailLocation {
-
-    }
+//    fun getNearestRailLocation(position: Vector3D): RailLocation {
+//
+//    }
 
     fun getRenderableObjects(position: Vector3D, radius: Double): Collection<Renderable> {
         val chunks = RenderChunk.getChunksAround(position, radius)

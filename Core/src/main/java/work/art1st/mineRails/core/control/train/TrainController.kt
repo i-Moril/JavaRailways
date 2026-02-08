@@ -1,15 +1,13 @@
 package work.art1st.mineRails.core.control.train
 
 import work.art1st.mineRails.core.control.command.ControlCommand
-import work.art1st.mineRails.core.control.ticking.AutoTicking
-import work.art1st.mineRails.core.control.ticking.Ticks
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.physics.train.Train
 
 abstract class TrainController(
     internal var train: Train,
     world: World
-) : AutoTicking(world.scheduler) {
+) {
     /**
      * Meters per second, >=0
      */
@@ -29,8 +27,7 @@ abstract class TrainController(
         train.reverse()
     }
 
-    @Ticks(ms = 10)
-    fun doTick(deltaT: Double) {
+    fun tick(deltaT: Double) {
         if (pendingCommand == null) {
             train.moveTrainForward(speed * deltaT * 0.001)
         } else {

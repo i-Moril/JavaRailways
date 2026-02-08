@@ -62,20 +62,15 @@ class PacketEntity(
             data,
             velocity,
         )
-        spawnPacket.prepareForSend(user, false)
         user.sendPacket(spawnPacket)
 
         vehicleId?.let { vid ->
             val passengers = intArrayOf(entityId)
-            val setPassengers = WrapperPlayServerSetPassengers(vid, passengers)
-            setPassengers.prepareForSend(user, false)
-            user.sendPacket(setPassengers)
+            user.sendPacket(WrapperPlayServerSetPassengers(vid, passengers))
         }
 
         if (passengerIds.isNotEmpty()) {
-            val setPassengers = WrapperPlayServerSetPassengers(entityId, passengerIds)
-            setPassengers.prepareForSend(user, false)
-            user.sendPacket(setPassengers)
+            user.sendPacket(WrapperPlayServerSetPassengers(entityId, passengerIds))
         }
     }
 

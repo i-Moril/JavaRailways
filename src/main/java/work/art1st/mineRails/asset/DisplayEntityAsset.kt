@@ -2,8 +2,8 @@ package work.art1st.mineRails.asset
 
 import org.bukkit.entity.Display
 import org.bukkit.entity.Player
-import work.art1st.mineRails.core.asset.Asset
-import work.art1st.mineRails.core.asset.Renderable
+import work.art1st.mineRails.core.api.render.Asset
+import work.art1st.mineRails.core.api.render.Renderable
 
 abstract class DisplayEntityAsset : Asset {
     private var displayEntity: Display? = null

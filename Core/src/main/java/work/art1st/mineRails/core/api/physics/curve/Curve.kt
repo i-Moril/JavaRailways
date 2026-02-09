@@ -1,9 +1,9 @@
-package work.art1st.mineRails.core.physics.rail.curve
+package work.art1st.mineRails.core.api.physics.curve
 
-import kotlinx.serialization.Serializable
+import work.art1st.mineRails.core.physics.rail.curve.CurveSlice
+import work.art1st.mineRails.core.physics.rail.curve.PrimeCurve
 import work.art1st.mineRails.core.util.Heavy
-import work.art1st.mineRails.core.util.Vector3D
-import java.util.Optional
+import work.art1st.mineRails.core.api.math.Vector3D
 import java.util.stream.Stream
 import kotlin.jvm.optionals.getOrNull
 
@@ -55,21 +55,9 @@ interface Curve {
      * 截取的是开区间
      * [startIdx, endIdx)
      */
-    fun slice(startIdx: Int, endIdx: Int): Curve {
-        val startIdx = if (startIdx <= 0) {
-            0
-        } else if (startIdx >= this.totalPoints) {
-            this.totalPoints
-        } else {
-            startIdx
-        }
-        val endIdx = if (endIdx <= 0) {
-            0
-        } else if (endIdx >= this.totalPoints) {
-            this.totalPoints
-        } else {
-            endIdx
-        }
+    fun slice(startIdx: Int, endIdx: Int): Curve? {
+        if (startIdx !in 0..<totalPoints) return null
+        if (endIdx !in 0..totalPoints) return null
         if (startIdx > endIdx) return CurveSlice(this, endIdx, startIdx).reversed
         return CurveSlice(this, startIdx, endIdx)
     }
@@ -78,21 +66,11 @@ interface Curve {
      * 截取的是闭区间
      * [start, end]
      */
-    fun slice(start: Double, end: Double): Curve {
-        val startIdx = if (start <= 0) {
-            0
-        } else if (start >= this.totalArcLength) {
-            this.totalPoints
-        } else {
-            getPointAt(start)?.idx?.plus(1) ?: 0
-        }
-        val endIdx = if (end <= 0) {
-            0
-        } else if (end >= this.totalArcLength) {
-            this.totalPoints
-        } else {
-            getPointAt(end)?.idx?.plus(1) ?: this.totalPoints
-        }
+    fun slice(start: Double, end: Double): Curve? {
+        if (start !in 0.0..totalArcLength) return null
+        if (end !in 0.0..totalArcLength) return null
+        val startIdx = getPointAt(start)!!.idx
+        val endIdx = getPointAt(end)!!.idx + 1
         return slice(startIdx, endIdx)
     }
 
@@ -101,4 +79,3 @@ interface Curve {
         const val PRECISION: Double = 1e-3
     }
 }
-

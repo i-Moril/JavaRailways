@@ -1,5 +1,6 @@
 package work.art1st.mineRails.core.physics.rail.curve
 
+import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.util.Heavy
 import java.lang.ref.WeakReference
 import java.util.stream.Stream

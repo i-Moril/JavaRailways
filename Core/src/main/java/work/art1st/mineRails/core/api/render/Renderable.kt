@@ -1,8 +1,9 @@
-package work.art1st.mineRails.core.asset
+package work.art1st.mineRails.core.api.render
 
 import work.art1st.mineRails.core.physics.World
+import work.art1st.mineRails.core.render.RenderChunk
 import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.api.math.Vector3D
 
 interface Renderable : Destroyable {
     val position: Vector3D

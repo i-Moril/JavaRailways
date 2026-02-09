@@ -1,6 +1,6 @@
-package work.art1st.mineRails.core.asset
+package work.art1st.mineRails.core.render
 
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.api.math.Vector3D
 
 data class RenderChunk(
     val x: Long,

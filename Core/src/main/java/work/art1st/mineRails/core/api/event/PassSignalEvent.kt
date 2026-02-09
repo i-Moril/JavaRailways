@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.event
+package work.art1st.mineRails.core.api.event
 
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.train.Train

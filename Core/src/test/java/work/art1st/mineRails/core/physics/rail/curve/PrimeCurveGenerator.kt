@@ -1,6 +1,7 @@
 package work.art1st.mineRails.core.physics.rail.curve
 
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.api.math.Vector3D
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -11,7 +12,7 @@ import kotlin.math.sin
  */
 object PrimeCurveGenerator {
 
-    private const val DEFAULT_STEP = 0.2
+    private const val DEFAULT_STEP = Curve.PRECISION
 
     /** 直线默认段数 */
     const val DEFAULT_STRAIGHT_SEGMENTS = 5
@@ -20,7 +21,7 @@ object PrimeCurveGenerator {
     const val DEFAULT_CIRCLE_SEGMENTS = 4
 
     /**
-     * 生成直线轨道并切成若干段，沿 X 轴从 (0,0,0) 到 (length,0,0)。
+     * 生成直线轨道并切成若干段。水平面为 XZ，Y 为高度；直线沿 X 轴，y=0，从 (0,0,0) 到 (length,0,0)。
      * @param segmentCount 段数，每段弧长 length/segmentCount
      */
     fun buildStraight(
@@ -32,7 +33,7 @@ object PrimeCurveGenerator {
         return (0 until segmentCount).map { seg ->
             val curve = PrimeCurve()
             val tangent = Vector3D(1.0, 0.0, 0.0)
-            val normal = Vector3D(0.0, 1.0, 0.0)
+            val normal = Vector3D(0.0, 1.0, 0.0) // Y 向上
             val n = (segmentLength / step).toInt().coerceAtLeast(1)
             val actualStep = segmentLength / n
             val offsetX = seg * segmentLength
@@ -40,7 +41,7 @@ object PrimeCurveGenerator {
                 val s = i * actualStep
                 val x = offsetX + s
                 Curve.Point(
-                    Vector3D(x, 0.0, 0.0),
+                    Vector3D(x, 0.0, 0.0), // (x, y, z)，y=0 为地面
                     normal,
                     tangent,
                     curve,
@@ -54,7 +55,7 @@ object PrimeCurveGenerator {
     }
 
     /**
-     * 生成整圆轨道并切成若干段，圆心 (0,0,0)，半径 [radius] m，X-Y 平面，总弧长 2*pi*radius。
+     * 生成整圆轨道并切成若干段。水平面为 XZ，Y 为高度；圆心 (0,0,0)，半径 [radius] m，圆在 XZ 平面（y=0），总弧长 2*pi*radius。
      * @param segmentCount 段数（如 4 即四段圆弧）
      */
     fun buildCircle(
@@ -73,9 +74,9 @@ object PrimeCurveGenerator {
             val pointList = (0..n).map { i ->
                 val theta = theta0 + i * dTheta
                 val s = i * (segmentArcLength / n)
-                val position = Vector3D(radius * cos(theta), radius * sin(theta), 0.0)
-                val tangent = Vector3D(-sin(theta), cos(theta), 0.0)
-                val normal = Vector3D(0.0, 0.0, 1.0)
+                val position = Vector3D(radius * cos(theta), 0.0, radius * sin(theta)) // XZ 平面，y=0
+                val tangent = Vector3D(-sin(theta), 0.0, cos(theta))
+                val normal = Vector3D(0.0, 1.0, 0.0) // Y 向上
                 Curve.Point(position, normal, tangent, curve, i, s)
             }
             setPointList(curve, pointList)

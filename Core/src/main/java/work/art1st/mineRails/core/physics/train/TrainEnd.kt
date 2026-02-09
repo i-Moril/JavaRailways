@@ -1,7 +1,7 @@
 package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.physics.rail.ReversibleRailObject
+import work.art1st.mineRails.core.api.physics.ReversibleRailObject
 import work.art1st.mineRails.core.util.Destroyable
 import java.lang.ref.WeakReference
 

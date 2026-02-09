@@ -7,11 +7,11 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import work.art1st.mineRails.core.asset.Renderable
+import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.physics.rail.RailLocation
-import work.art1st.mineRails.core.physics.rail.RailObject
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.api.physics.RailObject
+import work.art1st.mineRails.core.api.math.Vector3D
 
 @Serializable(with = Signal.SignalSerializer::class)
 abstract class Signal(

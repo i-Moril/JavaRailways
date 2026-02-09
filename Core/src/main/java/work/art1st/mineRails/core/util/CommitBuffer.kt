@@ -4,8 +4,7 @@ class CommitBuffer<T>(
     default: T,
 ){
     private var active: Int = 0
-    @Suppress("UNCHECKED_CAST")
-    private var buffer: Array<T> = arrayOf<Any>(default as Any) as Array<T>
+    private var buffer: MutableList<T> = mutableListOf(default, default)
 
     fun set(value: T) {
         buffer[active] = value

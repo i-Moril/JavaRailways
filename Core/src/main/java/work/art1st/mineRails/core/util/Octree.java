@@ -1,5 +1,7 @@
 package work.art1st.mineRails.core.util;
 
+import work.art1st.mineRails.core.api.math.Vector3D;
+
 import java.util.ArrayList;
 import java.util.List;
 

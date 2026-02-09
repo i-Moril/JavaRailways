@@ -1,43 +1,39 @@
 package work.art1st.mineRails.core.physics
 
-import work.art1st.mineRails.core.asset.RenderChunk
-import work.art1st.mineRails.core.asset.Renderable
+import work.art1st.mineRails.core.render.RenderChunk
+import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.train.Train
 import work.art1st.mineRails.core.physics.rail.Rail
-import work.art1st.mineRails.core.physics.rail.RailLocation
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.api.math.Vector3D
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.ScheduledExecutorService
 
 class World(
-    val rails: MutableCollection<Rail>,
-    val trains: MutableMap<String, Train>,
-    val signals: MutableSet<Signal>,
-    val scheduler: ScheduledExecutorService
+    private val rails: MutableMap<UUID, Rail>,
+    private val trains: MutableMap<String, Train>,
+    private val signals: MutableSet<Signal>,
+    private val scheduler: ScheduledExecutorService
 ) {
     internal val renderableObjects: ConcurrentMap<RenderChunk, HashSet<Renderable>> = ConcurrentHashMap()
 
     fun addTrain(train: Train) {
-
+        trains[train.id] = train
     }
 
-    fun linkTrain(train1: Train, train2: Train) {
+    fun getTrain(name: String): Train? = trains[name]
 
-    }
-
-    fun splitTrain(train: Train, splitFrom: Int) {
-
-    }
-
-    fun removeTrain(train: Train) {
-
-    }
+    fun removeTrain(train: Train) = trains.remove(train.id)
 
     fun addRail(rail: Rail) {
-
+        rails[rail.id] = rail
     }
+
+    fun getRail(id: UUID): Rail? = rails[id]
+
+    fun removeRail(rail: Rail) = rails.remove(rail.id)
 
 //    fun getNearestRailLocation(position: Vector3D): RailLocation {
 //
@@ -56,7 +52,6 @@ class World(
         return selected
     }
 
-    fun getTrain(name: String): Train? = trains[name]
 
     internal fun removeAsset(renderable: Renderable) {
         renderableObjects[renderable.chunk]?.remove(renderable)

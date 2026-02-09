@@ -1,9 +1,9 @@
-package work.art1st.mineRails.core.event
+package work.art1st.mineRails.core.api.physics.exception
 
 import work.art1st.mineRails.core.physics.train.Train
 
-class CollisionEvent(
+class Collision(
     val trainA: Train,
     val trainB: Train
-) : RailEvent {
+) : PhysicsException() {
 }

@@ -10,13 +10,12 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.World
-import work.art1st.mineRails.core.physics.rail.curve.Curve
+import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurve
 import work.art1st.mineRails.core.physics.train.TrainEnd
 import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.api.math.Vector3D
 import java.util.UUID
-import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -24,7 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 @Serializable(Rail.Serializer::class)
 open class Rail : Destroyable {
-    val id: UUID
+    var id: UUID
     val world: World
     val viewAB: RailView
     val viewBA: RailView

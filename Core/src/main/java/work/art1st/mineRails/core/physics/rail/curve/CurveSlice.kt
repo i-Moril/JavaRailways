@@ -1,5 +1,6 @@
 package work.art1st.mineRails.core.physics.rail.curve
 
+import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.util.Heavy
 import java.util.stream.Stream
 
@@ -34,11 +35,11 @@ internal class CurveSlice(
     }
 
     override fun getPointAt(arcLength: Double): Curve.Point? {
-        return origCurve.getPointAt(arcLength - startArcLength)
+        return origCurve.getPointAt(arcLength + startArcLength)
     }
 
     override fun getPointAt(idx: Int): Curve.Point? {
-        return origCurve.getPointAt(idx - startArcLength)
+        return origCurve.getPointAt(idx + startIdx)
     }
 
     @Heavy

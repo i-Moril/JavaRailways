@@ -1,15 +1,14 @@
 package work.art1st.mineRails.core.physics.train
 
-import work.art1st.mineRails.core.asset.Asset
-import work.art1st.mineRails.core.asset.Renderable
+import kotlinx.serialization.Serializable
+import work.art1st.mineRails.core.api.render.Asset
+import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.physics.World
-import work.art1st.mineRails.core.physics.exception.BogieException
+import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.physics.rail.curve.Curve
 import work.art1st.mineRails.core.util.BinarySearch
 import work.art1st.mineRails.core.util.CommitBuffer
-import work.art1st.mineRails.core.util.DoubleCompare
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.api.math.Vector3D
 import kotlin.Int
 import kotlin.Throws
 
@@ -126,13 +125,13 @@ open class Car internal constructor(
         // 尝试在前方的曲线段上二分查找
         for (x in curves) {
             val curve = x.second
-            val tailBogieCurveIdx = BinarySearch.searchInteger(
+            val tailBogieCurveIdx = BinarySearch.searchIntegerBoundary(
                 { i: Int ->
                     val tailBogieNewPoint = curve.getPointAt(i)!!
                     val tailBogieConnectorPosition = tailBogieNewPoint.position.add(tailBogieNewPoint.normal * floorHeight)
                     val distance = headBogieConnectorPosition.distance(tailBogieConnectorPosition)
 
-                    DoubleCompare.compare(distance - bogieDistance, Curve.TOLERANCE)
+                    distance - bogieDistance
                 },
                 0, curve.totalPoints
             )
@@ -170,7 +169,7 @@ open class Car internal constructor(
         // 向后查看2倍转向架间距的长度（前车后转向架与本车前转向架）
         val curves = prevCar.tailBogie.peekCurve(-2 * (prevCar.tailBogieToEndPointOffset + headBogieToEndPointOffset))
         for (x in curves) {
-            val intermediateResult = BinarySearch.searchInteger(
+            val intermediateResult = BinarySearch.searchIntegerBoundary(
                 { i ->
                     val curve = x.second
                     val bogieAPoint = curve.getPointAt(i)!!
@@ -183,11 +182,11 @@ open class Car internal constructor(
                     val connectorVector = headPosition - (prevCarTailPosition)
 
                     // 如果接头处向量（车钩）与车身夹角为钝角，说明太靠后了
-                    if (connectorVector.dot(tailToHeadDirection) < 0) -1 else
-                        DoubleCompare.compare(connectorVector.length() - headConnectorLength - prevCar.tailConnectorLength, Curve.TOLERANCE)
+                    if (connectorVector dot tailToHeadDirection < 0) Double.NEGATIVE_INFINITY else
+                        connectorVector.length() - headConnectorLength - prevCar.tailConnectorLength
                 },
                 0, x.second.totalPoints
-            )
+            ).b
             if (intermediateResult != null) {
                 val (tailBogieLocation, carPosition, tailToHeadDirection) = intermediateResult
                 tailBogie.location = tailBogieLocation
@@ -206,19 +205,19 @@ open class Car internal constructor(
         // headBogie原始速度
         val v0 = headBogie._velocity.getActive()
         // headBogie沿杆方向速度
-        val vd0s = v0.dot(d)
+        val vd0s = v0 dot d
         val tailBogieTangent = tailBogie._location.getActive().tangent
         // tailBogie方向与car方向夹角
-        val cosTheta = tailBogieTangent.dot(d)
+        val cosTheta = tailBogieTangent dot d
         // 更新tailBogie的速度矢量
         val v1 = tailBogieTangent * (vd0s / cosTheta)
         tailBogie.velocity = v1
         // v1 = v0 + \omega x d
         // 不考虑绕杆自转，有
         // \omega = d x (v1 - v0) / |d|^2
-        val omega = d.crossProduct(v1 - v0) // |d|=1
+        val omega = d cross (v1 - v0) // |d|=1
         val centreToHead = _position.getActive() - headBogie._location.getActive().position
-        val vCar = v0 + omega.crossProduct(centreToHead)
+        val vCar = v0 + omega cross centreToHead
         motionState = MotionState(vCar, omega)
     }
 
@@ -227,10 +226,10 @@ open class Car internal constructor(
         // tail到head方向单位矢量
         val d = if (isReversed) -_direction.getActive() else _direction.getActive()
         // head沿杆方向速度
-        val vd0s = headVelocity.dot(d)
+        val vd0s = headVelocity dot d
         val headBogieTangent = headBogie._location.getActive().tangent
         // headBogie方向与car方向夹角
-        val cosTheta = headBogieTangent.dot(d)
+        val cosTheta = headBogieTangent dot d
         // 更新tailBogie的速度矢量
         val v1 = headBogieTangent * (vd0s / cosTheta)
         headBogie.velocity = v1
@@ -243,7 +242,7 @@ open class Car internal constructor(
         val v = _motionState.getActive().tangentialVelocity
         val omega = _motionState.getActive().angularVelocity
         // v1 = v0 + \omega x d
-        return v + omega.crossProduct(d * (length / 2))
+        return v + omega cross (d * (length / 2))
     }
 
     fun reverse() {
@@ -257,6 +256,7 @@ open class Car internal constructor(
     }
 
     override fun commit() {
+        world.updateRenderablePosition(this, position, _position.getActive())
         bogies.forEach { it.commit() }
         _position.commit()
         _direction.commit()
@@ -274,5 +274,24 @@ open class Car internal constructor(
         }
     }
 
+    @Serializable
+    data class ConfigV1(
+        val asset: String,
+        val length: Double,
+        val floorHeight: Double,
+        val bogieAAsset: String,
+        val bogieAOffset: Double,
+        val bogieBAsset: String,
+        val bogieBOffset: Double,
+        val connectorLengthAtA: Double,
+        val connectorLengthAtB: Double
+    )
+
+    @Serializable
+    data class SavedCarV1(
+        val config: ConfigV1,
+        val bogieALocation: RailLocationWithFacing,
+        val bogieBLocation: RailLocationWithFacing,
+    )
 }
 

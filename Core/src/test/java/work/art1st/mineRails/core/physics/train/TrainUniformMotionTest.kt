@@ -2,7 +2,7 @@ package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.control.train.MockTrainController
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.physics.rail.curve.Curve
+import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse

@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.asset
+package work.art1st.mineRails.core.api.render
 
 interface AnimatedAsset : Asset {
     /**

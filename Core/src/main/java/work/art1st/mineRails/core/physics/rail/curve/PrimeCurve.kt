@@ -8,14 +8,15 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.encoding.encodeCollection
-import kotlinx.serialization.json.JsonObject
+import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.util.BinarySearch
-import work.art1st.mineRails.core.util.DoubleCompare
 import work.art1st.mineRails.core.util.Heavy
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.api.math.Vector3D
 import java.util.stream.Stream
 
+/**
+ * PrimeCurve should have curve length starting from 0.0
+ */
 @Serializable(PrimeCurve.PrimeCurveSerializer::class)
 class PrimeCurve : Curve {
     private lateinit var pointList: List<Curve.Point>
@@ -27,15 +28,12 @@ class PrimeCurve : Curve {
     override val reversed: Curve = ReversedCurve(this)
 
     private fun getIndexAt(arcLength: Double) : Int? {
-        val baseArcLength: Double = pointList.first().arcLength
-        return BinarySearch.searchInteger(
-            { i: Int ->
-                DoubleCompare.compare(
-                    pointList[i].arcLength - arcLength - baseArcLength,
-                    Curve.TOLERANCE
-                )
-            },
-            0, pointList.size
+        if (arcLength == 0.0) { return 0 }
+        if (arcLength == totalArcLength) { return totalPoints - 1 }
+        if (arcLength !in 0.0..totalArcLength) { return null }
+        return BinarySearch.searchList(
+            pointList,
+            {p -> p.arcLength - arcLength}
         )
     }
 

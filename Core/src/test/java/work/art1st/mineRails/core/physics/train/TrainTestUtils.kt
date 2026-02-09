@@ -1,6 +1,6 @@
 package work.art1st.mineRails.core.physics.train
 
-import work.art1st.mineRails.core.asset.Asset
+import work.art1st.mineRails.core.api.render.Asset
 import work.art1st.mineRails.core.control.train.TrainController
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.physics.rail.Rail

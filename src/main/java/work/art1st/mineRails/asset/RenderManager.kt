@@ -2,7 +2,7 @@ package work.art1st.mineRails.asset
 
 import org.bukkit.Chunk
 import org.bukkit.entity.Player
-import work.art1st.mineRails.core.asset.Asset
+import work.art1st.mineRails.core.api.render.Asset
 
 open class RenderManager<T : Asset<Player>>(
     protected val defaultViewDistance: Int

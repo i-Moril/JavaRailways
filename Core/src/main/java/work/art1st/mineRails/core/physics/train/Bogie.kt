@@ -1,12 +1,14 @@
 package work.art1st.mineRails.core.physics.train
 
-import work.art1st.mineRails.core.asset.Asset
-import work.art1st.mineRails.core.asset.Renderable
-import work.art1st.mineRails.core.physics.exception.BogieException
+import kotlinx.serialization.Serializable
+import work.art1st.mineRails.core.api.render.Asset
+import work.art1st.mineRails.core.api.render.Renderable
+import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.physics.rail.ReversibleRailObject
+import work.art1st.mineRails.core.api.physics.ReversibleRailObject
 import work.art1st.mineRails.core.util.CommitBuffer
-import work.art1st.mineRails.core.util.Vector3D
+import work.art1st.mineRails.core.util.PersistentObject
+import work.art1st.mineRails.core.api.math.Vector3D
 
 /**
  * 转向架类
@@ -17,7 +19,7 @@ open class Bogie internal constructor(
     // direction是否与location的facing一致
     private var isSameDirectionAsFacing: Boolean,
     override var asset: Asset,
-) : ReversibleRailObject, SynchronizedObject, Renderable {
+) : ReversibleRailObject, SynchronizedObject, Renderable, PersistentObject<Bogie.SavedBogieV1> {
     internal var _location = CommitBuffer(location)
     override var location: RailLocationWithFacing
         get() = _location.get()
@@ -29,7 +31,7 @@ open class Bogie internal constructor(
         get() = if (isSameDirectionAsFacing) location.tangent else -location.tangent
     override val normal
         get() = location.normal
-    internal var _velocity: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(0.0, 1.0, 0.0))
+    internal var _velocity: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(0.0, 0.0, 0.0))
     override var velocity: Vector3D
         get() = _velocity.get()
         set(value) = _velocity.set(value)
@@ -54,5 +56,15 @@ open class Bogie internal constructor(
         super.reverse()
         isSameDirectionAsFacing = !isSameDirectionAsFacing
     }
+
+    override fun save(): SavedBogieV1 {
+
+    }
+
+    @Serializable
+    data class SavedBogieV1(
+        val assetId: String,
+        val locationWithFacing: RailLocationWithFacing,
+    )
 }
 

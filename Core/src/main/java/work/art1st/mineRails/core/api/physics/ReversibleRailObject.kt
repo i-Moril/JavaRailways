@@ -1,4 +1,6 @@
-package work.art1st.mineRails.core.physics.rail
+package work.art1st.mineRails.core.api.physics
+
+import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 
 interface ReversibleRailObject : RailObject {
     override var location: RailLocationWithFacing

@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.util
+package work.art1st.mineRails.core.api.math
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -106,14 +106,14 @@ class Vector3D (var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0) {
     /**
      * 点积
      */
-    fun dot(other: Vector3D): Double {
+    infix fun dot(other: Vector3D): Double {
         return this.x * other.x + this.y * other.y + this.z * other.z
     }
 
     /**
      * 叉积
      */
-    fun crossProduct(other: Vector3D): Vector3D {
+    infix fun cross(other: Vector3D): Vector3D {
         val newX = this.y * other.z - this.z * other.y
         val newY = this.z * other.x - this.x * other.z
         val newZ = this.x * other.y - this.y * other.x

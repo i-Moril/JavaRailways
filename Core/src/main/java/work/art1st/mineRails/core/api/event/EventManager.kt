@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.event
+package work.art1st.mineRails.core.api.event
 
 object EventManager {
 //    fun <T : > register(event: Class<T>, handler: ) {

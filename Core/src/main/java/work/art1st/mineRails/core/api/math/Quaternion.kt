@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.util
+package work.art1st.mineRails.core.api.math
 
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -15,23 +15,21 @@ class Quaternion(val x: Double, val y: Double, val z: Double, val w: Double) {
          */
         fun fromDirectionAndNormal(direction: Vector3D, normal: Vector3D): Quaternion {
             // 归一化方向向量
-            val forward = direction.copy().normalize()
+            val forward = direction.normalize()
             
             // 归一化法向量
-            val up = normal.copy().normalize()
+            var up = normal.normalize()
             
             // 确保 forward 和 up 正交
             // 如果它们不正交，将 up 投影到垂直于 forward 的平面上
-            val dot = forward.dot(up)
-            if (abs(dot) > 1e-6) {
+            val dotProd = forward dot up
+            if (abs(dotProd) > 1e-6) {
                 // up = up - (up · forward) * forward
-                up.subtract(forward.copy().multiply(dot))
-                up.normalize()
+                up = (up - forward * dotProd).normalize()
             }
             
             // 计算右向量：right = forward × up
-            val right = forward.copy().crossProduct(up.copy())
-            right.normalize()
+            val right = (forward cross up).normalize()
             
             // 从旋转矩阵构建四元数
             // 旋转矩阵的列向量是 [right, up, forward]

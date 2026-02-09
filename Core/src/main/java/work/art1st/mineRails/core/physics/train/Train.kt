@@ -1,15 +1,15 @@
 package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.control.train.TrainController
-import work.art1st.mineRails.core.event.CollisionEvent
-import work.art1st.mineRails.core.event.DerailEvent
-import work.art1st.mineRails.core.event.EventManager
-import work.art1st.mineRails.core.event.PassSignalEvent
+import work.art1st.mineRails.core.api.event.CollisionEvent
+import work.art1st.mineRails.core.api.event.DerailEvent
+import work.art1st.mineRails.core.api.event.EventManager
+import work.art1st.mineRails.core.api.event.PassSignalEvent
 import work.art1st.mineRails.core.physics.World
-import work.art1st.mineRails.core.physics.exception.CannotCreateTrainException
-import work.art1st.mineRails.core.physics.exception.CannotMoveForwardException
-import work.art1st.mineRails.core.physics.exception.Collision
-import work.art1st.mineRails.core.physics.exception.PhysicsException
+import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException
+import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardException
+import work.art1st.mineRails.core.api.physics.exception.Collision
+import work.art1st.mineRails.core.api.physics.exception.PhysicsException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.util.Destroyable
 import java.util.concurrent.atomic.AtomicBoolean
@@ -110,9 +110,6 @@ open class Train private constructor(
 
             headBogie.moveForward(deltaS)
             updateAfterHeadBogie()
-
-            // All operation finished
-            commit()
         } catch (e: Collision) {
             fireCollisionEvent(e)
             throw e
@@ -176,7 +173,7 @@ open class Train private constructor(
             prevCar = car
         }
         tail.location = tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotCreateTrainException()
-        world.trains.remove(otherTrain.id)
+        world.removeTrain(otherTrain)
     }
 
     override fun commit() {
@@ -194,9 +191,9 @@ open class Train private constructor(
     companion object {
         const val COLLISION_SPEED = 2.78 // ~10km/h
 
-//        fun create(): Train {
-//           // TODO: Create a train
-//        }
+        fun create(): Train {
+
+        }
 
         private fun fireCollisionEvent(e: Collision) {
             // 使用AtomicBoolean防止fire两遍Collision

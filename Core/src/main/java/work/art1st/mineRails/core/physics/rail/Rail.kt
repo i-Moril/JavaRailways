@@ -11,12 +11,15 @@ import kotlinx.serialization.json.encodeToJsonElement
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.physics.rail.curve.PrimeCurve
 import work.art1st.mineRails.core.physics.train.TrainEnd
 import work.art1st.mineRails.core.util.Destroyable
 import work.art1st.mineRails.core.api.math.Vector3D
+import work.art1st.mineRails.core.api.physics.curve.Curve.Companion.TOLERANCE
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import work.art1st.mineRails.core.api.physics.exception.CannotConnectRailException
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.jvm.Throws
 
 /**
  * 正方向：endPointA -> endpointB
@@ -38,8 +41,8 @@ open class Rail : Destroyable {
         nextRailsA: List<RailView>,
         nextRailsB: List<RailView>,
         assets: Collection<RailAsset>,
-        activeTrackAtA: Int = 0,
-        activeTrackAtB: Int = 0,
+        activeTrackAtA: RailView? = null,
+        activeTrackAtB: RailView? = null,
         signals: List<Signal>? = null,
         trainEnds: List<TrainEnd>? = null
     ) {
@@ -49,19 +52,20 @@ open class Rail : Destroyable {
             this,
             RailView.ViewDirection.AB,
             curveAB,
-            nextRailsA.toMutableList(),
-            activeTrackAtB
+            nextRailsB.toMutableList(),
+            activeTrackAtB,
         )
         this.viewBA = RailView(
             this,
             RailView.ViewDirection.BA,
-            curveAB,
-            nextRailsB.toMutableList(),
+            curveAB.reversed,
+            nextRailsA.toMutableList(),
             activeTrackAtA
         )
         this.signals = signals?.toMutableSet() ?: ArrayList()
         this.trains = if (trainEnds != null) CopyOnWriteArrayList(trainEnds) else CopyOnWriteArrayList()
         this.assets = assets
+        world.addRail(this)
     }
 
     constructor(
@@ -112,16 +116,33 @@ open class Rail : Destroyable {
     protected data class SavedRail(
         val id: String,
         val signals: MutableCollection<Signal>,
-        val curveAB: PrimeCurve,
+        val curveAB: Curve,
     )
 
     companion object {
         fun isSamePoint(pointA: Vector3D, pointB: Vector3D): Boolean {
-            return pointA.distance(pointB) < Curve.TOLERANCE
+            return pointA.distance(pointB) < TOLERANCE
         }
 
+        @Throws(CannotConnectRailException::class)
         fun connect(rail1: Rail, rail2: Rail) {
-            // TODO
+            val a1 = rail1.viewBA.endPoint.position
+            val b1 = rail1.viewAB.endPoint.position
+            val a2 = rail2.viewBA.endPoint.position
+            val b2 = rail2.viewAB.endPoint.position
+            val dist = listOf(
+                a1.distance(a2),
+                a1.distance(b2),
+                b1.distance(a2),
+                b1.distance(b2)
+            )
+            val i = dist.withIndex().minByOrNull { it.value }?.index
+            when (i) {
+                0 -> RailView.connect(rail1.viewBA, rail2.viewBA)
+                1 -> RailView.connect(rail1.viewBA, rail2.viewAB)
+                2 -> RailView.connect(rail1.viewAB, rail2.viewBA)
+                3 -> RailView.connect(rail1.viewAB, rail2.viewAB)
+            }
         }
     }
 

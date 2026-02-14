@@ -13,6 +13,7 @@ class Quaternion(val x: Double, val y: Double, val z: Double, val w: Double) {
          * @param normal 指向上方的法向量
          * @return 表示该旋转的四元数
          */
+        @JvmStatic
         fun fromDirectionAndNormal(direction: Vector3D, normal: Vector3D): Quaternion {
             // 归一化方向向量
             val forward = direction.normalize()

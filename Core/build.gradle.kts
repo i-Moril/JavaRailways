@@ -2,6 +2,7 @@ plugins {
     id("java")
     kotlin("jvm")
     kotlin("plugin.serialization") version "2.3.0"
+    //id("com.google.devtools.ksp") version "2.2.21-2.0.5"
 }
 
 group = "work.art1st"
@@ -17,6 +18,8 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     implementation(kotlin("stdlib-jdk8"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    //implementation(project(":Annotation"))
+    //ksp(project(":Annotation"))
 }
 
 tasks.test {

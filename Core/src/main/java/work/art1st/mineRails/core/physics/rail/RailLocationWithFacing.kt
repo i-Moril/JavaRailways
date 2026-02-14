@@ -1,47 +1,68 @@
 package work.art1st.mineRails.core.physics.rail
 
 import kotlinx.serialization.Serializable
+import work.art1st.mineRails.core.api.physics.RailLocation
 import work.art1st.mineRails.core.api.physics.RailObject
 import work.art1st.mineRails.core.control.signal.Signal
-import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.physics.rail.curve.inReversedCurve
+import work.art1st.mineRails.core.physics.rail.curve.reverseArcLength
 import work.art1st.mineRails.core.physics.train.TrainEnd
-import work.art1st.mineRails.core.util.DeserializationMissingDependencyException
-import work.art1st.mineRails.core.util.PersistentFactoryWithDependency
-import work.art1st.mineRails.core.util.PersistentObject
-import java.util.UUID
 import kotlin.math.min
 
-class RailLocationWithFacing(
-    rail: Rail,
-    idxInCurveAB: Int,
-    private val direction: RailView.ViewDirection,
+@ConsistentCopyVisibility
+data class RailLocationWithFacing private constructor(
+    val railView: RailView,
+    private val point: Curve.Point,
     /* In case the deltaS is less than TOLERANCE */
     val minorDeltaS: Double = 0.0
-): PersistentObject<RailLocationWithFacing.SavedRailLocationWithFacingV1>, RailLocation(rail, idxInCurveAB) {
-    constructor(railView: RailView, idxInCurveAB: Int) : this(railView.rail, idxInCurveAB, railView.direction)
+): RailLocation {
+    constructor(railView: RailView, idxInRailView: Int, minorDeltaS: Double = 0.0) : this(
+        railView,
+        railView.curve.getPointAt(idxInRailView),
+        minorDeltaS
+    )
 
-    val railView = rail.getView(direction)
+    override val rail = railView.rail
+
+    override val position
+        get() = point.position
+
+    override val tangent
+        get() = point.tangent
+
+    override val normal
+        get() = point.normal
 
     val arcLength
         get() = point.arcLength + minorDeltaS
 
+    val facing
+        get() = railView.viewDirection
+
+    override fun arcLengthIn(facing: RailView.ViewDirection): Double {
+        return if (facing == this.facing) arcLength else reverseArcLength(arcLength, railView.curve)
+    }
+
     /* Create one every time. Reversing won't be used too often. */
     val reversed: RailLocationWithFacing
-        get() = RailLocationWithFacing(railView.reversed, idxInCurveAB)
+        get() = RailLocationWithFacing(railView.reversed, point.inReversedCurve, -minorDeltaS)
 
     /**
      * @param deltaS: >= 0
      */
     fun forward(deltaS: Double): RailLocationWithFacing? {
+        require(deltaS >= 0) {
+            "Delta must be greater than zero."
+        }
         var arcLength = arcLength + deltaS
         var curve = point.curve
         var railView = this.railView
         val list = ArrayList<Pair<RailView, Curve>>()
         while (true) {
             if (arcLength <= curve.totalArcLength) {
-                val newPoint = curve.getPointAt(arcLength)!!
-                return RailLocationWithFacing(railView.rail, newPoint.idx, railView.direction, arcLength - newPoint.arcLength)
+                val newPoint = curve.getPointAt(arcLength)
+                return RailLocationWithFacing(railView, newPoint.idx, arcLength - newPoint.arcLength)
             }
             list.add(Pair(railView, curve))
             arcLength -= curve.totalArcLength
@@ -53,35 +74,36 @@ class RailLocationWithFacing(
 
     /**
      * 从当前位置peek distance距离
-     * distance为正：向前peek
-     * distance为负：向后peek
+     * distance为正：向前peek, 方向相同
+     * distance为负：向后peek, 方向相反
      */
-    fun peekCurve(distance: Double): List<Pair<RailView, Curve>> {
+    fun peekCurve(distance: Double): RailSegments {
         var arcLength: Double
-        var curve: Curve
+        var segment: RailSegment
         var railView = this.railView
-        val list = ArrayList<Pair<RailView, Curve>>()
+        val list: MutableList<RailSegment> = mutableListOf()
+        val baseLength: Double
         if (distance >= 0) {
             arcLength = distance
-            curve = railView.curve.slice(point.arcLength, min(railView.curve.totalArcLength, point.arcLength + arcLength))!!
+            baseLength = arcLength
         } else {
             arcLength = -distance
             railView = railView.reversed
-            val baseLength = railView.curve.totalArcLength - point.arcLength
-            curve = railView.curve.slice(baseLength, min(railView.curve.totalArcLength, baseLength + arcLength))!!
+            baseLength = railView.curve.totalArcLength - point.arcLength
         }
+        segment = RailSegment(railView, baseLength, min(railView.curve.totalArcLength, baseLength + arcLength))
         while (true) {
-            if (arcLength <= curve.totalArcLength) {
-                list.add(Pair(railView, curve.slice(0.0, min(railView.curve.totalArcLength, arcLength))!!))
+            if (arcLength <= segment.totalArcLength) {
+                list.add(RailSegment(segment, 0.0, min(railView.curve.totalArcLength, arcLength)))
                 break
             }
-            list.add(Pair(railView, curve))
-            arcLength -= curve.totalArcLength
+            list.add(segment)
+            arcLength -= segment.totalArcLength
 
             railView = railView.nextActiveRail ?: break
-            curve = railView.curve
+            segment = RailSegment(railView)
         }
-        return list
+        return RailSegments(list)
     }
 
     /**
@@ -95,9 +117,9 @@ class RailLocationWithFacing(
         var minDistance = arcLength
         // 挨个检查RailObject相对的arcLength
         for (x in rails) {
-            val railView = x.first
+            val railView = x.railView
             for (s in railView.staticRailObjects) {
-                val arcLength = s.location.arcLengthIn(direction)
+                val arcLength = s.location.arcLengthIn(facing)
                 if (arcLength > maxDistance) {
                     break
                 }
@@ -106,7 +128,7 @@ class RailLocationWithFacing(
                 }
             }
             for (s in railView.dynamicRailObjects) {
-                val arcLength = s.location.arcLengthIn(direction)
+                val arcLength = s.location.arcLengthIn(facing)
                 if (minDistance < arcLength && arcLength <=maxDistance) {
                     list.add(s)
                 }
@@ -124,9 +146,9 @@ class RailLocationWithFacing(
         var minDistance = arcLength
         // 挨个检查RailObject相对的arcLength
         for (x in rails) {
-            val railView = x.first
+            val railView = x.railView
             for (s in railView.staticRailObjects) {
-                val arcLength = s.location.arcLengthIn(direction)
+                val arcLength = s.location.arcLengthIn(facing)
                 if (arcLength > maxDistance) {
                     break
                 }
@@ -147,9 +169,9 @@ class RailLocationWithFacing(
         var minDistance = arcLength
         // 挨个检查RailObject相对的arcLength
         for (x in rails) {
-            val railView = x.first
+            val railView = x.railView
             for (s in railView.dynamicRailObjects) {
-                val arcLength = s.location.arcLengthIn(direction)
+                val arcLength = s.location.arcLengthIn(facing)
                 if (minDistance < arcLength && arcLength <=maxDistance) {
                     list.add(s)
                 }
@@ -158,20 +180,6 @@ class RailLocationWithFacing(
             minDistance = -1.0   // 只有第一个循环会用到minDistance
         }
         return list
-    }
-
-    override fun equals(other: Any?): Boolean {
-        if (other is RailLocationWithFacing) {
-            return other.rail == rail && idxInCurveAB == other.idxInCurveAB && direction == other.direction
-        }
-        return false
-    }
-
-    override fun hashCode(): Int {
-        var result = rail.hashCode()
-        result = 31 * result + idxInCurveAB.hashCode()
-        result = 31 * result + direction.hashCode()
-        return result
     }
 
     @Serializable
@@ -183,19 +191,19 @@ class RailLocationWithFacing(
         val minorDeltaS: Double = 0.0
     )
 
-    override fun save(): SavedRailLocationWithFacingV1 = SavedRailLocationWithFacingV1(
-        rail.id.toString(),
-        idxInCurveAB,
-        direction,
-        minorDeltaS
-    )
-
-    companion object Deserializer : PersistentFactoryWithDependency<RailLocationWithFacing, SavedRailLocationWithFacingV1, World> {
-        override fun load(saved: SavedRailLocationWithFacingV1, dependencyProvider: World): RailLocationWithFacing {
-            val id = UUID.fromString(saved.railId)
-            val rail = dependencyProvider.getRail(id)
-                ?: throw DeserializationMissingDependencyException(Rail.javaClass, id, dependencyProvider)
-            return RailLocationWithFacing(rail, saved.idxInCurveAB, saved.direction, saved.minorDeltaS)
-        }
-    }
+//    fun save(): SavedRailLocationWithFacingV1 = SavedRailLocationWithFacingV1(
+//        rail.id.toString(),
+//        idxInCurveAB,
+//        facing,
+//        minorDeltaS
+//    )
+//
+//    companion object Deserializer : PersistentFactoryWithDependency<RailLocationWithFacing, SavedRailLocationWithFacingV1, World> {
+//        override fun load(saved: SavedRailLocationWithFacingV1, dependencyProvider: World): RailLocationWithFacing {
+//            val id = UUID.fromString(saved.railId)
+//            val rail = dependencyProvider.getRail(id)
+//                ?: throw DeserializationMissingDependencyException(Rail.javaClass, id, dependencyProvider)
+//            return RailLocationWithFacing(rail, saved.idxInCurveAB, saved.direction, saved.minorDeltaS)
+//        }
+//    }
 }

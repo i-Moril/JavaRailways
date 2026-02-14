@@ -2,6 +2,7 @@ package work.art1st.mineRails.core.physics.rail.curve
 
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.math.Vector3D
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -31,7 +32,7 @@ object PrimeCurveGenerator {
     ): List<PrimeCurve> {
         val segmentLength = length / segmentCount
         return (0 until segmentCount).map { seg ->
-            val curve = PrimeCurve()
+            val curve = PrimeCurveImpl()
             val tangent = Vector3D(1.0, 0.0, 0.0)
             val normal = Vector3D(0.0, 1.0, 0.0) // Y 向上
             val n = (segmentLength / step).toInt().coerceAtLeast(1)
@@ -42,8 +43,8 @@ object PrimeCurveGenerator {
                 val x = offsetX + s
                 Curve.Point(
                     Vector3D(x, 0.0, 0.0), // (x, y, z)，y=0 为地面
-                    normal,
                     tangent,
+                    normal,
                     curve,
                     i,
                     s
@@ -66,7 +67,7 @@ object PrimeCurveGenerator {
         val circumference = 2 * PI * radius
         val segmentArcLength = circumference / segmentCount
         return (0 until segmentCount).map { seg ->
-            val curve = PrimeCurve()
+            val curve = PrimeCurveImpl()
             val theta0 = seg * (2 * PI / segmentCount)
             val theta1 = (seg + 1) * (2 * PI / segmentCount)
             val n = (segmentArcLength / step).toInt().coerceAtLeast(2)
@@ -77,15 +78,15 @@ object PrimeCurveGenerator {
                 val position = Vector3D(radius * cos(theta), 0.0, radius * sin(theta)) // XZ 平面，y=0
                 val tangent = Vector3D(-sin(theta), 0.0, cos(theta))
                 val normal = Vector3D(0.0, 1.0, 0.0) // Y 向上
-                Curve.Point(position, normal, tangent, curve, i, s)
+                Curve.Point(position, tangent, normal, curve, i, s)
             }
             setPointList(curve, pointList)
             curve
         }
     }
 
-    private fun setPointList(curve: PrimeCurve, pointList: List<Curve.Point>) {
-        val field = PrimeCurve::class.java.getDeclaredField("pointList")
+    private fun setPointList(curve: PrimeCurveImpl, pointList: List<Curve.Point>) {
+        val field = PrimeCurveImpl::class.java.getDeclaredField("pointList")
         field.isAccessible = true
         field.set(curve, pointList)
     }

@@ -20,7 +20,7 @@ import kotlin.text.format
  * 提供基本的向量运算功能
  */
 @Serializable(Vector3D.Serializer::class)
-class Vector3D (var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0) {
+data class Vector3D (var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0) {
     constructor(other: Vector3D) : this(other.x, other.y, other.z)
 
     /**
@@ -28,36 +28,6 @@ class Vector3D (var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0) {
      */
     fun copy(): Vector3D {
         return Vector3D(this)
-    }
-
-    /**
-     * 向量加法
-     */
-    fun add(other: Vector3D): Vector3D {
-        this.x += other.x
-        this.y += other.y
-        this.z += other.z
-        return this
-    }
-
-    /**
-     * 向量减法
-     */
-    fun subtract(other: Vector3D): Vector3D {
-        this.x -= other.x
-        this.y -= other.y
-        this.z -= other.z
-        return this
-    }
-
-    /**
-     * 标量乘法
-     */
-    fun multiply(scalar: Double): Vector3D {
-        this.x *= scalar
-        this.y *= scalar
-        this.z *= scalar
-        return this
     }
 
     /**
@@ -124,19 +94,19 @@ class Vector3D (var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0) {
     }
 
     operator fun plus(other: Vector3D): Vector3D {
-        return add(other)
+        return Vector3D(this.x + other.x, this.y + other.y, this.z + other.z)
     }
 
     operator fun minus(other: Vector3D): Vector3D {
-        return subtract(other)
+        return Vector3D(this.x - other.x, this.y - other.y, this.z - other.z)
     }
 
     operator fun times(scalar: Double): Vector3D {
-        return multiply(scalar)
+        return Vector3D(this.x * scalar, this.y * scalar, this.z * scalar)
     }
 
     operator fun div(scalar: Double): Vector3D {
-        return multiply(1 / scalar)
+        return Vector3D(this.x / scalar, this.y / scalar, this.z / scalar)
     }
 
     operator fun unaryMinus(): Vector3D {
@@ -145,23 +115,6 @@ class Vector3D (var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0) {
 
     val isZeroVector: Boolean
         get() = lengthSquared() < 1e-10
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) {
-            return true
-        }
-        if (other is Vector3D) {
-            return x == other.x && y == other.y && z == other.z
-        }
-        return false
-    }
-
-    override fun hashCode(): Int {
-        var result = x.hashCode()
-        result = 31 * result + y.hashCode()
-        result = 31 * result + z.hashCode()
-        return result
-    }
 
     override fun toString(): String {
         return String.format("Vector3D(%.2f, %.2f, %.2f)", x, y, z)
@@ -188,8 +141,10 @@ class Vector3D (var x: Double = 0.0, var y: Double = 0.0, var z: Double = 0.0) {
     }
 
     companion object {
+        @JvmStatic
         val ZERO = Vector3D(0.0, 0.0, 0.0)
 
+        @JvmStatic
         fun fromFlattenString(string: String): Vector3D {
             val xyz = string.split(',')
             return Vector3D(xyz[0].toDouble(), xyz[1].toDouble(), xyz[2].toDouble())

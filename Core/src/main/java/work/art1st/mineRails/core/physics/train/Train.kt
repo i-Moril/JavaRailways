@@ -10,8 +10,10 @@ import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainExcepti
 import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardException
 import work.art1st.mineRails.core.api.physics.exception.Collision
 import work.art1st.mineRails.core.api.physics.exception.PhysicsException
+import work.art1st.mineRails.core.api.util.SynchronizedObject
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.util.Destroyable
+import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -21,11 +23,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 open class Train private constructor(
     val id: String,
     cars: MutableList<Car>,
-    var controller: TrainController?,
     val world: World
 ) : SynchronizedObject, Destroyable {
+    private var _controller: WeakReference<TrainController?> = WeakReference(null)
+    val controller
+        get() = _controller.get()
     var cars: MutableList<Car> = cars
         protected set
+    // 使用AtomicBoolean防止fire两遍Collision, 见下面fire
     private var _isDerailed: AtomicBoolean = AtomicBoolean(false)
     val isDerailed: Boolean
         get() = _isDerailed.get()
@@ -46,6 +51,8 @@ open class Train private constructor(
             tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotCreateTrainException(),
             this, TrainEnd.Type.TAIL
         )
+        world.addTrain(this)
+
     }
 
     val headCar
@@ -74,9 +81,10 @@ open class Train private constructor(
      * @throws IllegalArgumentException 如果输入参数无效
      * @throws IllegalStateException 如果列车没有转向架
      */
-    @Throws(PhysicsException::class)
     fun moveTrainForward(deltaS: Double) {
         if (isDerailed) return
+
+        require(deltaS >= 0.0) { "deltaS must >= 0" }
 
         if (deltaS == 0.0) {
             return
@@ -110,18 +118,18 @@ open class Train private constructor(
 
             headBogie.moveForward(deltaS)
             updateAfterHeadBogie()
-        } catch (e: Collision) {
-            fireCollisionEvent(e)
-            throw e
         } catch (e: PhysicsException) {
-            _isDerailed.set(true)
+            if (e is Collision) {
+                fireCollisionEvent(e)
+            }
+            setDerailed()
             EventManager.fire(DerailEvent(this, e.toString()))
-            throw e
         }
     }
 
     @Throws(PhysicsException::class)
     fun setLocation(headLocation: RailLocationWithFacing) {
+        clearDerailed()
         // 正面面朝此location
         if (isReversed) reverse()
         headBogie.location = headLocation.forward(-headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
@@ -130,7 +138,7 @@ open class Train private constructor(
 
     private fun updateAfterHeadBogie() {
         var prevCar = cars.first()
-        prevCar.updateByHeadBogie(headBogie.position)
+        prevCar.updateByHeadBogie(headBogie.activeLocation)
         for (car in cars.slice(1..cars.lastIndex)) {
             car.updateByPrevCar(prevCar)
             prevCar = car
@@ -156,8 +164,7 @@ open class Train private constructor(
         tail.location = tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotCreateTrainException()
 
         val newTrainCars = cars.takeLast(length - carNum + 1) as MutableList<Car>
-        val newTrain = Train(newId, newTrainCars, null, world)
-        world.addTrain(newTrain)
+        val newTrain = Train(newId, newTrainCars, world)
         return newTrain
     }
 
@@ -188,11 +195,34 @@ open class Train private constructor(
 
     open fun canLink(otherTrain: Train): Boolean = true
 
+    fun setController(value: TrainController?) {
+        controller?.let { world.unregisterTickingObject(it) }
+        value?.let { world.registerTickingObject(it) }
+        _controller = WeakReference(value)
+    }
+
+    protected fun setDerailed() {
+        _isDerailed.set(true)
+        setController(null)
+    }
+
+    protected fun clearDerailed() {
+        _isDerailed.set(false)
+    }
+
     companion object {
         const val COLLISION_SPEED = 2.78 // ~10km/h
 
-        fun create(): Train {
-
+        internal fun create(id: String, config: List<Pair<String, Car.ConfigV1>>, railLocation: RailLocationWithFacing, world: World): Train {
+            // 先将railLocation初始化到一处
+            val cars = config.map { it.second.buildCar(it.first, world, railLocation, railLocation) }
+            val train = Train(
+                id,
+                cars.toMutableList(),
+                world
+            )
+            train.setLocation(railLocation)
+            return train
         }
 
         private fun fireCollisionEvent(e: Collision) {

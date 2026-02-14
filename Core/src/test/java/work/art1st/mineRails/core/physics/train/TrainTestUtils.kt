@@ -1,13 +1,13 @@
 package work.art1st.mineRails.core.physics.train
 
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.render.Asset
-import work.art1st.mineRails.core.control.train.TrainController
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.physics.rail.Rail
 import work.art1st.mineRails.core.physics.rail.RailView
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.physics.rail.curve.PrimeCurve
-import java.lang.reflect.Constructor
+import work.art1st.mineRails.core.physics.train.Car.ConfigV1
+import java.util.UUID
 import java.util.concurrent.Executors
 
 private val dummyAsset = object : Asset {}
@@ -16,7 +16,7 @@ private val dummyAsset = object : Asset {}
  * 创建用于测试的 World：rails 可写，trains 可写，空 signals，单线程 scheduler。
  */
 fun createTestWorld(): World {
-    val rails = mutableListOf<Rail>()
+    val rails = mutableMapOf<UUID, Rail>()
     val trains = mutableMapOf<String, Train>()
     val signals = mutableSetOf<work.art1st.mineRails.core.control.signal.Signal>()
     val scheduler = Executors.newSingleThreadScheduledExecutor()
@@ -32,10 +32,9 @@ fun createLoopRailFromSegments(world: World, segments: List<PrimeCurve>): Rail {
     val rails = segments.map { curve ->
         Rail(world, curve, mutableListOf(), mutableListOf(), emptyList())
     }
-    rails.forEach { world.rails.add(it) }
     for (i in rails.indices) {
         val nextView = if (i == rails.lastIndex) rails.first().viewAB else rails[i + 1].viewAB
-        rails[i].viewAB.nextRails.add(nextView)
+        Rail.connect(rails[i], nextView.rail)
     }
     return rails.first()
 }
@@ -49,66 +48,52 @@ fun createStraightRailFromSegments(world: World, segments: List<PrimeCurve>): Ra
     val rails = segments.map { curve ->
         Rail(world, curve, mutableListOf(), mutableListOf(), emptyList())
     }
-    rails.forEach { world.rails.add(it) }
-    for (i in 0 until rails.lastIndex) {
-        rails[i].viewAB.nextRails.add(rails[i + 1].viewAB)
+    //rails.forEach { world.addRail(it) }
+    for (i in 0 until rails.lastIndex - 1) {
+        Rail.connect(rails[i], rails[i + 1])
     }
     return rails.first()
 }
 
 /**
- * 在 rail 上创建一列由多节指定长度车厢组成的列车所需的所有 Car。
- * 车头在 arcLength 0 方向（viewAB 起点）。
+ * 在 rail 上创建一列由多节指定长度车厢组成的列车。
  *
  * @param rail 轨道
  * @param world World
  * @param carLengths 每节车厢长度（米），如 listOf(10.0, 10.0) 表示 2 节 10m
- * @return 按顺序的 Car 列表（车头在前）
+ * @param isLoop 是否为闭环轨道。true 时从起点开始；false（直线）时从起点向前移动列车总长度，避免向后放置时超出轨道起点
+ * @return 创建的列车
  */
-fun createCarsOnRail(
-    rail: Rail,
-    world: World,
-    carLengths: List<Double>
-): List<Car> {
-    val view = rail.viewAB
-    var currentLoc: RailLocationWithFacing = RailLocationWithFacing(view, 0)
-    val cars = mutableListOf<Car>()
-    for ((carIndex, len) in carLengths.withIndex()) {
-        val nextLoc = currentLoc.forward(len) ?: error("轨道长度不足，无法放置车厢 (car $carIndex, need $len m)")
-        val bogieA = Bogie(currentLoc, true, dummyAsset)
-        val bogieB = Bogie(nextLoc, true, dummyAsset)
-        val half = len / 2
-        val car = Car(
-            id = "car-$carIndex",
-            bogies = listOf(bogieA, bogieB),
-            bogiesOffsets = listOf(-half, half),
+fun createTrainWithConfig(id: String, rail: Rail, world: World, carLengths: List<Double>, isLoop: Boolean = false): Train {
+    val configs: List<Pair<String, ConfigV1>> = carLengths.mapIndexed { index, len ->
+        val cfg = ConfigV1(
+            asset = DummyAsset(),
             length = len,
             floorHeight = 0.0,
+            bogieAAsset = DummyAsset(),
+            bogieAOffset = -len / 2,
+            bogieBAsset = DummyAsset(),
+            bogieBOffset = len / 2,
             connectorLengthAtA = 0.0,
-            connectorLengthAtB = 0.0,
-            world = world,
-            asset = dummyAsset
+            connectorLengthAtB = 0.0
         )
-        cars.add(car)
-        currentLoc = nextLoc
+        "car-$index" to cfg
     }
-    return cars
-}
-
-/**
- * 通过反射调用 Train 的私有构造，创建列车（controller 先传 null，创建后再设）。
- */
-fun createTrain(id: String, cars: MutableList<Car>, world: World): Train {
-    // JVM 上 Kotlin 的 MutableList<Car> 对应 List
-    val ctor: Constructor<Train> = Train::class.java.getDeclaredConstructor(
-        String::class.java,
-        List::class.java,
-        TrainController::class.java,
-        World::class.java
-    )
-    ctor.isAccessible = true
-    @Suppress("UNCHECKED_CAST")
-    return ctor.newInstance(id, cars, null, world) as Train
+    
+    // 计算列车总长度（所有车厢长度之和）
+    val totalTrainLength = carLengths.sum()
+    
+    val headLocation = if (isLoop) {
+        // 闭环轨道：从起点开始
+        RailLocationWithFacing(rail.viewAB, 0)
+    } else {
+        // 直线轨道：从起点向前移动（列车总长度 + 10米安全余量），确保列车向后放置时不会超出轨道起点
+        val startLoc = RailLocationWithFacing(rail.viewAB, 0)
+        val offsetDistance = totalTrainLength + 10.0 // 额外10米防止误差导致初始化失败
+        startLoc.forward(offsetDistance) ?: error("直线轨道长度不足，无法放置列车（需要至少 $offsetDistance 米）")
+    }
+    
+    return Train.create(id, configs, headLocation, world)
 }
 
 /**
@@ -140,7 +125,7 @@ fun totalArcLengthFromFirstRail(firstRail: Rail, isLoop: Boolean): Double =
  */
 fun headCurveArcLengthInRange(train: Train, totalArcLength: Double): Double {
     val loc = train.head.location
-    return when (loc.railView.direction) {
+    return when (loc.railView.viewDirection) {
         RailView.ViewDirection.AB -> loc.arcLength
         RailView.ViewDirection.BA -> totalArcLength - loc.arcLength
     }
@@ -154,10 +139,10 @@ fun headCurveArcLengthInRangeMultiSegment(train: Train, firstRail: Rail, isLoop:
     val views = getViewsInOrder(firstRail, isLoop)
     val totalArcLength = views.sumOf { it.curve.totalArcLength }
     val loc = train.head.location
-    val idx = views.indexOfFirst { it.rail == loc.rail && it.direction == loc.railView.direction }
+    val idx = views.indexOfFirst { it.rail == loc.rail && it.viewDirection == loc.railView.viewDirection }
     if (idx < 0) return 0.0
     val segmentStart = views.take(idx).sumOf { it.curve.totalArcLength }
-    val localArc = when (loc.railView.direction) {
+    val localArc = when (loc.railView.viewDirection) {
         RailView.ViewDirection.AB -> loc.arcLength
         RailView.ViewDirection.BA -> views[idx].curve.totalArcLength - loc.arcLength
     }

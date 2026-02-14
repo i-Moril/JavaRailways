@@ -1,9 +1,11 @@
 package work.art1st.mineRails.core.util
 
-import kotlin.reflect.KClass
+interface SerializedObject<Persistent> {
+    fun load() : Persistent
+}
 
-interface PersistentObject<PersistentDataType> {
-    fun save() : PersistentDataType
+interface PersistentObject<Serialized : SerializedObject<Any>> {
+    fun save() : Serialized
 }
 
 interface PersistentFactoryWithDependency<Type, PersistentDataType, DependencyProvider> {

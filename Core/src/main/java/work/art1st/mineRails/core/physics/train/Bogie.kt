@@ -9,32 +9,35 @@ import work.art1st.mineRails.core.api.physics.ReversibleRailObject
 import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.mineRails.core.util.PersistentObject
 import work.art1st.mineRails.core.api.math.Vector3D
+import work.art1st.mineRails.core.api.util.SynchronizedObject
 
 /**
  * 转向架类
  * 转向架位于铁轨上，即转向架坐标位于曲线上，方向为曲线的切线方向
  */
 open class Bogie internal constructor(
-    location: RailLocationWithFacing,
-    // direction是否与location的facing一致
-    private var isSameDirectionAsFacing: Boolean,
     override var asset: Asset,
-) : ReversibleRailObject, SynchronizedObject, Renderable, PersistentObject<Bogie.SavedBogieV1> {
-    internal var _location = CommitBuffer(location)
-    override var location: RailLocationWithFacing
-        get() = _location.get()
-        set(value) = _location.set(value)
+    location: RailLocationWithFacing,
+    /* isSameDirectionAsFacing: direction是否与location的facing一致. */
+    private var isSameDirectionAsFacing: Boolean = true,
+) : ReversibleRailObject, SynchronizedObject, Renderable {
+    private val _location = CommitBuffer(location)
+    override var location: RailLocationWithFacing by _location
+    internal val activeLocation
+        get() = _location.getActive()
 
     override val position
         get() = location.position
+    /* direction: Asset显示的方向 */
     override val direction
         get() = if (isSameDirectionAsFacing) location.tangent else -location.tangent
     override val normal
         get() = location.normal
-    internal var _velocity: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(0.0, 0.0, 0.0))
-    override var velocity: Vector3D
-        get() = _velocity.get()
-        set(value) = _velocity.set(value)
+    private val _velocity: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(0.0, 0.0, 0.0))
+    /* velocity: 速度的大小和方向 */
+    override var velocity: Vector3D by _velocity
+    internal val activeVelocity
+        get() = _velocity.getActive()
 
     override val world
         get() = location.rail.world
@@ -47,7 +50,7 @@ open class Bogie internal constructor(
     }
 
     override fun commit() {
-        world.updateRenderablePosition(this, position, _location.getActive().position)
+        world.updateRenderablePosition(this, position, activeLocation.position)
         _location.commit()
         _velocity.commit()
     }
@@ -56,15 +59,5 @@ open class Bogie internal constructor(
         super.reverse()
         isSameDirectionAsFacing = !isSameDirectionAsFacing
     }
-
-    override fun save(): SavedBogieV1 {
-
-    }
-
-    @Serializable
-    data class SavedBogieV1(
-        val assetId: String,
-        val locationWithFacing: RailLocationWithFacing,
-    )
 }
 

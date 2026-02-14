@@ -6,9 +6,16 @@ import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.train.Train
 import work.art1st.mineRails.core.physics.rail.Rail
 import work.art1st.mineRails.core.api.math.Vector3D
+import work.art1st.mineRails.core.api.util.TickingObject
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
+import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Future
+import java.util.concurrent.FutureTask
 import java.util.concurrent.ScheduledExecutorService
 
 class World(
@@ -18,8 +25,10 @@ class World(
     private val scheduler: ScheduledExecutorService
 ) {
     internal val renderableObjects: ConcurrentMap<RenderChunk, HashSet<Renderable>> = ConcurrentHashMap()
+    private val tickingObjects: MutableSet<TickingObject> = CopyOnWriteArraySet()
+    private var currentTick: Long = System.currentTimeMillis()
 
-    fun addTrain(train: Train) {
+    internal fun addTrain(train: Train) {
         trains[train.id] = train
     }
 
@@ -27,7 +36,7 @@ class World(
 
     fun removeTrain(train: Train) = trains.remove(train.id)
 
-    fun addRail(rail: Rail) {
+    internal fun addRail(rail: Rail) {
         rails[rail.id] = rail
     }
 
@@ -52,6 +61,25 @@ class World(
         return selected
     }
 
+    fun registerTickingObject(obj: TickingObject) = tickingObjects.add(obj)
+
+    fun unregisterTickingObject(obj: TickingObject) = tickingObjects.remove(obj)
+
+    fun executeTask() : Future<Unit> {
+        val tickLatch = CountDownLatch(tickingObjects.size)
+        val barrier = CyclicBarrier(tickingObjects.size)
+        val t = System.currentTimeMillis()
+        val deltaT = (t - currentTick).toDouble()
+        currentTick = t
+        tickingObjects.forEach { scheduler.submit {
+                it.tick(deltaT)
+                barrier.await()
+                it.commit()
+                tickLatch.countDown()
+            }
+        }
+        return FutureTask { tickLatch.await() }
+    }
 
     internal fun removeAsset(renderable: Renderable) {
         renderableObjects[renderable.chunk]?.remove(renderable)
@@ -69,4 +97,5 @@ class World(
             }
         }
     }
+
 }

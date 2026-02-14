@@ -2,12 +2,14 @@ package work.art1st.mineRails.core.control.train
 
 import work.art1st.mineRails.core.control.command.ControlCommand
 import work.art1st.mineRails.core.physics.World
+import work.art1st.mineRails.core.api.util.SynchronizedObject
+import work.art1st.mineRails.core.api.util.TickingObject
 import work.art1st.mineRails.core.physics.train.Train
 
 abstract class TrainController(
     internal var train: Train,
     world: World
-) {
+) : TickingObject {
     /**
      * Meters per second, >=0
      */
@@ -19,6 +21,7 @@ abstract class TrainController(
     protected fun setCommand(command: ControlCommand) {
         if (command.speed < 0 || command.deltaS < 0) {
             //TODO: Warning
+            return
         }
         pendingCommand = command
     }
@@ -27,7 +30,7 @@ abstract class TrainController(
         train.reverse()
     }
 
-    fun tick(deltaT: Double) {
+    override fun tick(deltaT: Double) {
         if (pendingCommand == null) {
             train.moveTrainForward(speed * deltaT * 0.001)
         } else {
@@ -39,5 +42,9 @@ abstract class TrainController(
                 pendingCommand = null
             }
         }
+    }
+
+    override fun commit() {
+        train.commit()
     }
 }

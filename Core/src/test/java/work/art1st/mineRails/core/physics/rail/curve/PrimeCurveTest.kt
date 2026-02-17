@@ -24,12 +24,12 @@ class PrimeCurveTest {
         // 测试边界值：0.0 和 totalArcLength
         val point0 = curve.getPointAt(0.0)
         assertNotNull(point0, "getPointAt(0.0) should not be null")
-        assertEquals(0.0, point0!!.arcLength, tolerance, "point at arcLength 0.0 should have arcLength = 0.0")
+        assertEquals(0.0, point0.arcLength, tolerance, "point at arcLength 0.0 should have arcLength = 0.0")
 
         val totalArcLength = curve.totalArcLength
         val pointEnd = curve.getPointAt(totalArcLength)
         assertNotNull(pointEnd, "getPointAt(totalArcLength) should not be null")
-        assertEquals(totalArcLength, pointEnd!!.arcLength, tolerance, "point at totalArcLength should have arcLength = totalArcLength")
+        assertEquals(totalArcLength, pointEnd.arcLength, tolerance, "point at totalArcLength should have arcLength = totalArcLength")
     }
 
     @Test
@@ -49,7 +49,7 @@ class PrimeCurveTest {
         for (arcLength in testArcLengths) {
             val point = curve.getPointAt(arcLength)
             assertNotNull(point, "getPointAt($arcLength) should not be null")
-            val diff = abs(point!!.arcLength - arcLength)
+            val diff = abs(point.arcLength - arcLength)
             assertTrue(diff <= tolerance, 
                 "For arcLength=$arcLength, got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
         }
@@ -68,7 +68,7 @@ class PrimeCurveTest {
             val arcLength = (totalArcLength * i) / (testCount - 1)
             val point = curve.getPointAt(arcLength)
             assertNotNull(point, "getPointAt($arcLength) should not be null")
-            val diff = abs(point!!.arcLength - arcLength)
+            val diff = abs(point.arcLength - arcLength)
             assertTrue(diff <= tolerance,
                 "For arcLength=$arcLength, got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
         }
@@ -94,7 +94,7 @@ class PrimeCurveTest {
             assertNotNull(point, "getPointAt($arcLength) should not be null")
             // 对于中间值，差值应该不超过步长的一半
             val expectedMaxDiff = step / 2.0
-            val diff = abs(point!!.arcLength - arcLength)
+            val diff = abs(point.arcLength - arcLength)
             assertTrue(diff <= expectedMaxDiff.coerceAtMost(tolerance),
                 "For arcLength=$arcLength (between points), got point.arcLength=${point.arcLength}, difference=$diff exceeds expected max=$expectedMaxDiff")
         }
@@ -113,7 +113,7 @@ class PrimeCurveTest {
             if (arcLength > totalArcLength) break
             val point = curve.getPointAt(arcLength)
             assertNotNull(point, "getPointAt($arcLength) should not be null")
-            val diff = abs(point!!.arcLength - arcLength)
+            val diff = abs(point.arcLength - arcLength)
             assertTrue(diff <= tolerance,
                 "For small arcLength=$arcLength, got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
         }
@@ -129,7 +129,7 @@ class PrimeCurveTest {
             if (arcLength < 0) continue
             val point = curve.getPointAt(arcLength)
             assertNotNull(point, "getPointAt($arcLength) should not be null")
-            val diff = abs(point!!.arcLength - arcLength)
+            val diff = abs(point.arcLength - arcLength)
             assertTrue(diff <= tolerance,
                 "For large arcLength=$arcLength (near totalArcLength=$totalArcLength), got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
         }

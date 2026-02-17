@@ -3,7 +3,7 @@ package work.art1st.mineRails.core.physics.train
 import work.art1st.mineRails.core.control.train.TrainController
 import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.DerailEvent
-import work.art1st.mineRails.core.api.event.EventManager
+import work.art1st.mineRails.core.api.event.processor.EventManager
 import work.art1st.mineRails.core.api.event.PassSignalEvent
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException

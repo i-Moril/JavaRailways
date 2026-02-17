@@ -21,7 +21,6 @@ class PersistentByProcessor(
     val mapperName = "work.art1st.mineRails.core.api.util.persistence.PersistentMapper"
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
-        // 1. 查找所有带有 @MyAutoGenerate 的符号（类）
         val symbols = resolver.getSymbolsWithAnnotation(annotationName)
             .filterIsInstance<KSClassDeclaration>()
 

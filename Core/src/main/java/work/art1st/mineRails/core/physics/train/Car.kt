@@ -1,19 +1,15 @@
 package work.art1st.mineRails.core.physics.train
 
 import kotlinx.serialization.Serializable
+import org.joml.*
 import work.art1st.mineRails.core.api.render.Asset
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.util.BinarySearch
 import work.art1st.mineRails.core.util.CommitBuffer
-import work.art1st.mineRails.core.api.math.Vector3D
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.util.SynchronizedObject
-import kotlin.Int
-import kotlin.Throws
-import kotlin.math.abs
 
 /**
  * 车厢类
@@ -37,29 +33,29 @@ open class Car internal constructor(
 ) : SynchronizedObject, Renderable {
 
     data class MotionState(
-        var tangentialVelocity: Vector3D,
-        var angularVelocity: Vector3D,
+        var tangentialVelocity: Vector3dc,
+        var angularVelocity: Vector3dc,
     )
 
-    private val _position: CommitBuffer<Vector3D> = CommitBuffer(Vector3D.ZERO)
-    override var position: Vector3D by _position
+    private val _position: CommitBuffer<Vector3dc> = CommitBuffer(Vector3d(0.0, 0.0, 0.0))
+    override var position: Vector3dc by _position
     private val activePositon
         get() = _position.getActive()
 
-    private val _direction: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(1.0, 0.0, 0.0))
+    private val _direction: CommitBuffer<Vector3dc> = CommitBuffer(Vector3d(1.0, 0.0, 0.0))
     // 渲染的朝向，与速度方向无关
-    override var direction: Vector3D by _direction
+    override var direction: Vector3dc by _direction
     private val activeDirection
         get() = _direction.getActive()
 
-    private val _normal: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(0.0, 1.0, 0.0))
-    override var normal: Vector3D by _normal
+    private val _normal: CommitBuffer<Vector3dc> = CommitBuffer(Vector3d(0.0, 1.0, 0.0))
+    override var normal: Vector3dc by _normal
     private val activeNormal
         get() = _normal.getActive()
 
-    private var _motionState: CommitBuffer<MotionState> = CommitBuffer(MotionState(Vector3D.ZERO, Vector3D.ZERO))
+    private var _motionState: CommitBuffer<MotionState> = CommitBuffer(MotionState(Vector3d(0.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
     var motionState: MotionState by _motionState
-    override val velocity: Vector3D
+    override val velocity: Vector3dc
         get() = motionState.tangentialVelocity
 
     var isReversed: Boolean = false
@@ -109,8 +105,8 @@ open class Car internal constructor(
     protected data class IntermediateResult(
         val headBogieNewLocation: RailLocationWithFacing,
         val tailBogieNewLocation: RailLocationWithFacing,
-        val carNewPosition: Vector3D,
-        val carNewDirection: Vector3D,
+        val carNewPosition: Vector3dc,
+        val carNewDirection: Vector3dc,
     )
 
     /**
@@ -257,7 +253,7 @@ open class Car internal constructor(
         val tailBogieTangent = tailBogie.activeLocation.tangent
         // tailBogie方向与car方向夹角
         val cosTheta = tailBogieTangent dot d
-        // 更新tailBogie的速度矢量
+        // 更新tailBogie的速度矢量`
         val v1 = tailBogieTangent * (vd0s / cosTheta)
         tailBogie.velocity = v1
         // v1 = v0 + \omega x d
@@ -270,7 +266,7 @@ open class Car internal constructor(
     }
 
     // 已知
-    private fun updateMotionStateByHead(headVelocity: Vector3D) {
+    private fun updateMotionStateByHead(headVelocity: Vector3dc) {
         // tail到head方向单位矢量
         val d = if (isReversed) -_direction.getActive() else _direction.getActive()
         // head沿杆方向速度
@@ -284,7 +280,7 @@ open class Car internal constructor(
         updateMotionStateByHeadBogie()
     }
 
-    private fun tailVelocity() : Vector3D {
+    private fun tailVelocity() : Vector3dc {
         // tail到head方向单位矢量
         val d = if (isReversed) -_direction.getActive() else _direction.getActive()
         val v = _motionState.getActive().tangentialVelocity
@@ -313,11 +309,11 @@ open class Car internal constructor(
     }
 
     companion object {
-        protected fun getHeadPosition(position: Vector3D, tailToHeadDirection: Vector3D, carLength: Double): Vector3D {
+        protected fun getHeadPosition(position: Vector3dc, tailToHeadDirection: Vector3dc, carLength: Double): Vector3dc {
             return position - tailToHeadDirection * (carLength / 2)
         }
 
-        protected fun getTailPosition(position: Vector3D, tailToHeadDirection: Vector3D, carLength: Double): Vector3D {
+        protected fun getTailPosition(position: Vector3dc, tailToHeadDirection: Vector3dc, carLength: Double): Vector3dc {
             return position + tailToHeadDirection * (carLength / 2)
         }
     }

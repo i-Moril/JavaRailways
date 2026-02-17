@@ -1,4 +1,4 @@
 name: MineRails
 version: '1.0-SNAPSHOT'
-main: work.art1st.mineRails.MineRails
+main: work.art1st.mineRails.bukkit.BukkitPlugin
 api-version: '1.20'

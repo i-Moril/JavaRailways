@@ -1,4 +1,4 @@
-package work.art1st.mineRails.rail;
+package work.art1st.mineRails.bukkit.rail;
 
 import java.util.ArrayList;
 import java.util.List;

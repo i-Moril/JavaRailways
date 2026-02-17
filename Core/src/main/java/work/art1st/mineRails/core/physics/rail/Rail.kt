@@ -8,12 +8,12 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import org.joml.Vector3dc
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.physics.train.TrainEnd
 import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.api.math.Vector3D
 import work.art1st.mineRails.core.api.physics.curve.Curve.Companion.TOLERANCE
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.exception.CannotConnectRailException
@@ -120,7 +120,7 @@ open class Rail : Destroyable {
     )
 
     companion object {
-        fun isSamePoint(pointA: Vector3D, pointB: Vector3D): Boolean {
+        fun isSamePoint(pointA: Vector3dc, pointB: Vector3dc): Boolean {
             return pointA.distance(pointB) < TOLERANCE
         }
 

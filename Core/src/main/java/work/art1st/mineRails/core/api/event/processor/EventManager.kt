@@ -1,0 +1,70 @@
+package work.art1st.mineRails.core.api.event.processor
+
+import work.art1st.mineRails.core.api.event.RailEvent
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.reflect.KClass
+import kotlin.reflect.KFunction
+import kotlin.reflect.full.findAnnotation
+import kotlin.reflect.full.functions
+import kotlin.reflect.full.hasAnnotation
+import kotlin.reflect.full.isSubtypeOf
+import kotlin.reflect.full.starProjectedType
+
+object EventManager {
+    private class HandlerList {
+        val lists: List<CopyOnWriteArrayList<Pair<EventListener, KFunction<*>>>> = listOf(CopyOnWriteArrayList(), CopyOnWriteArrayList(), CopyOnWriteArrayList(), CopyOnWriteArrayList(), CopyOnWriteArrayList())
+
+        fun getList(priority: Priority): CopyOnWriteArrayList<Pair<EventListener, KFunction<*>>> = lists[priority.value]
+    }
+
+    private val handlers = ConcurrentHashMap<KClass<*>, HandlerList>()
+
+    fun register(eventListener: EventListener) {
+        eventListener::class.functions.forEach { function ->
+            if (function.hasAnnotation<HandlesEvent>()) {
+                val annotation = function.findAnnotation<HandlesEvent>()!!
+                val parameters = function.parameters
+                if (parameters.size == 2 && parameters[1].type.isSubtypeOf(RailEvent::class.starProjectedType)) {
+                    handlers.getOrPut(parameters[1].type.classifier as KClass<*>) { HandlerList() }.getList(annotation.priority).add(Pair(eventListener, function))
+                }
+            }
+        }
+    }
+
+    fun unregister(eventListener: EventListener) {
+        eventListener::class.functions.forEach { function ->
+            if (function.hasAnnotation<HandlesEvent>()) {
+                val annotation = function.findAnnotation<HandlesEvent>()!!
+                val parameters = function.parameters
+                if (parameters.size == 2 && parameters[1].type.isSubtypeOf(RailEvent::class.starProjectedType)) {
+                    handlers[parameters[1].type.classifier as KClass<*>]!!.getList(annotation.priority).remove(Pair(eventListener, function))
+                }
+            }
+        }
+    }
+
+    fun fire(event: RailEvent) {
+        event::class.getAllSuperClasses().forEach { type ->
+            handlers[type]?.lists?.forEach { it.forEach { p -> p.second.call(p.first, event) } }
+        }
+    }
+
+    fun KClass<*>.getAllSuperClasses(): Set<KClass<*>> {
+        val result = mutableSetOf<KClass<*>>()
+        val queue = ArrayDeque<KClass<*>>()
+        queue.add(this)
+        result.add(this)
+
+         while (queue.isNotEmpty()) {
+            val currentClass = queue.removeFirst()
+            currentClass.supertypes.forEach {
+                val superClass = it.classifier as KClass<*>
+                if (result.add(superClass)) {
+                    queue.add(superClass)
+                }
+            }
+        }
+        return result
+    }
+}

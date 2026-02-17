@@ -1,14 +1,13 @@
 package work.art1st.mineRails.core.physics
 
+import org.joml.Vector3dc
 import work.art1st.mineRails.core.render.RenderChunk
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.train.Train
 import work.art1st.mineRails.core.physics.rail.Rail
-import work.art1st.mineRails.core.api.math.Vector3D
 import work.art1st.mineRails.core.api.util.TickingObject
 import java.util.UUID
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.CopyOnWriteArraySet
@@ -44,11 +43,11 @@ class World(
 
     fun removeRail(rail: Rail) = rails.remove(rail.id)
 
-//    fun getNearestRailLocation(position: Vector3D): RailLocation {
+//    fun getNearestRailLocation(position: Vector3dc): RailLocation {
 //
 //    }
 
-    fun getRenderableObjects(position: Vector3D, radius: Double): Collection<Renderable> {
+    fun getRenderableObjects(position: Vector3dc, radius: Double): Collection<Renderable> {
         val chunks = RenderChunk.getChunksAround(position, radius)
         val selected = LinkedHashSet<Renderable>()
         for (chunk in chunks) {
@@ -85,7 +84,7 @@ class World(
         renderableObjects[renderable.chunk]?.remove(renderable)
     }
 
-    internal fun updateRenderablePosition(renderable: Renderable, oldPosition: Vector3D?, newPosition: Vector3D) {
+    internal fun updateRenderablePosition(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {
         if (oldPosition == null) {
             renderableObjects.getOrPut(RenderChunk(newPosition)) { HashSet() }.add(renderable)
         } else {

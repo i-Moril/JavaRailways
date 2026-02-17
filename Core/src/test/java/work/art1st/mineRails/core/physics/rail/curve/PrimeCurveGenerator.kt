@@ -1,7 +1,8 @@
 package work.art1st.mineRails.core.physics.rail.curve
 
+import org.joml.Vector3d
+import org.joml.Vector3f
 import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.api.math.Vector3D
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import kotlin.math.PI
 import kotlin.math.cos
@@ -21,9 +22,24 @@ object PrimeCurveGenerator {
     /** 圆默认段数 */
     const val DEFAULT_CIRCLE_SEGMENTS = 4
 
+    fun buildPoint(vararg args: Any): Any {
+        val curveClass = PrimeCurveImpl::class.qualifiedName!!
+        val pointClass = Class.forName($$"$$curveClass$InternalCurvePoint")
+        val constructor = pointClass.getDeclaredConstructor(
+            Vector3f::class.java,
+            Vector3f::class.java,
+            Vector3f::class.java,
+            Float::class.java,
+            Int::class.java,
+        )
+        constructor.isAccessible = true
+        return constructor.newInstance(*args)
+    }
+
     /**
      * 生成直线轨道并切成若干段。水平面为 XZ，Y 为高度；直线沿 X 轴，y=0，从 (0,0,0) 到 (length,0,0)。
      * @param segmentCount 段数，每段弧长 length/segmentCount
+     * TODO: 修正构建曲线
      */
     fun buildStraight(
         length: Double,
@@ -33,21 +49,20 @@ object PrimeCurveGenerator {
         val segmentLength = length / segmentCount
         return (0 until segmentCount).map { seg ->
             val curve = PrimeCurveImpl()
-            val tangent = Vector3D(1.0, 0.0, 0.0)
-            val normal = Vector3D(0.0, 1.0, 0.0) // Y 向上
+            val tangent = Vector3f(1.0f, 0.0f, 0.0f)
+            val normal = Vector3f(0.0f, 1.0f, 0.0f) // Y 向上
             val n = (segmentLength / step).toInt().coerceAtLeast(1)
             val actualStep = segmentLength / n
             val offsetX = seg * segmentLength
             val pointList = (0..n).map { i ->
                 val s = i * actualStep
                 val x = offsetX + s
-                Curve.Point(
-                    Vector3D(x, 0.0, 0.0), // (x, y, z)，y=0 为地面
+                buildPoint(
+                    Vector3f(x.toFloat(), 0.0f, 0.0f), // (x, y, z)，y=0 为地面
                     tangent,
                     normal,
-                    curve,
-                    i,
-                    s
+                    s.toFloat(),
+                    i
                 )
             }
             setPointList(curve, pointList)
@@ -75,17 +90,17 @@ object PrimeCurveGenerator {
             val pointList = (0..n).map { i ->
                 val theta = theta0 + i * dTheta
                 val s = i * (segmentArcLength / n)
-                val position = Vector3D(radius * cos(theta), 0.0, radius * sin(theta)) // XZ 平面，y=0
-                val tangent = Vector3D(-sin(theta), 0.0, cos(theta))
-                val normal = Vector3D(0.0, 1.0, 0.0) // Y 向上
-                Curve.Point(position, tangent, normal, curve, i, s)
+                val position = Vector3f((radius * cos(theta)).toFloat(), 0.0f, (radius * sin(theta)).toFloat()) // XZ 平面，y=0
+                val tangent = Vector3f(-sin(theta).toFloat(), 0.0f, cos(theta).toFloat())
+                val normal = Vector3f(0.0f, 1.0f, 0.0f) // Y 向上
+                buildPoint(position, tangent, normal, s.toFloat(), i)
             }
             setPointList(curve, pointList)
             curve
         }
     }
 
-    private fun setPointList(curve: PrimeCurveImpl, pointList: List<Curve.Point>) {
+    private fun setPointList(curve: PrimeCurveImpl, pointList: List<Any>) {
         val field = PrimeCurveImpl::class.java.getDeclaredField("pointList")
         field.isAccessible = true
         field.set(curve, pointList)

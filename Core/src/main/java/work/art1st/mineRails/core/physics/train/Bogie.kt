@@ -1,14 +1,14 @@
 package work.art1st.mineRails.core.physics.train
 
-import kotlinx.serialization.Serializable
+import org.joml.Vector3d
+import org.joml.Vector3dc
+import org.joml.unaryMinus
 import work.art1st.mineRails.core.api.render.Asset
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.api.physics.ReversibleRailObject
 import work.art1st.mineRails.core.util.CommitBuffer
-import work.art1st.mineRails.core.util.PersistentObject
-import work.art1st.mineRails.core.api.math.Vector3D
 import work.art1st.mineRails.core.api.util.SynchronizedObject
 
 /**
@@ -33,9 +33,9 @@ open class Bogie internal constructor(
         get() = if (isSameDirectionAsFacing) location.tangent else -location.tangent
     override val normal
         get() = location.normal
-    private val _velocity: CommitBuffer<Vector3D> = CommitBuffer(Vector3D(0.0, 0.0, 0.0))
+    private val _velocity: CommitBuffer<Vector3dc> = CommitBuffer(Vector3d(0.0, 0.0, 0.0))
     /* velocity: 速度的大小和方向 */
-    override var velocity: Vector3D by _velocity
+    override var velocity: Vector3dc by _velocity
     internal val activeVelocity
         get() = _velocity.getActive()
 

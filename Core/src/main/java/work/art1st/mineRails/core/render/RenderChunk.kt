@@ -1,22 +1,22 @@
 package work.art1st.mineRails.core.render
 
-import work.art1st.mineRails.core.api.math.Vector3D
+import org.joml.Vector3dc
 
 data class RenderChunk(
     val x: Long,
     val z: Long
 ) {
 
-    constructor(position: Vector3D) : this(position.x.toLong() / CHUNK_SIZE, position.z.toLong() / CHUNK_SIZE)
+    constructor(position: Vector3dc) : this(position.x().toLong() / CHUNK_SIZE, position.z().toLong() / CHUNK_SIZE)
 
     companion object {
         const val CHUNK_SIZE = 16
-        fun getChunksAround(position: Vector3D, radius: Double): Collection<RenderChunk> {
+        fun getChunksAround(position: Vector3dc, radius: Double): Collection<RenderChunk> {
             val chunks = ArrayList<RenderChunk>()
-            val x1 = (position.x - radius).toLong() / CHUNK_SIZE
-            val z1 = (position.z - radius).toLong() / CHUNK_SIZE
-            val x2 = (position.x + radius).toLong() / CHUNK_SIZE
-            val z2 = (position.z + radius).toLong() / CHUNK_SIZE
+            val x1 = (position.x() - radius).toLong() / CHUNK_SIZE
+            val z1 = (position.z() - radius).toLong() / CHUNK_SIZE
+            val x2 = (position.x() + radius).toLong() / CHUNK_SIZE
+            val z2 = (position.z() + radius).toLong() / CHUNK_SIZE
             for (x in x1..x2) {
                 for (z in z1..z2) {
                     chunks.add(RenderChunk(x, z))

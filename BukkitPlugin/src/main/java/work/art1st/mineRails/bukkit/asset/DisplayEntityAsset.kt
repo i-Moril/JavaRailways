@@ -1,5 +1,6 @@
-package work.art1st.mineRails.asset
+package work.art1st.mineRails.bukkit.asset
 
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRelativeMoveAndRotation
 import org.bukkit.entity.Display
 import org.bukkit.entity.Player
 import work.art1st.mineRails.core.api.render.Asset
@@ -14,8 +15,10 @@ abstract class DisplayEntityAsset : Asset {
         displayEntity = null
     }
 
-    fun render(renderable: Renderable, player: Player): String {
-        // Construct packet
-        val packet =
-    }
+//    fun render(renderable: Renderable, player: Player): String {
+//        // Construct packet
+//        val packet = WrapperPlayServerEntityRelativeMoveAndRotation(
+//
+//        )
+//    }
 }

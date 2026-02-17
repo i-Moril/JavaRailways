@@ -1,15 +1,15 @@
 package work.art1st.mineRails.core.api.render
 
+import org.joml.Vector3dc
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.render.RenderChunk
 import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.api.math.Vector3D
 
 interface Renderable : Destroyable {
-    val position: Vector3D
-    val direction: Vector3D
-    val normal: Vector3D
-    val velocity: Vector3D
+    val position: Vector3dc
+    val direction: Vector3dc
+    val normal: Vector3dc
+    val velocity: Vector3dc
     val world: World
     var asset: Asset
 

@@ -18,6 +18,8 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     implementation(kotlin("stdlib-jdk8"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:2.2.21")
+    implementation("org.joml:joml:1.10.8")
     //implementation(project(":Annotation"))
     //ksp(project(":Annotation"))
 }

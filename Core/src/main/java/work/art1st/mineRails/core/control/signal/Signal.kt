@@ -7,21 +7,22 @@ import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import org.joml.Vector3d
+import org.joml.Vector3dc
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.physics.rail.RailLocationWithoutFacing
 import work.art1st.mineRails.core.api.physics.RailObject
-import work.art1st.mineRails.core.api.math.Vector3D
 
 @Serializable(with = Signal.SignalSerializer::class)
 abstract class Signal(
     override val location: RailLocationWithoutFacing
 ) : Renderable, RailObject {
-    override val position: Vector3D
+    override val position: Vector3dc
         get() = location.position
-    override val direction: Vector3D
+    override val direction: Vector3dc
         get() = location.tangent
-    override val normal: Vector3D
+    override val normal: Vector3dc
         get() = location.normal
     override val world: World
         get() = location.rail.world

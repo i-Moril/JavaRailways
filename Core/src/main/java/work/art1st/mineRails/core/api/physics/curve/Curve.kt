@@ -1,9 +1,8 @@
 package work.art1st.mineRails.core.api.physics.curve
 
+import org.joml.Vector3dc
 import work.art1st.mineRails.core.util.Heavy
-import work.art1st.mineRails.core.api.math.Vector3D
 import java.util.stream.Stream
-import kotlin.jvm.optionals.getOrNull
 
 /**
  * 离散化的曲线类，用于表示铁轨
@@ -15,9 +14,9 @@ interface Curve {
      */
     @JvmRecord
     data class Point(
-        val position: Vector3D,
-        val tangent: Vector3D,
-        val normal: Vector3D,
+        val position: Vector3dc,
+        val tangent: Vector3dc,
+        val normal: Vector3dc,
 
         val curve: PrimeCurve,
         val idx: Int,
@@ -39,13 +38,13 @@ interface Curve {
     @Heavy
     fun stream(): Stream<Point>
     @Heavy
-    fun getPointAt(position: Vector3D): Point {
+    fun getPointAt(position: Vector3dc): Point {
         val point = getNearestPoint(position)
         if (point.position.distance(position) < TOLERANCE) return point
         throw CurveException(this, point, "Point not in curve.")
     }
     @Heavy
-    fun getNearestPoint(position: Vector3D): Point {
+    fun getNearestPoint(position: Vector3dc): Point {
         return stream().min(Comparator.comparing { point -> point.position.distance(position)} ).get()
     }
 

@@ -1,5 +1,6 @@
 package work.art1st.mineRails.core.physics.rail.curve
 
+import org.joml.unaryMinus
 import work.art1st.mineRails.core.api.physics.curve.Curve
 
 fun reverseIdx(idx: Int, curve: Curve) = curve.totalPoints - idx - 1

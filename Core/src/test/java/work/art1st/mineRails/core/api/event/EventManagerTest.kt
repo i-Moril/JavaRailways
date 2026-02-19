@@ -11,9 +11,9 @@ import kotlin.reflect.full.declaredMemberProperties
 import kotlin.reflect.jvm.isAccessible
 
 class EventManagerTest {
-    interface MockEventInterfaceA : RailEvent
+    interface MockEventInterfaceA : Event
     val bitMockEventInterfaceA = 0x01
-    interface MockEventInterfaceB : RailEvent
+    interface MockEventInterfaceB : Event
     val bitMockEventInterfaceB = 0x10
     abstract class MockEventClass : MockEventInterfaceA
     val bitMockEventClass = 0x02
@@ -103,7 +103,7 @@ class EventManagerTest {
         }
     }
 
-    fun fireEvent(event: RailEvent) {
+    fun fireEvent(event: Event) {
         mockEventHandler.activated = 0
         EventManager.fire(event)
     }

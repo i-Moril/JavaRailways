@@ -1,10 +1,8 @@
-package work.art1st.mineRails.bukkit.asset
+package work.art1st.mineRails.bukkit.render
 
-import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityRelativeMoveAndRotation
 import org.bukkit.entity.Display
-import org.bukkit.entity.Player
 import work.art1st.mineRails.core.api.render.Asset
-import work.art1st.mineRails.core.api.render.Renderable
+import work.art1st.mineRails.core.api.render.SynchronizedRenderable
 
 abstract class DisplayEntityAsset : Asset {
     private var displayEntity: Display? = null
@@ -13,6 +11,13 @@ abstract class DisplayEntityAsset : Asset {
 
     fun unload() {
         displayEntity = null
+    }
+
+    override fun updateState(
+        lastState: SynchronizedRenderable.StateSnapshot,
+        currentState: SynchronizedRenderable.StateSnapshot
+    ) {
+        world.updateRenderablePosition(this, position, activeLocation.position)
     }
 
 //    fun render(renderable: Renderable, player: Player): String {

@@ -5,5 +5,5 @@ import work.art1st.mineRails.core.physics.train.Train
 class CollisionEvent(
     val trainA: Train,
     val trainB: Train
-) : RailEvent {
+) : Event {
 }

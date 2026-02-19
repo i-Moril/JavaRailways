@@ -3,7 +3,7 @@ package work.art1st.mineRails.core.api.event
 import work.art1st.mineRails.core.physics.train.Train
 
 class DerailEvent(
-    val train: Train,
+    override val train: Train,
     val msg: String
-) : RailEvent {
+) : TrainEvent {
 }

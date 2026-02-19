@@ -1,6 +1,6 @@
 package work.art1st.mineRails.core.api.event.processor
 
-import work.art1st.mineRails.core.api.event.RailEvent
+import work.art1st.mineRails.core.api.event.Event
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.reflect.KClass
@@ -25,7 +25,7 @@ object EventManager {
             if (function.hasAnnotation<HandlesEvent>()) {
                 val annotation = function.findAnnotation<HandlesEvent>()!!
                 val parameters = function.parameters
-                if (parameters.size == 2 && parameters[1].type.isSubtypeOf(RailEvent::class.starProjectedType)) {
+                if (parameters.size == 2 && parameters[1].type.isSubtypeOf(Event::class.starProjectedType)) {
                     handlers.getOrPut(parameters[1].type.classifier as KClass<*>) { HandlerList() }.getList(annotation.priority).add(Pair(eventListener, function))
                 }
             }
@@ -37,14 +37,14 @@ object EventManager {
             if (function.hasAnnotation<HandlesEvent>()) {
                 val annotation = function.findAnnotation<HandlesEvent>()!!
                 val parameters = function.parameters
-                if (parameters.size == 2 && parameters[1].type.isSubtypeOf(RailEvent::class.starProjectedType)) {
+                if (parameters.size == 2 && parameters[1].type.isSubtypeOf(Event::class.starProjectedType)) {
                     handlers[parameters[1].type.classifier as KClass<*>]!!.getList(annotation.priority).remove(Pair(eventListener, function))
                 }
             }
         }
     }
 
-    fun fire(event: RailEvent) {
+    fun fire(event: Event) {
         event::class.getAllSuperClasses().forEach { type ->
             handlers[type]?.lists?.forEach { it.forEach { p -> p.second.call(p.first, event) } }
         }

@@ -13,7 +13,6 @@ import work.art1st.mineRails.core.api.physics.exception.PhysicsException
 import work.art1st.mineRails.core.api.util.SynchronizedObject
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.util.Destroyable
-import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -25,9 +24,7 @@ open class Train private constructor(
     cars: MutableList<Car>,
     val world: World
 ) : SynchronizedObject, Destroyable {
-    private var _controller: WeakReference<TrainController?> = WeakReference(null)
-    val controller
-        get() = _controller.get()
+    var controller: TrainController? = null
     var cars: MutableList<Car> = cars
         protected set
     // 使用AtomicBoolean防止fire两遍Collision, 见下面fire
@@ -190,20 +187,27 @@ open class Train private constructor(
     }
 
     override fun destroy() {
+        removeController()
+        head.destroy()
+        tail.destroy()
         cars.forEach { obj: Car -> obj.destroy() }
     }
 
     open fun canLink(otherTrain: Train): Boolean = true
 
     fun setController(value: TrainController?) {
-        controller?.let { world.unregisterTickingObject(it) }
-        value?.let { world.registerTickingObject(it) }
-        _controller = WeakReference(value)
+        controller?.let { world.tickManager.unregister(it) }
+        controller = value
+        value?.let { world.tickManager.register(it) }
+    }
+
+    fun removeController() {
+        setController(null)
     }
 
     protected fun setDerailed() {
         _isDerailed.set(true)
-        setController(null)
+        removeController()
     }
 
     protected fun clearDerailed() {

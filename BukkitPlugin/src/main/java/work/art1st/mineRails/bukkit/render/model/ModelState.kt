@@ -1,9 +1,9 @@
-package work.art1st.mineRails.bukkit.asset.model
+package work.art1st.mineRails.bukkit.render.model
 
 import org.bukkit.util.Transformation
 import org.joml.Vector3d
 import org.joml.*
-import work.art1st.mineRails.bukkit.asset.Animation
+import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.core.api.render.Renderable
 
 class ModelState(

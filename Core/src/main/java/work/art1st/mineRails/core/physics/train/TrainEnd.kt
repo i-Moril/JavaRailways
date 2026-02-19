@@ -4,7 +4,7 @@ import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.api.physics.ReversibleRailObject
 import work.art1st.mineRails.core.api.util.SynchronizedObject
 import work.art1st.mineRails.core.util.Destroyable
-import java.lang.ref.WeakReference
+import work.art1st.mineRails.core.util.WeakReferenceWrapper
 
 /**
  * 车辆端部
@@ -18,9 +18,7 @@ open class TrainEnd(
         location.rail.addTrainEnd(this)
     }
 
-    private val _train: WeakReference<Train> = WeakReference(train)
-    val train: Train
-        get() = _train.get()!!
+    val train: Train by WeakReferenceWrapper(train)
 
     private var commitTask: Runnable? = null
     override var location: RailLocationWithFacing = location

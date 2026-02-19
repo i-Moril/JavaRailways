@@ -1,4 +1,4 @@
-package work.art1st.mineRails.bukkit.asset.persistence
+package work.art1st.mineRails.bukkit.render.persistence
 
 import org.bukkit.Material
 import org.bukkit.inventory.ItemStack

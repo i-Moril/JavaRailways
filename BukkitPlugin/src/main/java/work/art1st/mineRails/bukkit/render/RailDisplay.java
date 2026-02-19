@@ -1,4 +1,4 @@
-package work.art1st.mineRails.bukkit.asset;
+package work.art1st.mineRails.bukkit.render;
 
 import org.bukkit.entity.Player;
 import work.art1st.mineRails.core.api.render.Asset;

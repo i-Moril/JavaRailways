@@ -2,7 +2,6 @@ package work.art1st.mineRails.core.api.render
 
 import org.joml.Vector3dc
 import work.art1st.mineRails.core.physics.World
-import work.art1st.mineRails.core.render.RenderChunk
 import work.art1st.mineRails.core.util.Destroyable
 
 interface Renderable : Destroyable {
@@ -13,8 +12,5 @@ interface Renderable : Destroyable {
     val world: World
     var asset: Asset
 
-    val chunk: RenderChunk
-        get() = RenderChunk(position)
-
-    override fun destroy() = world.removeAsset(this)
+    override fun destroy() = asset.destroy()
 }

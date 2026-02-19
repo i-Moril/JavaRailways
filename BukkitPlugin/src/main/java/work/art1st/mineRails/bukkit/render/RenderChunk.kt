@@ -1,6 +1,7 @@
-package work.art1st.mineRails.core.render
+package work.art1st.mineRails.bukkit.render
 
 import org.joml.Vector3dc
+import work.art1st.mineRails.core.api.render.Renderable
 
 data class RenderChunk(
     val x: Long,
@@ -26,3 +27,6 @@ data class RenderChunk(
         }
     }
 }
+
+val Renderable.chunk
+    get() = RenderChunk(position)

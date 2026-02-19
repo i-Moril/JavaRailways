@@ -3,15 +3,13 @@ package work.art1st.mineRails.core.physics.rail.curve
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.util.Heavy
-import java.lang.ref.WeakReference
+import work.art1st.mineRails.core.util.WeakReferenceWrapper
 import java.util.stream.Stream
 
 class ReversedCurve(
     origCurve: PrimeCurve,
 ) : PrimeCurve {
-    private val _origCurve: WeakReference<PrimeCurve> = WeakReference(origCurve)
-    private val origCurve
-        get() = _origCurve.get()!!
+    private val origCurve: PrimeCurve by WeakReferenceWrapper(origCurve)
     override val totalArcLength: Double
         get() = origCurve.totalArcLength
     override val totalPoints: Int

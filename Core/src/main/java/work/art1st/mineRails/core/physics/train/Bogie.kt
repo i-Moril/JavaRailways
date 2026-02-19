@@ -8,6 +8,7 @@ import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.api.physics.ReversibleRailObject
+import work.art1st.mineRails.core.api.render.SynchronizedRenderable
 import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.mineRails.core.api.util.SynchronizedObject
 
@@ -20,7 +21,11 @@ open class Bogie internal constructor(
     location: RailLocationWithFacing,
     /* isSameDirectionAsFacing: direction是否与location的facing一致. */
     private var isSameDirectionAsFacing: Boolean = true,
-) : ReversibleRailObject, SynchronizedObject, Renderable {
+) : ReversibleRailObject, SynchronizedRenderable() {
+    init {
+        lastState = takeSnapshot()
+    }
+
     private val _location = CommitBuffer(location)
     override var location: RailLocationWithFacing by _location
     internal val activeLocation
@@ -50,9 +55,9 @@ open class Bogie internal constructor(
     }
 
     override fun commit() {
-        world.updateRenderablePosition(this, position, activeLocation.position)
         _location.commit()
         _velocity.commit()
+        super.commit()
     }
 
     override fun reverse() {

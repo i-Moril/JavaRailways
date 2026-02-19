@@ -5,11 +5,13 @@ import work.art1st.mineRails.core.physics.World
 import work.art1st.mineRails.core.api.util.SynchronizedObject
 import work.art1st.mineRails.core.api.util.TickingObject
 import work.art1st.mineRails.core.physics.train.Train
+import work.art1st.mineRails.core.util.WeakReferenceWrapper
 
 abstract class TrainController(
-    internal var train: Train,
+    train: Train,
     world: World
 ) : TickingObject {
+    protected val train: Train by WeakReferenceWrapper(train)
     /**
      * Meters per second, >=0
      */

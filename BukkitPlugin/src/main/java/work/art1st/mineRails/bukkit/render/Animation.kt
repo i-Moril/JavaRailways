@@ -1,8 +1,8 @@
-package work.art1st.mineRails.bukkit.asset
+package work.art1st.mineRails.bukkit.render
 
 import org.joml.Quaternionf
 import org.joml.Vector3f
-import work.art1st.mineRails.bukkit.asset.model.ModelState
+import work.art1st.mineRails.bukkit.render.model.ModelState
 
 // TODO: Implement animation
 class Animation(

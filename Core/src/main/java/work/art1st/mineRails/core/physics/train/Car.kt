@@ -9,6 +9,7 @@ import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.api.render.SynchronizedRenderable
 import work.art1st.mineRails.core.api.util.SynchronizedObject
 
 /**
@@ -30,7 +31,10 @@ open class Car internal constructor(
     val connectorLengthAtB: Double,
     override val world: World,
     override var asset: Asset,
-) : SynchronizedObject, Renderable {
+) : SynchronizedRenderable() {
+    init {
+        lastState = takeSnapshot()
+    }
 
     data class MotionState(
         var tangentialVelocity: Vector3dc,
@@ -300,12 +304,12 @@ open class Car internal constructor(
     }
 
     override fun commit() {
-        world.updateRenderablePosition(this, position, _position.getActive())
         bogies.forEach { it.commit() }
         _position.commit()
         _direction.commit()
         _normal.commit()
         _motionState.commit()
+        super.commit()
     }
 
     companion object {

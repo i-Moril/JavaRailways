@@ -20,6 +20,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect:2.2.21")
     implementation("org.joml:joml:1.10.8")
+    implementation("net.jcip:jcip-annotations:1.0")
     //implementation(project(":Annotation"))
     //ksp(project(":Annotation"))
 }

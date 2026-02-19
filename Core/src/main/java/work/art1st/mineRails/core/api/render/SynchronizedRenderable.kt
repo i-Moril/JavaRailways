@@ -1,6 +1,8 @@
 package work.art1st.mineRails.core.api.render
 
 import org.joml.Vector3dc
+import work.art1st.mineRails.core.api.event.RenderableCommitEvent
+import work.art1st.mineRails.core.api.event.processor.EventManager
 import work.art1st.mineRails.core.api.util.SynchronizedObject
 import work.art1st.mineRails.core.physics.World
 
@@ -26,8 +28,7 @@ abstract class SynchronizedRenderable : Renderable, SynchronizedObject {
     }
 
     override fun commit() {
-        val currentState = takeSnapshot()
-        asset.updateState(lastState, currentState)
-        lastState = currentState
+        EventManager.fire(RenderableCommitEvent(this, lastState))
+        lastState = takeSnapshot()
     }
 }

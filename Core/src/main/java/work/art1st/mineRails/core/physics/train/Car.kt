@@ -30,7 +30,6 @@ open class Car internal constructor(
     val connectorLengthAtA: Double,
     val connectorLengthAtB: Double,
     override val world: World,
-    override var asset: Asset,
 ) : SynchronizedRenderable() {
     init {
         lastState = takeSnapshot()
@@ -324,12 +323,9 @@ open class Car internal constructor(
 
     @Serializable
     data class ConfigV1(
-        val asset: Asset,
         val length: Double,
         val floorHeight: Double,
-        val bogieAAsset: Asset,
         val bogieAOffset: Double,
-        val bogieBAsset: Asset,
         val bogieBOffset: Double,
         val connectorLengthAtA: Double,
         val connectorLengthAtB: Double
@@ -341,8 +337,8 @@ open class Car internal constructor(
             return Car(
                 id = id,
                 bogies = listOf(
-                    Bogie(bogieAAsset, bogieALocation, true),
-                    Bogie(bogieBAsset, bogieBLocation, true)
+                    Bogie(bogieALocation, true),
+                    Bogie(bogieBLocation, true)
                 ),
                 bogiesOffsets = listOf(
                     bogieAOffset,
@@ -353,7 +349,6 @@ open class Car internal constructor(
                 connectorLengthAtA = connectorLengthAtA,
                 connectorLengthAtB = connectorLengthAtB,
                 world = world,
-                asset = asset
             )
         }
 

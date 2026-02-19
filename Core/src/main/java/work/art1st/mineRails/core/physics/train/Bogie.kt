@@ -17,7 +17,6 @@ import work.art1st.mineRails.core.api.util.SynchronizedObject
  * 转向架位于铁轨上，即转向架坐标位于曲线上，方向为曲线的切线方向
  */
 open class Bogie internal constructor(
-    override var asset: Asset,
     location: RailLocationWithFacing,
     /* isSameDirectionAsFacing: direction是否与location的facing一致. */
     private var isSameDirectionAsFacing: Boolean = true,

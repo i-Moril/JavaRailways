@@ -17,7 +17,6 @@ abstract class DisplayEntityAsset : Asset {
         lastState: SynchronizedRenderable.StateSnapshot,
         currentState: SynchronizedRenderable.StateSnapshot
     ) {
-        world.updateRenderablePosition(this, position, activeLocation.position)
     }
 
 //    fun render(renderable: Renderable, player: Player): String {

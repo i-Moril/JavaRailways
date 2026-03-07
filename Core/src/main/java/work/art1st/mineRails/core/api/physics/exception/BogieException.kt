@@ -1,5 +1,5 @@
 package work.art1st.mineRails.core.api.physics.exception
 
-import work.art1st.mineRails.core.physics.train.Bogie
+import work.art1st.mineRails.core.physics.train.CoreBogie
 
-class BogieException(bogie: Bogie) : PhysicsException()
+class BogieException(bogie: CoreBogie) : PhysicsException()

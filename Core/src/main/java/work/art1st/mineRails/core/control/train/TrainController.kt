@@ -1,17 +1,17 @@
 package work.art1st.mineRails.core.control.train
 
+import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.control.command.ControlCommand
-import work.art1st.mineRails.core.physics.World
-import work.art1st.mineRails.core.api.util.SynchronizedObject
-import work.art1st.mineRails.core.api.util.TickingObject
-import work.art1st.mineRails.core.physics.train.Train
+import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.api.util.tick.TickingObject
+import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.util.WeakReferenceWrapper
 
 abstract class TrainController(
-    train: Train,
-    world: World
-) : TickingObject {
-    protected val train: Train by WeakReferenceWrapper(train)
+    train: CoreTrain,
+    world: CoreWorld
+) : TickingObject, Synchronizable {
+    protected val train: CoreTrain by WeakReferenceWrapper(train)
     /**
      * Meters per second, >=0
      */

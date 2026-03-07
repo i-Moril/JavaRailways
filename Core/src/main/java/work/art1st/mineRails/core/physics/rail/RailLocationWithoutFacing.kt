@@ -1,15 +1,15 @@
 package work.art1st.mineRails.core.physics.rail
 
-import work.art1st.mineRails.core.api.physics.RailLocation
+import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.physics.rail.curve.reverseIdx
 
 @ConsistentCopyVisibility
 data class RailLocationWithoutFacing private constructor(
-    override val rail: Rail,
+    override val rail: CoreRail,
     val point: Curve.Point,     // Point is always viewAB, guaranteed by internal constructor
 ) : RailLocation {
-    internal constructor(rail: Rail, idxInCurveAB: Int) : this(rail, rail.viewAB.curve.getPointAt(idxInCurveAB)!!)
+    internal constructor(rail: CoreRail, idxInCurveAB: Int) : this(rail, rail.viewAB.curve.getPointAt(idxInCurveAB)!!)
 
     override val position
         get() = point.position

@@ -7,12 +7,10 @@ import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.exception.CannotConnectRailException
 import work.art1st.mineRails.core.physics.train.TrainEnd
-import java.util.LinkedList
-import java.util.PriorityQueue
 import kotlin.properties.Delegates
 
 class RailView(
-    val rail: Rail,
+    val rail: CoreRail,
     val viewDirection: ViewDirection,
     val curve: PrimeCurve,
     var nextRails: MutableList<RailView>,

@@ -3,6 +3,7 @@ package work.art1st.mineRails.bukkit.render.persistence
 import org.bukkit.Material
 import org.bukkit.inventory.ItemStack
 import org.joml.Vector3dc
+import work.art1st.mineRails.bukkit.render.Animation
 
 data class ItemStackConfigV1(
     val material: Material,
@@ -23,5 +24,5 @@ data class ModelConfigV1(
     val offset: Vector3dc,
     val transform: Transform,
     val children: List<ModelConfigV1>,
-    val animation: AnimationConfigV1
+    val animation: Animation
 )

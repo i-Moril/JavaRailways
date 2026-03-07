@@ -1,65 +1,47 @@
 package work.art1st.mineRails.bukkit.render.model
 
-import org.bukkit.util.Transformation
 import org.joml.Vector3d
 import org.joml.*
-import work.art1st.mineRails.bukkit.render.Animation
-import work.art1st.mineRails.core.api.render.Renderable
 
 class ModelState(
-    val transformation: Transformation,
-    val model: Model,
-    val animations: Map<String, Animation>
+    val localTransform: CompactTransform,
 ) {
-    var animationTransformationOverlay: Transformation = Transformation(
-        Vector3f(),
-        Quaternionf(),
-        Vector3f(),
-        Quaternionf(),
-    )
+    // 相对根元素的变换
+    var rootRelativeTransform: CompactTransform = CompactTransform(localTransform)
+        private set
+    var worldTransform: CompactTransform = CompactTransform()
+        private set
 
-    fun applyAnimation(animation: Animation) {
+    val position: Vector3dc
+        get() = worldTransform.position
+    val x: Double
+        get() = worldTransform.position.x()
+    val y: Double
+        get() = worldTransform.position.y()
+    val z: Double
+        get() = worldTransform.position.z()
+    val pitch: Double
+        get() = worldTransform.pitch
+    val yaw: Double
+        get() = worldTransform.yaw
 
-    }
-
-    fun applyRotation(renderable: Renderable): Transformation {
-        // 1. 构建正交基 (Orthogonal Basis)
-        // 在 MC 右手系中：Right = Up x Forward
-        val right = Vector3d()
-        renderable.normal.cross(renderable.direction, right).normalize()
-
-        // 2. 构建当前旋转矩阵
-        // JOML Matrix3f 构造函数按列主序填充：
-        // 第一列: Right (+X), 第二列: Up (+Y), 第三列: Forward (+Z)
-        val currentRotMat = Matrix3d(
-            right.x(),        right.y(),        right.z(),
-            renderable.normal.x(), renderable.normal.y(), renderable.normal.z(),
-            renderable.direction.x(), renderable.direction.y(), renderable.direction.z()
-        )
-
-        val rotation = Quaternionf().setFromNormalized(currentRotMat)
+    /**
+     * @param baseRelative 父元素相对根元素的transform
+     */
+    fun applyRotation(baseRelative: CompactTransform, root: CompactTransform, animationTransformOverlay: CompactTransform? = null) {
+        val localRotation = Quaterniond(localTransform.rotation)
+        val offset = Vector3d(localTransform.position)
 
         // 先apply animation transformation
-        val relativeRotation = Quaternionf(animationTransformationOverlay.rightRotation)
-        relativeRotation.mul(transformation.rightRotation, relativeRotation)
+        animationTransformOverlay?.let {
+            // 偏移相加
+            offset.add(it.position)
 
-        val translation = Vector3f(transformation.translation)
-        translation.add(animationTransformationOverlay.translation)
-        rotation.transform(translation)
+            // 局部旋转右乘相对旋转
+            localRotation.mul(it.rotation)
+        }
 
-        // 3. 应用旋转变换
-        // 局部旋转公式：WorldQuat = CurrentQuat * DeltaQuat
-        rotation.mul(transformation.rightRotation)
-
-        // 4. 应用平移变换
-        // 将局部坐标系下的位移向量旋转到世界坐标系的方向
-        rotation.transform(translation)
-
-        return Transformation(
-            translation,
-            Quaternionf(),
-            Vector3f(),
-            rotation,
-        )
+        rootRelativeTransform = CompactTransform(offset, localRotation).applyTo(baseRelative)
+        worldTransform = rootRelativeTransform.applyTo(root)
     }
 }

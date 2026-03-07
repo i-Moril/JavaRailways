@@ -1,13 +1,21 @@
 package work.art1st.mineRails.core.physics.rail
 
 import kotlinx.serialization.Serializable
-import work.art1st.mineRails.core.api.physics.RailLocation
-import work.art1st.mineRails.core.api.physics.RailObject
+import org.koin.core.Koin
+import org.koin.core.scope.Scope
+import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.rail.RailLocation
+import work.art1st.mineRails.core.api.physics.rail.RailObject
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.api.util.exception.CorruptedDataException
 import work.art1st.mineRails.core.physics.rail.curve.inReversedCurve
 import work.art1st.mineRails.core.physics.rail.curve.reverseArcLength
 import work.art1st.mineRails.core.physics.train.TrainEnd
+import work.art1st.mineRails.core.util.DelegateSerializer
+import work.art1st.mineRails.core.util.Loads
+import work.art1st.mineRails.core.util.PersistentBy
+import java.util.UUID
 import kotlin.math.min
 
 @ConsistentCopyVisibility
@@ -16,7 +24,7 @@ data class RailLocationWithFacing private constructor(
     private val point: Curve.Point,
     /* In case the deltaS is less than TOLERANCE */
     val minorDeltaS: Double = 0.0
-): RailLocation {
+): RailLocation, PersistentBy<RailLocationWithFacing.SavedRailLocationWithFacingV1> {
     constructor(railView: RailView, idxInRailView: Int, minorDeltaS: Double = 0.0) : this(
         railView,
         railView.curve.getPointAt(idxInRailView),
@@ -51,6 +59,7 @@ data class RailLocationWithFacing private constructor(
     /**
      * @param deltaS: >= 0
      */
+
     fun forward(deltaS: Double): RailLocationWithFacing? {
         require(deltaS >= 0) {
             "Delta must be greater than zero."
@@ -189,7 +198,19 @@ data class RailLocationWithFacing private constructor(
         val direction: RailView.ViewDirection,
         /* In case the deltaS is less than TOLERANCE */
         val minorDeltaS: Double = 0.0
-    )
+    ) : Loads<RailLocationWithFacing> {
+        @Throws(CorruptedDataException::class)
+        override fun load(dependencyProvider: Scope): RailLocationWithFacing {
+            val world = dependencyProvider.get<World>()
+            val rail = world.getRail(UUID.fromString(railId)) ?: throw CorruptedDataException(this)
+            val point = rail.viewAB.getRailLocationAt(idxInCurveAB).point
+            return RailLocationWithFacing(rail.getView(direction), point, minorDeltaS)
+        }
+    }
+
+    override fun save(): SavedRailLocationWithFacingV1 {
+        return SavedRailLocationWithFacingV1(rail.id.toString(), point.idx, facing, minorDeltaS)
+    }
 
 //    fun save(): SavedRailLocationWithFacingV1 = SavedRailLocationWithFacingV1(
 //        rail.id.toString(),

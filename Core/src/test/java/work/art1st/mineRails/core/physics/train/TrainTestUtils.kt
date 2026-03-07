@@ -1,12 +1,11 @@
 package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
-import work.art1st.mineRails.core.api.render.Asset
-import work.art1st.mineRails.core.physics.World
-import work.art1st.mineRails.core.physics.rail.Rail
+import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailView
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.physics.train.Car.ConfigV1
+import work.art1st.mineRails.core.physics.train.CoreCar.ConfigV1
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -15,26 +14,26 @@ private val dummyAsset = object : Asset {}
 /**
  * 创建用于测试的 World：rails 可写，trains 可写，空 signals，单线程 scheduler。
  */
-fun createTestWorld(): World {
-    val rails = mutableMapOf<UUID, Rail>()
-    val trains = mutableMapOf<String, Train>()
+fun createTestWorld(): CoreWorld {
+    val rails = mutableMapOf<UUID, CoreRail>()
+    val trains = mutableMapOf<String, CoreTrain>()
     val signals = mutableSetOf<work.art1st.mineRails.core.control.signal.Signal>()
     val scheduler = Executors.newSingleThreadScheduledExecutor()
-    return World(rails, trains, signals, scheduler)
+    return CoreWorld(rails, trains, signals, scheduler)
 }
 
 /**
  * 用多段 PrimeCurve 创建多段 Rail 并接成闭环：seg0.viewAB -> seg1.viewAB -> ... -> segLast.viewAB -> seg0.viewAB。
  * 返回第一段 Rail（用于在弧长 0 处放车）。
  */
-fun createLoopRailFromSegments(world: World, segments: List<PrimeCurve>): Rail {
+fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        Rail(world, curve, mutableListOf(), mutableListOf(), emptyList())
+        CoreRail(world, curve, mutableListOf(), mutableListOf(), emptyList())
     }
     for (i in rails.indices) {
         val nextView = if (i == rails.lastIndex) rails.first().viewAB else rails[i + 1].viewAB
-        Rail.connect(rails[i], nextView.rail)
+        CoreRail.connect(rails[i], nextView.rail)
     }
     return rails.first()
 }
@@ -43,14 +42,14 @@ fun createLoopRailFromSegments(world: World, segments: List<PrimeCurve>): Rail {
  * 用多段 PrimeCurve 创建直线多段 Rail（不闭环）：seg0.viewAB -> seg1.viewAB -> ... -> segLast.viewAB，末端 next 为空。
  * 返回第一段 Rail。
  */
-fun createStraightRailFromSegments(world: World, segments: List<PrimeCurve>): Rail {
+fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        Rail(world, curve, mutableListOf(), mutableListOf(), emptyList())
+        CoreRail(world, curve, mutableListOf(), mutableListOf(), emptyList())
     }
     //rails.forEach { world.addRail(it) }
     for (i in 0 until rails.lastIndex - 1) {
-        Rail.connect(rails[i], rails[i + 1])
+        CoreRail.connect(rails[i], rails[i + 1])
     }
     return rails.first()
 }
@@ -64,7 +63,7 @@ fun createStraightRailFromSegments(world: World, segments: List<PrimeCurve>): Ra
  * @param isLoop 是否为闭环轨道。true 时从起点开始；false（直线）时从起点向前移动列车总长度，避免向后放置时超出轨道起点
  * @return 创建的列车
  */
-fun createTrainWithConfig(id: String, rail: Rail, world: World, carLengths: List<Double>, isLoop: Boolean = false): Train {
+fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false): CoreTrain {
     val configs: List<Pair<String, ConfigV1>> = carLengths.mapIndexed { index, len ->
         val cfg = ConfigV1(
             asset = DummyAsset(),
@@ -93,14 +92,14 @@ fun createTrainWithConfig(id: String, rail: Rail, world: World, carLengths: List
         startLoc.forward(offsetDistance) ?: error("直线轨道长度不足，无法放置列车（需要至少 $offsetDistance 米）")
     }
     
-    return Train.create(id, configs, headLocation, world)
+    return CoreTrain.create(id, configs, headLocation, world)
 }
 
 /**
  * 从第一段 Rail 起沿 nextActiveRail 收集顺序的 RailView 列表（用于多段轨道）。
  * @param isLoop true 时沿环走直到回到起点；false 时走到末端为止。
  */
-fun getViewsInOrder(firstRail: Rail, isLoop: Boolean): List<RailView> {
+fun getViewsInOrder(firstRail: CoreRail, isLoop: Boolean): List<RailView> {
     val views = mutableListOf<RailView>()
     var v = firstRail.viewAB
     val start = v
@@ -116,14 +115,14 @@ fun getViewsInOrder(firstRail: Rail, isLoop: Boolean): List<RailView> {
 /**
  * 多段轨道总弧长（从第一段起沿 nextActiveRail 累加）。
  */
-fun totalArcLengthFromFirstRail(firstRail: Rail, isLoop: Boolean): Double =
+fun totalArcLengthFromFirstRail(firstRail: CoreRail, isLoop: Boolean): Double =
     getViewsInOrder(firstRail, isLoop).sumOf { it.curve.totalArcLength }
 
 /**
  * 单段轨道时，当前 head 在曲线上的弧长位置 [0, totalArcLength)。
  * viewAB 时即 arcLength；viewBA 时为 totalArcLength - arcLength。
  */
-fun headCurveArcLengthInRange(train: Train, totalArcLength: Double): Double {
+fun headCurveArcLengthInRange(train: CoreTrain, totalArcLength: Double): Double {
     val loc = train.head.location
     return when (loc.railView.viewDirection) {
         RailView.ViewDirection.AB -> loc.arcLength
@@ -135,7 +134,7 @@ fun headCurveArcLengthInRange(train: Train, totalArcLength: Double): Double {
  * 多段轨道时，当前 head 从起点起算的弧长位置 [0, totalArcLength)。
  * 需与 [totalArcLengthFromFirstRail] 配合使用。
  */
-fun headCurveArcLengthInRangeMultiSegment(train: Train, firstRail: Rail, isLoop: Boolean): Double {
+fun headCurveArcLengthInRangeMultiSegment(train: CoreTrain, firstRail: CoreRail, isLoop: Boolean): Double {
     val views = getViewsInOrder(firstRail, isLoop)
     val totalArcLength = views.sumOf { it.curve.totalArcLength }
     val loc = train.head.location

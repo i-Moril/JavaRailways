@@ -1,8 +1,10 @@
 package work.art1st.mineRails.core.physics.train
 
+import work.art1st.mineRails.core.api.physics.rail.RailObject
+import work.art1st.mineRails.core.api.physics.rail.Reversible
+import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.api.physics.ReversibleRailObject
-import work.art1st.mineRails.core.api.util.SynchronizedObject
+import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.util.Destroyable
 import work.art1st.mineRails.core.util.WeakReferenceWrapper
 
@@ -11,14 +13,14 @@ import work.art1st.mineRails.core.util.WeakReferenceWrapper
  */
 open class TrainEnd(
     location: RailLocationWithFacing,
-    train: Train,
+    train: CoreTrain,
     val type: Type
-) : ReversibleRailObject, Destroyable, SynchronizedObject {
+) : RailObject, Reversible, Destroyable, Synchronizable {
     init {
         location.rail.addTrainEnd(this)
     }
 
-    val train: Train by WeakReferenceWrapper(train)
+    val train: CoreTrain by WeakReferenceWrapper(train)
 
     private var commitTask: Runnable? = null
     override var location: RailLocationWithFacing = location
@@ -36,8 +38,14 @@ open class TrainEnd(
         commitTask = null
     }
 
+    @MainThread
     override fun destroy() {
         location.rail.removeTrainEnd(this)
+    }
+
+    @MainThread
+    override fun reverse() {
+        location = location.reversed
     }
 
     enum class Type {

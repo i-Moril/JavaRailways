@@ -5,13 +5,14 @@ import work.art1st.mineRails.bukkit.render.chunk.RenderChunkManager
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 
-class BukkitWorld (
-    val renderChunkManager: RenderChunkManager
+class BukkitWorldData (
+    val renderChunkManager: RenderChunkManager,
+    val bukkitWorld: org.bukkit.World
 )
 
 @OptIn(ExtensionData::class)
-val World.bukkitWorld: BukkitWorld
+val World.bukkitWorldData: BukkitWorldData
     get() = getExtensionData(BukkitPlugin)
 
 val World.renderChunkManager: RenderChunkManager
-    get() = bukkitWorld.renderChunkManager
+    get() = bukkitWorldData.renderChunkManager

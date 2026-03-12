@@ -8,7 +8,7 @@ internal interface DynamicRenderableTrait<T> : ExtendableRenderableTrait<T>, Syn
      * 如果在该Tick内需要重新渲染则设置dirty，否则不会触发commitEvent
      */
     var dirty: Boolean
-    var lastState: RenderableStateSnapshot
+    override var lastState: RenderableStateSnapshot
 
     fun takeSnapshot(): RenderableStateSnapshot {
         return RenderableStateSnapshot(

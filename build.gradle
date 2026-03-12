@@ -18,6 +18,9 @@ dependencies {
     implementation(project(":Core"))
     implementation(project(":Basic"))
     implementation(project(":BukkitPlugin"))
+    compileOnly("org.jetbrains:annotations:26.0.2")
+    compileOnly(platform("io.insert-koin:koin-bom:4.1.1"))
+    compileOnly("io.insert-koin:koin-core:4.1.1")
 }
 
 def targetJavaVersion = 17

@@ -7,14 +7,14 @@ import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.core.api.physics.World
 
-// TODO: 展示实体特判
-open class EntityModel internal constructor(
+abstract class EntityModel internal constructor(
     world: World,
     state: ModelState,
-    attachedModels: Collection<EntityModel>,
+    attachedModels: Collection<AbstractModel>,
     animation: Map<String, Animation>,
-    private var entity: Entity? = null
+    protected open var entity: Entity? = null
 ) : AbstractModel(world, state, attachedModels, animation) {
+    abstract fun spawnEntity()
 
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity)

@@ -1,10 +1,7 @@
 package work.art1st.mineRails.core.physics.train
 
-import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import org.joml.*
-import org.koin.core.qualifier.StringQualifier
-import org.koin.core.scope.Scope
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
@@ -21,9 +18,8 @@ import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
-import work.art1st.mineRails.core.util.Loads
-import work.art1st.mineRails.core.util.PersistentBy
-import java.util.function.Supplier
+import work.art1st.mineRails.core.api.util.persistence.Loads
+import work.art1st.mineRails.core.api.util.persistence.PersistentBy
 
 typealias CarConfig = CoreCar.ConfigV1
 typealias SavedCar = CoreCar.SavedCarV1
@@ -169,7 +165,7 @@ class CoreCar @MainThread internal constructor(
     @Throws(BogieException::class)
     fun updateByHeadBogie(headBogieNewLocation: RailLocationWithFacing) {
         val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) = calculatePositionByHeadBogie(headBogieNewLocation)
-        tailBogie.setLocation(tailBogieLocation)
+        tailBogie.updateLocation(tailBogieLocation)
         this.position = carPosition
         this.direction = if (isReversed) -tailToHeadDirection else tailToHeadDirection
         this.normal = (bogieA.normal + bogieB.normal) * 0.5     // Approx
@@ -198,8 +194,8 @@ class CoreCar @MainThread internal constructor(
             calculatePositionByHeadBogie(prevCar.tailBogie.activeLocation)
         }
         val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) = intermediateResult
-        headBogie.setLocation(headBogieLocation)
-        tailBogie.setLocation(tailBogieLocation)
+        headBogie.updateLocation(headBogieLocation)
+        tailBogie.updateLocation(tailBogieLocation)
         this.position = carPosition
         this.direction = if (isReversed) -tailToHeadDirection else tailToHeadDirection
         val normal = bogieA.normal + bogieB.normal          // Approx
@@ -299,8 +295,8 @@ class CoreCar @MainThread internal constructor(
         }
         return SavedCar(
             id,
-            bogieA,
-            bogieB,
+            bogieA.save(),
+            bogieB.save(),
             CarConfig(
                 length,
                 floorHeight,
@@ -318,13 +314,18 @@ class CoreCar @MainThread internal constructor(
     @Serializable
     data class SavedCarV1(
         val id: String,
-        @Contextual val bogieA: CoreBogie,
-        @Contextual val bogieB: CoreBogie,
+        val bogieA: SavedBogie,
+        val bogieB: SavedBogie,
         val config: CarConfig
-    ) : Loads<CoreCar> {
-        override fun load(dependencyProvider: Scope): CoreCar {
-            val world = dependencyProvider.get<CoreWorld>()
-            return config.buildCar(id, world, bogieA, bogieB)
+    ) : Loads<CoreCar, SavedCarV1.Dependency> {
+        data class Dependency(
+            val world: CoreWorld,
+        )
+
+        override fun load(dependency: Dependency): CoreCar {
+            val bogieA = bogieA.load(Unit)
+            val bogieB = bogieB.load(Unit)
+            return config.buildCar(id, dependency.world, bogieA, bogieB)
         }
 
     }
@@ -340,7 +341,15 @@ class CoreCar @MainThread internal constructor(
         val connectorLengthAtA: Double,
         val connectorLengthAtB: Double,
         val extension: Map<String, SerializableExtensionData>
-    ) : Loads<CoreCar> {
+    ) : Loads<CoreCar, ConfigV1.Dependency> {
+        data class Dependency(
+            val carId: String,
+            val world: CoreWorld,
+            val trainFactory: TrainFactory,
+            val bogieALocation: RailLocationWithFacing,
+            val bogieBLocation: RailLocationWithFacing
+        )
+
         internal fun buildCar(id: String, world: CoreWorld, bogieA: CoreBogie, bogieB: CoreBogie) : CoreCar {
             /*
              初始化时， 令所有bogie处于同一位置
@@ -364,28 +373,24 @@ class CoreCar @MainThread internal constructor(
             )
         }
 
-        override fun load(dependencyProvider: Scope): CoreCar {
+        override fun load(dependency: Dependency): CoreCar {
             if (bogieAType == null || bogieBType == null) {
                 throw CannotCreateTrainException()
             }
-            val carIdIterator = dependencyProvider.get<Supplier<String>>(StringQualifier("car_id"))
-            val trainFactory = dependencyProvider.get<TrainFactory>()
-            val bogieALocation = dependencyProvider.get<RailLocationWithFacing>(StringQualifier("default_loc"))
-            val bogieBLocation = dependencyProvider.get<RailLocationWithFacing>(StringQualifier("default_loc"))
-            val bogieAConfig = trainFactory.getBogieConfig(bogieAType)
-            val bogieBConfig = trainFactory.getBogieConfig(bogieAType)
+            val bogieAConfig = dependency.trainFactory.getBogieConfig(bogieAType)
+            val bogieBConfig = dependency.trainFactory.getBogieConfig(bogieAType)
             if (bogieAConfig == null || bogieBConfig == null) {
                 throw CannotCreateTrainException()
             }
             val bogieA = CoreBogie(
-                location = bogieALocation,
+                location = dependency.bogieALocation,
                 savedExtensionData = bogieAConfig.extension
             )
             val bogieB = CoreBogie(
-                location = bogieBLocation,
+                location = dependency.bogieBLocation,
                 savedExtensionData = bogieAConfig.extension
             )
-            return buildCar(carIdIterator.get(), dependencyProvider.get(), bogieA, bogieB)
+            return buildCar(dependency.carId, dependency.world, bogieA, bogieB)
         }
 
     }

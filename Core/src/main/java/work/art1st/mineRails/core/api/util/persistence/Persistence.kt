@@ -1,23 +1,23 @@
-package work.art1st.mineRails.core.util
+package work.art1st.mineRails.core.api.util.persistence
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.modules.SerializersModuleBuilder
-import org.koin.core.scope.Scope
+import kotlin.reflect.KClass
 
-interface PersistentBy<Serializable> {
+interface PersistentBy<out Serializable> {
     fun save() : Serializable
 }
 
-interface Loads<Data> {
-    fun load(dependencyProvider: Scope) : Data
+interface Loads<out Data, Dependency> {
+    fun load(dependency: Dependency) : Data
 }
 
-class DelegateSerializer<T : PersistentBy<S>, S : Loads<T>>(
+class DelegateSerializer<T : PersistentBy<S>, S : Loads<T, D>, D>(
     private val surrogateSerializer: KSerializer<S>,
-    private val dependencyProvider: Scope
+    private val dependency: D
 ) : KSerializer<T> {
     override val descriptor: SerialDescriptor = surrogateSerializer.descriptor
 
@@ -27,14 +27,14 @@ class DelegateSerializer<T : PersistentBy<S>, S : Loads<T>>(
 
     override fun deserialize(decoder: Decoder): T {
         val surrogate = decoder.decodeSerializableValue(surrogateSerializer)
-        return surrogate.load(dependencyProvider)
+        return surrogate.load(dependency)
     }
 }
 
-fun <T : PersistentBy<S>, S : Loads<T>> SerializersModuleBuilder.registerDependencyEntity(
-    kClass: kotlin.reflect.KClass<T>,
+fun <T : PersistentBy<S>, S : Loads<T, D>, D> SerializersModuleBuilder.registerDependencyEntity(
+    kClass: KClass<T>,
     surrogateSerializer: KSerializer<S>,
-    dependency: Scope
+    dependency: D
 ) {
     contextual(kClass, DelegateSerializer(surrogateSerializer, dependency))
 }

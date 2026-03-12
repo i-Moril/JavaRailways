@@ -9,7 +9,7 @@ import work.art1st.mineRails.core.api.util.annotation.MainThread
 class DisplayModel internal constructor(
     world: World,
     state: ModelState,
-    attachedModels: Collection<EntityModel>,
+    attachedModels: Collection<AbstractModel>,
     animation: Map<String, Animation>,
     private val entity: Display
 ) : AbstractModel(world, state, attachedModels, animation) {

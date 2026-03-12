@@ -2,8 +2,6 @@ package work.art1st.mineRails.core.physics.train
 
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
-import org.koin.core.qualifier.StringQualifier
-import org.koin.core.scope.Scope
 import work.art1st.mineRails.core.control.train.TrainController
 import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.DerailEvent
@@ -18,17 +16,15 @@ import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainExtension
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.Extendable
-import work.art1st.mineRails.core.api.util.plugin.Extension
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
-import work.art1st.mineRails.core.api.util.plugin.Plugin
 import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.util.Loads
-import work.art1st.mineRails.core.util.PersistentBy
+import work.art1st.mineRails.core.api.util.persistence.Loads
+import work.art1st.mineRails.core.api.util.persistence.PersistentBy
 import work.art1st.mineRails.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
@@ -153,7 +149,7 @@ open class CoreTrain @MainThread private constructor(
         clearDerailed()
         // 正面面朝此location
         if (isReversed) reverse()
-        headBogie.setLocation(headLocation.forward(-headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this))
+        headBogie.updateLocation(headLocation.forward(-headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this))
         updateAfterHeadBogie()
     }
 
@@ -293,21 +289,27 @@ open class CoreTrain @MainThread private constructor(
         val id: String,
         @Contextual val cars: List<CoreCar>,
         val extension: Map<String, SerializableExtensionData>
-    ) : Loads<CoreTrain> {
-        override fun load(dependencyProvider: Scope): CoreTrain {
-            return CoreTrain(id, cars, dependencyProvider.get(), dependencyProvider.get(StringQualifier("train_ext")))
+    ) : Loads<CoreTrain, SavedTrainV1.Dependency> {
+        data class Dependency(val world: CoreWorld)
+        override fun load(dependency: Dependency): CoreTrain {
+            return CoreTrain(id, cars, dependency.world, extension)
         }
     }
 
     data class ConfigV1(
         val cars: List<String>,
         val extension: Map<String, SerializableExtensionData>
-    ) : Loads<CoreTrain> {
+    ) : Loads<CoreTrain, ConfigV1.Dependency> {
+        data class Dependency(
+            val trainId: String,
+            val world: CoreWorld,
+            val trainFactory: TrainFactory,
+            val location: RailLocationWithFacing
+        )
+
         @kotlin.jvm.Throws(CannotCreateTrainException::class)
-        override fun load(dependencyProvider: Scope) : CoreTrain {
-            val trainId = dependencyProvider.get<String>(StringQualifier("train_id"))
-            val factory = dependencyProvider.get<TrainFactory>()
-            val carDependencies = dependencyProvider.getScope(trainId)
+        override fun load(dependency: Dependency) : CoreTrain {
+            val trainId = dependency.trainId
             val carIdGenerator = object : Supplier<String> {
                 var carNum = 0
                 override fun get(): String {
@@ -318,12 +320,15 @@ open class CoreTrain @MainThread private constructor(
                     carNum++
                 }
             }
-            carDependencies.declare(carIdGenerator)
             val coreCars = cars.map {
-                carIdGenerator.next()
-                factory.getCarConfig(it)?.load(dependencyProvider) ?: throw CannotCreateTrainException()
+                // 先放在默认位置，之后再调整
+                val dependency = CoreCar.ConfigV1.Dependency(
+                    carIdGenerator.get(), dependency.world, dependency.trainFactory,
+                    dependency.location, dependency.location
+                )
+                dependency.trainFactory.getCarConfig(it)?.load(dependency)?: throw CannotCreateTrainException()
             }
-            return CoreTrain(trainId, coreCars, dependencyProvider.get(), dependencyProvider.get(StringQualifier("train_ext")))
+            return CoreTrain(trainId, coreCars, world = dependency.world, extension)
         }
     }
 

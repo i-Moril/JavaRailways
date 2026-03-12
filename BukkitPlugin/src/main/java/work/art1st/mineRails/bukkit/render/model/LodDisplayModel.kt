@@ -16,11 +16,11 @@ import work.art1st.mineRails.core.api.physics.World
 class LodDisplayModel internal constructor(
     world: World,
     state: ModelState,
-    attachedModels: Collection<EntityModel>,
+    attachedModels: Collection<AbstractModel>,
     animation: Map<String, Animation>,
     private val loEntity: Display?,
     private val hiEntity: Display?
-) : EntityModel(world, state, attachedModels, animation) {
+) : AbstractModel(world, state, attachedModels, animation) {
     init {
         loEntity?.isPersistent = false
         hiEntity?.isPersistent = false

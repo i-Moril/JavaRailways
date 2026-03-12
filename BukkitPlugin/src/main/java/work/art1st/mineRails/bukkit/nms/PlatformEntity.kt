@@ -1,10 +1,12 @@
 package work.art1st.mineRails.bukkit.nms
 
 import net.minecraft.world.entity.EntityType
-import net.minecraft.world.entity.monster.Ghast
+import net.minecraft.world.entity.animal.HappyGhast
 import net.minecraft.world.level.Level
+import org.bukkit.Location
+import org.bukkit.craftbukkit.CraftWorld
 
-abstract class PlatformEntity(type: EntityType<out Ghast>, world: Level) : Ghast(type, world) {
+class PlatformEntity private constructor(type: EntityType<out HappyGhast>, world: Level) : HappyGhast(type, world) {
     init {
         isInvisible = true
         isSilent = true
@@ -17,5 +19,19 @@ abstract class PlatformEntity(type: EntityType<out Ghast>, world: Level) : Ghast
 
     override fun registerGoals() {
         // Don't goal
+    }
+
+    companion object {
+        fun spawn(location: Location) : org.bukkit.entity.HappyGhast {
+            val level = (location.world as CraftWorld).handle
+            val nmsEntity = PlatformEntity(EntityType.HAPPY_GHAST, level)
+            nmsEntity.absSnapTo(location.x, location.y, location.z, location.yaw, location.pitch)
+            val bukkitEntity = nmsEntity.bukkitEntity as org.bukkit.entity.HappyGhast
+            bukkitEntity.isInvisible = true
+            bukkitEntity.isSilent = true
+            bukkitEntity.isPersistent = false
+            location.world.addEntity(bukkitEntity)
+            return bukkitEntity
+        }
     }
 }

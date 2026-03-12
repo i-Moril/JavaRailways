@@ -20,11 +20,15 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.20.1-R0.1-SNAPSHOT")
-    paperweight.paperDevBundle("1.20.1-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:1.21.10-R0.1-SNAPSHOT")
+    paperweight.paperDevBundle("1.21.10-R0.1-SNAPSHOT")
     compileOnly("com.github.retrooper:packetevents-spigot:2.11.1")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("io.github.tofaa2:spigot:3.0.3-SNAPSHOT")
+    implementation("net.jcip:jcip-annotations:1.0")
+    implementation(platform("io.insert-koin:koin-bom:4.1.1"))
+    implementation("io.insert-koin:koin-core:4.1.1")
     implementation(project(":Core"))
     implementation(project(":Basic"))
 }

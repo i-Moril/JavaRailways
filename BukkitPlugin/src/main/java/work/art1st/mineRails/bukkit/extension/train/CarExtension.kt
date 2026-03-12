@@ -1,9 +1,14 @@
 package work.art1st.mineRails.bukkit.extension.train
 
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
-import work.art1st.mineRails.core.physics.train.CoreCar
+import work.art1st.mineRails.core.api.physics.train.Car
+import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 
-class CarExtension : TrainComponentExtension<CoreCar>() {
+class CarExtension : TrainComponentExtension<Car>() {
+    override fun save(): Pair<String, SerializableExtensionData>? {
+        TODO("Not yet implemented")
+    }
+
     /**
      * 由car负责更新bogie
      */

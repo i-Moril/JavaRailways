@@ -18,8 +18,8 @@ import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.util.CommitBuffer
-import work.art1st.mineRails.core.util.Loads
-import work.art1st.mineRails.core.util.PersistentBy
+import work.art1st.mineRails.core.api.util.persistence.Loads
+import work.art1st.mineRails.core.api.util.persistence.PersistentBy
 
 typealias BogieConfig = CoreBogie.ConfigV1
 typealias SavedBogie = CoreBogie.SavedBogieV1
@@ -36,7 +36,7 @@ class CoreBogie @MainThread internal constructor(
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Bogie>> = ExtensionDataContainer()
 ) : Bogie, DynamicRenderableTrait<Bogie>, Reversible, Extendable<RenderableExtension<Bogie>> by extensionDataContainer, PersistentBy<SavedBogie> {
     private val _location = CommitBuffer(location)
-    final override var location: RailLocationWithFacing by _location
+    override var location: RailLocationWithFacing by _location
         private set
     internal val activeLocation
         get() = _location.getActive()
@@ -66,7 +66,7 @@ class CoreBogie @MainThread internal constructor(
 
     @Throws(BogieException::class)
     override fun moveForward(distance: Double) {
-        setLocation(location.forward(distance) ?: throw BogieException(this))
+        updateLocation(location.forward(distance) ?: throw BogieException(this))
     }
 
     override fun commit() {
@@ -77,7 +77,7 @@ class CoreBogie @MainThread internal constructor(
         }
     }
 
-    fun setLocation(location: RailLocationWithFacing) {
+    fun updateLocation(location: RailLocationWithFacing) {
         this.location = location
         dirty = true
     }
@@ -101,8 +101,8 @@ class CoreBogie @MainThread internal constructor(
         @Contextual val location: RailLocationWithFacing,
         val isSameDirectionAsFacing: Boolean,
         val extension: Map<String, SerializableExtensionData>
-    ) : Loads<CoreBogie> {
-        override fun load(dependencyProvider: Scope): CoreBogie {
+    ) : Loads<CoreBogie, Unit> {
+        override fun load(dependency: Unit): CoreBogie {
             return CoreBogie(location, isSameDirectionAsFacing, extension)
         }
     }

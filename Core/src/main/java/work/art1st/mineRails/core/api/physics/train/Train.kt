@@ -7,5 +7,5 @@ import work.art1st.mineRails.core.physics.train.CoreCar
 
 interface Train : WorldElement, Extendable<TrainExtension> {
     val id: String
-    val cars: List<CoreCar>
+    val cars: List<Car>
 }

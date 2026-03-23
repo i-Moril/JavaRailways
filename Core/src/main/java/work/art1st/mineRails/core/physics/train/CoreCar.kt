@@ -1,13 +1,11 @@
 package work.art1st.mineRails.core.physics.train
 
-import kotlinx.serialization.Serializable
 import org.joml.*
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException
 import work.art1st.mineRails.core.api.physics.rail.Reversible
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.RenderableExtension
@@ -18,11 +16,7 @@ import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
-import work.art1st.mineRails.core.api.util.persistence.Loads
 import work.art1st.mineRails.core.api.util.persistence.PersistentBy
-
-typealias CarConfig = CoreCar.ConfigV1
-typealias SavedCar = CoreCar.SavedCarV1
 
 /**
  * 车厢类
@@ -44,7 +38,7 @@ class CoreCar @MainThread internal constructor(
     override val world: CoreWorld,
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Car>> = ExtensionDataContainer()
-) : Car, Synchronizable, Reversible, DynamicRenderableTrait<Car>, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCar> {
+) : Car, Synchronizable, Reversible, DynamicRenderableTrait<Car>, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCarV1> {
     data class MotionState(
         var tangentialVelocity: Vector3dc,
         var angularVelocity: Vector3dc,
@@ -288,16 +282,16 @@ class CoreCar @MainThread internal constructor(
         return (this - normal * (normal dot this)).normalize()
     }
 
-    override fun save(): SavedCar {
+    override fun save(): SavedCarV1 {
         val savedExtension = HashMap<String, SerializableExtensionData>()
         extensionDataContainer.extensionData.forEach { ext ->
             ext?.save()?.let { savedExtension[it.first] = it.second }
         }
-        return SavedCar(
+        return SavedCarV1(
             id,
             bogieA.save(),
             bogieB.save(),
-            CarConfig(
+            CarConfigV1(
                 length,
                 floorHeight,
                 null,
@@ -309,90 +303,6 @@ class CoreCar @MainThread internal constructor(
                 savedExtension
             )
         )
-    }
-
-    @Serializable
-    data class SavedCarV1(
-        val id: String,
-        val bogieA: SavedBogie,
-        val bogieB: SavedBogie,
-        val config: CarConfig
-    ) : Loads<CoreCar, SavedCarV1.Dependency> {
-        data class Dependency(
-            val world: CoreWorld,
-        )
-
-        override fun load(dependency: Dependency): CoreCar {
-            val bogieA = bogieA.load(Unit)
-            val bogieB = bogieB.load(Unit)
-            return config.buildCar(id, dependency.world, bogieA, bogieB)
-        }
-
-    }
-
-    @Serializable
-    data class ConfigV1(
-        val length: Double,
-        val floorHeight: Double,
-        val bogieAType: String?,
-        val bogieAOffset: Double,
-        val bogieBType: String?,
-        val bogieBOffset: Double,
-        val connectorLengthAtA: Double,
-        val connectorLengthAtB: Double,
-        val extension: Map<String, SerializableExtensionData>
-    ) : Loads<CoreCar, ConfigV1.Dependency> {
-        data class Dependency(
-            val carId: String,
-            val world: CoreWorld,
-            val trainFactory: TrainFactory,
-            val bogieALocation: RailLocationWithFacing,
-            val bogieBLocation: RailLocationWithFacing
-        )
-
-        internal fun buildCar(id: String, world: CoreWorld, bogieA: CoreBogie, bogieB: CoreBogie) : CoreCar {
-            /*
-             初始化时， 令所有bogie处于同一位置
-             */
-            return CoreCar(
-                id = id,
-                bogies = listOf(
-                    bogieA,
-                    bogieB
-                ),
-                bogiesOffsets = listOf(
-                    bogieAOffset,
-                    bogieBOffset,
-                ),
-                length = length,
-                floorHeight = floorHeight,
-                connectorLengthAtA = connectorLengthAtA,
-                connectorLengthAtB = connectorLengthAtB,
-                world = world,
-                savedExtensionData = extension
-            )
-        }
-
-        override fun load(dependency: Dependency): CoreCar {
-            if (bogieAType == null || bogieBType == null) {
-                throw CannotCreateTrainException()
-            }
-            val bogieAConfig = dependency.trainFactory.getBogieConfig(bogieAType)
-            val bogieBConfig = dependency.trainFactory.getBogieConfig(bogieAType)
-            if (bogieAConfig == null || bogieBConfig == null) {
-                throw CannotCreateTrainException()
-            }
-            val bogieA = CoreBogie(
-                location = dependency.bogieALocation,
-                savedExtensionData = bogieAConfig.extension
-            )
-            val bogieB = CoreBogie(
-                location = dependency.bogieBLocation,
-                savedExtensionData = bogieAConfig.extension
-            )
-            return buildCar(dependency.carId, dependency.world, bogieA, bogieB)
-        }
-
     }
 //
 //    @Serializable

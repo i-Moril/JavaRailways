@@ -20,6 +20,8 @@ import work.art1st.mineRails.core.api.physics.rail.Rail
 import work.art1st.mineRails.core.api.render.RenderableExtension
 import work.art1st.mineRails.core.api.util.annotation.Concurrent
 import work.art1st.mineRails.core.api.util.annotation.MainThread
+import work.art1st.mineRails.core.api.util.persistence.Loads
+import work.art1st.mineRails.core.api.util.persistence.PersistentBy
 import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import java.util.UUID
@@ -29,7 +31,6 @@ import kotlin.jvm.Throws
 /**
  * 正方向：endPointA -> endpointB
  */
-@Serializable(CoreRail.Serializer::class)
 class CoreRail @MainThread private constructor(
     override val id: UUID,
     override val world: CoreWorld,
@@ -39,9 +40,10 @@ class CoreRail @MainThread private constructor(
     activeTrackAtA: RailView? = null,
     activeTrackAtB: RailView? = null,
     val signals: MutableCollection<Signal> = mutableSetOf(),
+    // trains is maintained only on runtime
     val trains: ConcurrentLinkedQueue<TrainEnd> = ConcurrentLinkedQueue(),
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Rail>> = ExtensionDataContainer()
-) : Rail, Extendable<RenderableExtension<Rail>> by extensionDataContainer {
+) : Rail, Extendable<RenderableExtension<Rail>> by extensionDataContainer, PersistentBy<CoreRail.SavedRailV1> {
     val viewAB: RailView = RailView(
         this,
         RailView.ViewDirection.AB,
@@ -98,20 +100,68 @@ class CoreRail @MainThread private constructor(
 
     override fun canDestroy(): Boolean = trains.isEmpty()
 
-    fun save(): JsonElement {
-        return Json.encodeToJsonElement(SavedRail(id.toString(), signals, viewAB.curve))
-    }
-
     override fun destroy() {
         signals.forEach { s -> s.destroy() }
     }
 
+    override fun save(): SavedRailV1 {
+        return SavedRailV1(
+            id.toString(),
+            viewAB.curve,
+            viewAB.nextRails.map { it.rail.id.toString() },
+            viewBA.nextRails.map { it.rail.id.toString() },
+            viewAB.nextActiveRail?.rail?.id?.toString(),
+            viewBA.nextActiveRail?.rail?.id?.toString()
+        )
+    }
+
     @Serializable
-    protected data class SavedRail(
+    data class SavedRailV1(
         val id: String,
-        val signals: MutableCollection<Signal>,
-        val curveAB: Curve,
-    )
+        val curveAB: PrimeCurve,
+        val nextRailAtA: List<String>,
+        val nextRailAtB: List<String>,
+        val activeTrackAtA: String?,
+        val activeTrackAtB: String?
+    ) : Loads<CoreRail, SavedRailV1.Dependency> {
+        override fun load(dependency: Dependency): CoreRail {
+            return CoreRail(
+                UUID.fromString(id),
+                dependency.world,
+                curveAB,
+                nextRailAtA.map {
+                    getDirection(curveAB.getPointAt(0),
+                        dependency.world.getRail(UUID.fromString(it))!!)
+                },
+                nextRailAtB.map {
+                    getDirection(curveAB.getPointAt(curveAB.totalPoints - 1),
+                        dependency.world.getRail(UUID.fromString(it))!!)
+                },
+                activeTrackAtA?.let {
+                    if (!nextRailAtA.contains(it)) throw CannotConnectRailException()
+                    getDirection(curveAB.getPointAt(0),
+                        dependency.world.getRail(UUID.fromString(it))!!)
+                },
+                activeTrackAtB?.let {
+                    if (!nextRailAtA.contains(it)) throw CannotConnectRailException()
+                    getDirection(curveAB.getPointAt(curveAB.totalPoints - 1),
+                        dependency.world.getRail(UUID.fromString(it))!!)
+                }
+            )
+        }
+
+        // 获取在端点处连接的RailView
+        fun getDirection(point: Curve.Point, nextRail: CoreRail) : RailView {
+            val distA = nextRail.viewAB.startPoint.position.distance(point.position)
+            val distB = nextRail.viewAB.endPoint.position.distance(point.position)
+            if (distA < distB) return nextRail.viewAB
+            return nextRail.viewBA
+        }
+
+        data class Dependency(
+            val world: CoreWorld
+        )
+    }
 
     companion object {
         fun isSamePoint(pointA: Vector3dc, pointB: Vector3dc): Boolean {
@@ -137,20 +187,6 @@ class CoreRail @MainThread private constructor(
                 2 -> RailView.connect(rail1.viewAB, rail2.viewBA)
                 3 -> RailView.connect(rail1.viewAB, rail2.viewAB)
             }
-        }
-    }
-
-    object Serializer : KSerializer<CoreRail> {
-        override val descriptor: SerialDescriptor
-            get() = TODO("Not yet implemented")
-
-        override fun serialize(encoder: Encoder, value: CoreRail) {
-            encoder.encodeSerializableValue(SavedRail.serializer(),
-                SavedRail(value.id.toString(), value.signals, value.viewAB.curve))
-        }
-
-        override fun deserialize(decoder: Decoder): CoreRail {
-            TODO("Not yet implemented")
         }
     }
 }

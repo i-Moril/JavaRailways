@@ -10,6 +10,7 @@ import work.art1st.mineRails.core.util.WeakReferenceWrapper
 
 /**
  * 车辆端部
+ * 自动添加到Rail
  */
 open class TrainEnd(
     location: RailLocationWithFacing,

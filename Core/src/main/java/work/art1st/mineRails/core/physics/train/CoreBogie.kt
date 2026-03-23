@@ -1,11 +1,8 @@
 package work.art1st.mineRails.core.physics.train
 
-import kotlinx.serialization.Contextual
-import kotlinx.serialization.Serializable
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.joml.unaryMinus
-import org.koin.core.scope.Scope
 import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.api.physics.rail.Reversible
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
@@ -18,11 +15,7 @@ import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.util.CommitBuffer
-import work.art1st.mineRails.core.api.util.persistence.Loads
 import work.art1st.mineRails.core.api.util.persistence.PersistentBy
-
-typealias BogieConfig = CoreBogie.ConfigV1
-typealias SavedBogie = CoreBogie.SavedBogieV1
 
 /**
  * 转向架类
@@ -34,7 +27,7 @@ class CoreBogie @MainThread internal constructor(
     private var isSameDirectionAsFacing: Boolean = true,
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Bogie>> = ExtensionDataContainer()
-) : Bogie, DynamicRenderableTrait<Bogie>, Reversible, Extendable<RenderableExtension<Bogie>> by extensionDataContainer, PersistentBy<SavedBogie> {
+) : Bogie, DynamicRenderableTrait<Bogie>, Reversible, Extendable<RenderableExtension<Bogie>> by extensionDataContainer, PersistentBy<SavedBogieV1> {
     private val _location = CommitBuffer(location)
     override var location: RailLocationWithFacing by _location
         private set
@@ -88,29 +81,12 @@ class CoreBogie @MainThread internal constructor(
         location = location.reversed
     }
 
-    override fun save(): SavedBogie {
+    override fun save(): SavedBogieV1 {
         val savedExtension = HashMap<String, SerializableExtensionData>()
         extensionDataContainer.extensionData.forEach { ext ->
             ext?.save()?.let { savedExtension[it.first] = it.second }
         }
-        return SavedBogie(location, isSameDirectionAsFacing, savedExtension)
-    }
-
-    @Serializable
-    data class SavedBogieV1(
-        @Contextual val location: RailLocationWithFacing,
-        val isSameDirectionAsFacing: Boolean,
-        val extension: Map<String, SerializableExtensionData>
-    ) : Loads<CoreBogie, Unit> {
-        override fun load(dependency: Unit): CoreBogie {
-            return CoreBogie(location, isSameDirectionAsFacing, extension)
-        }
-    }
-
-    @Serializable
-    data class ConfigV1(
-        val extension: Map<String, SerializableExtensionData>
-    ) {
+        return SavedBogieV1(location, isSameDirectionAsFacing, savedExtension)
     }
 }
 

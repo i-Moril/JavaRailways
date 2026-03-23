@@ -1,7 +1,5 @@
 package work.art1st.mineRails.core.physics.train
 
-import kotlinx.serialization.Contextual
-import kotlinx.serialization.Serializable
 import work.art1st.mineRails.core.control.train.TrainController
 import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.DerailEvent
@@ -23,27 +21,22 @@ import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.api.util.persistence.Loads
 import work.art1st.mineRails.core.api.util.persistence.PersistentBy
 import work.art1st.mineRails.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.function.Supplier
-
-typealias TrainConfig = CoreTrain.ConfigV1
-typealias SavedTrain = CoreTrain.SavedTrainV1
 
 /**
  * 列车类
  * 由若干节车厢组成，车厢之间头尾相连
  */
-open class CoreTrain @MainThread private constructor(
+open class CoreTrain @MainThread internal constructor(
     override val id: String,
     cars: List<CoreCar>,
     override val world: CoreWorld,
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<TrainExtension> = ExtensionDataContainer(),
-) : Train, TrainComponentTrait<Train, TrainExtension>, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrain> {
+) : Train, TrainComponentTrait<Train, TrainExtension>, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
     var controller: TrainController? = null
     override var cars: List<CoreCar> = cars
         protected set
@@ -276,61 +269,15 @@ open class CoreTrain @MainThread private constructor(
         }
     }
 
-    override fun save(): SavedTrain {
+    override fun save(): SavedTrainV1 {
         val savedExtension = HashMap<String, SerializableExtensionData>()
         extensionDataContainer.extensionData.forEach { ext ->
             ext?.save()?.let { savedExtension[it.first] = it.second }
         }
-        return SavedTrain(id, cars, savedExtension)
+        return SavedTrainV1(id, cars.map { it.save() }, savedExtension)
     }
 
-    @Serializable
-    data class SavedTrainV1(
-        val id: String,
-        @Contextual val cars: List<CoreCar>,
-        val extension: Map<String, SerializableExtensionData>
-    ) : Loads<CoreTrain, SavedTrainV1.Dependency> {
-        data class Dependency(val world: CoreWorld)
-        override fun load(dependency: Dependency): CoreTrain {
-            return CoreTrain(id, cars, dependency.world, extension)
-        }
-    }
 
-    data class ConfigV1(
-        val cars: List<String>,
-        val extension: Map<String, SerializableExtensionData>
-    ) : Loads<CoreTrain, ConfigV1.Dependency> {
-        data class Dependency(
-            val trainId: String,
-            val world: CoreWorld,
-            val trainFactory: TrainFactory,
-            val location: RailLocationWithFacing
-        )
-
-        @kotlin.jvm.Throws(CannotCreateTrainException::class)
-        override fun load(dependency: Dependency) : CoreTrain {
-            val trainId = dependency.trainId
-            val carIdGenerator = object : Supplier<String> {
-                var carNum = 0
-                override fun get(): String {
-                    return "$trainId-$carNum"
-                }
-
-                fun next() {
-                    carNum++
-                }
-            }
-            val coreCars = cars.map {
-                // 先放在默认位置，之后再调整
-                val dependency = CoreCar.ConfigV1.Dependency(
-                    carIdGenerator.get(), dependency.world, dependency.trainFactory,
-                    dependency.location, dependency.location
-                )
-                dependency.trainFactory.getCarConfig(it)?.load(dependency)?: throw CannotCreateTrainException()
-            }
-            return CoreTrain(trainId, coreCars, world = dependency.world, extension)
-        }
-    }
 
 }
 

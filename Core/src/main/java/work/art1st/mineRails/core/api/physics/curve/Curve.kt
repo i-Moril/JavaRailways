@@ -12,7 +12,6 @@ interface Curve {
     /**
      * 曲线上的点，每个点包含位置、切线方向和法线方向
      */
-    @JvmRecord
     data class Point(
         val position: Vector3dc,
         val tangent: Vector3dc,

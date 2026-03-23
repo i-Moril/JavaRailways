@@ -9,11 +9,13 @@ import org.joml.Vector3d
 import org.koin.core.scope.Scope
 import work.art1st.mineRails.bukkit.extension.bukkitLocation
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
+import work.art1st.mineRails.bukkit.nms.PlatformEntity
 import work.art1st.mineRails.bukkit.render.model.AbstractModel
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.bukkit.render.model.DisplayModel
 import work.art1st.mineRails.bukkit.render.model.EntityModel
+import work.art1st.mineRails.bukkit.render.model.LodDisplayModel
 import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
 import work.art1st.mineRails.core.api.physics.World
@@ -80,14 +82,46 @@ class DisplayModelConfigV1(
 }
 
 @Serializable
-class PlatformModelConfigV1(
+class LodDisplayModelConfigV1(
+    val loItem: ItemStackConfig,
+    val hiItem: ItemStackConfig,
+    val animations: Map<String, AnimationConfig>
+) : ModelConfigV1<LodDisplayModel>() {
+    override fun load(dependency: Renderable): LodDisplayModel {
+        val world = dependency.world
+        val bukkitWorld = world.bukkitWorldData.bukkitWorld
+        val bukkitEntityLo = bukkitWorld.spawn(
+            dependency.bukkitLocation,
+            ItemDisplay::class.java
+        )
+        val bukkitEntityHi = bukkitWorld.spawn(
+            dependency.bukkitLocation,
+            ItemDisplay::class.java
+        )
+        bukkitEntityLo.setItemStack(loItem.load(Unit))
+        bukkitEntityHi.setItemStack(hiItem.load(Unit))
+        val model = LodDisplayModel(
+            world = world,
+            state = modelState,
+            attachedModels = attachedModels.map { it.load(dependency) },
+            animation = animations.mapValues { it.value.load(dependency) },
+            loEntity = bukkitEntityLo,
+            hiEntity = bukkitEntityHi
+        )
+        return model
+    }
+}
 
+@Serializable
+class PlatformModelConfigV1(
+    val animations: Map<String, AnimationConfig>
 ) : ModelConfigV1<PlatformModel>() {
     override fun load(dependency: Renderable): PlatformModel {
         val model = PlatformModel(
             world = dependency.world,
             state = modelState,
             attachedModels = attachedModels.map { it.load(dependency) },
+            animation = animations.mapValues { it.value.load(dependency) }
         )
         return model
     }

@@ -1,5 +1,6 @@
 package work.art1st.mineRails.core.physics.rail.curve
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import org.joml.Vector3d
 import org.joml.Vector3f
@@ -13,13 +14,16 @@ import java.util.stream.Stream
  * PrimeCurve should have curve length starting from 0.0
  */
 open class PrimeCurveImpl : PrimeCurve {
+    @Serializable
     private class InternalCurvePoint(
         val position: Vector3f,
         val tangent: Vector3f,
         val normal: Vector3f,
         val arcLength: Float,
         val idx: Int
-    )
+    ) {
+        
+    }
 
     private lateinit var pointList: List<InternalCurvePoint>
     override val totalArcLength: Double
@@ -65,6 +69,29 @@ open class PrimeCurveImpl : PrimeCurve {
             idx = it.idx,
             arcLength = it.arcLength.toDouble()
         ) }
+    }
+
+    override fun save(): PrimeCurve.SavedPrimeCurve {
+        return SavedPrimeCurveV1.build(this)
+    }
+
+    @ConsistentCopyVisibility
+    @Serializable
+    data class SavedPrimeCurveV1 private constructor(
+        private val pointList: List<InternalCurvePoint>
+    ) : PrimeCurve.SavedPrimeCurve {
+        override fun load(dependency: Unit): PrimeCurve {
+            return PrimeCurveImpl().apply {
+                pointList = this@SavedPrimeCurveV1.pointList
+            }
+        }
+
+        companion object {
+            fun build(curve: PrimeCurveImpl): SavedPrimeCurveV1 {
+                return SavedPrimeCurveV1(curve.pointList)
+            }
+        }
+
     }
 
 //    object PrimeCurveSerializer : KSerializer<PrimeCurveImpl> {

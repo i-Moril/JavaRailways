@@ -1,25 +1,26 @@
 package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import work.art1st.mineRails.core.di.mineRailsParentScope
+import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailView
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.train.CoreCar.ConfigV1
-import java.util.UUID
+import work.art1st.mineRails.core.util.TickManagerImpl
 import java.util.concurrent.Executors
 
 private val dummyAsset = object : Asset {}
 
 /**
- * 创建用于测试的 World：rails 可写，trains 可写，空 signals，单线程 scheduler。
+ * 创建用于测试的 World：空轨道/列车，单线程 TickManager，与运行时使用相同的 Koin 父 scope。
  */
 fun createTestWorld(): CoreWorld {
-    val rails = mutableMapOf<UUID, CoreRail>()
-    val trains = mutableMapOf<String, CoreTrain>()
-    val signals = mutableSetOf<work.art1st.mineRails.core.control.signal.Signal>()
+    ensureMineRailsKoinStarted()
     val scheduler = Executors.newSingleThreadScheduledExecutor()
-    return CoreWorld(rails, trains, signals, scheduler)
+    val tickManager = TickManagerImpl(scheduler, System.currentTimeMillis())
+    return CoreWorld.createEmpty(tickManager, mineRailsParentScope())
 }
 
 /**
@@ -29,7 +30,7 @@ fun createTestWorld(): CoreWorld {
 fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        CoreRail(world, curve, mutableListOf(), mutableListOf(), emptyList())
+        CoreRail(world, curve, mutableListOf(), mutableListOf())
     }
     for (i in rails.indices) {
         val nextView = if (i == rails.lastIndex) rails.first().viewAB else rails[i + 1].viewAB
@@ -45,7 +46,7 @@ fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): Co
 fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        CoreRail(world, curve, mutableListOf(), mutableListOf(), emptyList())
+        CoreRail(world, curve, mutableListOf(), mutableListOf())
     }
     //rails.forEach { world.addRail(it) }
     for (i in 0 until rails.lastIndex - 1) {

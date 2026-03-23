@@ -2,6 +2,15 @@ package work.art1st.mineRails.core.physics.rail.curve
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.descriptors.element
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.CompositeDecoder
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.encoding.decodeStructure
+import kotlinx.serialization.encoding.encodeStructure
 import org.joml.Vector3d
 import org.joml.Vector3f
 import work.art1st.mineRails.core.api.physics.curve.Curve
@@ -16,8 +25,11 @@ import java.util.stream.Stream
 open class PrimeCurveImpl : PrimeCurve {
     @Serializable
     private class InternalCurvePoint(
+        @Serializable(with = Vector3fSerializer::class)
         val position: Vector3f,
+        @Serializable(with = Vector3fSerializer::class)
         val tangent: Vector3f,
+        @Serializable(with = Vector3fSerializer::class)
         val normal: Vector3f,
         val arcLength: Float,
         val idx: Int
@@ -82,7 +94,7 @@ open class PrimeCurveImpl : PrimeCurve {
     ) : PrimeCurve.SavedPrimeCurve {
         override fun load(dependency: Unit): PrimeCurve {
             return PrimeCurveImpl().apply {
-                pointList = this@SavedPrimeCurveV1.pointList
+                this@apply.pointList = this@SavedPrimeCurveV1.pointList
             }
         }
 
@@ -173,4 +185,38 @@ open class PrimeCurveImpl : PrimeCurve {
 //            }
 //        }
 //    }
+}
+
+object Vector3fSerializer : KSerializer<Vector3f> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("Vector3f") {
+        element<Float>("x")
+        element<Float>("y")
+        element<Float>("z")
+    }
+
+    override fun serialize(encoder: Encoder, value: Vector3f) {
+        encoder.encodeStructure(descriptor) {
+            encodeFloatElement(descriptor, 0, value.x)
+            encodeFloatElement(descriptor, 1, value.y)
+            encodeFloatElement(descriptor, 2, value.z)
+        }
+    }
+
+    override fun deserialize(decoder: Decoder): Vector3f {
+        var x = 0.0f
+        var y = 0.0f
+        var z = 0.0f
+        decoder.decodeStructure(descriptor) {
+            while (true) {
+                when (val index = decodeElementIndex(descriptor)) {
+                    CompositeDecoder.DECODE_DONE -> break
+                    0 -> x = decodeFloatElement(descriptor, 0)
+                    1 -> y = decodeFloatElement(descriptor, 1)
+                    2 -> z = decodeFloatElement(descriptor, 2)
+                    else -> error("Unexpected index: $index")
+                }
+            }
+        }
+        return Vector3f(x, y, z)
+    }
 }

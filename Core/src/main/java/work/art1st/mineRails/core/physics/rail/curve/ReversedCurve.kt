@@ -27,4 +27,8 @@ class ReversedCurve(
     override fun stream(): Stream<Curve.Point> {
         return origCurve.stream()
     }
+
+    override fun save(): PrimeCurve.SavedPrimeCurve {
+        return origCurve.save()
+    }
 }

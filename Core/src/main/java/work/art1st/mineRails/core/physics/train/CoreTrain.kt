@@ -37,7 +37,9 @@ open class CoreTrain @MainThread internal constructor(
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<TrainExtension> = ExtensionDataContainer(),
 ) : Train, TrainComponentTrait<Train, TrainExtension>, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
-    var controller: TrainController? = null
+    private var _controller: TrainController? = null
+    val controller: TrainController?
+        get() = _controller
     override var cars: List<CoreCar> = cars
         protected set
     // 使用AtomicBoolean防止fire两遍Collision, 见下面fire
@@ -230,8 +232,8 @@ open class CoreTrain @MainThread internal constructor(
     open fun canLink(otherTrain: CoreTrain): Boolean = true
 
     fun setController(value: TrainController?) {
-        controller?.let { world.tickManager.unregister(it) }
-        controller = value
+        _controller?.let { world.tickManager.unregister(it) }
+        _controller = value
         value?.let { world.tickManager.register(it) }
     }
 

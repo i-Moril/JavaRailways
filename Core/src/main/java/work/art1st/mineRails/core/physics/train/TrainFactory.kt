@@ -1,6 +1,5 @@
 package work.art1st.mineRails.core.physics.train
 
-import org.koin.core.scope.Scope
 import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException
 
 class TrainFactory {
@@ -20,7 +19,7 @@ class TrainFactory {
         return trainPrototypes[trainType]
     }
 
-    internal fun build(trainType: String, dependencyProvider: Scope) : CoreTrain {
+    internal fun build(trainType: String, dependencyProvider: TrainBuildDependency) : CoreTrain {
         val trainConfig = getTrainConfig(trainType) ?: throw CannotCreateTrainException()
         return trainConfig.load(dependencyProvider)
     }

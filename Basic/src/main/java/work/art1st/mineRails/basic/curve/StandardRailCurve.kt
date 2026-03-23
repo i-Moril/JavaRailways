@@ -1,6 +1,7 @@
 package work.art1st.mineRails.basic.curve
 
-import work.art1st.mineRails.core.api.math.Vector3d
+import org.joml.Vector3d
+import org.joml.Vector3dc
 import kotlin.collections.ArrayList
 import kotlin.collections.MutableList
 import kotlin.math.cos
@@ -52,7 +53,7 @@ object StandardRailCurve {
             val tz: Double
 
             // 计算 Y 轴线性插值（坡度）
-            ty = pStart.y + (pEnd.y - pStart.y) * (currentS / L_total)
+            ty = pStart.y() + (pEnd.y() - pStart.y()) * (currentS / L_total)
 
             if (currentS < L) {
                 // 第一段：第一条缓和曲线
@@ -76,7 +77,7 @@ object StandardRailCurve {
 
             // 此处 tx, tz 是在局部坐标系下的，实际应用需通过旋转矩阵转换到 pStart -> pEnd 的切向量方向
             // 为简化演示，直接输出坐标
-            points.add(Vector3d(tx + pStart.x, ty, tz + pStart.z))
+            points.add(Vector3d(tx + pStart.x(), ty, tz + pStart.z()))
             currentS += step
         }
 

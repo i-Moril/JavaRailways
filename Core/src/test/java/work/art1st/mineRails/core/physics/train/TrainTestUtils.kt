@@ -7,11 +7,8 @@ import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailView
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.physics.train.CoreCar.ConfigV1
 import work.art1st.mineRails.core.util.TickManagerImpl
 import java.util.concurrent.Executors
-
-private val dummyAsset = object : Asset {}
 
 /**
  * 创建用于测试的 World：空轨道/列车，单线程 TickManager，与运行时使用相同的 Koin 父 scope。
@@ -65,21 +62,6 @@ fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>)
  * @return 创建的列车
  */
 fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false): CoreTrain {
-    val configs: List<Pair<String, ConfigV1>> = carLengths.mapIndexed { index, len ->
-        val cfg = ConfigV1(
-            asset = DummyAsset(),
-            length = len,
-            floorHeight = 0.0,
-            bogieAAsset = DummyAsset(),
-            bogieAOffset = -len / 2,
-            bogieBAsset = DummyAsset(),
-            bogieBOffset = len / 2,
-            connectorLengthAtA = 0.0,
-            connectorLengthAtB = 0.0
-        )
-        "car-$index" to cfg
-    }
-    
     // 计算列车总长度（所有车厢长度之和）
     val totalTrainLength = carLengths.sum()
     
@@ -93,7 +75,22 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
         startLoc.forward(offsetDistance) ?: error("直线轨道长度不足，无法放置列车（需要至少 $offsetDistance 米）")
     }
     
-    return CoreTrain.create(id, configs, headLocation, world)
+    val cars = carLengths.mapIndexed { index, len ->
+        val bogieA = CoreBogie(headLocation, savedExtensionData = emptyMap())
+        val bogieB = CoreBogie(headLocation, savedExtensionData = emptyMap())
+        CoreCar(
+            id = "car-$index",
+            bogies = listOf(bogieA, bogieB),
+            bogiesOffsets = listOf(-len / 2, len / 2),
+            length = len,
+            floorHeight = 0.0,
+            connectorLengthAtA = 0.0,
+            connectorLengthAtB = 0.0,
+            world = world,
+            savedExtensionData = emptyMap()
+        )
+    }
+    return CoreTrain(id, cars, world, emptyMap())
 }
 
 /**

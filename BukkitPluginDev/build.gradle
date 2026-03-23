@@ -88,9 +88,7 @@ kotlin {
 
 //paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
 
-//bukkitPluginYaml {
-//    main = "io.papermc.paperweight.testplugin.TestPlugin"
-//    load = BukkitPluginYaml.PluginLoadOrder.STARTUP
-//    authors.add("Author")
-//    apiVersion = "1.21.10"
-//}
+bukkitPluginYaml {
+    main = "work.art1st.mineRails.bukkit.BukkitPluginDev"
+    apiVersion = "1.21.10"
+}

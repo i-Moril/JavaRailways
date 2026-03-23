@@ -17,6 +17,7 @@ dependencies {
     compileOnly(project(":Core"))
     implementation(kotlin("stdlib-jdk8"))
     implementation("net.jcip:jcip-annotations:1.0")
+    implementation("org.joml:joml:1.10.8")
 }
 
 tasks.test {

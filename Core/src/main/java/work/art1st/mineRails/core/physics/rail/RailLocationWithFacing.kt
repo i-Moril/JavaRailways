@@ -196,7 +196,7 @@ data class RailLocationWithFacing private constructor(
         val direction: RailView.ViewDirection,
         /* In case the deltaS is less than TOLERANCE */
         val minorDeltaS: Double = 0.0
-    ) : Loads<RailLocationWithFacing> {
+    ) : Loads<RailLocationWithFacing, Scope> {
         @Throws(CorruptedDataException::class)
         override fun load(dependencyProvider: Scope): RailLocationWithFacing {
             val world = dependencyProvider.get<World>()

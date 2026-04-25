@@ -5,6 +5,7 @@ import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.Rail
+import work.art1st.mineRails.bukkit.extension.rail.RailExtension
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
@@ -63,6 +64,8 @@ object RailCommand {
             mutableListOf(),
             mutableListOf()
         )
+        // 注册轨道可视化扩展
+        rail.registerExtensionData(BukkitPlugin, RailExtension())
 
         sender.sendMessage("创建轨道成功: ${rail.id}")
         sender.sendMessage("长度: ${"%.2f".format(length)} 米")

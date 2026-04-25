@@ -11,10 +11,15 @@ import org.joml.Vector3f
 import work.art1st.mineRails.core.api.render.Renderable
 
 data class CompactTransform(
-    val position: Vector3dc = Vector3d(1.0 , 0.0, 0.0),
-    val rotation: Quaterniondc = Quaterniond(1.0 , 0.0, 0.0,  0.0),
+    val position: Vector3dc = Vector3d(0.0, 0.0, 0.0),
+    val rotation: Quaterniondc = Quaterniond(1.0, 0.0, 0.0, 0.0),
+    val scale: Vector3dc = Vector3d(1.0, 1.0, 1.0),
 ) {
-    constructor(transform: CompactTransform) : this(Vector3d(transform.position), Quaterniond(transform.rotation))
+    constructor(transform: CompactTransform) : this(
+        Vector3d(transform.position),
+        Quaterniond(transform.rotation),
+        Vector3d(transform.scale)
+    )
 
     val eulerAngle: Vector3dc by lazy {
         rotation.getEulerAnglesXYZ(Vector3d())
@@ -43,9 +48,13 @@ data class CompactTransform(
         // 局部旋转左乘世界旋转
         rotation.mul(localRotation)
 
+        // 缩放相乘
+        val finalScale = Vector3d(baseTransform.scale.x() * scale.x(), baseTransform.scale.y() * scale.y(), baseTransform.scale.z() * scale.z())
+
         return CompactTransform(
             offset,
-            rotation
+            rotation,
+            finalScale
         )
     }
 }
@@ -75,7 +84,7 @@ fun CompactTransform.toBukkitTransformation(): Transformation {
     return Transformation(
         this.position.get(Vector3f()),
         Quaternionf(1.0f, 0.0f, 0.0f, 0.0f),
-        Vector3f(1.0f, 1.0f, 1.0f),
+        this.scale.get(Vector3f()),
         this.rotation.get(Quaternionf()),
     )
 }

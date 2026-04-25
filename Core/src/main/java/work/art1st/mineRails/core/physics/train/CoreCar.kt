@@ -8,6 +8,7 @@ import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.rail.Reversible
 import work.art1st.mineRails.core.api.physics.train.Car
+import work.art1st.mineRails.core.api.physics.train.Seat
 import work.art1st.mineRails.core.api.render.RenderableExtension
 import work.art1st.mineRails.core.api.render.RenderableStateSnapshot
 import work.art1st.mineRails.core.api.util.annotation.MainThread
@@ -31,14 +32,49 @@ class CoreCar @MainThread internal constructor(
     /* 转向架 - 转向架偏移量 */
     override val bogies: List<CoreBogie>,
     val bogiesOffsets: List<Double>,
-    val length: Double, // 车厢长度
-    val floorHeight: Double,
+    override val length: Double, // 车厢长度
+    override val floorHeight: Double,
     val connectorLengthAtA: Double,
     val connectorLengthAtB: Double,
     override val world: CoreWorld,
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Car>> = ExtensionDataContainer()
 ) : Car, Synchronizable, Reversible, DynamicRenderableTrait<Car>, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCarV1> {
+
+    /**
+     * 车厢内的座位列表，position/direction 由车厢当前状态实时计算。
+     */
+    override val seats: List<Seat> get() = _seats
+
+    private val _seats = mutableListOf<Seat>()
+
+    /**
+     * 在车厢尾部添加一个座位。
+     * 座位位置 = 车厢尾部偏移 + 面向方向。
+     */
+    fun addSeat(): Seat {
+        val seatIndex = _seats.size
+        // 座位在车厢中心偏尾部，面向前进方向
+        val seatOffset = -length * 0.25
+        val seat = object : Seat {
+            override val car: Car get() = this@CoreCar
+            override val seatIndex: Int get() = seatIndex
+            override val position: Vector3dc
+                get() = Vector3d(position).add(
+                    direction.mul(seatOffset, Vector3d())
+                ).add(
+                    normal.mul(floorHeight + 0.5, Vector3d())
+                )
+            override val direction: Vector3dc get() = this@CoreCar.direction
+        }
+        _seats.add(seat)
+        return seat
+    }
+
+    /**
+     * 移除最后一个座位。
+     */
+    fun removeLastSeat(): Seat? = if (_seats.isNotEmpty()) _seats.removeAt(_seats.lastIndex) else null
     data class MotionState(
         var tangentialVelocity: Vector3dc,
         var angularVelocity: Vector3dc,
@@ -79,7 +115,7 @@ class CoreCar @MainThread internal constructor(
         get() = length / 2 + bogieAOffset
 
     /* Should be negative */
-    val bogieAOffset
+    override val bogieAOffset
         get() = bogiesOffsets.first()
 
     val bogieB
@@ -93,7 +129,7 @@ class CoreCar @MainThread internal constructor(
         get() = bogieBOffset - bogieAOffset
 
     /* Should be positive */
-    val bogieBOffset
+    override val bogieBOffset
         get() = bogiesOffsets.last()
 
     val headBogie

@@ -8,6 +8,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.bukkit.extension.train.SeatExtension
 import work.art1st.mineRails.bukkit.persistence.WorldPersistence
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.CoreWorld
@@ -49,6 +50,9 @@ class WorldManager(
 
     @EventHandler
     fun onTickEnd(event: ServerTickEndEvent) {
+        // 更新座位系统（跟随车厢移动 + 同步坐着的玩家）
+        SeatExtension.tickAll()
+
         railWorlds.forEach { (world, railWorld) ->
             railWorld.tickManager.postTick()
             railWorld.renderChunkManager.render()

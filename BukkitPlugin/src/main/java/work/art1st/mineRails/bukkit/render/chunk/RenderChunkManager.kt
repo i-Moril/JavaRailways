@@ -4,8 +4,8 @@ import org.bukkit.World
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.BukkitRenderable
+import work.art1st.mineRails.bukkit.extension.chunk
 import work.art1st.mineRails.bukkit.render.asVector3d
-import work.art1st.mineRails.bukkit.extension.train.chunk
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.util.WeakReferenceWrapper
 import java.util.concurrent.ConcurrentHashMap

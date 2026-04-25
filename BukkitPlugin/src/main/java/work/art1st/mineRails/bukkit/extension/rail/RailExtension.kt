@@ -2,246 +2,206 @@ package work.art1st.mineRails.bukkit.extension.rail
 
 import org.bukkit.Location
 import org.bukkit.Material
+import org.bukkit.entity.ItemDisplay
+import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
+import org.bukkit.util.Transformation
 import org.joml.Matrix3d
 import org.joml.Quaterniond
+import org.joml.Quaternionf
 import org.joml.Vector3d
+import org.joml.Vector3dc
+import org.joml.Vector3f
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.config.OffsetConfig
+import work.art1st.mineRails.bukkit.config.RailElementConfig
+import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.rail.Rail
 import work.art1st.mineRails.core.api.render.RenderableExtension
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
+import work.art1st.mineRails.core.api.util.tick.Synchronizable
+import work.art1st.mineRails.core.api.util.tick.TickingObject
 import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.api.physics.World
-import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
-import work.art1st.mineRails.core.physics.rail.RailView
+import work.art1st.mineRails.bukkit.extension.BukkitRenderable
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
-import work.art1st.mineRails.bukkit.render.chunk.ModelAudienceTracker
-import work.art1st.mineRails.bukkit.render.model.*
 
 @OptIn(ExtensionData::class)
 val Rail.renderer: RailExtension
     get() = getExtensionData(BukkitPlugin)
 
-class RailExtension : RenderableExtension<Rail>, Destroyable {
+/**
+ * 轨道渲染扩展：从 car_model.yml 加载可视化配置，
+ * 沿轨道曲线按 [BukkitPlugin.railModelConfig] 的 repeatLength 间隔放置重复的元素模型。
+ * 实现 [Synchronizable]，每帧通过 [commit] 更新所有 ItemDisplay 实体位置。
+ */
+class RailExtension : RenderableExtension<Rail>, BukkitRenderable<Rail>, Synchronizable, TickingObject, Destroyable {
     private lateinit var self: Rail
-    private var model: CompositeModel? = null
-    private val audienceTracker = ModelAudienceTracker()
 
     override fun initialize(host: Rail, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
+        // 注册到 tick manager，确保 commit() 每帧被调用
+        self.world.tickManager.scheduleMainThreadPostTickTask {
+            self.world.tickManager.register(this)
+        }
+    }
+
+    override fun tick(deltaT: Double) {
+        // 无需物理更新，ItemDisplay 实体通过 commit() 更新位置
+    }
+
+    override fun commit() {
+        updateModel()
     }
 
     override fun save(): Pair<String, SerializableExtensionData>? = null
 
-    override fun commit() {}
-
-    override fun destroy() {
-        unloadModel()
+    @MainThread
+    override fun sendTo(player: Player) {
+        buildModel()
     }
 
     /**
-     * 根据铁轨曲线构建渲染模型。
-     * 沿曲线生成多个 RailSegmentModel 点段，形成完整的铁轨外观。
+     * 主线程：根据配置构建所有 ItemDisplay 实体。
+     * 沿曲线每隔 repeatLength 米放置一组元素。
+     * 仅在首次发送给玩家时调用。
      */
-    fun buildModel(): CompositeModel {
-        val world = self.world
-        val bukkitWorld = world.bukkitWorldData.bukkitWorld
+    @MainThread
+    protected fun buildModel() {
+        if (displayEntities.isNotEmpty()) return
+        val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
+        val config = BukkitPlugin.railModelConfig
         val curve = self.curve
 
-        // 使用 curve 作为主视图（正向）
-        val models = buildRailModels(curve, world)
+        val repeatLength = config.repeatLength
+        val totalLength = curve.totalArcLength
 
-        // 创建根实体（用于定位整体铁轨）
-        val rootEntity = bukkitWorld.spawn(
-            Location(bukkitWorld, curve.getPointAt(0).position.x(), curve.getPointAt(0).position.y(), curve.getPointAt(0).position.z()),
-            org.bukkit.entity.ItemDisplay::class.java
-        )
-        rootEntity.isPersistent = false
-
-        return CompositeModel(world, models, rootEntity)
-    }
-
-    /**
-     * 沿曲线构建铁轨段模型。
-     * 每个点生成一个 DisplayModel，并附加到父模型。
-     */
-    private fun buildRailModels(curve: PrimeCurve, world: World): List<AbstractModel> {
-        val models = mutableListOf<AbstractModel>()
-        val totalPoints = curve.totalPoints
-
-        // 采样间隔 - 每隔一定数量的点创建一个模型段
-        val step = maxOf(1, totalPoints / RAIL_SEGMENT_COUNT)
-        val lastIdx = totalPoints - 1
-
-        for (idx in 0..lastIdx step step) {
-            val point = curve.getPointAt(idx)
-            val model = createRailSegmentModel(point, world)
-            models.add(model)
-
-            // 最后一个点不需要额外处理
-            if (idx == lastIdx) break
-
-            // 创建中间连接段
-            val nextIdx = minOf(idx + step, lastIdx)
-            if (nextIdx != idx) {
-                val nextPoint = curve.getPointAt(nextIdx)
-                models.addAll(createConnectionSegments(point, nextPoint, world))
+        var arcLength = 0.0
+        while (arcLength <= totalLength) {
+            val point = curve.getPointAt(arcLength)
+            for (element in config.elements) {
+                val entity = createDisplayEntity(bukkitWorld, point, element)
+                displayEntities.add(entity)
             }
+            arcLength += repeatLength
         }
-
-        return models
     }
 
     /**
-     * 创建单个铁轨段模型。
+     * 每帧更新所有实体的位置和朝向。
      */
-    private fun createRailSegmentModel(point: Curve.Point, world: World): DisplayModel {
-        val bukkitWorld = world.bukkitWorldData.bukkitWorld
-        val bukkitEntity = bukkitWorld.spawn(
-            Location(bukkitWorld, point.position.x(), point.position.y(), point.position.z()),
-            org.bukkit.entity.ItemDisplay::class.java
-        )
-        bukkitEntity.isPersistent = false
+    private fun updateModel() {
+        if (displayEntities.isEmpty()) return
+        val curve = self.curve
+        val config = BukkitPlugin.railModelConfig
+        val repeatLength = config.repeatLength
+        val totalLength = curve.totalArcLength
 
-        // 使用默认铁轨材质
-        bukkitEntity.setItemStack(ItemStack(Material.RAIL))
+        var entityIdx = 0
+        var arcLength = 0.0
+        while (arcLength <= totalLength) {
+            val point = curve.getPointAt(arcLength)
+            for (element in config.elements) {
+                val entity = displayEntities[entityIdx]
+                updateDisplayEntity(entity, point, element)
+                entityIdx++
+            }
+            arcLength += repeatLength
+        }
+    }
 
-        // 构建基于曲线点朝向的旋转
+    @MainThread
+    override fun destroy() {
+        destroyModel()
+    }
+
+    /**
+     * 主线程：销毁所有 ItemDisplay 实体。
+     */
+    protected fun destroyModel() {
+        for (entity in displayEntities) {
+            entity.remove()
+        }
+        displayEntities.clear()
+    }
+
+    private val displayEntities = mutableListOf<ItemDisplay>()
+
+    /**
+     * 在曲线指定点创建单个显示实体。
+     */
+    private fun createDisplayEntity(
+        bukkitWorld: org.bukkit.World,
+        point: Curve.Point,
+        element: RailElementConfig
+    ): ItemDisplay {
+        val entity = bukkitWorld.spawnEntity(
+            Location(bukkitWorld, 0.0, 0.0, 0.0),
+            org.bukkit.entity.EntityType.ITEM_DISPLAY
+        ) as ItemDisplay
+        entity.isPersistent = false
+
+        val material = try { Material.valueOf(element.material.uppercase()) } catch (e: Exception) { Material.STONE }
+        entity.setItemStack(ItemStack(material))
+
+        updateDisplayEntity(entity, point, element)
+        return entity
+    }
+
+    /**
+     * 更新显示实体的变换（位置、朝向、缩放）。
+     */
+    private fun updateDisplayEntity(
+        entity: ItemDisplay,
+        point: Curve.Point,
+        element: RailElementConfig
+    ) {
+        val worldPos = computeWorldPosition(point, element.offset)
         val rotation = computeCurveRotation(point)
 
-        val state = ModelState(
-            localTransform = CompactTransform(
-                position = Vector3d(point.position.x(), point.position.y(), point.position.z()),
-                rotation = rotation
+        entity.setTransformation(
+            Transformation(
+                Vector3f(worldPos.x().toFloat(), worldPos.y().toFloat(), worldPos.z().toFloat()),
+                rotation.get(Quaternionf()),
+                Vector3f(element.scale.x.toFloat(), element.scale.y.toFloat(), element.scale.z.toFloat()),
+                Quaternionf(1f, 0f, 0f, 0f)
             )
         )
+    }
 
-        return DisplayModel(
-            world = world,
-            state = state,
-            attachedModels = emptyList(),
-            animation = emptyMap(),
-            entity = bukkitEntity
+    /**
+     * 计算曲线点处元素的 world 坐标。
+     * tangent → local-x, normal → local-y, binormal → local-z
+     */
+    private fun computeWorldPosition(point: Curve.Point, offset: OffsetConfig): Vector3dc {
+        val tangent = point.tangent
+        val normal = point.normal
+        val binormal = Vector3d()
+        normal.cross(tangent, binormal).normalize()
+
+        return Vector3d(
+            point.position.x() + tangent.x() * offset.x + normal.x() * offset.y + binormal.x() * offset.z,
+            point.position.y() + tangent.y() * offset.x + normal.y() * offset.y + binormal.y() * offset.z,
+            point.position.z() + tangent.z() * offset.x + normal.z() * offset.y + binormal.z() * offset.z
         )
     }
 
     /**
      * 根据曲线点的切线和法线计算旋转四元数。
+     * tangent → local-x, normal → local-y, binormal → local-z
      */
     private fun computeCurveRotation(point: Curve.Point): Quaterniond {
-        // 切线方向作为前向
         val tangent = point.tangent
-        // 法线方向作为上向
         val normal = point.normal
-
-        // 构建正交基: right = up x forward
-        val right = Vector3d()
-        normal.cross(tangent, right).normalize()
-
-        // 构建旋转矩阵（列主序）
-        val rotationMatrix = Matrix3d(
-            right.x(), normal.x(), tangent.x(),
-            right.y(), normal.y(), tangent.y(),
-            right.z(), normal.z(), tangent.z()
-        )
-
-        return Quaterniond().setFromNormalized(rotationMatrix)
-    }
-
-    /**
-     * 创建两点之间的连接段模型。
-     */
-    private fun createConnectionSegments(from: Curve.Point, to: Curve.Point, world: World): List<DisplayModel> {
-        // 简化的实现：只在中间点创建一个连接模型
-        val midPosition = Vector3d(
-            (from.position.x() + to.position.x()) / 2,
-            (from.position.y() + to.position.y()) / 2,
-            (from.position.z() + to.position.z()) / 2
-        )
-
-        val bukkitWorld = world.bukkitWorldData.bukkitWorld
-        val bukkitEntity = bukkitWorld.spawn(
-            Location(bukkitWorld, midPosition.x, midPosition.y, midPosition.z),
-            org.bukkit.entity.ItemDisplay::class.java
-        )
-        bukkitEntity.isPersistent = false
-
-        bukkitEntity.setItemStack(ItemStack(Material.RAIL))
-
-        // 计算中间朝向
-        val midTangent = Vector3d(
-            to.position.x() - from.position.x(),
-            to.position.y() - from.position.y(),
-            to.position.z() - from.position.z()
-        ).normalize()
-
-        val state = ModelState(
-            localTransform = CompactTransform(
-                position = midPosition,
-                rotation = computeRotationFromTangent(midTangent, from.normal)
-            )
-        )
-
-        return listOf(DisplayModel(
-            world = world,
-            state = state,
-            attachedModels = emptyList(),
-            animation = emptyMap(),
-            entity = bukkitEntity
-        ))
-    }
-
-    /**
-     * 根据切线和法线计算旋转四元数。
-     */
-    private fun computeRotationFromTangent(tangent: org.joml.Vector3dc, normal: org.joml.Vector3dc): Quaterniond {
-        val right = Vector3d()
-        normal.cross(tangent, right).normalize()
+        val binormal = Vector3d()
+        normal.cross(tangent, binormal).normalize()
 
         val rotationMatrix = Matrix3d(
-            right.x(), normal.x(), tangent.x(),
-            right.y(), normal.y(), tangent.y(),
-            right.z(), normal.z(), tangent.z()
+            tangent.x(), normal.x(), binormal.x(),
+            tangent.y(), normal.y(), binormal.y(),
+            tangent.z(), normal.z(), binormal.z()
         )
-
         return Quaterniond().setFromNormalized(rotationMatrix)
-    }
-
-    @MainThread
-    private fun loadModel() {
-        if (model == null) {
-            model = buildModel()
-        }
-    }
-
-    /**
-     * 根据指定方向获取铁轨视图的变换。
-     */
-    private fun getViewTransform(view: RailView): CompactTransform {
-        val startPoint = view.startPoint
-        val rotation = computeCurveRotation(startPoint)
-        return CompactTransform(
-            position = Vector3d(startPoint.position.x(), startPoint.position.y(), startPoint.position.z()),
-            rotation = rotation
-        )
-    }
-
-    fun applyAnimation(name: String) {
-        model?.applyAnimation(name)
-    }
-
-    private fun unloadModel() {
-        self.world.tickManager.scheduleMainThreadAfterCommitTask {
-            model?.destroy()
-            model = null
-        }
-    }
-
-    companion object {
-        // 铁轨模型的段数量（沿曲线的采样点数量）
-        private const val RAIL_SEGMENT_COUNT = 10
     }
 }

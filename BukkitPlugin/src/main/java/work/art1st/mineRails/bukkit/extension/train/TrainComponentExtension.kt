@@ -3,22 +3,13 @@ package work.art1st.mineRails.bukkit.extension.train
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.BukkitRenderable
-import work.art1st.mineRails.bukkit.extension.ModelLoader
-import work.art1st.mineRails.bukkit.extension.bukkitLocation
-import work.art1st.mineRails.bukkit.extension.bukkitWorldData
-import work.art1st.mineRails.bukkit.extension.exception.CorruptedExtensionDataException
-import work.art1st.mineRails.bukkit.render.chunk.ModelAudienceTracker
-import work.art1st.mineRails.bukkit.render.chunk.RenderChunk
-import work.art1st.mineRails.bukkit.render.config.CompositeModelConfigV1
-import work.art1st.mineRails.bukkit.render.config.ModelConfigV1
-import work.art1st.mineRails.bukkit.render.model.CompositeModel
-import work.art1st.mineRails.bukkit.render.model.getTransform
 import work.art1st.mineRails.core.api.physics.train.Bogie
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
+import work.art1st.mineRails.core.util.Destroyable
 
 @OptIn(ExtensionData::class)
 val Car.renderer: TrainComponentExtension<Car>
@@ -28,80 +19,51 @@ val Car.renderer: TrainComponentExtension<Car>
 val Bogie.renderer: TrainComponentExtension<Bogie>
     get() = getExtensionData(BukkitPlugin)
 
-val Renderable.chunk
-    get() = RenderChunk(position)
-
 /**
- * 自动实现模型加载和卸载
+ * 车厢/转向架等列车组件的渲染扩展基类。
+ * 子类通过覆写 [buildModel] 和 [updateModel] 管理可视化模型。
  */
-abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T> {
+abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, Destroyable {
     protected open lateinit var self: T
-    protected lateinit var modelLoader: ModelLoader
-    // TODO: Fill model
-    private val audienceTracker: ModelAudienceTracker = ModelAudienceTracker()
-    var model: CompositeModel? = null
 
     override fun initialize(host: T, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
-        val extensionData = savedExtensionData[BukkitPlugin.EXTENSION_ID] ?: throw CorruptedExtensionDataException("Missing data for bukkit extension")
-        if (extensionData !is CompositeModelConfigV1) {
-            throw CorruptedExtensionDataException("Corrupted bukkit extension data")
-        }
-        modelLoader = ModelLoader {
-            val rootEntity = host.world.bukkitWorldData.bukkitWorld.spawnEntity(
-                host.bukkitLocation,
-                org.bukkit.entity.EntityType.ITEM_DISPLAY
-            )
-            rootEntity.isPersistent = false
-            CompositeModel(
-                self.world,
-                extensionData.attachedModels.map {
-                    it.load(self)
-                },
-                rootEntity
-            )
-        }
+    }
+
+    override fun save(): Pair<String, SerializableExtensionData>? = null
+
+    /**
+     * 主线程：构建并生成所有可视化实体。
+     * 在 [sendTo] 首次调用时触发。
+     */
+    protected abstract fun buildModel()
+
+    /**
+     * 每帧更新模型状态（位置、朝向等）。
+     * 在 commit 阶段调用。
+     */
+    protected abstract fun updateModel()
+
+    /**
+     * 主线程：销毁所有可视化实体。
+     */
+    protected abstract fun destroyModel()
+
+    @MainThread
+    override fun sendTo(player: Player) {
+        // 子类在 buildModel() 中自行处理玩家可见性
     }
 
     override fun commit() {
-        if (audienceTracker.isValid) {
-            model?.updateState(self.getTransform(), self.velocity)
-        } else {
-            unloadModel()
-        }
-        audienceTracker.commit()
+        updateModel()
     }
 
+    @MainThread
     override fun destroy() {
-        unloadModel()
-    }
-
-    /**
-     * 调用时若没有加载模型会加载模型
-     */
-    @MainThread
-    override fun sendTo(player: Player) {
-        audienceTracker.update()
-        loadModel()
-        model!!.updatePlayerVisibility(player)
-    }
-
-    @MainThread
-    private fun loadModel() {
-        if (model == null) {
-            model = modelLoader.load()
-            model?.updateState(self.getTransform(), self.velocity)
-        }
+        destroyModel()
     }
 
     fun applyAnimation(name: String) {
-        model?.applyAnimation(name)
-    }
-
-    private fun unloadModel() {
-        self.world.tickManager.scheduleMainThreadAfterCommitTask {
-            model?.destroy()
-            model = null
-        }
+        // 暂不支持
     }
 }

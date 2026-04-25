@@ -9,4 +9,9 @@ import work.art1st.mineRails.core.api.util.plugin.Extendable
  */
 interface Car : DynamicRenderable, Extendable<RenderableExtension<Car>> {
     val bogies: List<Bogie>
+    val length: Double
+    val floorHeight: Double
+    val bogieAOffset: Double
+    val bogieBOffset: Double
+    val seats: List<Seat>
 }

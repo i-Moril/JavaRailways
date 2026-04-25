@@ -51,9 +51,11 @@ ig/AnimationConfigV1
 
 ### 游戏内测试的 Checklist
 - [x] 轨道创建和删除 - `/mr rail create` 已实现
-- [ ] 列车模型构建
+- [x] 列车模型构建 - CarExtension/BogieExtension 从 car_model.yml 加载配置，ItemDisplay 渲染
+- [x] 座位系统 - SeatExtension 使用 Interaction 实体，玩家右键座位坐下
 - [x] 游戏内列车创建 - `/mr train create` 已实现，支持指定车厢数量和长度
 - [x] 手动驾驶算法 - ManualController 实现，`/mr train start|stop|throttle|reverse|info`
+- [x] 轨道的可视化。指定循环节每个元素的方块/item和偏移，以及循环节的长度（rail_model.yml）。
 
 ### 待实现功能
 - **控制器系统**：ATO 控制器、路径跟随逻辑

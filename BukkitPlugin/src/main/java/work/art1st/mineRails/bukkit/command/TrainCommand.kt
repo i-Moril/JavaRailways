@@ -5,6 +5,9 @@ import org.bukkit.entity.Player
 import org.joml.Vector3d
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.extension.train.BogieExtension
+import work.art1st.mineRails.bukkit.extension.train.CarExtension
+import work.art1st.mineRails.bukkit.extension.train.SeatExtension
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.train.CoreBogie
@@ -12,12 +15,14 @@ import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.CoreWorld
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 object TrainCommand {
-    /**
-     * 玩家 -> 当前手动控制器
-     */
+    /** 玩家 UUID -> 手动控制器 */
     private val playerControllers = mutableMapOf<UUID, ManualController>()
+
+    /** 列车 ID -> 车厢座位扩展（用于销毁） */
+    private val trainSeatExtensions = ConcurrentHashMap<String, SeatExtension>()
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
@@ -33,6 +38,8 @@ object TrainCommand {
             "reverse" -> return handleReverse(sender)
             "info" -> return handleInfo(sender)
             "list" -> return handleList(sender)
+            "sit" -> return handleSit(sender)
+            "stand" -> return handleStand(sender)
             else -> sender.sendMessage("未知子命令: ${args[0]}")
         }
         return true
@@ -51,7 +58,6 @@ object TrainCommand {
 
         val playerPos = Vector3d(sender.location.x, sender.location.y, sender.location.z)
         val nearestRail = coreWorld.getNearestRail(playerPos)
-
         if (nearestRail == null) {
             sender.sendMessage("错误: 世界中没有轨道，请先使用 /mr rail create 创建轨道")
             return true
@@ -63,6 +69,7 @@ object TrainCommand {
 
         val carCount = args.firstOrNull()?.toIntOrNull() ?: 1
         val carLength = args.getOrNull(1)?.toDoubleOrNull() ?: 2.0
+        val seatsPerCar = args.getOrNull(2)?.toIntOrNull() ?: 2
 
         var currentLocation = headLocation
         val cars = mutableListOf<CoreCar>()
@@ -81,6 +88,22 @@ object TrainCommand {
             )
             cars.add(car)
             currentLocation = nextLocation
+
+            // 注册车厢渲染扩展
+            val carExtension = CarExtension()
+            car.registerExtensionData(BukkitPlugin, carExtension)
+
+            // 注册转向架渲染扩展
+            val bogieAExtension = BogieExtension()
+            bogieA.registerExtensionData(BukkitPlugin, bogieAExtension)
+            val bogieBExtension = BogieExtension()
+            bogieB.registerExtensionData(BukkitPlugin, bogieBExtension)
+
+            // 为车厢添座位
+            val seatExtension = SeatExtension(car)
+            repeat(seatsPerCar) { seatExtension.onSeatAdded(car.addSeat()) }
+            // 记录用于后续销毁
+            trainSeatExtensions[car.id] = seatExtension
         }
 
         val trainId = "train-${UUID.randomUUID().toString().take(8)}"
@@ -91,8 +114,10 @@ object TrainCommand {
         )
 
         sender.sendMessage("创建列车成功: ${train.id}")
-        sender.sendMessage("车厢数量: ${cars.size}，长度: ${"%.2f".format(carLength)} 米")
-        sender.sendMessage("使用 /mr train start 启动列车")
+        sender.sendMessage("车厢数量: ${cars.size}，每节长度: ${"%.2f".format(carLength)} 米")
+        sender.sendMessage("每节车厢座位数: $seatsPerCar")
+        sender.sendMessage("右键点击座位（透明小方块）坐下，使用 /mr train stand 站立")
+
         return true
     }
 
@@ -150,9 +175,6 @@ object TrainCommand {
 
     /**
      * 设置加速手柄。
-     * @param args[0] 手柄位置，范围 [-1, 1]
-     *   正值：加速（0=惰行，0.5=半速，1=全速）
-     *   负值：制动（-1=紧急制动）
      */
     private fun handleThrottle(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
@@ -192,6 +214,58 @@ object TrainCommand {
 
         controller.reverse()
         sender.sendMessage("列车已换向")
+        return true
+    }
+
+    private fun handleSit(sender: CommandSender): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        val world = getPlayerWorld(sender) ?: return true
+        val coreWorld = world as? CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 CoreWorld")
+            return true
+        }
+
+        // 查找最近车厢的座位
+        val train = findNearestTrain(sender, coreWorld) ?: run {
+            sender.sendMessage("错误: 附近没有列车")
+            return true
+        }
+
+        val nearestCar = train.cars.minByOrNull { car ->
+            car.position.distance(Vector3d(sender.location.x, sender.location.y, sender.location.z))
+        } ?: run {
+            sender.sendMessage("错误: 找不到车厢")
+            return true
+        }
+
+        val seatExtension = trainSeatExtensions[nearestCar.id]
+        if (seatExtension != null) {
+            // 坐到第一个空座位
+            val seatEntity = seatExtension.getFirstFreeSeat() ?: run {
+                sender.sendMessage("该车厢座位已满")
+                return true
+            }
+            seatExtension.makePlayerSit(sender, seatEntity)
+            sender.sendMessage("已坐下")
+        } else {
+            sender.sendMessage("座位系统未初始化")
+        }
+        return true
+    }
+
+    private fun handleStand(sender: CommandSender): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        // 遍历所有座位扩展让该玩家站起来
+        for (ext in trainSeatExtensions.values) {
+            ext.makePlayerStand(sender)
+        }
+        sender.sendMessage("已站立")
         return true
     }
 
@@ -238,18 +312,14 @@ object TrainCommand {
         }
 
         sender.sendMessage("=== 列车列表 ===")
+        for (train in world.allTrains) {
+            sender.sendMessage("  ${train.id} - ${train.length} 节车厢")
+        }
         return true
     }
 
-    /**
-     * 查找玩家最近的列车。
-     * 优先返回有控制器的列车，否则按距离查找。
-     */
     private fun findNearestTrain(sender: Player, coreWorld: CoreWorld): CoreTrain? {
-        // 优先使用玩家创建的最后一节列车
-        // 这里简化为查找所有列车中距离最近的
         val playerPos = Vector3d(sender.location.x, sender.location.y, sender.location.z)
-
         return coreWorld.allTrains.minByOrNull { train ->
             train.cars.minOfOrNull { car ->
                 car.position.distance(playerPos)

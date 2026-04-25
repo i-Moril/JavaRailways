@@ -4,6 +4,7 @@ import org.bukkit.Location
 import org.bukkit.entity.Player
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.render.RenderableExtension
+import work.art1st.mineRails.bukkit.render.chunk.RenderChunk
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 
 interface BukkitRenderable<T> : RenderableExtension<T> {
@@ -17,3 +18,6 @@ val Renderable.bukkitLocation
         world.bukkitWorldData.bukkitWorld,
         position.x(), position.y(), position.z(),
     )
+
+val Renderable.chunk: RenderChunk
+    get() = RenderChunk(position)

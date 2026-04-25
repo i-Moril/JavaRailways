@@ -28,6 +28,16 @@
 - **状态**：✅ 已完成 - 沿曲线生成多个 DisplayModel 形成铁轨外观
 - 使用 Rail.curve API 获取几何形状（符合 requirement.md）
 - ModelAudienceTracker 改为 public 以供外部使用
+
+### 动画系统修复
+- **状态**：✅ 已完成 - 修复动画变换传递问题
+- `Animation.ActiveAnimation` 新增 `currentTransform` 属性
+- `AbstractModel.updateState()` 现在正确传递动画变换给 `ModelState`
+
+### 车辆渲染扩展
+- `TrainComponentExtension` 使用配置化模型加载
+- `TrainExtension.applyAnimation()` 支持批量应用动画
+- `CarExtension.commit()` 更新 RenderChunkManager
 - **控制器系统**：ATO 控制器、路径跟随逻辑
 - **信号系统**：道岔、信号机交互
 - **测试覆盖**：当前 Core 有单元测试，可扩展到 Basic 和 BukkitPlugin

@@ -22,9 +22,12 @@
 - 当前 `RailMap` 是纯内存结构，未实现持久化
 - 如有需求，可参考 `CoreWorld` 的 `SavedWorldV1` 模式，将目的地序列化纳入世界快照
 
-## 优先级 3：后续可探索方向
+## 优先级 3：BukkitPlugin 渲染系统 ✅ 进行中
 
-- **BukkitPlugin 渲染系统**：完善 `RailExtension`、`CompositeModel` 等渲染相关实现
+### RailExtension.buildModel() 实现
+- **状态**：✅ 已完成 - 沿曲线生成多个 DisplayModel 形成铁轨外观
+- 使用 Rail.curve API 获取几何形状（符合 requirement.md）
+- ModelAudienceTracker 改为 public 以供外部使用
 - **控制器系统**：ATO 控制器、路径跟随逻辑
 - **信号系统**：道岔、信号机交互
 - **测试覆盖**：当前 Core 有单元测试，可扩展到 Basic 和 BukkitPlugin

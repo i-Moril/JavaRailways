@@ -46,13 +46,13 @@ ig/AnimationConfigV1
 - **状态**：✅ 已完成 - 命令框架已建立
 - `MineRailsCommand` - 主命令入口
 - `RailCommand` - `/mr rail create` 轨道创建
-- `TrainCommand` - 列车命令（待完善）
+- `TrainCommand` - `/mr train create|info|list` 列车命令
 - 注册 `/minerails` 和 `/mr` 别名
 
 ### 游戏内测试的 Checklist
 - [x] 轨道创建和删除 - `/mr rail create` 已实现
 - [ ] 列车模型构建
-- [ ] 游戏内列车创建
+- [x] 游戏内列车创建 - `/mr train create` 已实现，支持指定车厢数量和长度
 - [ ] 手动驾驶算法
 
 ### 待实现功能

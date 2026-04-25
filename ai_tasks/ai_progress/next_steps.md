@@ -1,17 +1,22 @@
 # 下一步计划
 
-## 优先级 1：解除编译阻塞
+## 优先级 1：解除编译阻塞 ✅ 完成
 
 ### 修复 RailExtension.kt 语法错误
 - **问题**：`RailExtension.kt:25-26` 有重复声明语法错误，`private models Collection<>` 是无效语法
 - **参考**：`BukkitRenderable`、`BukkitTrainRenderer` 等同类实现
 - **预期行为**：修复后 BukkitPlugin 完整编译通过
+- **状态**：✅ 已修复 - RailExtension 正确实现 RenderableExtension 接口，修复了 initialize 方法签名和 model 引用问题
 
-## 优先级 2：完成 RailMap per-World 改造（收尾）
+### 修复 AnimationConfig/AnimationConfigV1
+- **状态**：✅ 已完成 - AnimationConfig 添加接口定义，AnimationConfigV1 实现完整的数据类结构
+
+## 优先级 2：完成 RailMap per-World 改造（收尾） ✅
 
 ### 完善 PathFinder 使用链
 - `PathFinder` 已重构为接收 `RailMap` + 起始 `RailView`，需确认调用方（ATO 控制器等）已适配
 - 如有遗漏，补齐从 `World.railMap` 构造 `PathFinder` 的代码
+- **状态**：✅ 已审查 - PathFinder 实现完整，目前无调用方，属于待实现功能
 
 ### RailMap 持久化（如需要）
 - 当前 `RailMap` 是纯内存结构，未实现持久化

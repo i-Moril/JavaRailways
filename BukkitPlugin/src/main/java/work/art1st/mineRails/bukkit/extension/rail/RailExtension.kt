@@ -2,28 +2,28 @@ package work.art1st.mineRails.bukkit.extension.rail
 
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
-import work.art1st.mineRails.bukkit.extension.BukkitRenderable
-import work.art1st.mineRails.bukkit.render.chunk.ModelAudienceTracker
-import work.art1st.mineRails.bukkit.render.chunk.RenderChunk
-import work.art1st.mineRails.bukkit.render.model.CompositeModel
-import work.art1st.mineRails.bukkit.render.model.getTransform
 import work.art1st.mineRails.core.api.physics.rail.Rail
-import work.art1st.mineRails.core.api.physics.train.Bogie
-import work.art1st.mineRails.core.api.physics.train.Car
-import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.render.RenderableExtension
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
+import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
+import work.art1st.mineRails.core.util.Destroyable
+import work.art1st.mineRails.bukkit.render.model.CompactTransform
 
 @OptIn(ExtensionData::class)
 val Rail.renderer: RailExtension
     get() = getExtensionData(BukkitPlugin)
 
-class RailExtension : RenderableExtension<Rail> {
+class RailExtension : RenderableExtension<Rail>, Destroyable {
     private lateinit var self: Rail
-    // TODO: Build model
-    var models: Collection<CompositeModel>
-    private val audienceTracker: ModelAudienceTracker = ModelAudienceTracker()
+    private var model: work.art1st.mineRails.bukkit.render.model.CompositeModel? = null
+    private val audienceTracker = work.art1st.mineRails.bukkit.render.chunk.ModelAudienceTracker()
+
+    override fun initialize(host: Rail, savedExtensionData: Map<String, SerializableExtensionData>) {
+        self = host
+    }
+
+    override fun save(): Pair<String, SerializableExtensionData>? = null
 
     override fun commit() {}
 
@@ -31,11 +31,7 @@ class RailExtension : RenderableExtension<Rail> {
         unloadModel()
     }
 
-    override fun initialize(host: Rail) {
-        self = host
-    }
-
-    fun buildModel(): CompositeModel {
+    fun buildModel(): work.art1st.mineRails.bukkit.render.model.CompositeModel {
         TODO("Not implemented yet")
     }
 
@@ -43,7 +39,8 @@ class RailExtension : RenderableExtension<Rail> {
     private fun loadModel() {
         if (model == null) {
             model = buildModel()
-            model!!.updateState(self.getTransform(), self.velocity)
+            // TODO: Rail doesn't have position/velocity - need to get from RailView or curve
+            // model!!.updateState(transform, velocity)
         }
     }
 

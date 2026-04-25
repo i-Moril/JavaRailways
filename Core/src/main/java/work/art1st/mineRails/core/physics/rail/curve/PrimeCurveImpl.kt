@@ -23,6 +23,30 @@ import java.util.stream.Stream
  * PrimeCurve should have curve length starting from 0.0
  */
 open class PrimeCurveImpl : PrimeCurve {
+    private var pointList: List<InternalCurvePoint> = emptyList()
+
+    constructor(points: List<Curve.RawPoint>) {
+        this.pointList = points.mapIndexed { idx, p ->
+            InternalCurvePoint(
+                position = Vector3f(p.position),
+                tangent = Vector3f(p.tangent),
+                normal = Vector3f(p.normal),
+                idx = idx,
+                arcLength = p.arcLength.toFloat(),
+            )
+        }
+    }
+
+    private constructor() // 空构造器，用于反序列化
+
+    // 包内可见的工厂方法
+    companion object {
+        @JvmStatic
+        internal fun fromRawPoints(points: List<Curve.RawPoint>): PrimeCurveImpl {
+            return PrimeCurveImpl(points)
+        }
+    }
+
     @Serializable
     private class InternalCurvePoint(
         @Serializable(with = Vector3fSerializer::class)
@@ -37,7 +61,6 @@ open class PrimeCurveImpl : PrimeCurve {
         
     }
 
-    private lateinit var pointList: List<InternalCurvePoint>
     override val totalArcLength: Double
         get() = pointList.last().arcLength.toDouble()
     override val totalPoints: Int
@@ -93,9 +116,14 @@ open class PrimeCurveImpl : PrimeCurve {
         private val pointList: List<InternalCurvePoint>
     ) : PrimeCurve.SavedPrimeCurve {
         override fun load(dependency: Unit): PrimeCurve {
-            return PrimeCurveImpl().apply {
-                this@apply.pointList = this@SavedPrimeCurveV1.pointList
-            }
+            return PrimeCurveImpl.fromRawPoints(pointList.map { p ->
+                Curve.RawPoint(
+                    position = Vector3d(p.position),
+                    tangent = Vector3d(p.tangent),
+                    normal = Vector3d(p.normal),
+                    arcLength = p.arcLength.toDouble()
+                )
+            })
         }
 
         companion object {

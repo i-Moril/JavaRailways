@@ -7,10 +7,8 @@ import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.Rail
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveImpl
-import work.art1st.mineRails.core.util.BinarySearch
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import org.joml.Vector3d
-import org.joml.Vector3f
 
 object RailCommand {
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
@@ -51,9 +49,9 @@ object RailCommand {
         )
 
         // 获取玩家位置
-        val startX = sender.location.x.toFloat()
-        val startY = sender.location.y.toFloat()
-        val startZ = sender.location.z.toFloat()
+        val startX = sender.location.x
+        val startY = sender.location.y
+        val startZ = sender.location.z
 
         // 创建直线曲线
         val curve = createStraightCurve(startX, startY, startZ, direction, length)
@@ -100,62 +98,36 @@ object RailCommand {
      * 创建直线曲线。
      */
     private fun createStraightCurve(
-        startX: Float,
-        startY: Float,
-        startZ: Float,
+        startX: Double,
+        startY: Double,
+        startZ: Double,
         direction: Vector3d,
         length: Double
-    ): PrimeCurveImpl {
-        val curve = PrimeCurveImpl()
+    ): PrimeCurve {
         val step = Curve.PRECISION
         val steps = maxOf(2, (length / step).toInt())
 
-        val tangent = Vector3f(direction.x().toFloat(), direction.y().toFloat(), direction.z().toFloat())
-        val normal = Vector3f(0.0f, 1.0f, 0.0f)
+        // 切线方向（前进方向）
+        val tangentDir = Vector3d(direction.x(), direction.y(), direction.z())
+        // 法线方向（垂直向上）
+        val normalDir = Vector3d(0.0, 1.0, 0.0)
 
         val points = (0..steps).map { i ->
-            val t = i.toFloat() / steps
-            val x = (startX + direction.x() * length * t).toFloat()
-            val y = (startY + direction.y() * length * t).toFloat()
-            val z = (startZ + direction.z() * length * t).toFloat()
+            val t = i.toDouble() / steps
+            val arcLength = t * length
 
-            createInternalPoint(
-                Vector3f(x, y, z),
-                tangent,
-                normal,
-                (t * length).toFloat(),
-                i
+            Curve.RawPoint(
+                position = org.joml.Vector3d(
+                    startX + direction.x * length * t,
+                    startY + direction.y * length * t,
+                    startZ + direction.z * length * t
+                ),
+                tangent = tangentDir,
+                normal = normalDir,
+                arcLength = arcLength
             )
         }
 
-        setPointList(curve, points)
-        return curve
-    }
-
-    private fun createInternalPoint(
-        position: Vector3f,
-        tangent: Vector3f,
-        normal: Vector3f,
-        arcLength: Float,
-        idx: Int
-    ): Any {
-        val curveClassName = PrimeCurveImpl::class.qualifiedName!!
-        val pointClassName = "$curveClassName\$InternalCurvePoint"
-        val pointClass = Class.forName(pointClassName)
-        val constructor = pointClass.getDeclaredConstructor(
-            Vector3f::class.java,
-            Vector3f::class.java,
-            Vector3f::class.java,
-            Float::class.java,
-            Int::class.java,
-        )
-        constructor.isAccessible = true
-        return constructor.newInstance(position, tangent, normal, arcLength, idx)
-    }
-
-    private fun setPointList(curve: PrimeCurveImpl, pointList: List<Any>) {
-        val field = PrimeCurveImpl::class.java.getDeclaredField("pointList")
-        field.isAccessible = true
-        field.set(curve, pointList)
+        return PrimeCurve.fromPoints(points)
     }
 }

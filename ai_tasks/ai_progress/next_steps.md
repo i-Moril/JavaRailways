@@ -8,7 +8,8 @@
 - **预期行为**：修复后 BukkitPlugin 完整编译通过
 - **状态**：✅ 已修复 - RailExtension 正确实现 RenderableExtension 接口，修复了 initialize 方法签名和 model 引用问题
 
-### 修复 AnimationConfig/AnimationConfigV1
+### 修复 AnimationCon
+ig/AnimationConfigV1
 - **状态**：✅ 已完成 - AnimationConfig 添加接口定义，AnimationConfigV1 实现完整的数据类结构
 
 ## 优先级 2：完成 RailMap per-World 改造（收尾） ✅

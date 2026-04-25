@@ -22,6 +22,16 @@ interface Curve {
         val arcLength: Double
     )
 
+    /**
+     * 仅用于创建曲线
+     */
+    data class RawPoint(
+        val position: Vector3dc,
+        val tangent: Vector3dc,
+        val normal: Vector3dc,
+        val arcLength: Double
+    )
+
     val totalArcLength: Double
     val totalPoints: Int
     val reversed: Curve

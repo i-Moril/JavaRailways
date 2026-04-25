@@ -38,6 +38,7 @@ class CoreRail @MainThread private constructor(
     val trains: ConcurrentLinkedQueue<TrainEnd> = ConcurrentLinkedQueue(),
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Rail>> = ExtensionDataContainer()
 ) : Rail, Extendable<RenderableExtension<Rail>> by extensionDataContainer, PersistentBy<CoreRail.SavedRailV1> {
+    override val curve: PrimeCurve = curveAB
     val viewAB: RailView = RailView(
         this,
         RailView.ViewDirection.AB,

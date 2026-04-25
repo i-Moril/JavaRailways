@@ -1,6 +1,6 @@
 package work.art1st.mineRails.bukkit.render.chunk
 
-internal class ModelAudienceTracker() {
+class ModelAudienceTracker() {
     private var ttl: Int = 0
     val isValid: Boolean
         get() = ttl > 0

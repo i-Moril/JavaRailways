@@ -53,7 +53,7 @@ ig/AnimationConfigV1
 - [x] 轨道创建和删除 - `/mr rail create` 已实现
 - [ ] 列车模型构建
 - [x] 游戏内列车创建 - `/mr train create` 已实现，支持指定车厢数量和长度
-- [ ] 手动驾驶算法
+- [x] 手动驾驶算法 - ManualController 实现，`/mr train start|stop|throttle|reverse|info`
 
 ### 待实现功能
 - **控制器系统**：ATO 控制器、路径跟随逻辑

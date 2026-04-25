@@ -16,7 +16,7 @@ abstract class TrainController(
      * Meters per second, >=0
      */
     var speed: Double = 0.0
-        private set
+        protected set
     protected var pendingCommand: ControlCommand? = null
         private set
 
@@ -28,7 +28,7 @@ abstract class TrainController(
         pendingCommand = command
     }
 
-    protected fun reverse() {
+    open fun reverse() {
         train.reverse()
     }
 

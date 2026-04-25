@@ -51,6 +51,9 @@ class CoreWorld(
 
     override fun getTrain(name: String): CoreTrain? = trains[name]
 
+    val allTrains: Collection<CoreTrain>
+        get() = trains.values
+
     @MainThread
     override fun removeTrain(train: Train) {
         trains.remove(train.id)

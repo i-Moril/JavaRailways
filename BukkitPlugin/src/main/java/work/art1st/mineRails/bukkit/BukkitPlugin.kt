@@ -1,6 +1,8 @@
 package work.art1st.mineRails.bukkit
 
+import org.bukkit.command.CommandExecutor
 import org.bukkit.plugin.java.JavaPlugin
+import work.art1st.mineRails.bukkit.command.MineRailsCommand
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.mineRails.basic.BasicPlugin
@@ -23,6 +25,12 @@ object BukkitPlugin : Plugin, JavaPlugin() {
         viewDistanceManager = ViewDistanceManager()
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
+
+        // 注册命令
+        val commandExecutor = MineRailsCommand()
+        getCommand("minerails")?.setExecutor(commandExecutor)
+        getCommand("mr")?.setExecutor(commandExecutor)
+
         server.worlds.forEach { worldManager.registerRailWorld(it) }
     }
 

@@ -17,7 +17,7 @@ class PersistentByProcessor(
     private val codeGenerator: CodeGenerator,
     private val logger: KSPLogger
 ) : SymbolProcessor {
-    val annotationName = "work.art1st.mineRails.core.api.util.persistence.PersistentBy"
+    val annotationName = "work.art1st.configLib.persistence.PersistentBy"
     val mapperName = "work.art1st.mineRails.core.api.util.persistence.PersistentMapper"
 
     override fun process(resolver: Resolver): List<KSAnnotated> {

@@ -22,7 +22,6 @@ val Rail.renderer: RailExtension
 class RailExtension : RenderableExtension<Rail> {
     private lateinit var self: Rail
     // TODO: Build model
-    private models Collection<>
     var models: Collection<CompositeModel>
     private val audienceTracker: ModelAudienceTracker = ModelAudienceTracker()
 

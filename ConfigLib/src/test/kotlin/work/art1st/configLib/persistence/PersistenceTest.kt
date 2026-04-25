@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.api.util.persistence
+package work.art1st.configLib.persistence
 
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable

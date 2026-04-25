@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.api.util.persistence
+package work.art1st.configLib.persistence
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -8,11 +8,11 @@ import kotlinx.serialization.modules.SerializersModuleBuilder
 import kotlin.reflect.KClass
 
 interface PersistentBy<out Serializable> {
-    fun save() : Serializable
+    fun save(): Serializable
 }
 
 interface Loads<out Data, Dependency> {
-    fun load(dependency: Dependency) : Data
+    fun load(dependency: Dependency): Data
 }
 
 class DelegateSerializer<T : PersistentBy<S>, S : Loads<T, D>, D>(
@@ -22,7 +22,7 @@ class DelegateSerializer<T : PersistentBy<S>, S : Loads<T, D>, D>(
     override val descriptor: SerialDescriptor = surrogateSerializer.descriptor
 
     override fun serialize(encoder: Encoder, value: T) {
-        return encoder.encodeSerializableValue(surrogateSerializer, value.save())
+        encoder.encodeSerializableValue(surrogateSerializer, value.save())
     }
 
     override fun deserialize(decoder: Decoder): T {

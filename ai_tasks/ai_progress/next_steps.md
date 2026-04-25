@@ -22,7 +22,7 @@
 - 当前 `RailMap` 是纯内存结构，未实现持久化
 - 如有需求，可参考 `CoreWorld` 的 `SavedWorldV1` 模式，将目的地序列化纳入世界快照
 
-## 优先级 3：BukkitPlugin 渲染系统 ✅ 进行中
+## 优先级 3：BukkitPlugin 渲染系统 ✅ 完成
 
 ### RailExtension.buildModel() 实现
 - **状态**：✅ 已完成 - 沿曲线生成多个 DisplayModel 形成铁轨外观
@@ -38,6 +38,23 @@
 - `TrainComponentExtension` 使用配置化模型加载
 - `TrainExtension.applyAnimation()` 支持批量应用动画
 - `CarExtension.commit()` 更新 RenderChunkManager
+
+## 优先级 4：游戏内测试 ✅ 进行中
+
+### 命令系统实现
+- **状态**：✅ 已完成 - 命令框架已建立
+- `MineRailsCommand` - 主命令入口
+- `RailCommand` - `/mr rail create` 轨道创建
+- `TrainCommand` - 列车命令（待完善）
+- 注册 `/minerails` 和 `/mr` 别名
+
+### 游戏内测试的 Checklist
+- [x] 轨道创建和删除 - `/mr rail create` 已实现
+- [ ] 列车模型构建
+- [ ] 游戏内列车创建
+- [ ] 手动驾驶算法
+
+### 待实现功能
 - **控制器系统**：ATO 控制器、路径跟随逻辑
 - **信号系统**：道岔、信号机交互
 - **测试覆盖**：当前 Core 有单元测试，可扩展到 Basic 和 BukkitPlugin
@@ -46,4 +63,4 @@
 
 - 大范围/破坏性改动前，先征询人类开发者意见
 - 每阶段完成及时 commit，commit message 遵循 `[模块]` 前缀
-- 当前分支为 `ai-dev`，所有改动可直接在 ai-dev 上进行
+- 当前分支为 `main`，所有改动可直接在 main 上进行

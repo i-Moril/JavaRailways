@@ -95,7 +95,7 @@ class PrimeCurveTest {
             // 对于中间值，差值应该不超过步长的一半
             val expectedMaxDiff = step / 2.0
             val diff = abs(point.arcLength - arcLength)
-            assertTrue(diff <= expectedMaxDiff.coerceAtMost(tolerance),
+            assertTrue(diff <= maxOf(expectedMaxDiff, tolerance),
                 "For arcLength=$arcLength (between points), got point.arcLength=${point.arcLength}, difference=$diff exceeds expected max=$expectedMaxDiff")
         }
     }

@@ -15,7 +15,7 @@ import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.util.CommitBuffer
-import work.art1st.mineRails.core.api.util.persistence.PersistentBy
+import work.art1st.configLib.persistence.PersistentBy
 
 /**
  * 转向架类
@@ -86,7 +86,7 @@ class CoreBogie @MainThread internal constructor(
         extensionDataContainer.extensionData.forEach { ext ->
             ext?.save()?.let { savedExtension[it.first] = it.second }
         }
-        return SavedBogieV1(location, isSameDirectionAsFacing, savedExtension)
+        return SavedBogieV1(location.save(), isSameDirectionAsFacing, savedExtension)
     }
 }
 

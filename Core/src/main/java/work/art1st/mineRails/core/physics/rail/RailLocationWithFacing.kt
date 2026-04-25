@@ -1,7 +1,6 @@
 package work.art1st.mineRails.core.physics.rail
 
 import kotlinx.serialization.Serializable
-import org.koin.core.scope.Scope
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.physics.rail.RailObject
@@ -11,8 +10,8 @@ import work.art1st.mineRails.core.api.util.exception.CorruptedDataException
 import work.art1st.mineRails.core.physics.rail.curve.inReversedCurve
 import work.art1st.mineRails.core.physics.rail.curve.reverseArcLength
 import work.art1st.mineRails.core.physics.train.TrainEnd
-import work.art1st.mineRails.core.api.util.persistence.Loads
-import work.art1st.mineRails.core.api.util.persistence.PersistentBy
+import work.art1st.configLib.persistence.Loads
+import work.art1st.configLib.persistence.PersistentBy
 import java.util.UUID
 import kotlin.math.min
 
@@ -196,11 +195,10 @@ data class RailLocationWithFacing private constructor(
         val direction: RailView.ViewDirection,
         /* In case the deltaS is less than TOLERANCE */
         val minorDeltaS: Double = 0.0
-    ) : Loads<RailLocationWithFacing, Scope> {
+    ) : Loads<RailLocationWithFacing, World> {
         @Throws(CorruptedDataException::class)
-        override fun load(dependencyProvider: Scope): RailLocationWithFacing {
-            val world = dependencyProvider.get<World>()
-            val rail = world.getRail(UUID.fromString(railId)) ?: throw CorruptedDataException(this)
+        override fun load(dependency: World): RailLocationWithFacing {
+            val rail = dependency.getRail(UUID.fromString(railId)) ?: throw CorruptedDataException(this)
             val point = rail.viewAB.getRailLocationAt(idxInCurveAB).point
             return RailLocationWithFacing(rail.getView(direction), point, minorDeltaS)
         }

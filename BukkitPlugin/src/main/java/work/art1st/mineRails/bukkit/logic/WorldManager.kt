@@ -8,7 +8,9 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.bukkit.persistence.WorldPersistence
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.physics.CoreWorld
 
 class WorldManager(
     val railWorlds: MutableMap<BukkitWorld, World> = mutableMapOf()
@@ -16,10 +18,14 @@ class WorldManager(
 
     fun registerRailWorld(bukkitWorld: BukkitWorld) {
         if (railWorlds.containsKey(bukkitWorld)) return
-        railWorlds[bukkitWorld] = RailWorldFactory.createForBukkit(bukkitWorld)
+        val snapshot = WorldPersistence.tryLoadSnapshot(bukkitWorld)
+        railWorlds[bukkitWorld] = RailWorldFactory.createForBukkit(bukkitWorld, snapshot)
     }
 
     fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
+        railWorlds[bukkitWorld]?.let { rw ->
+            (rw as? CoreWorld)?.let { WorldPersistence.saveSnapshot(bukkitWorld, it) }
+        }
         railWorlds.remove(bukkitWorld)
     }
 

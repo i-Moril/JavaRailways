@@ -7,7 +7,7 @@ import org.koin.core.qualifier.named
 import org.koin.core.scope.Scope
 import org.koin.dsl.module
 
-private val mineRailsRootScopeQualifier = named("mineRails_root")
+internal val mineRailsRootScopeQualifier = named("mineRails_root")
 
 private object MineRailsRootScopeMarker
 

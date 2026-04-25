@@ -1,18 +1,20 @@
 package work.art1st.mineRails.core.physics
 
-import org.koin.core.scope.Scope
+import kotlinx.serialization.Serializable
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.util.annotation.MainThread
-import work.art1st.mineRails.core.api.util.persistence.Loads
-import work.art1st.mineRails.core.api.util.persistence.PersistentBy
+import work.art1st.configLib.persistence.Loads
+import work.art1st.configLib.persistence.PersistentBy
 import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.tick.TickManager
 import work.art1st.mineRails.core.control.signal.Signal
+import work.art1st.mineRails.core.di.WorldParentContext
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.train.SavedTrainV1
+import java.util.LinkedHashMap
 import java.util.UUID
 
 /**
@@ -24,22 +26,20 @@ class CoreWorld(
     private val trains: MutableMap<String, CoreTrain>,
     private val signals: MutableMap<String, Signal>,
     override val tickManager: TickManager,
-    dependencyProvider: Scope,
+    worldParent: WorldParentContext,
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
 ) : World, Extendable<Any> by extensionDataContainer, PersistentBy<CoreWorld.SavedWorldV1> {
-    val dependencyProvider: Scope
 
     init {
-        this.dependencyProvider = dependencyProvider.getScope("world_$this")
-        this.dependencyProvider.declare(this)
+        worldParent.attachWorld(this)
     }
 
-    private constructor(tickManager: TickManager, dependencyProvider: Scope)
-            : this(hashMapOf(), hashMapOf(), hashMapOf(), tickManager, dependencyProvider)
+    private constructor(tickManager: TickManager, worldParent: WorldParentContext)
+            : this(LinkedHashMap(), hashMapOf(), hashMapOf(), tickManager, worldParent)
 
     companion object {
-        fun createEmpty(tickManager: TickManager, parentScope: Scope): CoreWorld =
-            CoreWorld(tickManager, parentScope)
+        fun createEmpty(tickManager: TickManager, worldParent: WorldParentContext): CoreWorld =
+            CoreWorld(tickManager, worldParent)
     }
 
     @MainThread
@@ -73,22 +73,22 @@ class CoreWorld(
         )
     }
 
-    data class SavedWorldV1 (
+    @Serializable
+    data class SavedWorldV1(
         val rails: List<CoreRail.SavedRailV1>,
         val trains: List<SavedTrainV1>
     ) : Loads<CoreWorld, SavedWorldV1.Dependency> {
         data class Dependency(
             val tickManager: TickManager,
-            val parentScope: Scope
+            val worldParent: WorldParentContext
         )
 
         override fun load(dependency: Dependency): CoreWorld {
-            val world = CoreWorld(dependency.tickManager, dependency.parentScope)
+            val world = CoreWorld(dependency.tickManager, dependency.worldParent)
             val railDependency = CoreRail.SavedRailV1.Dependency(world)
             rails.forEach { world.addRail(it.load(railDependency)) }
             trains.forEach { world.addTrain(it.load(world)) }
             return world
         }
     }
-
 }

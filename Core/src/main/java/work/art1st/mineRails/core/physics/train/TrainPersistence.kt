@@ -1,9 +1,8 @@
 package work.art1st.mineRails.core.physics.train
 
-import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException
-import work.art1st.mineRails.core.api.util.persistence.Loads
+import work.art1st.configLib.persistence.Loads
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
@@ -31,7 +30,7 @@ data class CarBuildDependency(
 @Serializable
 data class SavedTrainV1(
     val id: String,
-    @Contextual val cars: List<SavedCarV1>,
+    val cars: List<SavedCarV1>,
     val extension: Map<String, SerializableExtensionData>
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
@@ -65,8 +64,8 @@ data class SavedCarV1(
     val config: CarConfigV1
 ) : Loads<CoreCar, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreCar {
-        val bogieA = bogieA.load(Unit)
-        val bogieB = bogieB.load(Unit)
+        val bogieA = bogieA.load(dependency)
+        val bogieB = bogieB.load(dependency)
         return config.buildCar(id, dependency, bogieA, bogieB)
     }
 
@@ -133,12 +132,12 @@ data class CarConfigV1(
 
 @Serializable
 data class SavedBogieV1(
-    @Contextual val location: RailLocationWithFacing,
+    val location: RailLocationWithFacing.SavedRailLocationWithFacingV1,
     val isSameDirectionAsFacing: Boolean,
     val extension: Map<String, SerializableExtensionData>
-) : Loads<CoreBogie, Unit> {
-    override fun load(dependency: Unit): CoreBogie {
-        return CoreBogie(location, isSameDirectionAsFacing, extension)
+) : Loads<CoreBogie, CoreWorld> {
+    override fun load(dependency: CoreWorld): CoreBogie {
+        return CoreBogie(location.load(dependency), isSameDirectionAsFacing, extension)
     }
 }
 

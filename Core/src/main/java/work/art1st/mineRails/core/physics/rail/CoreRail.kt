@@ -1,13 +1,6 @@
 package work.art1st.mineRails.core.physics.rail
 
-import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.encodeToJsonElement
 import org.joml.Vector3dc
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.CoreWorld
@@ -16,12 +9,13 @@ import work.art1st.mineRails.core.physics.train.TrainEnd
 import work.art1st.mineRails.core.api.physics.curve.Curve.Companion.TOLERANCE
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.exception.CannotConnectRailException
+import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.mineRails.core.api.physics.rail.Rail
 import work.art1st.mineRails.core.api.render.RenderableExtension
 import work.art1st.mineRails.core.api.util.annotation.Concurrent
 import work.art1st.mineRails.core.api.util.annotation.MainThread
-import work.art1st.mineRails.core.api.util.persistence.Loads
-import work.art1st.mineRails.core.api.util.persistence.PersistentBy
+import work.art1st.configLib.persistence.Loads
+import work.art1st.configLib.persistence.PersistentBy
 import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import java.util.UUID
@@ -105,9 +99,10 @@ class CoreRail @MainThread private constructor(
     }
 
     override fun save(): SavedRailV1 {
+        val curveSnapshot = viewAB.curve.save() as PrimeCurveImpl.SavedPrimeCurveV1
         return SavedRailV1(
             id.toString(),
-            viewAB.curve,
+            curveSnapshot,
             viewAB.nextRails.map { it.rail.id.toString() },
             viewBA.nextRails.map { it.rail.id.toString() },
             viewAB.nextActiveRail?.rail?.id?.toString(),
@@ -118,33 +113,34 @@ class CoreRail @MainThread private constructor(
     @Serializable
     data class SavedRailV1(
         val id: String,
-        val curveAB: PrimeCurve,
+        val curveAB: PrimeCurveImpl.SavedPrimeCurveV1,
         val nextRailAtA: List<String>,
         val nextRailAtB: List<String>,
         val activeTrackAtA: String?,
         val activeTrackAtB: String?
     ) : Loads<CoreRail, SavedRailV1.Dependency> {
         override fun load(dependency: Dependency): CoreRail {
+            val curve = curveAB.load(Unit)
             return CoreRail(
                 UUID.fromString(id),
                 dependency.world,
-                curveAB,
+                curve,
                 nextRailAtA.map {
-                    getDirection(curveAB.getPointAt(0),
+                    getDirection(curve.getPointAt(0),
                         dependency.world.getRail(UUID.fromString(it))!!)
                 },
                 nextRailAtB.map {
-                    getDirection(curveAB.getPointAt(curveAB.totalPoints - 1),
+                    getDirection(curve.getPointAt(curve.totalPoints - 1),
                         dependency.world.getRail(UUID.fromString(it))!!)
                 },
                 activeTrackAtA?.let {
                     if (!nextRailAtA.contains(it)) throw CannotConnectRailException()
-                    getDirection(curveAB.getPointAt(0),
+                    getDirection(curve.getPointAt(0),
                         dependency.world.getRail(UUID.fromString(it))!!)
                 },
                 activeTrackAtB?.let {
-                    if (!nextRailAtA.contains(it)) throw CannotConnectRailException()
-                    getDirection(curveAB.getPointAt(curveAB.totalPoints - 1),
+                    if (!nextRailAtB.contains(it)) throw CannotConnectRailException()
+                    getDirection(curve.getPointAt(curve.totalPoints - 1),
                         dependency.world.getRail(UUID.fromString(it))!!)
                 }
             )

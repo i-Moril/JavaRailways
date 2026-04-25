@@ -5,8 +5,7 @@ import org.bukkit.Color
 import org.bukkit.Material
 import org.bukkit.inventory.ItemStack
 import org.jetbrains.annotations.ApiStatus
-import org.koin.core.scope.Scope
-import work.art1st.mineRails.core.api.util.persistence.Loads
+import work.art1st.configLib.persistence.Loads
 
 @Serializable
 abstract class ItemStackConfig(

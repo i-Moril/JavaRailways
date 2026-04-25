@@ -1,7 +1,7 @@
 package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
-import work.art1st.mineRails.core.di.mineRailsParentScope
+import work.art1st.mineRails.core.di.NoOpWorldParentContext
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
@@ -17,7 +17,7 @@ fun createTestWorld(): CoreWorld {
     ensureMineRailsKoinStarted()
     val scheduler = Executors.newSingleThreadScheduledExecutor()
     val tickManager = TickManagerImpl(scheduler, System.currentTimeMillis())
-    return CoreWorld.createEmpty(tickManager, mineRailsParentScope())
+    return CoreWorld.createEmpty(tickManager, NoOpWorldParentContext)
 }
 
 /**
@@ -46,7 +46,7 @@ fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>)
         CoreRail(world, curve, mutableListOf(), mutableListOf())
     }
     //rails.forEach { world.addRail(it) }
-    for (i in 0 until rails.lastIndex - 1) {
+    for (i in 0 until rails.lastIndex) {
         CoreRail.connect(rails[i], rails[i + 1])
     }
     return rails.first()

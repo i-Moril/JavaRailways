@@ -1,52 +1,59 @@
 package work.art1st.mineRails.basic.pathFinding
 
-class PathFinder {
+import work.art1st.mineRails.core.physics.rail.RailView
+import java.util.LinkedList
+import java.util.PriorityQueue
 
-
-    fun addDestination(destination: RailDestination) {
-        destinations[destination.label] = destination
-    }
-
-    fun removeDestination(label: String) {
-        destinations.remove(label)
-    }
-
-    fun hasDestination(label: String): Boolean {
-        return destinations.contains(label)
-    }
-
-    fun findPath(label: String): List<RailView>? {
+/**
+ * A* 路径查找器，基于 [RailMap] 中的目的地索引。
+ * 线程不安全，使用前需确保同一 [RailMap] 不会并发访问。
+ */
+class PathFinder(
+    private val railMap: RailMap
+) {
+    /**
+     * 从指定的起始 [RailView] 出发，查找通往标签为 [label] 的目的地的最短路径。
+     * @return 路径经过的所有 [RailView]（从起点到终点），若不存在则返回 null。
+     */
+    fun findPath(start: RailView, label: String): List<RailView>? {
         val path = LinkedList<RailView>()
-        val pending = PriorityQueue<Triple<RailView, Double, RailView?>> {
-                a, b -> if (a.second < b.second) -1 else if (a.second == b.second) 0 else 1
+        val pending = PriorityQueue<Triple<RailView, Double, RailView?>> { a, b ->
+            when {
+                a.second < b.second -> -1
+                a.second > b.second -> 1
+                else -> 0
+            }
         }
         val visited = HashMap<RailView, RailView?>()
-        pending.add(Triple(this, 0.0, null))
+
+        pending.add(Triple(start, 0.0, null))
+
         while (pending.isNotEmpty()) {
             val current = pending.poll()
-            visited[current.first] = current.third
-            if (current.first.hasDestination(label)) {
-                var node: RailView? = current.first
+            val currentView = current.first
+
+            if (visited.containsKey(currentView)) {
+                continue
+            }
+
+            visited[currentView] = current.third
+
+            if (railMap.hasDestination(label)) {
+                var node: RailView? = currentView
                 while (node != null) {
-                    path.add(node)
+                    path.addFirst(node)
                     node = visited[node]
                 }
                 return path
             }
-            val distance = current.second + current.first.curve.totalArcLength
-            current.first.nextRails.forEach { rail -> if (!visited.contains(rail)) pending.add(Triple(rail, distance, current.first)) }
-            while (visited.contains(pending.first().first)) {
-                pending.poll()
+
+            val distance = current.second + currentView.curve.totalArcLength
+            currentView.nextRails.forEach { rail ->
+                if (!visited.containsKey(rail)) {
+                    pending.add(Triple(rail, distance, currentView))
+                }
             }
         }
         return null
-    }
-
-    /* TODO: 异步关系 */
-    fun asyncFindPath(label: String, then: (List<RailView>?) -> Unit) {
-//        rail.world.scheduler.execute {
-//            val path = findPath(label)
-//            then(path)
-//        }
     }
 }

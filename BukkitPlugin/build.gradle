@@ -31,6 +31,7 @@ dependencies {
     implementation("io.insert-koin:koin-core:4.1.1")
     implementation(project(":Core"))
     implementation(project(":Basic"))
+    implementation(project(":ConfigLib"))
 }
 
 tasks {
@@ -81,9 +82,14 @@ processResources {
     filesMatching('plugin.yml') {
         expand props
     }
+    // 由 resource-factory-bukkit-convention 插件生成，手动版本不再需要
+    exclude 'plugin.yml'
 }
 kotlin {
     jvmToolchain(17)
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
 }
 
 //paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION

@@ -46,6 +46,13 @@ class Animation(
         private val nextCommand: AnimationCommand
             get() = animation.commandList[nextCommandIndex]
 
+        /**
+         * 获取当前插值后的动画变换。
+         * 每帧更新，用于渲染。
+         */
+        val currentTransform: CompactTransform
+            get() = animationTransform
+
         init {
             val command = getCommand(t) ?: throw IllegalArgumentException("Invalid animation start time T")
             currentCommand = command.first

@@ -22,8 +22,9 @@ abstract class AbstractModel(
      * @param rootTransform 根元素的transform
      */
     open fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc) {
-        state.applyRotation(parentRelativeTransform, rootTransform)
-        attachedModels.forEach { it.updateState(rootRelativeTransform, rootTransform, rootVelocity) }
+        val animationTransform = activeAnimation?.currentTransform
+        state.applyRotation(parentRelativeTransform, rootTransform, animationTransform)
+        attachedModels.forEach { it.updateState(parentRelativeTransform, rootTransform, rootVelocity) }
     }
 
     @Throws(IllegalArgumentException::class)

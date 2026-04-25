@@ -253,6 +253,14 @@ open class CoreTrain @MainThread internal constructor(
     companion object {
         const val COLLISION_SPEED = 2.78 // ~10km/h
 
+        @JvmStatic
+        fun create(
+            id: String,
+            cars: List<CoreCar>,
+            world: CoreWorld,
+            extensionData: Map<String, SerializableExtensionData> = emptyMap()
+        ): CoreTrain = CoreTrain(id, cars, world, extensionData)
+
         private fun fireCollisionEvent(e: Collision) {
             // 使用AtomicBoolean防止fire两遍Collision
             var trainA: CoreTrain

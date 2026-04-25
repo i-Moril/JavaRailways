@@ -28,6 +28,14 @@ class CoreBogie @MainThread internal constructor(
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Bogie>> = ExtensionDataContainer()
 ) : Bogie, DynamicRenderableTrait<Bogie>, Reversible, Extendable<RenderableExtension<Bogie>> by extensionDataContainer, PersistentBy<SavedBogieV1> {
+
+    companion object {
+        @JvmStatic
+        fun create(
+            location: RailLocationWithFacing,
+            extensionData: Map<String, SerializableExtensionData> = emptyMap()
+        ): CoreBogie = CoreBogie(location, true, extensionData)
+    }
     private val _location = CommitBuffer(location)
     override var location: RailLocationWithFacing by _location
         private set

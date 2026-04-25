@@ -265,6 +265,34 @@ class CoreCar @MainThread internal constructor(
     }
 
     companion object {
+        @JvmStatic
+        fun create(
+            id: String,
+            bogieA: CoreBogie,
+            bogieB: CoreBogie,
+            length: Double = 2.0,
+            floorHeight: Double = 0.5,
+            connectorLengthAtA: Double = 0.3,
+            connectorLengthAtB: Double = 0.3,
+            world: CoreWorld,
+            extensionData: Map<String, SerializableExtensionData> = emptyMap()
+        ): CoreCar {
+            // 转向架间距默认为车厢长度的60%，A在前B在后
+            val bogieAOffset = length * 0.3
+            val bogieBOffset = -length * 0.3
+            return CoreCar(
+                id = id,
+                bogies = listOf(bogieA, bogieB),
+                bogiesOffsets = listOf(bogieAOffset, bogieBOffset),
+                length = length,
+                floorHeight = floorHeight,
+                connectorLengthAtA = connectorLengthAtA,
+                connectorLengthAtB = connectorLengthAtB,
+                world = world,
+                savedExtensionData = extensionData
+            )
+        }
+
         protected fun getHeadPosition(position: Vector3dc, tailToHeadDirection: Vector3dc, carLength: Double): Vector3dc {
             return position - tailToHeadDirection * (carLength / 2)
         }

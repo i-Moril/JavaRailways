@@ -1,6 +1,8 @@
 package work.art1st.mineRails.core.physics
 
 import kotlinx.serialization.Serializable
+import org.joml.Vector3dc
+import work.art1st.mineRails.core.util.Heavy
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.util.annotation.MainThread
@@ -60,6 +62,13 @@ class CoreWorld(
     }
 
     override fun getRail(id: UUID): CoreRail? = rails[id]
+
+    @OptIn(Heavy::class)
+    fun getNearestRail(position: Vector3dc): CoreRail? {
+        return rails.values.minByOrNull { rail ->
+            rail.curve.getNearestPoint(position).position.distance(position)
+        }
+    }
 
     @MainThread
     override fun removeRail(rail: CoreRail) {

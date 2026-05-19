@@ -48,7 +48,8 @@ class TickManagerImpl(
 
     override fun preTick(currentTimeMs: Long) {
         val tickLatch = CountDownLatch(tickingObjects.size)
-        val barrier = CyclicBarrier(tickingSynchronizableObjects.size)
+        val barrier = CyclicBarrier(tickingSynchronizableObjects.size + 1)
+        barrier.await() // 防止IllegalArgumentException
         val deltaT = (currentTimeMs - currentTick).toDouble()
         currentTick = currentTimeMs
         tickingObjects.forEach {

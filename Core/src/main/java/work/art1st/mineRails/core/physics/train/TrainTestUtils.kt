@@ -64,7 +64,7 @@ fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>)
 fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false): CoreTrain {
     // 计算列车总长度（所有车厢长度之和）
     val totalTrainLength = carLengths.sum()
-    
+
     val headLocation = if (isLoop) {
         // 闭环轨道：从起点开始
         RailLocationWithFacing(rail.viewAB, 0)
@@ -74,7 +74,7 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
         val offsetDistance = totalTrainLength + 10.0 // 额外10米防止误差导致初始化失败
         startLoc.forward(offsetDistance) ?: error("直线轨道长度不足，无法放置列车（需要至少 $offsetDistance 米）")
     }
-    
+
     val cars = carLengths.mapIndexed { index, len ->
         val bogieA = CoreBogie(headLocation, savedExtensionData = emptyMap())
         val bogieB = CoreBogie(headLocation, savedExtensionData = emptyMap())

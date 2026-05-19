@@ -53,14 +53,15 @@ data class RailLocationWithFacing private constructor(
     val reversed: RailLocationWithFacing
         get() = RailLocationWithFacing(railView.reversed, point.inReversedCurve, -minorDeltaS)
 
+    fun forward(deltaS: Double): RailLocationWithFacing? {
+        if (deltaS >= 0) return forwardPositive(deltaS)
+        return reversed.forwardPositive(-deltaS)?.reversed
+    }
+
     /**
      * @param deltaS: >= 0
      */
-
-    fun forward(deltaS: Double): RailLocationWithFacing? {
-        require(deltaS >= 0) {
-            "Delta must be greater than zero."
-        }
+    private fun forwardPositive(deltaS: Double): RailLocationWithFacing? {
         var arcLength = arcLength + deltaS
         var curve = point.curve
         var railView = this.railView

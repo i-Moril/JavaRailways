@@ -3,13 +3,14 @@ package work.art1st.mineRails.bukkit.command
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
+import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.core.api.physics.World
-import work.art1st.mineRails.core.api.physics.rail.Rail
-import work.art1st.mineRails.bukkit.extension.rail.RailExtension
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import org.joml.Vector3d
+import java.util.UUID
 
 object RailCommand {
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
@@ -21,7 +22,7 @@ object RailCommand {
         when (args[0].lowercase()) {
             "create" -> return handleCreate(sender, args.drop(1))
             "list" -> return handleList(sender)
-            "delete" -> return handleDelete(sender)
+            "delete" -> return handleDelete(sender, args.drop(1))
             else -> sender.sendMessage("未知子命令: ${args[0]}")
         }
         return true
@@ -64,11 +65,12 @@ object RailCommand {
             mutableListOf(),
             mutableListOf()
         )
-        // 注册轨道可视化扩展
-        rail.registerExtensionData(BukkitPlugin, RailExtension())
+        val persistedMeta = RailVisualBootstrap.registerRail(rail)
+        RailRenderMetaStore.upsertRail(sender.world, persistedMeta)
 
         sender.sendMessage("创建轨道成功: ${rail.id}")
         sender.sendMessage("长度: ${"%.2f".format(length)} 米")
+        sender.sendMessage("渲染分段: ${persistedMeta.segments.size}（每段 8.0m）")
 
         return true
     }
@@ -79,21 +81,55 @@ object RailCommand {
             return true
         }
 
-        val world = getPlayerWorld(sender) ?: return true
+        getPlayerWorld(sender) ?: return true
+        val records = RailRenderMetaStore.load(sender.world)
 
         sender.sendMessage("=== 轨道列表 ===")
+        if (records.isEmpty()) {
+            sender.sendMessage("当前世界暂无轨道渲染记录")
+            return true
+        }
+        records.forEachIndexed { idx, record ->
+            sender.sendMessage("${idx + 1}. ${record.railId} 分段=${record.segments.size}")
+        }
 
         return true
     }
 
-    private fun handleDelete(sender: CommandSender): Boolean {
-        sender.sendMessage("轨道删除功能待实现")
+    private fun handleDelete(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        val idArg = args.firstOrNull()
+        if (idArg == null) {
+            sender.sendMessage("用法: /mr rail delete <railId>")
+            return true
+        }
+        val railId = runCatching { UUID.fromString(idArg) }.getOrNull()
+        if (railId == null) {
+            sender.sendMessage("railId 格式错误: $idArg")
+            return true
+        }
+
+        val world = getPlayerWorld(sender) ?: return true
+        val coreWorld = world as? work.art1st.mineRails.core.physics.CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 CoreWorld")
+            return true
+        }
+        coreWorld.getRail(railId)?.let { rail ->
+            rail.destroy()
+            coreWorld.removeRail(rail)
+        }
+        RailVisualBootstrap.unregisterRail(railId)
+        RailRenderMetaStore.removeRail(sender.world, railId)
+        sender.sendMessage("删除轨道成功: $railId")
         return true
     }
 
     private fun getPlayerWorld(player: Player): World? {
         val bukkitWorld = player.world
-        val worldManager = BukkitPlugin.worldManager
+        val worldManager = BukkitPlugin.INSTANCE.worldManager
         return worldManager.railWorlds[bukkitWorld]
     }
 

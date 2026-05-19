@@ -91,13 +91,16 @@ object TrainCommand {
 
             // 注册车厢渲染扩展
             val carExtension = CarExtension()
-            car.registerExtensionData(BukkitPlugin, carExtension)
+            car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
+            carExtension.initialize(car, emptyMap())
 
             // 注册转向架渲染扩展
             val bogieAExtension = BogieExtension()
-            bogieA.registerExtensionData(BukkitPlugin, bogieAExtension)
+            bogieA.registerExtensionData(BukkitPlugin.INSTANCE, bogieAExtension)
+            bogieAExtension.initialize(bogieA, emptyMap())
             val bogieBExtension = BogieExtension()
-            bogieB.registerExtensionData(BukkitPlugin, bogieBExtension)
+            bogieB.registerExtensionData(BukkitPlugin.INSTANCE, bogieBExtension)
+            bogieBExtension.initialize(bogieB, emptyMap())
 
             // 为车厢添座位
             val seatExtension = SeatExtension(car)
@@ -306,7 +309,7 @@ object TrainCommand {
     }
 
     private fun handleList(sender: CommandSender): Boolean {
-        val world = BukkitPlugin.worldManager.railWorlds.values.firstOrNull() as? CoreWorld ?: run {
+        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds.values.firstOrNull() as? CoreWorld ?: run {
             sender.sendMessage("错误: 无法获取 CoreWorld")
             return true
         }
@@ -329,7 +332,7 @@ object TrainCommand {
 
     private fun getPlayerWorld(player: Player): World? {
         val bukkitWorld = player.world
-        val worldManager = BukkitPlugin.worldManager
+        val worldManager = BukkitPlugin.INSTANCE.worldManager
         return worldManager.railWorlds[bukkitWorld]
     }
 }

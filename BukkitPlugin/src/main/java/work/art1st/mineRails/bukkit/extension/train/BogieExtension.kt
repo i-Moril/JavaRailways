@@ -24,7 +24,7 @@ class BogieExtension : TrainComponentExtension<Bogie>() {
     override fun save(): Pair<String, SerializableExtensionData>? = null
 
     override fun buildModel() {
-        val bogieConfig = BukkitPlugin.carModelConfig.bogie
+        val bogieConfig = BukkitPlugin.INSTANCE.carModelConfig.bogie
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
 
         // 转向架框架
@@ -47,22 +47,28 @@ class BogieExtension : TrainComponentExtension<Bogie>() {
         val normal = self.normal
 
         val right = Vector3d()
+        // right = normal × direction（右手系）
         normal.cross(direction, right).normalize()
+
+        // Matrix3d(row0, row1, row2): Row0=(right.x, normal.x, direction.x), ...
+        // Columns = [right, normal, direction]
+        // 然后取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反
         val rotationMatrix = Matrix3d(
             right.x(), normal.x(), direction.x(),
             right.y(), normal.y(), direction.y(),
             right.z(), normal.z(), direction.z()
         )
         val bogieRotation = Quaterniond().setFromNormalized(rotationMatrix)
+        val bogieRotationFinal = Quaterniond(bogieRotation.w(), -bogieRotation.x(), bogieRotation.y(), bogieRotation.z())
 
-        val bogieConfig = BukkitPlugin.carModelConfig.bogie
+        val bogieConfig = BukkitPlugin.INSTANCE.carModelConfig.bogie
         val frame = bogieConfig.frame
 
         // 框架
         updateItemDisplay(displayEntities[0],
             Vector3d(frame.offset.x, frame.offset.y, frame.offset.z),
             Vector3d(frame.scale.x, frame.scale.y, frame.scale.z),
-            bogiePos, bogieRotation)
+            bogiePos, bogieRotationFinal)
 
         // 轨道
         if (displayEntities.size > 1) {
@@ -70,7 +76,7 @@ class BogieExtension : TrainComponentExtension<Bogie>() {
             updateItemDisplay(displayEntities[1],
                 Vector3d(rail.offset.x, rail.offset.y, rail.offset.z),
                 Vector3d(rail.scale.x, rail.scale.y, rail.scale.z),
-                bogiePos, bogieRotation)
+                bogiePos, bogieRotationFinal)
         }
     }
 

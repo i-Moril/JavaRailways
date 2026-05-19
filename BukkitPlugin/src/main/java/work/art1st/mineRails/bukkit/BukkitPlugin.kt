@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit
 
-import org.bukkit.command.CommandExecutor
 import org.bukkit.plugin.java.JavaPlugin
 import work.art1st.mineRails.bukkit.command.MineRailsCommand
 import work.art1st.mineRails.bukkit.config.CarModelConfig
@@ -16,8 +15,11 @@ import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
 import java.io.File
 
-object BukkitPlugin : Plugin, JavaPlugin() {
-    const val EXTENSION_ID = "BUKKIT"
+class BukkitPlugin : Plugin, JavaPlugin() {
+    companion object {
+        const val EXTENSION_ID = "BUKKIT"
+        lateinit var INSTANCE: BukkitPlugin
+    }
 
     lateinit var viewDistanceManager: ViewDistanceManager
     lateinit var worldManager: WorldManager
@@ -32,7 +34,8 @@ object BukkitPlugin : Plugin, JavaPlugin() {
         // BasicPlugin 必须在 BukkitPlugin 之前注册，使 BasicPlugin.identifier = 0
         BasicPlugin.INSTANCE = BasicPlugin(0)
         PluginRegistry.register(BasicPlugin.INSTANCE)
-        PluginRegistry.register(BukkitPlugin)
+        PluginRegistry.register(this)
+        INSTANCE = this
         viewDistanceManager = ViewDistanceManager()
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
@@ -42,10 +45,14 @@ object BukkitPlugin : Plugin, JavaPlugin() {
         // 加载轨道可视化配置
         railModelConfig = loadRailModelConfigFromPlugin()
 
-        // 注册命令
-        val commandExecutor = MineRailsCommand()
-        getCommand("minerails")?.setExecutor(commandExecutor)
-        getCommand("mr")?.setExecutor(commandExecutor)
+        // 注册命令（命令名与别名见 build.gradle 中 bukkitPluginYaml.commands）
+        val mineRailsCmd = MineRailsCommand()
+        listOf("minerails", "mr").forEach { name ->
+            getCommand(name)?.apply {
+                setExecutor(mineRailsCmd)
+                setTabCompleter(mineRailsCmd)
+            }
+        }
 
         server.worlds.forEach { worldManager.registerRailWorld(it) }
     }

@@ -13,12 +13,9 @@ import org.joml.Vector3dc
 import org.joml.Vector3f
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.CarPartsConfig
-import work.art1st.mineRails.bukkit.config.PartConfig
-import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
-import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 
@@ -45,8 +42,8 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun buildModel() {
-        val carConfig = BukkitPlugin.carModelConfig.car
-        val bogieConfig = BukkitPlugin.carModelConfig.bogie
+        val carConfig = BukkitPlugin.INSTANCE.carModelConfig.car
+        val bogieConfig = BukkitPlugin.INSTANCE.carModelConfig.bogie
         val carLength = self.length
         val carFloorHeight = self.floorHeight
 
@@ -61,17 +58,23 @@ class CarExtension : TrainComponentExtension<Car>() {
         val carLength = self.length
 
         val right = Vector3d()
+        // right = normal × direction（右手系）
         normal.cross(direction, right).normalize()
+
+        // Matrix3d(a,b,c,d,e,f,g,h,i) fills row-major: Row0=(a,b,c), Row1=(d,e,f), Row2=(g,h,i)
+        // Col0 = world dir of model+X = right, Col1 = normal, Col2 = direction
+        // 然后取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反
         val rotationMatrix = Matrix3d(
             right.x(), normal.x(), direction.x(),
             right.y(), normal.y(), direction.y(),
             right.z(), normal.z(), direction.z()
         )
         val carRotation = Quaterniond().setFromNormalized(rotationMatrix)
+        val carRotationFinal = Quaterniond(carRotation.w(), -carRotation.x(), carRotation.y(), carRotation.z())
 
         for (i in displayEntities.indices) {
             val (localPos, localScale) = computeLocalTransform(i, carLength)
-            updateItemDisplay(displayEntities[i], localPos, localScale, carPos, carRotation)
+            updateItemDisplay(displayEntities[i], localPos, localScale, carPos, carRotationFinal)
         }
     }
 
@@ -85,8 +88,8 @@ class CarExtension : TrainComponentExtension<Car>() {
     private val displayEntities = mutableListOf<ItemDisplay>()
 
     private fun computeLocalTransform(partIndex: Int, carLength: Double): Pair<Vector3dc, Vector3dc> {
-        val carConfig = BukkitPlugin.carModelConfig.car
-        val bogieConfig = BukkitPlugin.carModelConfig.bogie
+        val carConfig = BukkitPlugin.INSTANCE.carModelConfig.car
+        val bogieConfig = BukkitPlugin.INSTANCE.carModelConfig.bogie
 
         val floorParts = 1
         val wallParts = carConfig.walls.size

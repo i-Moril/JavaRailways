@@ -1,6 +1,9 @@
+@file:UseSerializers(work.art1st.mineRails.bukkit.render.persistence.BukkitColorSerializer::class)
+
 package work.art1st.mineRails.bukkit.render.config
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 import org.bukkit.Color
 import org.bukkit.Material
 import org.bukkit.inventory.ItemStack

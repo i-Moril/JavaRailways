@@ -1,7 +1,9 @@
+@file:UseSerializers(work.art1st.mineRails.bukkit.render.persistence.Vector3dSerializer::class)
+
 package work.art1st.mineRails.bukkit.render.persistence
 
-import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 import org.joml.Vector3d
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.configLib.persistence.Loads

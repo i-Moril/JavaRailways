@@ -44,17 +44,17 @@ class LodDisplayModel internal constructor(
         val distance = player.location.asVector3d().distance(state.position)
         if (distance > player.railViewDistanceSettings.lodThreshold) {
             loEntity?.let {
-                player.showEntity(BukkitPlugin, it)
+                player.showEntity(BukkitPlugin.INSTANCE, it)
             }
             hiEntity?.let {
-                player.hideEntity(BukkitPlugin, it)
+                player.hideEntity(BukkitPlugin.INSTANCE, it)
             }
         } else {
             hiEntity?.let {
-                player.showEntity(BukkitPlugin, it)
+                player.showEntity(BukkitPlugin.INSTANCE, it)
             }
             loEntity?.let {
-                player.hideEntity(BukkitPlugin, it)
+                player.hideEntity(BukkitPlugin.INSTANCE, it)
             }
         }
     }

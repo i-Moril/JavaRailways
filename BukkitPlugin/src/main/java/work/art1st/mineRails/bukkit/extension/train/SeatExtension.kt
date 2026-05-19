@@ -34,7 +34,7 @@ class SeatExtension(private val car: Car) : Listener {
     private val seatedPlayers = mutableMapOf<Player, Int>()
 
     init {
-        Bukkit.getPluginManager().registerEvents(this, BukkitPlugin)
+        Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
         SeatExtension.register(this)
         car.seats.forEach { seat -> spawnSeatEntity(seat) }
     }
@@ -57,7 +57,7 @@ class SeatExtension(private val car: Car) : Listener {
         val direction = car.direction
         val normal = car.normal
         val length = car.length
-        val seatConfig = BukkitPlugin.carModelConfig.seat
+        val seatConfig = BukkitPlugin.INSTANCE.carModelConfig.seat
 
         for ((seatIndex, entity) in seatEntities) {
             val seatPos = computeSeatPosition(carPos, direction, normal, length, seatConfig.offset.y, seatIndex)
@@ -99,7 +99,7 @@ class SeatExtension(private val car: Car) : Listener {
     fun makePlayerSit(player: Player, seatIndex: Int) {
         seatedPlayers[player] = seatIndex
         val entity = seatEntities[seatIndex] ?: return
-        val seatConfig = BukkitPlugin.carModelConfig.seat
+        val seatConfig = BukkitPlugin.INSTANCE.carModelConfig.seat
         val seatPos = computeSeatPosition(car.position, car.direction, car.normal, car.length, seatConfig.offset.y, seatIndex)
         val (yaw, pitch) = computeYawPitch(car.direction)
         player.teleport(Location(player.world, seatPos.x(), seatPos.y(), seatPos.z(), yaw.toFloat(), pitch.toFloat()))
@@ -122,7 +122,7 @@ class SeatExtension(private val car: Car) : Listener {
 
     private fun spawnSeatEntity(seat: Seat) {
         val bukkitWorld = car.world.bukkitWorldData.bukkitWorld
-        val seatConfig = BukkitPlugin.carModelConfig.seat
+        val seatConfig = BukkitPlugin.INSTANCE.carModelConfig.seat
         val seatPos = computeSeatPosition(car.position, car.direction, car.normal, car.length, seatConfig.offset.y, seat.seatIndex)
         val (yaw, pitch) = computeYawPitch(car.direction)
 

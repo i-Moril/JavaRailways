@@ -10,7 +10,7 @@ import java.io.File
  * 将 [CoreWorld] 快照保存到插件数据目录下，按 Bukkit 世界 [World.getUID] 区分文件。
  */
 object WorldPersistence {
-    private fun worldsDir(): File = File(BukkitPlugin.dataFolder, "worlds").also { it.mkdirs() }
+    private fun worldsDir(): File = File(BukkitPlugin.INSTANCE.dataFolder, "worlds").also { it.mkdirs() }
 
     fun snapshotFile(world: World): File = File(worldsDir(), "${world.uid}.json")
 

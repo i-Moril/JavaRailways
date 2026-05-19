@@ -2,6 +2,9 @@ package work.art1st.mineRails.bukkit.extension.rail
 
 import org.bukkit.Location
 import org.bukkit.Material
+import org.bukkit.block.data.BlockData
+import org.bukkit.entity.BlockDisplay
+import org.bukkit.entity.Display
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
@@ -15,45 +18,31 @@ import org.joml.Vector3f
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.OffsetConfig
 import work.art1st.mineRails.bukkit.config.RailElementConfig
+import work.art1st.mineRails.bukkit.config.RailModelConfig
+import work.art1st.mineRails.bukkit.config.RailDisplayType
+import work.art1st.mineRails.bukkit.config.RotationConfig
+import work.art1st.mineRails.bukkit.config.ScaleConfig
 import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.api.physics.rail.Rail
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.render.RenderableExtension
 import work.art1st.mineRails.core.api.util.annotation.MainThread
-import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
-import work.art1st.mineRails.core.api.util.tick.Synchronizable
-import work.art1st.mineRails.core.api.util.tick.TickingObject
-import work.art1st.mineRails.core.util.Destroyable
 import work.art1st.mineRails.bukkit.extension.BukkitRenderable
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
-
-@OptIn(ExtensionData::class)
-val Rail.renderer: RailExtension
-    get() = getExtensionData(BukkitPlugin)
+import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import kotlin.math.ceil
 
 /**
- * 轨道渲染扩展：从 car_model.yml 加载可视化配置，
- * 沿轨道曲线按 [BukkitPlugin.railModelConfig] 的 repeatLength 间隔放置重复的元素模型。
- * 实现 [Synchronizable]，每帧通过 [commit] 更新所有 ItemDisplay 实体位置。
+ * 轨道分段渲染扩展：曲线静态时只在首次发送时构建实体。
  */
-class RailExtension : RenderableExtension<Rail>, BukkitRenderable<Rail>, Synchronizable, TickingObject, Destroyable {
-    private lateinit var self: Rail
+class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderable<RailArcVisualSegment> {
+    private lateinit var self: RailArcVisualSegment
 
-    override fun initialize(host: Rail, savedExtensionData: Map<String, SerializableExtensionData>) {
+    override fun initialize(host: RailArcVisualSegment, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
-        // 注册到 tick manager，确保 commit() 每帧被调用
-        self.world.tickManager.scheduleMainThreadPostTickTask {
-            self.world.tickManager.register(this)
-        }
     }
 
-    override fun tick(deltaT: Double) {
-        // 无需物理更新，ItemDisplay 实体通过 commit() 更新位置
-    }
-
-    override fun commit() {
-        updateModel()
-    }
+    override fun commit() = Unit
 
     override fun save(): Pair<String, SerializableExtensionData>? = null
 
@@ -63,56 +52,77 @@ class RailExtension : RenderableExtension<Rail>, BukkitRenderable<Rail>, Synchro
     }
 
     /**
+     * 在主线程主动构建模型（幂等）。
+     * 供 bootstrap 在注册分段后立即触发，避免依赖 sendTo 懒加载。
+     */
+    @MainThread
+    fun ensureBuilt() {
+        buildModel()
+    }
+
+    /**
      * 主线程：根据配置构建所有 ItemDisplay 实体。
-     * 沿曲线每隔 repeatLength 米放置一组元素。
-     * 仅在首次发送给玩家时调用。
+     * 仅构建当前分段 [RailArcVisualSegment.arcStart] ~ [RailArcVisualSegment.arcEnd]。
      */
     @MainThread
     protected fun buildModel() {
         if (displayEntities.isNotEmpty()) return
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
-        val config = BukkitPlugin.railModelConfig
-        val curve = self.curve
+        val config = self.templateSnapshot?.toModelConfig() ?: BukkitPlugin.INSTANCE.railModelConfig
+        val curve = self.rail.curve
 
-        val repeatLength = config.repeatLength
+        val repeatLength = config.repeatLength.coerceAtLeast(0.1)
         val totalLength = curve.totalArcLength
+        val segmentStart = self.arcStart.coerceIn(0.0, totalLength)
+        val segmentEnd = self.arcEnd.coerceIn(segmentStart, totalLength)
 
-        var arcLength = 0.0
-        while (arcLength <= totalLength) {
-            val point = curve.getPointAt(arcLength)
+        val pointIndices = if (self.pointIndices.isNotEmpty()) {
+            self.pointIndices
+        } else {
+            computePointIndices(curve, segmentStart, segmentEnd, repeatLength)
+        }
+        for (idx in pointIndices) {
+            val point = curve.getPointAt(idx)
             for (element in config.elements) {
                 val entity = createDisplayEntity(bukkitWorld, point, element)
                 displayEntities.add(entity)
             }
-            arcLength += repeatLength
+        }
+
+        if (displayEntities.isEmpty()) {
+            val point = curve.getPointAt(segmentStart)
+            for (element in config.elements) {
+                val entity = createDisplayEntity(bukkitWorld, point, element)
+                displayEntities.add(entity)
+            }
         }
     }
 
-    /**
-     * 每帧更新所有实体的位置和朝向。
-     */
-    private fun updateModel() {
-        if (displayEntities.isEmpty()) return
-        val curve = self.curve
-        val config = BukkitPlugin.railModelConfig
-        val repeatLength = config.repeatLength
-        val totalLength = curve.totalArcLength
-
-        var entityIdx = 0
-        var arcLength = 0.0
-        while (arcLength <= totalLength) {
-            val point = curve.getPointAt(arcLength)
-            for (element in config.elements) {
-                val entity = displayEntities[entityIdx]
-                updateDisplayEntity(entity, point, element)
-                entityIdx++
-            }
+    private fun computePointIndices(
+        curve: PrimeCurve,
+        segmentStart: Double,
+        segmentEnd: Double,
+        repeatLength: Double
+    ): List<Int> {
+        val indices = LinkedHashSet<Int>()
+        var arcLength = ceil(segmentStart / repeatLength) * repeatLength
+        if (arcLength < segmentStart) {
             arcLength += repeatLength
         }
+        val epsilon = 1e-6
+        while (arcLength <= segmentEnd + epsilon) {
+            indices.add(curve.getIdxAt(arcLength))
+            arcLength += repeatLength
+        }
+        if (indices.isEmpty()) {
+            indices.add(curve.getIdxAt(segmentStart))
+        }
+        return indices.toList()
     }
 
     @MainThread
     override fun destroy() {
+        self.world.renderChunkManager.remove(self)
         destroyModel()
     }
 
@@ -126,7 +136,7 @@ class RailExtension : RenderableExtension<Rail>, BukkitRenderable<Rail>, Synchro
         displayEntities.clear()
     }
 
-    private val displayEntities = mutableListOf<ItemDisplay>()
+    private val displayEntities = mutableListOf<Display>()
 
     /**
      * 在曲线指定点创建单个显示实体。
@@ -135,15 +145,32 @@ class RailExtension : RenderableExtension<Rail>, BukkitRenderable<Rail>, Synchro
         bukkitWorld: org.bukkit.World,
         point: Curve.Point,
         element: RailElementConfig
-    ): ItemDisplay {
-        val entity = bukkitWorld.spawnEntity(
-            Location(bukkitWorld, 0.0, 0.0, 0.0),
-            org.bukkit.entity.EntityType.ITEM_DISPLAY
-        ) as ItemDisplay
+    ): Display {
+        val worldPos = computeWorldPosition(point, element.offset)
+        val entity: Display = when (element.type) {
+            RailDisplayType.BLOCK -> {
+                val display = bukkitWorld.spawnEntity(
+                    Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z()),
+                    org.bukkit.entity.EntityType.BLOCK_DISPLAY
+                ) as BlockDisplay
+                val material = runCatching {
+                    Material.valueOf((element.blockMaterial ?: "STONE").uppercase())
+                }.getOrElse { Material.STONE }
+                val data: BlockData = material.createBlockData()
+                display.block = data
+                display
+            }
+            RailDisplayType.ITEM -> {
+                val display = bukkitWorld.spawnEntity(
+                    Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z()),
+                    org.bukkit.entity.EntityType.ITEM_DISPLAY
+                ) as ItemDisplay
+                display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.NONE
+                display.setItemStack(element.item?.toItemStack() ?: ItemStack(Material.RAIL))
+                display
+            }
+        }
         entity.isPersistent = false
-
-        val material = try { Material.valueOf(element.material.uppercase()) } catch (e: Exception) { Material.STONE }
-        entity.setItemStack(ItemStack(material))
 
         updateDisplayEntity(entity, point, element)
         return entity
@@ -153,16 +180,18 @@ class RailExtension : RenderableExtension<Rail>, BukkitRenderable<Rail>, Synchro
      * 更新显示实体的变换（位置、朝向、缩放）。
      */
     private fun updateDisplayEntity(
-        entity: ItemDisplay,
+        entity: Display,
         point: Curve.Point,
         element: RailElementConfig
     ) {
         val worldPos = computeWorldPosition(point, element.offset)
-        val rotation = computeCurveRotation(point)
+        val rotation = computeCurveRotation(point).mul(computeElementRotation(element.rotation))
+        // Display 实体的服务端位置必须与可视位置一致，否则玩家可能收不到该实体的追踪包。
+        entity.teleport(Location(entity.world, worldPos.x(), worldPos.y(), worldPos.z()))
 
         entity.setTransformation(
             Transformation(
-                Vector3f(worldPos.x().toFloat(), worldPos.y().toFloat(), worldPos.z().toFloat()),
+                Vector3f(0f, 0f, 0f),
                 rotation.get(Quaternionf()),
                 Vector3f(element.scale.x.toFloat(), element.scale.y.toFloat(), element.scale.z.toFloat()),
                 Quaternionf(1f, 0f, 0f, 0f)
@@ -189,7 +218,8 @@ class RailExtension : RenderableExtension<Rail>, BukkitRenderable<Rail>, Synchro
 
     /**
      * 根据曲线点的切线和法线计算旋转四元数。
-     * tangent → local-x, normal → local-y, binormal → local-z
+     * right = tangent × normal（右手系）
+     * 矩阵列 = [right, normal, tangent]（JOML Matrix3d 构造函数按 row-major 填充）
      */
     private fun computeCurveRotation(point: Curve.Point): Quaterniond {
         val tangent = point.tangent
@@ -197,11 +227,49 @@ class RailExtension : RenderableExtension<Rail>, BukkitRenderable<Rail>, Synchro
         val binormal = Vector3d()
         normal.cross(tangent, binormal).normalize()
 
+        // Matrix3d(a,b,c,d,e,f,g,h,i) fills row-major: Row0=(a,b,c), Row1=(d,e,f), Row2=(g,h,i)
+        // Col0 = world dir of model+X = binormal, Col1 = normal, Col2 = tangent
+        // 然后取共轭（取反 Y 轴）：q' = (w, x, -y, z)，将绕 Y 轴旋转取反
         val rotationMatrix = Matrix3d(
-            tangent.x(), normal.x(), binormal.x(),
-            tangent.y(), normal.y(), binormal.y(),
-            tangent.z(), normal.z(), binormal.z()
+            binormal.x(), normal.x(), tangent.x(),
+            binormal.y(), normal.y(), tangent.y(),
+            binormal.z(), normal.z(), tangent.z()
         )
-        return Quaterniond().setFromNormalized(rotationMatrix)
+        val q = Quaterniond().setFromNormalized(rotationMatrix)
+        // 取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反
+        return Quaterniond(q.w(), -q.x(), q.y(), q.z())
+    }
+
+    private fun computeElementRotation(rotation: RotationConfig): Quaterniond {
+        return Quaterniond().rotateXYZ(
+            Math.toRadians(rotation.x),
+            Math.toRadians(rotation.y),
+            Math.toRadians(rotation.z)
+        )
+    }
+
+    private fun RailTemplateSnapshot.toModelConfig(): RailModelConfig {
+        return RailModelConfig(
+            repeatLength = repeatLength,
+            elements = elements.map { element ->
+                RailElementConfig(
+                    type = element.type,
+                    item = element.itemStack?.let {
+                        val meta = it.itemMeta
+                        val customModelData = if (meta != null && meta.hasCustomModelData()) {
+                            meta.customModelData
+                        } else null
+                        work.art1st.mineRails.bukkit.config.RailItemConfig(
+                            material = it.type.name,
+                            customModelData = customModelData
+                        )
+                    },
+                    blockMaterial = element.blockMaterial,
+                    offset = OffsetConfig(element.offsetX, element.offsetY, element.offsetZ),
+                    rotation = RotationConfig(element.rotationX, element.rotationY, element.rotationZ),
+                    scale = ScaleConfig(element.scaleX, element.scaleY, element.scaleZ)
+                )
+            }
+        )
     }
 }

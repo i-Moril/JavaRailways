@@ -1,11 +1,16 @@
 package work.art1st.mineRails.bukkit.render.chunk
 
 import org.bukkit.World
+import org.bukkit.entity.Player
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
-import work.art1st.mineRails.bukkit.extension.BukkitRenderable
 import work.art1st.mineRails.bukkit.extension.chunk
+import work.art1st.mineRails.bukkit.extension.rail.RailArcVisualSegment
+import work.art1st.mineRails.bukkit.extension.rail.renderer
 import work.art1st.mineRails.bukkit.render.asVector3d
+import work.art1st.mineRails.bukkit.extension.train.renderer
+import work.art1st.mineRails.core.api.physics.train.Bogie
+import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.util.WeakReferenceWrapper
 import java.util.concurrent.ConcurrentHashMap
@@ -39,10 +44,16 @@ class RenderChunkManager(
                 player.location.asVector3d(),
                 player.railViewDistanceSettings.viewDistance
             ).forEach {
-                if (it is BukkitRenderable<*>) {
-                    it.sendTo(player)
-                }
+                dispatchSendTo(it, player)
             }
+        }
+    }
+
+    private fun dispatchSendTo(renderable: Renderable, player: Player) {
+        when (renderable) {
+            is Car -> renderable.renderer.sendTo(player)
+            is Bogie -> renderable.renderer.sendTo(player)
+            is RailArcVisualSegment -> renderable.renderer.sendTo(player)
         }
     }
 
@@ -79,7 +90,7 @@ class RenderChunkManager(
      */
     private fun addChunk(chunk: RenderChunk) {
         val bukkitChunk = world.getChunkAt(chunk.x, chunk.z)
-        bukkitChunk.addPluginChunkTicket(BukkitPlugin)
+        bukkitChunk.addPluginChunkTicket(BukkitPlugin.INSTANCE)
     }
 
     /**
@@ -87,6 +98,6 @@ class RenderChunkManager(
      */
     private fun removeChunk(chunk: RenderChunk) {
         val bukkitChunk = world.getChunkAt(chunk.x, chunk.z)
-        bukkitChunk.removePluginChunkTicket(BukkitPlugin)
+        bukkitChunk.removePluginChunkTicket(BukkitPlugin.INSTANCE)
     }
 }

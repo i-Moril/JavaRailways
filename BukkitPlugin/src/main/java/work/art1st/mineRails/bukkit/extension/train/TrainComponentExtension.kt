@@ -13,11 +13,11 @@ import work.art1st.mineRails.core.util.Destroyable
 
 @OptIn(ExtensionData::class)
 val Car.renderer: TrainComponentExtension<Car>
-    get() = getExtensionData(BukkitPlugin)
+    get() = getExtensionData(BukkitPlugin.INSTANCE)
 
 @OptIn(ExtensionData::class)
 val Bogie.renderer: TrainComponentExtension<Bogie>
-    get() = getExtensionData(BukkitPlugin)
+    get() = getExtensionData(BukkitPlugin.INSTANCE)
 
 /**
  * 车厢/转向架等列车组件的渲染扩展基类。
@@ -25,6 +25,7 @@ val Bogie.renderer: TrainComponentExtension<Bogie>
  */
 abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, Destroyable {
     protected open lateinit var self: T
+    private var modelBuilt: Boolean = false
 
     override fun initialize(host: T, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
@@ -51,7 +52,10 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
 
     @MainThread
     override fun sendTo(player: Player) {
-        // 子类在 buildModel() 中自行处理玩家可见性
+        if (!modelBuilt) {
+            buildModel()
+            modelBuilt = true
+        }
     }
 
     override fun commit() {
@@ -60,6 +64,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
 
     @MainThread
     override fun destroy() {
+        modelBuilt = false
         destroyModel()
     }
 

@@ -1,23 +1,22 @@
+@file:UseSerializers(work.art1st.mineRails.bukkit.render.persistence.Vector3dSerializer::class)
+
 package work.art1st.mineRails.bukkit.render.config
 
 import kotlinx.serialization.Serializable
-import org.bukkit.Location
+import kotlinx.serialization.UseSerializers
+import kotlinx.serialization.Contextual
 import org.bukkit.entity.ItemDisplay
-import org.bukkit.inventory.ItemStack
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.extension.bukkitLocation
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
-import work.art1st.mineRails.bukkit.nms.PlatformEntity
 import work.art1st.mineRails.bukkit.render.model.AbstractModel
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.bukkit.render.model.DisplayModel
-import work.art1st.mineRails.bukkit.render.model.EntityModel
 import work.art1st.mineRails.bukkit.render.model.LodDisplayModel
 import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
-import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.configLib.persistence.Loads
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
@@ -60,7 +59,7 @@ abstract class ModelConfigV1 <T : AbstractModel> (
 class DisplayModelConfigV1(
     val item: ItemStackConfig,
     val animations: Map<String, AnimationConfig>
-) : ModelConfigV1<DisplayModel>() {
+) : ModelConfigV1<@Contextual DisplayModel>() {
     override fun load(dependency: Renderable): DisplayModel {
         val world = dependency.world
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
@@ -85,7 +84,7 @@ class LodDisplayModelConfigV1(
     val loItem: ItemStackConfig,
     val hiItem: ItemStackConfig,
     val animations: Map<String, AnimationConfig>
-) : ModelConfigV1<LodDisplayModel>() {
+) : ModelConfigV1<@Contextual LodDisplayModel>() {
     override fun load(dependency: Renderable): LodDisplayModel {
         val world = dependency.world
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
@@ -114,7 +113,7 @@ class LodDisplayModelConfigV1(
 @Serializable
 class PlatformModelConfigV1(
     val animations: Map<String, AnimationConfig>
-) : ModelConfigV1<PlatformModel>() {
+) : ModelConfigV1<@Contextual PlatformModel>() {
     override fun load(dependency: Renderable): PlatformModel {
         val model = PlatformModel(
             world = dependency.world,

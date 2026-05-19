@@ -60,23 +60,25 @@ data class CompactTransform(
 }
 
 fun Renderable.getTransform(): CompactTransform {
-    // 1. 构建正交基 (Orthogonal Basis)
-    // 在 MC 右手系中：Right = Up x Forward
+    // 构建正交基 (Orthogonal Basis)
+    // right = normal × direction（右手系）
     val right = Vector3d()
     this.normal.cross(this.direction, right).normalize()
 
-    // 2. 构建当前旋转矩阵
-    // JOML Matrix3f 构造函数按列主序填充：
-    // 第一列: Right (+X), 第二列: Up (+Y), 第三列: Forward (+Z)
+    // Matrix3d(a,b,c,d,e,f,g,h,i) fills row-major: Row0=(a,b,c), Row1=(d,e,f), Row2=(g,h,i)
+    // Col0 = world dir of model+X = right, Col1 = normal, Col2 = direction
+    // 然后取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反
     val currentRotationMatrix = Matrix3d(
-        right.x(), right.y(), right.z(),
-        this.normal.x(), this.normal.y(), this.normal.z(),
-        this.direction.x(), this.direction.y(), this.direction.z()
+        right.x(), this.normal.x(), this.direction.x(),
+        right.y(), this.normal.y(), this.direction.y(),
+        right.z(), this.normal.z(), this.direction.z()
     )
+    val q = Quaterniond().setFromNormalized(currentRotationMatrix)
+    val finalRotation = Quaterniond(q.w(), -q.x(), q.y(), q.z())
 
     return CompactTransform(
         position = this.position,
-        rotation = Quaterniond().setFromNormalized(currentRotationMatrix)
+        rotation = finalRotation
     )
 }
 

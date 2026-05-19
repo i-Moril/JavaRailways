@@ -12,7 +12,7 @@ class BukkitWorldData (
 
 @OptIn(ExtensionData::class)
 val World.bukkitWorldData: BukkitWorldData
-    get() = getExtensionData(BukkitPlugin)
+    get() = getExtensionData(BukkitPlugin.INSTANCE)
 
 val World.renderChunkManager: RenderChunkManager
     get() = bukkitWorldData.renderChunkManager

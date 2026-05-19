@@ -14,7 +14,7 @@ class ViewDistanceManager {
 }
 
 val Player.railViewDistanceSettings: ViewDistanceSettings
-    get() = BukkitPlugin.viewDistanceManager.viewDistanceMap.getOrDefault(this,
+    get() = BukkitPlugin.INSTANCE.viewDistanceManager.viewDistanceMap.getOrDefault(this,
         ViewDistanceSettings(
             this.viewDistance * 16.0,
             16.0

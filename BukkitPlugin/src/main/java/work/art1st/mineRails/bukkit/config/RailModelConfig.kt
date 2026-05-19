@@ -1,6 +1,8 @@
 package work.art1st.mineRails.bukkit.config
 
 import org.joml.Vector3d
+import org.bukkit.Material
+import org.bukkit.inventory.ItemStack
 import org.yaml.snakeyaml.Yaml
 import java.io.InputStream
 
@@ -18,17 +20,49 @@ data class RailModelConfig(
     val elements: List<RailElementConfig>
 )
 
+enum class RailDisplayType {
+    ITEM,
+    BLOCK
+}
+
+data class RailItemConfig(
+    val material: String,
+    val customModelData: Int? = null
+) {
+    fun toItemStack(): ItemStack {
+        val item = ItemStack(runCatching { Material.valueOf(material.uppercase()) }.getOrElse { Material.STONE })
+        if (customModelData != null) {
+            val meta = item.itemMeta
+            meta.setCustomModelData(customModelData)
+            item.itemMeta = meta
+        }
+        return item
+    }
+}
+
 /**
  * 轨道显示元素配置。
  * 描述在轨道曲线某一点放置的一个 ItemDisplay 实体。
  */
 data class RailElementConfig(
-    /** 方块/物品材质名 */
-    val material: String,
+    /** 显示实体类型 */
+    val type: RailDisplayType = RailDisplayType.ITEM,
+    /** ItemDisplay 物品配置 */
+    val item: RailItemConfig? = null,
+    /** BlockDisplay 方块材质 */
+    val blockMaterial: String? = null,
     /** 相对曲线点的局部偏移 */
     val offset: OffsetConfig,
+    /** 局部欧拉角旋转（度） */
+    val rotation: RotationConfig = RotationConfig(),
     /** 模型缩放 (x=沿曲线方向长度, y=高度, z=宽度) */
     val scale: ScaleConfig
+)
+
+data class RotationConfig(
+    val x: Double = 0.0,
+    val y: Double = 0.0,
+    val z: Double = 0.0
 )
 
 /**
@@ -52,14 +86,43 @@ private fun parseRailModelConfig(map: Map<String, Any>): RailModelConfig {
 
 private fun parseRailElement(map: Map<String, Any>?): RailElementConfig? {
     if (map == null) return null
-    val material = map["material"] as? String ?: return null
+    val type = (map["type"] as? String)?.uppercase()?.let {
+        runCatching { RailDisplayType.valueOf(it) }.getOrElse { RailDisplayType.ITEM }
+    } ?: RailDisplayType.ITEM
+    val material = map["material"] as? String
+    val itemMap = map["item"] as? Map<String, Any>
     val offsetMap = map["offset"] as? Map<String, Any> ?: emptyMap()
+    val rotationMap = map["rotation"] as? Map<String, Any> ?: emptyMap()
     val scaleMap = map["scale"] as? Map<String, Any> ?: error("Missing scale in rail element")
 
+    val item = if (type == RailDisplayType.ITEM) {
+        parseRailItem(itemMap, material)
+    } else null
+    val blockMaterial = if (type == RailDisplayType.BLOCK) {
+        material ?: "STONE"
+    } else null
+
     return RailElementConfig(
-        material = material,
+        type = type,
+        item = item,
+        blockMaterial = blockMaterial,
         offset = parseOffset(offsetMap),
+        rotation = parseRotation(rotationMap),
         scale = parseScale(scaleMap)
+    )
+}
+
+private fun parseRailItem(map: Map<String, Any>?, fallbackMaterial: String?): RailItemConfig {
+    val material = (map?.get("material") as? String) ?: fallbackMaterial ?: "RAIL"
+    val customModelData = (map?.get("custom_model_data") as? Number)?.toInt()
+    return RailItemConfig(material = material, customModelData = customModelData)
+}
+
+private fun parseRotation(map: Map<String, Any>): RotationConfig {
+    return RotationConfig(
+        x = (map["x"] as? Number)?.toDouble() ?: 0.0,
+        y = (map["y"] as? Number)?.toDouble() ?: 0.0,
+        z = (map["z"] as? Number)?.toDouble() ?: 0.0
     )
 }
 
@@ -71,20 +134,26 @@ fun getDefaultRailModelConfig(): RailModelConfig {
         elements = listOf(
             // 枕木（垂直于轨道的木板）
             RailElementConfig(
-                material = "OAK_PLANKS",
-                OffsetConfig(x = 0.0, y = -0.18, z = 0.0),
-                ScaleConfig(x = 1.6, y = 0.08, z = 1.4)
+                type = RailDisplayType.BLOCK,
+                blockMaterial = "OAK_PLANKS",
+                offset = OffsetConfig(x = 0.0, y = -0.18, z = 0.0),
+                rotation = RotationConfig(),
+                scale = ScaleConfig(x = 1.6, y = 0.08, z = 1.4)
             ),
             // 两条铁轨
             RailElementConfig(
-                material = "RAIL",
-                OffsetConfig(x = 0.0, y = -0.1, z = 0.3),
-                ScaleConfig(x = 1.0, y = 0.05, z = 0.1)
+                type = RailDisplayType.ITEM,
+                item = RailItemConfig(material = "RAIL"),
+                offset = OffsetConfig(x = 0.0, y = -0.1, z = 0.3),
+                rotation = RotationConfig(x = -90.0),
+                scale = ScaleConfig(x = 1.0, y = 0.05, z = 0.1)
             ),
             RailElementConfig(
-                material = "RAIL",
-                OffsetConfig(x = 0.0, y = -0.1, z = -0.3),
-                ScaleConfig(x = 1.0, y = 0.05, z = 0.1)
+                type = RailDisplayType.ITEM,
+                item = RailItemConfig(material = "RAIL"),
+                offset = OffsetConfig(x = 0.0, y = -0.1, z = -0.3),
+                rotation = RotationConfig(x = -90.0),
+                scale = ScaleConfig(x = 1.0, y = 0.05, z = 0.1)
             )
         )
     )

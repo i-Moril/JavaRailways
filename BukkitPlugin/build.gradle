@@ -5,8 +5,14 @@ plugins {
     id("io.papermc.paperweight.userdev") version "2.0.0-beta.19"
     id("xyz.jpenilla.run-paper") version "3.0.2" // Adds runServer and runMojangMappedServer tasks for testing
     id("xyz.jpenilla.resource-factory-bukkit-convention") version "1.3.0" // Generates plugin.yml based on the Gradle config
-    id 'com.gradleup.shadow' version '8.3.0'
+    id 'com.gradleup.shadow' version '9.2.2'
 }
+
+runPaper {
+    disablePluginJarDetection()
+}
+
+def jomlShadow = configurations.detachedConfiguration(dependencies.create("org.joml:joml:1.10.8"))
 
 group = 'work.art1st'
 version = '1.0-SNAPSHOT'
@@ -25,6 +31,7 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
     compileOnly("com.github.retrooper:packetevents-spigot:2.11.1")
+    compileOnly("org.joml:joml:1.10.8")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("io.github.tofaa2:spigot:3.0.3-SNAPSHOT")
@@ -47,7 +54,10 @@ tasks {
         // This is the only required configuration besides applying the plugin.
         // Your plugin's jar (or shadowJar if present) will be used automatically.
         minecraftVersion("1.21.11")
-        pluginJars.from(tasks.shadowJar)
+        pluginJars.from(tasks.shadowJar.archiveFile)
+        doFirst {
+            delete(layout.projectDirectory.dir("run/plugins/.paper-remapped"))
+        }
     }
 //    reobfJar {
 //        // This is an example of how you might change the output location for reobfJar. It's recommended not to do this
@@ -63,10 +73,10 @@ tasks.assemble {
 }
 
 shadowJar {
-    // 自动重命名其他库（如果需要）
-    archiveClassifier.set('') // 默认生成的jar会带-all，这里去掉
     from(sourceSets.main.resources)
     mergeServiceFiles()
+    relocate 'org.joml.Vector3dKt', 'work.art1st.mineRails.shadow.org.joml.Vector3dKt'
+    configurations = [project.configurations.runtimeClasspath, jomlShadow]
 }
 
 // 确保在执行 build 时触发 shadowJar

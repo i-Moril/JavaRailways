@@ -9,6 +9,7 @@ import work.art1st.mineRails.bukkit.extension.train.BogieExtension
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.SeatExtension
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.util.Heavy
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.train.CoreBogie
 import work.art1st.mineRails.core.physics.train.CoreCar
@@ -45,6 +46,7 @@ object TrainCommand {
         return true
     }
 
+    @OptIn(Heavy::class)
     private fun handleCreate(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
             sender.sendMessage("此命令需要玩家执行")
@@ -65,7 +67,8 @@ object TrainCommand {
 
         val direction = work.art1st.mineRails.core.physics.rail.RailView.ViewDirection.AB
         val railView = nearestRail.getView(direction)
-        val headLocation = RailLocationWithFacing(railView, 0)
+        val nearestPoint = railView.curve.getNearestPoint(playerPos)
+        val headLocation = RailLocationWithFacing(railView, nearestPoint.idx)
 
         val carCount = args.firstOrNull()?.toIntOrNull() ?: 1
         val carLength = args.getOrNull(1)?.toDoubleOrNull() ?: 2.0
@@ -115,6 +118,11 @@ object TrainCommand {
             cars = cars,
             world = coreWorld
         )
+
+        // 列车刚创建时还没有经历一次 tick/commit，手动对齐一次并提交，
+        // 确保渲染实体和座位系统能立刻出现在世界中。
+        train.setLocation(headLocation)
+        train.commit()
 
         sender.sendMessage("创建列车成功: ${train.id}")
         sender.sendMessage("车厢数量: ${cars.size}，每节长度: ${"%.2f".format(carLength)} 米")

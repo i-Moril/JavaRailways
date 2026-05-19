@@ -24,7 +24,8 @@ dependencies {
     testImplementation(project(":ConfigLib"))
     implementation(kotlin("stdlib-jdk8"))
     implementation("net.jcip:jcip-annotations:1.0")
-    implementation("org.joml:joml:1.10.8")
+    compileOnly("org.joml:joml:1.10.8")
+    testImplementation("org.joml:joml:1.10.8")
 }
 
 tasks.test {

@@ -97,4 +97,3 @@ class CoreBogie @MainThread internal constructor(
         return SavedBogieV1(location.save(), isSameDirectionAsFacing, savedExtension)
     }
 }
-

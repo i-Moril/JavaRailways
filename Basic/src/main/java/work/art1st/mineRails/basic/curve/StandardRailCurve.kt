@@ -2,85 +2,434 @@ package work.art1st.mineRails.basic.curve
 
 import org.joml.Vector3d
 import org.joml.Vector3dc
-import kotlin.collections.ArrayList
-import kotlin.collections.MutableList
+import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-object StandardRailCurve {
-    /**
-     * 简化的回旋线（缓和曲线）坐标计算 - 使用级数展开近似 Fresnel 积分
-     * @param l 当前长度
-     * @param A 回旋线参数 (A = sqrt(R * L_total))
-     * @return 相对坐标
-     */
-    fun calculateClothoid(l: Double, A: Double): DoubleArray {
-        val x: Double = l - l.pow(5.0) / (40 * A.pow(4.0))
-        val y: Double = l.pow(3.0) / (6 * A.pow(2.0)) - l.pow(7.0) / (336 * A.pow(6.0))
-        return doubleArrayOf(x, y)
+/**
+ * 外轨超高配置
+ *
+ * @param maxSuperelevation 最大超高值（米），如 0.15 表示外轨最高高出 150mm
+ * @param superelevationTransition 超高过渡方式。true = 余弦过渡（更平滑），false = 线性过渡
+ * @param autoCalculate 自动计算超高值：h(mm) ≈ 11.3·v²(km/h)/R(m)。若速度 ≤ 0 则不使用超高
+ */
+data class SuperelevationConfig(
+    val maxSuperelevation: Double = 0.15,
+    val superelevationTransition: SuperelevationTransition = SuperelevationTransition.COSINE,
+    val autoCalculate: Boolean = true,
+    val designSpeedKmH: Double = 0.0
+) {
+    enum class SuperelevationTransition {
+        LINEAR,     // 线性过渡（简单）
+        COSINE      // 余弦过渡（更平滑，高速铁路常用）
     }
 
     /**
-     * 生成三维轨道点列表
-     * @param pStart 起点
-     * @param pEnd 终点
-     * @param R 圆曲线半径
-     * @param L 缓和曲线长度
-     * @param step 步长（米）
+     * 计算指定速度下的超高值（米）。
+     * - autoCalculate = true：h(mm) ≈ 11.3·v²/R(m)，最大值受 maxSuperelevation 限制
+     * - autoCalculate = false：直接使用 maxSuperelevation（如果 > 0）
      */
-    fun generateRailway(pStart: Vector3dc, pEnd: Vector3dc, R: Double, L: Double, step: Double): MutableList<Vector3d?> {
-        val points: MutableList<Vector3d?> = ArrayList<Vector3d?>()
-        val totalDist = pStart.distance(pEnd)
+    fun calculateSuperelevation(radius: Double): Double {
+        if (radius <= 0) return 0.0
+        if (autoCalculate && designSpeedKmH > 0) {
+            val hMm = 11.3 * designSpeedKmH * designSpeedKmH / radius
+            return minOf(hMm / 1000.0, maxSuperelevation)
+        }
+        return if (maxSuperelevation > 0) maxSuperelevation else 0.0
+    }
+}
 
-        // 1. 简化的几何划分：假设轨道由两端缓和曲线和中间圆曲线组成
-        // 实际工程中需根据转角计算圆曲线长度，此处为演示离散化逻辑
-        val L_total = totalDist
-        val L_arc = L_total - 2 * L // 圆曲线长度
+/**
+ * 标准轨道曲线：回旋线（缓和曲线）+ 圆弧 + 回旋线
+ *
+ * 采用有限差分法（Euler 步进）计算曲线上的点，从起点切向角积分。
+ * 坐标系：X 轴为前进方向，Y 轴向上，Z 轴横向（右手系）。
+ * 外轨在曲线左侧（正 Z），内轨在右侧（负 Z）。
+ *
+ * @param R 圆曲线半径（米），> 0
+ * @param L 回旋线总长度（米），每端各 L/2
+ * @param Lc 圆弧段长度（米），中间圆曲线部分
+ * @param superelevationConfig 外轨超高配置，null 表示不使用超高
+ */
+class StandardRailCurve(
+    private val R: Double,
+    private val L: Double,
+    private val Lc: Double,
+    private val superelevationConfig: SuperelevationConfig? = null
+) {
+    // 回旋线参数 A = sqrt(R * L)，其中 L 为单端缓和曲线长度
+    val A: Double = sqrt(R * L)
 
-        if (L_arc < 0) {
-            println("警告：距离太短，无法容纳给定的缓和曲线长度！")
-            return points
+    /** 轨道总长度：两段缓和曲线 + 圆曲线 */
+    val totalLength: Double = 2 * L + Lc
+
+    /** 设计超高值（米），通过 autoCalculate 或手动设置获取 */
+    val superelevation: Double = superelevationConfig?.calculateSuperelevation(R) ?: 0.0
+
+    init {
+        require(R > 0) { "半径 R 必须大于 0" }
+        require(L >= 0) { "回旋线长度 L 必须非负" }
+        require(Lc >= 0) { "圆弧长度 Lc 必须非负" }
+    }
+
+    /**
+     * 计算弧长 s 处的曲率 κ
+     *
+     * 入口回旋线（0 ≤ s ≤ L）：κ = 2s / (R·L) 线性从 0 到 1/R
+     * 圆曲线（L ≤ s ≤ L+Lc）：κ = 1/R
+     * 出口回旋线（L+Lc ≤ s ≤ 2L+Lc）：κ = 2(2L - s) / (R·L) 线性从 1/R 到 0
+     */
+    fun curvatureAt(s: Double): Double {
+        if (L == 0.0) return if (s >= 0 && s <= Lc) 1.0 / R else 0.0
+        return when {
+            s < 0 -> 0.0
+            s <= L -> 2.0 * s / (R * L)
+            s <= L + Lc -> 1.0 / R
+            s <= 2 * L + Lc -> 2.0 * (2 * L - s) / (R * L)
+            else -> 0.0
+        }
+    }
+
+    /**
+     * 计算弧长 s 处的超高值（米）。
+     * 在缓和曲线段从 0 线性或余弦过渡到 superelevation，在圆曲线段保持 superelevation。
+     *
+     * @param s 弧长
+     * @return 超高值（米），出口回旋线段从 superelevation 渐变回 0
+     */
+    fun superelevationAt(s: Double): Double {
+        if (superelevation <= 0 || L == 0.0) return 0.0
+        if (s < 0 || s > totalLength) return 0.0
+
+        return when {
+            // 入口回旋线（0 到 L）：超高从 0 过渡到 superelevation
+            s < L -> {
+                when (superelevationConfig?.superelevationTransition) {
+                    SuperelevationConfig.SuperelevationTransition.COSINE -> {
+                        val t = s / L  // 0 到 1
+                        superelevation * (t - sin(2.0 * Math.PI * t) / (2.0 * Math.PI))
+                    }
+                    else -> superelevation * s / L  // 线性
+                }
+            }
+            // 圆曲线（L 到 L+Lc）：保持 superelevation
+            s <= L + Lc -> superelevation
+            // 出口回旋线（L+Lc 到 2L+Lc）：超高从 superelevation 过渡到 0
+            else -> {
+                val u = s - (L + Lc)  // 0 到 L
+                when (superelevationConfig?.superelevationTransition) {
+                    SuperelevationConfig.SuperelevationTransition.COSINE -> {
+                        val t = u / L  // 0 到 1
+                        superelevation * (1.0 - t + sin(2.0 * Math.PI * t) / (2.0 * Math.PI))
+                    }
+                    else -> superelevation * (1.0 - u / L)  // 线性
+                }
+            }
+        }
+    }
+
+    /**
+     * 计算弧长 s 处的超高角（弧度）。
+     * 超高角 = arctan(h / 轨距)，其中轨距默认 1.435m。
+     *
+     * @param s 弧长
+     * @param gauge 轨距（米），默认 1.435m
+     * @return 超高角（弧度）
+     */
+    fun superelevationAngleAt(s: Double, gauge: Double = 1.435): Double {
+        return kotlin.math.atan2(superelevationAt(s), gauge)
+    }
+
+    /**
+     * 计算弧长 s 处的切向角 θ（弧度）
+     *
+     * θ(s) = ∫₀ˢ κ(t) dt，通过分段积分计算。
+     */
+    fun tangentAngleAt(s: Double): Double {
+        if (L == 0.0) return if (s > 0 && s <= Lc) s / R else 0.0
+        if (s >= totalLength - 1e-10) return totalTangentAngle()
+        when {
+            s <= 0 -> return 0.0
+            // 入口回旋线（0 到 L）
+            s <= L -> return s * s / (2.0 * A * A)
+            // 圆曲线（L 到 L+Lc）
+            s <= L + Lc -> {
+                val thetaAtEndOfSpiral = L * L / (2.0 * A * A)
+                return thetaAtEndOfSpiral + (s - L) / R
+            }
+            // 出口回旋线（L+Lc 到 2L+Lc）
+            else -> {
+                val thetaAtEndOfSpiral = L * L / (2.0 * A * A)
+                val arcAngle = Lc / R
+                val u = s - (L + Lc) // 从 0 到 L
+                // κ = (L-u)/(R·L)，积分 ∫₀ᵘ (L-t)/(R·L) dt = u²/(2R·L)
+                return thetaAtEndOfSpiral + arcAngle + u * u / (2.0 * R * L)
+            }
+        }
+    }
+
+    /** 终点总切向角 */
+    private fun totalTangentAngle(): Double {
+        val thetaAtEndOfSpiral = L * L / (2.0 * A * A)
+        val arcAngle = Lc / R
+        val u = L
+        return thetaAtEndOfSpiral + arcAngle + u * u / (2.0 * R * L)
+    }
+
+    /**
+     * 用有限差分法计算弧长 s 处的坐标（局部坐标系，起点原点，切线 +X）
+     *
+     * @param s 弧长
+     * @param step 积分步长（米）
+     * @return 坐标 (x, 0, z)，z 始终为 0（平面曲线，坡度需叠加）
+     */
+    fun positionAt(s: Double, step: Double = 0.001): Vector3d {
+        if (s <= 0) return Vector3d(0.0, 0.0, 0.0)
+
+        var x = 0.0
+        var z = 0.0
+        var sCur = 0.0
+
+        while (sCur < s) {
+            val ds = minOf(step, s - sCur)
+            val theta = tangentAngleAt(sCur)
+            // 沿切向方向前进 ds
+            x += cos(theta) * ds
+            z += sin(theta) * ds
+            sCur += ds
         }
 
-        val A: Double = sqrt(R * L) // 回旋线参数
-        var currentS = 0.0
+        return Vector3d(x, 0.0, z)
+    }
 
-        while (currentS <= L_total) {
-            val tx: Double
-            val ty: Double
-            val tz: Double
+    /**
+     * 在弧长 s 处获取轨道点信息
+     *
+     * @param s 弧长（米）
+     * @return CurvePoint(position, tangentAngle, superelevation)
+     */
+    fun pointAt(s: Double): CurvePoint {
+        if (s <= 0) {
+            return CurvePoint(Vector3d(0.0, 0.0, 0.0), 0.0, superelevationAt(0.0))
+        }
+        if (s >= totalLength) {
+            val theta = tangentAngleAt(totalLength)
+            val pos = positionAt(totalLength, 0.001)
+            return CurvePoint(Vector3d(pos.x, 0.0, pos.z), theta, superelevationAt(totalLength))
+        }
 
-            // 计算 Y 轴线性插值（坡度）
-            ty = pStart.y() + (pEnd.y() - pStart.y()) * (currentS / L_total)
+        val theta = tangentAngleAt(s)
+        val pos = positionAt(s, 0.001)
+        return CurvePoint(Vector3d(pos.x, 0.0, pos.z), theta, superelevationAt(s))
+    }
 
-            if (currentS < L) {
-                // 第一段：第一条缓和曲线
-                val coords = calculateClothoid(currentS, A)
-                tx = coords[0]
-                tz = coords[2]
-            } else if (currentS <= L + L_arc) {
-                // 第二段：圆曲线 (简化为圆弧公式)
-                val sInArc = currentS - L
-                val angle = sInArc / R
-                // 对接缓和曲线终点的切向
-                tx = L + R * sin(angle)
-                tz = (L.pow(3.0) / (6 * A * A)) + R * (1 - cos(angle))
-            } else {
-                // 第三段：第二条缓和曲线 (镜像逻辑)
-                val sInLastTransition = L_total - currentS
-                val coords = calculateClothoid(sInLastTransition, A)
-                tx = L_total - coords[0]
-                tz = coords[2]
-            }
+    /**
+     * 生成轨道点列表（局部坐标系，Y 坡度 = 0）
+     *
+     * @param step 采样步长（米）
+     * @return 点列表
+     */
+    fun generatePoints(step: Double = 1e-3): List<CurveRawPoint> {
+        val points = mutableListOf<CurveRawPoint>()
+        var s = 0.0
 
-            // 此处 tx, tz 是在局部坐标系下的，实际应用需通过旋转矩阵转换到 pStart -> pEnd 的切向量方向
-            // 为简化演示，直接输出坐标
-            points.add(Vector3d(tx + pStart.x(), ty, tz + pStart.z()))
-            currentS += step
+        while (s <= totalLength + 1e-9) {
+            val point = pointAt(s)
+            val theta = point.tangentAngle
+
+            val tangent = Vector3d(cos(theta), 0.0, sin(theta))
+
+            // 超高角：外轨在正 Z 方向倾斜
+            val superelAngle = kotlin.math.atan2(point.superelevation, 1.435)
+            // 法线：考虑超高的轨道平面法线（绕 X 轴旋转 superelAngle）
+            val normal = Vector3d(
+                0.0,
+                cos(superelAngle),
+                sin(superelAngle)
+            )
+
+            points.add(CurveRawPoint(
+                Vector3d(point.position.x, point.position.y, point.position.z),
+                tangent,
+                normal,
+                s
+            ))
+            s += step
         }
 
         return points
+    }
+
+    /**
+     * 将局部坐标系中的点转换到全局坐标系
+     *
+     * @param localPoint 局部坐标点
+     * @param origin 起点全局坐标
+     * @param startDirection 起点切向方向（单位向量，水平面）
+     * @return 全局坐标点
+     */
+    fun toGlobal(
+        localPoint: CurveRawPoint,
+        origin: Vector3dc,
+        startDirection: Vector3dc
+    ): CurveRawPoint {
+        // 构建垂直向上的向量（全局 Y）
+        val globalUp = Vector3d(0.0, 1.0, 0.0)
+        // 水平面上的横向向量：从 startDirection 逆时针旋转 90 度
+        val rightLocal = Vector3d(startDirection).cross(globalUp).normalize()
+
+        val lx = localPoint.position.x()
+        val lz = localPoint.position.z()
+
+        val globalPos = Vector3d(
+            origin.x() + lx * startDirection.x() + lz * rightLocal.x(),
+            origin.y() + localPoint.position.y(),
+            origin.z() + lx * startDirection.z() + lz * rightLocal.z()
+        )
+
+        // 切线方向旋转
+        val tx = localPoint.tangent.x() * startDirection.x() + localPoint.tangent.z() * rightLocal.x()
+        val tz = localPoint.tangent.x() * startDirection.z() + localPoint.tangent.z() * rightLocal.z()
+        val globalTangent = Vector3d(tx, localPoint.tangent.y(), tz).normalize()
+
+        // 法线旋转（绕 startDirection 旋转，而不是简单叠加）
+        // 法线在局部坐标系中是 (0, cos(φ), sin(φ))，其中 φ 是超高角
+        // 旋转到全局坐标系
+        val nx = localPoint.normal.x() * startDirection.x() + localPoint.normal.z() * rightLocal.x()
+        val ny = localPoint.normal.y()
+        val nz = localPoint.normal.x() * startDirection.z() + localPoint.normal.z() * rightLocal.z()
+        val globalNormal = Vector3d(nx, ny, nz).normalize()
+
+        return CurveRawPoint(globalPos, globalTangent, globalNormal, localPoint.arcLength)
+    }
+
+    /**
+     * 轨道上的单点（局部坐标系）
+     */
+    data class CurveRawPoint(
+        val position: Vector3dc,  // 坐标
+        val tangent: Vector3dc,    // 切向（方向向量）
+        val normal: Vector3dc,    // 法线（轨道平面向量）
+        val arcLength: Double     // 弧长
+    )
+
+    /**
+     * 弧长 s 处的曲线信息
+     */
+    data class CurvePoint(
+        val position: Vector3d,   // 坐标
+        val tangentAngle: Double, // 切向角（弧度）
+        val superelevation: Double // 超高值（米）
+    )
+}
+
+/**
+ * 超高过渡方式
+ */
+enum class SuperelevationTransition {
+    /** 线性过渡（简单） */
+    LINEAR,
+    /** 余弦过渡（更平滑，高速铁路常用） */
+    COSINE
+}
+
+object StandardRailCurveBuilder {
+    /** 默认轨距（米） */
+    const val DEFAULT_GAUGE = 1.435
+
+    /** 默认最大超高（米） */
+    const val DEFAULT_MAX_SUPERELEVATION = 0.15
+
+    /**
+     * 从参数构建标准轨道曲线（无超高）
+     */
+    fun build(R: Double, L: Double, Lc: Double): StandardRailCurve {
+        return StandardRailCurve(R, L, Lc)
+    }
+
+    /**
+     * 从参数构建标准轨道曲线（带超高）
+     *
+     * @param superelevation 超高值（米），null 表示 autoCalculate
+     */
+    fun build(
+        R: Double,
+        L: Double,
+        Lc: Double,
+        superelevationConfig: SuperelevationConfig
+    ): StandardRailCurve {
+        return StandardRailCurve(R, L, Lc, superelevationConfig)
+    }
+
+    /**
+     * 从参数构建，并生成局部坐标系中的轨道点
+     */
+    fun buildAndGenerate(R: Double, L: Double, Lc: Double, step: Double = 1e-3): List<StandardRailCurve.CurveRawPoint> {
+        return StandardRailCurve(R, L, Lc).generatePoints(step)
+    }
+
+    /**
+     * 从参数构建，并生成局部坐标系中的轨道点（带超高）
+     */
+    fun buildAndGenerate(
+        R: Double,
+        L: Double,
+        Lc: Double,
+        superelevationConfig: SuperelevationConfig,
+        step: Double = 1e-3
+    ): List<StandardRailCurve.CurveRawPoint> {
+        return StandardRailCurve(R, L, Lc, superelevationConfig).generatePoints(step)
+    }
+
+    /**
+     * 从参数构建，并转换到全局坐标系
+     */
+    fun buildAndGenerateGlobal(
+        origin: Vector3dc,
+        startDirection: Vector3dc,
+        R: Double,
+        L: Double,
+        Lc: Double,
+        step: Double = 1e-3
+    ): List<StandardRailCurve.CurveRawPoint> {
+        val curve = StandardRailCurve(R, L, Lc)
+        val localPoints = curve.generatePoints(step)
+        return localPoints.map { curve.toGlobal(it, origin, startDirection) }
+    }
+
+    /**
+     * 从参数构建，并转换到全局坐标系（带超高）
+     */
+    fun buildAndGenerateGlobal(
+        origin: Vector3dc,
+        startDirection: Vector3dc,
+        R: Double,
+        L: Double,
+        Lc: Double,
+        superelevationConfig: SuperelevationConfig,
+        step: Double = 1e-3
+    ): List<StandardRailCurve.CurveRawPoint> {
+        val curve = StandardRailCurve(R, L, Lc, superelevationConfig)
+        val localPoints = curve.generatePoints(step)
+        return localPoints.map { curve.toGlobal(it, origin, startDirection) }
+    }
+
+    /**
+     * 计算指定速度和半径下的超高值
+     *
+     * @param speedKmH 速度（km/h）
+     * @param radius 曲线半径（m）
+     * @param maxSuperelevation 最大超高（m），默认 150mm
+     * @return 超高值（m）
+     */
+    fun calculateSuperelevation(
+        speedKmH: Double,
+        radius: Double,
+        maxSuperelevation: Double = DEFAULT_MAX_SUPERELEVATION
+    ): Double {
+        if (speedKmH <= 0 || radius <= 0) return 0.0
+        val hMm = 11.3 * speedKmH * speedKmH / radius
+        return minOf(hMm / 1000.0, maxSuperelevation)
     }
 }

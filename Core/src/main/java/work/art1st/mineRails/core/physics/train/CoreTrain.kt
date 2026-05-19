@@ -79,7 +79,7 @@ open class CoreTrain @MainThread internal constructor(
     val tailBogie: CoreBogie
         get() {
             return if (isReversed) cars.first().bogieA
-            else cars.first().bogieB
+            else cars.last().bogieB
         }
     /* >=0 */
     val speed: Double
@@ -290,4 +290,3 @@ open class CoreTrain @MainThread internal constructor(
 
 
 }
-

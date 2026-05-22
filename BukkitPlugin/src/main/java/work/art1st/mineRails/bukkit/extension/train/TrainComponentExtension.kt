@@ -55,11 +55,14 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         if (!modelBuilt) {
             buildModel()
             modelBuilt = true
+            updateModel()
         }
     }
 
     override fun commit() {
-        updateModel()
+        if (modelBuilt) {
+            updateModel()
+        }
     }
 
     @MainThread

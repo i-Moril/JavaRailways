@@ -81,7 +81,7 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
         CoreCar(
             id = "car-$index",
             bogies = listOf(bogieA, bogieB),
-            bogiesOffsets = listOf(-len / 2, len / 2),
+            bogiesOffsets = listOf(len / 2, -len / 2),
             length = len,
             floorHeight = 0.0,
             connectorLengthAtA = 0.0,

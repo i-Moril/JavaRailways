@@ -18,6 +18,8 @@ import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.configLib.persistence.PersistentBy
+import kotlin.math.absoluteValue
+import kotlin.math.max
 
 /**
  * 车厢类
@@ -110,9 +112,9 @@ class CoreCar @MainThread internal constructor(
     val bogieA
         get() = bogies.first()
 
-    /* Should be positive */
+    /* Should be positive. Distance from bogie A to the A/head endpoint. */
     val bogieAToEndPointOffset
-        get() = length / 2 + bogieAOffset
+        get() = length / 2 - bogieAOffset
 
     /* Should be negative */
     override val bogieAOffset
@@ -121,12 +123,12 @@ class CoreCar @MainThread internal constructor(
     val bogieB
         get() = bogies.last()
 
-    /* Should be positive */
+    /* Should be positive. Distance from bogie B to the B/tail endpoint. */
     val bogieBToEndPointOffset
-        get() = length / 2 - bogieBOffset
+        get() = length / 2 + bogieBOffset
 
     protected val bogieDistance
-        get() = bogieBOffset - bogieAOffset
+        get() = bogieAOffset - bogieBOffset
 
     /* Should be positive */
     override val bogieBOffset
@@ -159,6 +161,62 @@ class CoreCar @MainThread internal constructor(
         this.initialize(savedExtensionData)
     }
 
+    private fun bogiePairingTolerance(): Double =
+        max(Curve.TOLERANCE, bogieDistance * 0.05 + Curve.PRECISION)
+
+    private fun connectorPosition(location: RailLocationWithFacing): Vector3dc =
+        location.position + location.normal * floorHeight
+
+    private fun distanceError(anchorConnector: Vector3dc, candidate: RailLocationWithFacing): Double =
+        (anchorConnector.distance(connectorPosition(candidate)) - bogieDistance).absoluteValue
+
+    @Throws(BogieException::class)
+    private fun findTailBogieByHead(headBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
+        val headConnector = connectorPosition(headBogieNewLocation)
+        val railSegments = headBogieNewLocation.peekCurve(-2 * bogieDistance)
+        var bestCandidate: RailLocationWithFacing? = null
+        var bestError = Double.POSITIVE_INFINITY
+        for (segment in railSegments) {
+            for (idx in segment.startIdx..segment.endIdx) {
+                val candidate = segment.railView.getRailLocationAt(idx)
+                val error = distanceError(headConnector, candidate)
+                if (error < bestError) {
+                    bestError = error
+                    bestCandidate = candidate
+                }
+            }
+        }
+        val tolerance = bogiePairingTolerance()
+        if (bestCandidate != null && bestError < tolerance) {
+            return bestCandidate.reversed
+        }
+        return headBogieNewLocation.forward(-bogieDistance) ?: throw BogieException(tailBogie)
+    }
+
+    @Throws(BogieException::class)
+    private fun findHeadBogieByTail(tailBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
+        val tailConnector = connectorPosition(tailBogieNewLocation)
+        val railSegments = tailBogieNewLocation.peekCurve(2 * bogieDistance)
+        var bestCandidate: RailLocationWithFacing? = null
+        var bestError = Double.POSITIVE_INFINITY
+        for (segment in railSegments) {
+            for (idx in segment.startIdx..segment.endIdx) {
+                val candidate = segment.railView.getRailLocationAt(idx)
+                val error = distanceError(tailConnector, candidate)
+                if (error < bestError) {
+                    bestError = error
+                    bestCandidate = candidate
+                }
+            }
+        }
+        val tolerance = bogiePairingTolerance()
+        if (bestCandidate != null && bestError < tolerance) {
+            return bestCandidate
+        }
+        return tailBogieNewLocation.forward(bogieDistance) ?: throw BogieException(headBogie)
+    }
+
+
     /**
      * 根据第一个转向架计算第二个转向架
      * @param headBogieNewLocation 第一个转向架的新位置
@@ -167,25 +225,30 @@ class CoreCar @MainThread internal constructor(
     @Throws(BogieException::class)
     protected fun calculatePositionByHeadBogie(headBogieNewLocation: RailLocationWithFacing): IntermediateResult {
         dirty = true
-        // 向后查看2倍转向架间距的长度
-        val railSegments = headBogieNewLocation.peekCurve(2 * (bogieAOffset - bogieBOffset))
-        // 转向架与车厢连接处的位置
-        val headBogieConnectorPosition = headBogieNewLocation.position + headBogieNewLocation.normal * floorHeight
-        // 尝试在后方的曲线段上二分查找
-        // 注意到reversed TODO: bug
-        val tailBogieNewLocation = railSegments.searchRailLocation(Curve.TOLERANCE) {
-            tailBogieNewPoint ->
-            val tailBogieConnectorPosition = tailBogieNewPoint.position + tailBogieNewPoint.normal * floorHeight
-            val distance = headBogieConnectorPosition.distance(tailBogieConnectorPosition)
-
-            distance - bogieDistance
-        }?.reversed ?: throw BogieException(tailBogie)
-        val tailBogieConnectorPosition = tailBogieNewLocation.position + tailBogieNewLocation.normal * floorHeight
-        // 必然指向前方
-        val tailToHeadDirection = (tailBogieConnectorPosition - headBogieConnectorPosition).normalize()
+        val headBogieConnectorPosition = connectorPosition(headBogieNewLocation)
+        val tailBogieNewLocation = findTailBogieByHead(headBogieNewLocation)
+        val tailBogieConnectorPosition = connectorPosition(tailBogieNewLocation)
+        // 必然指向前方：tail -> head
+        val tailToHeadDirection = (headBogieConnectorPosition - tailBogieConnectorPosition).normalize()
         // 正常情况下应该是负数
         val headBogieOffset = if (isReversed) -bogieBOffset else bogieAOffset
-        val carPosition = headBogieConnectorPosition + tailToHeadDirection * headBogieOffset
+        val carPosition = headBogieConnectorPosition - tailToHeadDirection * headBogieOffset
+        return IntermediateResult(headBogieNewLocation, tailBogieNewLocation, carPosition, tailToHeadDirection)
+    }
+
+    /**
+     * 根据后转向架计算前转向架。
+     * 运行中当前车厢的后转向架通常已经有确定位置，因此这里从后往前解算更稳。
+     */
+    @Throws(BogieException::class)
+    protected fun calculatePositionByTailBogie(tailBogieNewLocation: RailLocationWithFacing): IntermediateResult {
+        dirty = true
+        val tailBogieConnectorPosition = connectorPosition(tailBogieNewLocation)
+        val headBogieNewLocation = findHeadBogieByTail(tailBogieNewLocation)
+        val headBogieConnectorPosition = connectorPosition(headBogieNewLocation)
+        val tailToHeadDirection = (headBogieConnectorPosition - tailBogieConnectorPosition).normalize()
+        val tailBogieOffset = if (isReversed) bogieAOffset else -bogieBOffset
+        val carPosition = tailBogieConnectorPosition + tailToHeadDirection * tailBogieOffset
         return IntermediateResult(headBogieNewLocation, tailBogieNewLocation, carPosition, tailToHeadDirection)
     }
 
@@ -204,24 +267,26 @@ class CoreCar @MainThread internal constructor(
 
     @Throws(BogieException::class)
     fun updateByPrevCar(prevCar: CoreCar) {
-        val prevCarTailPosition = getTailPosition(prevCar.position, prevCar.direction, prevCar.length)
+        val prevCarTailPosition = getTailPosition(prevCar.activePositon, prevCar.activeDirection, prevCar.length)
+        val couplerLength = headConnectorLength + prevCar.tailConnectorLength
+        val currentHeadEndToTailBogieDistance = length - tailBogieToEndPointOffset
+        val tailBogieSearchDistance =
+            prevCar.tailBogieToEndPointOffset + couplerLength + currentHeadEndToTailBogieDistance
 
-        // 向后查看2倍转向架间距的长度（前车后转向架与本车前转向架）
-        val intermediateResult = if (prevCar.tailBogieToEndPointOffset + headBogieToEndPointOffset > 0) {
-            val railSegments = prevCar.tailBogie.activeLocation.peekCurve(-2 * (prevCar.tailBogieToEndPointOffset + headBogieToEndPointOffset))
+        // 从前车尾转向架向后查找到本车尾转向架。
+        val intermediateResult = if (tailBogieSearchDistance > 0) {
+            val railSegments = prevCar.tailBogie.activeLocation.peekCurve(-tailBogieSearchDistance * 2)
             railSegments.searchRailLocation(Curve.TOLERANCE, {
-                calculatePositionByHeadBogie(it.reversed)
+                calculatePositionByTailBogie(it.reversed)
             }, {
                 val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) = it
                 val headPosition = getHeadPosition(carPosition, tailToHeadDirection, length)
-                val connectorVector = headPosition - (prevCarTailPosition)
-
-                // 如果接头处向量（车钩）与车身夹角为钝角，说明太靠后了
-                if (connectorVector dot tailToHeadDirection < 0) Double.NEGATIVE_INFINITY else
-                    connectorVector.length() - headConnectorLength - prevCar.tailConnectorLength
+                val connectorVector = prevCarTailPosition - headPosition
+                val connectorDistance = connectorVector dot tailToHeadDirection
+                connectorDistance - couplerLength
             }) ?: throw BogieException(tailBogie)
         } else {
-            calculatePositionByHeadBogie(prevCar.tailBogie.activeLocation)
+            calculatePositionByTailBogie(prevCar.tailBogie.activeLocation)
         }
         val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) = intermediateResult
         headBogie.updateLocation(headBogieLocation)
@@ -277,7 +342,7 @@ class CoreCar @MainThread internal constructor(
         val v = _motionState.getActive().tangentialVelocity
         val omega = _motionState.getActive().angularVelocity
         // v1 = v0 + \omega x d
-        return v + omega cross (d * (length / 2))
+        return v + omega cross (-d * (length / 2))
     }
 
     @MainThread
@@ -330,11 +395,11 @@ class CoreCar @MainThread internal constructor(
         }
 
         protected fun getHeadPosition(position: Vector3dc, tailToHeadDirection: Vector3dc, carLength: Double): Vector3dc {
-            return position - tailToHeadDirection * (carLength / 2)
+            return position + tailToHeadDirection * (carLength / 2)
         }
 
         protected fun getTailPosition(position: Vector3dc, tailToHeadDirection: Vector3dc, carLength: Double): Vector3dc {
-            return position + tailToHeadDirection * (carLength / 2)
+            return position - tailToHeadDirection * (carLength / 2)
         }
     }
 

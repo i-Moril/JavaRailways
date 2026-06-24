@@ -8,7 +8,10 @@ data class RenderChunk(
     val z: Int
 ) {
 
-    constructor(position: Vector3dc) : this(position.x().toInt() / CHUNK_SIZE, position.z().toInt() / CHUNK_SIZE)
+    constructor(position: Vector3dc) : this(
+        floor(position.x() / CHUNK_SIZE).toInt(),
+        floor(position.z() / CHUNK_SIZE).toInt()
+    )
 
     companion object {
         const val CHUNK_SIZE : Int = 16

@@ -130,6 +130,7 @@ class SeatExtension(private val car: Car) : Listener {
             Location(bukkitWorld, seatPos.x(), seatPos.y(), seatPos.z(), yaw.toFloat(), pitch.toFloat()),
             EntityType.INTERACTION
         ) as Interaction
+        interaction.isPersistent = false
 
         // 设置碰撞箱大小
         interaction.setInteractionWidth(seatConfig.interaction.width.toFloat())

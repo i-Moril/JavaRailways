@@ -53,10 +53,18 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     override fun updateModel() {
         val carPos = self.position
+        val carLength = self.length
+        val carRotationFinal = currentCarRotation()
+
+        for (i in displayEntities.indices) {
+            val (localPos, localScale) = computeLocalTransform(i, carLength)
+            updateItemDisplay(displayEntities[i], localPos, localScale, carPos, carRotationFinal)
+        }
+    }
+
+    private fun currentCarRotation(): Quaterniond {
         val direction = self.direction
         val normal = self.normal
-        val carLength = self.length
-
         val right = Vector3d()
         // right = normal × direction（右手系）
         normal.cross(direction, right).normalize()
@@ -70,12 +78,7 @@ class CarExtension : TrainComponentExtension<Car>() {
             right.z(), normal.z(), direction.z()
         )
         val carRotation = Quaterniond().setFromNormalized(rotationMatrix)
-        val carRotationFinal = Quaterniond(carRotation.w(), -carRotation.x(), carRotation.y(), carRotation.z())
-
-        for (i in displayEntities.indices) {
-            val (localPos, localScale) = computeLocalTransform(i, carLength)
-            updateItemDisplay(displayEntities[i], localPos, localScale, carPos, carRotationFinal)
-        }
+        return Quaterniond(carRotation.w(), -carRotation.x(), carRotation.y(), carRotation.z())
     }
 
     override fun destroyModel() {
@@ -200,16 +203,20 @@ class CarExtension : TrainComponentExtension<Car>() {
         localScale: Vector3dc
     ) {
         val material = try { Material.valueOf(materialName.uppercase()) } catch (e: Exception) { Material.STONE }
+        val carRotation = currentCarRotation()
+        val rotatedOffset = Vector3d(localPos.x(), localPos.y(), localPos.z())
+        carRotation.transform(rotatedOffset)
+        val worldPos = Vector3d(self.position.x(), self.position.y(), self.position.z()).add(rotatedOffset)
         val entity = bukkitWorld.spawnEntity(
-            Location(bukkitWorld, 0.0, 0.0, 0.0),
+            Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z()),
             EntityType.ITEM_DISPLAY
         ) as ItemDisplay
         entity.isPersistent = false
         entity.setItemStack(ItemStack(material))
         entity.setTransformation(
             Transformation(
-                Vector3f(localPos.x().toFloat(), localPos.y().toFloat(), localPos.z().toFloat()),
-                org.joml.Quaternionf(1f, 0f, 0f, 0f),
+                Vector3f(0f, 0f, 0f),
+                carRotation.get(org.joml.Quaternionf()),
                 Vector3f(localScale.x().toFloat(), localScale.y().toFloat(), localScale.z().toFloat()),
                 org.joml.Quaternionf(1f, 0f, 0f, 0f)
             )
@@ -228,9 +235,15 @@ class CarExtension : TrainComponentExtension<Car>() {
         carRotation.transform(rotatedOffset)
         val worldPos = Vector3d(carPos.x(), carPos.y(), carPos.z()).add(rotatedOffset)
 
+        // Display entities are tracked by their real server-side entity location.
+        // Keep that location at the visible position; otherwise a train far from
+        // world origin may never be sent to nearby players even if the transform
+        // translation visually points there.
+        entity.teleport(Location(entity.world, worldPos.x(), worldPos.y(), worldPos.z()))
+
         entity.setTransformation(
             Transformation(
-                Vector3f(worldPos.x().toFloat(), worldPos.y().toFloat(), worldPos.z().toFloat()),
+                Vector3f(0f, 0f, 0f),
                 carRotation.get(org.joml.Quaternionf()),
                 Vector3f(localScale.x().toFloat(), localScale.y().toFloat(), localScale.z().toFloat()),
                 org.joml.Quaternionf(1f, 0f, 0f, 0f)

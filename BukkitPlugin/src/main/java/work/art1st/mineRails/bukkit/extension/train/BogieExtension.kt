@@ -43,23 +43,7 @@ class BogieExtension : TrainComponentExtension<Bogie>() {
 
     override fun updateModel() {
         val bogiePos = self.position
-        val direction = self.direction
-        val normal = self.normal
-
-        val right = Vector3d()
-        // right = normal × direction（右手系）
-        normal.cross(direction, right).normalize()
-
-        // Matrix3d(row0, row1, row2): Row0=(right.x, normal.x, direction.x), ...
-        // Columns = [right, normal, direction]
-        // 然后取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反
-        val rotationMatrix = Matrix3d(
-            right.x(), normal.x(), direction.x(),
-            right.y(), normal.y(), direction.y(),
-            right.z(), normal.z(), direction.z()
-        )
-        val bogieRotation = Quaterniond().setFromNormalized(rotationMatrix)
-        val bogieRotationFinal = Quaterniond(bogieRotation.w(), -bogieRotation.x(), bogieRotation.y(), bogieRotation.z())
+        val bogieRotationFinal = currentBogieRotation()
 
         val bogieConfig = BukkitPlugin.INSTANCE.carModelConfig.bogie
         val frame = bogieConfig.frame
@@ -80,6 +64,25 @@ class BogieExtension : TrainComponentExtension<Bogie>() {
         }
     }
 
+    private fun currentBogieRotation(): Quaterniond {
+        val direction = self.direction
+        val normal = self.normal
+        val right = Vector3d()
+        // right = normal × direction（右手系）
+        normal.cross(direction, right).normalize()
+
+        // Matrix3d(row0, row1, row2): Row0=(right.x, normal.x, direction.x), ...
+        // Columns = [right, normal, direction]
+        // 然后取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反
+        val rotationMatrix = Matrix3d(
+            right.x(), normal.x(), direction.x(),
+            right.y(), normal.y(), direction.y(),
+            right.z(), normal.z(), direction.z()
+        )
+        val bogieRotation = Quaterniond().setFromNormalized(rotationMatrix)
+        return Quaterniond(bogieRotation.w(), -bogieRotation.x(), bogieRotation.y(), bogieRotation.z())
+    }
+
     override fun destroyModel() {
         for (entity in displayEntities) {
             entity.remove()
@@ -96,16 +99,20 @@ class BogieExtension : TrainComponentExtension<Bogie>() {
         localScale: Vector3dc
     ) {
         val material = try { Material.valueOf(materialName.uppercase()) } catch (e: Exception) { Material.STONE }
+        val bogieRotation = currentBogieRotation()
+        val rotatedOffset = Vector3d(localPos.x(), localPos.y(), localPos.z())
+        bogieRotation.transform(rotatedOffset)
+        val worldPos = Vector3d(self.position.x(), self.position.y(), self.position.z()).add(rotatedOffset)
         val entity = bukkitWorld.spawnEntity(
-            Location(bukkitWorld, 0.0, 0.0, 0.0),
+            Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z()),
             EntityType.ITEM_DISPLAY
         ) as ItemDisplay
         entity.isPersistent = false
         entity.setItemStack(ItemStack(material))
         entity.setTransformation(
             Transformation(
-                Vector3f(localPos.x().toFloat(), localPos.y().toFloat(), localPos.z().toFloat()),
-                org.joml.Quaternionf(1f, 0f, 0f, 0f),
+                Vector3f(0f, 0f, 0f),
+                bogieRotation.get(org.joml.Quaternionf()),
                 Vector3f(localScale.x().toFloat(), localScale.y().toFloat(), localScale.z().toFloat()),
                 org.joml.Quaternionf(1f, 0f, 0f, 0f)
             )
@@ -124,9 +131,15 @@ class BogieExtension : TrainComponentExtension<Bogie>() {
         bogieRotation.transform(rotatedOffset)
         val worldPos = Vector3d(bogiePos.x(), bogiePos.y(), bogiePos.z()).add(rotatedOffset)
 
+        // Display entities are tracked by their real server-side entity location.
+        // Keep that location at the visible position; otherwise a bogie far from
+        // world origin may never be sent to nearby players even if the transform
+        // translation visually points there.
+        entity.teleport(Location(entity.world, worldPos.x(), worldPos.y(), worldPos.z()))
+
         entity.setTransformation(
             Transformation(
-                Vector3f(worldPos.x().toFloat(), worldPos.y().toFloat(), worldPos.z().toFloat()),
+                Vector3f(0f, 0f, 0f),
                 bogieRotation.get(org.joml.Quaternionf()),
                 Vector3f(localScale.x().toFloat(), localScale.y().toFloat(), localScale.z().toFloat()),
                 org.joml.Quaternionf(1f, 0f, 0f, 0f)

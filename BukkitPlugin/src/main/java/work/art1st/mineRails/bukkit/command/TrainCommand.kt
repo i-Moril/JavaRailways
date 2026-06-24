@@ -3,11 +3,13 @@ package work.art1st.mineRails.bukkit.command
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.train.BogieExtension
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.SeatExtension
+import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.util.Heavy
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
@@ -123,14 +125,26 @@ object TrainCommand {
         // 确保渲染实体和座位系统能立刻出现在世界中。
         train.setLocation(headLocation)
         train.commit()
+        coreWorld.renderChunkManager.render()
 
         sender.sendMessage("创建列车成功: ${train.id}")
         sender.sendMessage("车厢数量: ${cars.size}，每节长度: ${"%.2f".format(carLength)} 米")
+        sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
+        sender.sendMessage("列车尾部位置: ${formatVector(train.tail.location.position)}")
+        cars.forEachIndexed { index, car ->
+            sender.sendMessage(
+                "车厢 ${index + 1}: center=${formatVector(car.position)}, " +
+                    "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
+            )
+        }
         sender.sendMessage("每节车厢座位数: $seatsPerCar")
         sender.sendMessage("右键点击座位（透明小方块）坐下，使用 /mr train stand 站立")
 
         return true
     }
+
+    private fun formatVector(vector: Vector3dc): String =
+        "(%.2f, %.2f, %.2f)".format(vector.x(), vector.y(), vector.z())
 
     private fun handleStart(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {

@@ -71,15 +71,13 @@ class RenderChunkManager(
     }
 
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {
-        if (oldPosition == null) {
-            val chunk = RenderChunk(newPosition)
-            renderableObjects.getOrPut(chunk) { HashSet() }.add(renderable)
-            addChunk(chunk)
-        } else {
+        val newChunk = RenderChunk(newPosition)
+        renderableObjects.getOrPut(newChunk) { HashSet() }.add(renderable)
+        addChunk(newChunk)
+
+        if (oldPosition != null) {
             val oldChunk = RenderChunk(oldPosition)
-            val newChunk = RenderChunk(newPosition)
             if (oldChunk != newChunk) {
-                renderableObjects.getOrPut(RenderChunk(newPosition)) { HashSet() }.add(renderable)
                 remove(renderable, oldChunk)
             }
         }

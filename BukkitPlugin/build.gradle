@@ -55,6 +55,10 @@ tasks {
         // Your plugin's jar (or shadowJar if present) will be used automatically.
         minecraftVersion("1.21.11")
         pluginJars.from(tasks.shadowJar.archiveFile)
+        // Also load the Dev plugin for testing
+        pluginJars.from(provider {
+            rootProject.project(":BukkitPluginDev").tasks.shadowJar.archiveFile.get().asFile
+        })
         doFirst {
             delete(layout.projectDirectory.dir("run/plugins/.paper-remapped"))
         }

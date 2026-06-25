@@ -24,7 +24,8 @@ abstract class AbstractModel(
     open fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc) {
         val animationTransform = activeAnimation?.currentTransform
         state.applyRotation(parentRelativeTransform, rootTransform, animationTransform)
-        attachedModels.forEach { it.updateState(parentRelativeTransform, rootTransform, rootVelocity) }
+        // Children are positioned relative to THIS model, not this model's parent
+        attachedModels.forEach { it.updateState(state.rootRelativeTransform, rootTransform, rootVelocity) }
     }
 
     @Throws(IllegalArgumentException::class)

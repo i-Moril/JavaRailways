@@ -4,6 +4,7 @@ import org.bukkit.entity.Display
 import org.bukkit.entity.Player
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.bukkit.render.asVector3d
 import work.art1st.mineRails.bukkit.render.chunk.railViewDistanceSettings
@@ -28,10 +29,27 @@ class LodDisplayModel internal constructor(
 
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity)
-        loEntity?.transformation = state.rootRelativeTransform.toBukkitTransformation()
-        hiEntity?.transformation = state.rootRelativeTransform.toBukkitTransformation()
-        // Display entity is attached to the root entity. No need to teleport.
-        // Also ignore velocity due to attachment
+        val worldPos = state.worldTransform.position
+        val bukkitWorld = world.bukkitWorldData.bukkitWorld
+        val loc = org.bukkit.Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z())
+        loEntity?.let {
+            it.teleport(loc)
+            it.transformation = org.bukkit.util.Transformation(
+                org.joml.Vector3f(0f, 0f, 0f),
+                org.joml.Quaternionf(1f, 0f, 0f, 0f),
+                state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
+                state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
+            )
+        }
+        hiEntity?.let {
+            it.teleport(loc)
+            it.transformation = org.bukkit.util.Transformation(
+                org.joml.Vector3f(0f, 0f, 0f),
+                org.joml.Quaternionf(1f, 0f, 0f, 0f),
+                state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
+                state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
+            )
+        }
     }
 
     override fun destroy() {

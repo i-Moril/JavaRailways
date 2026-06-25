@@ -6,7 +6,6 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.bukkit.BukkitPlugin
-import work.art1st.mineRails.bukkit.extension.train.BogieExtension
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.SeatExtension
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
@@ -72,14 +71,35 @@ object TrainCommand {
         val nearestPoint = railView.curve.getNearestPoint(playerPos)
         val headLocation = RailLocationWithFacing(railView, nearestPoint.idx)
 
-        val carCount = args.firstOrNull()?.toIntOrNull() ?: 1
+        // 参数: /mr train create <train_type> [car_length] [seats_per_car]
+        val trainTypeName = args.firstOrNull() ?: "s100_4car"
         val carLength = args.getOrNull(1)?.toDoubleOrNull() ?: 2.0
         val seatsPerCar = args.getOrNull(2)?.toIntOrNull() ?: 2
+
+        val modelManager = BukkitPlugin.INSTANCE.modelManager
+            ?: run {
+                sender.sendMessage("错误: ModelManager 未初始化")
+                return true
+            }
+
+        // 查找列车定义
+        val trainDef = modelManager.getTrain(trainTypeName)
+        if (trainDef == null) {
+            sender.sendMessage("错误: 未知列车类型 '$trainTypeName'")
+            sender.sendMessage("可用类型: ${modelManager.trainLoader.getAllNames().joinToString(", ")}")
+            return true
+        }
 
         var currentLocation = headLocation
         val cars = mutableListOf<CoreCar>()
 
-        repeat(carCount) { i ->
+        for ((i, carModelName) in trainDef.composition.withIndex()) {
+            val carDef = modelManager.getCar(carModelName)
+                ?: run {
+                    sender.sendMessage("错误: 未知车厢模型 '$carModelName'")
+                    return true
+                }
+
             val bogieA = CoreBogie.create(currentLocation)
             val nextLocation = currentLocation.forward(carLength) ?: currentLocation
             val bogieB = CoreBogie.create(nextLocation)
@@ -98,20 +118,14 @@ object TrainCommand {
             val carExtension = CarExtension()
             car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
             carExtension.initialize(car, emptyMap())
+            carExtension.carModelName = carModelName
 
-            // 注册转向架渲染扩展
-            val bogieAExtension = BogieExtension()
-            bogieA.registerExtensionData(BukkitPlugin.INSTANCE, bogieAExtension)
-            bogieAExtension.initialize(bogieA, emptyMap())
-            val bogieBExtension = BogieExtension()
-            bogieB.registerExtensionData(BukkitPlugin.INSTANCE, bogieBExtension)
-            bogieBExtension.initialize(bogieB, emptyMap())
-
-            // 为车厢添座位
-            val seatExtension = SeatExtension(car)
-            repeat(seatsPerCar) { seatExtension.onSeatAdded(car.addSeat()) }
-            // 记录用于后续销毁
-            trainSeatExtensions[car.id] = seatExtension
+            // 座位（可选）
+            if (carDef.seats != null) {
+                val seatExtension = SeatExtension(car, carDef.seats)
+                repeat(seatsPerCar) { seatExtension.onSeatAdded(car.addSeat()) }
+                trainSeatExtensions[car.id] = seatExtension
+            }
         }
 
         val trainId = "train-${UUID.randomUUID().toString().take(8)}"
@@ -121,24 +135,25 @@ object TrainCommand {
             world = coreWorld
         )
 
-        // 列车刚创建时还没有经历一次 tick/commit，手动对齐一次并提交，
-        // 确保渲染实体和座位系统能立刻出现在世界中。
         train.setLocation(headLocation)
         train.commit()
         coreWorld.renderChunkManager.render()
 
-        sender.sendMessage("创建列车成功: ${train.id}")
+        sender.sendMessage("创建列车成功: ${train.id} (类型: ${trainDef.key})")
         sender.sendMessage("车厢数量: ${cars.size}，每节长度: ${"%.2f".format(carLength)} 米")
         sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
         sender.sendMessage("列车尾部位置: ${formatVector(train.tail.location.position)}")
         cars.forEachIndexed { index, car ->
             sender.sendMessage(
-                "车厢 ${index + 1}: center=${formatVector(car.position)}, " +
+                "车厢 ${index + 1}: model=${trainDef.composition[index]}, " +
+                    "center=${formatVector(car.position)}, " +
                     "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
             )
         }
-        sender.sendMessage("每节车厢座位数: $seatsPerCar")
-        sender.sendMessage("右键点击座位（透明小方块）坐下，使用 /mr train stand 站立")
+        if (seatsPerCar > 0) {
+            sender.sendMessage("每节车厢座位数: $seatsPerCar")
+            sender.sendMessage("右键点击座位（透明小方块）坐下，使用 /mr train stand 站立")
+        }
 
         return true
     }

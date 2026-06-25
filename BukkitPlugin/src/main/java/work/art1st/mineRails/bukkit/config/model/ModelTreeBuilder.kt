@@ -1,0 +1,217 @@
+package work.art1st.mineRails.bukkit.config.model
+
+import io.papermc.paper.datacomponent.DataComponentTypes
+import io.papermc.paper.datacomponent.item.CustomModelData
+import net.kyori.adventure.key.Key
+import org.bukkit.Location
+import org.bukkit.Material
+import org.bukkit.entity.ItemDisplay
+import org.bukkit.inventory.ItemStack
+import org.joml.Quaterniond
+import org.joml.Vector3d
+import work.art1st.mineRails.bukkit.extension.bukkitWorldData
+import work.art1st.mineRails.bukkit.render.model.AbstractModel
+import work.art1st.mineRails.bukkit.render.model.CompactTransform
+import work.art1st.mineRails.bukkit.render.model.CompositeModel
+import work.art1st.mineRails.bukkit.render.model.DisplayModel
+import work.art1st.mineRails.bukkit.render.model.ModelState
+import work.art1st.mineRails.bukkit.render.model.PlatformModel
+import work.art1st.mineRails.core.api.physics.World
+
+/**
+ * Dummy model with no entity - purely a transform grouping node.
+ */
+class DummyModel internal constructor(
+    world: World,
+    state: ModelState,
+    attachedModels: Collection<AbstractModel>,
+    animation: Map<String, work.art1st.mineRails.bukkit.render.Animation>
+) : AbstractModel(world, state, attachedModels, animation)
+
+/**
+ * Builds the AbstractModel tree from configuration definitions.
+ *
+ * Converts PartDefinition/CarDefinition into a renderable model tree
+ * consisting of DisplayModel (for ITEM_DISPLAY parts), PlatformModel
+ * (for INTERACT parts/seat attachment points), and DummyModel (for
+ * transform grouping nodes).
+ */
+class ModelTreeBuilder(
+    private val world: World,
+    private val partRegistry: PartRegistry
+) {
+    private val bukkitWorld
+        get() = world.bukkitWorldData.bukkitWorld
+
+    /**
+     * Build the full model tree for a car at the given root location.
+     * Returns a CompositeModel with body parts and bogie parts.
+     */
+    fun buildCar(
+        carDef: CarDefinition,
+        rootLocation: Location
+    ): CompositeModel {
+        // Body part models
+        val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace)
+
+        // Bogie models (position will be set during update based on car's bogie offsets)
+        val bogieModels = carDef.bogies.map { bogieDef ->
+            buildBogieGroup(bogieDef, carDef.namespace)
+        }
+
+        // Invisible root entity for attachment
+        val rootEntity = bukkitWorld.spawn(rootLocation, ItemDisplay::class.java)
+        rootEntity.isPersistent = false
+        rootEntity.isVisibleByDefault = false
+
+        return CompositeModel(
+            world = world,
+            models = bodyModels + bogieModels,
+            rootEntity = rootEntity
+        )
+    }
+
+    /**
+     * Build a bogie group node - creates a DummyModel with bogie parts as children.
+     * The DummyModel's local offset represents the bogie's position relative to car center.
+     */
+    private fun buildBogieGroup(bogieDef: BogieDefinition, namespace: String): DummyModel {
+        val bogieOffset = bogieDef.offset
+        val modelState = ModelState(
+            CompactTransform(
+                position = Vector3d(bogieOffset.x, bogieOffset.y, bogieOffset.z),
+                rotation = Quaterniond(1.0, 0.0, 0.0, 0.0)
+            )
+        )
+
+        // Combine bogie parts and wheel parts
+        val allBogiePartRefs = bogieDef.parts + bogieDef.wheelParts
+        val children = buildPartList(allBogiePartRefs, namespace)
+
+        return DummyModel(
+            world = world,
+            state = modelState,
+            attachedModels = children,
+            animation = emptyMap()
+        )
+    }
+
+    /**
+     * Build models from a list of part references.
+     */
+    private fun buildPartList(entries: List<PartRefEntry>, namespace: String): List<AbstractModel> {
+        return entries.map { entry -> buildPart(entry, namespace) }
+    }
+
+    /**
+     * Build a single part model tree from a part reference entry.
+     */
+    private fun buildPart(entry: PartRefEntry, namespace: String): AbstractModel {
+        val resolved = partRegistry.resolve(entry.name, namespace)
+        val def = resolved.resolved
+
+        // Merge: part's own offset + reference entry's offset override
+        val mergedOffset = Vec3Config(
+            x = def.offset.x + entry.offset.x,
+            y = def.offset.y + entry.offset.y,
+            z = def.offset.z + entry.offset.z
+        )
+        val mergedRotation = Vec3Config(
+            x = def.rotation.x + entry.rotation.x,
+            y = def.rotation.y + entry.rotation.y,
+            z = def.rotation.z + entry.rotation.z
+        )
+
+        // Convert to JOML types for ModelState
+        val position = Vector3d(mergedOffset.x, mergedOffset.y, mergedOffset.z)
+        val rotation = Quaterniond().rotateXYZ(
+            Math.toRadians(mergedRotation.x),
+            Math.toRadians(mergedRotation.y),
+            Math.toRadians(mergedRotation.z)
+        )
+
+        // Determine scale
+        val scale = def.item?.scale ?: def.scale
+        val scaleVec = if (scale != null) {
+            Vector3d(scale.x, scale.y, scale.z)
+        } else {
+            Vector3d(1.0, 1.0, 1.0)
+        }
+
+        val modelState = ModelState(
+            CompactTransform(
+                position = position,
+                rotation = rotation,
+                scale = scaleVec
+            )
+        )
+
+        // Resolve children using the part's own namespace
+        val childNamespace = def.namespace
+        val children = buildPartList(def.parts, childNamespace)
+
+        // Spawn at origin of bukkit world; transform tree handles positioning
+        val spawnLoc = Location(bukkitWorld, 0.0, 0.0, 0.0)
+
+        return when (def.type) {
+            PartType.ITEM_DISPLAY -> {
+                val itemConfig = def.item
+                    ?: throw IllegalArgumentException("ITEM_DISPLAY part '${def.name}' missing item config")
+                val entity = spawnItemDisplay(spawnLoc, itemConfig)
+                DisplayModel(
+                    world = world,
+                    state = modelState,
+                    attachedModels = children,
+                    animation = emptyMap(),
+                    entity = entity
+                )
+            }
+            PartType.INTERACT -> {
+                PlatformModel(
+                    world = world,
+                    state = modelState,
+                    attachedModels = children,
+                    animation = emptyMap()
+                )
+            }
+            PartType.DUMMY -> {
+                DummyModel(
+                    world = world,
+                    state = modelState,
+                    attachedModels = children,
+                    animation = emptyMap()
+                )
+            }
+        }
+    }
+
+    /**
+     * Spawn an ItemDisplay entity with the configured item and CustomModelData.
+     */
+    private fun spawnItemDisplay(location: Location, itemConfig: PartItemConfig): ItemDisplay {
+        val material = try {
+            Material.valueOf(itemConfig.type.uppercase())
+        } catch (e: Exception) {
+            Material.STONE
+        }
+
+        val itemStack = ItemStack(material)
+
+        // Prefer item_model component (1.21.4+), fall back to CMD
+        if (itemConfig.itemModel != null) {
+            // item_model resolves to assets/<namespace>/items/<path>.json
+            itemStack.setData(DataComponentTypes.ITEM_MODEL,
+                Key.key("minecraft:${itemConfig.itemModel}"))
+        }
+        if (itemConfig.customModelData != null) {
+            itemStack.setData(DataComponentTypes.CUSTOM_MODEL_DATA,
+                CustomModelData.customModelData().addFloat(itemConfig.customModelData.toFloat()).build())
+        }
+
+        val entity = bukkitWorld.spawn(location, ItemDisplay::class.java)
+        entity.isPersistent = false
+        entity.setItemStack(itemStack)
+
+        return entity
+    }
+}

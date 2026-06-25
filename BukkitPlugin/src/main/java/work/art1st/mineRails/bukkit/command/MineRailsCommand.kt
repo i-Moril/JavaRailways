@@ -35,7 +35,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         args: Array<out String>
     ): List<String> {
         if (args.size == 1) {
-            return listOf("rail", "train", "help")
+            return listOf("rail", "train", "phys", "help")
         }
         return emptyList()
     }

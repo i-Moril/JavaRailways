@@ -53,40 +53,26 @@ class CarLoader(
             ?: throw IllegalArgumentException("Missing 'name'")
         val qualifiedName = if (namespace.isEmpty()) simpleName else "$namespace/$simpleName"
 
-        val bodyParts = PartRegistry.parsePartList(map["body-parts"] as? List<*>)
-        val bogies = parseBogies(map["bogies"] as? List<*>)
-        val seats = parseSeats(map["seats"] as? Map<String, Any>)
+        val length = (map["length"] as? Number)?.toDouble() ?: 2.0
+        val bodyParts = PartRegistry.parsePartList(map["body-parts"] as? List<*>, namespace)
+        val bogies = parseBogies(map["bogies"] as? List<*>, namespace)
 
         return CarDefinition(
             name = qualifiedName,
+            length = length,
             bodyParts = bodyParts,
-            bogies = bogies,
-            seats = seats
+            bogies = bogies
         )
     }
 
-    private fun parseSeats(map: Map<String, Any>?): SeatConfig? {
-        if (map == null) return null
-        val interactionMap = map["interaction"] as? Map<String, Any>
-        return SeatConfig(
-            heightOffset = (map["height-offset"] as? Number)?.toDouble() ?: 0.8,
-            baseOffsetRatio = (map["base-offset-ratio"] as? Number)?.toDouble() ?: -0.25,
-            spacing = (map["spacing"] as? Number)?.toDouble() ?: 0.6,
-            interaction = SeatInteractionConfig(
-                width = (interactionMap?.get("width") as? Number)?.toDouble() ?: 0.5,
-                height = (interactionMap?.get("height") as? Number)?.toDouble() ?: 1.0
-            )
-        )
-    }
-
-    private fun parseBogies(list: List<*>?): List<BogieDefinition> {
+    private fun parseBogies(list: List<*>?, namespace: String): List<BogieDefinition> {
         if (list == null) return emptyList()
         return list.mapNotNull { entry ->
             val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
             BogieDefinition(
                 offset = PartRegistry.parseVec3(entryMap["offset"] as? Map<String, Any>),
-                parts = PartRegistry.parsePartList(entryMap["parts"] as? List<*>),
-                wheelParts = PartRegistry.parsePartList(entryMap["wheel-parts"] as? List<*>),
+                parts = PartRegistry.parsePartList(entryMap["parts"] as? List<*>, namespace),
+                wheelParts = PartRegistry.parsePartList(entryMap["wheel-parts"] as? List<*>, namespace),
                 wheelDiameter = (entryMap["wheel-diameter"] as? Number)?.toDouble() ?: 1.0
             )
         }

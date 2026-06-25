@@ -75,13 +75,15 @@ class CarExtension : TrainComponentExtension<Car>() {
         val normal = self.normal
         val right = Vector3d()
         normal.cross(direction, right).normalize()
-
+        // Matrix: model-X→right(width), model-Y→normal(up), model-Z→direction(fwd)
         val rotationMatrix = Matrix3d(
             right.x(), normal.x(), direction.x(),
             right.y(), normal.y(), direction.y(),
             right.z(), normal.z(), direction.z()
         )
-        // Model tree passes rotation via right_rotation — no X-negation needed.
-        return Quaterniond().setFromNormalized(rotationMatrix)
+        val q = Quaterniond().setFromNormalized(rotationMatrix)
+        // Roll 180° around Z (= direction-of-travel) to flip model right-side up.
+        val roll180 = Quaterniond().rotateZ(Math.PI)
+        return q.mul(roll180)
     }
 }

@@ -6,13 +6,15 @@ package work.art1st.mineRails.bukkit.config.model
 enum class PartType {
     ITEM_DISPLAY,
     INTERACT,
-    DUMMY;
+    DUMMY,
+    SEAT;
 
     companion object {
         fun fromString(s: String): PartType = when (s.lowercase()) {
             "item_display" -> ITEM_DISPLAY
             "interact" -> INTERACT
             "dummy" -> DUMMY
+            "seat" -> SEAT
             else -> throw IllegalArgumentException("Unknown part type: $s")
         }
     }

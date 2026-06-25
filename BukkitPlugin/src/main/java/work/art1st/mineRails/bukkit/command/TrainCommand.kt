@@ -7,7 +7,6 @@ import org.joml.Vector3dc
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
-import work.art1st.mineRails.bukkit.extension.train.SeatExtension
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.util.Heavy
@@ -17,14 +16,11 @@ import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.CoreWorld
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 object TrainCommand {
     /** 玩家 UUID -> 手动控制器 */
     private val playerControllers = mutableMapOf<UUID, ManualController>()
 
-    /** 列车 ID -> 车厢座位扩展（用于销毁） */
-    private val trainSeatExtensions = ConcurrentHashMap<String, SeatExtension>()
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
@@ -71,10 +67,8 @@ object TrainCommand {
         val nearestPoint = railView.curve.getNearestPoint(playerPos)
         val headLocation = RailLocationWithFacing(railView, nearestPoint.idx)
 
-        // 参数: /mr train create <train_type> [car_length] [seats_per_car]
+        // 参数: /mr train create <train_type>
         val trainTypeName = args.firstOrNull() ?: "s100_4car"
-        val carLength = args.getOrNull(1)?.toDoubleOrNull() ?: 2.0
-        val seatsPerCar = args.getOrNull(2)?.toIntOrNull() ?: 2
 
         val modelManager = BukkitPlugin.INSTANCE.modelManager
             ?: run {
@@ -100,6 +94,8 @@ object TrainCommand {
                     return true
                 }
 
+            val carLength = carDef.length
+
             val bogieA = CoreBogie.create(currentLocation)
             val nextLocation = currentLocation.forward(carLength) ?: currentLocation
             val bogieB = CoreBogie.create(nextLocation)
@@ -119,13 +115,6 @@ object TrainCommand {
             car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
             carExtension.initialize(car, emptyMap())
             carExtension.carModelName = carModelName
-
-            // 座位（可选）
-            if (carDef.seats != null) {
-                val seatExtension = SeatExtension(car, carDef.seats)
-                repeat(seatsPerCar) { seatExtension.onSeatAdded(car.addSeat()) }
-                trainSeatExtensions[car.id] = seatExtension
-            }
         }
 
         val trainId = "train-${UUID.randomUUID().toString().take(8)}"
@@ -140,7 +129,7 @@ object TrainCommand {
         coreWorld.renderChunkManager.render()
 
         sender.sendMessage("创建列车成功: ${train.id} (类型: ${trainDef.key})")
-        sender.sendMessage("车厢数量: ${cars.size}，每节长度: ${"%.2f".format(carLength)} 米")
+        sender.sendMessage("车厢数量: ${cars.size}")
         sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
         sender.sendMessage("列车尾部位置: ${formatVector(train.tail.location.position)}")
         cars.forEachIndexed { index, car ->
@@ -150,11 +139,6 @@ object TrainCommand {
                     "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
             )
         }
-        if (seatsPerCar > 0) {
-            sender.sendMessage("每节车厢座位数: $seatsPerCar")
-            sender.sendMessage("右键点击座位（透明小方块）坐下，使用 /mr train stand 站立")
-        }
-
         return true
     }
 
@@ -268,31 +252,11 @@ object TrainCommand {
             return true
         }
 
-        // 查找最近车厢的座位
         val train = findNearestTrain(sender, coreWorld) ?: run {
             sender.sendMessage("错误: 附近没有列车")
             return true
         }
-
-        val nearestCar = train.cars.minByOrNull { car ->
-            car.position.distance(Vector3d(sender.location.x, sender.location.y, sender.location.z))
-        } ?: run {
-            sender.sendMessage("错误: 找不到车厢")
-            return true
-        }
-
-        val seatExtension = trainSeatExtensions[nearestCar.id]
-        if (seatExtension != null) {
-            // 坐到第一个空座位
-            val seatEntity = seatExtension.getFirstFreeSeat() ?: run {
-                sender.sendMessage("该车厢座位已满")
-                return true
-            }
-            seatExtension.makePlayerSit(sender, seatEntity)
-            sender.sendMessage("已坐下")
-        } else {
-            sender.sendMessage("座位系统未初始化")
-        }
+        sender.sendMessage("座位系统待实现。请直接右键列车座位。")
         return true
     }
 
@@ -300,10 +264,6 @@ object TrainCommand {
         if (sender !is Player) {
             sender.sendMessage("此命令需要玩家执行")
             return true
-        }
-        // 遍历所有座位扩展让该玩家站起来
-        for (ext in trainSeatExtensions.values) {
-            ext.makePlayerStand(sender)
         }
         sender.sendMessage("已站立")
         return true

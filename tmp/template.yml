@@ -1,7 +1,7 @@
 # <namespace>/parts/[sub-namespaces/]<part-name>.yml
 config-version: 1
 name: [sub-namespaces/]<part-name>
-type: <item_display | interact | dummy | ...>
+type: <item_display | interact | dummy | seat | ...>
 item:  # For item display:
   type: <item_material>
   custom-model-data: <int>
@@ -22,20 +22,32 @@ rotation:  # Optional
   y: <float>
   z: <float>
 parts:  # Standard part list format
-  - name: [namespace, blank for same namespace/][sub-namespaces/]<part-name>
+  - import: [namespace, blank for same namespace/][sub-namespaces/]<part-name>    # Import format
     offset: # Optional
       x: <float>
       y: <float>
       z: <float>
-    rotation:
+    rotation:  # Optional
       x: <float>
       y: <float>
       z: <float>
+  - name: [namespace, blank for same namespace/][sub-namespaces/]<part-name>     # Inline format
+    type: ...
+    offset:  # Optional
+      x: <float>
+      y: <float>
+      z: <float>
+    rotation:  # Optional
+      x: <float>
+      y: <float>
+      z: <float>
+    # other type-specific settings
   - ...
 
 # <namespace>/cars/[sub-namespaces/]<car-type>.yml
 config-version: 1
 name: [sub-namespaces/]<car-name>
+length: <float>
 body-parts:
   <Standard part list>
 bogies:

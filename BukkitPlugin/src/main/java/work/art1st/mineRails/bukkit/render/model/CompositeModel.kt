@@ -4,6 +4,7 @@ import org.bukkit.Location
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.util.Vector
+import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.core.api.physics.World
@@ -28,9 +29,11 @@ class CompositeModel internal constructor(
     }
 
     fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d()) {
-        // 加上rotation之后的虚拟元素
+        // parentRelativeTransform carries the rotation; root for world-space uses identity
+        // rotation to avoid double-applying carRotation in worldTransform computation.
         val rotatedTransform = CompactTransform(Vector3d(), rootTransform.rotation)
-        models.forEach { it.updateState(rotatedTransform, rootTransform, rootVelocity) }
+        val worldRoot = CompactTransform(rootTransform.position, org.joml.Quaterniond(1.0, 0.0, 0.0, 0.0))
+        models.forEach { it.updateState(rotatedTransform, worldRoot, rootVelocity) }
         // 根元素，无rotation
         onMainThread {
             rootEntity.teleport(

@@ -92,7 +92,7 @@ class PartRegistry(
             val item = parseItemConfig(map["item"] as? Map<String, Any>)
             val offset = parseVec3(map["offset"] as? Map<String, Any>)
             val rotation = parseVec3(map["rotation"] as? Map<String, Any>)
-            val parts = parsePartList(map["parts"] as? List<*>)
+            val parts = parsePartList(map["parts"] as? List<*>, namespace)
 
             return PartDefinition(
                 name = qualifiedName,
@@ -133,15 +133,30 @@ class PartRegistry(
             )
         }
 
-        fun parsePartList(list: List<*>?): List<PartRefEntry> {
+        fun parsePartList(list: List<*>?, namespace: String): List<PartRefEntry> {
             if (list == null) return emptyList()
             return list.mapNotNull { entry ->
                 val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
-                PartRefEntry(
-                    name = entryMap["name"] as? String ?: return@mapNotNull null,
-                    offset = parseVec3(entryMap["offset"] as? Map<String, Any>),
-                    rotation = parseVec3(entryMap["rotation"] as? Map<String, Any>)
-                )
+                val offset = parseVec3(entryMap["offset"] as? Map<String, Any>)
+                val rotation = parseVec3(entryMap["rotation"] as? Map<String, Any>)
+
+                when {
+                    // Import format: "import: namespace/part-name"
+                    entryMap.containsKey("import") -> {
+                        val importName = entryMap["import"] as? String ?: return@mapNotNull null
+                        PartRefEntry(name = importName, offset = offset, rotation = rotation, isImport = true)
+                    }
+                    // Inline format: "name: ..., type: ..."
+                    entryMap.containsKey("type") -> {
+                        val def = parsePartDefinition(entryMap, namespace)
+                        PartRefEntry(name = def.name, offset = offset, rotation = rotation, inline = def)
+                    }
+                    // Legacy format: "name: part-name"
+                    else -> {
+                        val refName = entryMap["name"] as? String ?: return@mapNotNull null
+                        PartRefEntry(name = refName, offset = offset, rotation = rotation)
+                    }
+                }
             }
         }
 

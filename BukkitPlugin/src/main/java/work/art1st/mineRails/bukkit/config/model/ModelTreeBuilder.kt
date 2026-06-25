@@ -107,22 +107,38 @@ class ModelTreeBuilder(
      * Build a single part model tree from a part reference entry.
      */
     private fun buildPart(entry: PartRefEntry, namespace: String): AbstractModel {
-        val resolved = partRegistry.resolve(entry.name, namespace)
-        val def = resolved.resolved
+        val def: PartDefinition
+        val entryOffset: Vec3Config
+        val entryRotation: Vec3Config
+        val childNamespace: String
+
+        if (entry.inline != null) {
+            // Inline definition: use the inline part directly
+            def = entry.inline
+            entryOffset = entry.offset
+            entryRotation = entry.rotation
+            childNamespace = def.namespace
+        } else {
+            // Import or legacy reference: resolve from registry
+            val resolved = partRegistry.resolve(entry.name, namespace)
+            def = resolved.resolved
+            entryOffset = entry.offset
+            entryRotation = entry.rotation
+            childNamespace = def.namespace
+        }
 
         // Merge: part's own offset + reference entry's offset override
         val mergedOffset = Vec3Config(
-            x = def.offset.x + entry.offset.x,
-            y = def.offset.y + entry.offset.y,
-            z = def.offset.z + entry.offset.z
+            x = def.offset.x + entryOffset.x,
+            y = def.offset.y + entryOffset.y,
+            z = def.offset.z + entryOffset.z
         )
         val mergedRotation = Vec3Config(
-            x = def.rotation.x + entry.rotation.x,
-            y = def.rotation.y + entry.rotation.y,
-            z = def.rotation.z + entry.rotation.z
+            x = def.rotation.x + entryRotation.x,
+            y = def.rotation.y + entryRotation.y,
+            z = def.rotation.z + entryRotation.z
         )
 
-        // Convert to JOML types for ModelState
         val position = Vector3d(mergedOffset.x, mergedOffset.y, mergedOffset.z)
         val rotation = Quaterniond().rotateXYZ(
             Math.toRadians(mergedRotation.x),
@@ -130,27 +146,14 @@ class ModelTreeBuilder(
             Math.toRadians(mergedRotation.z)
         )
 
-        // Determine scale
         val scale = def.item?.scale ?: def.scale
-        val scaleVec = if (scale != null) {
-            Vector3d(scale.x, scale.y, scale.z)
-        } else {
-            Vector3d(1.0, 1.0, 1.0)
-        }
+        val scaleVec = if (scale != null) Vector3d(scale.x, scale.y, scale.z) else Vector3d(1.0, 1.0, 1.0)
 
         val modelState = ModelState(
-            CompactTransform(
-                position = position,
-                rotation = rotation,
-                scale = scaleVec
-            )
+            CompactTransform(position = position, rotation = rotation, scale = scaleVec)
         )
 
-        // Resolve children using the part's own namespace
-        val childNamespace = def.namespace
         val children = buildPartList(def.parts, childNamespace)
-
-        // Spawn at origin of bukkit world; transform tree handles positioning
         val spawnLoc = Location(bukkitWorld, 0.0, 0.0, 0.0)
 
         return when (def.type) {
@@ -158,29 +161,13 @@ class ModelTreeBuilder(
                 val itemConfig = def.item
                     ?: throw IllegalArgumentException("ITEM_DISPLAY part '${def.name}' missing item config")
                 val entity = spawnItemDisplay(spawnLoc, itemConfig)
-                DisplayModel(
-                    world = world,
-                    state = modelState,
-                    attachedModels = children,
-                    animation = emptyMap(),
-                    entity = entity
-                )
+                DisplayModel(world = world, state = modelState, attachedModels = children, animation = emptyMap(), entity = entity)
             }
-            PartType.INTERACT -> {
-                PlatformModel(
-                    world = world,
-                    state = modelState,
-                    attachedModels = children,
-                    animation = emptyMap()
-                )
+            PartType.INTERACT, PartType.SEAT -> {
+                PlatformModel(world = world, state = modelState, attachedModels = children, animation = emptyMap())
             }
             PartType.DUMMY -> {
-                DummyModel(
-                    world = world,
-                    state = modelState,
-                    attachedModels = children,
-                    animation = emptyMap()
-                )
+                DummyModel(world = world, state = modelState, attachedModels = children, animation = emptyMap())
             }
         }
     }
@@ -211,6 +198,9 @@ class ModelTreeBuilder(
         val entity = bukkitWorld.spawn(location, ItemDisplay::class.java)
         entity.isPersistent = false
         entity.setItemStack(itemStack)
+        // Use NONE transform: model is rendered in its natural orientation,
+        // positioned solely by our Transformation rotation.
+        entity.setItemDisplayTransform(org.bukkit.entity.ItemDisplay.ItemDisplayTransform.NONE)
 
         return entity
     }

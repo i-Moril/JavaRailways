@@ -50,7 +50,7 @@ class PhysTestCommand : CommandExecutor {
     private fun createPlayground(sender: Player, world: CoreWorld) {
         cleanAll(sender, world)
         val o = Vector3d(sender.location.x, sender.location.y, sender.location.z)
-        val oval = makeOval(o, 40.0, 16.0)
+        val oval = makeOval(o, 200.0, 80.0)
         rails.add(CoreRail(world, oval, mutableListOf(), mutableListOf()))
         sender.sendMessage("Oval: ${rails.last().id}  L=${"%.1f".format(oval.totalArcLength)}m")
     }
@@ -124,7 +124,7 @@ class PhysTestCommand : CommandExecutor {
     // Two straights (east/west) + two 180° semicircles (right-turn)
 
     private fun makeOval(start: Vector3dc, straightLen: Double, radius: Double): PrimeCurve {
-        val step = Curve.PRECISION
+        val step = 0.05  // 5cm resolution for large curves
         val normal = Vector3d(0.0, 1.0, 0.0)
         val east = Vector3d(1.0, 0.0, 0.0)
         val west = Vector3d(-1.0, 0.0, 0.0)
@@ -144,9 +144,9 @@ class PhysTestCommand : CommandExecutor {
         for (i in 0..nS)
             add(start.add(east.mul(i * straightLen / nS, Vector3d()), Vector3d()), east)
 
-        // Right turn 180° (center south, sweep from -90° to +90°)
+        // Right turn 180° (center south)
         val c1 = pts.last().position.add(south.mul(radius, Vector3d()), Vector3d())
-        val nC = maxOf(100, (PI * radius / step).toInt())
+        val nC = maxOf(200, (PI * radius / step).toInt())
         for (i in 0..nC) {
             val a = -PI / 2 + PI * i / nC
             add(c1.add(radius * cos(a), 0.0, radius * sin(a), Vector3d()), Vector3d(-sin(a), 0.0, cos(a)))
@@ -157,7 +157,7 @@ class PhysTestCommand : CommandExecutor {
         for (i in 0..nS)
             add(s2.add(west.mul(i * straightLen / nS, Vector3d()), Vector3d()), west)
 
-        // Right turn 180° (center north, sweep from +90° to -90°)
+        // Right turn 180° (center north)
         val c2 = pts.last().position.add(north.mul(radius, Vector3d()), Vector3d())
         for (i in 0..nC) {
             val a = PI / 2 + PI * i / nC

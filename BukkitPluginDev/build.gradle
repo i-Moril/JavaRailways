@@ -25,7 +25,7 @@ dependencies {
     implementation(project(":Core"))
     implementation(project(":Basic"))
     implementation(project(":ConfigLib"))
-    implementation(project(":BukkitPlugin"))
+    compileOnly(project(":BukkitPlugin"))
 }
 
 tasks.compileJava { options.release = 21 }
@@ -41,6 +41,7 @@ bukkitPluginYaml {
     main = "work.art1st.mineRails.bukkit.BukkitPluginDev"
     apiVersion = "1.21.11"
     name = "MineRailsDev"
+    depend.add("MineRails")
 
     commands.register("phys") {
         description.set("Physics playground: oval track + train test")

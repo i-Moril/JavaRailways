@@ -63,7 +63,7 @@ class PhysTestCommand : BasicCommand {
         val normal = Vector3d(0.0, 1.0, 0.0)
         val straightLen = 200.0
         val radius = 80.0
-        val step = 0.05
+        val step = 0.005  // 5mm to match Curve.TOLERANCE
 
         // Build curves, using each segment's actual endpoint as next segment's start
         val s1 = makeStraight(o, Vector3d(1.0, 0.0, 0.0), straightLen, normal, step)

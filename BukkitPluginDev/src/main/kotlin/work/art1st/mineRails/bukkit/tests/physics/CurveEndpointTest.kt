@@ -15,7 +15,7 @@ class CurveEndpointTest {
     @Test(command = "curve_endpoints")
     fun testEndpointsMatch() {
         val normal = Vector3d(0.0, 1.0, 0.0)
-        val step = 0.05
+        val step = 0.005  // 5mm to match Curve.TOLERANCE
         val straightLen = 200.0
         val radius = 80.0
         val origin = Vector3d(0.0, 64.0, 0.0)

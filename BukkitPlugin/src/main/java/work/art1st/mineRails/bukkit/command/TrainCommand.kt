@@ -7,6 +7,7 @@ import org.joml.Vector3dc
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
+import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.util.Heavy
@@ -127,6 +128,8 @@ object TrainCommand {
         train.setLocation(headLocation)
         train.commit()
         coreWorld.renderChunkManager.render()
+        // Force model build for the creating player immediately
+        cars.forEach { it.renderer.sendTo(sender) }
 
         sender.sendMessage("创建列车成功: ${train.id} (类型: ${trainDef.key})")
         sender.sendMessage("车厢数量: ${cars.size}")

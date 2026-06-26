@@ -91,7 +91,7 @@ class RailView(
         fun connect(viewIJ: RailView, viewKJ: RailView) {
             val j1 = viewIJ.endPoint.position
             val j2 = viewKJ.endPoint.position
-            if (j1.distance(j2) > 1e-6) {
+            if (j1.distance(j2) > 1e-10) {
                 throw CannotConnectRailException()
             }
             viewIJ.nextRails.add(viewKJ.reversed)

@@ -12,7 +12,6 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.encoding.encodeStructure
 import org.joml.Vector3d
-import org.joml.Vector3f
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.util.BinarySearch
 import work.art1st.mineRails.core.util.Heavy
@@ -28,11 +27,11 @@ open class PrimeCurveImpl : PrimeCurve {
     constructor(points: List<Curve.RawPoint>) {
         this.pointList = points.mapIndexed { idx, p ->
             InternalCurvePoint(
-                position = Vector3f(p.position),
-                tangent = Vector3f(p.tangent),
-                normal = Vector3f(p.normal),
+                position = Vector3d(p.position),
+                tangent = Vector3d(p.tangent),
+                normal = Vector3d(p.normal),
                 idx = idx,
-                arcLength = p.arcLength.toFloat(),
+                arcLength = p.arcLength,
             )
         }
     }
@@ -49,20 +48,20 @@ open class PrimeCurveImpl : PrimeCurve {
 
     @Serializable
     private class InternalCurvePoint(
-        @Serializable(with = Vector3fSerializer::class)
-        val position: Vector3f,
-        @Serializable(with = Vector3fSerializer::class)
-        val tangent: Vector3f,
-        @Serializable(with = Vector3fSerializer::class)
-        val normal: Vector3f,
-        val arcLength: Float,
+        @Serializable(with = Vector3dSerializer::class)
+        val position: Vector3d,
+        @Serializable(with = Vector3dSerializer::class)
+        val tangent: Vector3d,
+        @Serializable(with = Vector3dSerializer::class)
+        val normal: Vector3d,
+        val arcLength: Double,
         val idx: Int
     ) {
-        
+
     }
 
     override val totalArcLength: Double
-        get() = pointList.last().arcLength.toDouble()
+        get() = pointList.last().arcLength
     override val totalPoints: Int
         get() = pointList.size
     @Transient
@@ -85,24 +84,24 @@ open class PrimeCurveImpl : PrimeCurve {
         }
         val p = pointList[idx]
         return Curve.Point(
-            position = Vector3d(p.position),
-            tangent = Vector3d(p.tangent),
-            normal = Vector3d(p.normal),
+            position = p.position,
+            tangent = p.tangent,
+            normal = p.normal,
             curve = this,
             idx = idx,
-            arcLength = p.arcLength.toDouble()
+            arcLength = p.arcLength
         )
     }
 
     @Heavy
     override fun stream(): Stream<Curve.Point> {
         return pointList.stream().map { Curve.Point(
-            position = Vector3d(it.position),
-            tangent = Vector3d(it.tangent),
-            normal = Vector3d(it.normal),
+            position = it.position,
+            tangent = it.tangent,
+            normal = it.normal,
             curve = this,
             idx = it.idx,
-            arcLength = it.arcLength.toDouble()
+            arcLength = it.arcLength
         ) }
     }
 
@@ -118,10 +117,10 @@ open class PrimeCurveImpl : PrimeCurve {
         override fun load(dependency: Unit): PrimeCurve {
             return PrimeCurveImpl.fromRawPoints(pointList.map { p ->
                 Curve.RawPoint(
-                    position = Vector3d(p.position),
-                    tangent = Vector3d(p.tangent),
-                    normal = Vector3d(p.normal),
-                    arcLength = p.arcLength.toDouble()
+                    position = p.position,
+                    tangent = p.tangent,
+                    normal = p.normal,
+                    arcLength = p.arcLength
                 )
             })
         }
@@ -215,36 +214,36 @@ open class PrimeCurveImpl : PrimeCurve {
 //    }
 }
 
-object Vector3fSerializer : KSerializer<Vector3f> {
-    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("Vector3f") {
-        element<Float>("x")
-        element<Float>("y")
-        element<Float>("z")
+object Vector3dSerializer : KSerializer<Vector3d> {
+    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("Vector3d") {
+        element<Double>("x")
+        element<Double>("y")
+        element<Double>("z")
     }
 
-    override fun serialize(encoder: Encoder, value: Vector3f) {
+    override fun serialize(encoder: Encoder, value: Vector3d) {
         encoder.encodeStructure(descriptor) {
-            encodeFloatElement(descriptor, 0, value.x)
-            encodeFloatElement(descriptor, 1, value.y)
-            encodeFloatElement(descriptor, 2, value.z)
+            encodeDoubleElement(descriptor, 0, value.x)
+            encodeDoubleElement(descriptor, 1, value.y)
+            encodeDoubleElement(descriptor, 2, value.z)
         }
     }
 
-    override fun deserialize(decoder: Decoder): Vector3f {
-        var x = 0.0f
-        var y = 0.0f
-        var z = 0.0f
+    override fun deserialize(decoder: Decoder): Vector3d {
+        var x = 0.0
+        var y = 0.0
+        var z = 0.0
         decoder.decodeStructure(descriptor) {
             while (true) {
                 when (val index = decodeElementIndex(descriptor)) {
                     CompositeDecoder.DECODE_DONE -> break
-                    0 -> x = decodeFloatElement(descriptor, 0)
-                    1 -> y = decodeFloatElement(descriptor, 1)
-                    2 -> z = decodeFloatElement(descriptor, 2)
+                    0 -> x = decodeDoubleElement(descriptor, 0)
+                    1 -> y = decodeDoubleElement(descriptor, 1)
+                    2 -> z = decodeDoubleElement(descriptor, 2)
                     else -> error("Unexpected index: $index")
                 }
             }
         }
-        return Vector3f(x, y, z)
+        return Vector3d(x, y, z)
     }
 }

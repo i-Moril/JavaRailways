@@ -1,0 +1,10 @@
+name: MineRailsDev
+version: "1.0-SNAPSHOT"
+main: work.art1st.mineRails.bukkit.BukkitPluginDev
+api-version: "1.21"
+dependencies:
+  server:
+    MineRails:
+      load: BEFORE
+      required: true
+      join-classpath: true

@@ -6,7 +6,7 @@ import work.art1st.mineRails.bukkit.tests.PhysTestCommand
 class BukkitPluginDev : JavaPlugin() {
 
     override fun onEnable() {
-        getCommand("phys")?.setExecutor(PhysTestCommand())
+        registerCommand("phys", "Physics playground: oval track + train test", listOf(), PhysTestCommand())
         logger.info("BukkitPluginDev enabled — /phys ready")
     }
 

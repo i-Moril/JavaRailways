@@ -22,9 +22,9 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     compileOnly("org.joml:joml:1.10.8")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
-    implementation(project(":Core"))
-    implementation(project(":Basic"))
-    implementation(project(":ConfigLib"))
+    compileOnly(project(":Core"))
+    compileOnly(project(":Basic"))
+    compileOnly(project(":ConfigLib"))
     compileOnly(project(":BukkitPlugin"))
 }
 
@@ -42,8 +42,4 @@ bukkitPluginYaml {
     apiVersion = "1.21.11"
     name = "MineRailsDev"
     depend.add("MineRails")
-
-    commands.register("phys") {
-        description.set("Physics playground: oval track + train test")
-    }
 }

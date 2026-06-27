@@ -17,6 +17,7 @@ import work.art1st.mineRails.bukkit.render.model.DisplayModel
 import work.art1st.mineRails.bukkit.render.model.LodDisplayModel
 import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
+import work.art1st.mineRails.bukkit.render.model.configureTrainDisplaySmoothing
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.configLib.persistence.Loads
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
@@ -26,13 +27,15 @@ class CompositeModelConfigV1(
     val attachedModels: List<ModelConfigV1<*>>
 ) : Loads<CompositeModel, Renderable>, SerializableExtensionData() {
     override fun load(dependency: Renderable): CompositeModel {
+        val rootEntity = dependency.world.bukkitWorldData.bukkitWorld.spawn(
+            dependency.bukkitLocation,
+            ItemDisplay::class.java
+        )
+        rootEntity.configureTrainDisplaySmoothing()
         return CompositeModel(
             world = dependency.world,
             models = attachedModels.map { it.load(dependency) },
-            rootEntity = dependency.world.bukkitWorldData.bukkitWorld.spawn(
-                dependency.bukkitLocation,
-                ItemDisplay::class.java
-            )
+            rootEntity = rootEntity
         )
     }
 }
@@ -67,6 +70,7 @@ class DisplayModelConfigV1(
             dependency.bukkitLocation,
             ItemDisplay::class.java
         )
+        bukkitEntity.configureTrainDisplaySmoothing()
         bukkitEntity.setItemStack(item.load(Unit))
         val model = DisplayModel(
             world = world,
@@ -96,6 +100,8 @@ class LodDisplayModelConfigV1(
             dependency.bukkitLocation,
             ItemDisplay::class.java
         )
+        bukkitEntityLo.configureTrainDisplaySmoothing()
+        bukkitEntityHi.configureTrainDisplaySmoothing()
         bukkitEntityLo.setItemStack(loItem.load(Unit))
         bukkitEntityHi.setItemStack(hiItem.load(Unit))
         val model = LodDisplayModel(

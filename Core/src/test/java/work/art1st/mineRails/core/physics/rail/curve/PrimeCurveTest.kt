@@ -1,6 +1,8 @@
 package work.art1st.mineRails.core.physics.rail.curve
 
 import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -14,6 +16,33 @@ import kotlin.math.abs
 class PrimeCurveTest {
 
     private val tolerance = Curve.TOLERANCE // 5e-3
+
+    @Test
+    fun `two point line segment interpolates across full length`() {
+        val curve = PrimeCurve.fromPoints(
+            listOf(
+                Curve.RawPoint(
+                    Vector3d(0.0, 0.0, 0.0),
+                    Vector3d(1.0, 0.0, 0.0),
+                    Vector3d(0.0, 1.0, 0.0),
+                    0.0,
+                    Curve.SegmentType.LINE_START
+                ),
+                Curve.RawPoint(
+                    Vector3d(200.0, 0.0, 0.0),
+                    Vector3d(1.0, 0.0, 0.0),
+                    Vector3d(0.0, 1.0, 0.0),
+                    200.0,
+                    Curve.SegmentType.LINE_END
+                )
+            )
+        )
+
+        assertEquals(50.0, curve.getPointAt(50.0).position.x(), 1e-9)
+        assertEquals(100.0, curve.getPointAt(100.0).position.x(), 1e-9)
+        assertEquals(150.0, curve.getPointAt(150.0).position.x(), 1e-9)
+        assertEquals(199.5, curve.getPointAt(199.5).position.x(), 1e-9)
+    }
 
     @Test
     fun `test getPointAt on straight line - boundary values`() {

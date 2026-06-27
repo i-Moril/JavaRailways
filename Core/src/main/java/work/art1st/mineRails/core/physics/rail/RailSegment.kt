@@ -48,25 +48,34 @@ class RailSegments internal constructor(
     private fun <T> searchArcRange(segment: RailSegment, f: (RailLocationWithFacing) -> T, condition: (T) -> Double): T? {
         var lo = segment.startArcLength
         var hi = segment.endArcLength
-        val vLo = condition(f(segment.railView.getRailLocationAt(lo)))
-        val vHi = condition(f(segment.railView.getRailLocationAt(hi)))
+        val loResult = f(segment.railView.getRailLocationAt(lo))
+        val hiResult = f(segment.railView.getRailLocationAt(hi))
+        var vLo = condition(loResult)
+        val vHi = condition(hiResult)
         // 端点之一满足，直接返回
-        if (abs(vLo) < 1e-12) return f(segment.railView.getRailLocationAt(lo))
-        if (abs(vHi) < 1e-12) return f(segment.railView.getRailLocationAt(hi))
+        if (abs(vLo) < 1e-12) return loResult
+        if (abs(vHi) < 1e-12) return hiResult
         // 无穿零点
         if (vLo * vHi > 0) return null
 
+        var bestResult = if (abs(vLo) <= abs(vHi)) loResult else hiResult
+        var bestValue = minOf(abs(vLo), abs(vHi))
         for (i in 0 until 50) { // 50 次二分足够 double 精度
             val mid = (lo + hi) / 2.0
             val t = f(segment.railView.getRailLocationAt(mid))
             val vMid = condition(t)
             if (abs(vMid) < 1e-12) return t
+            if (abs(vMid) < bestValue) {
+                bestResult = t
+                bestValue = abs(vMid)
+            }
             if (vLo * vMid < 0) {
                 hi = mid
             } else {
                 lo = mid
+                vLo = vMid
             }
         }
-        return null
+        return bestResult
     }
 }

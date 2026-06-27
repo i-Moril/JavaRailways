@@ -16,6 +16,7 @@ import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.bukkit.render.model.DisplayModel
 import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
+import work.art1st.mineRails.bukkit.render.model.configureTrainDisplaySmoothing
 import work.art1st.mineRails.core.api.physics.World
 
 /**
@@ -43,6 +44,10 @@ class ModelTreeBuilder(
     private val bukkitWorld
         get() = world.bukkitWorldData.bukkitWorld
 
+    // Root location used as spawn anchor for display entities,
+    // ensuring they start near the player instead of at (0,0,0).
+    private var rootLocation: Location = Location(null, 0.0, 0.0, 0.0)
+
     /**
      * Build the full model tree for a car at the given root location.
      * Returns a CompositeModel with body parts and bogie parts.
@@ -51,6 +56,8 @@ class ModelTreeBuilder(
         carDef: CarDefinition,
         rootLocation: Location
     ): CompositeModel {
+        this.rootLocation = rootLocation
+
         // Body part models
         val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace)
 
@@ -63,6 +70,7 @@ class ModelTreeBuilder(
         val rootEntity = bukkitWorld.spawn(rootLocation, ItemDisplay::class.java)
         rootEntity.isPersistent = false
         rootEntity.isVisibleByDefault = false
+        rootEntity.configureTrainDisplaySmoothing()
 
         return CompositeModel(
             world = world,
@@ -154,7 +162,9 @@ class ModelTreeBuilder(
         )
 
         val children = buildPartList(def.parts, childNamespace)
-        val spawnLoc = Location(bukkitWorld, 0.0, 0.0, 0.0)
+        // Spawn entities at the car's root location so they start near the player,
+        // not at world origin. DisplayModel.updateState will teleport them to exact positions.
+        val spawnLoc = rootLocation.clone()
 
         return when (def.type) {
             PartType.ITEM_DISPLAY -> {
@@ -197,6 +207,7 @@ class ModelTreeBuilder(
 
         val entity = bukkitWorld.spawn(location, ItemDisplay::class.java)
         entity.isPersistent = false
+        entity.configureTrainDisplaySmoothing()
         entity.setItemStack(itemStack)
         // Use NONE transform: model is rendered in its natural orientation,
         // positioned solely by our Transformation rotation.

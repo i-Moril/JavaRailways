@@ -13,8 +13,8 @@ import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.encoding.encodeStructure
 import org.joml.Vector3d
 import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.util.BinarySearch
 import work.art1st.mineRails.core.util.Heavy
+import work.art1st.mineRails.core.util.ObjectPools
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import java.util.stream.Stream
 
@@ -72,8 +72,10 @@ open class PrimeCurveImpl : PrimeCurve {
             val p = pointList.last()
             return Curve.Point(p.position, p.tangent, p.normal, this, p.arcLength)
         }
-        // 二分搜索定位弧长所在区间
-        val idx = BinarySearch.searchList(pointList) { it.arcLength - arcLength }.first
+        // 定位弧长所在区间的左端点，不能用“最近点”搜索。
+        // 两点直线 [0, L] 上，如果 arcLength > L/2 时选到终点作为 lo，
+        // 后半段会退化成 range=0，表现为直线只有一半长度。
+        val idx = findSegmentStartIndex(arcLength)
         val lo = pointList[idx]
         val hi = pointList[minOf(idx + 1, pointList.lastIndex)]
 
@@ -82,14 +84,12 @@ open class PrimeCurveImpl : PrimeCurve {
             hi.segmentType == Curve.SegmentType.LINE_END) {
             val range = hi.arcLength - lo.arcLength
             val t = if (range > 1e-12) (arcLength - lo.arcLength) / range else 0.0
-            return Curve.Point(
-                position = Vector3d(lo.position).add(
-                    Vector3d(hi.position).sub(lo.position).mul(t), Vector3d()),
-                tangent = lo.tangent,   // 直线切线恒定
-                normal = lo.normal,     // 法线恒定
-                curve = this,
-                arcLength = arcLength
-            )
+            // P3: 用池化临时向量，减少 GC 压力
+            return ObjectPools.withTwoVector3d { dir, result ->
+                Vector3d(hi.position).sub(lo.position, dir).mul(t)
+                Vector3d(lo.position).add(dir, result)
+                Curve.Point(Vector3d(result), lo.tangent, lo.normal, this, arcLength)
+            }
         }
 
         // 离散/曲线段：相邻点之间线性插值
@@ -98,16 +98,35 @@ open class PrimeCurveImpl : PrimeCurve {
             return Curve.Point(lo.position, lo.tangent, lo.normal, this, lo.arcLength)
         }
         val t = (arcLength - lo.arcLength) / range
-        return Curve.Point(
-            position = Vector3d(lo.position).add(
-                Vector3d(hi.position).sub(lo.position).mul(t), Vector3d()),
-            tangent = Vector3d(lo.tangent).add(
-                Vector3d(hi.tangent).sub(lo.tangent).mul(t), Vector3d()).normalize(),
-            normal = Vector3d(lo.normal).add(
-                Vector3d(hi.normal).sub(lo.normal).mul(t), Vector3d()).normalize(),
-            curve = this,
-            arcLength = arcLength
-        )
+        ObjectPools.withTwoVector3d { dir, tmpRes ->
+            // position
+            Vector3d(hi.position).sub(lo.position, dir).mul(t)
+            Vector3d(lo.position).add(dir, tmpRes)
+            val pos = Vector3d(tmpRes)
+            // tangent
+            Vector3d(hi.tangent).sub(lo.tangent, dir).mul(t)
+            Vector3d(lo.tangent).add(dir, tmpRes).normalize()
+            val tan = Vector3d(tmpRes)
+            // normal
+            Vector3d(hi.normal).sub(lo.normal, dir).mul(t)
+            Vector3d(lo.normal).add(dir, tmpRes).normalize()
+            val nor = Vector3d(tmpRes)
+            return Curve.Point(pos, tan, nor, this, arcLength)
+        }
+    }
+
+    private fun findSegmentStartIndex(arcLength: Double): Int {
+        var lo = 0
+        var hi = pointList.lastIndex
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (pointList[mid].arcLength <= arcLength) {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
+        }
+        return lo.coerceAtMost(pointList.lastIndex - 1)
     }
 
     @Heavy

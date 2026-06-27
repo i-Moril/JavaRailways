@@ -21,11 +21,11 @@ abstract class AbstractModel(
      * @param parentRelativeTransform 父元素相对根元素的transform
      * @param rootTransform 根元素的transform
      */
-    open fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc) {
+    // P4: transformDirty 控制是否需要重设 entity.transformation（position teleport 总是执行）
+    open fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean = true) {
         val animationTransform = activeAnimation?.currentTransform
         state.applyRotation(parentRelativeTransform, rootTransform, animationTransform)
-        // Children are positioned relative to THIS model, not this model's parent
-        attachedModels.forEach { it.updateState(state.rootRelativeTransform, rootTransform, rootVelocity) }
+        attachedModels.forEach { it.updateState(state.rootRelativeTransform, rootTransform, rootVelocity, transformDirty) }
     }
 
     @Throws(IllegalArgumentException::class)

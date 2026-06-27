@@ -119,9 +119,6 @@ class PersistentByProcessor(
         targetBaseFullQualifiedName: String
     ): List<KSType>? {
         val startDeclaration = startType.declaration as? KSClassDeclaration
-        startType.arguments[0].type
-
-        startDeclaration.superTypes.first().resolve().arguments.first().type.
 // 2. 从所有父类中直接滤出 PersistentMapper
         val persistentMapperType = startDeclaration?.getAllSuperTypes()?.firstOrNull {
             it.declaration.qualifiedName?.asString() == targetBaseFullQualifiedName

@@ -27,28 +27,32 @@ class LodDisplayModel internal constructor(
         hiEntity?.isPersistent = false
     }
 
-    override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc) {
-        super.updateState(parentRelativeTransform, rootTransform, rootVelocity)
+    override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
+        super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
         val worldPos = state.worldTransform.position
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
         val loc = org.bukkit.Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z())
         loEntity?.let {
             it.teleport(loc)
-            it.transformation = org.bukkit.util.Transformation(
-                org.joml.Vector3f(0f, 0f, 0f),
-                org.joml.Quaternionf(1f, 0f, 0f, 0f),
-                state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
-                state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
-            )
+            if (transformDirty) {
+                it.transformation = org.bukkit.util.Transformation(
+                    org.joml.Vector3f(0f, 0f, 0f),
+                    org.joml.Quaternionf(1f, 0f, 0f, 0f),
+                    state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
+                    state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
+                )
+            }
         }
         hiEntity?.let {
             it.teleport(loc)
-            it.transformation = org.bukkit.util.Transformation(
-                org.joml.Vector3f(0f, 0f, 0f),
-                org.joml.Quaternionf(1f, 0f, 0f, 0f),
-                state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
-                state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
-            )
+            if (transformDirty) {
+                it.transformation = org.bukkit.util.Transformation(
+                    org.joml.Vector3f(0f, 0f, 0f),
+                    org.joml.Quaternionf(1f, 0f, 0f, 0f),
+                    state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
+                    state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
+                )
+            }
         }
     }
 
@@ -76,4 +80,5 @@ class LodDisplayModel internal constructor(
             }
         }
     }
+
 }

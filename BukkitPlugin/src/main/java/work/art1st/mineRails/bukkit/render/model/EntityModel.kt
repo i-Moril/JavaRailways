@@ -16,8 +16,8 @@ abstract class EntityModel internal constructor(
 ) : AbstractModel(world, state, attachedModels, animation) {
     abstract fun spawnEntity()
 
-    override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc) {
-        super.updateState(parentRelativeTransform, rootTransform, rootVelocity)
+    override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
+        super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
         entity?.let {
             it.teleport(Location(it.world, state.x, state.y, state.z, state.yaw.toFloat(), state.pitch.toFloat()))
             it.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())

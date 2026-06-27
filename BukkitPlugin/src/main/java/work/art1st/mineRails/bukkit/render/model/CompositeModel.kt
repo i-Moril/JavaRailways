@@ -17,6 +17,10 @@ class CompositeModel internal constructor(
     private val models: List<AbstractModel>,
     private val rootEntity: Entity
 ) : Destroyable {
+
+    // P4: 缓存上一帧的旋转，用于 dirty flag 优化
+    private var lastRotation: Quaterniond? = null
+
     override fun destroy() {
         world.tickManager.scheduleMainThreadAfterCommitTask {
             rootEntity.remove()
@@ -30,11 +34,15 @@ class CompositeModel internal constructor(
 
     fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d()) {
         // parentRelativeTransform carries the rotation; root for world-space uses identity
-        // rotation to avoid double-applying carRotation in worldTransform computation.
         val rotatedTransform = CompactTransform(Vector3d(), rootTransform.rotation)
-        val worldRoot = CompactTransform(rootTransform.position, org.joml.Quaterniond(1.0, 0.0, 0.0, 0.0))
-        models.forEach { it.updateState(rotatedTransform, worldRoot, rootVelocity) }
-        // 根元素，无rotation
+        val worldRoot = CompactTransform(rootTransform.position, Quaterniond(1.0, 0.0, 0.0, 0.0))
+
+        // P4: 若旋转未变化，子模型只需 teleport 不需重设 transformation
+        val rotationChanged = lastRotation == null || !lastRotation!!.equals(rootTransform.rotation, 1e-12)
+        if (rotationChanged) lastRotation = Quaterniond(rootTransform.rotation)
+        models.forEach { it.updateState(rotatedTransform, worldRoot, rootVelocity, rotationChanged) }
+
+        // 根元素位置每帧更新（与旋转无关）
         onMainThread {
             rootEntity.teleport(
                 Location(rootEntity.world, rootTransform.position.x(), rootTransform.position.y(), rootTransform.position.z())

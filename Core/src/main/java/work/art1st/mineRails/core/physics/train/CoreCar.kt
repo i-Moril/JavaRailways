@@ -162,40 +162,19 @@ class CoreCar @MainThread internal constructor(
         this.initialize(savedExtensionData)
     }
 
-    private fun bogiePairingTolerance(): Double =
-        max(Curve.TOLERANCE, bogieDistance * 0.05 + Curve.PRECISION)
-
     private fun connectorPosition(location: RailLocationWithFacing): Vector3dc =
         location.position + location.normal * floorHeight
 
-    // 从头转向架沿曲线向后搜索尾转向架位置。
-    // 在 peekCurve 范围内二分搜索 distance == bogieDistance 的位置。
+    // 弧长 forward 的弦长误差 s³/(24R²)：bogieDistance=1.2m, R=5m → ~0.003m < TOLERANCE。
+    // 外层 searchRailLocation 会消化此误差（见 updateByPrevCar），不会积累。
     @Throws(BogieException::class)
     private fun findTailBogieByHead(headBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
-        val headConnector = connectorPosition(headBogieNewLocation)
-        val railSegments = headBogieNewLocation.peekCurve(-2 * bogieDistance)
-        val result = bogiePairingSearch(railSegments, headConnector)
-        if (result != null) return result.reversed
         return headBogieNewLocation.forward(-bogieDistance) ?: throw BogieException(tailBogie)
     }
 
     @Throws(BogieException::class)
     private fun findHeadBogieByTail(tailBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
-        val tailConnector = connectorPosition(tailBogieNewLocation)
-        val railSegments = tailBogieNewLocation.peekCurve(2 * bogieDistance)
-        val result = bogiePairingSearch(railSegments, tailConnector)
-        if (result != null) return result
         return tailBogieNewLocation.forward(bogieDistance) ?: throw BogieException(headBogie)
-    }
-
-    // 在弧长区间内二分搜索 distance(anchor, connector) == bogieDistance 的位置
-    private fun bogiePairingSearch(
-        railSegments: RailSegments,
-        anchorConnector: Vector3dc
-    ): RailLocationWithFacing? {
-        return railSegments.searchRailLocation(bogiePairingTolerance()) { candidate ->
-            anchorConnector.distance(connectorPosition(candidate)) - bogieDistance
-        }
     }
 
 

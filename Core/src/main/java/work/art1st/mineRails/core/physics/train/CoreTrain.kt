@@ -156,9 +156,9 @@ open class CoreTrain @MainThread internal constructor(
             prevCar = car
         }
         head.location =
-            headBogie.location.forward(headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
+            headBogie.activeLocation.forward(headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
         tail.location =
-            tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
+            tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
     }
 
     fun reverse() {

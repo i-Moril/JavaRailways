@@ -76,13 +76,13 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         val segmentStart = self.arcStart.coerceIn(0.0, totalLength)
         val segmentEnd = self.arcEnd.coerceIn(segmentStart, totalLength)
 
-        val pointIndices = if (self.pointIndices.isNotEmpty()) {
-            self.pointIndices
+        val pointArcs = if (self.pointArcs.isNotEmpty()) {
+            self.pointArcs
         } else {
-            computePointIndices(curve, segmentStart, segmentEnd, repeatLength)
+            computePointArcs(curve, segmentStart, segmentEnd, repeatLength)
         }
-        for (idx in pointIndices) {
-            val point = curve.getPointAt(idx)
+        for (arc in pointArcs) {
+            val point = curve.getPointAt(arc)
             for (element in config.elements) {
                 val entity = createDisplayEntity(bukkitWorld, point, element)
                 displayEntities.add(entity)
@@ -98,26 +98,27 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         }
     }
 
-    private fun computePointIndices(
+    // 直接存弧长，不再需要 getIdxAt
+    private fun computePointArcs(
         curve: PrimeCurve,
         segmentStart: Double,
         segmentEnd: Double,
         repeatLength: Double
-    ): List<Int> {
-        val indices = LinkedHashSet<Int>()
+    ): List<Double> {
+        val arcs = LinkedHashSet<Double>()
         var arcLength = ceil(segmentStart / repeatLength) * repeatLength
         if (arcLength < segmentStart) {
             arcLength += repeatLength
         }
         val epsilon = 1e-6
         while (arcLength <= segmentEnd + epsilon) {
-            indices.add(curve.getIdxAt(arcLength))
+            arcs.add(arcLength)
             arcLength += repeatLength
         }
-        if (indices.isEmpty()) {
-            indices.add(curve.getIdxAt(segmentStart))
+        if (arcs.isEmpty()) {
+            arcs.add(segmentStart)
         }
-        return indices.toList()
+        return arcs.toList()
     }
 
     @MainThread

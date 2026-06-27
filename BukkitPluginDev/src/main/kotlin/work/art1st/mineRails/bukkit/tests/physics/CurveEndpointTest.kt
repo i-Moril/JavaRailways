@@ -26,19 +26,19 @@ class CurveEndpointTest {
 
         // Arc 1: right turn from east to west
         val a1 = makeArcRightTurn(Vector3d(p1), radius, fromEast = true, normal, step)
-        val startA1 = a1.getPointAt(0).position
+        val startA1 = a1.getPointAt(0.0).position
         val endA1 = a1.lastPoint().position
 
         // Verify arc starts where straight ends
         assertClose(p1, startA1, "Arc1 start vs Straight1 end")
         // Straight 2: west
         val s2 = makeStraight(Vector3d(endA1), Vector3d(-1.0, 0.0, 0.0), straightLen, normal, step)
-        val startS2 = s2.getPointAt(0).position
+        val startS2 = s2.getPointAt(0.0).position
         val endS2 = s2.lastPoint().position
         assertClose(endA1, startS2, "S2 start vs Arc1 end")
         // Arc 2: right turn from west to east
         val a2 = makeArcRightTurn(Vector3d(endS2), radius, fromEast = false, normal, step)
-        val startA2 = a2.getPointAt(0).position
+        val startA2 = a2.getPointAt(0.0).position
         val endA2 = a2.lastPoint().position
         assertClose(endS2, startA2, "Arc2 start vs S2 end")
         // Verify the loop closes: arc2 end = origin
@@ -88,5 +88,5 @@ class CurveEndpointTest {
         { "$label: $a vs $b" }
     }
 
-    private fun PrimeCurve.lastPoint(): Curve.Point = getPointAt(totalPoints - 1)
+    private fun PrimeCurve.lastPoint(): Curve.Point = getPointAt(totalArcLength)
 }

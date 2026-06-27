@@ -17,7 +17,7 @@ class CoreTrainMultiCarDiagnosticTest {
         val world = createTestWorld()
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, segmentCount = 1))
         val train = createCommandStyleTrain(world, rail, carCount = 2, carLength = 2.0)
-        val targetLocation = RailLocationWithFacing(rail.viewAB, rail.viewAB.curve.getIdxAt(80.0))
+        val targetLocation = RailLocationWithFacing(rail.viewAB, 80.0)
 
         assertDoesNotThrow {
             train.setLocation(targetLocation)
@@ -30,7 +30,7 @@ class CoreTrainMultiCarDiagnosticTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, segmentCount = 1))
         val train = createCommandStyleTrain(world, rail, carCount = 2, carLength = 2.0)
         val firstCar = train.cars.first()
-        val headLocation = RailLocationWithFacing(rail.viewAB, rail.viewAB.curve.getIdxAt(80.0))
+        val headLocation = RailLocationWithFacing(rail.viewAB, 80.0)
         val headBogieLocation = headLocation.forward(-firstCar.headBogieToEndPointOffset)
             ?: error("cannot place first head bogie")
 
@@ -73,7 +73,7 @@ class CoreTrainMultiCarDiagnosticTest {
         carCount: Int,
         carLength: Double
     ): CoreTrain {
-        var currentLocation = RailLocationWithFacing(rail.viewAB, 0)
+        var currentLocation = RailLocationWithFacing(rail.viewAB, 0.0)
         val cars = mutableListOf<CoreCar>()
 
         repeat(carCount) { index ->

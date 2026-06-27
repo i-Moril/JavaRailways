@@ -66,7 +66,7 @@ object TrainCommand {
         val direction = work.art1st.mineRails.core.physics.rail.RailView.ViewDirection.AB
         val railView = nearestRail.getView(direction)
         val nearestPoint = railView.curve.getNearestPoint(playerPos)
-        val headLocation = RailLocationWithFacing(railView, nearestPoint.idx)
+        val headLocation = RailLocationWithFacing(railView, nearestPoint.arcLength)
 
         // 参数: /mr train create <train_type>
         val trainTypeName = args.firstOrNull() ?: "s100_4car"

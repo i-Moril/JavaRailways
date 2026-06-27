@@ -127,21 +127,21 @@ class CoreRail @MainThread private constructor(
                 dependency.world,
                 curve,
                 nextRailAtA.map {
-                    getDirection(curve.getPointAt(0),
+                    getDirection(curve.getPointAt(0.0),
                         dependency.world.getRail(UUID.fromString(it))!!)
                 },
                 nextRailAtB.map {
-                    getDirection(curve.getPointAt(curve.totalPoints - 1),
+                    getDirection(curve.getPointAt(curve.totalArcLength),
                         dependency.world.getRail(UUID.fromString(it))!!)
                 },
                 activeTrackAtA?.let {
                     if (!nextRailAtA.contains(it)) throw CannotConnectRailException()
-                    getDirection(curve.getPointAt(0),
+                    getDirection(curve.getPointAt(0.0),
                         dependency.world.getRail(UUID.fromString(it))!!)
                 },
                 activeTrackAtB?.let {
                     if (!nextRailAtB.contains(it)) throw CannotConnectRailException()
-                    getDirection(curve.getPointAt(curve.totalPoints - 1),
+                    getDirection(curve.getPointAt(curve.totalArcLength),
                         dependency.world.getRail(UUID.fromString(it))!!)
                 }
             )

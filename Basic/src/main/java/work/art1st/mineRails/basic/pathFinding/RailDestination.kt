@@ -9,5 +9,5 @@ class RailDestination(
     val label: String
 ) : RailObject {
     override val location: RailLocationWithFacing
-        get() = railView.getRailLocationAt(0)
+        get() = railView.getRailLocationAt(0.0)
 }

@@ -25,7 +25,7 @@ object RailVisualBootstrap {
         registerSegments(rail.id, segments)
         return PersistedRailRenderMeta(
             railId = rail.id,
-            segments = segments.map { RailArcSegmentMeta(it.arcStart, it.arcEnd, it.pointIndices) },
+            segments = segments.map { RailArcSegmentMeta(it.arcStart, it.arcEnd, it.pointArcs) },
             templateSnapshot = templateSnapshot
         )
     }
@@ -41,7 +41,7 @@ object RailVisualBootstrap {
                 rail = rail,
                 arcStart = meta.arcStart,
                 arcEnd = meta.arcEnd,
-                pointIndices = meta.pointIndices,
+                pointArcs = meta.pointArcs,
                 templateSnapshot = persisted.templateSnapshot
             )
         }
@@ -72,32 +72,33 @@ object RailVisualBootstrap {
         return (0 until segmentCount).map { index ->
             val arcStart = index * RailArcVisualSegment.SEGMENT_ARC_LENGTH
             val arcEnd = minOf((index + 1) * RailArcVisualSegment.SEGMENT_ARC_LENGTH, total)
-            val pointIndices = computePointIndices(rail, arcStart, arcEnd, repeatLength)
+            val pointArcs = computePointArcs(rail, arcStart, arcEnd, repeatLength)
             RailArcVisualSegment(
                 rail = rail,
                 arcStart = arcStart,
                 arcEnd = arcEnd,
-                pointIndices = pointIndices,
+                pointArcs = pointArcs,
                 templateSnapshot = templateSnapshot
             )
         }
     }
 
-    private fun computePointIndices(rail: CoreRail, arcStart: Double, arcEnd: Double, repeatLength: Double): List<Int> {
-        val indices = LinkedHashSet<Int>()
+    // 直接存弧长，不依赖整数索引
+    private fun computePointArcs(rail: CoreRail, arcStart: Double, arcEnd: Double, repeatLength: Double): List<Double> {
+        val arcs = LinkedHashSet<Double>()
         var arcLength = ceil(arcStart / repeatLength) * repeatLength
         if (arcLength < arcStart) {
             arcLength += repeatLength
         }
         val epsilon = 1e-6
         while (arcLength <= arcEnd + epsilon) {
-            indices.add(rail.curve.getIdxAt(arcLength))
+            arcs.add(arcLength)
             arcLength += repeatLength
         }
-        if (indices.isEmpty()) {
-            indices.add(rail.curve.getIdxAt(arcStart))
+        if (arcs.isEmpty()) {
+            arcs.add(arcStart)
         }
-        return indices.toList()
+        return arcs.toList()
     }
 
     private fun createTemplateSnapshot(): RailTemplateSnapshot {

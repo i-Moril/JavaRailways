@@ -18,32 +18,31 @@ import work.art1st.mineRails.core.util.Heavy
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import java.util.stream.Stream
 
-/**
- * PrimeCurve should have curve length starting from 0.0
- */
 open class PrimeCurveImpl : PrimeCurve {
     private var pointList: List<InternalCurvePoint> = emptyList()
 
     constructor(points: List<Curve.RawPoint>) {
-        this.pointList = points.mapIndexed { idx, p ->
+        this.pointList = points.map { p ->
             InternalCurvePoint(
                 position = Vector3d(p.position),
                 tangent = Vector3d(p.tangent),
                 normal = Vector3d(p.normal),
-                idx = idx,
                 arcLength = p.arcLength,
+                segmentType = p.segmentType
             )
         }
     }
 
-    private constructor() // 空构造器，用于反序列化
+    private constructor()
 
-    // 包内可见的工厂方法
     companion object {
         @JvmStatic
         internal fun fromRawPoints(points: List<Curve.RawPoint>): PrimeCurveImpl {
             return PrimeCurveImpl(points)
         }
+
+        /** stream() 中直线段虚拟采样步长 */
+        private const val STREAM_LINE_STEP = 1.0
     }
 
     @Serializable
@@ -55,54 +54,85 @@ open class PrimeCurveImpl : PrimeCurve {
         @Serializable(with = Vector3dSerializer::class)
         val normal: Vector3d,
         val arcLength: Double,
-        val idx: Int
-    ) {
-
-    }
+        val segmentType: Curve.SegmentType = Curve.SegmentType.DISCRETE
+    )
 
     override val totalArcLength: Double
         get() = pointList.last().arcLength
-    override val totalPoints: Int
-        get() = pointList.size
+
     @Transient
     override val reversed: PrimeCurve = ReversedCurve(this)
 
-    override fun getIdxAt(arcLength: Double) : Int {
-        if (arcLength == 0.0) { return 0 }
-        if (arcLength == totalArcLength) { return totalPoints - 1 }
+    override fun getPointAt(arcLength: Double): Curve.Point {
         require(arcLength in 0.0..totalArcLength) {
-            "Invalid point arcLength $arcLength. Range: [0, ${totalArcLength}]"
+            "Invalid arcLength $arcLength. Range: [0, $totalArcLength]"
         }
-        return BinarySearch.searchList(
-            pointList
-        ) { p -> p.arcLength - arcLength }.first
-    }
+        // 先处理边界
+        if (arcLength == totalArcLength) {
+            val p = pointList.last()
+            return Curve.Point(p.position, p.tangent, p.normal, this, p.arcLength)
+        }
+        // 二分搜索定位弧长所在区间
+        val idx = BinarySearch.searchList(pointList) { it.arcLength - arcLength }.first
+        val lo = pointList[idx]
+        val hi = pointList[minOf(idx + 1, pointList.lastIndex)]
 
-    override fun getPointAt(idx: Int): Curve.Point {
-        require(idx in 0 until pointList.size) {
-            "Invalid point idx $idx. Range: [0, ${pointList.size - 1}]"
+        // 直线段：精确线性插值（位置线性，切线/法线恒定）
+        if (lo.segmentType == Curve.SegmentType.LINE_START &&
+            hi.segmentType == Curve.SegmentType.LINE_END) {
+            val range = hi.arcLength - lo.arcLength
+            val t = if (range > 1e-12) (arcLength - lo.arcLength) / range else 0.0
+            return Curve.Point(
+                position = Vector3d(lo.position).add(
+                    Vector3d(hi.position).sub(lo.position).mul(t), Vector3d()),
+                tangent = lo.tangent,   // 直线切线恒定
+                normal = lo.normal,     // 法线恒定
+                curve = this,
+                arcLength = arcLength
+            )
         }
-        val p = pointList[idx]
+
+        // 离散/曲线段：相邻点之间线性插值
+        val range = hi.arcLength - lo.arcLength
+        if (range < 1e-12) {
+            return Curve.Point(lo.position, lo.tangent, lo.normal, this, lo.arcLength)
+        }
+        val t = (arcLength - lo.arcLength) / range
         return Curve.Point(
-            position = p.position,
-            tangent = p.tangent,
-            normal = p.normal,
+            position = Vector3d(lo.position).add(
+                Vector3d(hi.position).sub(lo.position).mul(t), Vector3d()),
+            tangent = Vector3d(lo.tangent).add(
+                Vector3d(hi.tangent).sub(lo.tangent).mul(t), Vector3d()).normalize(),
+            normal = Vector3d(lo.normal).add(
+                Vector3d(hi.normal).sub(lo.normal).mul(t), Vector3d()).normalize(),
             curve = this,
-            idx = idx,
-            arcLength = p.arcLength
+            arcLength = arcLength
         )
     }
 
     @Heavy
     override fun stream(): Stream<Curve.Point> {
-        return pointList.stream().map { Curve.Point(
-            position = it.position,
-            tangent = it.tangent,
-            normal = it.normal,
-            curve = this,
-            idx = it.idx,
-            arcLength = it.arcLength
-        ) }
+        // 对 LINE 段按步长生成虚拟点；对 DISCRETE 段用存储点
+        val builder = Stream.builder<Curve.Point>()
+        for (i in 0 until pointList.lastIndex) {
+            val lo = pointList[i]
+            val hi = pointList[i + 1]
+            if (lo.segmentType == Curve.SegmentType.LINE_START &&
+                hi.segmentType == Curve.SegmentType.LINE_END) {
+                val range = hi.arcLength - lo.arcLength
+                val n = maxOf(1, (range / STREAM_LINE_STEP).toInt())
+                for (j in 0..n) {
+                    val arc = lo.arcLength + range * j.toDouble() / n
+                    builder.add(getPointAt(arc))
+                }
+            } else {
+                builder.add(Curve.Point(lo.position, lo.tangent, lo.normal, this, lo.arcLength))
+            }
+        }
+        // 最后一个点
+        val last = pointList.last()
+        builder.add(Curve.Point(last.position, last.tangent, last.normal, this, last.arcLength))
+        return builder.build()
     }
 
     override fun save(): PrimeCurve.SavedPrimeCurve {
@@ -116,12 +146,7 @@ open class PrimeCurveImpl : PrimeCurve {
     ) : PrimeCurve.SavedPrimeCurve {
         override fun load(dependency: Unit): PrimeCurve {
             return PrimeCurveImpl.fromRawPoints(pointList.map { p ->
-                Curve.RawPoint(
-                    position = p.position,
-                    tangent = p.tangent,
-                    normal = p.normal,
-                    arcLength = p.arcLength
-                )
+                Curve.RawPoint(p.position, p.tangent, p.normal, p.arcLength, p.segmentType)
             })
         }
 
@@ -130,88 +155,7 @@ open class PrimeCurveImpl : PrimeCurve {
                 return SavedPrimeCurveV1(curve.pointList)
             }
         }
-
     }
-
-//    object PrimeCurveSerializer : KSerializer<PrimeCurveImpl> {
-//        private val delegateSerializer = ListSerializer(String.serializer())
-//        override val descriptor: SerialDescriptor = SerialDescriptor("PrimeCurve", delegateSerializer.descriptor)
-//
-//        private fun pointToString(p: Curve.Point): String {
-//            return p.position.flatten() + ';' + p.tangent.flatten() + ';' + p.normal.flatten() + ';' + p.arcLength
-//        }
-//
-//        private fun stringToPoint(s: String, curve: PrimeCurveImpl, idx: Int): Curve.Point {
-//            val a = s.split(';')
-//            return Curve.Point(
-//                position = Vector3d.fromFlattenString(a[0]),  // position
-//                tangent = Vector3d.fromFlattenString(a[1]),  // tangent
-//                normal = Vector3d.fromFlattenString(a[2]),  // normal
-//                curve = curve,
-//                idx = idx,
-//                arcLength = a[3].toDouble()  // arcLength
-//            )
-//        }
-//
-//        override fun serialize(encoder: Encoder, value: PrimeCurveImpl) {
-//            val stringList = value.pointList.map { pointToString(it) }
-//            delegateSerializer.serialize(encoder, stringList)
-//        }
-//
-//        override fun deserialize(decoder: Decoder): PrimeCurveImpl {
-//            val stringList = delegateSerializer.deserialize(decoder)
-//            val curve = PrimeCurveImpl()
-//            val pointList = stringList.mapIndexed { idx, s -> stringToPoint(s, curve, idx) }
-//            curve.pointList = pointList
-//            return curve
-//        }
-//    }
-//
-//    class PrimeCurveMapper : IndependentPersistentMapper<PrimeCurveImpl, String> {
-//        // Point: {... ; ... ; ... ; ...}
-//        internal fun pointToString(p: Curve.Point): String {
-//            return p.position.flatten() + ';' + p.tangent.flatten() + ';' + p.normal.flatten() + ';' + p.arcLength
-//        }
-//
-//        internal fun stringToPoint(s: String, curve: PrimeCurveImpl, idx: Int): Curve.Point {
-//            val a = s.split(';')
-//            return Curve.Point(
-//                position = Vector3d.fromFlattenString(a[0]),  // position
-//                tangent = Vector3d.fromFlattenString(a[1]),  // tangent
-//                normal = Vector3d.fromFlattenString(a[2]),  // normal
-//                curve = curve,
-//                idx = idx,
-//                arcLength = a[3].toDouble()  // arcLength
-//            )
-//        }
-//
-//        // Curve: {p:<point>|<point>|...}
-//        fun saveAsPointList(obj: PrimeCurveImpl): String {
-//            return "p:" + obj.pointList.joinToString("|") { pointToString(it) }
-//        }
-//
-//        fun loadAsPointList(pList: String): PrimeCurveImpl {
-//            val curve = PrimeCurveImpl()
-//            val pList = pList.split("|")
-//            val pointList = pList.mapIndexed { idx, s -> stringToPoint(s, curve, idx) }
-//            curve.pointList = pointList
-//            return curve
-//        }
-//
-//        override fun save(obj: PrimeCurveImpl): String {
-//            return saveAsPointList(obj)
-//        }
-//
-//        override fun load(persistent: String): PrimeCurveImpl {
-//            val split = persistent.split(':', limit = 2)
-//            val type = split[0]
-//            if (type == "p") {
-//                return loadAsPointList(split[1])
-//            } else {
-//                throw LoadPersistentDataException(PrimeCurveImpl::class, persistent)
-//            }
-//        }
-//    }
 }
 
 object Vector3dSerializer : KSerializer<Vector3d> {

@@ -100,7 +100,7 @@ class PhysTestCommand : BasicCommand {
         val rail = rails.firstOrNull() ?: run { sender.sendMessage("No rail. /phys create"); return }
         val pos = Vector3d(sender.location.x, sender.location.y, sender.location.z)
         val view = rail.getView(work.art1st.mineRails.core.physics.rail.RailView.ViewDirection.AB)
-        val start = RailLocationWithFacing(view, view.curve.getNearestPoint(pos).idx)
+        val start = RailLocationWithFacing(view, view.curve.getNearestPoint(pos).arcLength)
 
         val carLen = 2.0
         var loc: RailLocationWithFacing? = start
@@ -191,19 +191,15 @@ class PhysTestCommand : BasicCommand {
 
     // ---- curve generators ----
 
+    // P1: 直线段仅用 2 点 (LINE_START + LINE_END)，getPointAt 自动线性插值
     private fun makeStraight(start: Vector3dc, dir: Vector3dc, length: Double, normal: Vector3dc, step: Double): PrimeCurve {
-        val n = maxOf(2, (length / step).toInt())
-        val pts = mutableListOf<Curve.RawPoint>()
-        // First point: exact start reference for endpoint matching
-        pts.add(Curve.RawPoint(Vector3d(start), Vector3d(dir), normal, 0.0))
-        var arclen = 0.0
-        for (i in 1..n) {
-            val t = i.toDouble() / n
-            val p = Vector3d(start).add(dir.mul(t * length, Vector3d()), Vector3d())
-            arclen += p.distance(pts.last().position)
-            pts.add(Curve.RawPoint(p, Vector3d(dir), normal, arclen))
-        }
-        return PrimeCurve.fromPoints(pts)
+        val endPos = Vector3d(start).add(Vector3d(dir).mul(length), Vector3d())
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(start), Vector3d(dir), normal, 0.0,
+                Curve.SegmentType.LINE_START),
+            Curve.RawPoint(endPos, Vector3d(dir), normal, length,
+                Curve.SegmentType.LINE_END)
+        ))
     }
 
     /** Semicircle right turn from startPoint (heading east→west, or west→east). */
@@ -232,5 +228,5 @@ class PhysTestCommand : BasicCommand {
         return PrimeCurve.fromPoints(pts)
     }
 
-    private fun PrimeCurve.lastPoint(): Curve.Point = getPointAt(totalPoints - 1)
+    private fun PrimeCurve.lastPoint(): Curve.Point = getPointAt(totalArcLength)
 }

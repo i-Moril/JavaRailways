@@ -4,6 +4,7 @@ import org.joml.*
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
+import work.art1st.mineRails.core.physics.rail.RailSegments
 import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.rail.Reversible
@@ -167,29 +168,14 @@ class CoreCar @MainThread internal constructor(
     private fun connectorPosition(location: RailLocationWithFacing): Vector3dc =
         location.position + location.normal * floorHeight
 
-    private fun distanceError(anchorConnector: Vector3dc, candidate: RailLocationWithFacing): Double =
-        (anchorConnector.distance(connectorPosition(candidate)) - bogieDistance).absoluteValue
-
+    // 从头转向架沿曲线向后搜索尾转向架位置。
+    // 在 peekCurve 范围内二分搜索 distance == bogieDistance 的位置。
     @Throws(BogieException::class)
     private fun findTailBogieByHead(headBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
         val headConnector = connectorPosition(headBogieNewLocation)
         val railSegments = headBogieNewLocation.peekCurve(-2 * bogieDistance)
-        var bestCandidate: RailLocationWithFacing? = null
-        var bestError = Double.POSITIVE_INFINITY
-        for (segment in railSegments) {
-            for (idx in segment.startIdx..segment.endIdx) {
-                val candidate = segment.railView.getRailLocationAt(idx)
-                val error = distanceError(headConnector, candidate)
-                if (error < bestError) {
-                    bestError = error
-                    bestCandidate = candidate
-                }
-            }
-        }
-        val tolerance = bogiePairingTolerance()
-        if (bestCandidate != null && bestError < tolerance) {
-            return bestCandidate.reversed
-        }
+        val result = bogiePairingSearch(railSegments, headConnector)
+        if (result != null) return result.reversed
         return headBogieNewLocation.forward(-bogieDistance) ?: throw BogieException(tailBogie)
     }
 
@@ -197,23 +183,19 @@ class CoreCar @MainThread internal constructor(
     private fun findHeadBogieByTail(tailBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
         val tailConnector = connectorPosition(tailBogieNewLocation)
         val railSegments = tailBogieNewLocation.peekCurve(2 * bogieDistance)
-        var bestCandidate: RailLocationWithFacing? = null
-        var bestError = Double.POSITIVE_INFINITY
-        for (segment in railSegments) {
-            for (idx in segment.startIdx..segment.endIdx) {
-                val candidate = segment.railView.getRailLocationAt(idx)
-                val error = distanceError(tailConnector, candidate)
-                if (error < bestError) {
-                    bestError = error
-                    bestCandidate = candidate
-                }
-            }
-        }
-        val tolerance = bogiePairingTolerance()
-        if (bestCandidate != null && bestError < tolerance) {
-            return bestCandidate
-        }
+        val result = bogiePairingSearch(railSegments, tailConnector)
+        if (result != null) return result
         return tailBogieNewLocation.forward(bogieDistance) ?: throw BogieException(headBogie)
+    }
+
+    // 在弧长区间内二分搜索 distance(anchor, connector) == bogieDistance 的位置
+    private fun bogiePairingSearch(
+        railSegments: RailSegments,
+        anchorConnector: Vector3dc
+    ): RailLocationWithFacing? {
+        return railSegments.searchRailLocation(bogiePairingTolerance()) { candidate ->
+            anchorConnector.distance(connectorPosition(candidate)) - bogieDistance
+        }
     }
 
 

@@ -15,7 +15,7 @@ import work.art1st.mineRails.core.physics.rail.CoreRail
 data class RailArcSegmentMeta(
     val arcStart: Double,
     val arcEnd: Double,
-    val pointIndices: List<Int> = emptyList()
+    val pointArcs: List<Double> = emptyList()
 )
 
 data class RailElementTemplateSnapshot(
@@ -43,7 +43,7 @@ class RailArcVisualSegment(
     val rail: CoreRail,
     val arcStart: Double,
     val arcEnd: Double,
-    val pointIndices: List<Int> = emptyList(),
+    val pointArcs: List<Double> = emptyList(),
     val templateSnapshot: RailTemplateSnapshot? = null,
     private val extensionDataContainer: ExtensionDataContainer<RenderableExtension<RailArcVisualSegment>> = ExtensionDataContainer()
 ) : Renderable, Extendable<RenderableExtension<RailArcVisualSegment>> by extensionDataContainer {

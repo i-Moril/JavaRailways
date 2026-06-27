@@ -34,7 +34,7 @@ private data class RailRenderMetaEntryV1(
 private data class RailRenderSegmentV1(
     val arcStart: Double,
     val arcEnd: Double,
-    val pointIndices: List<Int> = emptyList()
+    val pointArcs: List<Double> = emptyList()
 )
 
 @Serializable
@@ -112,7 +112,7 @@ object RailRenderMetaStore {
                             RailArcSegmentMeta(
                                 arcStart = seg.arcStart,
                                 arcEnd = seg.arcEnd,
-                                pointIndices = seg.pointIndices
+                                pointArcs = seg.pointArcs
                             )
                         },
                         templateSnapshot = entry.templateId?.let { templatesById[it] }
@@ -157,7 +157,7 @@ object RailRenderMetaStore {
                     railId = record.railId.toString(),
                     templateId = record.templateSnapshot?.templateId,
                     segments = record.segments.map { seg ->
-                        RailRenderSegmentV1(seg.arcStart, seg.arcEnd, seg.pointIndices)
+                        RailRenderSegmentV1(seg.arcStart, seg.arcEnd, seg.pointArcs)
                     }
                 )
             }

@@ -13,7 +13,7 @@ class CoreCarPositioningRegressionTest {
         val world = createTestWorld()
         val rail = createCurvedRail(world, 20.0)
         val train = createCommandStyleTrain(world, rail, carLength = 10.0)
-        val targetLocation = RailLocationWithFacing(rail.viewAB, rail.viewAB.curve.getIdxAt(25.0))
+        val targetLocation = RailLocationWithFacing(rail.viewAB, 25.0)
 
         assertDoesNotThrow {
             train.setLocation(targetLocation)
@@ -25,7 +25,7 @@ class CoreCarPositioningRegressionTest {
         val world = createTestWorld()
         val rail = createCurvedRail(world, 20.0)
         val train = createTrainWithConfig("test-helper-train", rail, world, listOf(10.0), isLoop = true)
-        val targetLocation = RailLocationWithFacing(rail.viewAB, rail.viewAB.curve.getIdxAt(25.0))
+        val targetLocation = RailLocationWithFacing(rail.viewAB, 25.0)
 
         assertDoesNotThrow {
             train.setLocation(targetLocation)
@@ -38,7 +38,7 @@ class CoreCarPositioningRegressionTest {
     }
 
     private fun createCommandStyleTrain(world: CoreWorld, rail: CoreRail, carLength: Double): CoreTrain {
-        val currentLocation = RailLocationWithFacing(rail.viewAB, 0)
+        val currentLocation = RailLocationWithFacing(rail.viewAB, 0.0)
         val bogieA = CoreBogie.create(currentLocation)
         val bogieB = CoreBogie.create(currentLocation.forward(carLength) ?: error("cannot place bogieB"))
         val car = CoreCar.create(

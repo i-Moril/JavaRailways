@@ -67,17 +67,17 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
 
     val headLocation = if (isLoop) {
         // 闭环轨道：从起点开始
-        RailLocationWithFacing(rail.viewAB, 0)
+        RailLocationWithFacing(rail.viewAB, 0.0)
     } else {
         // 直线轨道：从起点向前移动（列车总长度 + 10米安全余量），确保列车向后放置时不会超出轨道起点
-        val startLoc = RailLocationWithFacing(rail.viewAB, 0)
+        val startLoc = RailLocationWithFacing(rail.viewAB, 0.0)
         val offsetDistance = totalTrainLength + 10.0 // 额外10米防止误差导致初始化失败
         startLoc.forward(offsetDistance) ?: error("直线轨道长度不足，无法放置列车（需要至少 $offsetDistance 米）")
     }
 
     val cars = carLengths.mapIndexed { index, len ->
-        val bogieA = CoreBogie(headLocation, savedExtensionData = emptyMap())
-        val bogieB = CoreBogie(headLocation, savedExtensionData = emptyMap())
+        val bogieA = CoreBogie.create(headLocation)
+        val bogieB = CoreBogie.create(headLocation)
         CoreCar(
             id = "car-$index",
             bogies = listOf(bogieA, bogieB),

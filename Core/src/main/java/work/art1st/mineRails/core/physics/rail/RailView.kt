@@ -33,11 +33,13 @@ class RailView(
         BA
     }
 
+    // 曲线起点（弧长 0）
     val startPoint: Curve.Point
-        get() = curve.getPointAt(0)
+        get() = curve.getPointAt(0.0)
 
+    // 曲线终点（弧长 totalArcLength）
     val endPoint: Curve.Point
-        get() = curve.getPointAt(curve.totalPoints - 1)
+        get() = curve.getPointAt(curve.totalArcLength)
 
     val staticRailObjects: Collection<Signal>
         get() = when (viewDirection) {
@@ -71,15 +73,10 @@ class RailView(
         )
     }
 
-    fun getRailLocationAt(idx: Int) : RailLocationWithFacing {
-        require(idx in 0 until curve.totalPoints)
-        return RailLocationWithFacing(this, idx, 0.0)
-    }
-
+    // 根据弧长获取 RailLocationWithFacing（唯一的公共入口）
     fun getRailLocationAt(arcLength: Double) : RailLocationWithFacing {
         require(arcLength in 0.0..curve.totalArcLength)
-        val point = curve.getPointAt(arcLength)
-        return RailLocationWithFacing(this, point.idx, arcLength - point.arcLength)
+        return RailLocationWithFacing(this, arcLength)
     }
 
     companion object {

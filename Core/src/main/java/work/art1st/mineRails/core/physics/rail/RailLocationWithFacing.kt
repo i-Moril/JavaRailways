@@ -7,7 +7,6 @@ import work.art1st.mineRails.core.api.physics.rail.RailObject
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.util.exception.CorruptedDataException
-import work.art1st.mineRails.core.physics.rail.curve.inReversedCurve
 import work.art1st.mineRails.core.physics.rail.curve.reverseArcLength
 import work.art1st.mineRails.core.physics.train.TrainEnd
 import work.art1st.configLib.persistence.Loads
@@ -16,16 +15,18 @@ import java.util.UUID
 import kotlin.math.min
 
 @ConsistentCopyVisibility
-data class RailLocationWithFacing private constructor(
+data class RailLocationWithFacing internal constructor(
     val railView: RailView,
     private val point: Curve.Point,
     /* In case the deltaS is less than TOLERANCE */
     val minorDeltaS: Double = 0.0
 ): RailLocation, PersistentBy<RailLocationWithFacing.SavedRailLocationWithFacingV1> {
-    constructor(railView: RailView, idxInRailView: Int, minorDeltaS: Double = 0.0) : this(
+    // 弧长构造：在 railView 上弧长为 arcLength 处创建位置。
+    // minorDeltaS=0 因为插值后的 point.arcLength 已等于请求弧长。
+    constructor(railView: RailView, arcLength: Double) : this(
         railView,
-        railView.curve.getPointAt(idxInRailView),
-        minorDeltaS
+        railView.curve.getPointAt(arcLength),
+        0.0
     )
 
     override val rail = railView.rail
@@ -49,9 +50,12 @@ data class RailLocationWithFacing private constructor(
         return if (facing == this.facing) arcLength else reverseArcLength(arcLength, railView.curve)
     }
 
-    /* Create one every time. Reversing won't be used too often. */
+    // 反向位置：用反向弧长在反向视图上创建（minorDeltaS 取反）
     val reversed: RailLocationWithFacing
-        get() = RailLocationWithFacing(railView.reversed, point.inReversedCurve, -minorDeltaS)
+        get() {
+            val p = railView.reversed.curve.getPointAt(reverseArcLength(arcLength, railView.curve))
+            return RailLocationWithFacing(railView.reversed, p, -minorDeltaS)
+        }
 
     fun forward(deltaS: Double): RailLocationWithFacing? {
         if (deltaS >= 0) return forwardPositive(deltaS)
@@ -69,7 +73,7 @@ data class RailLocationWithFacing private constructor(
         while (true) {
             if (arcLength <= curve.totalArcLength) {
                 val newPoint = curve.getPointAt(arcLength)
-                return RailLocationWithFacing(railView, newPoint.idx, arcLength - newPoint.arcLength)
+                return RailLocationWithFacing(railView, newPoint, 0.0)
             }
             list.add(Pair(railView, curve))
             arcLength -= curve.totalArcLength
@@ -192,21 +196,26 @@ data class RailLocationWithFacing private constructor(
     @Serializable
     data class SavedRailLocationWithFacingV1(
         val railId: String,
-        val idxInCurveAB: Int,
+        // 弧长存储在原始 viewAB 曲线上的位置
+        val arcLengthInCurveAB: Double,
         val direction: RailView.ViewDirection,
-        /* In case the deltaS is less than TOLERANCE */
         val minorDeltaS: Double = 0.0
     ) : Loads<RailLocationWithFacing, World> {
         @Throws(CorruptedDataException::class)
         override fun load(dependency: World): RailLocationWithFacing {
             val rail = dependency.getRail(UUID.fromString(railId)) ?: throw CorruptedDataException(this)
-            val point = rail.viewAB.getRailLocationAt(idxInCurveAB).point
-            return RailLocationWithFacing(rail.getView(direction), point, minorDeltaS)
+            val rv = rail.getView(direction)
+            return RailLocationWithFacing(rv, rv.curve.getPointAt(arcLengthInCurveAB), minorDeltaS)
         }
     }
 
     override fun save(): SavedRailLocationWithFacingV1 {
-        return SavedRailLocationWithFacingV1(rail.id.toString(), point.idx, facing, minorDeltaS)
+        return SavedRailLocationWithFacingV1(
+            rail.id.toString(),
+            arcLengthIn(RailView.ViewDirection.AB),
+            facing,
+            minorDeltaS
+        )
     }
 
 //    fun save(): SavedRailLocationWithFacingV1 = SavedRailLocationWithFacingV1(

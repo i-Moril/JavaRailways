@@ -1,39 +1,70 @@
 package work.art1st.mineRails.core.physics.rail
 
-import work.art1st.mineRails.core.util.BinarySearch
 import kotlin.math.abs
 
+/**
+ * 弧长区间，在一条 RailView 上从 [startArcLength] 到 [endArcLength]。
+ * 不再依赖整数索引，完全基于弧长参数化。
+ */
 data class RailSegment(
     val railView: RailView,
-    val startIdx: Int,
-    val endIdx: Int
+    /** 起始弧长（在 railView.curve 坐标系中） */
+    val startArcLength: Double,
+    /** 终止弧长 */
+    val endArcLength: Double
 ) {
-    constructor(railView: RailView, start: Double, end: Double) :
-            this(railView, railView.curve.getIdxAt(start), railView.curve.getIdxAt(end))
-    constructor(railView: RailView) :
-            this(railView, 0, railView.curve.totalPoints - 1)
+    /** 取弧长范围内的子区间 */
     constructor(railSegment: RailSegment, start: Double, end: Double) :
             this(railSegment.railView, railSegment.startArcLength + start, railSegment.startArcLength + end)
 
-    val startArcLength: Double by lazy { railView.curve.getPointAt(startIdx).arcLength }
-    val endArcLength: Double by lazy { railView.curve.getPointAt(endIdx).arcLength }
-    val totalArcLength
+    /** 整个 RailView 的区间 */
+    constructor(railView: RailView) :
+            this(railView, 0.0, railView.curve.totalArcLength)
+
+    val totalArcLength: Double
         get() = endArcLength - startArcLength
 }
 
 class RailSegments internal constructor(
     private val segments: List<RailSegment>
 ) : List<RailSegment> by segments {
+
+    /** 在弧长区间内二分搜索满足条件的位置 */
     fun searchRailLocation(tolerance: Double, condition: ((RailLocationWithFacing) -> Double)): RailLocationWithFacing? {
-        return searchRailLocation(tolerance, {x -> x}, condition)
+        return searchRailLocation(tolerance, { x -> x }, condition)
     }
 
     fun <T> searchRailLocation(tolerance: Double, f: ((RailLocationWithFacing) -> T), condition: ((T) -> Double)): T? {
         for (segment in segments) {
-            val result = BinarySearch.searchIntegerBoundary(segment.startIdx, segment.endIdx,
-                {f(segment.railView.getRailLocationAt(it))}, condition)
-            if (abs(result.third) < tolerance) {
-                return result.second
+            val result = searchArcRange(segment, f, condition)
+            if (result != null && abs(condition(result)) < tolerance) {
+                return result
+            }
+        }
+        return null
+    }
+
+    /** 在弧长范围内二分搜索，找到 condition 穿过零的位置 */
+    private fun <T> searchArcRange(segment: RailSegment, f: (RailLocationWithFacing) -> T, condition: (T) -> Double): T? {
+        var lo = segment.startArcLength
+        var hi = segment.endArcLength
+        val vLo = condition(f(segment.railView.getRailLocationAt(lo)))
+        val vHi = condition(f(segment.railView.getRailLocationAt(hi)))
+        // 端点之一满足，直接返回
+        if (abs(vLo) < 1e-12) return f(segment.railView.getRailLocationAt(lo))
+        if (abs(vHi) < 1e-12) return f(segment.railView.getRailLocationAt(hi))
+        // 无穿零点
+        if (vLo * vHi > 0) return null
+
+        for (i in 0 until 50) { // 50 次二分足够 double 精度
+            val mid = (lo + hi) / 2.0
+            val t = f(segment.railView.getRailLocationAt(mid))
+            val vMid = condition(t)
+            if (abs(vMid) < 1e-12) return t
+            if (vLo * vMid < 0) {
+                hi = mid
+            } else {
+                lo = mid
             }
         }
         return null

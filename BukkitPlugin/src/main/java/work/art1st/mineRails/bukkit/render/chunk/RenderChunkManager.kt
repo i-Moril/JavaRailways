@@ -12,7 +12,7 @@ import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.core.api.physics.train.Bogie
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
-import work.art1st.mineRails.core.util.WeakReferenceWrapper
+import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 

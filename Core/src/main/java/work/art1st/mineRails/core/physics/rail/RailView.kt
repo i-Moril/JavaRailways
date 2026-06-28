@@ -6,39 +6,43 @@ import work.art1st.mineRails.core.api.physics.exception.InvalidActiveRailExcepti
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.exception.CannotConnectRailException
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
+import work.art1st.mineRails.core.api.physics.rail.RailView as ApiRailView
 import work.art1st.mineRails.core.physics.train.TrainEnd
 import kotlin.properties.Delegates
 
 class RailView(
-    val rail: CoreRail,
-    val viewDirection: ViewDirection,
-    val curve: PrimeCurve,
-    var nextRails: MutableList<RailView>,
-    nextActiveRail: RailView? = if (nextRails.isEmpty()) null else nextRails[0]
-) {
+    override val rail: CoreRail,
+    override val viewDirection: ViewDirection,
+    override val curve: PrimeCurve,
+    var mutableNextRails: MutableList<RailView>,
+    nextActiveRail: RailView? = if (mutableNextRails.isEmpty()) null else mutableNextRails[0]
+) : ApiRailView {
     init {
-        if ((nextActiveRail != null && nextRails.isEmpty()) || (!nextRails.isEmpty() && !nextRails.contains(nextActiveRail))) {
+        if ((nextActiveRail != null && mutableNextRails.isEmpty()) || (!mutableNextRails.isEmpty() && !mutableNextRails.contains(nextActiveRail))) {
             throw InvalidActiveRailException(this, nextActiveRail)
         }
     }
 
-    var nextActiveRail: RailView? by Delegates.vetoable(nextActiveRail) {
+    @Suppress("UNCHECKED_CAST")
+    override val nextRails: List<ApiRailView>
+        get() = mutableNextRails as List<ApiRailView>
+
+    var activeRail: RailView? by Delegates.vetoable(nextActiveRail) {
         property, oldValue, newValue ->
-        if (nextRails.contains(newValue)) true else
+        if (mutableNextRails.contains(newValue)) true else
             throw InvalidActiveRailException(this, newValue)
     }
 
-    enum class ViewDirection {
-        AB,
-        BA
-    }
+    override val nextActiveRail: ApiRailView?
+        get() = activeRail
 
     // 曲线起点（弧长 0）
-    val startPoint: Curve.Point
+    override val startPoint: Curve.Point
         get() = curve.getPointAt(0.0)
 
     // 曲线终点（弧长 totalArcLength）
-    val endPoint: Curve.Point
+    override val endPoint: Curve.Point
         get() = curve.getPointAt(curve.totalArcLength)
 
     val staticRailObjects: Collection<Signal>
@@ -50,7 +54,7 @@ class RailView(
     val dynamicRailObjects: Collection<TrainEnd>
         get() = rail.trains
 
-    val reversed
+    override val reversed: RailView
         get() = when (viewDirection) {
             ViewDirection.AB -> rail.viewBA
             ViewDirection.BA -> rail.viewAB
@@ -68,13 +72,13 @@ class RailView(
         return SavedRailViewV1(
             rail.id.toString(),
             viewDirection,
-            nextRails.map { railView -> rail.id.toString() },
-            nextRails.indexOf(nextActiveRail),
+            mutableNextRails.map { it.rail.id.toString() },
+            mutableNextRails.indexOf(activeRail),
         )
     }
 
     // 根据弧长获取 RailLocationWithFacing（唯一的公共入口）
-    fun getRailLocationAt(arcLength: Double) : RailLocationWithFacing {
+    override fun getRailLocationAt(arcLength: Double) : RailLocationWithFacing {
         require(arcLength in 0.0..curve.totalArcLength)
         return RailLocationWithFacing(this, arcLength)
     }
@@ -91,31 +95,10 @@ class RailView(
             if (j1.distance(j2) > 1e-10) {
                 throw CannotConnectRailException()
             }
-            viewIJ.nextRails.add(viewKJ.reversed)
-            viewIJ.nextActiveRail = viewKJ.reversed
-            viewKJ.nextRails.add(viewIJ.reversed)
-            viewKJ.nextActiveRail = viewIJ.reversed
+            viewIJ.mutableNextRails.add(viewKJ.reversed)
+            viewIJ.activeRail = viewKJ.reversed
+            viewKJ.mutableNextRails.add(viewIJ.reversed)
+            viewKJ.activeRail = viewIJ.reversed
         }
     }
-
-//    companion object Deserializer : PersistentFactoryWithDependency<RailView, SavedRailViewV1, World> {
-//        override fun load(
-//            saved: SavedRailViewV1,
-//            dependencyProvider: World
-//        ): RailView {
-//            val rail = dependencyProvider.getRail(UUID.fromString(saved.rail))
-//                            ?: throw DeserializationMissingDependencyException(Rail.javaClass, saved.rail, dependencyProvider)
-//            val nextRails = saved.nextRails.stream().map {
-//                id -> dependencyProvider.getRail(UUID.fromString(id))
-//                    ?: throw DeserializationMissingDependencyException(Rail.javaClass, id, dependencyProvider)
-//            }.collect(Collectors.toList())
-//            val nextActiveRail = nextRails[saved.nextActiveRail]
-//            return RailView(
-//                rail,
-//                saved.direction,
-//                nextRails,
-//                nextActiveRail
-//            )
-//        }
-//    }
 }

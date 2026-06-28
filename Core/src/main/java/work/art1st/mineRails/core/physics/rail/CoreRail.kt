@@ -1,5 +1,6 @@
 package work.art1st.mineRails.core.physics.rail
 
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import kotlinx.serialization.Serializable
 import org.joml.Vector3dc
 import work.art1st.mineRails.core.control.signal.Signal
@@ -41,14 +42,14 @@ class CoreRail @MainThread private constructor(
     override val curve: PrimeCurve = curveAB
     val viewAB: RailView = RailView(
         this,
-        RailView.ViewDirection.AB,
+        ViewDirection.AB,
         curveAB,
         nextRailsB.toMutableList(),
         activeTrackAtB,
     )
     val viewBA: RailView = RailView(
         this,
-        RailView.ViewDirection.BA,
+        ViewDirection.BA,
         curveAB.reversed,
         nextRailsA.toMutableList(),
         activeTrackAtA
@@ -65,10 +66,10 @@ class CoreRail @MainThread private constructor(
         nextRailsB: MutableList<RailView>
     ) : this(UUID.randomUUID(), world, curveAB, nextRailsA, nextRailsB)
 
-    fun getView(direction: RailView.ViewDirection): RailView {
+    fun getView(direction: ViewDirection): RailView {
         return when (direction) {
-            RailView.ViewDirection.AB -> viewAB
-            RailView.ViewDirection.BA -> viewBA
+            ViewDirection.AB -> viewAB
+            ViewDirection.BA -> viewBA
         }
     }
 

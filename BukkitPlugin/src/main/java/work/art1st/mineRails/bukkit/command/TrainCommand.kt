@@ -10,7 +10,7 @@ import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.core.api.physics.World
-import work.art1st.mineRails.core.util.Heavy
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.train.CoreBogie
 import work.art1st.mineRails.core.physics.train.CoreCar
@@ -63,7 +63,7 @@ object TrainCommand {
             return true
         }
 
-        val direction = work.art1st.mineRails.core.physics.rail.RailView.ViewDirection.AB
+        val direction = work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB
         val railView = nearestRail.getView(direction)
         val nearestPoint = railView.curve.getNearestPoint(playerPos)
         val headLocation = RailLocationWithFacing(railView, nearestPoint.arcLength)
@@ -195,7 +195,7 @@ object TrainCommand {
             return true
         }
 
-        controller.controlledTrain.setController(null)
+        (controller.controlledTrain as? CoreTrain)?.setController(null)
         sender.sendMessage("控制器已断开连接")
         return true
     }

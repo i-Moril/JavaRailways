@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.util
+package work.art1st.mineRails.core.api.util
 
 import java.lang.ref.WeakReference
 import kotlin.reflect.KProperty

@@ -1,7 +1,7 @@
 package work.art1st.mineRails.core.api.physics.curve
 
 import org.joml.Vector3dc
-import work.art1st.mineRails.core.util.Heavy
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import java.util.stream.Stream
 
 /**

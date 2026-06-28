@@ -1,6 +1,6 @@
 package work.art1st.mineRails.basic.pathFinding
 
-import work.art1st.mineRails.core.physics.rail.RailView
+import work.art1st.mineRails.core.api.physics.rail.RailView
 import java.util.LinkedList
 
 /**

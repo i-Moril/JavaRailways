@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.util
+package work.art1st.mineRails.core.api.util.annotation
 
 @RequiresOptIn(
     level = RequiresOptIn.Level.ERROR,

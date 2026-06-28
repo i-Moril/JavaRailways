@@ -2,8 +2,7 @@ package work.art1st.mineRails.core.api.render
 
 import org.joml.Vector3dc
 import work.art1st.mineRails.core.api.physics.WorldElement
-import work.art1st.mineRails.core.physics.CoreWorld
-import work.art1st.mineRails.core.util.Destroyable
+import work.art1st.mineRails.core.api.util.Destroyable
 
 interface Renderable : Destroyable, WorldElement {
     val position: Vector3dc

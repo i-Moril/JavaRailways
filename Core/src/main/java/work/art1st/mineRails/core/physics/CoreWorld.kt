@@ -2,7 +2,8 @@ package work.art1st.mineRails.core.physics
 
 import kotlinx.serialization.Serializable
 import org.joml.Vector3dc
-import work.art1st.mineRails.core.util.Heavy
+import work.art1st.mineRails.core.api.util.annotation.Heavy
+import work.art1st.mineRails.core.api.physics.rail.Rail
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.util.annotation.MainThread
@@ -74,7 +75,7 @@ class CoreWorld(
     }
 
     @MainThread
-    override fun removeRail(rail: CoreRail) {
+    override fun removeRail(rail: Rail) {
         rails.remove(rail.id)
     }
 

@@ -1,9 +1,9 @@
 package work.art1st.mineRails.core.api.event
 
-import work.art1st.mineRails.core.physics.train.CoreTrain
+import work.art1st.mineRails.core.api.physics.train.Train
 
 class CollisionEvent(
-    val trainA: CoreTrain,
-    val trainB: CoreTrain
+    val trainA: Train,
+    val trainB: Train
 ) : Event {
 }

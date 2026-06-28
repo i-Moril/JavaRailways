@@ -9,7 +9,7 @@ import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
-import work.art1st.mineRails.core.util.Destroyable
+import work.art1st.mineRails.core.api.util.Destroyable
 
 @OptIn(ExtensionData::class)
 val Car.renderer: TrainComponentExtension<Car>

@@ -1,8 +1,8 @@
 package work.art1st.mineRails.basic.controller
 
-import work.art1st.mineRails.core.control.train.TrainController
-import work.art1st.mineRails.core.physics.CoreWorld
-import work.art1st.mineRails.core.physics.train.CoreTrain
+import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.train.Train
+import work.art1st.mineRails.core.api.control.TrainController
 
 /**
  * 手动控制器：玩家通过加速/减速手柄控制列车。
@@ -15,8 +15,8 @@ import work.art1st.mineRails.core.physics.train.CoreTrain
  * @param maxSpeed 最大速度 (m/s)，默认 10.0
  */
 class ManualController(
-    train: CoreTrain,
-    world: CoreWorld,
+    train: Train,
+    world: World,
     private val acceleration: Double = 1.0,
     private val deceleration: Double = 2.0,
     private val maxSpeed: Double = 10.0
@@ -67,7 +67,7 @@ class ManualController(
         targetSpeed = 0.0
     }
 
-    val controlledTrain: CoreTrain
+    val controlledTrain: Train
         get() = train
 
     override fun tick(deltaT: Double) {

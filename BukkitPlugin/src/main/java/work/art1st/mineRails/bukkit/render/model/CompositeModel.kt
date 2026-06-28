@@ -9,7 +9,7 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.annotation.MainThread
-import work.art1st.mineRails.core.util.Destroyable
+import work.art1st.mineRails.core.api.util.Destroyable
 import java.util.concurrent.Callable
 
 class CompositeModel internal constructor(

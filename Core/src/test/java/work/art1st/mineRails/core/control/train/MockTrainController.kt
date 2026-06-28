@@ -1,16 +1,17 @@
 package work.art1st.mineRails.core.control.train
 
-import work.art1st.mineRails.core.control.command.ControlCommand
-import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.api.control.ControlCommand
+import work.art1st.mineRails.core.api.control.TrainController
+import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.train.CoreTrain
 
 /**
  * 测试用：恒定速度的 TrainController。
- * 通过一直持有一个“未完成”的 ControlCommand，使每 tick 移动 distance = speed * deltaT * 0.001。
+ * 通过一直持有一个”未完成”的 ControlCommand，使每 tick 移动 distance = speed * deltaT * 0.001。
  */
 class MockTrainController(
     train: CoreTrain,
-    world: CoreWorld,
+    world: World,
     val constantSpeed: Double
 ) : TrainController(train, world) {
 

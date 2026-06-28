@@ -19,7 +19,7 @@ import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.train.CoreBogie
 import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.core.physics.train.CoreTrain
-import work.art1st.mineRails.core.util.Heavy
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import java.util.UUID
 import kotlin.math.PI
 import kotlin.math.cos
@@ -99,7 +99,7 @@ class PhysTestCommand : BasicCommand {
     private fun spawnTrain(sender: Player, world: CoreWorld, carCount: Int) {
         val rail = rails.firstOrNull() ?: run { sender.sendMessage("No rail. /phys create"); return }
         val pos = Vector3d(sender.location.x, sender.location.y, sender.location.z)
-        val view = rail.getView(work.art1st.mineRails.core.physics.rail.RailView.ViewDirection.AB)
+        val view = rail.getView(work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB)
         val start = RailLocationWithFacing(view, view.curve.getNearestPoint(pos).arcLength)
 
         val carLen = 2.0
@@ -135,7 +135,7 @@ class PhysTestCommand : BasicCommand {
     }
 
     private fun stopTrain(sender: Player) {
-        controller?.controlledTrain?.setController(null)
+        (controller?.controlledTrain as? CoreTrain)?.setController(null)
         controller = null
         sender.sendMessage("Stopped")
     }
@@ -180,7 +180,7 @@ class PhysTestCommand : BasicCommand {
     }
 
     private fun cleanAll(sender: Player, world: CoreWorld) {
-        controller?.controlledTrain?.setController(null)
+        (controller?.controlledTrain as? CoreTrain)?.setController(null)
         controller = null
         train?.destroy()
         train = null

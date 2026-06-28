@@ -1,10 +1,12 @@
 package work.art1st.mineRails.core.physics.rail
 
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import kotlinx.serialization.Serializable
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.physics.rail.RailObject
 import work.art1st.mineRails.core.control.signal.Signal
+import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.util.exception.CorruptedDataException
 import work.art1st.mineRails.core.physics.rail.curve.reverseArcLength
@@ -46,7 +48,7 @@ data class RailLocationWithFacing internal constructor(
     val facing
         get() = railView.viewDirection
 
-    override fun arcLengthIn(facing: RailView.ViewDirection): Double {
+    override fun arcLengthIn(facing: ViewDirection): Double {
         return if (facing == this.facing) arcLength else reverseArcLength(arcLength, railView.curve)
     }
 
@@ -78,7 +80,7 @@ data class RailLocationWithFacing internal constructor(
             list.add(Pair(railView, curve))
             arcLength -= curve.totalArcLength
 
-            railView = railView.nextActiveRail ?: return null
+            railView = railView.activeRail ?: return null
             curve = railView.curve
         }
     }
@@ -111,7 +113,7 @@ data class RailLocationWithFacing internal constructor(
             list.add(segment)
             arcLength -= segment.totalArcLength
 
-            railView = railView.nextActiveRail ?: break
+            railView = railView.activeRail ?: break
             segment = RailSegment(railView)
         }
         return RailSegments(list)
@@ -198,12 +200,12 @@ data class RailLocationWithFacing internal constructor(
         val railId: String,
         // 弧长存储在原始 viewAB 曲线上的位置
         val arcLengthInCurveAB: Double,
-        val direction: RailView.ViewDirection,
+        val direction: ViewDirection,
         val minorDeltaS: Double = 0.0
     ) : Loads<RailLocationWithFacing, World> {
         @Throws(CorruptedDataException::class)
         override fun load(dependency: World): RailLocationWithFacing {
-            val rail = dependency.getRail(UUID.fromString(railId)) ?: throw CorruptedDataException(this)
+            val rail = dependency.getRail(UUID.fromString(railId)) as? CoreRail ?: throw CorruptedDataException(this)
             val rv = rail.getView(direction)
             return RailLocationWithFacing(rv, rv.curve.getPointAt(arcLengthInCurveAB), minorDeltaS)
         }
@@ -212,7 +214,7 @@ data class RailLocationWithFacing internal constructor(
     override fun save(): SavedRailLocationWithFacingV1 {
         return SavedRailLocationWithFacingV1(
             rail.id.toString(),
-            arcLengthIn(RailView.ViewDirection.AB),
+            arcLengthIn(ViewDirection.AB),
             facing,
             minorDeltaS
         )

@@ -3,8 +3,8 @@ package work.art1st.mineRails.core.physics.rail.curve
 import org.joml.Vector3d
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
-import work.art1st.mineRails.core.util.Heavy
-import work.art1st.mineRails.core.util.WeakReferenceWrapper
+import work.art1st.mineRails.core.api.util.annotation.Heavy
+import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
 import java.util.stream.Stream
 
 /**

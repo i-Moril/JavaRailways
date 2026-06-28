@@ -6,7 +6,7 @@ import work.art1st.mineRails.bukkit.render.Animation.AnimationCommand.Companion.
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.core.api.util.tick.TickManager
 import work.art1st.mineRails.core.api.util.tick.TickingObject
-import work.art1st.mineRails.core.util.Destroyable
+import work.art1st.mineRails.core.api.util.Destroyable
 
 // TODO: Implement animation
 class Animation(

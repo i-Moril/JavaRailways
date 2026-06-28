@@ -1,7 +1,7 @@
 package work.art1st.mineRails.basic.controller.command;
 
 import lombok.Getter;
-import work.art1st.mineRails.core.control.command.ControlCommand;
+import work.art1st.mineRails.core.api.control.ControlCommand;
 
 public abstract class BasicControlCommand implements ControlCommand {
     private double tick = 0.0;

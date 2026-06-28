@@ -5,8 +5,8 @@ import work.art1st.mineRails.core.api.physics.rail.Reversible
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
-import work.art1st.mineRails.core.util.Destroyable
-import work.art1st.mineRails.core.util.WeakReferenceWrapper
+import work.art1st.mineRails.core.api.util.Destroyable
+import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
 
 /**
  * 车辆端部

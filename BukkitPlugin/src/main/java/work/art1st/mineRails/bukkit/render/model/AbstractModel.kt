@@ -4,7 +4,7 @@ import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.annotation.MainThread
-import work.art1st.mineRails.core.util.Destroyable
+import work.art1st.mineRails.core.api.util.Destroyable
 import kotlin.jvm.Throws
 
 abstract class AbstractModel(

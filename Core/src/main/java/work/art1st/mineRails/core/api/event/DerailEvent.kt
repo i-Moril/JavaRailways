@@ -1,9 +1,9 @@
 package work.art1st.mineRails.core.api.event
 
-import work.art1st.mineRails.core.physics.train.CoreTrain
+import work.art1st.mineRails.core.api.physics.train.Train
 
 class DerailEvent(
-    override val train: CoreTrain,
+    override val train: Train,
     val msg: String
 ) : TrainEvent {
 }

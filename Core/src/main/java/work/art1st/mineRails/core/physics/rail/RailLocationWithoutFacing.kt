@@ -1,5 +1,6 @@
 package work.art1st.mineRails.core.physics.rail
 
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.physics.curve.Curve
 
@@ -22,18 +23,18 @@ data class RailLocationWithoutFacing private constructor(
     override val normal
         get() = point.normal
 
-    fun withFacing(facing: RailView.ViewDirection): RailLocationWithFacing {
+    fun withFacing(facing: ViewDirection): RailLocationWithFacing {
         val arcLength = when (facing) {
-            RailView.ViewDirection.AB -> point.arcLength
-            RailView.ViewDirection.BA -> point.curve.totalArcLength - point.arcLength
+            ViewDirection.AB -> point.arcLength
+            ViewDirection.BA -> point.curve.totalArcLength - point.arcLength
         }
         return RailLocationWithFacing(rail.getView(facing), arcLength)
     }
 
-    override fun arcLengthIn(facing: RailView.ViewDirection): Double {
+    override fun arcLengthIn(facing: ViewDirection): Double {
         return when (facing) {
-            RailView.ViewDirection.AB -> point.arcLength
-            RailView.ViewDirection.BA -> point.curve.totalArcLength - point.arcLength
+            ViewDirection.AB -> point.arcLength
+            ViewDirection.BA -> point.curve.totalArcLength - point.arcLength
         }
     }
 }

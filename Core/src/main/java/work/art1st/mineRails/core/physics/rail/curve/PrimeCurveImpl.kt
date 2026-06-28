@@ -13,7 +13,7 @@ import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.encoding.encodeStructure
 import org.joml.Vector3d
 import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.util.Heavy
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.util.ObjectPools
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import java.util.stream.Stream

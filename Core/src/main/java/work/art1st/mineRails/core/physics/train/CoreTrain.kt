@@ -1,6 +1,6 @@
 package work.art1st.mineRails.core.physics.train
 
-import work.art1st.mineRails.core.control.train.TrainController
+import work.art1st.mineRails.core.api.control.TrainController
 import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.DerailEvent
 import work.art1st.mineRails.core.api.event.processor.EventManager
@@ -20,7 +20,7 @@ import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import work.art1st.mineRails.core.util.Destroyable
+import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.configLib.persistence.PersistentBy
 import work.art1st.mineRails.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
@@ -44,11 +44,11 @@ open class CoreTrain @MainThread internal constructor(
         protected set
     // 使用AtomicBoolean防止fire两遍Collision, 见下面fire
     private var _isDerailed: AtomicBoolean = AtomicBoolean(false)
-    val isDerailed: Boolean
+    override val isDerailed: Boolean
         get() = _isDerailed.get()
     var isReversed: Boolean = false
         protected set
-    val length
+    override val length
         get() = cars.size
     var head: TrainEnd
         protected set
@@ -82,7 +82,7 @@ open class CoreTrain @MainThread internal constructor(
             else cars.last().bogieB
         }
     /* >=0 */
-    val speed: Double
+    override val speed: Double
         get() = controller?.speed ?: 0.0
 
     /**
@@ -93,7 +93,7 @@ open class CoreTrain @MainThread internal constructor(
      * @throws IllegalArgumentException 如果输入参数无效
      * @throws IllegalStateException 如果列车没有转向架
      */
-    fun moveTrainForward(deltaS: Double) {
+    override fun moveTrainForward(deltaS: Double) {
         if (isDerailed) return
 
         require(deltaS >= 0.0) { "deltaS must >= 0" }
@@ -161,7 +161,7 @@ open class CoreTrain @MainThread internal constructor(
             tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
     }
 
-    fun reverse() {
+    override fun reverse() {
         isReversed = !isReversed
         cars.forEach { obj: CoreCar -> obj.reverse() }
     }
@@ -266,11 +266,11 @@ open class CoreTrain @MainThread internal constructor(
             var trainA: CoreTrain
             var trainB: CoreTrain
             if (e.trainA.hashCode() < e.trainB.hashCode()) {
-                trainA = e.trainA
-                trainB = e.trainB
+                trainA = e.trainA as CoreTrain
+                trainB = e.trainB as CoreTrain
             } else {
-                trainA = e.trainB
-                trainB = e.trainA
+                trainA = e.trainB as CoreTrain
+                trainB = e.trainA as CoreTrain
             }
             if (trainA._isDerailed.compareAndSet(false, true)) {
                 trainB._isDerailed.set(true)

@@ -1,5 +1,6 @@
 package work.art1st.mineRails.core.physics.train
 
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.di.NoOpWorldParentContext
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
@@ -103,7 +104,7 @@ fun getViewsInOrder(firstRail: CoreRail, isLoop: Boolean): List<RailView> {
     val start = v
     do {
         views.add(v)
-        val next = v.nextActiveRail ?: break
+        val next = v.activeRail ?: break
         if (isLoop && next == start) break
         v = next
     } while (true)
@@ -123,8 +124,8 @@ fun totalArcLengthFromFirstRail(firstRail: CoreRail, isLoop: Boolean): Double =
 fun headCurveArcLengthInRange(train: CoreTrain, totalArcLength: Double): Double {
     val loc = train.head.location
     return when (loc.railView.viewDirection) {
-        RailView.ViewDirection.AB -> loc.arcLength
-        RailView.ViewDirection.BA -> totalArcLength - loc.arcLength
+        ViewDirection.AB -> loc.arcLength
+        ViewDirection.BA -> totalArcLength - loc.arcLength
     }
 }
 
@@ -140,8 +141,8 @@ fun headCurveArcLengthInRangeMultiSegment(train: CoreTrain, firstRail: CoreRail,
     if (idx < 0) return 0.0
     val segmentStart = views.take(idx).sumOf { it.curve.totalArcLength }
     val localArc = when (loc.railView.viewDirection) {
-        RailView.ViewDirection.AB -> loc.arcLength
-        RailView.ViewDirection.BA -> views[idx].curve.totalArcLength - loc.arcLength
+        ViewDirection.AB -> loc.arcLength
+        ViewDirection.BA -> views[idx].curve.totalArcLength - loc.arcLength
     }
     val position = segmentStart + localArc
     return if (isLoop && totalArcLength > 0) position % totalArcLength else position

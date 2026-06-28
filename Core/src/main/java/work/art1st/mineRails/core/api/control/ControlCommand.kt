@@ -1,4 +1,4 @@
-package work.art1st.mineRails.core.control.command
+package work.art1st.mineRails.core.api.control
 
 interface ControlCommand {
     /**
@@ -19,7 +19,7 @@ interface ControlCommand {
     val deltaS: Double
 
     /**
-     * 
+     *
      * @return true if control command is finished
      */
     val isFinished: Boolean

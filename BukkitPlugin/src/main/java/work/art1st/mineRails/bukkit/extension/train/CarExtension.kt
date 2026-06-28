@@ -46,7 +46,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         val carDef = carModelName?.let { modelManager.getCar(it) }
             ?: throw IllegalStateException("Car model name not set for car at ${self.position}")
 
-        val builder = modelManager.createTreeBuilder(self.world)
+        val builder = modelManager.createTreeBuilder(self.world, carDef.packageName)
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val rootLocation = Location(bukkitWorld, self.position.x(), self.position.y(), self.position.z())
 

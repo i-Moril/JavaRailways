@@ -49,24 +49,17 @@ class ModelTreeBuilder(
     private var rootLocation: Location = Location(null, 0.0, 0.0, 0.0)
 
     /**
-     * Build the full model tree for a car at the given root location.
-     * Returns a CompositeModel with body parts and bogie parts.
+     * Build the car body model tree at the given root location.
+     * Bogies are built separately so they can follow their own rail locations.
      */
-    fun buildCar(
+    fun buildCarBody(
         carDef: CarDefinition,
         rootLocation: Location
     ): CompositeModel {
         this.rootLocation = rootLocation
 
-        // Body part models
         val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace)
 
-        // Bogie models (position will be set during update based on car's bogie offsets)
-        val bogieModels = carDef.bogies.map { bogieDef ->
-            buildBogieGroup(bogieDef, carDef.namespace)
-        }
-
-        // Invisible root entity for attachment
         val rootEntity = bukkitWorld.spawn(rootLocation, ItemDisplay::class.java)
         rootEntity.isPersistent = false
         rootEntity.isVisibleByDefault = false
@@ -74,21 +67,55 @@ class ModelTreeBuilder(
 
         return CompositeModel(
             world = world,
-            models = bodyModels + bogieModels,
+            models = bodyModels,
+            rootEntity = rootEntity
+        )
+    }
+
+    /**
+     * Build a bogie model tree at the given root location.
+     * The root transform is expected to be the live bogie transform, not the car transform.
+     */
+    fun buildBogie(
+        bogieDef: BogieDefinition,
+        namespace: String,
+        rootLocation: Location
+    ): CompositeModel {
+        this.rootLocation = rootLocation
+
+        val bogieModel = buildBogieGroup(bogieDef, namespace, includeLongitudinalOffset = false)
+
+        val rootEntity = bukkitWorld.spawn(rootLocation, ItemDisplay::class.java)
+        rootEntity.isPersistent = false
+        rootEntity.isVisibleByDefault = false
+        rootEntity.configureTrainDisplaySmoothing()
+
+        return CompositeModel(
+            world = world,
+            models = listOf(bogieModel),
             rootEntity = rootEntity
         )
     }
 
     /**
      * Build a bogie group node - creates a DummyModel with bogie parts as children.
-     * The DummyModel's local offset represents the bogie's position relative to car center.
+     * When a bogie is bound directly to a live bogie location, its car-relative
+     * longitudinal offset must not be applied again.
      */
-    private fun buildBogieGroup(bogieDef: BogieDefinition, namespace: String): DummyModel {
+    private fun buildBogieGroup(
+        bogieDef: BogieDefinition,
+        namespace: String,
+        includeLongitudinalOffset: Boolean
+    ): DummyModel {
         val bogieOffset = bogieDef.offset
         val modelState = ModelState(
             CompactTransform(
-                position = Vector3d(bogieOffset.x, bogieOffset.y, bogieOffset.z),
-                rotation = Quaterniond(1.0, 0.0, 0.0, 0.0)
+                position = Vector3d(
+                    bogieOffset.x,
+                    bogieOffset.y,
+                    if (includeLongitudinalOffset) bogieOffset.z else 0.0
+                ),
+                rotation = Quaterniond()
             )
         )
 

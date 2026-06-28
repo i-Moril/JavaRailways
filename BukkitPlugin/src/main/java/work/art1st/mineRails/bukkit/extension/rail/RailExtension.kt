@@ -195,7 +195,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
                 Vector3f(0f, 0f, 0f),
                 rotation.get(Quaternionf()),
                 Vector3f(element.scale.x.toFloat(), element.scale.y.toFloat(), element.scale.z.toFloat()),
-                Quaternionf(1f, 0f, 0f, 0f)
+                Quaternionf()
             )
         )
     }
@@ -219,8 +219,8 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
 
     /**
      * 根据曲线点的切线和法线计算旋转四元数。
-     * right = tangent × normal（右手系）
-     * 矩阵列 = [right, normal, tangent]（JOML Matrix3d 构造函数按 row-major 填充）
+     * right = normal × tangent（右手系）
+     * 矩阵列 = [right, normal, tangent]（JOML Matrix3d 构造函数按列分组填充）
      */
     private fun computeCurveRotation(point: Curve.Point): Quaterniond {
         val tangent = point.tangent
@@ -228,17 +228,18 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         val binormal = Vector3d()
         normal.cross(tangent, binormal).normalize()
 
-        // Matrix3d(a,b,c,d,e,f,g,h,i) fills row-major: Row0=(a,b,c), Row1=(d,e,f), Row2=(g,h,i)
+        // Matrix3d(a,b,c,d,e,f,g,h,i) fills columns: Col0=(a,b,c), Col1=(d,e,f), Col2=(g,h,i)
         // Col0 = world dir of model+X = binormal, Col1 = normal, Col2 = tangent
         // 然后取共轭（取反 Y 轴）：q' = (w, x, -y, z)，将绕 Y 轴旋转取反
         val rotationMatrix = Matrix3d(
-            binormal.x(), normal.x(), tangent.x(),
-            binormal.y(), normal.y(), tangent.y(),
-            binormal.z(), normal.z(), tangent.z()
+            binormal.x(), binormal.y(), binormal.z(),
+            normal.x(), normal.y(), normal.z(),
+            tangent.x(), tangent.y(), tangent.z()
         )
         val q = Quaterniond().setFromNormalized(rotationMatrix)
-        // 取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反
-        return Quaterniond(q.w(), -q.x(), q.y(), q.z())
+        // 取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反。
+        // JOML 构造函数参数顺序是 (x, y, z, w)。
+        return Quaterniond(-q.x(), q.y(), q.z(), q.w())
     }
 
     private fun computeElementRotation(rotation: RotationConfig): Quaterniond {

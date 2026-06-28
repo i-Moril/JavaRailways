@@ -28,7 +28,7 @@ class DisplayModel internal constructor(
         if (transformDirty) {
             entity.transformation = org.bukkit.util.Transformation(
                 Vector3f(0f, 0f, 0f),
-                Quaternionf(1f, 0f, 0f, 0f),
+                Quaternionf(),
                 state.rootRelativeTransform.scale.get(Vector3f()),
                 state.rootRelativeTransform.rotation.get(Quaternionf())
             )

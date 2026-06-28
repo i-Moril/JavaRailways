@@ -37,7 +37,7 @@ class LodDisplayModel internal constructor(
             if (transformDirty) {
                 it.transformation = org.bukkit.util.Transformation(
                     org.joml.Vector3f(0f, 0f, 0f),
-                    org.joml.Quaternionf(1f, 0f, 0f, 0f),
+                    org.joml.Quaternionf(),
                     state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
                     state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
                 )
@@ -48,7 +48,7 @@ class LodDisplayModel internal constructor(
             if (transformDirty) {
                 it.transformation = org.bukkit.util.Transformation(
                     org.joml.Vector3f(0f, 0f, 0f),
-                    org.joml.Quaternionf(1f, 0f, 0f, 0f),
+                    org.joml.Quaternionf(),
                     state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
                     state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
                 )

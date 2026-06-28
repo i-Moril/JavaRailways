@@ -35,7 +35,7 @@ class CompositeModel internal constructor(
     fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d()) {
         // parentRelativeTransform carries the rotation; root for world-space uses identity
         val rotatedTransform = CompactTransform(Vector3d(), rootTransform.rotation)
-        val worldRoot = CompactTransform(rootTransform.position, Quaterniond(1.0, 0.0, 0.0, 0.0))
+        val worldRoot = CompactTransform(rootTransform.position, Quaterniond())
 
         // P4: 若旋转未变化，子模型只需 teleport 不需重设 transformation
         val rotationChanged = lastRotation == null || !lastRotation!!.equals(rootTransform.rotation, 1e-12)

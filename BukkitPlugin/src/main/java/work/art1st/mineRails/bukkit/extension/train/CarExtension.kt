@@ -8,6 +8,7 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.core.api.physics.train.Car
+import work.art1st.mineRails.core.api.physics.train.Bogie
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
@@ -24,14 +25,15 @@ class CarExtension : TrainComponentExtension<Car>() {
     /** Fully qualified car model name, e.g. "s100/passenger". */
     var carModelName: String? = null
 
-    private var compositeModel: CompositeModel? = null
+    private var bodyModel: CompositeModel? = null
+    private var bogieModels: List<CompositeModel> = emptyList()
 
     override fun save(): Pair<String, SerializableExtensionData>? = null
 
     override fun commit() {
         val renderManager = self.world.renderChunkManager
         renderManager.update(self, self.lastState.position, self.position)
-        // Bogies are rendered as part of the car model tree; no separate tracking needed.
+        // Bogie entities are owned here, but their transforms follow the live bogies.
         super.commit()
     }
 
@@ -50,40 +52,54 @@ class CarExtension : TrainComponentExtension<Car>() {
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val rootLocation = Location(bukkitWorld, self.position.x(), self.position.y(), self.position.z())
 
-        compositeModel = builder.buildCar(carDef, rootLocation)
+        bodyModel = builder.buildCarBody(carDef, rootLocation)
+        bogieModels = carDef.bogies.map { bogieDef ->
+            builder.buildBogie(bogieDef, carDef.namespace, rootLocation)
+        }
     }
 
     override fun updateModel() {
-        val model = compositeModel ?: return
+        val model = bodyModel ?: return
         val carTransform = CompactTransform(
             position = self.position,
-            rotation = currentCarRotation()
+            rotation = rotationFrom(self.direction, self.normal)
         )
         model.updateState(carTransform, self.velocity)
+
+        self.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
+            val bogieRootPosition = Vector3d(bogie.position).add(
+                Vector3d(bogie.normal).mul(self.floorHeight)
+            )
+            val bogieTransform = CompactTransform(
+                position = bogieRootPosition,
+                rotation = currentBogieRotation(bogie)
+            )
+            bogieModel.updateState(bogieTransform, bogie.velocity)
+        }
     }
 
     override fun destroyModel() {
-        compositeModel?.destroy()
-        compositeModel = null
+        bodyModel?.destroy()
+        bogieModels.forEach { it.destroy() }
+        bodyModel = null
+        bogieModels = emptyList()
     }
 
     /**
-     * Compute the car's world-space rotation from its direction and normal vectors.
+     * Compute a model-space rotation from direction and normal vectors.
      */
-    private fun currentCarRotation(): Quaterniond {
-        val direction = self.direction
-        val normal = self.normal
+    private fun rotationFrom(direction: org.joml.Vector3dc, normal: org.joml.Vector3dc): Quaterniond {
         val right = Vector3d()
         normal.cross(direction, right).normalize()
-        // Matrix: model-X→right(width), model-Y→normal(up), model-Z→direction(fwd)
+        // Matrix columns: model-X→right(width), model-Y→normal(up), model-Z→direction(fwd).
         val rotationMatrix = Matrix3d(
-            right.x(), normal.x(), direction.x(),
-            right.y(), normal.y(), direction.y(),
-            right.z(), normal.z(), direction.z()
+            right.x(), right.y(), right.z(),
+            normal.x(), normal.y(), normal.z(),
+            direction.x(), direction.y(), direction.z()
         )
-        val q = Quaterniond().setFromNormalized(rotationMatrix)
-        // Roll 180° around Z (= direction-of-travel) to flip model right-side up.
-        val roll180 = Quaterniond().rotateZ(Math.PI)
-        return q.mul(roll180)
+        return Quaterniond().setFromNormalized(rotationMatrix)
     }
+
+    private fun currentBogieRotation(bogie: Bogie): Quaterniond =
+        rotationFrom(bogie.direction, bogie.normal)
 }

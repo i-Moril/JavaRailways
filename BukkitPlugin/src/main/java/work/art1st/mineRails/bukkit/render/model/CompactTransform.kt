@@ -12,7 +12,7 @@ import work.art1st.mineRails.core.api.render.Renderable
 
 data class CompactTransform(
     val position: Vector3dc = Vector3d(0.0, 0.0, 0.0),
-    val rotation: Quaterniondc = Quaterniond(1.0, 0.0, 0.0, 0.0),
+    val rotation: Quaterniondc = Quaterniond(),
     val scale: Vector3dc = Vector3d(1.0, 1.0, 1.0),
 ) {
     constructor(transform: CompactTransform) : this(
@@ -65,16 +65,17 @@ fun Renderable.getTransform(): CompactTransform {
     val right = Vector3d()
     this.normal.cross(this.direction, right).normalize()
 
-    // Matrix3d(a,b,c,d,e,f,g,h,i) fills row-major: Row0=(a,b,c), Row1=(d,e,f), Row2=(g,h,i)
+    // Matrix3d(a,b,c,d,e,f,g,h,i) fills columns: Col0=(a,b,c), Col1=(d,e,f), Col2=(g,h,i)
     // Col0 = world dir of model+X = right, Col1 = normal, Col2 = direction
-    // 然后取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反
+    // 然后取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反。
+    // JOML 构造函数参数顺序是 (x, y, z, w)。
     val currentRotationMatrix = Matrix3d(
-        right.x(), this.normal.x(), this.direction.x(),
-        right.y(), this.normal.y(), this.direction.y(),
-        right.z(), this.normal.z(), this.direction.z()
+        right.x(), right.y(), right.z(),
+        this.normal.x(), this.normal.y(), this.normal.z(),
+        this.direction.x(), this.direction.y(), this.direction.z()
     )
     val q = Quaterniond().setFromNormalized(currentRotationMatrix)
-    val finalRotation = Quaterniond(q.w(), -q.x(), q.y(), q.z())
+    val finalRotation = Quaterniond(-q.x(), q.y(), q.z(), q.w())
 
     return CompactTransform(
         position = this.position,
@@ -85,7 +86,7 @@ fun Renderable.getTransform(): CompactTransform {
 fun CompactTransform.toBukkitTransformation(): Transformation {
     return Transformation(
         this.position.get(Vector3f()),
-        Quaternionf(1.0f, 0.0f, 0.0f, 0.0f),
+        Quaternionf(),
         this.scale.get(Vector3f()),
         this.rotation.get(Quaternionf()),
     )

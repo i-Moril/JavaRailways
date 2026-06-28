@@ -193,6 +193,8 @@ class CoreCar @MainThread internal constructor(
         val tailToHeadDirection = (headBogieConnectorPosition - tailBogieConnectorPosition).normalize()
         // 正常情况下应该是负数
         val headBogieOffset = if (isReversed) -bogieBOffset else bogieAOffset
+        // carPosition 基于转向架连接器位置（含 floorHeight）计算，
+        // 代表车厢地板在曲线法线方向上的实际高度
         val carPosition = headBogieConnectorPosition - tailToHeadDirection * headBogieOffset
         return IntermediateResult(headBogieNewLocation, tailBogieNewLocation, carPosition, tailToHeadDirection)
     }

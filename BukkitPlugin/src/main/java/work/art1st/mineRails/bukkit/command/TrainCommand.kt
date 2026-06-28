@@ -106,6 +106,7 @@ object TrainCommand {
                 bogieA = bogieA,
                 bogieB = bogieB,
                 length = carLength,
+                floorHeight = carDef.floorHeight,
                 connectorLengthAtA = carDef.connectorLengthA,
                 connectorLengthAtB = carDef.connectorLengthB,
                 bogieAOffset = carDef.bogieAOffset,

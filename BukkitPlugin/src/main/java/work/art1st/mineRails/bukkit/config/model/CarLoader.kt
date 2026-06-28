@@ -54,6 +54,7 @@ class CarLoader(
         val qualifiedName = if (namespace.isEmpty()) simpleName else "$namespace/$simpleName"
 
         val length = (map["length"] as? Number)?.toDouble() ?: 2.0
+        val floorHeight = (map["floor-height"] as? Number)?.toDouble() ?: 0.5
         val connectorLengthA = (map["connector-length-a"] as? Number)?.toDouble() ?: 0.3
         val connectorLengthB = (map["connector-length-b"] as? Number)?.toDouble() ?: 0.3
         val bodyParts = PartRegistry.parsePartList(map["body-parts"] as? List<*>, namespace)
@@ -66,6 +67,7 @@ class CarLoader(
         return CarDefinition(
             name = qualifiedName,
             length = length,
+            floorHeight = floorHeight,
             bodyParts = bodyParts,
             bogies = bogies,
             connectorLengthA = connectorLengthA,

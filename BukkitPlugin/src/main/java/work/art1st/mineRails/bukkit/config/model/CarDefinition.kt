@@ -9,6 +9,7 @@ package work.art1st.mineRails.bukkit.config.model
 data class CarDefinition(
     val name: String,                             // Fully qualified name e.g. "s100/passenger"
     val length: Double = 2.0,                     // Car length in blocks
+    val floorHeight: Double = 0.5,                // Height of car floor above rail curve (meters)
     val bodyParts: List<PartRefEntry> = emptyList(),
     val bogies: List<BogieDefinition> = emptyList(),
     val connectorLengthA: Double = 0.3,           // Connector length at head end (A-end)

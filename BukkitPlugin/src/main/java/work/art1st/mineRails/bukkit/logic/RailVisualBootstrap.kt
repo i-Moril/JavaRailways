@@ -19,8 +19,8 @@ import kotlin.math.ceil
 object RailVisualBootstrap {
     private val railSegments: MutableMap<UUID, MutableList<RailArcVisualSegment>> = ConcurrentHashMap()
 
-    fun registerRail(rail: CoreRail): PersistedRailRenderMeta {
-        val templateSnapshot = createTemplateSnapshot()
+    fun registerRail(rail: CoreRail, railType: String = "standard"): PersistedRailRenderMeta {
+        val templateSnapshot = createTemplateSnapshot(railType)
         val segments = createSegments(rail, templateSnapshot)
         registerSegments(rail.id, segments)
         return PersistedRailRenderMeta(
@@ -101,8 +101,14 @@ object RailVisualBootstrap {
         return arcs.toList()
     }
 
-    private fun createTemplateSnapshot(): RailTemplateSnapshot {
-        val config = BukkitPlugin.INSTANCE.railModelConfig
+    private fun createTemplateSnapshot(railType: String): RailTemplateSnapshot {
+        // Try package config first, fall back to legacy global config
+        val modelManager = BukkitPlugin.INSTANCE.modelManager
+        val config = if (modelManager.hasRailPackages) {
+            modelManager.getRailConfig(railType) ?: BukkitPlugin.INSTANCE.railModelConfig
+        } else {
+            BukkitPlugin.INSTANCE.railModelConfig
+        }
         val elements = config.elements.map { element ->
             RailElementTemplateSnapshot(
                 type = element.type,

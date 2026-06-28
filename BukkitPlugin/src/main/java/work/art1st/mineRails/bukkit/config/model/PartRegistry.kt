@@ -18,6 +18,13 @@ class PartRegistry(
 ) {
     private val parts: MutableMap<String, PartDefinition> = mutableMapOf()
 
+    /**
+     * Other packages' part registries, keyed by package name.
+     * Used for cross-package part resolution: `import: "pkg/part"`.
+     * Set by PackageLoader/ModelManager after all packages are loaded.
+     */
+    var fallbackRegistries: Map<String, PartRegistry> = emptyMap()
+
     /** Load all part files from the directory tree. */
     fun load() {
         parts.clear()
@@ -53,6 +60,12 @@ class PartRegistry(
 
     /**
      * Resolve a part name to its definition.
+     *
+     * Resolution order:
+     * 1. Local registry (using defaultNamespace for bare names)
+     * 2. Cross-package: if name contains "/", treat first segment as package name
+     *    and resolve the rest in that package's PartRegistry.
+     *
      * @param refName the part name, optionally namespace-qualified
      * @param defaultNamespace the namespace to use if refName is unqualified
      */
@@ -62,9 +75,26 @@ class PartRegistry(
         } else {
             "$defaultNamespace/$refName"
         }
-        val part = parts[qualifiedName]
-            ?: throw IllegalArgumentException("Part not found: $qualifiedName (ref: $refName, ns: $defaultNamespace)")
-        return ResolvedPart(part.name, part, qualifiedName)
+
+        // Try local registry first
+        parts[qualifiedName]?.let {
+            return ResolvedPart(it.name, it, qualifiedName)
+        }
+
+        // Cross-package fallback: "pkg/part" → look up "pkg" in fallbackRegistries
+        val slashIdx = refName.indexOf('/')
+        if (slashIdx > 0) {
+            val pkgName = refName.substring(0, slashIdx)
+            val partName = refName.substring(slashIdx + 1)
+            fallbackRegistries[pkgName]?.let { otherRegistry ->
+                // Resolve in the other package's registry using the part name as-is
+                return otherRegistry.resolve(partName, pkgName)
+            }
+        }
+
+        throw IllegalArgumentException(
+            "Part not found: $qualifiedName (ref: $refName, ns: $defaultNamespace)"
+        )
     }
 
     /** Get all loaded part names. */

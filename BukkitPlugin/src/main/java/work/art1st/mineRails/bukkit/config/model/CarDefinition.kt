@@ -28,4 +28,7 @@ data class CarDefinition(
             val idx = name.lastIndexOf('/')
             return if (idx >= 0) name.substring(idx + 1) else name
         }
+
+    /** The package this car belongs to. Set by PackageLoader after loading. */
+    var packageName: String? = null
 }

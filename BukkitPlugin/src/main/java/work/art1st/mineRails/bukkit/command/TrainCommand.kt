@@ -69,7 +69,7 @@ object TrainCommand {
         val headLocation = RailLocationWithFacing(railView, nearestPoint.arcLength)
 
         // 参数: /mr train create <train_type>
-        val trainTypeName = args.firstOrNull() ?: "s100_4car"
+        val trainTypeName = args.firstOrNull() ?: "s100"
 
         val modelManager = BukkitPlugin.INSTANCE.modelManager
             ?: run {
@@ -81,7 +81,9 @@ object TrainCommand {
         val trainDef = modelManager.getTrain(trainTypeName)
         if (trainDef == null) {
             sender.sendMessage("错误: 未知列车类型 '$trainTypeName'")
-            sender.sendMessage("可用类型: ${modelManager.trainLoader.getAllNames().joinToString(", ")}")
+            val availablePkgNames = modelManager.trainPackages.keys
+            val availableLegacyNames = modelManager.trainLoader.getAllNames()
+            sender.sendMessage("可用类型: ${(availablePkgNames + availableLegacyNames).joinToString(", ")}")
             return true
         }
 

@@ -93,6 +93,9 @@ class CarLoader(
     /** Get all loaded car names. */
     fun getAllNames(): Set<String> = cars.keys.toSet()
 
+    /** Get all loaded car definitions. */
+    fun getAllCars(): Map<String, CarDefinition> = cars.toMap()
+
     /** Get a car definition by fully qualified name. */
     operator fun get(name: String): CarDefinition? = cars[name]
 }

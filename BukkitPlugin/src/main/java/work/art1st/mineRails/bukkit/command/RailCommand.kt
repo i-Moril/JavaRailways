@@ -35,6 +35,7 @@ object RailCommand {
         }
 
         val length = args.firstOrNull()?.toDoubleOrNull() ?: 10.0
+        val railType = args.getOrNull(1) ?: "standard"
 
         val world = getPlayerWorld(sender) ?: return true
         val coreWorld = world as? work.art1st.mineRails.core.physics.CoreWorld ?: run {
@@ -65,7 +66,7 @@ object RailCommand {
             mutableListOf(),
             mutableListOf()
         )
-        val persistedMeta = RailVisualBootstrap.registerRail(rail)
+        val persistedMeta = RailVisualBootstrap.registerRail(rail, railType)
         RailRenderMetaStore.upsertRail(sender.world, persistedMeta)
 
         sender.sendMessage("创建轨道成功: ${rail.id}")

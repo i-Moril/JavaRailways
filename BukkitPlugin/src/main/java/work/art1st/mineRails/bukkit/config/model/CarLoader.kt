@@ -54,14 +54,24 @@ class CarLoader(
         val qualifiedName = if (namespace.isEmpty()) simpleName else "$namespace/$simpleName"
 
         val length = (map["length"] as? Number)?.toDouble() ?: 2.0
+        val connectorLengthA = (map["connector-length-a"] as? Number)?.toDouble() ?: 0.3
+        val connectorLengthB = (map["connector-length-b"] as? Number)?.toDouble() ?: 0.3
         val bodyParts = PartRegistry.parsePartList(map["body-parts"] as? List<*>, namespace)
         val bogies = parseBogies(map["bogies"] as? List<*>, namespace)
+
+        // Extract physics bogie offsets from YAML bogie definitions (z component)
+        val bogieAOffset = bogies.getOrNull(0)?.offset?.z
+        val bogieBOffset = bogies.getOrNull(1)?.offset?.z
 
         return CarDefinition(
             name = qualifiedName,
             length = length,
             bodyParts = bodyParts,
-            bogies = bogies
+            bogies = bogies,
+            connectorLengthA = connectorLengthA,
+            connectorLengthB = connectorLengthB,
+            bogieAOffset = bogieAOffset,
+            bogieBOffset = bogieBOffset
         )
     }
 

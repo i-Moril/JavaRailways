@@ -336,16 +336,19 @@ class CoreCar @MainThread internal constructor(
             floorHeight: Double = 0.5,
             connectorLengthAtA: Double = 0.3,
             connectorLengthAtB: Double = 0.3,
+            bogieAOffset: Double? = null,
+            bogieBOffset: Double? = null,
             world: CoreWorld,
             extensionData: Map<String, SerializableExtensionData> = emptyMap()
         ): CoreCar {
             // 转向架间距默认为车厢长度的60%，A在前B在后
-            val bogieAOffset = length * 0.3
-            val bogieBOffset = -length * 0.3
+            // 若显式传入则使用传入值（来自 YAML 车定义）
+            val bogieAOffsetVal = bogieAOffset ?: (length * 0.3)
+            val bogieBOffsetVal = bogieBOffset ?: (-length * 0.3)
             return CoreCar(
                 id = id,
                 bogies = listOf(bogieA, bogieB),
-                bogiesOffsets = listOf(bogieAOffset, bogieBOffset),
+                bogiesOffsets = listOf(bogieAOffsetVal, bogieBOffsetVal),
                 length = length,
                 floorHeight = floorHeight,
                 connectorLengthAtA = connectorLengthAtA,

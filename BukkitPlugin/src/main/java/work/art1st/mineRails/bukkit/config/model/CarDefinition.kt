@@ -10,7 +10,11 @@ data class CarDefinition(
     val name: String,                             // Fully qualified name e.g. "s100/passenger"
     val length: Double = 2.0,                     // Car length in blocks
     val bodyParts: List<PartRefEntry> = emptyList(),
-    val bogies: List<BogieDefinition> = emptyList()
+    val bogies: List<BogieDefinition> = emptyList(),
+    val connectorLengthA: Double = 0.3,           // Connector length at head end (A-end)
+    val connectorLengthB: Double = 0.3,           // Connector length at tail end (B-end)
+    val bogieAOffset: Double? = null,             // Bogie A offset from center (positive toward head)
+    val bogieBOffset: Double? = null              // Bogie B offset from center (negative toward tail)
 ) {
     val namespace: String
         get() {

@@ -106,6 +106,10 @@ object TrainCommand {
                 bogieA = bogieA,
                 bogieB = bogieB,
                 length = carLength,
+                connectorLengthAtA = carDef.connectorLengthA,
+                connectorLengthAtB = carDef.connectorLengthB,
+                bogieAOffset = carDef.bogieAOffset,
+                bogieBOffset = carDef.bogieBOffset,
                 world = coreWorld
             )
             cars.add(car)

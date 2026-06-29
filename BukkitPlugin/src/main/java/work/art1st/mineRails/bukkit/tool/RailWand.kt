@@ -885,22 +885,15 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     // ═══════════════════════════════════════════
 
     private fun createStraightCurve(from: Vector3dc, direction: Vector3dc, length: Double): PrimeCurve {
-        val step = Curve.PRECISION
-        val steps = maxOf(2, (length / step).toInt())
-        val normal = Vector3d(0.0, 1.0, 0.0)
-        val points = (0..steps).map { i ->
-            val t = i.toDouble() / steps
-            val arcLength = t * length
-            Curve.RawPoint(
-                position = Vector3d(from.x() + direction.x() * length * t,
-                    from.y() + direction.y() * length * t,
-                    from.z() + direction.z() * length * t),
-                tangent = Vector3d(direction),
-                normal = normal,
-                arcLength = arcLength
-            )
-        }
-        return PrimeCurve.fromPoints(points)
+        val tan = Vector3d(direction).normalize()
+        val (_, nrm, _) = ConstraintSolver.computeFrame(tan)
+        val endPos = Vector3d(from).fma(length, tan)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(from), Vector3d(tan), Vector3d(nrm), 0.0,
+                Curve.SegmentType.LINE_START),
+            Curve.RawPoint(endPos, Vector3d(tan), Vector3d(nrm), length,
+                Curve.SegmentType.LINE_END)
+        ))
     }
 
     // ═══════════════════════════════════════════

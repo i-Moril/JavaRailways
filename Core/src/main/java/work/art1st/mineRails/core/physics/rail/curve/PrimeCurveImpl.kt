@@ -107,9 +107,12 @@ open class PrimeCurveImpl : PrimeCurve {
             Vector3d(hi.tangent).sub(lo.tangent, dir).mul(t)
             Vector3d(lo.tangent).add(dir, tmpRes).normalize()
             val tan = Vector3d(tmpRes)
-            // normal
+            // normal — 线性插值后重新投影到切线垂直面 (Gram-Schmidt)
             Vector3d(hi.normal).sub(lo.normal, dir).mul(t)
             Vector3d(lo.normal).add(dir, tmpRes).normalize()
+            // 将 normal 投影到 tangent 的垂直面上，确保正交
+            val dt = tmpRes.dot(tan)
+            tmpRes.sub(Vector3d(tan).mul(dt)).normalize()
             val nor = Vector3d(tmpRes)
             return Curve.Point(pos, tan, nor, this, arcLength)
         }

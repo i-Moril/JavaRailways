@@ -135,7 +135,7 @@ object RailCommand {
     }
 
     /**
-     * 创建直线曲线。
+     * 创建直线曲线（2 点 LINE_START/LINE_END，法线 Gram-Schmidt 正交化）。
      */
     private fun createStraightCurve(
         startX: Double,
@@ -144,30 +144,13 @@ object RailCommand {
         direction: Vector3d,
         length: Double
     ): PrimeCurve {
-        val step = Curve.PRECISION
-        val steps = maxOf(2, (length / step).toInt())
-
-        // 切线方向（前进方向）
-        val tangentDir = Vector3d(direction.x(), direction.y(), direction.z())
-        // 法线方向（垂直向上）
-        val normalDir = Vector3d(0.0, 1.0, 0.0)
-
-        val points = (0..steps).map { i ->
-            val t = i.toDouble() / steps
-            val arcLength = t * length
-
-            Curve.RawPoint(
-                position = org.joml.Vector3d(
-                    startX + direction.x * length * t,
-                    startY + direction.y * length * t,
-                    startZ + direction.z * length * t
-                ),
-                tangent = tangentDir,
-                normal = normalDir,
-                arcLength = arcLength
-            )
-        }
-
-        return PrimeCurve.fromPoints(points)
+        val tan = Vector3d(direction).normalize()
+        val (_, nrm, _) = work.art1st.mineRails.basic.curve.ConstraintSolver.computeFrame(tan)
+        val startPos = org.joml.Vector3d(startX, startY, startZ)
+        val endPos = org.joml.Vector3d(startX + tan.x() * length, startY + tan.y() * length, startZ + tan.z() * length)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(startPos, Vector3d(tan), Vector3d(nrm), 0.0, Curve.SegmentType.LINE_START),
+            Curve.RawPoint(endPos, Vector3d(tan), Vector3d(nrm), length, Curve.SegmentType.LINE_END)
+        ))
     }
 }

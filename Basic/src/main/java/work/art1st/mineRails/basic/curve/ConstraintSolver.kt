@@ -115,17 +115,6 @@ object ConstraintSolver {
 
         fun gradeAt(arc: Double): Double = gA + 2.0 * c * arc + 3.0 * d * arc * arc
         fun heightAt(arc: Double): Double = fromPos.y() + gA * arc + c * arc * arc + d * arc * arc * arc
-        fun make3dNormal(fx2d: Vector3dc, slope: Double): Vector3d {
-            // 在局部系中: normal_local = (sin(φ), cos(φ), 0), φ = atan(slope)
-            // toGlobal 变换: n_global = sin(φ)*fx2d + cos(φ)*up
-            val sinφ = slope / sqrt(1.0 + slope * slope)
-            val cosφ = 1.0 / sqrt(1.0 + slope * slope)
-            val nx = sinφ * fx2d.x()
-            val ny = cosφ
-            val nz = sinφ * fx2d.z()
-            return Vector3d(nx, ny, nz).normalize()
-        }
-
         fun addSegment(len: Double, tan2d: Vector3dc, start: Vector3dc) {
             if (len < 0.01) return
             val tan2dn = Vector3d(tan2d).normalize()
@@ -138,7 +127,7 @@ object ConstraintSolver {
                 val p = Vector3d(start).fma(len * t, tan2dn)
                 p.y = y
                 val tan3d = Vector3d(tan2dn.x(), slope, tan2dn.z()).normalize()
-                val nrm3d = make3dNormal(tan2dn, slope)
+                val (_, nrm3d, _) = ConstraintSolver.computeFrame(tan3d)
                 pts.add(Curve.RawPoint(Vector3d(p), tan3d, nrm3d, arc))
             }
             s += len
@@ -162,7 +151,7 @@ object ConstraintSolver {
             val gtz = ltx * fx.z() + ltz * fz.z()
             val slope = gradeAt(arc)
             val tan3d = Vector3d(gtx, slope, gtz).normalize()
-            val nrm3d = make3dNormal(Vector3d(gtx, 0.0, gtz), slope)
+            val (_, nrm3d, _) = computeFrame(tan3d)
             pts.add(Curve.RawPoint(Vector3d(gx, gy, gz), tan3d, nrm3d, arc))
         }
         s += curve.totalLength
@@ -205,6 +194,19 @@ object ConstraintSolver {
         val fx = Vector3d(t).normalize()
         val fz = Vector3d(fx).cross(Vector3d(0.0, 1.0, 0.0)).normalize()
         return Pair(d.dot(fx), d.dot(fz))
+    }
+
+    /**
+     * Gram-Schmidt 正交化：从 3D 切线构建 orthonormal 标架 (tangent, normal, binormal)。
+     * normal = up 在切线垂直面上的投影；切线接近垂直时回退到 Z 轴。
+     */
+    fun computeFrame(tangent3d: Vector3dc): Triple<Vector3d, Vector3d, Vector3d> {
+        val t = Vector3d(tangent3d).normalize()
+        val ref = if (kotlin.math.abs(t.y()) > 0.99) Vector3d(0.0, 0.0, 1.0) else Vector3d(0.0, 1.0, 0.0)
+        val n = Vector3d(ref).sub(Vector3d(t).mul(ref.dot(t))).normalize()
+        val b = Vector3d()
+        n.cross(t, b).normalize()
+        return Triple(t, n, b)
     }
 
     fun computeAngle(a: Vector3dc, b: Vector3dc): Double {

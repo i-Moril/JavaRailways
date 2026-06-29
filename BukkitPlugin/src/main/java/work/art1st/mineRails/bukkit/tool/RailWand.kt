@@ -568,51 +568,49 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             return
         }
 
+        // Step 1: 预计算所有曲线（失败时不留垃圾）
+        data class CurvePair(
+            val from: Anchor, val to: Anchor,
+            val primeCurve: PrimeCurve
+        )
+        val curvePairs = mutableListOf<CurvePair>()
+        for (i in 0 until state.parallelCount) {
+            val offset = (i - (state.parallelCount - 1) / 2.0) * state.parallelSpacing
+            for (j in 0 until anchors.size step 2) {
+                if (j + 1 >= anchors.size) break
+                val fromAnchor = if (offset == 0.0) anchors[j] else shiftAnchorPerpendicular(anchors[j], offset)
+                val toAnchor = if (offset == 0.0) anchors[j + 1] else shiftAnchorPerpendicular(anchors[j + 1], offset)
+                val curve = createCurveBetweenAnchors(fromAnchor, toAnchor, state.curveRadius)
+                    ?: run {
+                        player.sendActionBar(Component.text(
+                            "无法创建曲线: ${fromAnchor.id}→${toAnchor.id}", NamedTextColor.RED
+                        ))
+                        return
+                    }
+                curvePairs.add(CurvePair(fromAnchor, toAnchor, curve))
+            }
+        }
+
+        // Step 2: 注册所有曲线（全部预计算成功后一次性提交）
         val createdRails = mutableListOf<CoreRail>()
         val undoActions = mutableListOf<WandAction>()
-
         try {
-            for (i in 0 until state.parallelCount) {
-                val offset = (i - (state.parallelCount - 1) / 2.0) * state.parallelSpacing
-
-                for (j in 0 until anchors.size step 2) {
-                    if (j + 1 >= anchors.size) break
-
-                    val fromAnchor = if (offset == 0.0) anchors[j] else {
-                        shiftAnchorPerpendicular(anchors[j], offset)
-                    }
-                    val toAnchor = if (offset == 0.0) anchors[j + 1] else {
-                        shiftAnchorPerpendicular(anchors[j + 1], offset)
-                    }
-
-                    val curve = createCurveBetweenAnchors(fromAnchor, toAnchor, state.curveRadius)
-                        ?: run {
-                            player.sendActionBar(Component.text(
-                                "无法创建曲线: ${fromAnchor.id}→${toAnchor.id}", NamedTextColor.RED
-                            ))
-                            return
-                        }
-
-                    val rail = CoreRail(coreWorld, curve, mutableListOf(), mutableListOf())
-                    val meta = RailVisualBootstrap.registerRail(rail)
-                    RailRenderMetaStore.upsertRail(player.world, meta)
-                    createdRails.add(rail)
-                    undoActions.add(WandAction.CreateRail(player.world.uid, rail.id, "standard"))
-
-                    // 连接已有轨道
-                    if (j > 0) {
-                        val prevRail = createdRails[createdRails.size - 2]
-                        CoreRail.connect(prevRail, rail)
-                    }
-                }
+            for (pair in curvePairs) {
+                val rail = CoreRail(coreWorld, pair.primeCurve, mutableListOf(), mutableListOf())
+                val meta = RailVisualBootstrap.registerRail(rail)
+                RailRenderMetaStore.upsertRail(player.world, meta)
+                createdRails.add(rail)
+                undoActions.add(WandAction.CreateRail(player.world.uid, rail.id, "standard"))
+            }
+            // 连接相邻轨道
+            for (k in 1 until createdRails.size) {
+                CoreRail.connect(createdRails[k - 1], createdRails[k])
             }
 
-            if (createdRails.isNotEmpty()) {
-                pushUndo(player, WandAction.MultiAction(undoActions))
-                player.sendMessage(Component.text(
-                    "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)", NamedTextColor.GREEN
-                ))
-            }
+            pushUndo(player, WandAction.MultiAction(undoActions))
+            player.sendMessage(Component.text(
+                "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)", NamedTextColor.GREEN
+            ))
         } catch (e: Exception) {
             createdRails.forEach { rail ->
                 rail.destroy()

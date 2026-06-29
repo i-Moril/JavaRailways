@@ -206,8 +206,15 @@ data class RailLocationWithFacing internal constructor(
         @Throws(CorruptedDataException::class)
         override fun load(dependency: World): RailLocationWithFacing {
             val rail = dependency.getRail(UUID.fromString(railId)) as? CoreRail ?: throw CorruptedDataException(this)
-            val rv = rail.getView(direction)
-            return RailLocationWithFacing(rv, rv.curve.getPointAt(arcLengthInCurveAB), minorDeltaS)
+            // 弧长始终在 viewAB 上存储，加载时统一从 viewAB 读取再按需反转到目标 facing
+            val abPoint = rail.getView(ViewDirection.AB).curve.getPointAt(arcLengthInCurveAB)
+            return if (direction == ViewDirection.AB) {
+                RailLocationWithFacing(rail.getView(ViewDirection.AB), abPoint, minorDeltaS)
+            } else {
+                val baCurve = rail.getView(ViewDirection.BA).curve
+                val baArc = baCurve.totalArcLength - arcLengthInCurveAB
+                RailLocationWithFacing(rail.getView(ViewDirection.BA), baCurve.getPointAt(baArc), minorDeltaS)
+            }
         }
     }
 

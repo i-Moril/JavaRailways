@@ -591,20 +591,25 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             }
         }
 
-        // Step 2: 注册所有曲线（全部预计算成功后一次性提交）
+        // Step 2: 按并行线逐条注册 + 组内连接
+        val pairsPerLane = anchors.size / 2
         val createdRails = mutableListOf<CoreRail>()
         val undoActions = mutableListOf<WandAction>()
         try {
-            for (pair in curvePairs) {
-                val rail = CoreRail(coreWorld, pair.primeCurve, mutableListOf(), mutableListOf())
-                val meta = RailVisualBootstrap.registerRail(rail)
-                RailRenderMetaStore.upsertRail(player.world, meta)
-                createdRails.add(rail)
-                undoActions.add(WandAction.CreateRail(player.world.uid, rail.id, "standard"))
-            }
-            // 连接相邻轨道
-            for (k in 1 until createdRails.size) {
-                CoreRail.connect(createdRails[k - 1], createdRails[k])
+            for (lane in 0 until state.parallelCount) {
+                val laneStartIndex = createdRails.size
+                for (j in 0 until pairsPerLane) {
+                    val pair = curvePairs[lane * pairsPerLane + j]
+                    val rail = CoreRail(coreWorld, pair.primeCurve, mutableListOf(), mutableListOf())
+                    val meta = RailVisualBootstrap.registerRail(rail)
+                    RailRenderMetaStore.upsertRail(player.world, meta)
+                    createdRails.add(rail)
+                    undoActions.add(WandAction.CreateRail(player.world.uid, rail.id, "standard"))
+                    // 同一条并行线内连接相邻段
+                    if (j > 0) {
+                        CoreRail.connect(createdRails[laneStartIndex + j - 1], rail)
+                    }
+                }
             }
 
             pushUndo(player, WandAction.MultiAction(undoActions))

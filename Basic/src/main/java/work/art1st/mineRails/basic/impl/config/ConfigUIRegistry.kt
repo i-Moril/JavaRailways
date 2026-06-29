@@ -383,13 +383,10 @@ class PlayerConfigSessionImpl(
 
     override fun commit() {
         dirtyKeys.forEach { keyId ->
-            val item = registry.getItem(keyId)
-            if (item is ConfigItemImpl<*>) {
-                val value = localValues[keyId]
-                @Suppress("UNCHECKED_CAST")
-                (item as ConfigItemImpl<Any?>).setValue(value)
-                item.commit()
-            }
+            val item = registry.getItem(keyId) ?: return@forEach
+            val value = localValues[keyId] ?: return@forEach
+            @Suppress("UNCHECKED_CAST")
+            registry.setValue(item.key as ConfigKey<Any?>, value)
         }
         dirtyKeys.clear()
     }

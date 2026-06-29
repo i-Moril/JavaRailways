@@ -51,16 +51,26 @@ class DialogRenderer(
     /**
      * 向玩家展示配置分组的原生 Dialog。
      */
-    fun showConfigDialog(player: Player, groupId: String, context: Map<String, Any> = emptyMap()) {
+    fun showConfigDialog(
+        player: Player,
+        groupId: String,
+        context: Map<String, Any> = emptyMap(),
+        onConfirmed: ((Player) -> Unit)? = null
+    ) {
         val session = configUI.getPlayerSession(player.uniqueId)
         val builtGroup = configUI.buildGroupForPlayer(groupId, player.uniqueId, context)
-        showNativeDialog(player, builtGroup, session)
+        showNativeDialog(player, builtGroup, session, onConfirmed)
     }
 
     /**
      * 构建并展示 Paper 原生 Dialog。
      */
-    private fun showNativeDialog(player: Player, builtGroup: BuiltGroup, session: PlayerConfigSession) {
+    private fun showNativeDialog(
+        player: Player,
+        builtGroup: BuiltGroup,
+        session: PlayerConfigSession,
+        onConfirmed: ((Player) -> Unit)? = null
+    ) {
         val group = builtGroup.group
 
         // 构建 DialogInput 列表
@@ -85,7 +95,7 @@ class DialogRenderer(
         val confirmAction = DialogAction.customClick(
             { view, audience ->
                 if (audience is Player) {
-                    onConfirm(view, builtGroup, session, audience)
+                    onConfirm(view, builtGroup, session, audience, onConfirmed)
                 }
             },
             ClickCallback.Options.builder()
@@ -123,7 +133,8 @@ class DialogRenderer(
         view: io.papermc.paper.dialog.DialogResponseView,
         builtGroup: BuiltGroup,
         session: PlayerConfigSession,
-        player: Player
+        player: Player,
+        onConfirmed: ((Player) -> Unit)? = null
     ) {
         val allItems = builtGroup.effectiveItems +
             builtGroup.effectiveSubGroups.flatMap { it.items }
@@ -199,12 +210,15 @@ class DialogRenderer(
         // 提交
         session.commit()
 
+        // 通知外部回调
+        onConfirmed?.invoke(player)
+
         // 如果修改了触发键，重新构建并展示
         if (needsRebuild) {
             val newGroup = configUI.buildGroupForPlayer(
                 builtGroup.group.id, player.uniqueId, emptyMap()
             )
-            showNativeDialog(player, newGroup, configUI.getPlayerSession(player.uniqueId))
+            showNativeDialog(player, newGroup, configUI.getPlayerSession(player.uniqueId), onConfirmed)
         }
     }
 

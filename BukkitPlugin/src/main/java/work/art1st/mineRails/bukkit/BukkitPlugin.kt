@@ -8,6 +8,7 @@ import work.art1st.mineRails.bukkit.config.getDefaultRailModelConfig
 import work.art1st.mineRails.bukkit.config.model.ModelManager
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
+import work.art1st.mineRails.bukkit.tool.RailWand
 import work.art1st.mineRails.basic.BasicPlugin
 import work.art1st.mineRails.core.api.util.plugin.Plugin
 import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
@@ -29,6 +30,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** 模型系统管理器 (parts/, cars/, trains/) */
     lateinit var modelManager: ModelManager
 
+    /** RailWand 工具 */
+    lateinit var railWand: RailWand
+
     override fun onEnable() {
         ensureMineRailsKoinStarted()
         BasicPlugin.INSTANCE = BasicPlugin(0)
@@ -48,6 +52,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         logger.info("Model system loaded: ${modelManager.partRegistry.getAllNames().size} parts, " +
             "${modelManager.carLoader.getAllNames().size} cars, " +
             "${modelManager.trainLoader.getAllNames().size} trains")
+
+        // 初始化 RailWand
+        railWand = RailWand(this)
+        railWand.init()
 
         // 注册命令
         val mineRailsCmd = MineRailsCommand()

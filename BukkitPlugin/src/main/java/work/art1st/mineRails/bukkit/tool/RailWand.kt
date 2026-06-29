@@ -18,6 +18,9 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.basic.api.ui.config.*
 import work.art1st.mineRails.basic.curve.Anchor
+import work.art1st.mineRails.basic.curve.ConstraintSolveResult
+import work.art1st.mineRails.basic.curve.ConstraintSolver
+import work.art1st.mineRails.basic.curve.StandardRailCurve
 import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
@@ -89,7 +92,9 @@ data class WandPlayerState(
     /** 创建锚点后是否打开 Config Dialog */
     var openConfigAfterCreate: Boolean = false,
     /** 是否自动装饰轨道 */
-    var autoDecorate: Boolean = true
+    var autoDecorate: Boolean = true,
+    /** 曲线半径 (m)。0 = 自动选择 */
+    var curveRadius: Double = 0.0
 )
 
 // ═══════════════════════════════════════════════════════════════
@@ -201,25 +206,92 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             group = "wand.settings"
             order = 5
         }
+        val curveRadius = ConfigKey.build<Double>("wand.curveRadius") {
+            label = "曲线半径"
+            description = "圆曲线半径 (m)。设为 0 则自动选择最优半径。"
+            defaultValue(0.0)
+            valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(0.0, 10000.0, 10.0, "m")
+            group = "wand.settings"
+            order = 6
+        }
     }
+
+    /** 锚点编辑配置键 */
+    class AnchorEditKeys {
+        val anchorId = ConfigKey.build<String>("anchor.id") {
+            label = "锚点 ID"; defaultValue(""); valueType = ConfigValueType.STRING; group = "anchor.edit"; order = 0
+        }
+        val posX = ConfigKey.build<Double>("anchor.posX") {
+            label = "X 坐标"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(-3e7, 3e7, 0.5, ""); group = "anchor.edit"; order = 1
+        }
+        val posY = ConfigKey.build<Double>("anchor.posY") {
+            label = "Y 坐标"; defaultValue(64.0); valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(-64.0, 320.0, 0.5, ""); group = "anchor.edit"; order = 2
+        }
+        val posZ = ConfigKey.build<Double>("anchor.posZ") {
+            label = "Z 坐标"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(-3e7, 3e7, 0.5, ""); group = "anchor.edit"; order = 3
+        }
+        val tangentYaw = ConfigKey.build<Double>("anchor.yaw") {
+            label = "朝向 (yaw°)"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(-180.0, 180.0, 1.0, "°"); group = "anchor.edit"; order = 4
+        }
+        // 批量编辑模式: 增量字段
+        val deltaX = ConfigKey.build<Double>("anchor.deltaX") {
+            label = "ΔX"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(-100.0, 100.0, 0.5, "m"); group = "anchor.batchEdit"; order = 0
+        }
+        val deltaY = ConfigKey.build<Double>("anchor.deltaY") {
+            label = "ΔY"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(-100.0, 100.0, 0.5, "m"); group = "anchor.batchEdit"; order = 1
+        }
+        val deltaZ = ConfigKey.build<Double>("anchor.deltaZ") {
+            label = "ΔZ"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(-100.0, 100.0, 0.5, "m"); group = "anchor.batchEdit"; order = 2
+        }
+        val deltaYaw = ConfigKey.build<Double>("anchor.deltaYaw") {
+            label = "ΔYaw"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(-180.0, 180.0, 1.0, "°"); group = "anchor.batchEdit"; order = 3
+        }
+    }
+
+    private lateinit var editKeys: AnchorEditKeys
 
     private fun registerWandConfig() {
         wandKeys = WandConfigKeys()
+        editKeys = AnchorEditKeys()
 
-        val group = ConfigGroup("wand.settings", "RailWand 设置", description = "RailWand 工具参数设置").apply {
+        // wand 设置分组
+        val wandGroup = ConfigGroup("wand.settings", "RailWand 设置", description = "RailWand 工具参数设置").apply {
             items.add(ConfigItemImpl(wandKeys.parallelCount))
             items.add(ConfigItemImpl(wandKeys.parallelSpacing))
             items.add(ConfigItemImpl(wandKeys.snapToAngle))
             items.add(ConfigItemImpl(wandKeys.snapToBlock))
             items.add(ConfigItemImpl(wandKeys.openConfigAfterCreate))
             items.add(ConfigItemImpl(wandKeys.autoDecorate))
+            items.add(ConfigItemImpl(wandKeys.curveRadius))
         }
-        configUI.register(group)
+        configUI.register(wandGroup)
 
-        // 值变更回调：同步到 WandPlayerState
-        configUI.setValueChangedCallback { key, _, newValue ->
-            // 不在这里同步，因为在 onConfirm 中统一处理
+        // 锚点编辑分组 (单锚点)
+        val editGroup = ConfigGroup("anchor.edit", "编辑锚点", description = "修改锚点位置和朝向").apply {
+            items.add(ConfigItemImpl(editKeys!!.posX))
+            items.add(ConfigItemImpl(editKeys!!.posY))
+            items.add(ConfigItemImpl(editKeys!!.posZ))
+            items.add(ConfigItemImpl(editKeys!!.tangentYaw))
         }
+        configUI.register(editGroup)
+
+        // 锚点批量编辑分组 (增量)
+        val batchGroup = ConfigGroup("anchor.batchEdit", "批量平移锚点", description = "对所有选中锚点应用增量").apply {
+            items.add(ConfigItemImpl(editKeys!!.deltaX))
+            items.add(ConfigItemImpl(editKeys!!.deltaY))
+            items.add(ConfigItemImpl(editKeys!!.deltaZ))
+            items.add(ConfigItemImpl(editKeys!!.deltaYaw))
+        }
+        configUI.register(batchGroup)
     }
 
     /** 将 ConfigAPI 中的值同步到 WandPlayerState */
@@ -238,6 +310,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             ?: (configUI.get(wandKeys.openConfigAfterCreate) ?: false)
         state.autoDecorate = session.getValue(wandKeys.autoDecorate)
             ?: (configUI.get(wandKeys.autoDecorate) ?: true)
+        state.curveRadius = session.getValue(wandKeys.curveRadius)
+            ?: (configUI.get(wandKeys.curveRadius) ?: 0.0)
     }
 
     /** 将 WandPlayerState 中的值同步到 ConfigAPI session (在打开 Dialog 前调用) */
@@ -250,6 +324,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         session.setValue(wandKeys.snapToBlock, state.snapToBlock)
         session.setValue(wandKeys.openConfigAfterCreate, state.openConfigAfterCreate)
         session.setValue(wandKeys.autoDecorate, state.autoDecorate)
+        session.setValue(wandKeys.curveRadius, state.curveRadius)
     }
 
     // ═══════════════════════════════════════════
@@ -475,7 +550,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
-    /** 连接已选择的锚点对，创建曲线 → CoreRail → 渲染 */
+    /** 连接已选择的锚点对，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
     private fun connectSelectedAnchors(player: Player, state: WandPlayerState) {
         if (state.selectedAnchors.size < 2) {
             player.sendActionBar(Component.text("至少需要选择 2 个锚点", NamedTextColor.RED))
@@ -493,14 +568,13 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             return
         }
 
-        var createdRails = mutableListOf<CoreRail>()
+        val createdRails = mutableListOf<CoreRail>()
         val undoActions = mutableListOf<WandAction>()
 
         try {
             for (i in 0 until state.parallelCount) {
                 val offset = (i - (state.parallelCount - 1) / 2.0) * state.parallelSpacing
 
-                // 配对锚点: 0→1, 2→3, ...
                 for (j in 0 until anchors.size step 2) {
                     if (j + 1 >= anchors.size) break
 
@@ -511,12 +585,13 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                         shiftAnchorPerpendicular(anchors[j + 1], offset)
                     }
 
-                    // 创建直线曲线（后续可用 clothoid curve editor 替换）
-                    val curve = createStraightCurve(
-                        Vector3d(fromAnchor.position),
-                        Vector3d(fromAnchor.tangent),
-                        fromAnchor.position.distance(toAnchor.position)
-                    )
+                    val curve = createCurveBetweenAnchors(fromAnchor, toAnchor, state.curveRadius)
+                        ?: run {
+                            player.sendActionBar(Component.text(
+                                "无法创建曲线: ${fromAnchor.id}→${toAnchor.id}", NamedTextColor.RED
+                            ))
+                            return
+                        }
 
                     val rail = CoreRail(coreWorld, curve, mutableListOf(), mutableListOf())
                     val meta = RailVisualBootstrap.registerRail(rail)
@@ -532,12 +607,13 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                 }
             }
 
-            pushUndo(player, WandAction.MultiAction(undoActions))
-            player.sendMessage(Component.text(
-                "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)", NamedTextColor.GREEN
-            ))
+            if (createdRails.isNotEmpty()) {
+                pushUndo(player, WandAction.MultiAction(undoActions))
+                player.sendMessage(Component.text(
+                    "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)", NamedTextColor.GREEN
+                ))
+            }
         } catch (e: Exception) {
-            // 回滚
             createdRails.forEach { rail ->
                 rail.destroy()
                 coreWorld.removeRail(rail)
@@ -545,6 +621,45 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             }
             player.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
         }
+    }
+
+    /**
+     * 在两锚点间创建五段曲线 (line/clothoid/arc/clothoid/line)。
+     * 使用 ConstraintSolver.solveBest() 自动选择最优半径，再用 generateCurve() 生成完整点列。
+     */
+    private fun createCurveBetweenAnchors(from: Anchor, to: Anchor, radius: Double = 0.0): PrimeCurve? {
+        val fromPos = Vector3d(from.position)
+        val fromTan3d = Vector3d(from.tangent).normalize()
+        val toPos = Vector3d(to.position)
+        val toTan3d = Vector3d(to.tangent).normalize()
+
+        // 求解器只需水平分量（Y 剥离），纵断面独立处理
+        val fromTan2d = Vector3d(fromTan3d.x(), 0.0, fromTan3d.z()).normalize()
+        val toTan2d = Vector3d(toTan3d.x(), 0.0, toTan3d.z()).normalize()
+
+        val angle = ConstraintSolver.computeAngle(fromTan2d, toTan2d)
+
+        // 同方向直线：直接生成直线 PrimeCurve
+        if (angle < 1e-6) {
+            val dist = fromPos.distance(toPos)
+            val direction = Vector3d(toPos).sub(fromPos).normalize()
+            return createStraightCurve(fromPos, direction, dist)
+        }
+
+        // 求解: 指定 R 或自动 (50m 倍数, 尽可能大)
+        val result: ConstraintSolveResult = if (radius > 0) {
+            ConstraintSolver.solve(fromPos, fromTan2d, toPos, toTan2d, radius)
+        } else {
+            ConstraintSolver.solveBest(fromPos, fromTan2d, toPos, toTan2d)
+        }
+        if (result !is ConstraintSolveResult.Success) {
+            plugin.logger.warning("ConstraintSolver: ${(result as ConstraintSolveResult.Failure).reason}")
+            return null
+        }
+
+        // 生成曲线时使用 3D 切线（含坡度）实现抛物线竖曲线
+        val curvePoints = ConstraintSolver.generateCurve(result, fromPos, fromTan3d, toPos, toTan3d, 0.2)
+        return PrimeCurve.fromPoints(curvePoints)
     }
 
     // ═══════════════════════════════════════════
@@ -590,13 +705,31 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     private fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {
-        // 进入编辑模式: 给玩家提供聊天式命令
-        player.sendMessage(Component.text("=== 编辑锚点 ${anchor.id} ===", NamedTextColor.GOLD))
-        player.sendMessage(Component.text("  位置: (${"%.2f".format(anchor.position.x())}, ${"%.2f".format(anchor.position.y())}, ${"%.2f".format(anchor.position.z())})", NamedTextColor.WHITE))
-        player.sendMessage(Component.text("  朝向: (${"%.3f".format(anchor.tangent.x())}, ${"%.3f".format(anchor.tangent.y())}, ${"%.3f".format(anchor.tangent.z())})", NamedTextColor.WHITE))
-        player.sendMessage(Component.text("使用 /mr anchor setpos <id> <x> <y> <z> 修改位置", NamedTextColor.GRAY))
-        player.sendMessage(Component.text("使用 /mr anchor setdir <id> <yaw> 修改朝向", NamedTextColor.GRAY))
-        player.sendMessage(Component.text("使用 /mr anchor move <id> <dx> <dy> <dz> 平移", NamedTextColor.GRAY))
+        // 将锚点当前值写入 session，然后打开 ConfigAPI Dialog
+        val session = configUI.getPlayerSession(player.uniqueId)
+        val yaw = Math.toDegrees(atan2(anchor.tangent.x(), anchor.tangent.z()))
+        session.setValue(editKeys.anchorId, anchor.id)
+        session.setValue(editKeys.posX, anchor.position.x())
+        session.setValue(editKeys.posY, anchor.position.y())
+        session.setValue(editKeys.posZ, anchor.position.z())
+        session.setValue(editKeys.tangentYaw, yaw)
+        dialogRenderer.showConfigDialog(player, "anchor.edit") { p ->
+            // 确认回调: 读取新值并更新锚点
+            val s = configUI.getPlayerSession(p.uniqueId)
+            val newPos = Vector3d(
+                s.getValue(editKeys.posX) ?: anchor.position.x(),
+                s.getValue(editKeys.posY) ?: anchor.position.y(),
+                s.getValue(editKeys.posZ) ?: anchor.position.z()
+            )
+            val newYaw = s.getValue(editKeys.tangentYaw) ?: yaw
+            val rad = Math.toRadians(newYaw)
+            val newTan = Vector3d(-sin(rad), 0.0, cos(rad))
+            val updated = anchor.withPosition(newPos).withTangent(newTan)
+            anchorStore.update(player.world, updated)
+            removeAnchorDisplay(player, anchor.id)
+            spawnAnchorDisplay(player, updated)
+            p.sendActionBar(Component.text("锚点 ${anchor.id} 已更新", NamedTextColor.GREEN))
+        }
     }
 
     private fun editSelectedAnchors(player: Player, state: WandPlayerState) {
@@ -606,13 +739,31 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         if (anchors.size == 1) {
             editAnchor(player, anchors.first(), state)
         } else {
-            // 计算中点
-            val midX = anchors.map { it.position.x() }.average()
-            val midY = anchors.map { it.position.y() }.average()
-            val midZ = anchors.map { it.position.z() }.average()
-            player.sendMessage(Component.text("=== 编辑 ${anchors.size} 个锚点 ===", NamedTextColor.GOLD))
-            player.sendMessage(Component.text("  中点: (${"%.2f".format(midX)}, ${"%.2f".format(midY)}, ${"%.2f".format(midZ)})", NamedTextColor.WHITE))
-            player.sendMessage(Component.text("使用 /mr anchor move-selected <dx> <dy> <dz> 整体平移", NamedTextColor.GRAY))
+            // 批量编辑: 通过 ConfigAPI Dialog 设置增量，应用到所有选中锚点
+            val session = configUI.getPlayerSession(player.uniqueId)
+            session.setValue(editKeys!!.deltaX, 0.0)
+            session.setValue(editKeys!!.deltaY, 0.0)
+            session.setValue(editKeys!!.deltaZ, 0.0)
+            session.setValue(editKeys!!.deltaYaw, 0.0)
+            dialogRenderer.showConfigDialog(player, "anchor.batchEdit") { p ->
+                val s = configUI.getPlayerSession(p.uniqueId)
+                val dx = s.getValue(editKeys!!.deltaX) ?: 0.0
+                val dy = s.getValue(editKeys!!.deltaY) ?: 0.0
+                val dz = s.getValue(editKeys!!.deltaZ) ?: 0.0
+                val dYaw = s.getValue(editKeys!!.deltaYaw) ?: 0.0
+                val dRad = Math.toRadians(dYaw)
+                anchors.forEach { a ->
+                    val newPos = Vector3d(a.position.x() + dx, a.position.y() + dy, a.position.z() + dz)
+                    val oldYaw = atan2(a.tangent.x(), a.tangent.z())
+                    val newYaw = oldYaw + dRad
+                    val newTan = Vector3d(-sin(newYaw), 0.0, cos(newYaw))
+                    val updated = a.withPosition(newPos).withTangent(newTan)
+                    anchorStore.update(p.world, updated)
+                    removeAnchorDisplay(p, a.id)
+                    spawnAnchorDisplay(p, updated)
+                }
+                p.sendActionBar(Component.text("${anchors.size} 个锚点已平移", NamedTextColor.GREEN))
+            }
         }
     }
 

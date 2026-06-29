@@ -262,43 +262,44 @@ class StandardRailCurve(
     }
 
     /**
-     * 将局部坐标系中的点转换到全局坐标系
+     * 将局部坐标系中的点转换到全局坐标系。
      *
-     * @param localPoint 局部坐标点
+     * @param localPoint 局部坐标点（X=前进, Z=横向）
      * @param origin 起点全局坐标
      * @param startDirection 起点切向方向（单位向量，水平面）
-     * @return 全局坐标点
+     * @param leftTurn true=左转（Z 轴指向切向左侧），false=右转（默认，Z 轴指向切向右侧）
      */
     fun toGlobal(
         localPoint: CurveRawPoint,
         origin: Vector3dc,
-        startDirection: Vector3dc
+        startDirection: Vector3dc,
+        leftTurn: Boolean = false
     ): CurveRawPoint {
-        // 构建垂直向上的向量（全局 Y）
         val globalUp = Vector3d(0.0, 1.0, 0.0)
-        // 水平面上的横向向量：从 startDirection 逆时针旋转 90 度
-        val rightLocal = Vector3d(startDirection).cross(globalUp).normalize()
+        // 横向向量: 右转 = startDirection × up, 左转 = up × startDirection
+        val lateral = if (leftTurn)
+            Vector3d(globalUp).cross(startDirection).normalize()
+        else
+            Vector3d(startDirection).cross(globalUp).normalize()
 
         val lx = localPoint.position.x()
         val lz = localPoint.position.z()
 
         val globalPos = Vector3d(
-            origin.x() + lx * startDirection.x() + lz * rightLocal.x(),
+            origin.x() + lx * startDirection.x() + lz * lateral.x(),
             origin.y() + localPoint.position.y(),
-            origin.z() + lx * startDirection.z() + lz * rightLocal.z()
+            origin.z() + lx * startDirection.z() + lz * lateral.z()
         )
 
         // 切线方向旋转
-        val tx = localPoint.tangent.x() * startDirection.x() + localPoint.tangent.z() * rightLocal.x()
-        val tz = localPoint.tangent.x() * startDirection.z() + localPoint.tangent.z() * rightLocal.z()
+        val tx = localPoint.tangent.x() * startDirection.x() + localPoint.tangent.z() * lateral.x()
+        val tz = localPoint.tangent.x() * startDirection.z() + localPoint.tangent.z() * lateral.z()
         val globalTangent = Vector3d(tx, localPoint.tangent.y(), tz).normalize()
 
-        // 法线旋转（绕 startDirection 旋转，而不是简单叠加）
-        // 法线在局部坐标系中是 (0, cos(φ), sin(φ))，其中 φ 是超高角
-        // 旋转到全局坐标系
-        val nx = localPoint.normal.x() * startDirection.x() + localPoint.normal.z() * rightLocal.x()
+        // 法线旋转
+        val nx = localPoint.normal.x() * startDirection.x() + localPoint.normal.z() * lateral.x()
         val ny = localPoint.normal.y()
-        val nz = localPoint.normal.x() * startDirection.z() + localPoint.normal.z() * rightLocal.z()
+        val nz = localPoint.normal.x() * startDirection.z() + localPoint.normal.z() * lateral.z()
         val globalNormal = Vector3d(nx, ny, nz).normalize()
 
         return CurveRawPoint(globalPos, globalTangent, globalNormal, localPoint.arcLength)

@@ -92,13 +92,19 @@ class RailView(
         fun connect(viewIJ: RailView, viewKJ: RailView) {
             val j1 = viewIJ.endPoint.position
             val j2 = viewKJ.endPoint.position
-            if (j1.distance(j2) > 1e-10) {
+            if (j1.distance(j2) > Curve.TOLERANCE) {
                 throw CannotConnectRailException()
             }
-            viewIJ.mutableNextRails.add(viewKJ.reversed)
-            viewIJ.activeRail = viewKJ.reversed
-            viewKJ.mutableNextRails.add(viewIJ.reversed)
-            viewKJ.activeRail = viewIJ.reversed
+            val ijNext = viewKJ.reversed
+            val kjNext = viewIJ.reversed
+            if (!viewIJ.mutableNextRails.contains(ijNext)) {
+                viewIJ.mutableNextRails.add(ijNext)
+            }
+            viewIJ.activeRail = ijNext
+            if (!viewKJ.mutableNextRails.contains(kjNext)) {
+                viewKJ.mutableNextRails.add(kjNext)
+            }
+            viewKJ.activeRail = kjNext
         }
     }
 }

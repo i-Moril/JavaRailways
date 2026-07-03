@@ -25,6 +25,7 @@ import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
 import work.art1st.mineRails.bukkit.persistence.PersistentAnchorStore
+import work.art1st.mineRails.bukkit.persistence.PersistedRailRenderMeta
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
 import work.art1st.mineRails.core.api.physics.curve.Curve
@@ -594,6 +595,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         // Step 2: 按并行线逐条注册 + 组内连接
         val pairsPerLane = anchors.size / 2
         val createdRails = mutableListOf<CoreRail>()
+        val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
         val undoActions = mutableListOf<WandAction>()
         try {
             for (lane in 0 until state.parallelCount) {
@@ -602,7 +604,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                     val pair = curvePairs[lane * pairsPerLane + j]
                     val rail = CoreRail(coreWorld, pair.primeCurve, mutableListOf(), mutableListOf())
                     val meta = RailVisualBootstrap.registerRail(rail)
-                    RailRenderMetaStore.upsertRail(player.world, meta)
+                    persistedMetas.add(meta)
                     createdRails.add(rail)
                     undoActions.add(WandAction.CreateRail(player.world.uid, rail.id, "standard"))
                     // 同一条并行线内连接相邻段
@@ -612,6 +614,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                 }
             }
 
+            RailRenderMetaStore.upsertRails(player.world, persistedMetas)
             pushUndo(player, WandAction.MultiAction(undoActions))
             player.sendMessage(Component.text(
                 "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)", NamedTextColor.GREEN
@@ -621,6 +624,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                 rail.destroy()
                 coreWorld.removeRail(rail)
                 RailVisualBootstrap.unregisterRail(rail.id)
+                RailRenderMetaStore.removeRail(player.world, rail.id)
             }
             player.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
         }

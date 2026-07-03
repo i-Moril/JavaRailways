@@ -14,6 +14,8 @@ import work.art1st.mineRails.bukkit.extension.rail.RailArcSegmentMeta
 import work.art1st.mineRails.bukkit.extension.rail.RailElementTemplateSnapshot
 import work.art1st.mineRails.bukkit.extension.rail.RailTemplateSnapshot
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 @Serializable
@@ -162,12 +164,33 @@ object RailRenderMetaStore {
                 )
             }
         )
-        file(world).writeText(json.encodeToString(encoded))
+        val target = file(world)
+        val temp = File(target.parentFile, "${target.name}.tmp")
+        temp.writeText(json.encodeToString(encoded))
+        try {
+            java.nio.file.Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            java.nio.file.Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
     }
 
     fun upsertRail(world: World, meta: PersistedRailRenderMeta) {
+        upsertRails(world, listOf(meta))
+    }
+
+    fun upsertRails(world: World, metas: Collection<PersistedRailRenderMeta>) {
+        if (metas.isEmpty()) return
         val existing = load(world).associateBy { it.railId }.toMutableMap()
-        existing[meta.railId] = meta
+        metas.forEach { meta -> existing[meta.railId] = meta }
         saveAll(world, existing.values.toList())
     }
 

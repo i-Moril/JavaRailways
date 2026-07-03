@@ -10,18 +10,21 @@ import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import java.util.UUID
+import kotlin.math.floor
 
 object RailCommand {
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /mr rail <create|list|delete>")
+            sender.sendMessage("用法: /mr rail <create|list|connect|delete>")
             return true
         }
 
         when (args[0].lowercase()) {
             "create" -> return handleCreate(sender, args.drop(1))
             "list" -> return handleList(sender)
+            "connect" -> return handleConnect(sender, args.drop(1))
             "delete" -> return handleDelete(sender, args.drop(1))
             else -> sender.sendMessage("未知子命令: ${args[0]}")
         }
@@ -90,12 +93,124 @@ object RailCommand {
             sender.sendMessage("当前世界暂无轨道渲染记录")
             return true
         }
+        val coreWorld = getPlayerWorld(sender) as? work.art1st.mineRails.core.physics.CoreWorld
         records.forEachIndexed { idx, record ->
-            sender.sendMessage("${idx + 1}. ${record.railId} 分段=${record.segments.size}")
+            val rail = coreWorld?.getRail(record.railId)
+            val nextCount = rail?.let { it.viewAB.nextRails.size + it.viewBA.nextRails.size } ?: 0
+            sender.sendMessage("${idx + 1}. ${record.railId} 分段=${record.segments.size} 连接=${nextCount}")
         }
 
         return true
     }
+
+    private fun handleConnect(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        val world = getPlayerWorld(sender) ?: return true
+        val coreWorld = world as? work.art1st.mineRails.core.physics.CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 CoreWorld")
+            return true
+        }
+        val tolerance = args.firstOrNull()?.toDoubleOrNull()?.coerceAtLeast(0.0) ?: Curve.TOLERANCE
+        val rails = RailRenderMetaStore.load(sender.world)
+            .mapNotNull { coreWorld.getRail(it.railId) }
+
+        val result = connectNearbyEndpoints(rails, tolerance)
+
+        sender.sendMessage("轨道自动连接完成: 新增 ${result.connected} 条连接，候选失败 ${result.failed} 条，容差=${"%.4f".format(tolerance)}m")
+        if (result.connected == 0) {
+            sender.sendMessage("如果视觉上贴合但仍未连接，请检查两个端点坐标是否完全重合（/mr rail list 可看连接数）。")
+        }
+        return true
+    }
+
+    private fun areConnected(a: CoreRail, b: CoreRail): Boolean {
+        return a.viewAB.nextRails.any { it.rail == b } ||
+            a.viewBA.nextRails.any { it.rail == b } ||
+            b.viewAB.nextRails.any { it.rail == a } ||
+            b.viewBA.nextRails.any { it.rail == a }
+    }
+
+    private data class ConnectResult(val connected: Int, val failed: Int)
+    private data class Endpoint(val rail: CoreRail, val position: Vector3dc)
+    private data class CellKey(val x: Long, val y: Long, val z: Long)
+    private data class RailPairKey(val first: UUID, val second: UUID)
+
+    /**
+     * Connect by spatially bucketing endpoints instead of checking every rail pair.
+     * The previous O(n²) scan ran on the Bukkit main thread and could freeze worlds with
+     * many persisted rails. Neighbour-cell lookup keeps normal use close to O(n).
+     */
+    private fun connectNearbyEndpoints(rails: List<CoreRail>, tolerance: Double): ConnectResult {
+        val endpoints = rails.flatMap { rail ->
+            listOf(
+                Endpoint(rail, rail.viewBA.endPoint.position),
+                Endpoint(rail, rail.viewAB.endPoint.position)
+            )
+        }
+        val buckets = HashMap<CellKey, MutableList<Endpoint>>()
+        val considered = HashSet<RailPairKey>()
+        var connected = 0
+        var failed = 0
+
+        for (endpoint in endpoints) {
+            for (candidate in nearbyEndpoints(endpoint.position, tolerance, buckets)) {
+                if (candidate.rail == endpoint.rail) continue
+                val pairKey = railPairKey(endpoint.rail, candidate.rail)
+                if (!considered.add(pairKey)) continue
+                if (endpoint.position.distance(candidate.position) > tolerance) continue
+                if (areConnected(endpoint.rail, candidate.rail)) continue
+                runCatching {
+                    CoreRail.connect(endpoint.rail, candidate.rail)
+                    connected++
+                }.onFailure {
+                    failed++
+                }
+            }
+            buckets.getOrPut(cellKey(endpoint.position, tolerance)) { mutableListOf() }.add(endpoint)
+        }
+        return ConnectResult(connected, failed)
+    }
+
+    private fun nearbyEndpoints(
+        position: Vector3dc,
+        tolerance: Double,
+        buckets: Map<CellKey, List<Endpoint>>
+    ): Sequence<Endpoint> {
+        if (tolerance <= 0.0) {
+            return buckets[cellKey(position, tolerance)].orEmpty().asSequence()
+        }
+        val base = cellKey(position, tolerance)
+        return sequence {
+            for (dx in -1L..1L) {
+                for (dy in -1L..1L) {
+                    for (dz in -1L..1L) {
+                        buckets[CellKey(base.x + dx, base.y + dy, base.z + dz)]?.let { yieldAll(it) }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cellKey(position: Vector3dc, tolerance: Double): CellKey {
+        if (tolerance <= 0.0) {
+            return CellKey(
+                java.lang.Double.doubleToLongBits(position.x()),
+                java.lang.Double.doubleToLongBits(position.y()),
+                java.lang.Double.doubleToLongBits(position.z())
+            )
+        }
+        return CellKey(
+            floor(position.x() / tolerance).toLong(),
+            floor(position.y() / tolerance).toLong(),
+            floor(position.z() / tolerance).toLong()
+        )
+    }
+
+    private fun railPairKey(a: CoreRail, b: CoreRail): RailPairKey =
+        if (a.id.toString() <= b.id.toString()) RailPairKey(a.id, b.id) else RailPairKey(b.id, a.id)
 
     private fun handleDelete(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {

@@ -86,7 +86,10 @@ class CoreBogie @MainThread internal constructor(
     @MainThread
     override fun reverse() {
         isSameDirectionAsFacing = !isSameDirectionAsFacing
-        location = location.reversed
+        val reversedLocation = location.reversed
+        _location.set(reversedLocation)
+        _location.commit()
+        _location.set(reversedLocation)
     }
 
     override fun save(): SavedBogieV1 {

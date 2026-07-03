@@ -208,7 +208,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         val tangent = point.tangent
         val normal = point.normal
         val binormal = Vector3d()
-        normal.cross(tangent, binormal).normalize()
+        tangent.cross(normal, binormal).normalize()
 
         return Vector3d(
             point.position.x() + tangent.x() * offset.x + normal.x() * offset.y + binormal.x() * offset.z,
@@ -219,27 +219,22 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
 
     /**
      * 根据曲线点的切线和法线计算旋转四元数。
-     * right = normal × tangent（右手系）
-     * 矩阵列 = [right, normal, tangent]（JOML Matrix3d 构造函数按列分组填充）
+     * local X = tangent, local Y = normal, local Z = tangent × normal.
      */
     private fun computeCurveRotation(point: Curve.Point): Quaterniond {
         val tangent = point.tangent
         val normal = point.normal
         val binormal = Vector3d()
-        normal.cross(tangent, binormal).normalize()
+        tangent.cross(normal, binormal).normalize()
 
         // Matrix3d(a,b,c,d,e,f,g,h,i) fills columns: Col0=(a,b,c), Col1=(d,e,f), Col2=(g,h,i)
-        // Col0 = world dir of model+X = binormal, Col1 = normal, Col2 = tangent
-        // 然后取共轭（取反 Y 轴）：q' = (w, x, -y, z)，将绕 Y 轴旋转取反
+        // Col0 = world dir of model+X = tangent, Col1 = normal, Col2 = binormal.
         val rotationMatrix = Matrix3d(
-            binormal.x(), binormal.y(), binormal.z(),
+            tangent.x(), tangent.y(), tangent.z(),
             normal.x(), normal.y(), normal.z(),
-            tangent.x(), tangent.y(), tangent.z()
+            binormal.x(), binormal.y(), binormal.z()
         )
-        val q = Quaterniond().setFromNormalized(rotationMatrix)
-        // 取共轭（取反 X 轴）：q' = (w, -x, y, z)，将绕 Y 轴旋转方向取反。
-        // JOML 构造函数参数顺序是 (x, y, z, w)。
-        return Quaterniond(-q.x(), q.y(), q.z(), q.w())
+        return Quaterniond().setFromNormalized(rotationMatrix)
     }
 
     private fun computeElementRotation(rotation: RotationConfig): Quaterniond {

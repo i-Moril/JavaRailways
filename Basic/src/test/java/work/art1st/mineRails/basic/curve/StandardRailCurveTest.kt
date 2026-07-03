@@ -3,9 +3,11 @@ package work.art1st.mineRails.basic.curve
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import java.time.Duration
 import kotlin.math.abs
 
 /**
@@ -88,6 +90,17 @@ class StandardRailCurveTest {
             for (p in points.take(5)) {
                 assertTrue(abs(p.normal.y() - 1.0) < 1e-6, "默认法线应向上")
             }
+        }
+
+        @Test
+        fun `长曲线点生成不会二次复杂度卡死`() {
+            val curve = StandardRailCurve(500.0, 100.0, 300.0)
+            var points: List<StandardRailCurve.CurveRawPoint> = emptyList()
+            assertTimeoutPreemptively(Duration.ofSeconds(2)) {
+                points = curve.generatePoints(0.2)
+            }
+            assertTrue(points.size in 2500..2502)
+            assertEquals(curve.totalLength, points.last().arcLength, 1e-9)
         }
     }
 

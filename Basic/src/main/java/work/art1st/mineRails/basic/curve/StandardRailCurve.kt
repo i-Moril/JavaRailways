@@ -231,33 +231,43 @@ class StandardRailCurve(
      * @return 点列表
      */
     fun generatePoints(step: Double = 1e-3): List<CurveRawPoint> {
+        require(step > 0.0) { "step must be positive" }
+
         val points = mutableListOf<CurveRawPoint>()
         var s = 0.0
+        var x = 0.0
+        var z = 0.0
 
-        while (s <= totalLength + 1e-9) {
-            val point = pointAt(s)
-            val theta = point.tangentAngle
-
+        fun addPoint(arc: Double, px: Double, pz: Double) {
+            val theta = tangentAngleAt(arc)
             val tangent = Vector3d(cos(theta), 0.0, sin(theta))
 
             // 超高角：外轨在正 Z 方向倾斜
-            val superelAngle = kotlin.math.atan2(point.superelevation, 1.435)
+            val superelAngle = kotlin.math.atan2(superelevationAt(arc), 1.435)
             // 法线：考虑超高的轨道平面法线（绕 X 轴旋转 superelAngle）
-            val normal = Vector3d(
-                0.0,
-                cos(superelAngle),
-                sin(superelAngle)
-            )
+            val normal = Vector3d(0.0, cos(superelAngle), sin(superelAngle))
 
             points.add(CurveRawPoint(
-                Vector3d(point.position.x, point.position.y, point.position.z),
+                Vector3d(px, 0.0, pz),
                 tangent,
                 normal,
-                s
+                arc
             ))
-            s += step
         }
 
+        // 旧实现每个采样点都调用 pointAt(s)，而 pointAt 又从 0 重新积分到 s，
+        // 总复杂度约 O((L/step)^2)，长曲线会在主线程建轨时卡死。
+        // 这里沿弧长单次前进积分，保持与 positionAt 的左端点欧拉积分一致，复杂度 O(L/step)。
+        while (s < totalLength - 1e-9) {
+            addPoint(s, x, z)
+            val ds = minOf(step, totalLength - s)
+            val theta = tangentAngleAt(s)
+            x += cos(theta) * ds
+            z += sin(theta) * ds
+            s += ds
+        }
+
+        addPoint(totalLength, x, z)
         return points
     }
 

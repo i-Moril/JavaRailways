@@ -111,6 +111,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         private val WAND_ITEM = Material.STICK
         private val ANCHOR_DISPLAY_MATERIAL = Material.REDSTONE_TORCH
         private val SELECTED_ANCHOR_MATERIAL = Material.REDSTONE_TORCH
+        private val ANCHOR_DIRECTION_MATERIAL = Material.ARROW
 
         // 简单的递增锚点 ID
         private var anchorCounter = 0L
@@ -1039,35 +1040,63 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
     private fun spawnAnchorDisplay(player: Player, anchor: Anchor) {
         val worldId = player.world.uid.toString()
+        val entityIds = anchorEntities
+            .getOrPut(worldId) { mutableMapOf() }
+            .getOrPut(anchor.id) { mutableSetOf() }
+
+        val anchorEntity = spawnAnchorDisplayEntity(
+            player = player,
+            anchor = anchor,
+            position = anchor.position,
+            material = ANCHOR_DISPLAY_MATERIAL,
+            scale = 1.1f,
+            showName = true
+        )
+        entityIds.add(anchorEntity.uniqueId)
+
+        val direction = Vector3d(anchor.tangent)
+        if (direction.lengthSquared() > 1e-9) {
+            direction.normalize()
+            val directionPosition = Vector3d(anchor.position).fma(1.35, direction)
+            val directionEntity = spawnAnchorDisplayEntity(
+                player = player,
+                anchor = anchor,
+                position = directionPosition,
+                material = ANCHOR_DIRECTION_MATERIAL,
+                scale = 0.8f,
+                showName = false
+            )
+            entityIds.add(directionEntity.uniqueId)
+        }
+    }
+
+    private fun spawnAnchorDisplayEntity(
+        player: Player,
+        anchor: Anchor,
+        position: Vector3dc,
+        material: Material,
+        scale: Float,
+        showName: Boolean
+    ): ItemDisplay {
         val displayEntity = player.world.spawn(
-            Location(player.world, anchor.position.x(), anchor.position.y(), anchor.position.z()),
+            Location(player.world, position.x(), position.y(), position.z()),
             ItemDisplay::class.java
         ) { entity ->
-            entity.setItemStack(ItemStack(ANCHOR_DISPLAY_MATERIAL))
+            entity.setItemStack(ItemStack(material))
             entity.isPersistent = false
             entity.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
-            // 设置名称标签
             entity.customName(Component.text(anchor.id, NamedTextColor.RED))
-            entity.isCustomNameVisible = true
-            // 缩小一点
+            entity.isCustomNameVisible = showName
             entity.transformation = Transformation(
                 entity.transformation.translation,
                 entity.transformation.leftRotation,
-                org.joml.Vector3f(0.5f, 0.5f, 0.5f),
+                org.joml.Vector3f(scale, scale, scale),
                 entity.transformation.rightRotation
             )
-            // 仅对持有 wand 的玩家可见
             entity.isVisibleByDefault = false
         }
-
-        // 注册展示实体
-        anchorEntities
-            .getOrPut(worldId) { mutableMapOf() }
-            .getOrPut(anchor.id) { mutableSetOf() }
-            .add(displayEntity.uniqueId)
-
-        // 设置可见性为仅此玩家
         player.showEntity(plugin, displayEntity)
+        return displayEntity
     }
 
     private fun removeAnchorDisplay(player: Player, anchorId: String) {

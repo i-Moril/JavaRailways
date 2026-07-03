@@ -26,7 +26,6 @@ import work.art1st.mineRails.basic.curve.StandardRailCurve
 import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
-import work.art1st.mineRails.bukkit.persistence.PersistentAnchorStore
 import work.art1st.mineRails.bukkit.persistence.PersistedRailRenderMeta
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
@@ -125,7 +124,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
-    private val anchorStore = PersistentAnchorStore()
+    /** 临时锚点：仅存在于当前插件运行期，不再写入磁盘。 */
+    private val transientAnchors = mutableMapOf<UUID, MutableMap<String, Anchor>>()
     private var initialized = false
 
     /** ConfigAPI 注册中心 + Dialog 渲染器 */
@@ -148,7 +148,6 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     fun init() {
         if (initialized) return
         initialized = true
-        anchorStore.init(plugin.dataFolder)
         registerWandConfig()
         plugin.server.pluginManager.registerEvents(this, plugin)
         plugin.logger.info("RailWand initialized")
@@ -549,7 +548,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             val position = Vector3d(center).fma(offset, right)
             val anchorId = nextAnchorId()
             Anchor(anchorId, position, Vector3d(tangent), worldId = player.world.uid.toString()).also { anchor ->
-                anchorStore.add(player.world, anchor)
+                addAnchor(player.world, anchor)
                 spawnAnchorDisplay(player, anchor)
             }
         }
@@ -616,7 +615,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             return false
         }
 
-        val anchors = state.selectedAnchors.mapNotNull { anchorStore.get(player.world, it) }
+        val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
         if (anchors.size != expectedCount) {
             player.sendActionBar(Component.text("错误: 部分锚点不存在", NamedTextColor.RED))
             return false
@@ -884,7 +883,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             val newPos = Vector3d(x, y, z)
             val newTan = tangentFromYawPitch(newYaw, newPitch)
             val updated = anchor.withPosition(newPos).withTangent(newTan)
-            anchorStore.update(player.world, updated)
+            updateAnchor(player.world, updated)
             removeAnchorDisplay(player, anchor.id)
             spawnAnchorDisplay(player, updated)
             p.sendActionBar(Component.text("锚点 ${anchor.id} 已更新", NamedTextColor.GREEN))
@@ -892,7 +891,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     private fun editSelectedAnchors(player: Player, state: WandPlayerState) {
-        val anchors = state.selectedAnchors.mapNotNull { anchorStore.get(player.world, it) }
+        val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
         if (anchors.isEmpty()) return
 
         if (anchors.size == 1) {
@@ -917,7 +916,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                     val newYaw = oldYaw + dRad
                     val newTan = Vector3d(-sin(newYaw), 0.0, cos(newYaw))
                     val updated = a.withPosition(newPos).withTangent(newTan)
-                    anchorStore.update(p.world, updated)
+                    updateAnchor(p.world, updated)
                     removeAnchorDisplay(p, a.id)
                     spawnAnchorDisplay(p, updated)
                 }
@@ -957,7 +956,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     private fun deleteAnchor(player: Player, anchorId: String, state: WandPlayerState) {
-        val anchor = anchorStore.get(player.world, anchorId) ?: run {
+        val anchor = getAnchor(player.world, anchorId) ?: run {
             player.sendActionBar(Component.text("锚点不存在: $anchorId", NamedTextColor.RED))
             return
         }
@@ -971,7 +970,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
         // 清除展示实体
         removeAnchorDisplay(player, anchorId)
-        anchorStore.remove(player.world, anchorId)
+        removeAnchor(player.world, anchorId)
         state.selectedAnchors.remove(anchorId)
 
         pushUndo(player, WandAction.DeleteAnchor(player.world.uid, savedData))
@@ -987,12 +986,31 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     // ═══════════════════════════════════════════
-    // 辅助方法 — 锚点查找
+    // 辅助方法 — 临时锚点存储/查找
     // ═══════════════════════════════════════════
+
+    private fun anchorsFor(world: World): MutableMap<String, Anchor> =
+        transientAnchors.getOrPut(world.uid) { mutableMapOf() }
+
+    private fun addAnchor(world: World, anchor: Anchor) {
+        anchorsFor(world)[anchor.id] = anchor
+    }
+
+    private fun getAnchor(world: World, id: String): Anchor? = anchorsFor(world)[id]
+
+    private fun getAllAnchors(world: World): List<Anchor> = anchorsFor(world).values.toList()
+
+    private fun updateAnchor(world: World, anchor: Anchor) {
+        anchorsFor(world)[anchor.id] = anchor
+    }
+
+    private fun removeAnchor(world: World, id: String) {
+        anchorsFor(world).remove(id)
+    }
 
     private fun findNearestAnchor(player: Player, maxDistance: Double): Anchor? {
         val playerPos = player.location.toVector().toVector3d()
-        return anchorStore.getAll(player.world)
+        return getAllAnchors(player.world)
             .filter { it.position.distance(playerPos) <= maxDistance }
             .minByOrNull { it.position.distance(playerPos) }
     }
@@ -1175,7 +1193,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     /** 加载世界时刷新所有锚点展示 */
     fun refreshAllAnchorsForPlayer(player: Player) {
         removeAllAnchorDisplays(player)
-        anchorStore.getAll(player.world).forEach { spawnAnchorDisplay(player, it) }
+        getAllAnchors(player.world).forEach { spawnAnchorDisplay(player, it) }
     }
 
     // ═══════════════════════════════════════════
@@ -1251,7 +1269,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     private fun undoCreateAnchor(player: Player, action: WandAction.CreateAnchor) {
         val world = player.world
         removeAnchorDisplay(player, action.anchorId)
-        anchorStore.remove(world, action.anchorId)
+        removeAnchor(world, action.anchorId)
         getState(player).selectedAnchors.remove(action.anchorId)
     }
 
@@ -1268,13 +1286,13 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             Vector3d(data.tx, data.ty, data.tz),
             player.world.uid.toString()
         )
-        anchorStore.add(player.world, anchor)
+        addAnchor(player.world, anchor)
         spawnAnchorDisplay(player, anchor)
     }
 
     private fun redoDeleteAnchor(player: Player, action: WandAction.DeleteAnchor) {
         removeAnchorDisplay(player, action.anchor.id)
-        anchorStore.remove(player.world, action.anchor.id)
+        removeAnchor(player.world, action.anchor.id)
     }
 
     private fun undoCreateRail(player: Player, action: WandAction.CreateRail) {

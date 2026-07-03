@@ -594,6 +594,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
         // Step 2: 按并行线逐条注册 + 组内连接
         val pairsPerLane = anchors.size / 2
+        val existingRails = RailRenderMetaStore.load(player.world)
+            .mapNotNull { coreWorld.getRail(it.railId) }
         val createdRails = mutableListOf<CoreRail>()
         val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
         val undoActions = mutableListOf<WandAction>()
@@ -614,10 +616,11 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                 }
             }
 
+            val autoConnected = connectCreatedRailsToExisting(createdRails, existingRails)
             RailRenderMetaStore.upsertRails(player.world, persistedMetas)
             pushUndo(player, WandAction.MultiAction(undoActions))
             player.sendMessage(Component.text(
-                "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)", NamedTextColor.GREEN
+                "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)，自动连接 $autoConnected 条", NamedTextColor.GREEN
             ))
         } catch (e: Exception) {
             createdRails.forEach { rail ->
@@ -628,6 +631,46 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             }
             player.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
         }
+    }
+
+    /**
+     * 将本次新建轨道与既有轨道中端点重合的部分自动连接。
+     * 创建模式每次通常只创建一段 A->B；下一次从 B->C 时，新段不会进入同一批 createdRails，
+     * 因此必须显式把新段连接到之前已经存在的 B 端轨道。
+     */
+    private fun connectCreatedRailsToExisting(createdRails: List<CoreRail>, existingRails: List<CoreRail>): Int {
+        var connected = 0
+        val checkedPairs = HashSet<Pair<UUID, UUID>>()
+        for (created in createdRails) {
+            for (existing in existingRails) {
+                if (created == existing) continue
+                val key = if (created.id.toString() <= existing.id.toString()) {
+                    created.id to existing.id
+                } else {
+                    existing.id to created.id
+                }
+                if (!checkedPairs.add(key)) continue
+                if (areRailsConnected(created, existing)) continue
+                if (closestEndpointDistance(created, existing) > Curve.TOLERANCE) continue
+                runCatching {
+                    CoreRail.connect(created, existing)
+                    connected++
+                }
+            }
+        }
+        return connected
+    }
+
+    private fun areRailsConnected(a: CoreRail, b: CoreRail): Boolean =
+        a.viewAB.nextRails.any { it.rail == b } ||
+            a.viewBA.nextRails.any { it.rail == b } ||
+            b.viewAB.nextRails.any { it.rail == a } ||
+            b.viewBA.nextRails.any { it.rail == a }
+
+    private fun closestEndpointDistance(a: CoreRail, b: CoreRail): Double {
+        val aPoints = listOf(a.viewAB.startPoint.position, a.viewAB.endPoint.position)
+        val bPoints = listOf(b.viewAB.startPoint.position, b.viewAB.endPoint.position)
+        return aPoints.minOf { pa -> bPoints.minOf { pb -> pa.distance(pb) } }
     }
 
     /**

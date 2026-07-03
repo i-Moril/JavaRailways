@@ -230,7 +230,8 @@ class CoreCar @MainThread internal constructor(
 
     @Throws(BogieException::class)
     fun updateByPrevCar(prevCar: CoreCar) {
-        val prevCarTailPosition = getTailPosition(prevCar.activePositon, prevCar.activeDirection, prevCar.length)
+        val prevCarTailToHeadDirection = if (prevCar.isReversed) -prevCar.activeDirection else prevCar.activeDirection
+        val prevCarTailPosition = getTailPosition(prevCar.activePositon, prevCarTailToHeadDirection, prevCar.length)
         val couplerLength = headConnectorLength + prevCar.tailConnectorLength
         val currentHeadEndToTailBogieDistance = length - tailBogieToEndPointOffset
         val tailBogieSearchDistance =

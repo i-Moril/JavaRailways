@@ -6,6 +6,7 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.config.model.CarDefinition
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
@@ -25,7 +26,7 @@ object TrainCommand {
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /mr train <create|start|stop|throttle|reverse|info|list>")
+            sender.sendMessage("用法: /mr train <create|start|stop|throttle|reverse|info|list|delete>")
             return true
         }
 
@@ -37,6 +38,7 @@ object TrainCommand {
             "reverse" -> return handleReverse(sender)
             "info" -> return handleInfo(sender)
             "list" -> return handleList(sender)
+            "delete" -> return handleDelete(sender, args.drop(1))
             "sit" -> return handleSit(sender)
             "stand" -> return handleStand(sender)
             else -> sender.sendMessage("未知子命令: ${args[0]}")
@@ -63,11 +65,6 @@ object TrainCommand {
             return true
         }
 
-        val direction = work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB
-        val railView = nearestRail.getView(direction)
-        val nearestPoint = railView.curve.getNearestPoint(playerPos)
-        val headLocation = RailLocationWithFacing(railView, nearestPoint.arcLength)
-
         // 参数: /mr train create <train_type>
         val trainTypeName = args.firstOrNull() ?: "s100"
 
@@ -87,27 +84,50 @@ object TrainCommand {
             return true
         }
 
-        var currentLocation = headLocation
-        val cars = mutableListOf<CoreCar>()
-
-        for ((i, carModelName) in trainDef.composition.withIndex()) {
-            val carDef = modelManager.getCar(carModelName)
+        val carDefs = trainDef.composition.map { carModelName ->
+            modelManager.getCar(carModelName)
                 ?: run {
                     sender.sendMessage("错误: 未知车厢模型 '$carModelName'")
                     return true
                 }
+        }
+        if (carDefs.isEmpty()) {
+            sender.sendMessage("错误: 列车类型 '$trainTypeName' 没有车厢编组")
+            return true
+        }
+        val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
 
-            val carLength = carDef.length
+        val railViewAB = nearestRail.getView(work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB)
+        val nearestPoint = railViewAB.curve.getNearestPoint(playerPos)
+        val rawHeadAB = RailLocationWithFacing(railViewAB, nearestPoint.arcLength)
+        val headLocation = findPlaceableHeadLocation(rawHeadAB, requiredBehindHead, playerPos)
+            ?: run {
+                sender.sendMessage("错误: 附近轨道长度不足，无法放置 ${"%.1f".format(requiredBehindHead)}m 的列车")
+                sender.sendMessage("请站在更靠轨道中段的位置，或先把斜坡与前后轨道连接起来。")
+                return true
+            }
+        val firstHeadBogieOffset = headBogieToEndPointOffset(carDefs.first())
+        val initialBogieLocation = headLocation.forward(-firstHeadBogieOffset)
+            ?: run {
+                sender.sendMessage("错误: 无法初始化车头转向架位置")
+                return true
+            }
 
-            val bogieA = CoreBogie.create(currentLocation)
-            val nextLocation = currentLocation.forward(carLength) ?: currentLocation
-            val bogieB = CoreBogie.create(nextLocation)
+        val cars = mutableListOf<CoreCar>()
+
+        for ((i, carModelName) in trainDef.composition.withIndex()) {
+            val carDef = carDefs[i]
+
+            // 初始时所有转向架先放在一个已验证可用的位置；随后 setLocation() 会按整列车几何重新排布。
+            // 这样避免在轨道末端/斜坡底部创建列车时，临时向前摆放 bogie 导致误判或越界。
+            val bogieA = CoreBogie.create(initialBogieLocation)
+            val bogieB = CoreBogie.create(initialBogieLocation)
 
             val car = CoreCar.create(
                 id = "${sender.name}-car-$i",
                 bogieA = bogieA,
                 bogieB = bogieB,
-                length = carLength,
+                length = carDef.length,
                 floorHeight = carDef.floorHeight,
                 connectorLengthAtA = carDef.connectorLengthA,
                 connectorLengthAtB = carDef.connectorLengthB,
@@ -116,7 +136,6 @@ object TrainCommand {
                 world = coreWorld
             )
             cars.add(car)
-            currentLocation = nextLocation
 
             // 注册车厢渲染扩展
             val carExtension = CarExtension()
@@ -126,13 +145,26 @@ object TrainCommand {
         }
 
         val trainId = "train-${UUID.randomUUID().toString().take(8)}"
-        val train = CoreTrain.create(
-            id = trainId,
-            cars = cars,
-            world = coreWorld
-        )
-
-        train.setLocation(headLocation)
+        var createdTrain: CoreTrain? = null
+        val train = try {
+            val newTrain = CoreTrain.create(
+                id = trainId,
+                cars = cars,
+                world = coreWorld
+            )
+            createdTrain = newTrain
+            newTrain.setLocation(headLocation)
+            newTrain
+        } catch (e: Exception) {
+            createdTrain?.let { failedTrain ->
+                failedTrain.destroy()
+                coreWorld.removeTrain(failedTrain)
+            }
+            sender.sendMessage("错误: 创建列车失败: ${e.javaClass.simpleName}${e.message?.let { ": $it" } ?: ""}")
+            sender.sendMessage("提示: 斜坡短轨道需要先连接到足够长的前后轨道，否则整列车无法排布。")
+            cars.forEach { it.destroy() }
+            return true
+        }
         train.commit()
         coreWorld.renderChunkManager.render()
         // Force model build for the creating player immediately
@@ -154,6 +186,64 @@ object TrainCommand {
 
     private fun formatVector(vector: Vector3dc): String =
         "(%.2f, %.2f, %.2f)".format(vector.x(), vector.y(), vector.z())
+
+    private fun estimateTrainLengthBehindHead(carDefs: List<CarDefinition>): Double {
+        if (carDefs.isEmpty()) return 0.0
+        val carLengths = carDefs.sumOf { it.length }
+        val couplers = carDefs.zipWithNext().sumOf { (front, back) ->
+            front.connectorLengthB + back.connectorLengthA
+        }
+        return carLengths + couplers
+    }
+
+    private fun headBogieToEndPointOffset(carDef: CarDefinition): Double {
+        val bogieAOffset = carDef.bogieAOffset ?: (carDef.length * 0.3)
+        return carDef.length / 2.0 - bogieAOffset
+    }
+
+    private fun findPlaceableHeadLocation(
+        rawHeadAB: RailLocationWithFacing,
+        requiredBehindHead: Double,
+        playerPos: Vector3dc
+    ): RailLocationWithFacing? {
+        val candidates = listOf(rawHeadAB, rawHeadAB.reversed).mapNotNull { raw ->
+            shiftHeadForwardUntilTailFits(raw, requiredBehindHead)
+        }
+        return candidates.minByOrNull { it.position.distance(playerPos) }
+    }
+
+    private fun shiftHeadForwardUntilTailFits(
+        rawHead: RailLocationWithFacing,
+        requiredBehindHead: Double
+    ): RailLocationWithFacing? {
+        if (rawHead.forward(-requiredBehindHead) != null) return rawHead
+
+        var hi = 1.0
+        var hiLoc: RailLocationWithFacing? = null
+        val maxShift = requiredBehindHead * 2.0 + 1.0
+        while (hi <= maxShift) {
+            val shifted = rawHead.forward(hi) ?: return null
+            if (shifted.forward(-requiredBehindHead) != null) {
+                hiLoc = shifted
+                break
+            }
+            hi *= 2.0
+        }
+        hiLoc ?: return null
+
+        var lo = 0.0
+        repeat(40) {
+            val mid = (lo + hi) / 2.0
+            val shifted = rawHead.forward(mid)
+            if (shifted != null && shifted.forward(-requiredBehindHead) != null) {
+                hi = mid
+                hiLoc = shifted
+            } else {
+                lo = mid
+            }
+        }
+        return hiLoc
+    }
 
     private fun handleStart(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
@@ -251,6 +341,31 @@ object TrainCommand {
         return true
     }
 
+    private fun handleDelete(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        val world = getPlayerWorld(sender) ?: return true
+        val coreWorld = world as? CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 CoreWorld")
+            return true
+        }
+
+        val train = args.firstOrNull()?.let { coreWorld.getTrain(it) as? CoreTrain }
+            ?: findNearestTrain(sender, coreWorld)
+            ?: run {
+                sender.sendMessage("错误: 附近没有列车")
+                return true
+            }
+
+        playerControllers.entries.removeIf { it.value.controlledTrain == train }
+        train.destroy()
+        coreWorld.removeTrain(train)
+        sender.sendMessage("已删除列车: ${train.id}")
+        return true
+    }
+
     private fun handleSit(sender: CommandSender): Boolean {
         if (sender !is Player) {
             sender.sendMessage("此命令需要玩家执行")
@@ -301,15 +416,24 @@ object TrainCommand {
             sender.sendMessage("附近没有轨道")
         }
 
+        val nearestTrain = findNearestTrain(sender, coreWorld)
         val controller = playerControllers[sender.uniqueId]
-        if (controller != null) {
-            val train = controller.controlledTrain
+        val train = controller?.controlledTrain ?: nearestTrain
+        if (train != null) {
             sender.sendMessage("=== 列车状态 ===")
             sender.sendMessage("列车: ${train.id}")
-            sender.sendMessage("速度: ${"%.2f".format(controller.speed)} m/s")
-            sender.sendMessage("目标速度: ${"%.2f".format(controller.targetSpeed)} m/s")
-            sender.sendMessage("手柄: ${"%.2f".format(controller.throttle)}")
+            if (controller != null) {
+                sender.sendMessage("速度: ${"%.2f".format(controller.speed)} m/s")
+                sender.sendMessage("目标速度: ${"%.2f".format(controller.targetSpeed)} m/s")
+                sender.sendMessage("手柄: ${"%.2f".format(controller.throttle)}")
+            } else {
+                sender.sendMessage("控制器: 未连接")
+            }
             sender.sendMessage("脱轨: ${if (train.isDerailed) "是" else "否"}")
+            (train as? CoreTrain)?.let { coreTrain ->
+                sender.sendMessage("车头: rail=${coreTrain.head.location.rail.id} s=${"%.2f".format(coreTrain.head.location.arcLength)} pos=${formatVector(coreTrain.head.location.position)}")
+                sender.sendMessage("当前 rail 前向连接数: ${coreTrain.head.location.railView.nextRails.size}")
+            }
         }
 
         return true

@@ -1,7 +1,10 @@
 package work.art1st.mineRails.core.physics.train
 
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
+import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 
 class CoreTrainTailBogieTest {
@@ -23,5 +26,24 @@ class CoreTrainTailBogieTest {
         train.reverse()
 
         assertSame(train.cars.first().bogieA, train.tailBogie)
+    }
+
+    @Test
+    fun `reversed train keeps cars spaced while moving`() {
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1000.0))
+        val train = createTrainWithConfig("t-reverse-spacing", rail, world, listOf(10.0, 10.0, 10.0), isLoop = false)
+
+        train.setLocation(RailLocationWithFacing(rail.viewAB, 150.0))
+        train.commit()
+        train.reverse()
+        train.moveTrainForward(5.0)
+        train.commit()
+
+        assertFalse(train.isDerailed)
+        val d01 = train.cars[0].position.distance(train.cars[1].position)
+        val d12 = train.cars[1].position.distance(train.cars[2].position)
+        assertEquals(10.0, d01, 0.5, "car 0/1 spacing")
+        assertEquals(10.0, d12, 0.5, "car 1/2 spacing")
     }
 }

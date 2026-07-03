@@ -98,11 +98,11 @@ data class RailLocationWithFacing internal constructor(
         val baseLength: Double
         if (distance >= 0) {
             arcLength = distance
-            baseLength = arcLength
+            baseLength = this.arcLength
         } else {
             arcLength = -distance
             railView = railView.reversed
-            baseLength = railView.curve.totalArcLength - point.arcLength
+            baseLength = railView.curve.totalArcLength - this.arcLength
         }
         segment = RailSegment(railView, baseLength, min(railView.curve.totalArcLength, baseLength + arcLength))
         while (true) {
@@ -126,28 +126,20 @@ data class RailLocationWithFacing internal constructor(
     fun peekRailObjects(distance: Double): List<RailObject> {
         val list = ArrayList<RailObject>()
         val rails = peekCurve(distance)
-        var maxDistance = distance
-        var minDistance = arcLength
-        // 挨个检查RailObject相对的arcLength
-        for (x in rails) {
-            val railView = x.railView
+        for (segment in rails) {
+            val railView = segment.railView
             for (s in railView.staticRailObjects) {
-                val arcLength = s.location.arcLengthIn(facing)
-                if (arcLength > maxDistance) {
-                    break
-                }
-                if (arcLength > minDistance) {
+                val objectArc = s.location.arcLengthIn(railView.viewDirection)
+                if (segment.startArcLength < objectArc && objectArc <= segment.endArcLength) {
                     list.add(s)
                 }
             }
             for (s in railView.dynamicRailObjects) {
-                val arcLength = s.location.arcLengthIn(facing)
-                if (minDistance < arcLength && arcLength <=maxDistance) {
+                val objectArc = s.location.arcLengthIn(railView.viewDirection)
+                if (segment.startArcLength < objectArc && objectArc <= segment.endArcLength) {
                     list.add(s)
                 }
             }
-            maxDistance -= railView.curve.totalArcLength
-            minDistance = -1.0   // 只有第一个循环会用到minDistance
         }
         return list
     }
@@ -155,22 +147,14 @@ data class RailLocationWithFacing internal constructor(
     fun peekSignals(distance: Double): List<Signal> {
         val list = ArrayList<Signal>()
         val rails = peekCurve(distance)
-        var maxDistance = distance
-        var minDistance = arcLength
-        // 挨个检查RailObject相对的arcLength
-        for (x in rails) {
-            val railView = x.railView
+        for (segment in rails) {
+            val railView = segment.railView
             for (s in railView.staticRailObjects) {
-                val arcLength = s.location.arcLengthIn(facing)
-                if (arcLength > maxDistance) {
-                    break
-                }
-                if (arcLength > minDistance) {
+                val objectArc = s.location.arcLengthIn(railView.viewDirection)
+                if (segment.startArcLength < objectArc && objectArc <= segment.endArcLength) {
                     list.add(s)
                 }
             }
-            maxDistance -= railView.curve.totalArcLength
-            minDistance = -1.0   // 只有第一个循环会用到minDistance
         }
         return list
     }
@@ -178,19 +162,14 @@ data class RailLocationWithFacing internal constructor(
     fun peekTrains(distance: Double): List<TrainEnd> {
         val list = ArrayList<TrainEnd>()
         val rails = peekCurve(distance)
-        var maxDistance = distance
-        var minDistance = arcLength
-        // 挨个检查RailObject相对的arcLength
-        for (x in rails) {
-            val railView = x.railView
+        for (segment in rails) {
+            val railView = segment.railView
             for (s in railView.dynamicRailObjects) {
-                val arcLength = s.location.arcLengthIn(facing)
-                if (minDistance < arcLength && arcLength <=maxDistance) {
+                val objectArc = s.location.arcLengthIn(railView.viewDirection)
+                if (segment.startArcLength < objectArc && objectArc <= segment.endArcLength) {
                     list.add(s)
                 }
             }
-            maxDistance -= railView.curve.totalArcLength
-            minDistance = -1.0   // 只有第一个循环会用到minDistance
         }
         return list
     }

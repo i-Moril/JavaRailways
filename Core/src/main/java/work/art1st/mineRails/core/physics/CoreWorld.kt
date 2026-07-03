@@ -100,7 +100,16 @@ class CoreWorld(
             val world = CoreWorld(dependency.tickManager, dependency.worldParent)
             val railDependency = CoreRail.SavedRailV1.Dependency(world)
             rails.forEach { world.addRail(it.load(railDependency)) }
-            trains.forEach { world.addTrain(it.load(world)) }
+            trains.forEach { savedTrain ->
+                try {
+                    world.addTrain(savedTrain.load(world))
+                } catch (t: Throwable) {
+                    System.err.println(
+                        "[MineRails] Skipping invalid persisted train '${savedTrain.id}' while loading world: " +
+                            "${t::class.simpleName}: ${t.message ?: ""}"
+                    )
+                }
+            }
             return world
         }
     }

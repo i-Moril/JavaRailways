@@ -149,9 +149,10 @@ open class CoreTrain @MainThread internal constructor(
     }
 
     private fun updateAfterHeadBogie() {
-        var prevCar = cars.first()
+        val orderedCars = if (isReversed) cars.asReversed() else cars
+        var prevCar = orderedCars.first()
         prevCar.updateByHeadBogie(headBogie.activeLocation)
-        for (car in cars.slice(1..cars.lastIndex)) {
+        for (car in orderedCars.drop(1)) {
             car.updateByPrevCar(prevCar)
             prevCar = car
         }

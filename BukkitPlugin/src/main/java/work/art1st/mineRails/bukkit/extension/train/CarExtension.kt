@@ -5,12 +5,14 @@ import org.joml.Matrix3d
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Bogie
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
+import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 
 /**
@@ -60,11 +62,29 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     override fun updateModel() {
         val model = bodyModel ?: return
+        val renderRotation = rotationFrom(self.direction, self.normal)
         val carTransform = CompactTransform(
             position = self.position,
-            rotation = rotationFrom(self.direction, self.normal)
+            rotation = renderRotation
         )
         model.updateState(carTransform, self.velocity)
+
+        if (TrainDebugLog.enabled) {
+            val euler = TrainDebugLog.euler(renderRotation)
+            TrainDebugLog.logRow(listOf(
+                System.currentTimeMillis(), "render", self.world.bukkitWorldData.bukkitWorld.uid,
+                null, null, (self as? CoreCar)?.id ?: self.hashCode(),
+                null, null, null,
+                null, null, null, null, null,
+                self.position.x(), self.position.y(), self.position.z(),
+                self.direction.x(), self.direction.y(), self.direction.z(),
+                self.normal.x(), self.normal.y(), self.normal.z(),
+                null, null, null, null, null, null, null, null, null, null, null, null,
+                euler.x(), euler.y(), euler.z(),
+                renderRotation.x(), renderRotation.y(), renderRotation.z(), renderRotation.w(),
+                "CarExtension.updateModel"
+            ))
+        }
 
         self.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
             val bogieRootPosition = Vector3d(bogie.position).add(

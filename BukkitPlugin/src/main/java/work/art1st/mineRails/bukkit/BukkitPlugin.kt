@@ -6,6 +6,7 @@ import work.art1st.mineRails.bukkit.config.RailModelConfig
 import work.art1st.mineRails.bukkit.config.loadRailModelConfig
 import work.art1st.mineRails.bukkit.config.getDefaultRailModelConfig
 import work.art1st.mineRails.bukkit.config.model.ModelManager
+import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.mineRails.bukkit.tool.RailWand
@@ -72,6 +73,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     override fun onDisable() {
         val worlds = worldManager.railWorlds.keys.toList()
         worlds.forEach { worldManager.unregisterRailWorld(it) }
+        runCatching { TrainDebugLog.close() }
     }
 
     private fun loadRailModelConfigFromPlugin(): RailModelConfig {

@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
+import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.extension.train.SeatExtension
 import work.art1st.mineRails.bukkit.persistence.WorldPersistence
@@ -55,6 +56,29 @@ class WorldManager(
 
         railWorlds.forEach { (world, railWorld) ->
             railWorld.tickManager.postTick()
+            if (TrainDebugLog.enabled) {
+                (railWorld as? CoreWorld)?.let { coreWorld ->
+                    coreWorld.allTrains.forEach { train ->
+                        train.cars.forEachIndexed { index, car ->
+                            TrainDebugLog.logRow(listOf(
+                                System.currentTimeMillis(), "physics", world.uid, train.id, index, car.id,
+                                train.speed, train.isDerailed, train.controller?.javaClass?.simpleName ?: "",
+                                train.head.location.rail.id, train.head.location.arcLength,
+                                train.head.location.position.x(), train.head.location.position.y(), train.head.location.position.z(),
+                                car.position.x(), car.position.y(), car.position.z(),
+                                car.direction.x(), car.direction.y(), car.direction.z(),
+                                car.normal.x(), car.normal.y(), car.normal.z(),
+                                car.bogieA.position.x(), car.bogieA.position.y(), car.bogieA.position.z(),
+                                car.bogieB.position.x(), car.bogieB.position.y(), car.bogieB.position.z(),
+                                car.bogieA.direction.x(), car.bogieA.direction.y(), car.bogieA.direction.z(),
+                                car.bogieB.direction.x(), car.bogieB.direction.y(), car.bogieB.direction.z(),
+                                null, null, null, null, null, null, null,
+                                "after_postTick_before_render"
+                            ))
+                        }
+                    }
+                }
+            }
             railWorld.renderChunkManager.render()
         }
     }

@@ -44,11 +44,10 @@ bukkitPluginYaml {
     depend.add("MineRails")
 }
 
-// 不打包任何依赖——所有类（Kotlin stdlib、Basic、Core、ConfigLib）
-// 由父插件 MineRails 通过 join-classpath 提供，避免类加载器冲突。
+// Dev 插件有独立 classloader；Bukkit/Paper 的 depend 不保证能看到 MineRails jar 里的 Kotlin stdlib。
+// 因此保留 kotlin-stdlib，其它 MineRails 模块仍由主插件提供，避免重复加载业务类。
 shadowJar {
     dependencies {
-        exclude(dependency("org.jetbrains.kotlin:.*"))
         exclude(dependency("org.jetbrains.kotlinx:.*"))
         exclude(project(":Core"))
         exclude(project(":Basic"))

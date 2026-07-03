@@ -226,21 +226,25 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         val anchorId = ConfigKey.build<String>("anchor.id") {
             label = "锚点 ID"; defaultValue(""); valueType = ConfigValueType.STRING; group = "anchor.edit"; order = 0
         }
-        val posX = ConfigKey.build<Double>("anchor.posX") {
-            label = "X 坐标"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(-3e7, 3e7, 0.5, ""); group = "anchor.edit"; order = 1
+        val posX = ConfigKey.build<String>("anchor.posX") {
+            label = "X 坐标"; defaultValue("0.000"); valueType = ConfigValueType.STRING
+            constraints = ConfigConstraints.StringLength(1, 32); group = "anchor.edit"; order = 1
         }
-        val posY = ConfigKey.build<Double>("anchor.posY") {
-            label = "Y 坐标"; defaultValue(64.0); valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(-64.0, 320.0, 0.5, ""); group = "anchor.edit"; order = 2
+        val posY = ConfigKey.build<String>("anchor.posY") {
+            label = "Y 坐标"; defaultValue("64.000"); valueType = ConfigValueType.STRING
+            constraints = ConfigConstraints.StringLength(1, 32); group = "anchor.edit"; order = 2
         }
-        val posZ = ConfigKey.build<Double>("anchor.posZ") {
-            label = "Z 坐标"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(-3e7, 3e7, 0.5, ""); group = "anchor.edit"; order = 3
+        val posZ = ConfigKey.build<String>("anchor.posZ") {
+            label = "Z 坐标"; defaultValue("0.000"); valueType = ConfigValueType.STRING
+            constraints = ConfigConstraints.StringLength(1, 32); group = "anchor.edit"; order = 3
         }
-        val tangentYaw = ConfigKey.build<Double>("anchor.yaw") {
-            label = "朝向 (yaw°)"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(-180.0, 180.0, 1.0, "°"); group = "anchor.edit"; order = 4
+        val tangentYaw = ConfigKey.build<String>("anchor.yaw") {
+            label = "Yaw (°)"; defaultValue("0.0"); valueType = ConfigValueType.STRING
+            constraints = ConfigConstraints.StringLength(1, 32); group = "anchor.edit"; order = 4
+        }
+        val tangentPitch = ConfigKey.build<String>("anchor.pitch") {
+            label = "Pitch (°)"; defaultValue("0.0"); valueType = ConfigValueType.STRING
+            constraints = ConfigConstraints.StringLength(1, 32); group = "anchor.edit"; order = 5
         }
         // 批量编辑模式: 增量字段
         val deltaX = ConfigKey.build<Double>("anchor.deltaX") {
@@ -285,6 +289,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             items.add(ConfigItemImpl(editKeys!!.posY))
             items.add(ConfigItemImpl(editKeys!!.posZ))
             items.add(ConfigItemImpl(editKeys!!.tangentYaw))
+            items.add(ConfigItemImpl(editKeys!!.tangentPitch))
         }
         configUI.register(editGroup)
 
@@ -820,26 +825,64 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
+    private fun formatEditNumber(value: Double, digits: Int = 3): String =
+        "% .${digits}f".format(Locale.US, value).trim()
+
+    private fun parseEditDouble(value: String?, fallback: Double, label: String, player: Player): Double? {
+        val raw = value?.trim().orEmpty()
+        if (raw.isEmpty()) return fallback
+        return raw.toDoubleOrNull() ?: run {
+            player.sendActionBar(Component.text("$label 不是有效数字: $raw", NamedTextColor.RED))
+            null
+        }
+    }
+
+    private fun tangentYawDegrees(tangent: Vector3dc): Double {
+        val direction = Vector3d(tangent)
+        if (direction.lengthSquared() < 1e-9) return 0.0
+        direction.normalize()
+        return Math.toDegrees(atan2(-direction.x(), direction.z()))
+    }
+
+    private fun tangentPitchDegrees(tangent: Vector3dc): Double {
+        val direction = Vector3d(tangent)
+        if (direction.lengthSquared() < 1e-9) return 0.0
+        direction.normalize()
+        return Math.toDegrees(asin(direction.y().coerceIn(-1.0, 1.0)))
+    }
+
+    private fun tangentFromYawPitch(yawDegrees: Double, pitchDegrees: Double): Vector3d {
+        val yawRad = Math.toRadians(yawDegrees)
+        val pitchRad = Math.toRadians(pitchDegrees.coerceIn(-89.9, 89.9))
+        val horizontal = cos(pitchRad)
+        return Vector3d(
+            -sin(yawRad) * horizontal,
+            sin(pitchRad),
+            cos(yawRad) * horizontal
+        ).normalize()
+    }
+
     private fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {
         // 将锚点当前值写入 session，然后打开 ConfigAPI Dialog
         val session = configUI.getPlayerSession(player.uniqueId)
-        val yaw = Math.toDegrees(atan2(anchor.tangent.x(), anchor.tangent.z()))
+        val yaw = tangentYawDegrees(anchor.tangent)
+        val pitch = tangentPitchDegrees(anchor.tangent)
         session.setValue(editKeys.anchorId, anchor.id)
-        session.setValue(editKeys.posX, anchor.position.x())
-        session.setValue(editKeys.posY, anchor.position.y())
-        session.setValue(editKeys.posZ, anchor.position.z())
-        session.setValue(editKeys.tangentYaw, yaw)
+        session.setValue(editKeys.posX, formatEditNumber(anchor.position.x()))
+        session.setValue(editKeys.posY, formatEditNumber(anchor.position.y()))
+        session.setValue(editKeys.posZ, formatEditNumber(anchor.position.z()))
+        session.setValue(editKeys.tangentYaw, formatEditNumber(yaw, digits = 1))
+        session.setValue(editKeys.tangentPitch, formatEditNumber(pitch, digits = 1))
         dialogRenderer.showConfigDialog(player, "anchor.edit") { p ->
             // 确认回调: 读取新值并更新锚点
             val s = configUI.getPlayerSession(p.uniqueId)
-            val newPos = Vector3d(
-                s.getValue(editKeys.posX) ?: anchor.position.x(),
-                s.getValue(editKeys.posY) ?: anchor.position.y(),
-                s.getValue(editKeys.posZ) ?: anchor.position.z()
-            )
-            val newYaw = s.getValue(editKeys.tangentYaw) ?: yaw
-            val rad = Math.toRadians(newYaw)
-            val newTan = Vector3d(-sin(rad), 0.0, cos(rad))
+            val x = parseEditDouble(s.getValue(editKeys.posX), anchor.position.x(), "X 坐标", p) ?: return@showConfigDialog
+            val y = parseEditDouble(s.getValue(editKeys.posY), anchor.position.y(), "Y 坐标", p) ?: return@showConfigDialog
+            val z = parseEditDouble(s.getValue(editKeys.posZ), anchor.position.z(), "Z 坐标", p) ?: return@showConfigDialog
+            val newYaw = parseEditDouble(s.getValue(editKeys.tangentYaw), yaw, "Yaw", p) ?: return@showConfigDialog
+            val newPitch = parseEditDouble(s.getValue(editKeys.tangentPitch), pitch, "Pitch", p) ?: return@showConfigDialog
+            val newPos = Vector3d(x, y, z)
+            val newTan = tangentFromYawPitch(newYaw, newPitch)
             val updated = anchor.withPosition(newPos).withTangent(newTan)
             anchorStore.update(player.world, updated)
             removeAnchorDisplay(player, anchor.id)

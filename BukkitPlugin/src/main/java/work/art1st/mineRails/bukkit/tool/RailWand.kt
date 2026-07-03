@@ -3,6 +3,8 @@ package work.art1st.mineRails.bukkit.tool
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.*
+import org.bukkit.block.Block
+import org.bukkit.block.BlockFace
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -461,7 +463,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         when {
             // 右键 → 创建锚点
             event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
-                createAnchorAtPlayer(player, state)
+                createAnchorAtPlayer(player, state, event)
             }
             // 左键锚点 → 选择
             event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
@@ -481,9 +483,12 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
-    /** 在玩家位置创建锚点（并尝试连接已选锚点） */
-    private fun createAnchorAtPlayer(player: Player, state: WandPlayerState) {
-        val position = getSnappedPosition(player, state)
+    /** 在交互目标方块/面创建锚点（并尝试连接已选锚点） */
+    private fun createAnchorAtPlayer(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
+        val position = getAnchorPlacementPosition(player, state, event) ?: run {
+            player.sendActionBar(Component.text("请右键方块创建锚点", NamedTextColor.RED))
+            return
+        }
         val tangent = getSnappedTangent(player, state)
         val anchorId = nextAnchorId()
         val anchor = Anchor(anchorId, position, tangent, worldId = player.world.uid.toString())
@@ -892,19 +897,39 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     // 辅助方法 — 位置/朝向吸附
     // ═══════════════════════════════════════════
 
-    private fun getSnappedPosition(player: Player, state: WandPlayerState): Vector3dc {
-        return if (state.snapToBlock) {
-            // 对齐到方块坐标 + (0.5, 0, 0.5)
-            val loc = player.location
-            Vector3d(
-                loc.blockX + 0.5,
-                loc.blockY.toDouble(),
-                loc.blockZ + 0.5
-            )
-        } else {
-            Vector3d(player.location.x, player.location.y, player.location.z)
+    private fun getAnchorPlacementPosition(
+        player: Player,
+        state: WandPlayerState,
+        event: PlayerInteractEvent
+    ): Vector3dc? {
+        val target = when {
+            event.action == Action.RIGHT_CLICK_BLOCK -> {
+                val block = event.clickedBlock ?: return null
+                block to event.blockFace
+            }
+            event.action == Action.RIGHT_CLICK_AIR -> {
+                val hit = player.rayTraceBlocks(128.0) ?: return null
+                val block = hit.hitBlock ?: return null
+                block to (hit.hitBlockFace ?: BlockFace.UP)
+            }
+            else -> return null
         }
+
+        if (!state.snapToBlock) {
+            val hit = player.rayTraceBlocks(128.0)
+            if (hit?.hitBlock == target.first) {
+                return hit.hitPosition.toVector3d()
+            }
+        }
+
+        return getBlockFaceCenter(target.first, target.second)
     }
+
+    private fun getBlockFaceCenter(block: Block, face: BlockFace): Vector3dc = Vector3d(
+        block.x + 0.5 + face.modX * 0.5,
+        block.y + 0.5 + face.modY * 0.5,
+        block.z + 0.5 + face.modZ * 0.5
+    )
 
     private fun getSnappedTangent(player: Player, state: WandPlayerState): Vector3dc {
         val yawRad = Math.toRadians(player.location.yaw.toDouble() + 180.0) // 玩家朝向

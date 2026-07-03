@@ -468,16 +468,20 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             // 左键锚点 → 选择
             event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
                 val clickedAnchor = findNearestAnchor(player, 3.0)
-                if (clickedAnchor != null && clickedAnchor.id !in state.selectedAnchors) {
-                    if (player.isSneaking) {
-                        state.selectedAnchors.add(clickedAnchor.id)
-                        player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
-                    } else {
-                        state.selectedAnchors.clear()
-                        state.selectedAnchors.add(clickedAnchor.id)
-                        player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
+                if (clickedAnchor != null) {
+                    if (clickedAnchor.id !in state.selectedAnchors) {
+                        if (player.isSneaking) {
+                            state.selectedAnchors.add(clickedAnchor.id)
+                            player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
+                        } else {
+                            state.selectedAnchors.clear()
+                            state.selectedAnchors.add(clickedAnchor.id)
+                            player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
+                        }
+                        updateAnchorDisplay(player)
                     }
-                    updateAnchorDisplay(player)
+                } else {
+                    clearAnchorSelection(player, state)
                 }
             }
         }
@@ -490,33 +494,65 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             return
         }
         val tangent = getSnappedTangent(player, state)
-        val anchorId = nextAnchorId()
-        val anchor = Anchor(anchorId, position, tangent, worldId = player.world.uid.toString())
-        anchorStore.add(player.world, anchor)
+        val newAnchors = createParallelAnchorGroup(player, position, tangent, state)
+        val newAnchorIds = newAnchors.map { it.id }
 
-        // 渲染锚点
-        spawnAnchorDisplay(player, anchor)
+        val undoActions = newAnchors.map { WandAction.CreateAnchor(player.world.uid, it.id) }
+        pushUndo(player, if (undoActions.size == 1) undoActions.single() else WandAction.MultiAction(undoActions))
 
-        // Undo 记录
-        pushUndo(player, WandAction.CreateAnchor(player.world.uid, anchorId))
+        player.sendActionBar(Component.text(
+            "已创建 ${newAnchors.size} 个锚点: ${newAnchorIds.joinToString(", ")}", NamedTextColor.GREEN
+        ))
 
-        player.sendActionBar(Component.text("已创建锚点 $anchorId", NamedTextColor.GREEN))
-
-        // 如果已选择锚点，尝试连接
+        val expectedCount = state.parallelCount * 2
         if (state.selectedAnchors.isNotEmpty()) {
-            state.selectedAnchors.add(anchorId)
-            connectSelectedAnchors(player, state)
+            state.selectedAnchors.addAll(newAnchorIds)
+            if (state.selectedAnchors.size >= expectedCount) {
+                val endAnchors = state.selectedAnchors.takeLast(state.parallelCount)
+                if (connectSelectedAnchors(player, state)) {
+                    state.selectedAnchors.clear()
+                    state.selectedAnchors.addAll(endAnchors)
+                }
+            } else {
+                player.sendActionBar(Component.text(
+                    "已选择 ${state.selectedAnchors.size}/$expectedCount 个锚点", NamedTextColor.YELLOW
+                ))
+            }
+        } else {
+            state.selectedAnchors.addAll(newAnchorIds)
         }
 
-        // 选择新锚点
-        state.selectedAnchors.clear()
-        state.selectedAnchors.add(anchorId)
         updateAnchorDisplay(player)
 
         // 可选：打开 Config Dialog
         if (state.openConfigAfterCreate) {
             player.sendMessage(Component.text("配置对话框暂未集成到此模式", NamedTextColor.GRAY))
         }
+    }
+
+    private fun createParallelAnchorGroup(
+        player: Player,
+        center: Vector3dc,
+        tangent: Vector3dc,
+        state: WandPlayerState
+    ): List<Anchor> {
+        val count = state.parallelCount.coerceAtLeast(1)
+        val right = perpendicularRight(tangent)
+        return (0 until count).map { index ->
+            val offset = (index - (count - 1) / 2.0) * state.parallelSpacing
+            val position = Vector3d(center).fma(offset, right)
+            val anchorId = nextAnchorId()
+            Anchor(anchorId, position, Vector3d(tangent), worldId = player.world.uid.toString()).also { anchor ->
+                anchorStore.add(player.world, anchor)
+                spawnAnchorDisplay(player, anchor)
+            }
+        }
+    }
+
+    private fun perpendicularRight(tangent: Vector3dc): Vector3d {
+        val horizontal = Vector3d(tangent.x(), 0.0, tangent.z())
+        if (horizontal.lengthSquared() < 1e-9) return Vector3d(1.0, 0.0, 0.0)
+        return horizontal.normalize().cross(Vector3d(0.0, 1.0, 0.0)).normalize()
     }
 
     // ═══════════════════════════════════════════
@@ -529,9 +565,10 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
                 val expectedCount = state.parallelCount * 2  // 并行 × (起点+终点)
                 if (state.selectedAnchors.size >= expectedCount) {
-                    connectSelectedAnchors(player, state)
-                    state.selectedAnchors.clear()
-                    updateAnchorDisplay(player)
+                    if (connectSelectedAnchors(player, state)) {
+                        state.selectedAnchors.clear()
+                        updateAnchorDisplay(player)
+                    }
                 } else {
                     player.sendActionBar(Component.text("请选择 $expectedCount 个锚点 (当前: ${state.selectedAnchors.size})", NamedTextColor.RED))
                 }
@@ -551,27 +588,40 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                         player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
                     }
                     updateAnchorDisplay(player)
+                } else {
+                    clearAnchorSelection(player, state)
                 }
             }
         }
     }
 
-    /** 连接已选择的锚点对，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
-    private fun connectSelectedAnchors(player: Player, state: WandPlayerState) {
-        if (state.selectedAnchors.size < 2) {
-            player.sendActionBar(Component.text("至少需要选择 2 个锚点", NamedTextColor.RED))
-            return
+    /** 连接已选择的锚点组，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
+    private fun connectSelectedAnchors(player: Player, state: WandPlayerState): Boolean {
+        val expectedCount = state.parallelCount * 2
+        if (state.selectedAnchors.size != expectedCount) {
+            player.sendActionBar(Component.text(
+                "需要选择 $expectedCount 个锚点 (当前: ${state.selectedAnchors.size})", NamedTextColor.RED
+            ))
+            return false
         }
 
         val coreWorld = getCoreWorld(player) ?: run {
             player.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
-            return
+            return false
         }
 
         val anchors = state.selectedAnchors.mapNotNull { anchorStore.get(player.world, it) }
-        if (anchors.size < 2) {
+        if (anchors.size != expectedCount) {
             player.sendActionBar(Component.text("错误: 部分锚点不存在", NamedTextColor.RED))
-            return
+            return false
+        }
+
+        val startAnchors = anchors.take(state.parallelCount)
+        val endAnchors = anchors.drop(state.parallelCount)
+        val validationError = validateParallelAnchorGroup(startAnchors, endAnchors, state)
+        if (validationError != null) {
+            player.sendActionBar(Component.text(validationError, NamedTextColor.RED))
+            return false
         }
 
         // Step 1: 预计算所有曲线（失败时不留垃圾）
@@ -581,44 +631,30 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         )
         val curvePairs = mutableListOf<CurvePair>()
         for (i in 0 until state.parallelCount) {
-            val offset = (i - (state.parallelCount - 1) / 2.0) * state.parallelSpacing
-            for (j in 0 until anchors.size step 2) {
-                if (j + 1 >= anchors.size) break
-                val fromAnchor = if (offset == 0.0) anchors[j] else shiftAnchorPerpendicular(anchors[j], offset)
-                val toAnchor = if (offset == 0.0) anchors[j + 1] else shiftAnchorPerpendicular(anchors[j + 1], offset)
-                val curve = createCurveBetweenAnchors(fromAnchor, toAnchor, state.curveRadius)
-                    ?: run {
-                        player.sendActionBar(Component.text(
-                            "无法创建曲线: ${fromAnchor.id}→${toAnchor.id}", NamedTextColor.RED
-                        ))
-                        return
-                    }
-                curvePairs.add(CurvePair(fromAnchor, toAnchor, curve))
-            }
+            val fromAnchor = startAnchors[i]
+            val toAnchor = endAnchors[i]
+            val curve = createCurveBetweenAnchors(fromAnchor, toAnchor, state.curveRadius)
+                ?: run {
+                    player.sendActionBar(Component.text(
+                        "无法创建曲线: ${fromAnchor.id}→${toAnchor.id}", NamedTextColor.RED
+                    ))
+                    return false
+                }
+            curvePairs.add(CurvePair(fromAnchor, toAnchor, curve))
         }
 
-        // Step 2: 按并行线逐条注册 + 组内连接
-        val pairsPerLane = anchors.size / 2
         val existingRails = RailRenderMetaStore.load(player.world)
             .mapNotNull { coreWorld.getRail(it.railId) }
         val createdRails = mutableListOf<CoreRail>()
         val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
         val undoActions = mutableListOf<WandAction>()
         try {
-            for (lane in 0 until state.parallelCount) {
-                val laneStartIndex = createdRails.size
-                for (j in 0 until pairsPerLane) {
-                    val pair = curvePairs[lane * pairsPerLane + j]
-                    val rail = CoreRail(coreWorld, pair.primeCurve, mutableListOf(), mutableListOf())
-                    val meta = RailVisualBootstrap.registerRail(rail)
-                    persistedMetas.add(meta)
-                    createdRails.add(rail)
-                    undoActions.add(WandAction.CreateRail(player.world.uid, rail.id, "standard"))
-                    // 同一条并行线内连接相邻段
-                    if (j > 0) {
-                        CoreRail.connect(createdRails[laneStartIndex + j - 1], rail)
-                    }
-                }
+            for (pair in curvePairs) {
+                val rail = CoreRail(coreWorld, pair.primeCurve, mutableListOf(), mutableListOf())
+                val meta = RailVisualBootstrap.registerRail(rail)
+                persistedMetas.add(meta)
+                createdRails.add(rail)
+                undoActions.add(WandAction.CreateRail(player.world.uid, rail.id, "standard"))
             }
 
             val autoConnected = connectCreatedRailsToExisting(createdRails, existingRails)
@@ -627,6 +663,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             player.sendMessage(Component.text(
                 "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)，自动连接 $autoConnected 条", NamedTextColor.GREEN
             ))
+            return true
         } catch (e: Exception) {
             createdRails.forEach { rail ->
                 rail.destroy()
@@ -635,7 +672,28 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                 RailRenderMetaStore.removeRail(player.world, rail.id)
             }
             player.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
+            return false
         }
+    }
+
+    private fun validateParallelAnchorGroup(
+        startAnchors: List<Anchor>,
+        endAnchors: List<Anchor>,
+        state: WandPlayerState
+    ): String? {
+        if (state.parallelCount <= 1) return null
+        val tolerance = max(0.25, state.parallelSpacing * 0.15)
+        for (i in 0 until state.parallelCount - 1) {
+            val startDistance = startAnchors[i].position.distance(startAnchors[i + 1].position)
+            if (abs(startDistance - state.parallelSpacing) > tolerance) {
+                return "起点组锚点间距应为 ${state.parallelSpacing}m (当前 %.2fm)".format(startDistance)
+            }
+            val endDistance = endAnchors[i].position.distance(endAnchors[i + 1].position)
+            if (abs(endDistance - state.parallelSpacing) > tolerance) {
+                return "终点组锚点间距应为 ${state.parallelSpacing}m (当前 %.2fm)".format(endDistance)
+            }
+        }
+        return null
     }
 
     /**
@@ -754,6 +812,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                     }
                     updateAnchorDisplay(player)
                     player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
+                } else {
+                    clearAnchorSelection(player, state)
                 }
             }
         }
@@ -1197,6 +1257,13 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         state.selectedRails.clear()
         state.pendingDeleteAnchor = null
         state.pendingDeleteRail = null
+    }
+
+    private fun clearAnchorSelection(player: Player, state: WandPlayerState) {
+        if (state.selectedAnchors.isEmpty()) return
+        state.selectedAnchors.clear()
+        updateAnchorDisplay(player)
+        player.sendActionBar(Component.text("已取消选择锚点", NamedTextColor.GRAY))
     }
 
     /** Convert Bukkit Vector to JOML Vector3d */

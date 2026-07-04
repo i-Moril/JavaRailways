@@ -86,7 +86,8 @@ object ConstraintSolver {
     /** 生成五段曲线点列，叠加抛物线竖曲线使切线匹配锚点坡度。 */
     fun generateCurve(
         r: ConstraintSolveResult.Success, fromPos: Vector3dc, fromTangent: Vector3dc,
-        toPos: Vector3dc, toTangent: Vector3dc, step: Double = 0.2
+        toPos: Vector3dc, toTangent: Vector3dc, step: Double = 0.2,
+        fromRollDegrees: Double = 0.0, toRollDegrees: Double = 0.0
     ): List<Curve.RawPoint> {
         val fx = Vector3d(fromTangent.x(), 0.0, fromTangent.z()).normalize()
         val fz = if (r.leftTurn)
@@ -115,6 +116,21 @@ object ConstraintSolver {
 
         fun gradeAt(arc: Double): Double = gA + 2.0 * c * arc + 3.0 * d * arc * arc
         fun heightAt(arc: Double): Double = fromPos.y() + gA * arc + c * arc * arc + d * arc * arc * arc
+        fun rollAt(arc: Double): Double {
+            val t = if (totalLen > 1e-9) (arc / totalLen).coerceIn(0.0, 1.0) else 0.0
+            return Math.toRadians(fromRollDegrees + (toRollDegrees - fromRollDegrees) * t)
+        }
+
+        fun applyRoll(normal: Vector3d, tangent: Vector3dc, rollRadians: Double): Vector3d {
+            if (abs(rollRadians) < 1e-12) return normal
+            val axis = Vector3d(tangent).normalize()
+            val cosR = cos(rollRadians)
+            val sinR = sin(rollRadians)
+            val cross = Vector3d(axis).cross(normal)
+            val axisPart = Vector3d(axis).mul(axis.dot(normal) * (1.0 - cosR))
+            return normal.mul(cosR).add(cross.mul(sinR)).add(axisPart).normalize()
+        }
+
         fun addSegment(len: Double, tan2d: Vector3dc, start: Vector3dc) {
             if (len < 0.01) return
             val tan2dn = Vector3d(tan2d).normalize()
@@ -127,7 +143,8 @@ object ConstraintSolver {
                 val p = Vector3d(start).fma(len * t, tan2dn)
                 p.y = y
                 val tan3d = Vector3d(tan2dn.x(), slope, tan2dn.z()).normalize()
-                val (_, nrm3d, _) = ConstraintSolver.computeFrame(tan3d)
+                val (_, baseNormal, _) = ConstraintSolver.computeFrame(tan3d)
+                val nrm3d = applyRoll(baseNormal, tan3d, rollAt(arc))
                 pts.add(Curve.RawPoint(Vector3d(p), tan3d, nrm3d, arc))
             }
             s += len
@@ -157,7 +174,8 @@ object ConstraintSolver {
             val gtz = ltx * fx.z() + ltz * fz.z()
             val slope = gradeAt(arc)
             val tan3d = Vector3d(gtx, slope, gtz).normalize()
-            val (_, nrm3d, _) = computeFrame(tan3d)
+            val (_, baseNormal, _) = computeFrame(tan3d)
+            val nrm3d = applyRoll(baseNormal, tan3d, rollAt(arc))
             pts.add(Curve.RawPoint(Vector3d(gx, gy, gz), tan3d, nrm3d, arc))
         }
         s += curve.totalLength

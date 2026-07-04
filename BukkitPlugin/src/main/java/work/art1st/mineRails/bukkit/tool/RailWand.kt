@@ -109,6 +109,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     companion object {
         private const val WAND_KEY = "mineRails_railWand"
         private val WAND_ITEM = Material.STICK
+        private const val ANCHOR_ROLL_METADATA_KEY = "rollDegrees"
         private val ANCHOR_DISPLAY_MATERIAL = Material.REDSTONE_TORCH
         private val SELECTED_ANCHOR_MATERIAL = Material.REDSTONE_TORCH
         private val ANCHOR_DIRECTION_MATERIAL = Material.ARROW
@@ -246,6 +247,10 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             label = "Pitch (°)"; defaultValue("0.0"); valueType = ConfigValueType.STRING
             constraints = ConfigConstraints.StringLength(1, 32); group = "anchor.edit"; order = 5
         }
+        val roll = ConfigKey.build<String>("anchor.roll") {
+            label = "Roll (°)"; defaultValue("0.0"); valueType = ConfigValueType.STRING
+            constraints = ConfigConstraints.StringLength(1, 32); group = "anchor.edit"; order = 6
+        }
         // 批量编辑模式: 增量字段
         val deltaX = ConfigKey.build<Double>("anchor.deltaX") {
             label = "ΔX"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
@@ -290,6 +295,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             items.add(ConfigItemImpl(editKeys!!.posZ))
             items.add(ConfigItemImpl(editKeys!!.tangentYaw))
             items.add(ConfigItemImpl(editKeys!!.tangentPitch))
+            items.add(ConfigItemImpl(editKeys!!.roll))
         }
         configUI.register(editGroup)
 
@@ -800,11 +806,14 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
     private fun anchorFromRailEndpoint(world: World, rail: CoreRail, end: Char): Anchor {
         val point = if (end == 'A') rail.viewAB.startPoint else rail.viewAB.endPoint
-        return Anchor(
-            id = railEndpointAnchorId(rail.id, end),
-            position = Vector3d(point.position),
-            tangent = Vector3d(point.tangent),
-            worldId = world.uid.toString()
+        return anchorWithRoll(
+            Anchor(
+                id = railEndpointAnchorId(rail.id, end),
+                position = Vector3d(point.position),
+                tangent = Vector3d(point.tangent),
+                worldId = world.uid.toString()
+            ),
+            rollDegreesFromNormal(point.tangent, point.normal)
         )
     }
 
@@ -909,20 +918,22 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
      * 起点/终点时，可能需要使用相反方向。若不按 chord 翻转，ConstraintSolver 会收到“终点切线
      * 背向目标”的边界条件，常见结果就是“未找到可行半径”。
      */
-    private fun orientTangentAlongChord(tangent: Vector3dc, chord: Vector3dc): Vector3d {
-        val oriented = Vector3d(tangent)
-        if (oriented.lengthSquared() < 1e-12) return oriented
+    private fun shouldFlipTangentAlongChord(tangent: Vector3dc, chord: Vector3dc): Boolean {
+        val tangentVector = Vector3d(tangent)
+        if (tangentVector.lengthSquared() < 1e-12) return false
 
-        val tangentHorizontal = Vector3d(oriented.x(), 0.0, oriented.z())
+        val tangentHorizontal = Vector3d(tangentVector.x(), 0.0, tangentVector.z())
         val chordHorizontal = Vector3d(chord.x(), 0.0, chord.z())
         val dot = if (tangentHorizontal.lengthSquared() > 1e-12 && chordHorizontal.lengthSquared() > 1e-12) {
             tangentHorizontal.dot(chordHorizontal)
         } else {
-            oriented.dot(chord)
+            tangentVector.dot(chord)
         }
-        if (dot < 0.0) oriented.negate()
-        return oriented
+        return dot < 0.0
     }
+
+    private fun orientedTangent(tangent: Vector3dc, flipped: Boolean): Vector3d =
+        Vector3d(tangent).also { if (flipped) it.negate() }
 
     private fun isChordAlignedWithTangent(chord: Vector3dc, tangent2d: Vector3dc): Boolean {
         val chord2d = Vector3d(chord.x(), 0.0, chord.z())
@@ -939,7 +950,9 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         fromPos: Vector3dc,
         toPos: Vector3dc,
         fromTangent: Vector3dc,
-        toTangent: Vector3dc
+        toTangent: Vector3dc,
+        fromRollDegrees: Double = 0.0,
+        toRollDegrees: Double = 0.0
     ): Boolean {
         val start = curve.getPointAt(0.0)
         val end = curve.getPointAt(curve.totalArcLength)
@@ -972,6 +985,20 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             )
             return false
         }
+
+        fun normalMatches(actual: Vector3dc, tangent: Vector3dc, rollDegrees: Double): Boolean {
+            val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
+            val expected = applyRollToNormal(baseNormal, tangent, rollDegrees)
+            val a = Vector3d(actual)
+            if (a.lengthSquared() < 1e-12) return false
+            return a.normalize().dot(expected) >= tangentToleranceDot
+        }
+
+        if (!normalMatches(start.normal, fromTangent, fromRollDegrees) ||
+            !normalMatches(end.normal, toTangent, toRollDegrees)) {
+            plugin.logger.warning("RailWand: 曲线端点 roll/normal 校验失败")
+            return false
+        }
         return true
     }
 
@@ -983,8 +1010,12 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         val fromPos = Vector3d(from.position)
         val toPos = Vector3d(to.position)
         val chord = Vector3d(toPos).sub(fromPos)
-        val fromTan3d = orientTangentAlongChord(from.tangent, chord).normalize()
-        val toTan3d = orientTangentAlongChord(to.tangent, chord).normalize()
+        val fromFlipped = shouldFlipTangentAlongChord(from.tangent, chord)
+        val toFlipped = shouldFlipTangentAlongChord(to.tangent, chord)
+        val fromTan3d = orientedTangent(from.tangent, fromFlipped).normalize()
+        val toTan3d = orientedTangent(to.tangent, toFlipped).normalize()
+        val fromRoll = if (fromFlipped) -anchorRollDegrees(from) else anchorRollDegrees(from)
+        val toRoll = if (toFlipped) -anchorRollDegrees(to) else anchorRollDegrees(to)
 
         // 求解器只需水平分量（Y 剥离），纵断面独立处理
         val fromTan2d = Vector3d(fromTan3d.x(), 0.0, fromTan3d.z()).normalize()
@@ -1002,8 +1033,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             val dist = fromPos.distance(toPos)
             if (dist < 1e-6) return null
             val direction = Vector3d(toPos).sub(fromPos).normalize()
-            val curve = createStraightCurve(fromPos, direction, dist)
-            if (!validateGeneratedCurve(curve, fromPos, toPos, fromTan3d, toTan3d)) {
+            val curve = createStraightCurve(fromPos, direction, dist, fromRoll, toRoll)
+            if (!validateGeneratedCurve(curve, fromPos, toPos, fromTan3d, toTan3d, fromRoll, toRoll)) {
                 plugin.logger.warning("RailWand: 直线模板生成后端点位置/切线校验失败")
                 return null
             }
@@ -1022,9 +1053,9 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         }
 
         // 生成曲线时使用 3D 切线（含坡度）实现抛物线竖曲线
-        val curvePoints = ConstraintSolver.generateCurve(result, fromPos, fromTan3d, toPos, toTan3d, 0.2)
+        val curvePoints = ConstraintSolver.generateCurve(result, fromPos, fromTan3d, toPos, toTan3d, 0.2, fromRoll, toRoll)
         val curve = PrimeCurve.fromPoints(curvePoints)
-        if (!validateGeneratedCurve(curve, fromPos, toPos, fromTan3d, toTan3d)) {
+        if (!validateGeneratedCurve(curve, fromPos, toPos, fromTan3d, toTan3d, fromRoll, toRoll)) {
             plugin.logger.warning("RailWand: 五段式模板生成后端点位置/切线校验失败")
             return null
         }
@@ -1112,17 +1143,37 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         ).normalize()
     }
 
+    private fun anchorRollDegrees(anchor: Anchor): Double =
+        anchor.metadata[ANCHOR_ROLL_METADATA_KEY]?.toDoubleOrNull() ?: 0.0
+
+    private fun anchorWithRoll(anchor: Anchor, rollDegrees: Double): Anchor =
+        anchor.copy(metadata = anchor.metadata + (ANCHOR_ROLL_METADATA_KEY to formatEditNumber(rollDegrees, digits = 3)))
+
+    private fun rollDegreesFromNormal(tangent: Vector3dc, normal: Vector3dc): Double {
+        val t = Vector3d(tangent)
+        val n = Vector3d(normal)
+        if (t.lengthSquared() < 1e-12 || n.lengthSquared() < 1e-12) return 0.0
+        t.normalize()
+        n.normalize()
+        val (_, baseNormal, _) = ConstraintSolver.computeFrame(t)
+        val sinRoll = Vector3d(baseNormal).cross(n).dot(t)
+        val cosRoll = baseNormal.dot(n)
+        return Math.toDegrees(atan2(sinRoll, cosRoll))
+    }
+
     private fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {
         // 将锚点当前值写入 session，然后打开 ConfigAPI Dialog
         val session = configUI.getPlayerSession(player.uniqueId)
         val yaw = tangentYawDegrees(anchor.tangent)
         val pitch = tangentPitchDegrees(anchor.tangent)
+        val roll = anchorRollDegrees(anchor)
         session.setValue(editKeys.anchorId, anchor.id)
         session.setValue(editKeys.posX, formatEditNumber(anchor.position.x()))
         session.setValue(editKeys.posY, formatEditNumber(anchor.position.y()))
         session.setValue(editKeys.posZ, formatEditNumber(anchor.position.z()))
         session.setValue(editKeys.tangentYaw, formatEditNumber(yaw, digits = 1))
         session.setValue(editKeys.tangentPitch, formatEditNumber(pitch, digits = 1))
+        session.setValue(editKeys.roll, formatEditNumber(roll, digits = 1))
         dialogRenderer.showConfigDialog(player, "anchor.edit") { p ->
             // 确认回调: 读取新值并更新锚点
             val s = configUI.getPlayerSession(p.uniqueId)
@@ -1131,9 +1182,10 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             val z = parseEditDouble(s.getValue(editKeys.posZ), anchor.position.z(), "Z 坐标", p) ?: return@showConfigDialog
             val newYaw = parseEditDouble(s.getValue(editKeys.tangentYaw), yaw, "Yaw", p) ?: return@showConfigDialog
             val newPitch = parseEditDouble(s.getValue(editKeys.tangentPitch), pitch, "Pitch", p) ?: return@showConfigDialog
+            val newRoll = parseEditDouble(s.getValue(editKeys.roll), roll, "Roll", p) ?: return@showConfigDialog
             val newPos = Vector3d(x, y, z)
             val newTan = tangentFromYawPitch(newYaw, newPitch)
-            val updated = anchor.withPosition(newPos).withTangent(newTan)
+            val updated = anchorWithRoll(anchor.withPosition(newPos).withTangent(newTan), newRoll)
             if (isRailEndpointAnchorId(anchor.id)) {
                 val newEndpointId = rebuildRailForEndpointEdit(p, anchor.id, updated) ?: return@showConfigDialog
                 state.selectedAnchors.clear()
@@ -1295,11 +1347,14 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return null
         val rail = coreWorld.getRail(railId) ?: return null
         val point = if (end == 'A') rail.viewAB.startPoint else rail.viewAB.endPoint
-        return Anchor(
-            id = id,
-            position = Vector3d(point.position),
-            tangent = Vector3d(point.tangent),
-            worldId = world.uid.toString()
+        return anchorWithRoll(
+            Anchor(
+                id = id,
+                position = Vector3d(point.position),
+                tangent = Vector3d(point.tangent),
+                worldId = world.uid.toString()
+            ),
+            rollDegreesFromNormal(point.tangent, point.normal)
         )
     }
 
@@ -1389,16 +1444,34 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     // 辅助方法 — 曲线创建
     // ═══════════════════════════════════════════
 
-    private fun createStraightCurve(from: Vector3dc, direction: Vector3dc, length: Double): PrimeCurve {
+    private fun createStraightCurve(
+        from: Vector3dc,
+        direction: Vector3dc,
+        length: Double,
+        fromRollDegrees: Double = 0.0,
+        toRollDegrees: Double = 0.0
+    ): PrimeCurve {
         val tan = Vector3d(direction).normalize()
-        val (_, nrm, _) = ConstraintSolver.computeFrame(tan)
+        val (_, baseNormal, _) = ConstraintSolver.computeFrame(tan)
+        val startNormal = applyRollToNormal(baseNormal, tan, fromRollDegrees)
+        val endNormal = applyRollToNormal(baseNormal, tan, toRollDegrees)
         val endPos = Vector3d(from).fma(length, tan)
         return PrimeCurve.fromPoints(listOf(
-            Curve.RawPoint(Vector3d(from), Vector3d(tan), Vector3d(nrm), 0.0,
-                Curve.SegmentType.LINE_START),
-            Curve.RawPoint(endPos, Vector3d(tan), Vector3d(nrm), length,
-                Curve.SegmentType.LINE_END)
+            Curve.RawPoint(Vector3d(from), Vector3d(tan), startNormal, 0.0),
+            Curve.RawPoint(endPos, Vector3d(tan), endNormal, length)
         ))
+    }
+
+    private fun applyRollToNormal(baseNormal: Vector3dc, tangent: Vector3dc, rollDegrees: Double): Vector3d {
+        val rollRadians = Math.toRadians(rollDegrees)
+        val normal = Vector3d(baseNormal)
+        if (abs(rollRadians) < 1e-12) return normal
+        val axis = Vector3d(tangent).normalize()
+        val cosR = cos(rollRadians)
+        val sinR = sin(rollRadians)
+        val cross = Vector3d(axis).cross(normal)
+        val axisPart = Vector3d(axis).mul(axis.dot(normal) * (1.0 - cosR))
+        return normal.mul(cosR).add(cross.mul(sinR)).add(axisPart).normalize()
     }
 
     // ═══════════════════════════════════════════

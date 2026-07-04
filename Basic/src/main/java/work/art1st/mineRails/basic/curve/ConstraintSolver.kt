@@ -140,7 +140,13 @@ object ConstraintSolver {
 
         // clothoid + arc + clothoid
         val curve = StandardRailCurve(r.R, r.L1, r.Lc)
-        curve.generatePoints(step).forEach { lp ->
+        val curveStep = minOf(step, adaptiveCurveStep(r.R))
+        val localPoints = curve.generatePoints(curveStep).toMutableList()
+        if (localPoints.isNotEmpty()) {
+            localPoints[0] = accurateLocalRawPoint(curve, 0.0)
+            localPoints[localPoints.lastIndex] = accurateLocalRawPoint(curve, curve.totalLength)
+        }
+        localPoints.forEach { lp ->
             val lx = lp.position.x(); val lz = lp.position.z()
             val gx = curveOrigin.x() + lx * fx.x() + lz * fz.x()
             val gz = curveOrigin.z() + lx * fx.z() + lz * fz.z()
@@ -164,6 +170,23 @@ object ConstraintSolver {
         return pts
     }
 
+    private fun adaptiveCurveStep(radius: Double): Double = when {
+        radius < 30.0 -> 0.02
+        radius < 100.0 -> 0.05
+        radius < 300.0 -> 0.10
+        else -> 0.20
+    }
+
+    private fun accurateLocalRawPoint(curve: StandardRailCurve, arc: Double): StandardRailCurve.CurveRawPoint {
+        val p = curve.pointAtAccurate(arc)
+        return StandardRailCurve.CurveRawPoint(
+            position = p.position,
+            tangent = Vector3d(cos(p.tangentAngle), 0.0, sin(p.tangentAngle)),
+            normal = Vector3d(0.0, 1.0, 0.0),
+            arcLength = arc
+        )
+    }
+
     // ── internal ──
 
     private fun straightOk(L1: Double, R: Double, dp: Double,
@@ -171,7 +194,7 @@ object ConstraintSolver {
         val th = dp - L1 / R
         if (th < -1e-12) return false
         val crv = StandardRailCurve(R, L1, R * th)
-        val e = crv.positionAt(crv.totalLength, 0.001)
+        val e = crv.positionAtAccurate(crv.totalLength)
         val sb = if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd
         val sa = tx - e.x - sb * cd
         return sa >= -0.001 && sb >= -0.001
@@ -183,7 +206,7 @@ object ConstraintSolver {
         val th = dp - L1 / R
         val Lc = R * th
         val crv = StandardRailCurve(R, L1, Lc)
-        val e = crv.positionAt(crv.totalLength, 0.001)
+        val e = crv.positionAtAccurate(crv.totalLength)
         val sb = maxOf(if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd, 0.0)
         val sa = maxOf(tx - e.x - sb * cd, 0.0)
         return ConstraintSolveResult.Success(R, sa, L1, Lc, L1, sb, th, sa + crv.totalLength + sb, dp, leftTurn)

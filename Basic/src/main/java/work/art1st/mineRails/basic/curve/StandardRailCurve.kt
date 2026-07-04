@@ -3,6 +3,7 @@ package work.art1st.mineRails.basic.curve
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -71,6 +72,21 @@ class StandardRailCurve(
         require(R > 0) { "半径 R 必须大于 0" }
         require(L >= 0) { "回旋线长度 L 必须非负" }
         require(Lc >= 0) { "圆弧长度 Lc 必须非负" }
+    }
+
+    companion object {
+        private val GAUSS_16_NODES = doubleArrayOf(
+            -0.9894009349916499, -0.9445750230732326, -0.8656312023878318, -0.7554044083550030,
+            -0.6178762444026438, -0.4580167776572274, -0.2816035507792589, -0.0950125098376374,
+            0.0950125098376374, 0.2816035507792589, 0.4580167776572274, 0.6178762444026438,
+            0.7554044083550030, 0.8656312023878318, 0.9445750230732326, 0.9894009349916499
+        )
+        private val GAUSS_16_WEIGHTS = doubleArrayOf(
+            0.0271524594117541, 0.0622535239386479, 0.0951585116824928, 0.1246289712555339,
+            0.1495959888165767, 0.1691565193950025, 0.1826034150449236, 0.1894506104550685,
+            0.1894506104550685, 0.1826034150449236, 0.1691565193950025, 0.1495959888165767,
+            0.1246289712555339, 0.0951585116824928, 0.0622535239386479, 0.0271524594117541
+        )
     }
 
     /**
@@ -201,6 +217,43 @@ class StandardRailCurve(
         }
 
         return Vector3d(x, 0.0, z)
+    }
+
+    /**
+     * 工程精确位置计算。使用分段 16 点 Gauss-Legendre 积分计算
+     * ∫cos(theta(s))ds / ∫sin(theta(s))ds，避免固定小步长积分带来的端点漂移和 O(L/step) 成本。
+     */
+    fun positionAtAccurate(s: Double, maxChunkLength: Double = 2.0): Vector3d {
+        val target = s.coerceIn(0.0, totalLength)
+        if (target <= 0.0) return Vector3d(0.0, 0.0, 0.0)
+        val chunks = maxOf(1, ceil(target / maxChunkLength).toInt())
+        val chunkLength = target / chunks
+        var x = 0.0
+        var z = 0.0
+        var a = 0.0
+        repeat(chunks) {
+            val b = if (it == chunks - 1) target else a + chunkLength
+            x += integrateGaussLegendre16(a, b) { arc -> cos(tangentAngleAt(arc)) }
+            z += integrateGaussLegendre16(a, b) { arc -> sin(tangentAngleAt(arc)) }
+            a = b
+        }
+        return Vector3d(x, 0.0, z)
+    }
+
+    fun pointAtAccurate(s: Double): CurvePoint {
+        val arc = s.coerceIn(0.0, totalLength)
+        return CurvePoint(positionAtAccurate(arc), tangentAngleAt(arc), superelevationAt(arc))
+    }
+
+    private fun integrateGaussLegendre16(a: Double, b: Double, f: (Double) -> Double): Double {
+        if (b <= a) return 0.0
+        val mid = (a + b) * 0.5
+        val half = (b - a) * 0.5
+        var sum = 0.0
+        for (i in GAUSS_16_NODES.indices) {
+            sum += GAUSS_16_WEIGHTS[i] * f(mid + half * GAUSS_16_NODES[i])
+        }
+        return half * sum
     }
 
     /**

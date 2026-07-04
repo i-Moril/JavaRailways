@@ -147,6 +147,12 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     private val undoStacks = mutableMapOf<UUID, MutableList<WandAction>>()
     private val redoStacks = mutableMapOf<UUID, MutableList<WandAction>>()
 
+    private val createMode = RailWandCreateMode(this)
+    private val connectMode = RailWandConnectMode(this)
+    private val editMode = RailWandEditMode(this)
+    private val deleteMode = RailWandDeleteMode(this)
+    private val decorateMode = RailWandDecorateMode()
+
     fun init() {
         if (initialized) return
         initialized = true
@@ -459,11 +465,11 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
     private fun dispatchModeAction(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
         when (state.mode) {
-            WandMode.CREATE -> handleCreateMode(player, state, event)
-            WandMode.CONNECT -> handleConnectMode(player, state, event)
-            WandMode.EDIT -> handleEditMode(player, state, event)
-            WandMode.DELETE -> handleDeleteMode(player, state, event)
-            WandMode.DECORATE -> handleDecorateMode(player, state, event)
+            WandMode.CREATE -> createMode.handle(player, state, event)
+            WandMode.CONNECT -> connectMode.handle(player, state, event)
+            WandMode.EDIT -> editMode.handle(player, state, event)
+            WandMode.DELETE -> deleteMode.handle(player, state, event)
+            WandMode.DECORATE -> decorateMode.handle(player, state, event)
         }
     }
 
@@ -471,36 +477,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     // 创建模式
     // ═══════════════════════════════════════════
 
-    private fun handleCreateMode(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
-        when {
-            // 右键 → 创建锚点
-            event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
-                createAnchorAtPlayer(player, state, event)
-            }
-            // 左键锚点 → 选择
-            event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
-                val clickedAnchor = findNearestAnchor(player, 3.0)
-                if (clickedAnchor != null) {
-                    if (clickedAnchor.id !in state.selectedAnchors) {
-                        if (player.isSneaking) {
-                            state.selectedAnchors.add(clickedAnchor.id)
-                            player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
-                        } else {
-                            state.selectedAnchors.clear()
-                            state.selectedAnchors.add(clickedAnchor.id)
-                            player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
-                        }
-                        updateAnchorDisplay(player)
-                    }
-                } else {
-                    clearAnchorSelection(player, state)
-                }
-            }
-        }
-    }
-
     /** 在交互目标方块/面创建锚点（并尝试连接已选锚点） */
-    private fun createAnchorAtPlayer(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
+    internal fun createAnchorAtPlayer(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
         val position = getAnchorPlacementPosition(player, state, event) ?: run {
             player.sendActionBar(Component.text("请右键方块创建锚点", NamedTextColor.RED))
             return
@@ -571,44 +549,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     // 连接模式
     // ═══════════════════════════════════════════
 
-    private fun handleConnectMode(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
-        when {
-            // 右键 → 如果选择列表已满，创建连接
-            event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
-                val expectedCount = state.parallelCount * 2  // 并行 × (起点+终点)
-                if (state.selectedAnchors.size >= expectedCount) {
-                    if (connectSelectedAnchors(player, state) != null) {
-                        state.selectedAnchors.clear()
-                        updateAnchorDisplay(player)
-                    }
-                } else {
-                    player.sendActionBar(Component.text("请选择 $expectedCount 个锚点 (当前: ${state.selectedAnchors.size})", NamedTextColor.RED))
-                }
-            }
-            // 左键锚点 → 选择
-            event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
-                val clickedAnchor = findNearestAnchor(player, 3.0)
-                if (clickedAnchor != null) {
-                    if (player.isSneaking) {
-                        if (clickedAnchor.id !in state.selectedAnchors) {
-                            state.selectedAnchors.add(clickedAnchor.id)
-                            player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id} (${state.selectedAnchors.size})", NamedTextColor.YELLOW))
-                        }
-                    } else {
-                        state.selectedAnchors.clear()
-                        state.selectedAnchors.add(clickedAnchor.id)
-                        player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
-                    }
-                    updateAnchorDisplay(player)
-                } else {
-                    clearAnchorSelection(player, state)
-                }
-            }
-        }
-    }
-
     /** 连接已选择的锚点组，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
-    private fun connectSelectedAnchors(player: Player, state: WandPlayerState): List<String>? {
+    internal fun connectSelectedAnchors(player: Player, state: WandPlayerState): List<String>? {
         val expectedCount = state.parallelCount * 2
         if (state.selectedAnchors.size != expectedCount) {
             player.sendActionBar(Component.text(
@@ -1030,10 +972,10 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                 plugin.logger.warning("RailWand: 同向端点不共线，需要 S 弯模板，取消创建/编辑")
                 return null
             }
-            val dist = fromPos.distance(toPos)
-            if (dist < 1e-6) return null
-            val direction = Vector3d(toPos).sub(fromPos).normalize()
-            val curve = createStraightCurve(fromPos, direction, dist, fromRoll, toRoll)
+            val horizontalDistance = Vector3d(chord.x(), 0.0, chord.z()).length()
+            if (horizontalDistance < 1e-6) return null
+            val direction = Vector3d(chord.x(), 0.0, chord.z()).normalize()
+            val curve = createStraightCurve(fromPos, toPos, direction, horizontalDistance, fromTan3d, toTan3d, fromRoll, toRoll)
             if (!validateGeneratedCurve(curve, fromPos, toPos, fromTan3d, toTan3d, fromRoll, toRoll)) {
                 plugin.logger.warning("RailWand: 直线模板生成后端点位置/切线校验失败")
                 return null
@@ -1065,46 +1007,6 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     // ═══════════════════════════════════════════
     // 编辑模式
     // ═══════════════════════════════════════════
-
-    private fun handleEditMode(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
-        when {
-            // 右键锚点 → 编辑单锚点
-            event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
-                val clickedAnchor = findNearestAnchor(player, 3.0)
-                if (clickedAnchor != null) {
-                    state.selectedAnchors.clear()
-                    state.selectedAnchors.add(clickedAnchor.id)
-                    updateAnchorDisplay(player)
-                    editAnchor(player, clickedAnchor, state)
-                } else {
-                    // 右键空气 → 编辑已选择的锚点列表
-                    if (state.selectedAnchors.isNotEmpty()) {
-                        editSelectedAnchors(player, state)
-                    } else {
-                        player.sendActionBar(Component.text("请选择锚点后右键编辑", NamedTextColor.GRAY))
-                    }
-                }
-            }
-            // 左键锚点 → 选择
-            event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
-                val clickedAnchor = findNearestAnchor(player, 3.0)
-                if (clickedAnchor != null) {
-                    if (player.isSneaking) {
-                        if (clickedAnchor.id !in state.selectedAnchors) {
-                            state.selectedAnchors.add(clickedAnchor.id)
-                        }
-                    } else {
-                        state.selectedAnchors.clear()
-                        state.selectedAnchors.add(clickedAnchor.id)
-                    }
-                    updateAnchorDisplay(player)
-                    player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
-                } else {
-                    clearAnchorSelection(player, state)
-                }
-            }
-        }
-    }
 
     private fun formatEditNumber(value: Double, digits: Int = 3): String =
         "% .${digits}f".format(Locale.US, value).trim()
@@ -1161,7 +1063,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         return Math.toDegrees(atan2(sinRoll, cosRoll))
     }
 
-    private fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {
+    internal fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {
         // 将锚点当前值写入 session，然后打开 ConfigAPI Dialog
         val session = configUI.getPlayerSession(player.uniqueId)
         val yaw = tangentYawDegrees(anchor.tangent)
@@ -1201,7 +1103,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
-    private fun editSelectedAnchors(player: Player, state: WandPlayerState) {
+    internal fun editSelectedAnchors(player: Player, state: WandPlayerState) {
         val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
         if (anchors.isEmpty()) return
 
@@ -1240,33 +1142,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     // 删除模式
     // ═══════════════════════════════════════════
 
-    private fun handleDeleteMode(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
-        when {
-            event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
-                // 检查是否点击了锚点
-                val clickedAnchor = findNearestAnchor(player, 3.0)
-                if (clickedAnchor != null) {
-                    if (state.pendingDeleteAnchor == clickedAnchor.id) {
-                        // 二次确认 → 删除
-                        deleteAnchor(player, clickedAnchor.id, state)
-                        state.pendingDeleteAnchor = null
-                    } else {
-                        // 第一次左键 → 进入待删除状态
-                        state.pendingDeleteAnchor = clickedAnchor.id
-                        state.pendingDeleteRail = null
-                        player.sendActionBar(Component.text("再次左键锚点 ${clickedAnchor.id} 以确认删除", NamedTextColor.RED))
-                    }
-                    return
-                }
-
-                // 退出待删除状态
-                state.pendingDeleteAnchor = null
-                state.pendingDeleteRail = null
-            }
-        }
-    }
-
-    private fun deleteAnchor(player: Player, anchorId: String, state: WandPlayerState) {
+    internal fun deleteAnchor(player: Player, anchorId: String, state: WandPlayerState) {
         if (isRailEndpointAnchorId(anchorId)) {
             player.sendActionBar(Component.text("轨道端点锚点不能单独删除，请删除轨道", NamedTextColor.YELLOW))
             return
@@ -1290,14 +1166,6 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
         pushUndo(player, WandAction.DeleteAnchor(player.world.uid, savedData))
         player.sendActionBar(Component.text("已删除锚点 $anchorId", NamedTextColor.GREEN))
-    }
-
-    // ═══════════════════════════════════════════
-    // 装饰模式（占位）
-    // ═══════════════════════════════════════════
-
-    private fun handleDecorateMode(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
-        player.sendActionBar(Component.text("装饰模式 - 功能尚未实现", NamedTextColor.YELLOW))
     }
 
     // ═══════════════════════════════════════════
@@ -1369,7 +1237,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
-    private fun findNearestAnchor(player: Player, maxDistance: Double): Anchor? {
+    internal fun findNearestAnchor(player: Player, maxDistance: Double): Anchor? {
         val playerPos = player.location.toVector().toVector3d()
         return getAllAnchors(player.world)
             .filter { it.position.distance(playerPos) <= maxDistance }
@@ -1446,20 +1314,58 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
     private fun createStraightCurve(
         from: Vector3dc,
-        direction: Vector3dc,
+        to: Vector3dc,
+        horizontalDirection: Vector3dc,
         length: Double,
+        fromTangent: Vector3dc,
+        toTangent: Vector3dc,
         fromRollDegrees: Double = 0.0,
         toRollDegrees: Double = 0.0
     ): PrimeCurve {
-        val tan = Vector3d(direction).normalize()
-        val (_, baseNormal, _) = ConstraintSolver.computeFrame(tan)
-        val startNormal = applyRollToNormal(baseNormal, tan, fromRollDegrees)
-        val endNormal = applyRollToNormal(baseNormal, tan, toRollDegrees)
-        val endPos = Vector3d(from).fma(length, tan)
-        return PrimeCurve.fromPoints(listOf(
-            Curve.RawPoint(Vector3d(from), Vector3d(tan), startNormal, 0.0),
-            Curve.RawPoint(endPos, Vector3d(tan), endNormal, length)
-        ))
+        val dir = Vector3d(horizontalDirection).normalize()
+        val hLenA = sqrt(fromTangent.x() * fromTangent.x() + fromTangent.z() * fromTangent.z())
+        val hLenB = sqrt(toTangent.x() * toTangent.x() + toTangent.z() * toTangent.z())
+        val gA = if (hLenA > 1e-10) fromTangent.y() / hLenA else 0.0
+        val gB = if (hLenB > 1e-10) toTangent.y() / hLenB else 0.0
+        val dy = to.y() - from.y()
+        val u = dy - gA * length
+        val v = gB - gA
+        val c = if (length > 1e-6) (3.0 * u - v * length) / (length * length) else 0.0
+        val d = if (length > 1e-6) (v * length - 2.0 * u) / (length * length * length) else 0.0
+
+        fun heightAt(arc: Double): Double = from.y() + gA * arc + c * arc * arc + d * arc * arc * arc
+        fun gradeAt(arc: Double): Double = gA + 2.0 * c * arc + 3.0 * d * arc * arc
+        fun rollAt(arc: Double): Double {
+            val t = if (length > 1e-9) (arc / length).coerceIn(0.0, 1.0) else 0.0
+            return fromRollDegrees + (toRollDegrees - fromRollDegrees) * t
+        }
+
+        val points = mutableListOf<Curve.RawPoint>()
+        val step = 0.2
+        var arc = 0.0
+        while (arc < length - 1e-9) {
+            points.add(straightCurvePoint(from, dir, arc, heightAt(arc), gradeAt(arc), rollAt(arc)))
+            arc += minOf(step, length - arc)
+        }
+        points.add(straightCurvePoint(from, dir, length, to.y(), gB, toRollDegrees))
+        return PrimeCurve.fromPoints(points)
+    }
+
+    private fun straightCurvePoint(
+        from: Vector3dc,
+        horizontalDirection: Vector3dc,
+        arc: Double,
+        y: Double,
+        grade: Double,
+        rollDegrees: Double
+    ): Curve.RawPoint {
+        val dir = Vector3d(horizontalDirection).normalize()
+        val position = Vector3d(from).fma(arc, dir)
+        position.y = y
+        val tangent = Vector3d(dir.x(), grade, dir.z()).normalize()
+        val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
+        val normal = applyRollToNormal(baseNormal, tangent, rollDegrees)
+        return Curve.RawPoint(position, tangent, normal, arc)
     }
 
     private fun applyRollToNormal(baseNormal: Vector3dc, tangent: Vector3dc, rollDegrees: Double): Vector3d {
@@ -1558,7 +1464,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     /** 更新锚点展示效果：选中 = Glowing */
-    private fun updateAnchorDisplay(player: Player) {
+    internal fun updateAnchorDisplay(player: Player) {
         val worldId = player.world.uid.toString()
         val state = getState(player)
         anchorEntities[worldId]?.forEach { (anchorId, entityIds) ->
@@ -1728,7 +1634,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         state.pendingDeleteRail = null
     }
 
-    private fun clearAnchorSelection(player: Player, state: WandPlayerState) {
+    internal fun clearAnchorSelection(player: Player, state: WandPlayerState) {
         if (state.selectedAnchors.isEmpty()) return
         state.selectedAnchors.clear()
         updateAnchorDisplay(player)

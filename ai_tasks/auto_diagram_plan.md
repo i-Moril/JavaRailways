@@ -668,6 +668,8 @@ WayPoint 的创建/编辑优先通过 `OperationWand` 完成。
 
 ### Phase 4：Timetable Kotlin 内部模型
 
+状态：已开始。已新增 `Timetable`、`TimetableService`、`TimetableStep`、`TimetableAction`、`TrainSelector`、`TimetableValidator` 与运行期 `TimetableStore`；validator 会检查路径点存在性、tick 顺序、stop 时长，并通过 `RoutePlanner` 展开/验证 goto/goVia 经路；已添加 Basic 单元测试覆盖路径展开和缺失路径点错误。
+
 目标：先定稳定的内部数据模型，不急着接 JS。
 
 任务：
@@ -686,6 +688,8 @@ WayPoint 的创建/编辑优先通过 `OperationWand` 完成。
 - 错误信息能指出 stop 不存在、路径不可达、列车选择失败等问题。
 
 ### Phase 5：JS Loader 与 DSL Builder
+
+状态：已实现首版。Basic 已引入 GraalJS polyglot 依赖，新增 `TimetableBuilder`/`ServiceBuilder` DSL、`TimetableScriptLoader`、`TimetableDumper`；Bukkit 新增 `/mr timetable load <file.js> [id]`、`/mr timetable dump <id>`、`/mr timetable list`。加载流程为执行 `main(timetable)` → 生成 Phase 4 Kotlin 模型 → `TimetableValidator` dry-run → 验证成功后才替换/加入运行期 store；失败不会影响旧时刻表。已添加 JS 加载与语法错误单元测试。语法说明见 `docs/timetable_js_syntax.md`。
 
 目标：JS 只负责生成 Phase 4 的 Kotlin 模型。
 

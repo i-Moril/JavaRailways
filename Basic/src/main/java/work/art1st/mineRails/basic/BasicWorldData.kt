@@ -1,6 +1,7 @@
 package work.art1st.mineRails.basic
 
 import work.art1st.mineRails.basic.pathFinding.RailMap
+import work.art1st.mineRails.basic.timetable.Timetable
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -67,6 +68,19 @@ class WayPointStore {
 typealias StopPoint = WayPoint
 typealias StopPointStore = WayPointStore
 
-class TimetableStore
+class TimetableStore {
+    private val timetables = ConcurrentHashMap<String, Timetable>()
+
+    fun add(timetable: Timetable) {
+        require(timetable.id.isNotBlank()) { "timetable id must not be blank" }
+        timetables[timetable.id] = timetable
+    }
+
+    fun remove(id: String): Timetable? = timetables.remove(id)
+
+    operator fun get(id: String): Timetable? = timetables[id]
+
+    fun all(): List<Timetable> = timetables.values.sortedBy { it.id }
+}
 
 class TimetableDispatcher

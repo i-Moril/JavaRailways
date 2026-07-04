@@ -8,7 +8,11 @@ import org.bukkit.entity.Player
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
+import work.art1st.mineRails.basic.timetable.TimetableDumper
+import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoadResult
+import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoader
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import java.io.File
 
 class MineRailsCommand : CommandExecutor, TabCompleter {
     override fun onCommand(
@@ -28,6 +32,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             "wand" -> return handleWand(sender, args.drop(1))
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
             "route" -> return handleRoute(sender, args.drop(1))
+            "timetable", "tt" -> return handleTimetable(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
             "redo" -> return handleRedo(sender)
             "help" -> sendHelp(sender)
@@ -43,7 +48,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         args: Array<out String>
     ): List<String> {
         if (args.size == 1) {
-            return listOf("rail", "train", "wand", "waypoint", "route", "stop", "undo", "redo", "help")
+            return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "stop", "undo", "redo", "help")
         }
         return emptyList()
     }
@@ -155,6 +160,69 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         return true
     }
 
+    private fun handleTimetable(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) { sender.sendMessage("Player only"); return true }
+        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] ?: run {
+            sender.sendMessage("错误: 无法获取 MineRails 世界")
+            return true
+        }
+        when (args.firstOrNull()?.lowercase()) {
+            "load" -> {
+                val scriptPath = args.getOrNull(1)
+                val id = args.getOrNull(2)
+                if (scriptPath == null) {
+                    sender.sendMessage("用法: /mr timetable load <file.js> [id]")
+                    return true
+                }
+                val scriptFile = resolveTimetableScript(scriptPath)
+                when (val result = TimetableScriptLoader(world).load(scriptFile, id ?: scriptFile.nameWithoutExtension)) {
+                    is TimetableScriptLoadResult.Success -> {
+                        world.basicWorldData.timetables.add(result.timetable)
+                        sender.sendMessage("时刻表加载成功: ${result.timetable.id}")
+                        sender.sendMessage("services=${result.timetable.services.size}, routes=${result.validation.routes.size}")
+                    }
+                    is TimetableScriptLoadResult.Failure -> {
+                        sender.sendMessage("时刻表加载失败:")
+                        result.message.lines().forEach { sender.sendMessage(it) }
+                    }
+                }
+            }
+            "dump" -> {
+                val id = args.getOrNull(1)
+                if (id == null) {
+                    sender.sendMessage("用法: /mr timetable dump <id>")
+                    return true
+                }
+                val timetable = world.basicWorldData.timetables[id]
+                if (timetable == null) {
+                    sender.sendMessage("时刻表不存在: $id")
+                    return true
+                }
+                sender.sendMessage("=== Timetable $id ===")
+                TimetableDumper.dumpToJson(timetable).lines().forEach { sender.sendMessage(it) }
+            }
+            "list" -> {
+                val timetables = world.basicWorldData.timetables.all()
+                if (timetables.isEmpty()) {
+                    sender.sendMessage("当前没有已加载时刻表")
+                } else {
+                    sender.sendMessage("=== 已加载时刻表 ===")
+                    timetables.forEach { sender.sendMessage("${it.id}: services=${it.services.size}, period=${it.periodTicks ?: "none"}") }
+                }
+            }
+            else -> sender.sendMessage("用法: /mr timetable <load|dump|list>")
+        }
+        return true
+    }
+
+    private fun resolveTimetableScript(path: String): File {
+        val requested = File(path)
+        if (requested.isAbsolute) return requested
+        val timetableDir = File(BukkitPlugin.INSTANCE.dataFolder, "timetables")
+        val inTimetableDir = File(timetableDir, path)
+        return if (inTimetableDir.exists()) inTimetableDir else File(BukkitPlugin.INSTANCE.dataFolder, path)
+    }
+
     private fun handleUndo(sender: CommandSender): Boolean {
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
         BukkitPlugin.INSTANCE.railWand.undo(sender)
@@ -178,6 +246,8 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr wand operation - 获取 OperationWand")
         sender.sendMessage("/mr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
+        sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
+        sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/mr undo - 撤销操作")
         sender.sendMessage("/mr redo - 重做操作")
     }

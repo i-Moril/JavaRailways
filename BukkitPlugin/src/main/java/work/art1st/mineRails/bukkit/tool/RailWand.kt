@@ -34,6 +34,7 @@ import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
+import work.art1st.mineRails.core.physics.rail.RailView
 import java.util.*
 import kotlin.math.*
 
@@ -689,6 +690,158 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
+    private data class RailEndpointEditPlan(
+        val oldRail: CoreRail,
+        val movedEnd: Char,
+        val newCurve: PrimeCurve
+    )
+
+    private data class RailConnectionSnapshot(
+        val rail: CoreRail,
+        val abNext: List<RailView>,
+        val baNext: List<RailView>,
+        val abActive: RailView?,
+        val baActive: RailView?
+    )
+
+    private fun rebuildRailForEndpointEdit(player: Player, endpointAnchorId: String, updatedEndpoint: Anchor): String? {
+        val (editedRailId, editedEnd) = parseRailEndpointAnchorId(endpointAnchorId) ?: return null
+        val coreWorld = getCoreWorld(player) ?: run {
+            player.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
+            return null
+        }
+        val editedRail = coreWorld.getRail(editedRailId) ?: run {
+            player.sendActionBar(Component.text("轨道不存在: $editedRailId", NamedTextColor.RED))
+            return null
+        }
+        val movedPoint = if (editedEnd == 'A') editedRail.viewAB.startPoint.position else editedRail.viewAB.endPoint.position
+        val existingMetas = RailRenderMetaStore.load(player.world)
+        val allPersistedRails = existingMetas.mapNotNull { coreWorld.getRail(it.railId) }
+        val affectedRails = allPersistedRails.filter { rail ->
+            rail.viewAB.startPoint.position.distance(movedPoint) <= Curve.TOLERANCE ||
+                rail.viewAB.endPoint.position.distance(movedPoint) <= Curve.TOLERANCE
+        }
+        if (affectedRails.isEmpty()) {
+            player.sendActionBar(Component.text("没有找到连接到该端点的轨道", NamedTextColor.RED))
+            return null
+        }
+        if (affectedRails.any { it.trains.isNotEmpty() }) {
+            player.sendActionBar(Component.text("不能编辑有列车占用的轨道", NamedTextColor.RED))
+            return null
+        }
+
+        val plans = affectedRails.mapNotNull { rail ->
+            val moveA = rail.viewAB.startPoint.position.distance(movedPoint) <= Curve.TOLERANCE
+            val moveB = rail.viewAB.endPoint.position.distance(movedPoint) <= Curve.TOLERANCE
+            val movedEnd = when {
+                moveA -> 'A'
+                moveB -> 'B'
+                else -> return@mapNotNull null
+            }
+            val oldStart = anchorFromRailEndpoint(player.world, rail, 'A')
+            val oldEnd = anchorFromRailEndpoint(player.world, rail, 'B')
+            val newStart = if (movedEnd == 'A') updatedEndpoint else oldStart
+            val newEnd = if (movedEnd == 'B') updatedEndpoint else oldEnd
+            val newCurve = createCurveBetweenAnchors(newStart, newEnd, getState(player).curveRadius) ?: run {
+                player.sendActionBar(Component.text("无法根据新端点生成轨道: ${rail.id}", NamedTextColor.RED))
+                return null
+            }
+            RailEndpointEditPlan(rail, movedEnd, newCurve)
+        }
+        if (plans.size != affectedRails.size) {
+            player.sendActionBar(Component.text("端点编辑计划不完整，已取消", NamedTextColor.RED))
+            return null
+        }
+
+        val snapshots = allPersistedRails.map { snapshotRailConnections(it) }
+        val createdRails = mutableListOf<CoreRail>()
+        val createdMetas = mutableListOf<PersistedRailRenderMeta>()
+        val oldIds = plans.map { it.oldRail.id }.toSet()
+        val oldToNew = mutableMapOf<UUID, CoreRail>()
+        return try {
+            plans.forEach { plan ->
+                val newRail = CoreRail(coreWorld, plan.newCurve, mutableListOf(), mutableListOf())
+                val meta = RailVisualBootstrap.registerRail(newRail)
+                createdRails.add(newRail)
+                createdMetas.add(meta)
+                oldToNew[plan.oldRail.id] = newRail
+            }
+
+            val nextMetas = existingMetas.filterNot { it.railId in oldIds } + createdMetas
+            RailRenderMetaStore.saveAll(player.world, nextMetas)
+
+            detachRailReferences(oldIds, allPersistedRails.filter { it.id !in oldIds })
+            connectCreatedRailsToExisting(
+                createdRails,
+                allPersistedRails.filter { it.id !in oldIds } + createdRails
+            )
+
+            plans.forEach { plan ->
+                RailVisualBootstrap.unregisterRail(plan.oldRail.id)
+                plan.oldRail.destroy()
+                coreWorld.removeRail(plan.oldRail)
+            }
+
+            val replacementForEdited = oldToNew[editedRailId] ?: createdRails.first()
+            railEndpointAnchorId(replacementForEdited.id, editedEnd)
+        } catch (e: Exception) {
+            createdRails.forEach { rail ->
+                RailVisualBootstrap.unregisterRail(rail.id)
+                rail.destroy()
+                coreWorld.removeRail(rail)
+            }
+            restoreRailConnections(snapshots)
+            RailRenderMetaStore.saveAll(player.world, existingMetas)
+            existingMetas.forEach { RailVisualBootstrap.fromPersisted(coreWorld, it) }
+            player.sendActionBar(Component.text("端点编辑失败，已回滚: ${e.message}", NamedTextColor.RED))
+            null
+        }
+    }
+
+    private fun anchorFromRailEndpoint(world: World, rail: CoreRail, end: Char): Anchor {
+        val point = if (end == 'A') rail.viewAB.startPoint else rail.viewAB.endPoint
+        return Anchor(
+            id = railEndpointAnchorId(rail.id, end),
+            position = Vector3d(point.position),
+            tangent = Vector3d(point.tangent),
+            worldId = world.uid.toString()
+        )
+    }
+
+    private fun snapshotRailConnections(rail: CoreRail): RailConnectionSnapshot = RailConnectionSnapshot(
+        rail = rail,
+        abNext = rail.viewAB.mutableNextRails.toList(),
+        baNext = rail.viewBA.mutableNextRails.toList(),
+        abActive = rail.viewAB.activeRail,
+        baActive = rail.viewBA.activeRail
+    )
+
+    private fun restoreRailConnections(snapshots: List<RailConnectionSnapshot>) {
+        snapshots.forEach { snapshot ->
+            restoreViewConnections(snapshot.rail.viewAB, snapshot.abNext, snapshot.abActive)
+            restoreViewConnections(snapshot.rail.viewBA, snapshot.baNext, snapshot.baActive)
+        }
+    }
+
+    private fun restoreViewConnections(view: RailView, nextRails: List<RailView>, activeRail: RailView?) {
+        view.activeRail = null
+        view.mutableNextRails.clear()
+        view.mutableNextRails.addAll(nextRails)
+        view.activeRail = activeRail
+    }
+
+    private fun detachRailReferences(removedRailIds: Set<UUID>, existingRails: List<CoreRail>) {
+        existingRails.forEach { rail ->
+            listOf(rail.viewAB, rail.viewBA).forEach { view ->
+                val replacement = view.mutableNextRails.firstOrNull { it.rail.id !in removedRailIds }
+                if (view.activeRail?.rail?.id in removedRailIds) {
+                    view.activeRail = replacement
+                }
+                view.mutableNextRails.removeIf { it.rail.id in removedRailIds }
+            }
+        }
+    }
+
     private fun validateParallelAnchorGroup(
         startAnchors: List<Anchor>,
         endAnchors: List<Anchor>,
@@ -750,14 +903,88 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     /**
+     * 根据本次连接方向修正锚点切线符号。
+     *
+     * Core rail 端点的 tangent 始终按 rail 的 AB 曲线方向保存；同一个几何端点在作为新曲线
+     * 起点/终点时，可能需要使用相反方向。若不按 chord 翻转，ConstraintSolver 会收到“终点切线
+     * 背向目标”的边界条件，常见结果就是“未找到可行半径”。
+     */
+    private fun orientTangentAlongChord(tangent: Vector3dc, chord: Vector3dc): Vector3d {
+        val oriented = Vector3d(tangent)
+        if (oriented.lengthSquared() < 1e-12) return oriented
+
+        val tangentHorizontal = Vector3d(oriented.x(), 0.0, oriented.z())
+        val chordHorizontal = Vector3d(chord.x(), 0.0, chord.z())
+        val dot = if (tangentHorizontal.lengthSquared() > 1e-12 && chordHorizontal.lengthSquared() > 1e-12) {
+            tangentHorizontal.dot(chordHorizontal)
+        } else {
+            oriented.dot(chord)
+        }
+        if (dot < 0.0) oriented.negate()
+        return oriented
+    }
+
+    private fun isChordAlignedWithTangent(chord: Vector3dc, tangent2d: Vector3dc): Boolean {
+        val chord2d = Vector3d(chord.x(), 0.0, chord.z())
+        if (chord2d.lengthSquared() < 1e-12) return false
+        val chordDir = chord2d.normalize()
+        val tangentDir = Vector3d(tangent2d)
+        if (tangentDir.lengthSquared() < 1e-12) return false
+        tangentDir.normalize()
+        return chordDir.dot(tangentDir) >= cos(Math.toRadians(1.0))
+    }
+
+    private fun validateGeneratedCurve(
+        curve: PrimeCurve,
+        fromPos: Vector3dc,
+        toPos: Vector3dc,
+        fromTangent: Vector3dc,
+        toTangent: Vector3dc
+    ): Boolean {
+        val start = curve.getPointAt(0.0)
+        val end = curve.getPointAt(curve.totalArcLength)
+
+        val positionTolerance = Curve.TOLERANCE * 2
+        val startDistance = start.position.distance(fromPos)
+        val endDistance = end.position.distance(toPos)
+        if (startDistance > positionTolerance || endDistance > positionTolerance) {
+            plugin.logger.warning(
+                "RailWand: 曲线端点位置校验失败 start=%.3fm end=%.3fm tolerance=%.3fm"
+                    .format(Locale.US, startDistance, endDistance, positionTolerance)
+            )
+            return false
+        }
+
+        fun tangentDot(actual: Vector3dc, expected: Vector3dc): Double? {
+            val a = Vector3d(actual)
+            val e = Vector3d(expected)
+            if (a.lengthSquared() < 1e-12 || e.lengthSquared() < 1e-12) return null
+            return a.normalize().dot(e.normalize())
+        }
+
+        val tangentToleranceDot = cos(Math.toRadians(1.0))
+        val startDot = tangentDot(start.tangent, fromTangent) ?: return false
+        val endDot = tangentDot(end.tangent, toTangent) ?: return false
+        if (startDot < tangentToleranceDot || endDot < tangentToleranceDot) {
+            plugin.logger.warning(
+                "RailWand: 曲线端点切线校验失败 startDot=%.6f endDot=%.6f toleranceDot=%.6f"
+                    .format(Locale.US, startDot, endDot, tangentToleranceDot)
+            )
+            return false
+        }
+        return true
+    }
+
+    /**
      * 在两锚点间创建五段曲线 (line/clothoid/arc/clothoid/line)。
      * 使用 ConstraintSolver.solveBest() 自动选择最优半径，再用 generateCurve() 生成完整点列。
      */
     private fun createCurveBetweenAnchors(from: Anchor, to: Anchor, radius: Double = 0.0): PrimeCurve? {
         val fromPos = Vector3d(from.position)
-        val fromTan3d = Vector3d(from.tangent).normalize()
         val toPos = Vector3d(to.position)
-        val toTan3d = Vector3d(to.tangent).normalize()
+        val chord = Vector3d(toPos).sub(fromPos)
+        val fromTan3d = orientTangentAlongChord(from.tangent, chord).normalize()
+        val toTan3d = orientTangentAlongChord(to.tangent, chord).normalize()
 
         // 求解器只需水平分量（Y 剥离），纵断面独立处理
         val fromTan2d = Vector3d(fromTan3d.x(), 0.0, fromTan3d.z()).normalize()
@@ -765,11 +992,22 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
         val angle = ConstraintSolver.computeAngle(fromTan2d, toTan2d)
 
-        // 同方向直线：直接生成直线 PrimeCurve
+        // 同方向只能生成直线。若 chord 与切线不共线，则需要 S 弯等其他模板；
+        // 当前五段式模板无法表达，应失败并回滚，而不是把直线错误地拉成斜线。
         if (angle < 1e-6) {
+            if (!isChordAlignedWithTangent(chord, fromTan2d)) {
+                plugin.logger.warning("RailWand: 同向端点不共线，需要 S 弯模板，取消创建/编辑")
+                return null
+            }
             val dist = fromPos.distance(toPos)
+            if (dist < 1e-6) return null
             val direction = Vector3d(toPos).sub(fromPos).normalize()
-            return createStraightCurve(fromPos, direction, dist)
+            val curve = createStraightCurve(fromPos, direction, dist)
+            if (!validateGeneratedCurve(curve, fromPos, toPos, fromTan3d, toTan3d)) {
+                plugin.logger.warning("RailWand: 直线模板生成后端点位置/切线校验失败")
+                return null
+            }
+            return curve
         }
 
         // 求解: 指定 R 或自动 (50m 倍数, 尽可能大)
@@ -785,7 +1023,12 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
         // 生成曲线时使用 3D 切线（含坡度）实现抛物线竖曲线
         val curvePoints = ConstraintSolver.generateCurve(result, fromPos, fromTan3d, toPos, toTan3d, 0.2)
-        return PrimeCurve.fromPoints(curvePoints)
+        val curve = PrimeCurve.fromPoints(curvePoints)
+        if (!validateGeneratedCurve(curve, fromPos, toPos, fromTan3d, toTan3d)) {
+            plugin.logger.warning("RailWand: 五段式模板生成后端点位置/切线校验失败")
+            return null
+        }
+        return curve
     }
 
     // ═══════════════════════════════════════════
@@ -870,10 +1113,6 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     private fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {
-        if (isRailEndpointAnchorId(anchor.id)) {
-            player.sendActionBar(Component.text("轨道端点锚点暂不支持直接编辑", NamedTextColor.YELLOW))
-            return
-        }
         // 将锚点当前值写入 session，然后打开 ConfigAPI Dialog
         val session = configUI.getPlayerSession(player.uniqueId)
         val yaw = tangentYawDegrees(anchor.tangent)
@@ -895,10 +1134,18 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             val newPos = Vector3d(x, y, z)
             val newTan = tangentFromYawPitch(newYaw, newPitch)
             val updated = anchor.withPosition(newPos).withTangent(newTan)
-            updateAnchor(player.world, updated)
-            removeAnchorDisplay(player, anchor.id)
-            spawnAnchorDisplay(player, updated)
-            p.sendActionBar(Component.text("锚点 ${anchor.id} 已更新", NamedTextColor.GREEN))
+            if (isRailEndpointAnchorId(anchor.id)) {
+                val newEndpointId = rebuildRailForEndpointEdit(p, anchor.id, updated) ?: return@showConfigDialog
+                state.selectedAnchors.clear()
+                state.selectedAnchors.add(newEndpointId)
+                refreshAllAnchorsForPlayer(p)
+                p.sendActionBar(Component.text("轨道端点已更新", NamedTextColor.GREEN))
+            } else {
+                updateAnchor(player.world, updated)
+                removeAnchorDisplay(player, anchor.id)
+                spawnAnchorDisplay(player, updated)
+                p.sendActionBar(Component.text("锚点 ${anchor.id} 已更新", NamedTextColor.GREEN))
+            }
         }
     }
 

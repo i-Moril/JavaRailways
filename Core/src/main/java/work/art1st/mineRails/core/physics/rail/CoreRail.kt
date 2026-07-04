@@ -122,30 +122,49 @@ class CoreRail @MainThread private constructor(
         val activeTrackAtB: String?
     ) : Loads<CoreRail, SavedRailV1.Dependency> {
         override fun load(dependency: Dependency): CoreRail {
+            val rail = loadDisconnected(dependency)
+            restoreConnections(rail, dependency)
+            return rail
+        }
+
+        fun loadDisconnected(dependency: Dependency): CoreRail {
             val curve = curveAB.load(Unit)
             return CoreRail(
                 UUID.fromString(id),
                 dependency.world,
                 curve,
-                nextRailAtA.map {
-                    getDirection(curve.getPointAt(0.0),
-                        dependency.world.getRail(UUID.fromString(it))!!)
-                },
-                nextRailAtB.map {
-                    getDirection(curve.getPointAt(curve.totalArcLength),
-                        dependency.world.getRail(UUID.fromString(it))!!)
-                },
-                activeTrackAtA?.let {
-                    if (!nextRailAtA.contains(it)) throw CannotConnectRailException()
-                    getDirection(curve.getPointAt(0.0),
-                        dependency.world.getRail(UUID.fromString(it))!!)
-                },
-                activeTrackAtB?.let {
-                    if (!nextRailAtB.contains(it)) throw CannotConnectRailException()
-                    getDirection(curve.getPointAt(curve.totalArcLength),
-                        dependency.world.getRail(UUID.fromString(it))!!)
-                }
+                emptyList(),
+                emptyList(),
+                null,
+                null
             )
+        }
+
+        fun restoreConnections(rail: CoreRail, dependency: Dependency) {
+            val pointA = rail.curve.getPointAt(0.0)
+            val pointB = rail.curve.getPointAt(rail.curve.totalArcLength)
+            val nextAtA = nextRailAtA.mapNotNull { resolveRailView(pointA, it, dependency) }
+            val nextAtB = nextRailAtB.mapNotNull { resolveRailView(pointB, it, dependency) }
+            rail.viewBA.activeRail = null
+            rail.viewBA.mutableNextRails.clear()
+            rail.viewBA.mutableNextRails.addAll(nextAtA)
+            rail.viewBA.activeRail = activeTrackAtA
+                ?.takeIf { nextRailAtA.contains(it) }
+                ?.let { resolveRailView(pointA, it, dependency) }
+                ?.takeIf { nextAtA.contains(it) }
+            rail.viewAB.activeRail = null
+            rail.viewAB.mutableNextRails.clear()
+            rail.viewAB.mutableNextRails.addAll(nextAtB)
+            rail.viewAB.activeRail = activeTrackAtB
+                ?.takeIf { nextRailAtB.contains(it) }
+                ?.let { resolveRailView(pointB, it, dependency) }
+                ?.takeIf { nextAtB.contains(it) }
+        }
+
+        private fun resolveRailView(point: Curve.Point, railId: String, dependency: Dependency): RailView? {
+            val uuid = runCatching { UUID.fromString(railId) }.getOrNull() ?: return null
+            val rail = dependency.world.getRail(uuid) ?: return null
+            return getDirection(point, rail)
         }
 
         // 获取在端点处连接的RailView

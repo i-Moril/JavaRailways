@@ -99,7 +99,10 @@ class CoreWorld(
         override fun load(dependency: Dependency): CoreWorld {
             val world = CoreWorld(dependency.tickManager, dependency.worldParent)
             val railDependency = CoreRail.SavedRailV1.Dependency(world)
-            rails.forEach { world.addRail(it.load(railDependency)) }
+            val loadedRails = rails.map { it.loadDisconnected(railDependency) }
+            rails.zip(loadedRails).forEach { (savedRail, rail) ->
+                savedRail.restoreConnections(rail, railDependency)
+            }
             trains.forEach { savedTrain ->
                 try {
                     world.addTrain(savedTrain.load(world))

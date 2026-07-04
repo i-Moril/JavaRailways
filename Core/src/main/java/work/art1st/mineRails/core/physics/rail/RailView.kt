@@ -19,7 +19,7 @@ class RailView(
     nextActiveRail: RailView? = if (mutableNextRails.isEmpty()) null else mutableNextRails[0]
 ) : ApiRailView {
     init {
-        if ((nextActiveRail != null && mutableNextRails.isEmpty()) || (!mutableNextRails.isEmpty() && !mutableNextRails.contains(nextActiveRail))) {
+        if (nextActiveRail != null && (mutableNextRails.isEmpty() || !mutableNextRails.contains(nextActiveRail))) {
             throw InvalidActiveRailException(this, nextActiveRail)
         }
     }
@@ -30,7 +30,7 @@ class RailView(
 
     var activeRail: RailView? by Delegates.vetoable(nextActiveRail) {
         property, oldValue, newValue ->
-        if (mutableNextRails.contains(newValue)) true else
+        if (newValue == null || mutableNextRails.contains(newValue)) true else
             throw InvalidActiveRailException(this, newValue)
     }
 

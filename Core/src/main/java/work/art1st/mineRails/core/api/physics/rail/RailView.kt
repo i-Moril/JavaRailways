@@ -13,4 +13,5 @@ interface RailView {
     val startPoint: Curve.Point
     val endPoint: Curve.Point
     fun getRailLocationAt(arcLength: Double): RailLocation
+    fun selectNextRail(nextRail: RailView?)
 }

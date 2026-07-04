@@ -41,7 +41,7 @@ import kotlin.math.*
 // 工作模式
 // ═══════════════════════════════════════════════════════════════
 
-enum class WandMode(val displayName: String, val description: String) {
+enum class WandMode(override val displayName: String, override val description: String) : WandModeSpec {
     CREATE("创建模式", "右键创建锚点 | 左键选择锚点 | Shift+F 切换模式"),
     CONNECT("连接模式", "选择两端锚点后右键连接 | Shift+F 切换模式"),
     EDIT("编辑模式", "右键编辑锚点/轨道 | 左键选择 | Shift+F 切换模式"),
@@ -73,7 +73,7 @@ data class SavedAnchorData(
 // ═══════════════════════════════════════════════════════════════
 
 data class WandPlayerState(
-    var mode: WandMode = WandMode.CREATE,
+    override var mode: WandMode = WandMode.CREATE,
     /** 选中的锚点 ID 列表 */
     val selectedAnchors: MutableList<String> = mutableListOf(),
     /** 选中的轨道 UUID 列表 */
@@ -97,13 +97,23 @@ data class WandPlayerState(
     var autoDecorate: Boolean = true,
     /** 曲线半径 (m)。0 = 自动选择 */
     var curveRadius: Double = 0.0
-)
+) : WandState<WandMode>
 
 // ═══════════════════════════════════════════════════════════════
 // RailWand 主类
 // ═══════════════════════════════════════════════════════════════
 
-class RailWand(private val plugin: BukkitPlugin) : Listener {
+class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
+    plugin = plugin,
+    wandKey = "mineRails_railWand",
+    material = Material.STICK,
+    itemDisplayName = Component.text("RailWand", NamedTextColor.GOLD),
+    itemLore = listOf(
+        Component.text("Shift+F 切换模式", NamedTextColor.GRAY),
+        Component.text("Shift+右键 打开设置", NamedTextColor.GRAY)
+    ),
+    modes = WandMode.entries.toList()
+) {
 
     companion object {
         private const val WAND_KEY = "mineRails_railWand"
@@ -126,7 +136,6 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
 
     /** 临时锚点：仅存在于当前插件运行期，不再写入磁盘。 */
     private val transientAnchors = mutableMapOf<UUID, MutableMap<String, Anchor>>()
-    private var initialized = false
 
     /** ConfigAPI 注册中心 + Dialog 渲染器 */
     private val configUI = ConfigUIRegistry()
@@ -135,11 +144,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     /** Wand 设置 ConfigKeys (per-setting, 每个玩家独立 session) */
     private lateinit var wandKeys: WandConfigKeys
 
-    /** 玩家状态映射 */
-    private val playerStates = mutableMapOf<UUID, WandPlayerState>()
-
-    /** 锚点展示实体映射: worldId -> (anchorId -> Set<entityId>) */
-    private val anchorEntities = mutableMapOf<String, MutableMap<String, MutableSet<UUID>>>()
+    /** Per-player transient anchor marker entities: player UUID -> (anchorId -> Set<entityId>). */
+    private val anchorEntities = mutableMapOf<UUID, MutableMap<String, MutableSet<UUID>>>()
 
     /** 撤销/重做栈 (playerId -> stacks) */
     private val undoStacks = mutableMapOf<UUID, MutableList<WandAction>>()
@@ -151,11 +157,13 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     private val deleteMode = RailWandDeleteMode(this)
     private val decorateMode = RailWandDecorateMode()
 
-    fun init() {
-        if (initialized) return
-        initialized = true
+    override fun createDefaultState(): WandPlayerState = WandPlayerState()
+
+    override fun onBeforeRegisterEvents() {
         registerWandConfig()
-        plugin.server.pluginManager.registerEvents(this, plugin)
+    }
+
+    override fun onAfterRegisterEvents() {
         plugin.logger.info("RailWand initialized")
     }
 
@@ -346,115 +354,23 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         session.setValue(wandKeys.curveRadius, state.curveRadius)
     }
 
-    // ═══════════════════════════════════════════
-    // 状态管理
-    // ═══════════════════════════════════════════
-
-    fun getState(player: Player): WandPlayerState =
-        playerStates.getOrPut(player.uniqueId) { WandPlayerState() }
-
-    fun isWandItem(item: ItemStack?): Boolean {
-        if (item == null || item.type != WAND_ITEM) return false
-        val meta = item.itemMeta ?: return false
-        return meta.persistentDataContainer.has(NamespacedKey(plugin, WAND_KEY), PersistentDataType.BOOLEAN)
-    }
-
-    fun giveWand(player: Player) {
-        val item = ItemStack(WAND_ITEM)
-        val meta = item.itemMeta as ItemMeta
-        meta.displayName(Component.text("RailWand", NamedTextColor.GOLD))
-        meta.persistentDataContainer.set(NamespacedKey(plugin, WAND_KEY), PersistentDataType.BOOLEAN, true)
-        meta.lore(listOf(
-            Component.text("Shift+F 切换模式", NamedTextColor.GRAY),
-            Component.text("Shift+右键 打开设置", NamedTextColor.GRAY)
-        ))
-        item.itemMeta = meta
-        player.inventory.addItem(item)
-    }
-
-    // ═══════════════════════════════════════════
-    // 事件处理
-    // ═══════════════════════════════════════════
-
-    @EventHandler
-    fun onSwapHands(event: PlayerSwapHandItemsEvent) {
-        val player = event.player
-        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) return
-        event.isCancelled = true
-
-        val state = getState(player)
-        val modeValues = WandMode.entries.toTypedArray()
-        val newIndex = (state.mode.ordinal + 1) % modeValues.size
-        state.mode = modeValues[newIndex]
-        // 切换模式时清除选择
+    override fun clearSelection(player: Player, state: WandPlayerState) {
         clearSelection(state)
-        player.sendActionBar(Component.text("${state.mode.displayName}: ${state.mode.description}", NamedTextColor.GREEN))
+        updateAnchorDisplay(player)
     }
 
-    @EventHandler
-    fun onInteract(event: PlayerInteractEvent) {
-        val player = event.player
-        if (!isWandItem(player.inventory.itemInMainHand)) return
-        if (event.hand != EquipmentSlot.HAND) return
-
-        val state = getState(player)
-        val world = player.world
-
-        when {
-            // Shift + 右键空气 → 打开模式设置
-            player.isSneaking && event.action == Action.RIGHT_CLICK_AIR -> {
-                event.isCancelled = true
-                showModeSettings(player, state)
-            }
-            // Shift + 右键方块 → 也打开设置
-            player.isSneaking && event.action == Action.RIGHT_CLICK_BLOCK -> {
-                event.isCancelled = true
-                showModeSettings(player, state)
-            }
-            // Shift + 左键空气 → 清空选择
-            player.isSneaking && event.action == Action.LEFT_CLICK_AIR -> {
-                event.isCancelled = true
-                clearSelection(state)
-                player.sendActionBar(Component.text("已清空选择", NamedTextColor.GRAY))
-            }
-            // 常规交互 → 根据模式分发
-            else -> {
-                event.isCancelled = true
-                dispatchModeAction(player, state, event)
-            }
-        }
+    override fun showSettings(player: Player, state: WandPlayerState) {
+        showModeSettings(player, state)
     }
 
-    @EventHandler
-    fun onItemHeldChange(event: PlayerItemHeldEvent) {
-        val player = event.player
-        if (player.isSneaking && isWandItem(player.inventory.itemInMainHand)) {
-            // Shift + 切换物品键 → 循环切换模式
-            event.isCancelled = true
-            val state = getState(player)
-            val modeValues = WandMode.entries.toTypedArray()
-            val newIndex = (state.mode.ordinal + 1) % modeValues.size
-            state.mode = modeValues[newIndex]
-            clearSelection(state)
-            player.sendActionBar(Component.text("${state.mode.displayName}: ${state.mode.description}", NamedTextColor.GREEN))
-        }
+    override fun handleWandInteract(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
+        dispatchModeAction(player, state, event)
     }
 
-    @EventHandler
-    fun onQuit(event: PlayerQuitEvent) {
-        val playerId = event.player.uniqueId
-        // 清理该玩家的锚点展示实体
-        anchorEntities.values.forEach { worldAnchors ->
-            worldAnchors.values.forEach { entityIds ->
-                entityIds.forEach { id ->
-                    event.player.world.getEntity(id)?.remove()
-                }
-            }
-        }
-        anchorEntities.clear()
-        playerStates.remove(playerId)
-        undoStacks.remove(playerId)
-        redoStacks.remove(playerId)
+    override fun onPlayerQuit(player: Player, state: WandPlayerState) {
+        removeAllAnchorDisplays(player)
+        undoStacks.remove(player.uniqueId)
+        redoStacks.remove(player.uniqueId)
     }
 
     // ═══════════════════════════════════════════
@@ -1110,9 +1026,8 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     // ═══════════════════════════════════════════
 
     private fun spawnAnchorDisplay(player: Player, anchor: Anchor) {
-        val worldId = player.world.uid.toString()
         val entityIds = anchorEntities
-            .getOrPut(worldId) { mutableMapOf() }
+            .getOrPut(player.uniqueId) { mutableMapOf() }
             .getOrPut(anchor.id) { mutableSetOf() }
 
         val anchorEntity = spawnAnchorDisplayEntity(
@@ -1171,33 +1086,59 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     private fun removeAnchorDisplay(player: Player, anchorId: String) {
-        val worldId = player.world.uid.toString()
-        val entries = anchorEntities[worldId]?.remove(anchorId) ?: return
+        val entries = anchorEntities[player.uniqueId]?.remove(anchorId) ?: return
         entries.forEach { entityId ->
             player.world.getEntity(entityId)?.remove()
         }
     }
 
     private fun removeAllAnchorDisplays(player: Player) {
-        val worldId = player.world.uid.toString()
-        anchorEntities[worldId]?.forEach { (_, entityIds) ->
+        anchorEntities.remove(player.uniqueId)?.forEach { (_, entityIds) ->
             entityIds.forEach { entityId ->
                 player.world.getEntity(entityId)?.remove()
             }
         }
-        anchorEntities.remove(worldId)
     }
 
     /** 更新锚点展示效果：选中 = Glowing */
     internal fun updateAnchorDisplay(player: Player) {
-        val worldId = player.world.uid.toString()
         val state = getState(player)
-        anchorEntities[worldId]?.forEach { (anchorId, entityIds) ->
+        anchorEntities[player.uniqueId]?.forEach { (anchorId, entityIds) ->
             entityIds.forEach { entityId ->
                 val entity = player.world.getEntity(entityId) ?: return@forEach
                 entity.isGlowing = anchorId in state.selectedAnchors
             }
         }
+    }
+
+    private fun refreshAnchorsForPlayer(player: Player) {
+        removeAllAnchorDisplays(player)
+        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) return
+        getAllAnchors(player.world).forEach { spawnAnchorDisplay(player, it) }
+        updateAnchorDisplay(player)
+    }
+
+    private fun refreshAnchorsForAllViewers() {
+        plugin.server.onlinePlayers.forEach { refreshAnchorsForPlayer(it) }
+    }
+
+    private fun scheduleAnchorVisibilityRefresh(player: Player) {
+        plugin.server.scheduler.runTask(plugin, Runnable { refreshAnchorsForPlayer(player) })
+    }
+
+    @EventHandler
+    fun onRailWandHeldChange(event: PlayerItemHeldEvent) {
+        scheduleAnchorVisibilityRefresh(event.player)
+    }
+
+    @EventHandler
+    fun onRailWandSwapHands(event: PlayerSwapHandItemsEvent) {
+        scheduleAnchorVisibilityRefresh(event.player)
+    }
+
+    @EventHandler
+    fun onRailWandPlayerJoin(event: PlayerJoinEvent) {
+        scheduleAnchorVisibilityRefresh(event.player)
     }
 
     /** 加载世界时刷新所有锚点展示 */

@@ -10,6 +10,7 @@ import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainExcepti
 import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardException
 import work.art1st.mineRails.core.api.physics.exception.Collision
 import work.art1st.mineRails.core.api.physics.exception.PhysicsException
+import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainExtension
 import work.art1st.mineRails.core.api.util.annotation.MainThread
@@ -53,6 +54,10 @@ open class CoreTrain @MainThread internal constructor(
     var head: TrainEnd
         protected set
     val tail: TrainEnd
+    override val headLocation: RailLocation
+        get() = head.location
+    override val tailLocation: RailLocation
+        get() = tail.location
 
     init {
         head = TrainEnd(

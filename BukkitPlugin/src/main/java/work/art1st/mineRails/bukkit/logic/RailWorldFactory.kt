@@ -8,7 +8,7 @@ import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.di.KoinWorldParentContext
 import work.art1st.mineRails.core.di.mineRailsParentScope
 import work.art1st.mineRails.basic.BasicPlugin
-import work.art1st.mineRails.basic.pathFinding.RailMap
+import work.art1st.mineRails.basic.BasicWorldData
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.util.TickManagerImpl
@@ -39,7 +39,7 @@ object RailWorldFactory {
         )
         coreWorld.registerExtensionData(
             BasicPlugin.INSTANCE,
-            RailMap()
+            BasicWorldData()
         )
         val persisted = RailRenderMetaStore.load(bukkitWorld)
         val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }

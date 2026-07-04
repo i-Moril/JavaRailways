@@ -60,6 +60,12 @@ class RailView(
             ViewDirection.BA -> rail.viewAB
         }
 
+    override fun selectNextRail(nextRail: ApiRailView?) {
+        activeRail = nextRail?.let {
+            it as? RailView ?: throw IllegalArgumentException("nextRail must be a Core RailView")
+        }
+    }
+
     @Serializable
     data class SavedRailViewV1(
         val rail: String,

@@ -1,6 +1,7 @@
 package work.art1st.mineRails.core.api.physics.train
 
 import work.art1st.mineRails.core.api.physics.WorldElement
+import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.Extension
@@ -12,6 +13,8 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     val speed: Double
     val isDerailed: Boolean
     val length: Int
+    val headLocation: RailLocation
+    val tailLocation: RailLocation
     fun moveTrainForward(deltaS: Double)
     fun reverse()
 }

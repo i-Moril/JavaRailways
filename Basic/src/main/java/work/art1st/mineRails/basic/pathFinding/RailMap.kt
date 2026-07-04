@@ -1,7 +1,12 @@
 package work.art1st.mineRails.basic.pathFinding
 
 import net.jcip.annotations.NotThreadSafe
+import work.art1st.mineRails.basic.BasicPlugin
+import work.art1st.mineRails.basic.BasicWorldData
+import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailView
+import work.art1st.mineRails.core.api.util.plugin.ExtensionData
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
 
@@ -57,24 +62,41 @@ fun RailView.removeDestination(label: String) {
 }
 
 /**
- * 在指定世界上获取对应的 [RailMap]。
- * 测试时若无 BasicPlugin 初始化，需通过 [setTestRailMap] 注册。
+ * 在指定世界上获取 Basic 模块运营数据。
+ *
+ * 运行时优先读取挂在 [BasicPlugin] 下的 [BasicWorldData]；测试或 standalone 场景若尚未注册
+ * Basic 扩展数据，则回退到测试 registry。
  */
-val work.art1st.mineRails.core.api.physics.World.railMap: RailMap
-    get() = TestRailMapRegistry.getOrCreate(this)
-
-/** 测试注册表，绕过 BasicPlugin 初始化 */
-object TestRailMapRegistry {
-    private val mapRegistry = java.util.WeakHashMap<work.art1st.mineRails.core.api.physics.World, RailMap>()
-
-    fun getOrCreate(world: work.art1st.mineRails.core.api.physics.World): RailMap {
-        return mapRegistry.computeIfAbsent(world) { RailMap() }
+@OptIn(ExtensionData::class)
+val World.basicWorldData: BasicWorldData
+    get() = runCatching {
+        getExtensionData<BasicWorldData>(BasicPlugin.INSTANCE)
+    }.getOrElse {
+        TestBasicWorldDataRegistry.getOrCreate(this)
     }
 
-    /**
-     * 注册一个指定的 RailMap 到世界上（用于测试）。
-     */
-    fun register(world: work.art1st.mineRails.core.api.physics.World, map: RailMap) {
-        mapRegistry[world] = map
+/** 在指定世界上获取对应的 [RailMap]。 */
+val World.railMap: RailMap
+    get() = basicWorldData.railMap
+
+/** 测试注册表，绕过 BasicPlugin 初始化或运行时扩展数据注册。 */
+object TestBasicWorldDataRegistry {
+    private val registry = WeakHashMap<World, BasicWorldData>()
+
+    fun getOrCreate(world: World): BasicWorldData {
+        return registry.computeIfAbsent(world) { BasicWorldData() }
+    }
+
+    fun register(world: World, data: BasicWorldData) {
+        registry[world] = data
+    }
+}
+
+/** 兼容旧测试：只注册 RailMap 时自动包装成 BasicWorldData。 */
+object TestRailMapRegistry {
+    fun getOrCreate(world: World): RailMap = TestBasicWorldDataRegistry.getOrCreate(world).railMap
+
+    fun register(world: World, map: RailMap) {
+        TestBasicWorldDataRegistry.register(world, BasicWorldData(railMap = map))
     }
 }

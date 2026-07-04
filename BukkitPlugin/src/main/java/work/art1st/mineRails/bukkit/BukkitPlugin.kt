@@ -9,6 +9,7 @@ import work.art1st.mineRails.bukkit.config.model.ModelManager
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
+import work.art1st.mineRails.bukkit.tool.OperationWand
 import work.art1st.mineRails.bukkit.tool.RailWand
 import work.art1st.mineRails.basic.BasicPlugin
 import work.art1st.mineRails.core.api.util.plugin.Plugin
@@ -34,6 +35,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** RailWand 工具 */
     lateinit var railWand: RailWand
 
+    /** 运营对象工具（停车点、限速、方向限制、信号等） */
+    lateinit var operationWand: OperationWand
+
     override fun onEnable() {
         ensureMineRailsKoinStarted()
         BasicPlugin.INSTANCE = BasicPlugin(0)
@@ -54,9 +58,11 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             "${modelManager.carLoader.getAllNames().size} cars, " +
             "${modelManager.trainLoader.getAllNames().size} trains")
 
-        // 初始化 RailWand
+        // 初始化 Wand 工具
         railWand = RailWand(this)
         railWand.init()
+        operationWand = OperationWand(this)
+        operationWand.init()
 
         // 注册命令
         val mineRailsCmd = MineRailsCommand()

@@ -109,4 +109,5 @@ gradle-app.setting
 .classpath
 
 .*/
+.worktree/
 .codeabs/

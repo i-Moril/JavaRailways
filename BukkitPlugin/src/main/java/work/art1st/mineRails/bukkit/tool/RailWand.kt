@@ -513,10 +513,10 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         if (state.selectedAnchors.isNotEmpty()) {
             state.selectedAnchors.addAll(newAnchorIds)
             if (state.selectedAnchors.size >= expectedCount) {
-                val endAnchors = state.selectedAnchors.takeLast(state.parallelCount)
-                if (connectSelectedAnchors(player, state)) {
+                val endpointSelection = connectSelectedAnchors(player, state)
+                if (endpointSelection != null) {
                     state.selectedAnchors.clear()
-                    state.selectedAnchors.addAll(endAnchors)
+                    state.selectedAnchors.addAll(endpointSelection)
                 }
             } else {
                 player.sendActionBar(Component.text(
@@ -570,7 +570,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
                 val expectedCount = state.parallelCount * 2  // 并行 × (起点+终点)
                 if (state.selectedAnchors.size >= expectedCount) {
-                    if (connectSelectedAnchors(player, state)) {
+                    if (connectSelectedAnchors(player, state) != null) {
                         state.selectedAnchors.clear()
                         updateAnchorDisplay(player)
                     }
@@ -601,24 +601,24 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     /** 连接已选择的锚点组，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
-    private fun connectSelectedAnchors(player: Player, state: WandPlayerState): Boolean {
+    private fun connectSelectedAnchors(player: Player, state: WandPlayerState): List<String>? {
         val expectedCount = state.parallelCount * 2
         if (state.selectedAnchors.size != expectedCount) {
             player.sendActionBar(Component.text(
                 "需要选择 $expectedCount 个锚点 (当前: ${state.selectedAnchors.size})", NamedTextColor.RED
             ))
-            return false
+            return null
         }
 
         val coreWorld = getCoreWorld(player) ?: run {
             player.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
-            return false
+            return null
         }
 
         val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
         if (anchors.size != expectedCount) {
             player.sendActionBar(Component.text("错误: 部分锚点不存在", NamedTextColor.RED))
-            return false
+            return null
         }
 
         val startAnchors = anchors.take(state.parallelCount)
@@ -626,7 +626,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         val validationError = validateParallelAnchorGroup(startAnchors, endAnchors, state)
         if (validationError != null) {
             player.sendActionBar(Component.text(validationError, NamedTextColor.RED))
-            return false
+            return null
         }
 
         // Step 1: 预计算所有曲线（失败时不留垃圾）
@@ -643,7 +643,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                     player.sendActionBar(Component.text(
                         "无法创建曲线: ${fromAnchor.id}→${toAnchor.id}", NamedTextColor.RED
                     ))
-                    return false
+                    return null
                 }
             curvePairs.add(CurvePair(fromAnchor, toAnchor, curve))
         }
@@ -668,7 +668,15 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
             player.sendMessage(Component.text(
                 "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)，自动连接 $autoConnected 条", NamedTextColor.GREEN
             ))
-            return true
+            val endpointSelection = createdRails.map { railEndpointAnchorId(it.id, 'B') }
+            state.selectedAnchors.toList().forEach { anchorId ->
+                if (!isRailEndpointAnchorId(anchorId)) {
+                    removeAnchorDisplay(player, anchorId)
+                    removeAnchor(player.world, anchorId)
+                }
+            }
+            refreshAllAnchorsForPlayer(player)
+            return endpointSelection
         } catch (e: Exception) {
             createdRails.forEach { rail ->
                 rail.destroy()
@@ -677,7 +685,7 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
                 RailRenderMetaStore.removeRail(player.world, rail.id)
             }
             player.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
-            return false
+            return null
         }
     }
 
@@ -862,6 +870,10 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     private fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {
+        if (isRailEndpointAnchorId(anchor.id)) {
+            player.sendActionBar(Component.text("轨道端点锚点暂不支持直接编辑", NamedTextColor.YELLOW))
+            return
+        }
         // 将锚点当前值写入 session，然后打开 ConfigAPI Dialog
         val session = configUI.getPlayerSession(player.uniqueId)
         val yaw = tangentYawDegrees(anchor.tangent)
@@ -956,6 +968,10 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
     }
 
     private fun deleteAnchor(player: Player, anchorId: String, state: WandPlayerState) {
+        if (isRailEndpointAnchorId(anchorId)) {
+            player.sendActionBar(Component.text("轨道端点锚点不能单独删除，请删除轨道", NamedTextColor.YELLOW))
+            return
+        }
         val anchor = getAnchor(player.world, anchorId) ?: run {
             player.sendActionBar(Component.text("锚点不存在: $anchorId", NamedTextColor.RED))
             return
@@ -996,16 +1012,59 @@ class RailWand(private val plugin: BukkitPlugin) : Listener {
         anchorsFor(world)[anchor.id] = anchor
     }
 
-    private fun getAnchor(world: World, id: String): Anchor? = anchorsFor(world)[id]
+    private fun getAnchor(world: World, id: String): Anchor? =
+        anchorsFor(world)[id] ?: getRailEndpointAnchor(world, id)
 
-    private fun getAllAnchors(world: World): List<Anchor> = anchorsFor(world).values.toList()
+    private fun getAllAnchors(world: World): List<Anchor> =
+        anchorsFor(world).values.toList() + getRailEndpointAnchors(world)
 
     private fun updateAnchor(world: World, anchor: Anchor) {
-        anchorsFor(world)[anchor.id] = anchor
+        if (!isRailEndpointAnchorId(anchor.id)) {
+            anchorsFor(world)[anchor.id] = anchor
+        }
     }
 
     private fun removeAnchor(world: World, id: String) {
-        anchorsFor(world).remove(id)
+        if (!isRailEndpointAnchorId(id)) {
+            anchorsFor(world).remove(id)
+        }
+    }
+
+    private fun railEndpointAnchorId(railId: UUID, end: Char): String = "rail:$railId:$end"
+
+    private fun isRailEndpointAnchorId(id: String): Boolean = parseRailEndpointAnchorId(id) != null
+
+    private fun parseRailEndpointAnchorId(id: String): Pair<UUID, Char>? {
+        val parts = id.split(':')
+        if (parts.size != 3 || parts[0] != "rail") return null
+        val end = parts[2].singleOrNull()?.uppercaseChar() ?: return null
+        if (end != 'A' && end != 'B') return null
+        val railId = runCatching { UUID.fromString(parts[1]) }.getOrNull() ?: return null
+        return railId to end
+    }
+
+    private fun getRailEndpointAnchor(world: World, id: String): Anchor? {
+        val (railId, end) = parseRailEndpointAnchorId(id) ?: return null
+        val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return null
+        val rail = coreWorld.getRail(railId) ?: return null
+        val point = if (end == 'A') rail.viewAB.startPoint else rail.viewAB.endPoint
+        return Anchor(
+            id = id,
+            position = Vector3d(point.position),
+            tangent = Vector3d(point.tangent),
+            worldId = world.uid.toString()
+        )
+    }
+
+    private fun getRailEndpointAnchors(world: World): List<Anchor> {
+        val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return emptyList()
+        return RailRenderMetaStore.load(world).flatMap { meta ->
+            val rail = coreWorld.getRail(meta.railId) ?: return@flatMap emptyList()
+            listOfNotNull(
+                getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'A')),
+                getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'B'))
+            )
+        }
     }
 
     private fun findNearestAnchor(player: Player, maxDistance: Double): Anchor? {

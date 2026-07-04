@@ -647,14 +647,16 @@ WayPoint 的创建/编辑优先通过 `OperationWand` 完成。
 
 ### Phase 3：ExpandedRoute 与 dry-run
 
-目标：能从停车点 A 到 B 展开路径，但暂时不动车。
+状态：已开始。已新增 `RailViewRef`、`RouteSegment`、`ExpandedRoute`、`RoutePlanner`，并补充公共 `Rail.getView(direction)` API；路径点已改为方向无关，`RoutePlanner` 会尝试起点/终点 AB、BA 视图组合并选择最短可达经路，方向限制后续由独立运营 metadata 表达；已新增 `/mr route validate <fromWaypoint> <toWaypoint>`，用于输出路径点之间的展开经路、总长度和轨道段列表。
+
+目标：能从路径点 A 到 B 展开路径，但暂时不动车。
 
 任务：
 
 1. 实现 `RailViewRef`。
 2. 实现 `ExpandedRoute` / `RouteSegment`。
-3. 从起点 `StopPoint` 到终点 `StopPoint` 查找路径。
-4. 计算路线总长度和到目标停车点距离。
+3. 从起点 `WayPoint` 到终点 `WayPoint` 查找路径。
+4. 计算路线总长度和到目标路径点距离。
 5. 实现 dry-run 验证：
    - stop 是否存在
    - path 是否可达

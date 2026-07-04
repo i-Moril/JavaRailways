@@ -1,7 +1,6 @@
 package work.art1st.mineRails.basic
 
 import work.art1st.mineRails.basic.pathFinding.RailMap
-import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -31,8 +30,8 @@ data class WayPoint(
     val id: String,
     val displayName: String,
     val railId: UUID,
-    val arcLength: Double,
-    val direction: ViewDirection
+    /** 弧长始终以 Rail 的 AB 曲线为基准；路径点本身不带行进方向。 */
+    val arcLength: Double
 )
 
 class WayPointStore {

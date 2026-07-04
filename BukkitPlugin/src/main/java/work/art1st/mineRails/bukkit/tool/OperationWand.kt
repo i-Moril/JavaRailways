@@ -24,7 +24,6 @@ import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
-import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.util.annotation.Heavy
 import java.util.UUID
 
@@ -147,22 +146,20 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
             return
         }
 
-        val direction = chooseDirection(player, nearestPoint.tangent)
         val store = coreWorld.basicWorldData.wayPoints
         val id = store.nextId()
         val wayPoint = WayPoint(
             id = id,
             displayName = id,
             railId = rail.id,
-            arcLength = nearestPoint.arcLength,
-            direction = direction
+            arcLength = nearestPoint.arcLength
         )
         store.add(wayPoint)
         spawnOrReplaceMarker(player, wayPoint)
 
         player.sendMessage(
             Component.text(
-                "已创建路径点 $id: rail=${rail.id}, s=${"%.2f".format(nearestPoint.arcLength)}, dir=$direction",
+                "已创建路径点 $id: rail=${rail.id}, s=${"%.2f".format(nearestPoint.arcLength)}",
                 NamedTextColor.GREEN
             )
         )
@@ -227,12 +224,6 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
     private fun getTargetPosition(player: Player, event: PlayerInteractEvent): Vector3d? {
         val block = event.clickedBlock ?: player.getTargetBlockExact(32) ?: return null
         return Vector3d(block.x + 0.5, block.y + 0.5, block.z + 0.5)
-    }
-
-    private fun chooseDirection(player: Player, tangent: org.joml.Vector3dc): ViewDirection {
-        val facing = player.location.direction
-        val dot = facing.x * tangent.x() + facing.y * tangent.y() + facing.z * tangent.z()
-        return if (dot >= 0.0) ViewDirection.AB else ViewDirection.BA
     }
 
     private fun showWayPointDialog(player: Player, wayPointId: String) {

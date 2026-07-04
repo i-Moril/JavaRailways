@@ -66,7 +66,7 @@ class CoreRail @MainThread private constructor(
         nextRailsB: MutableList<RailView>
     ) : this(UUID.randomUUID(), world, curveAB, nextRailsA, nextRailsB)
 
-    fun getView(direction: ViewDirection): RailView {
+    override fun getView(direction: ViewDirection): RailView {
         return when (direction) {
             ViewDirection.AB -> viewAB
             ViewDirection.BA -> viewBA

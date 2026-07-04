@@ -6,6 +6,8 @@ import org.bukkit.command.CommandSender
 import org.bukkit.command.TabCompleter
 import org.bukkit.entity.Player
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
+import work.art1st.mineRails.basic.route.RouteBuildResult
+import work.art1st.mineRails.basic.route.RoutePlanner
 import work.art1st.mineRails.bukkit.BukkitPlugin
 
 class MineRailsCommand : CommandExecutor, TabCompleter {
@@ -25,6 +27,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             "train" -> return TrainCommand.onCommand(sender, args.drop(1))
             "wand" -> return handleWand(sender, args.drop(1))
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
+            "route" -> return handleRoute(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
             "redo" -> return handleRedo(sender)
             "help" -> sendHelp(sender)
@@ -40,7 +43,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         args: Array<out String>
     ): List<String> {
         if (args.size == 1) {
-            return listOf("rail", "train", "wand", "waypoint", "stop", "undo", "redo", "help")
+            return listOf("rail", "train", "wand", "waypoint", "route", "stop", "undo", "redo", "help")
         }
         return emptyList()
     }
@@ -76,7 +79,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 } else {
                     sender.sendMessage("=== 路径点列表 ===")
                     wayPoints.forEach { wayPoint ->
-                        sender.sendMessage("${wayPoint.id} (${wayPoint.displayName}) rail=${wayPoint.railId} s=${"%.2f".format(wayPoint.arcLength)} dir=${wayPoint.direction}")
+                        sender.sendMessage("${wayPoint.id} (${wayPoint.displayName}) rail=${wayPoint.railId} s=${"%.2f".format(wayPoint.arcLength)}")
                     }
                 }
             }
@@ -93,7 +96,6 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                         sender.sendMessage("显示名: ${wayPoint.displayName}")
                         sender.sendMessage("轨道: ${wayPoint.railId}")
                         sender.sendMessage("弧长: ${"%.2f".format(wayPoint.arcLength)}")
-                        sender.sendMessage("方向: ${wayPoint.direction}")
                     }
                 }
             }
@@ -112,6 +114,43 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 }
             }
             else -> sender.sendMessage("用法: /mr waypoint <list|info|remove> (旧别名: /mr stop)")
+        }
+        return true
+    }
+
+    private fun handleRoute(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) { sender.sendMessage("Player only"); return true }
+        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] ?: run {
+            sender.sendMessage("错误: 无法获取 MineRails 世界")
+            return true
+        }
+        when (args.firstOrNull()?.lowercase()) {
+            "validate" -> {
+                val from = args.getOrNull(1)
+                val to = args.getOrNull(2)
+                if (from == null || to == null) {
+                    sender.sendMessage("用法: /mr route validate <fromWaypoint> <toWaypoint>")
+                    return true
+                }
+                when (val result = RoutePlanner(world).buildRoute(from, to)) {
+                    is RouteBuildResult.Success -> {
+                        val route = result.route
+                        sender.sendMessage("=== 经路验证成功 ===")
+                        sender.sendMessage("${route.fromWayPointId} -> ${route.toWayPointId}")
+                        sender.sendMessage("总长度: ${"%.2f".format(route.totalLength)} m")
+                        sender.sendMessage("轨道段数: ${route.segments.size}")
+                        route.segments.forEachIndexed { index, segment ->
+                            sender.sendMessage(
+                                "${index + 1}. rail=${segment.railViewRef.railId} dir=${segment.railViewRef.direction} " +
+                                    "s=${"%.2f".format(segment.startArcLength)}..${"%.2f".format(segment.endArcLength)} " +
+                                    "len=${"%.2f".format(segment.length)}"
+                            )
+                        }
+                    }
+                    is RouteBuildResult.Failure -> sender.sendMessage("经路验证失败: ${result.reason}")
+                }
+            }
+            else -> sender.sendMessage("用法: /mr route validate <fromWaypoint> <toWaypoint>")
         }
         return true
     }
@@ -138,6 +177,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr wand rail - 获取 RailWand")
         sender.sendMessage("/mr wand operation - 获取 OperationWand")
         sender.sendMessage("/mr waypoint list|info|remove - 管理路径点")
+        sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr undo - 撤销操作")
         sender.sendMessage("/mr redo - 重做操作")
     }

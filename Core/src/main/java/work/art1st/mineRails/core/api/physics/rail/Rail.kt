@@ -15,4 +15,5 @@ interface Rail : Destroyable, Extendable<RenderableExtension<Rail>> {
      * 这是铁轨的几何形状定义，用于渲染和物理计算。
      */
     val curve: PrimeCurve
+    fun getView(direction: ViewDirection): RailView
 }

@@ -79,6 +79,13 @@ shadowJar {
     mergeServiceFiles()
     relocate 'org.joml.Vector3dKt', 'work.art1st.mineRails.shadow.org.joml.Vector3dKt'
     configurations = [project.configurations.runtimeClasspath, jomlShadow]
+    dependencies {
+        // GraalJS language selector artifacts are POM-only. They bring the real
+        // runtime jars transitively, but Shadow tries to unzip the POM itself.
+        // Exclude only these selector POMs from the fat jar.
+        exclude(dependency('org.graalvm.polyglot:js-community:.*'))
+        exclude(dependency('org.graalvm.js:js-community:.*'))
+    }
 }
 
 // 确保在执行 build 时触发 shadowJar

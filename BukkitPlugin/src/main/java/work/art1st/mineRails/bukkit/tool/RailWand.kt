@@ -21,7 +21,10 @@ import org.joml.Vector3dc
 import work.art1st.mineRails.basic.api.ui.config.*
 import work.art1st.mineRails.basic.curve.Anchor
 import work.art1st.mineRails.basic.curve.AnchorGeometry
+import work.art1st.mineRails.basic.curve.RailCurveBuildOptions
 import work.art1st.mineRails.basic.curve.RailCurveFactory
+import work.art1st.mineRails.basic.curve.RailCurveTemplateType
+import work.art1st.mineRails.basic.curve.StraightMode
 import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
@@ -30,6 +33,7 @@ import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
@@ -96,7 +100,11 @@ data class WandPlayerState(
     /** 是否自动装饰轨道 */
     var autoDecorate: Boolean = true,
     /** 曲线半径 (m)。0 = 自动选择 */
-    var curveRadius: Double = 0.0
+    var curveRadius: Double = 0.0,
+    /** 曲线模板。AUTO 会按端点几何自动分类；STRAIGHT 可强制斜向直线。 */
+    var curveTemplate: RailCurveTemplateType = RailCurveTemplateType.AUTO,
+    /** 直线模板是否允许重设端点 yaw 为两锚点 chord；默认关闭以避免切线突变。 */
+    var straightUsesChordDirection: Boolean = false
 ) : WandState<WandMode>
 
 // ═══════════════════════════════════════════════════════════════
@@ -232,6 +240,26 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             group = "wand.settings"
             order = 6
         }
+        val curveTemplate = ConfigKey.build<RailCurveTemplateType>("wand.curveTemplate") {
+            label = "曲线模板"
+            description = "自动/直线/五段式/S弯/道岔。直线模板可避免斜向直线被误判。"
+            defaultValue(RailCurveTemplateType.AUTO)
+            valueType = ConfigValueType.ENUM
+            constraints = ConfigConstraints.EnumOptions(
+                RailCurveTemplateType.entries,
+                RailCurveTemplateType.entries.associateWith { it.displayName }
+            )
+            group = "wand.settings"
+            order = 7
+        }
+        val straightUsesChordDirection = ConfigKey.build<Boolean>("wand.straightUsesChord") {
+            label = "直线重设为端点方向"
+            description = "直线模板下强制使用两锚点连线作为方向。默认关闭；连接既有轨道时应关闭以避免切线突变。"
+            defaultValue(false)
+            valueType = ConfigValueType.BOOLEAN
+            group = "wand.settings"
+            order = 8
+        }
     }
 
     /** 锚点编辑配置键 */
@@ -297,6 +325,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             items.add(ConfigItemImpl(wandKeys.openConfigAfterCreate))
             items.add(ConfigItemImpl(wandKeys.autoDecorate))
             items.add(ConfigItemImpl(wandKeys.curveRadius))
+            items.add(ConfigItemImpl(wandKeys.curveTemplate))
+            items.add(ConfigItemImpl(wandKeys.straightUsesChordDirection))
         }
         configUI.register(wandGroup)
 
@@ -339,6 +369,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ?: (configUI.get(wandKeys.autoDecorate) ?: true)
         state.curveRadius = session.getValue(wandKeys.curveRadius)
             ?: (configUI.get(wandKeys.curveRadius) ?: 0.0)
+        state.curveTemplate = session.getValue(wandKeys.curveTemplate)
+            ?: (configUI.get(wandKeys.curveTemplate) ?: RailCurveTemplateType.AUTO)
+        state.straightUsesChordDirection = session.getValue(wandKeys.straightUsesChordDirection)
+            ?: (configUI.get(wandKeys.straightUsesChordDirection) ?: false)
     }
 
     /** 将 WandPlayerState 中的值同步到 ConfigAPI session (在打开 Dialog 前调用) */
@@ -352,6 +386,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(wandKeys.openConfigAfterCreate, state.openConfigAfterCreate)
         session.setValue(wandKeys.autoDecorate, state.autoDecorate)
         session.setValue(wandKeys.curveRadius, state.curveRadius)
+        session.setValue(wandKeys.curveTemplate, state.curveTemplate)
+        session.setValue(wandKeys.straightUsesChordDirection, state.straightUsesChordDirection)
     }
 
     override fun clearSelection(player: Player, state: WandPlayerState) {
@@ -397,8 +433,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("请右键方块创建锚点", NamedTextColor.RED))
             return
         }
-        val tangent = getSnappedTangent(player, state)
-        val newAnchors = createParallelAnchorGroup(player, position, tangent, state)
+        val inheritedTangents = getCreateModeInheritedTangents(player, state)
+        val tangent = inheritedTangents?.firstOrNull() ?: getSnappedTangent(player, state)
+        val newAnchors = createParallelAnchorGroup(player, position, tangent, state, inheritedTangents)
         val newAnchorIds = newAnchors.map { it.id }
 
         val undoActions = newAnchors.map { WandAction.CreateAnchor(player.world.uid, it.id) }
@@ -438,7 +475,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         player: Player,
         center: Vector3dc,
         tangent: Vector3dc,
-        state: WandPlayerState
+        state: WandPlayerState,
+        inheritedTangents: List<Vector3dc>? = null
     ): List<Anchor> {
         val count = state.parallelCount.coerceAtLeast(1)
         val right = perpendicularRight(tangent)
@@ -446,11 +484,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val offset = (index - (count - 1) / 2.0) * state.parallelSpacing
             val position = Vector3d(center).fma(offset, right)
             val anchorId = nextAnchorId()
-            Anchor(anchorId, position, Vector3d(tangent), worldId = player.world.uid.toString()).also { anchor ->
+            val anchorTangent = inheritedTangents?.getOrNull(index) ?: tangent
+            Anchor(anchorId, position, Vector3d(anchorTangent), worldId = player.world.uid.toString()).also { anchor ->
                 addAnchor(player.world, anchor)
                 spawnAnchorDisplay(player, anchor)
             }
         }
+    }
+
+    /**
+     * 创建模式连续建线时，新终点锚点继承上一组锚点/轨道端点的切线。
+     * 这样斜向直线由第一个锚点方向决定，第二次点击只提供终点位置，不会因为玩家当前朝向造成端点切线突变。
+     */
+    private fun getCreateModeInheritedTangents(player: Player, state: WandPlayerState): List<Vector3dc>? {
+        val count = state.parallelCount.coerceAtLeast(1)
+        if (state.selectedAnchors.size != count) return null
+        val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
+        if (anchors.size != count) return null
+        return anchors.map { Vector3d(it.tangent) }
     }
 
     private fun perpendicularRight(tangent: Vector3dc): Vector3d {
@@ -501,7 +552,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         for (i in 0 until state.parallelCount) {
             val fromAnchor = startAnchors[i]
             val toAnchor = endAnchors[i]
-            val curve = createCurveBetweenAnchors(fromAnchor, toAnchor, state.curveRadius)
+            val curve = createCurveBetweenAnchors(fromAnchor, toAnchor, state)
                 ?: run {
                     player.sendActionBar(Component.text(
                         "无法创建曲线: ${fromAnchor.id}→${toAnchor.id}", NamedTextColor.RED
@@ -604,7 +655,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val oldEnd = anchorFromRailEndpoint(player.world, rail, 'B')
             val newStart = if (movedEnd == 'A') updatedEndpoint else oldStart
             val newEnd = if (movedEnd == 'B') updatedEndpoint else oldEnd
-            val newCurve = createCurveBetweenAnchors(newStart, newEnd, getState(player).curveRadius) ?: run {
+            val newCurve = createCurveBetweenAnchors(newStart, newEnd, getState(player)) ?: run {
                 player.sendActionBar(Component.text("无法根据新端点生成轨道: ${rail.id}", NamedTextColor.RED))
                 return null
             }
@@ -767,10 +818,18 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return aPoints.minOf { pa -> bPoints.minOf { pb -> pa.distance(pb) } }
     }
 
-    private fun createCurveBetweenAnchors(from: Anchor, to: Anchor, radius: Double = 0.0): PrimeCurve? {
-        val result = RailCurveFactory.build(from, to, radius)
+    private fun createCurveBetweenAnchors(from: Anchor, to: Anchor, state: WandPlayerState): PrimeCurve? {
+        val options = RailCurveBuildOptions(
+            template = state.curveTemplate,
+            radius = state.curveRadius,
+            straightMode = if (state.straightUsesChordDirection) StraightMode.USE_CHORD else StraightMode.REQUIRE_TANGENT
+        )
+        val result = RailCurveFactory.build(from, to, options)
         if (!result.isSuccess) {
-            plugin.logger.warning("RailWand curve build failed: ${result.error ?: "unknown error"}")
+            plugin.logger.warning(
+                "RailWand curve build failed: template=${result.selectedTemplate ?: state.curveTemplate}, " +
+                    "reason=${result.selectedReason ?: "n/a"}, error=${result.error ?: "unknown error"}"
+            )
         }
         return result.curve
     }
@@ -894,6 +953,75 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
         pushUndo(player, WandAction.DeleteAnchor(player.world.uid, savedData))
         player.sendActionBar(Component.text("已删除锚点 $anchorId", NamedTextColor.GREEN))
+    }
+
+    internal fun railIdFromEndpointAnchor(anchorId: String): UUID? = parseRailEndpointAnchorId(anchorId)?.first
+
+    internal fun deleteRail(player: Player, railId: UUID, state: WandPlayerState) {
+        val coreWorld = getCoreWorld(player) ?: run {
+            player.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
+            return
+        }
+        val rail = coreWorld.getRail(railId) ?: run {
+            RailVisualBootstrap.unregisterRail(railId)
+            RailRenderMetaStore.removeRail(player.world, railId)
+            refreshAllAnchorsForPlayer(player)
+            player.sendActionBar(Component.text("轨道不存在，已清理残留渲染数据: $railId", NamedTextColor.YELLOW))
+            return
+        }
+        if (rail.trains.isNotEmpty()) {
+            player.sendActionBar(Component.text("不能删除有列车占用的轨道", NamedTextColor.RED))
+            return
+        }
+
+        val persistedRails = RailRenderMetaStore.load(player.world).mapNotNull { coreWorld.getRail(it.railId) }
+        detachRailReferences(setOf(railId), persistedRails.filter { it.id != railId })
+        RailVisualBootstrap.unregisterRail(railId)
+        RailRenderMetaStore.removeRail(player.world, railId)
+        rail.destroy()
+        coreWorld.removeRail(rail)
+
+        state.selectedRails.remove(railId)
+        state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) == railId }
+        removeAnchorDisplay(player, railEndpointAnchorId(railId, 'A'))
+        removeAnchorDisplay(player, railEndpointAnchorId(railId, 'B'))
+        refreshAllAnchorsForPlayer(player)
+        pushUndo(player, WandAction.DeleteRail(player.world.uid, railId))
+        player.sendActionBar(Component.text("已删除轨道 $railId", NamedTextColor.GREEN))
+    }
+
+    @OptIn(Heavy::class)
+    internal fun findLookedAtRail(player: Player, maxDistance: Double = 64.0, hitRadius: Double = 1.5): CoreRail? {
+        val coreWorld = getCoreWorld(player) ?: return null
+        val eye = player.eyeLocation
+        val origin = Vector3d(eye.x, eye.y, eye.z)
+        val direction = Vector3d(eye.direction.x, eye.direction.y, eye.direction.z)
+        if (direction.lengthSquared() < 1e-12) return null
+        direction.normalize()
+
+        var bestRail: CoreRail? = null
+        var bestScore = Double.POSITIVE_INFINITY
+        RailRenderMetaStore.load(player.world).forEach { meta ->
+            val rail = coreWorld.getRail(meta.railId) ?: return@forEach
+            rail.curve.stream().use { stream ->
+                val iterator = stream.iterator()
+                while (iterator.hasNext()) {
+                    val point = iterator.next()
+                    val toPoint = Vector3d(point.position).sub(origin)
+                    val projection = toPoint.dot(direction)
+                    if (projection < 0.0 || projection > maxDistance) continue
+                    val closest = Vector3d(origin).fma(projection, direction)
+                    val distance = closest.distance(point.position)
+                    if (distance > hitRadius) continue
+                    val score = projection + distance * 8.0
+                    if (score < bestScore) {
+                        bestScore = score
+                        bestRail = rail
+                    }
+                }
+            }
+        }
+        return bestRail
     }
 
     // ═══════════════════════════════════════════

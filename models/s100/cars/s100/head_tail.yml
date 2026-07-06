@@ -81,9 +81,6 @@ body-parts:
   - import: air_conditioner
     offset: {x: 0, y: 2.94375, z: 0}
     rotation: {y: 180}
-  - import: pantograph_retrieved
-    offset: {x: 0, y: 2.94375, z: -7}
-    rotation: {y: 180}
 
   # --- Doors ---
   - import: door_tail

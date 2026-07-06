@@ -50,22 +50,16 @@ body-parts:
     offset: {x: 0, y: 0.5, z: -7.5}
     rotation: {y: 180}
 
-  # Bottom devices
-  - import: bottom_devices_c
-    offset: {x: 0, y: 0.5, z: 3.0}
+  # Bottom devices (legacy passenger behaves like the S100 trailer car)
+  - import: bottom_devices_b
+    offset: {x: 0, y: 0.5, z: 1.8}
     rotation: {y: 180}
   - import: bottom_devices_b
-    offset: {x: 0, y: 0.5, z: 0}
-    rotation: {y: 180}
-  - import: bottom_devices_a
-    offset: {x: 0, y: 0.5, z: -3.0}
-    rotation: {y: 180}
+    offset: {x: 0, y: 0.5, z: -1.8}
 
   # Roof
   - import: air_conditioner
     offset: {x: 0, y: 2.94375, z: 0}
-  - import: pantograph_retrieved
-    offset: {x: 0, y: 2.94375, z: -7.0}
 
   # Doors
   - import: door

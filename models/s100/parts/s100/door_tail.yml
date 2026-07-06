@@ -5,15 +5,18 @@ type: dummy
 # doors_l / doors_r still refer to the train's visual left/right side.
 parts:
   # Local +X becomes visual right after the car-level 180-degree rotation.
-  - name: door_right_a
+  # Use tail-specific leaves because the 180-degree group rotation also flips
+  # front/back leaf order, so texture and slide direction cannot both be kept
+  # correct by reusing the forward-car leaf parts directly.
+  - name: door_tail_right_a
     offset: {x: 1.375, y: 0, z: 0.375}
-  - name: door_right_b
+  - name: door_tail_right_b
     offset: {x: 1.375, y: 0, z: -0.375}
   # Local -X becomes visual left after the car-level 180-degree rotation.
-  - name: door_left_a
+  - name: door_tail_left_a
     offset: {x: -1.375, y: 0, z: 0.375}
     rotation: {y: 180}
-  - name: door_left_b
+  - name: door_tail_left_b
     offset: {x: -1.375, y: 0, z: -0.375}
     rotation: {y: 180}
   # Door lights

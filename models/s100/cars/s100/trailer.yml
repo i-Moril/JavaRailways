@@ -1,0 +1,95 @@
+config-version: 1
+length: 17.8
+floor-height: 1.0
+connector-length-a: 0.1
+connector-length-b: 0.1
+name: trailer
+# S100 00T0 trailer car: connector + seated sections, no pantograph.
+body-parts:
+  # Collision platform: 3x18 shulker grid across the full car and connectors
+  - import: floor_platform
+    offset: {x: 0, y: -1.0, z: 0}
+
+  # Body sections
+  - import: body_connector
+    offset: {x: 0, y: 1.25, z: 7.5}
+  - import: body_seated
+    offset: {x: 0, y: 1.25, z: 4.5}
+    rotation: {y: 180}
+  - import: body_seated
+    offset: {x: 0, y: 1.25, z: 1.5}
+  - import: body_seated
+    offset: {x: 0, y: 1.25, z: -1.5}
+    rotation: {y: 180}
+  - import: body_seated
+    offset: {x: 0, y: 1.25, z: -4.5}
+  - import: body_connector
+    offset: {x: 0, y: 1.25, z: -7.5}
+    rotation: {y: 180}
+
+  # Overlays
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: 7.5}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: 4.5}
+    rotation: {y: 180}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: 1.5}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: -1.5}
+    rotation: {y: 180}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: -4.5}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: -7.5}
+    rotation: {y: 180}
+
+  # Connectors
+  - import: connector_mid_a
+    offset: {x: 0, y: 0.5, z: 7.5}
+  - import: connector_mid_a
+    offset: {x: 0, y: 0.5, z: -7.5}
+    rotation: {y: 180}
+
+  # Bottom devices, matching original 00T0 pair of devices_b
+  - import: bottom_devices_b
+    offset: {x: 0, y: 0.5, z: 1.8}
+    rotation: {y: 180}
+  - import: bottom_devices_b
+    offset: {x: 0, y: 0.5, z: -1.8}
+
+  # Roof
+  - import: air_conditioner
+    offset: {x: 0, y: 2.94375, z: 0}
+
+  # Doors
+  - import: door
+    offset: {x: 0, y: 0.5, z: -6.0}
+  - import: door
+    offset: {x: 0, y: 0.5, z: 0}
+  - import: door
+    offset: {x: 0, y: 0.5, z: 6.0}
+
+  # Displays
+  - import: door_display
+    offset: {x: 0, y: 1.25, z: -6.0}
+  - import: door_display
+    offset: {x: 0, y: 1.25, z: 0}
+    rotation: {y: 180}
+  - import: door_display
+    offset: {x: 0, y: 1.25, z: 6.0}
+    rotation: {y: 180}
+  - import: side_display
+    offset: {x: 0, y: 1.25, z: -3.0}
+  - import: side_display
+    offset: {x: 0, y: 1.25, z: 3.0}
+
+bogies:
+  - offset: {x: 0, y: 0, z: 5.75}
+    parts:
+      - name: bogie
+    wheel-diameter: 0.86
+  - offset: {x: 0, y: 0, z: -5.75}
+    parts:
+      - name: bogie
+    wheel-diameter: 0.86

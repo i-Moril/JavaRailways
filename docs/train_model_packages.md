@@ -42,7 +42,9 @@ plugins/MineRails/trains/s100/
   cars/
     s100/
       head.yml
-      passenger.yml
+      motor.yml
+      trailer.yml
+      motor_tail.yml
       head_tail.yml
   parts/
     s100/
@@ -61,7 +63,7 @@ plugins/MineRails/trains/s100/
 - `actions.yml` 描述“开左门”“关右门”等业务动作。
 - `behavior.js` 描述“什么时候调用哪些动作”。
 
-`cars/s100/passenger.yml` 中的 `name: passenger` 会形成车厢名 `s100/passenger`。在 `manifest.yml` 的 `composition` 中通常写简单名：`passenger`。
+`cars/s100/motor.yml` 中的 `name: motor` 会形成车厢名 `s100/motor`。在 `manifest.yml` 的 `composition` 中通常写简单名：`motor`。
 
 ---
 
@@ -76,8 +78,9 @@ type: train
 display-name: "S100 EMU"
 composition:
   - head
-  - passenger
-  - passenger
+  - motor
+  - trailer
+  - motor_tail
   - head_tail
 ```
 
@@ -105,7 +108,7 @@ composition:
 
 ```yml
 config-version: 1
-name: passenger
+name: motor
 length: 17.8
 floor-height: 1.0
 connector-length-a: 0.1

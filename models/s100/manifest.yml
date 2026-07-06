@@ -4,6 +4,7 @@ type: train
 display-name: "S100 EMU"
 composition:
   - head
-  - passenger
-  - passenger
+  - motor
+  - trailer
+  - motor_tail
   - head_tail

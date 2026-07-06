@@ -4,3 +4,6 @@ type: item_display
 item:
   type: IRON_NUGGET
   item-model: "art1st/tc/s100/body_head"
+parts:
+  - import: seat
+    offset: {x: 0.5625, y: -0.7125, z: 0.38}

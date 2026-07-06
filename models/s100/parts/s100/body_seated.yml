@@ -4,3 +4,22 @@ type: item_display
 item:
   type: IRON_NUGGET
   item-model: "art1st/tc/s100/body_seated"
+parts:
+  - import: seat
+    offset: {x: 0.96875, y: -0.8125, z: 1.5}
+  - import: seat
+    offset: {x: 0.96875, y: -0.8125, z: 1.0556}
+  - import: seat
+    offset: {x: 0.96875, y: -0.8125, z: 0.6112}
+  - import: seat
+    offset: {x: 0.96875, y: -0.8125, z: 0.1667}
+  - import: seat
+    offset: {x: 0.96875, y: -0.8125, z: -0.2777}
+  - import: seat
+    offset: {x: -0.96875, y: -0.8125, z: 1.0556}
+  - import: seat
+    offset: {x: -0.96875, y: -0.8125, z: 0.6112}
+  - import: seat
+    offset: {x: -0.96875, y: -0.8125, z: 0.1667}
+  - import: seat
+    offset: {x: -0.96875, y: -0.8125, z: -0.2777}

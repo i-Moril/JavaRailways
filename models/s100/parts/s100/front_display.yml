@@ -1,0 +1,6 @@
+config-version: 1
+name: front_display
+type: item_display
+item:
+  type: IRON_INGOT
+  item-model: "art1st/tc/s100/front_display"

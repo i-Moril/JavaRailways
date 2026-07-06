@@ -1,23 +1,28 @@
 package work.art1st.mineRails.bukkit.config.model
 
-import org.joml.Vector3d
+import kotlinx.serialization.Serializable
 
 /**
  * A part definition loaded from a part YAML file.
  *
  * Parts define the building blocks of car models.
  * A part can be of type ITEM_DISPLAY (renders as ItemDisplay entity),
- * INTERACT (Interaction entity for seats), or DUMMY (pure transform group).
+ * INTERACT (Interaction hitbox), SEAT (invisible minecart), PLATFORM
+ * (collision platform), or DUMMY (pure transform group).
  *
  * Parts can reference sub-parts via [parts], forming a hierarchical model tree.
  */
+@Serializable
 data class PartDefinition(
     val name: String,                             // Fully qualified name e.g. "s100/body"
     val type: PartType,
     val item: PartItemConfig? = null,             // Present for ITEM_DISPLAY type
+    val interaction: PartInteractionConfig = PartInteractionConfig(), // INTERACT dimensions
+    val platform: PartPlatformConfig = PartPlatformConfig(), // PLATFORM grid
     val offset: Vec3Config = Vec3Config(),        // Local offset
     val rotation: Vec3Config = Vec3Config(),      // Local rotation (degrees)
     val parts: List<PartRefEntry> = emptyList(),  // Sub-part references
+    val animations: List<PartAnimationConfig> = emptyList(), // Part-level animations
     val scale: PartScaleConfig? = null            // Legacy scale for non-item-display
 ) {
     /**
@@ -32,6 +37,8 @@ data class PartDefinition(
                 name = childDef.name,
                 type = childDef.type,
                 item = childDef.item,
+                interaction = childDef.interaction,
+                platform = childDef.platform,
                 offset = Vec3Config(
                     x = childDef.offset.x + entry.offset.x,
                     y = childDef.offset.y + entry.offset.y,
@@ -43,6 +50,7 @@ data class PartDefinition(
                     z = childDef.rotation.z + entry.rotation.z
                 ),
                 parts = childDef.parts,
+                animations = childDef.animations,
                 scale = childDef.scale
             )
             mergedDef.resolveTree(registry)
@@ -68,6 +76,7 @@ data class PartDefinition(
 /**
  * Resolved part tree node for building the model.
  */
+@Serializable
 data class PartNode(
     val definition: PartDefinition,
     val children: List<PartNode> = emptyList()

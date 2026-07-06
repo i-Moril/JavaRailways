@@ -2,6 +2,7 @@ package work.art1st.mineRails.bukkit
 
 import org.bukkit.plugin.java.JavaPlugin
 import work.art1st.mineRails.bukkit.command.MineRailsCommand
+import work.art1st.mineRails.bukkit.config.MineRailsConfig
 import work.art1st.mineRails.bukkit.config.RailModelConfig
 import work.art1st.mineRails.bukkit.config.loadRailModelConfig
 import work.art1st.mineRails.bukkit.config.getDefaultRailModelConfig
@@ -26,6 +27,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var viewDistanceManager: ViewDistanceManager
     lateinit var worldManager: WorldManager
 
+    /** 全局插件配置，从 config.yml 加载 */
+    lateinit var mineRailsConfig: MineRailsConfig
+
     /** 轨道可视化配置，从 rail_model.yml 加载 */
     lateinit var railModelConfig: RailModelConfig
 
@@ -47,6 +51,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         viewDistanceManager = ViewDistanceManager()
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
+
+        // 加载全局配置
+        mineRailsConfig = MineRailsConfig.load(this)
+        logger.info("Train model update policy: ${mineRailsConfig.trainModelUpdatePolicy.name.lowercase().replace('_', '-')}")
 
         // 加载轨道可视化配置
         railModelConfig = loadRailModelConfigFromPlugin()

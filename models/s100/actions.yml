@@ -1,0 +1,49 @@
+actions:
+  door-left-open:
+    animations:
+      - name: doors_l_light
+        at: 0.0
+      - name: doors_l
+        scene: open
+        at: 0.0
+    sounds:
+      - key: minecraft:block.iron_door.open
+        volume: 0.8
+        pitch: 1.0
+        at: 0.0
+  door-left-close:
+    animations:
+      - name: doors_l_light
+        at: 0.0
+      - name: doors_l
+        scene: closed
+        at: 0.6
+    sounds:
+      - key: minecraft:block.iron_door.close
+        volume: 0.8
+        pitch: 1.0
+        at: 0.6
+  door-right-open:
+    animations:
+      - name: doors_r_light
+        at: 0.0
+      - name: doors_r
+        scene: open
+        at: 0.0
+    sounds:
+      - key: minecraft:block.iron_door.open
+        volume: 0.8
+        pitch: 1.0
+        at: 0.0
+  door-right-close:
+    animations:
+      - name: doors_r_light
+        at: 0.0
+      - name: doors_r
+        scene: closed
+        at: 0.6
+    sounds:
+      - key: minecraft:block.iron_door.close
+        volume: 0.8
+        pitch: 1.0
+        at: 0.6

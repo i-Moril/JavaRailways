@@ -7,9 +7,12 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
+import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.SeatExtension
+import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.persistence.WorldPersistence
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.CoreWorld
@@ -21,7 +24,38 @@ class WorldManager(
     fun registerRailWorld(bukkitWorld: BukkitWorld) {
         if (railWorlds.containsKey(bukkitWorld)) return
         val snapshot = WorldPersistence.tryLoadSnapshot(bukkitWorld)
-        railWorlds[bukkitWorld] = RailWorldFactory.createForBukkit(bukkitWorld, snapshot)
+        val railWorld = RailWorldFactory.createForBukkit(bukkitWorld, snapshot)
+        railWorlds[bukkitWorld] = railWorld
+        if (snapshot != null && railWorld is CoreWorld) {
+            restoreBukkitTrainExtensions(railWorld, snapshot)
+        }
+    }
+
+    private fun restoreBukkitTrainExtensions(coreWorld: CoreWorld, snapshot: CoreWorld.SavedWorldV1) {
+        for (savedTrain in snapshot.trains) {
+            val train = coreWorld.getTrain(savedTrain.id) ?: continue
+            val trainExtension = TrainExtension()
+            train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
+            trainExtension.initialize(train, savedTrain.extension)
+
+            val savedCarsById = savedTrain.cars.associateBy { it.id }
+            for (car in train.cars) {
+                val savedCar = savedCarsById[car.id] ?: continue
+                val carExtension = CarExtension()
+                car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
+                carExtension.initialize(car, savedCar.config.extension)
+            }
+
+            runCatching {
+                train.setLocation(train.head.location)
+                train.commit()
+            }.onFailure { error ->
+                BukkitPlugin.INSTANCE.logger.warning(
+                    "Failed to refresh restored train '${train.id}' render state: " +
+                        "${error::class.simpleName}: ${error.message ?: ""}"
+                )
+            }
+        }
     }
 
     fun unregisterRailWorld(bukkitWorld: BukkitWorld) {

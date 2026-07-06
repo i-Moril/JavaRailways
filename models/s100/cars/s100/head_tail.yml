@@ -1,0 +1,131 @@
+config-version: 1
+length: 17.8
+floor-height: 1.0
+connector-length-a: 0.1
+connector-length-b: 0.1
+name: head_tail
+# Body sections along car Z (= model Z → car direction = along track)
+# posZ formula: (3 - z) * 3.0 - 1.5
+# Note: use offset.z for length direction, offset.x for width
+body-parts:
+  # Collision platform: 3x18 shulker grid across the full car and connectors
+  - import: floor_platform
+    offset: {x: 0, y: -1.0, z: 0}
+
+  # --- Body sections (6 segments) ---
+  # z=0: head cab (CMD 10002) at posZ=7.5
+  - import: body_head
+    offset: {x: 0, y: 1.25, z: -7.5}
+    rotation: {y: 180}
+  # z=1: seat_b (CMD 10000, rotY=180) at posZ=4.5
+  - import: body_seated
+    offset: {x: 0, y: 1.25, z: -4.5}
+    rotation: {y: 0}
+  # z=2: seat_a (CMD 10000) at posZ=1.5
+  - import: body_seated
+    offset: {x: 0, y: 1.25, z: -1.5}
+    rotation: {y: 180}
+  # z=3: seat_b at posZ=-1.5
+  - import: body_seated
+    offset: {x: 0, y: 1.25, z: 1.5}
+    rotation: {y: 0}
+  # z=4: seat_a at posZ=-4.5
+  - import: body_seated
+    offset: {x: 0, y: 1.25, z: 4.5}
+    rotation: {y: 180}
+  # z=5: toilet_b (CMD 10001) at posZ=-7.5
+  - import: body_connector_toilet
+    offset: {x: 0, y: 1.25, z: 7.5}
+    rotation: {y: 0}
+
+  # --- Overlays ---
+  - import: body_head_overlay
+    offset: {x: 0, y: 1.25, z: -7.5}
+    rotation: {y: 180}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: -4.5}
+    rotation: {y: 0}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: -1.5}
+    rotation: {y: 180}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: 1.5}
+    rotation: {y: 0}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: 4.5}
+    rotation: {y: 180}
+  - import: body_overlay
+    offset: {x: 0, y: 1.25, z: 7.5}
+    rotation: {y: 0}
+
+  # --- Connectors ---
+  - import: connector_front
+    offset: {x: 0, y: 0.5, z: -7.5}
+    rotation: {y: 180}
+  - import: connector_mid_a
+    offset: {x: 0, y: 0.5, z: 7.5}
+    rotation: {y: 0}
+
+  # --- Bottom devices ---
+  - import: bottom_devices_a
+    offset: {x: 0, y: 0.5, z: -3}
+    rotation: {y: 0}
+  - import: bottom_devices_b
+    offset: {x: 0, y: 0.5, z: 0}
+    rotation: {y: 180}
+  - import: bottom_devices_c
+    offset: {x: 0, y: 0.5, z: 3}
+    rotation: {y: 180}
+
+  # --- Roof ---
+  - import: air_conditioner
+    offset: {x: 0, y: 2.94375, z: 0}
+    rotation: {y: 180}
+  - import: pantograph_retrieved
+    offset: {x: 0, y: 2.94375, z: -7}
+    rotation: {y: 180}
+
+  # --- Doors ---
+  - import: door_tail
+    offset: {x: 0, y: 0.5, z: 6}
+    rotation: {y: 180}
+  - import: door_tail
+    offset: {x: 0, y: 0.5, z: 0}
+    rotation: {y: 180}
+  - import: door_tail
+    offset: {x: 0, y: 0.5, z: -6}
+    rotation: {y: 180}
+  - import: door_cab_a
+    offset: {x: -1.375, y: 0.5, z: -8.125}
+    rotation: {y: 180}
+  - import: door_cab_b
+    offset: {x: 1.375, y: 0.5, z: -8.125}
+    rotation: {y: 180}
+
+  # --- Displays ---
+  - import: door_display
+    offset: {x: 0, y: 1.25, z: 6}
+    rotation: {y: 180}
+  - import: door_display
+    offset: {x: 0, y: 1.25, z: 0}
+    rotation: {y: 0}
+  - import: door_display
+    offset: {x: 0, y: 1.25, z: -6}
+    rotation: {y: 0}
+  - import: side_display
+    offset: {x: 0, y: 1.25, z: 3}
+    rotation: {y: 180}
+  - import: side_display
+    offset: {x: 0, y: 1.25, z: -3}
+    rotation: {y: 180}
+
+bogies:
+  - offset: {x: 0, y: 0, z: 5.75}
+    parts:
+      - name: bogie
+    wheel-diameter: 0.86
+  - offset: {x: 0, y: 0, z: -5.75}
+    parts:
+      - name: bogie
+    wheel-diameter: 0.86
+

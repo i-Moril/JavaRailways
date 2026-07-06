@@ -5,7 +5,9 @@ import org.joml.Matrix3d
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
+import work.art1st.mineRails.bukkit.persistence.CarModelSnapshotStore
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.core.api.physics.train.Car
@@ -27,10 +29,36 @@ class CarExtension : TrainComponentExtension<Car>() {
     /** Fully qualified car model name, e.g. "s100/passenger". */
     var carModelName: String? = null
 
+    private var pendingHeldScenes: Map<String, String> = emptyMap()
+    private var savedModelSnapshotHash: String? = null
     private var bodyModel: CompositeModel? = null
     private var bogieModels: List<CompositeModel> = emptyList()
 
-    override fun save(): Pair<String, SerializableExtensionData>? = null
+    override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
+        super.initialize(host, savedExtensionData)
+        val savedState = savedExtensionData[BukkitPlugin.EXTENSION_ID] as? SavedCarRenderState
+        if (savedState != null) {
+            carModelName = savedState.carModelName
+            pendingHeldScenes = savedState.heldScenes
+            savedModelSnapshotHash = savedState.modelSnapshotHash
+        }
+    }
+
+    override fun save(): Pair<String, SerializableExtensionData>? {
+        val modelName = carModelName ?: return null
+        val snapshotHash = if (BukkitPlugin.INSTANCE.mineRailsConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
+            BukkitPlugin.INSTANCE.modelManager.createCarModelSnapshot(modelName)?.let { snapshot ->
+                CarModelSnapshotStore.save(snapshot)
+            }
+        } else {
+            null
+        }
+        return BukkitPlugin.EXTENSION_ID to SavedCarRenderState(
+            carModelName = modelName,
+            heldScenes = collectHeldScenes(),
+            modelSnapshotHash = snapshotHash
+        )
+    }
 
     override fun commit() {
         val renderManager = self.world.renderChunkManager
@@ -46,11 +74,21 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun buildModel() {
-        val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val carDef = carModelName?.let { modelManager.getCar(it) }
+        val modelName = carModelName
             ?: throw IllegalStateException("Car model name not set for car at ${self.position}")
-
-        val builder = modelManager.createTreeBuilder(self.world, carDef.packageName)
+        val modelManager = BukkitPlugin.INSTANCE.modelManager
+        val snapshot = if (BukkitPlugin.INSTANCE.mineRailsConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
+            savedModelSnapshotHash?.let { CarModelSnapshotStore.load(it) }
+        } else {
+            null
+        }
+        val carDef = snapshot?.car ?: modelManager.getCar(modelName)
+            ?: throw IllegalStateException("Car model not found: $modelName")
+        val builder = if (snapshot != null) {
+            modelManager.createTreeBuilder(self.world, snapshot.partResolver())
+        } else {
+            modelManager.createTreeBuilder(self.world, carDef.packageName)
+        }
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val rootLocation = Location(bukkitWorld, self.position.x(), self.position.y(), self.position.z())
 
@@ -58,6 +96,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         bogieModels = carDef.bogies.map { bogieDef ->
             builder.buildBogie(bogieDef, carDef.namespace, rootLocation)
         }
+        applyHeldScenes(pendingHeldScenes)
     }
 
     override fun updateModel() {
@@ -103,6 +142,46 @@ class CarExtension : TrainComponentExtension<Car>() {
         bogieModels.forEach { it.destroy() }
         bodyModel = null
         bogieModels = emptyList()
+    }
+
+    override fun applyAnimation(name: String): Boolean {
+        var applied = bodyModel?.applyAnimation(name) ?: false
+        bogieModels.forEach { model ->
+            applied = model.applyAnimation(name) || applied
+        }
+        return applied
+    }
+
+    override fun applyAnimation(name: String, sceneName: String): Boolean {
+        var applied = bodyModel?.applyAnimation(name, sceneName) ?: false
+        bogieModels.forEach { model ->
+            applied = model.applyAnimation(name, sceneName) || applied
+        }
+        if (applied) {
+            pendingHeldScenes = pendingHeldScenes - name
+        }
+        return applied
+    }
+
+    private fun collectHeldScenes(): Map<String, String> {
+        val scenes = linkedMapOf<String, String>()
+        pendingHeldScenes.forEach { (name, scene) -> scenes[name] = scene }
+        bodyModel?.collectHeldAnimationScenes()?.forEach { (name, scene) -> scenes[name] = scene }
+        bogieModels.forEach { model ->
+            model.collectHeldAnimationScenes().forEach { (name, scene) -> scenes[name] = scene }
+        }
+        return scenes
+    }
+
+    private fun applyHeldScenes(scenes: Map<String, String>) {
+        if (scenes.isEmpty()) return
+        var applied = bodyModel?.setAnimationScenes(scenes) ?: false
+        bogieModels.forEach { model ->
+            applied = model.setAnimationScenes(scenes) || applied
+        }
+        if (applied) {
+            pendingHeldScenes = scenes
+        }
     }
 
     /**

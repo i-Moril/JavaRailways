@@ -1,11 +1,18 @@
 package work.art1st.mineRails.bukkit.render.model
 
+import io.papermc.paper.datacomponent.DataComponentTypes
+import io.papermc.paper.datacomponent.item.CustomModelData
+import net.kyori.adventure.key.Key
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.entity.Display
+import org.bukkit.entity.ItemDisplay
+import org.bukkit.inventory.ItemStack
 import org.joml.Quaternionf
 import org.joml.Vector3dc
 import org.joml.Vector3f
 import work.art1st.mineRails.bukkit.render.Animation
+import work.art1st.mineRails.bukkit.render.AnimationDisplayState
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 
@@ -16,6 +23,8 @@ class DisplayModel internal constructor(
     animation: Map<String, Animation>,
     private val entity: Display
 ) : AbstractModel(world, state, attachedModels, animation) {
+    private var lastDisplayState: AnimationDisplayState? = null
+
     init {
         entity.isPersistent = false
     }
@@ -33,6 +42,39 @@ class DisplayModel internal constructor(
                 state.rootRelativeTransform.rotation.get(Quaternionf())
             )
         }
+        applyDisplayState(currentDisplayState)
+    }
+
+    private fun applyDisplayState(displayState: AnimationDisplayState?) {
+        if (displayState == null || displayState == lastDisplayState) return
+        if (displayState.hasItemOverride && entity is ItemDisplay) {
+            entity.setItemStack(buildItemStack(displayState, entity.itemStack))
+        }
+        if (displayState.hasBrightnessOverride) {
+            entity.brightness = Display.Brightness(
+                displayState.brightnessBlock ?: 0,
+                displayState.brightnessSky ?: 0
+            )
+        }
+        lastDisplayState = displayState
+    }
+
+    private fun buildItemStack(displayState: AnimationDisplayState, current: ItemStack): ItemStack {
+        val material = displayState.itemType?.let { type ->
+            runCatching { Material.valueOf(type.uppercase()) }.getOrNull()
+        } ?: current.type
+        val itemStack = if (material == current.type) current.clone() else ItemStack(material)
+
+        displayState.itemModel?.let { itemModel ->
+            itemStack.setData(DataComponentTypes.ITEM_MODEL, Key.key("minecraft:$itemModel"))
+        }
+        displayState.customModelData?.let { customModelData ->
+            itemStack.setData(
+                DataComponentTypes.CUSTOM_MODEL_DATA,
+                CustomModelData.customModelData().addFloat(customModelData.toFloat()).build()
+            )
+        }
+        return itemStack
     }
 
     @MainThread

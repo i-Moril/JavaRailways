@@ -1,0 +1,44 @@
+package work.art1st.mineRails.bukkit.config.model
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Test
+
+class TrainActionConfigTest {
+    @Test
+    fun `parses actions with animations and sounds`() {
+        val actions = TrainActionConfig.parseActions(
+            mapOf(
+                "actions" to mapOf(
+                    "door-left-open" to mapOf(
+                        "animations" to listOf(
+                            mapOf("name" to "doors_l", "scene" to "o", "at" to 0.6),
+                            "legacy_animation"
+                        ),
+                        "sounds" to listOf(
+                            mapOf(
+                                "key" to "minecraft:block.iron_door.open",
+                                "volume" to 0.8,
+                                "pitch" to 1.2,
+                                "at" to 0.6
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val action = actions.getValue("door-left-open")
+        assertEquals("door-left-open", action.name)
+        assertEquals(2, action.animations.size)
+        assertEquals("doors_l", action.animations[0].name)
+        assertEquals("open", action.animations[0].scene)
+        assertEquals(0.6, action.animations[0].at)
+        assertEquals("legacy_animation", action.animations[1].name)
+        assertNull(action.animations[1].scene)
+        assertEquals("minecraft:block.iron_door.open", action.sounds.single().key)
+        assertEquals(0.8, action.sounds.single().volume)
+        assertEquals(1.2, action.sounds.single().pitch)
+        assertEquals(0.6, action.sounds.single().at)
+    }
+}

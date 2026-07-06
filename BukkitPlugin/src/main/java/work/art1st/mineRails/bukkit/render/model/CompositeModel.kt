@@ -1,5 +1,6 @@
 package work.art1st.mineRails.bukkit.render.model
 
+import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
@@ -20,12 +21,23 @@ class CompositeModel internal constructor(
 
     // P4: 缓存上一帧的旋转，用于 dirty flag 优化
     private var lastRotation: Quaterniond? = null
+    private var destroyed: Boolean = false
 
     override fun destroy() {
-        world.tickManager.scheduleMainThreadAfterCommitTask {
-            rootEntity.remove()
-            models.forEach { it.destroy() }
+        if (destroyed) return
+        destroyed = true
+        if (Bukkit.isPrimaryThread()) {
+            destroyNow()
+        } else {
+            world.tickManager.scheduleMainThreadAfterCommitTask {
+                destroyNow()
+            }
         }
+    }
+
+    private fun destroyNow() {
+        models.forEach { it.destroy() }
+        rootEntity.remove()
     }
 
     fun onMainThread(f: Callable<Unit>) {
@@ -51,8 +63,28 @@ class CompositeModel internal constructor(
         }
     }
 
-    fun applyAnimation(name: String) {
-        forEachModelRecursive { it.applyAnimation(name) }
+    fun applyAnimation(name: String): Boolean {
+        return models.fold(false) { applied, model -> model.applyAnimation(name) || applied }
+    }
+
+    fun applyAnimation(name: String, sceneName: String): Boolean {
+        return models.fold(false) { applied, model -> model.applyAnimation(name, sceneName) || applied }
+    }
+
+    fun collectHeldAnimationScenes(): Map<String, String> {
+        val scenes = linkedMapOf<String, String>()
+        models.forEach { model -> model.collectHeldAnimationScenes(scenes) }
+        return scenes
+    }
+
+    fun setAnimationScenes(scenes: Map<String, String>): Boolean {
+        var applied = false
+        for ((animationName, sceneName) in scenes) {
+            models.forEach { model ->
+                applied = model.setAnimationScene(animationName, sceneName) || applied
+            }
+        }
+        return applied
     }
 
     fun forEachModelRecursive(f: (AbstractModel) -> Unit) {

@@ -6,8 +6,10 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.mineRails.bukkit.config.model.CarDefinition
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
+import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.core.api.physics.World
@@ -26,7 +28,7 @@ object TrainCommand {
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /mr train <create|start|stop|throttle|reverse|info|list|delete>")
+            sender.sendMessage("用法: /mr train <create|start|stop|throttle|reverse|anim|action|behavior|info|list|delete>")
             return true
         }
 
@@ -36,6 +38,9 @@ object TrainCommand {
             "stop" -> return handleStop(sender)
             "throttle" -> return handleThrottle(sender, args.drop(1))
             "reverse" -> return handleReverse(sender)
+            "anim", "animation" -> return handleAnim(sender, args.drop(1))
+            "action" -> return handleAction(sender, args.drop(1))
+            "behavior" -> return handleBehavior(sender, args.drop(1))
             "info" -> return handleInfo(sender)
             "list" -> return handleList(sender)
             "delete" -> return handleDelete(sender, args.drop(1))
@@ -165,6 +170,10 @@ object TrainCommand {
             cars.forEach { it.destroy() }
             return true
         }
+        val trainExtension = TrainExtension()
+        train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
+        trainExtension.initialize(train, emptyMap())
+
         train.commit()
         coreWorld.renderChunkManager.render()
         // Force model build for the creating player immediately
@@ -339,6 +348,140 @@ object TrainCommand {
         controller.reverse()
         sender.sendMessage("列车已换向")
         return true
+    }
+
+    private fun handleAnim(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        val animationArg = args.firstOrNull()
+        if (animationArg == null) {
+            sender.sendMessage("用法: /mr train anim <animationName> [sceneName]")
+            sender.sendMessage("  也可使用: /mr train anim <animationName>:<sceneName>")
+            return true
+        }
+
+        val (animationName, inlineScene) = parseAnimationTarget(animationArg)
+        val sceneName = args.getOrNull(1) ?: inlineScene
+        val world = getPlayerWorld(sender) ?: return true
+        val coreWorld = world as? CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 CoreWorld")
+            return true
+        }
+        val train = (playerControllers[sender.uniqueId]?.controlledTrain as? CoreTrain)
+            ?: findNearestTrain(sender, coreWorld)
+            ?: run {
+                sender.sendMessage("错误: 附近没有列车")
+                return true
+            }
+
+        val applied = if (sceneName == null) {
+            train.renderer.applyAnimation(animationName)
+        } else {
+            train.renderer.applyAnimation(animationName, sceneName)
+        }
+        if (applied) {
+            sender.sendMessage(
+                if (sceneName == null) {
+                    "已触发列车动画: $animationName"
+                } else {
+                    "已触发列车动画: $animationName -> $sceneName"
+                }
+            )
+        } else {
+            sender.sendMessage(
+                if (sceneName == null) {
+                    "没有部件响应动画: $animationName"
+                } else {
+                    "没有部件响应动画: $animationName -> $sceneName"
+                }
+            )
+        }
+        return true
+    }
+
+    private fun parseAnimationTarget(target: String): Pair<String, String?> {
+        val separator = target.indexOf(':')
+        if (separator <= 0 || separator == target.lastIndex) return target to null
+        return target.substring(0, separator) to target.substring(separator + 1)
+    }
+
+    private fun handleAction(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        val actionName = args.firstOrNull()
+        if (actionName == null) {
+            sender.sendMessage("用法: /mr train action <actionName>")
+            return true
+        }
+
+        val world = getPlayerWorld(sender) ?: return true
+        val coreWorld = world as? CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 CoreWorld")
+            return true
+        }
+        val train = (playerControllers[sender.uniqueId]?.controlledTrain as? CoreTrain)
+            ?: findNearestTrain(sender, coreWorld)
+            ?: run {
+                sender.sendMessage("错误: 附近没有列车")
+                return true
+            }
+
+        val applied = train.renderer.applyAction(actionName)
+        if (applied) {
+            sender.sendMessage("已触发列车动作: $actionName")
+        } else {
+            sender.sendMessage("没有可执行的列车动作: $actionName")
+        }
+        return true
+    }
+
+    private fun handleBehavior(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        val methodName = args.firstOrNull()
+        if (methodName == null) {
+            sender.sendMessage("用法: /mr train behavior <method> [args...]")
+            sender.sendMessage("示例: /mr train behavior onStation 0 left")
+            return true
+        }
+
+        val world = getPlayerWorld(sender) ?: return true
+        val coreWorld = world as? CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 CoreWorld")
+            return true
+        }
+        val train = (playerControllers[sender.uniqueId]?.controlledTrain as? CoreTrain)
+            ?: findNearestTrain(sender, coreWorld)
+            ?: run {
+                sender.sendMessage("错误: 附近没有列车")
+                return true
+            }
+
+        when (val result = train.renderer.callBehavior(methodName, args.drop(1).map(::parseBehaviorArg))) {
+            is TrainBehaviorCallResult.Success -> {
+                val suffix = result.returnValue?.let { " -> $it" } ?: ""
+                sender.sendMessage("已调用列车行为: ${result.method}$suffix")
+            }
+            is TrainBehaviorCallResult.Failure -> {
+                sender.sendMessage("列车行为调用失败: ${result.message}")
+            }
+        }
+        return true
+    }
+
+    private fun parseBehaviorArg(raw: String): Any? {
+        return when (raw.lowercase()) {
+            "true" -> true
+            "false" -> false
+            "null" -> null
+            else -> raw.toIntOrNull() ?: raw.toLongOrNull() ?: raw.toDoubleOrNull() ?: raw
+        }
     }
 
     private fun handleDelete(sender: CommandSender, args: List<String>): Boolean {

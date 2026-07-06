@@ -71,7 +71,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         destroyModel()
     }
 
-    fun applyAnimation(name: String) {
-        // 暂不支持
-    }
+    open fun applyAnimation(name: String): Boolean = false
+
+    open fun applyAnimation(name: String, sceneName: String): Boolean = false
 }

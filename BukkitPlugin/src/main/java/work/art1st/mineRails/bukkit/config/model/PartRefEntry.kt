@@ -1,5 +1,7 @@
 package work.art1st.mineRails.bukkit.config.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * A reference to a part in the "Standard part list" format.
  *
@@ -8,6 +10,7 @@ package work.art1st.mineRails.bukkit.config.model
  * - Inline: "name: part-name, type: ..., ..." defines the part inline
  * - Legacy: "name: part-name" (resolved through PartRegistry)
  */
+@Serializable
 data class PartRefEntry(
     val name: String,                             // Part reference name (import target or inline name)
     val offset: Vec3Config = Vec3Config(),

@@ -1,0 +1,24 @@
+config-version: 1
+name: door_tail
+type: dummy
+# Tail cab car is rotated 180 degrees. Swap local left/right animation groups so
+# doors_l / doors_r still refer to the train's visual left/right side.
+parts:
+  # Local +X becomes visual right after the car-level 180-degree rotation.
+  - name: door_right_a
+    offset: {x: 1.375, y: 0, z: 0.375}
+  - name: door_right_b
+    offset: {x: 1.375, y: 0, z: -0.375}
+  # Local -X becomes visual left after the car-level 180-degree rotation.
+  - name: door_left_a
+    offset: {x: -1.375, y: 0, z: 0.375}
+    rotation: {y: 180}
+  - name: door_left_b
+    offset: {x: -1.375, y: 0, z: -0.375}
+    rotation: {y: 180}
+  # Door lights
+  - name: door_light_right
+    offset: {x: 0, y: 0, z: 0}
+  - name: door_light_left
+    offset: {x: 0, y: 0, z: 0}
+    rotation: {y: 180}

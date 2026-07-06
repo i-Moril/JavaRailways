@@ -101,17 +101,54 @@ class ModelManager(
         return trainLoader[name]
     }
 
+    fun getTrainAction(packageName: String?, actionName: String): TrainActionConfig? {
+        if (packageName != null) {
+            trainPackages[packageName]?.actions?.get(actionName)?.let { return it }
+        }
+        for ((_, pkg) in trainPackages) {
+            pkg.actions[actionName]?.let { return it }
+        }
+        return null
+    }
+
+    fun getTrainActions(packageName: String?): Map<String, TrainActionConfig> {
+        if (packageName != null) {
+            trainPackages[packageName]?.actions?.let { return it }
+        }
+        return trainPackages.values.flatMap { it.actions.entries }.associate { it.key to it.value }
+    }
+
+    fun getTrainBehavior(packageName: String?): TrainBehaviorScript? {
+        if (packageName != null) {
+            trainPackages[packageName]?.behavior?.let { return it }
+        }
+        return trainPackages.values.firstNotNullOfOrNull { it.behavior }
+    }
+
     fun getRailConfig(name: String): RailModelConfig? {
         return railPackages[name]?.railConfig
     }
 
     fun createTreeBuilder(world: World, packageName: String? = null): ModelTreeBuilder {
-        val registry = if (packageName != null) {
+        return ModelTreeBuilder(world, getPartResolver(packageName))
+    }
+
+    fun createTreeBuilder(world: World, partResolver: PartResolver): ModelTreeBuilder {
+        return ModelTreeBuilder(world, partResolver)
+    }
+
+    fun getPartResolver(packageName: String?): PartResolver {
+        return if (packageName != null) {
             trainPackages[packageName]?.partRegistry ?: partRegistry
         } else {
             partRegistry
         }
-        return ModelTreeBuilder(world, registry)
+    }
+
+    fun createCarModelSnapshot(carModelName: String): SavedCarModelTree? {
+        val car = getCar(carModelName) ?: return null
+        val resolver = getPartResolver(car.packageName)
+        return SavedCarModelTree.build(car, resolver)
     }
 
     val hasPackages: Boolean get() = trainPackages.isNotEmpty() || railPackages.isNotEmpty()

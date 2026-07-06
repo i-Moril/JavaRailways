@@ -1,0 +1,18 @@
+config-version: 1
+name: door_right_a
+type: item_display
+item:
+  type: IRON_NUGGET
+  item-model: "art1st/tc/s100/door_a"
+animations:
+  - name: doors_r
+    keep-final-state: true
+    keyframes:
+      - at: 0.0
+        scene: closed
+        offset: {z: 0.0}
+      - at: 0.3
+        offset: {z: 0.1}
+      - at: 1.3
+        scene: open
+        offset: {z: 0.625}

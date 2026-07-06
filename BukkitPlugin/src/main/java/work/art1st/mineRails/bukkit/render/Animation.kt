@@ -1,110 +1,283 @@
 package work.art1st.mineRails.bukkit.render
 
-import org.joml.Quaterniond
-import org.joml.Vector3d
-import work.art1st.mineRails.bukkit.render.Animation.AnimationCommand.Companion.INITIAL_STATE
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
-import work.art1st.mineRails.core.api.util.tick.TickManager
-import work.art1st.mineRails.core.api.util.tick.TickingObject
 import work.art1st.mineRails.core.api.util.Destroyable
+import work.art1st.mineRails.core.api.util.tick.Synchronizable
+import work.art1st.mineRails.core.api.util.tick.TickingObject
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
-// TODO: Implement animation
-class Animation(
-    val commandList: List<AnimationCommand>
+/** Display-entity state that can be changed by an animation keyframe. */
+data class AnimationDisplayState(
+    val itemType: String? = null,
+    val itemModel: String? = null,
+    val customModelData: Int? = null,
+    val brightnessBlock: Int? = null,
+    val brightnessSky: Int? = null
 ) {
+    val hasItemOverride: Boolean
+        get() = itemType != null || itemModel != null || customModelData != null
+
+    val hasBrightnessOverride: Boolean
+        get() = brightnessBlock != null || brightnessSky != null
+}
+
+/**
+ * Runtime transform animation.
+ *
+ * Command durations are seconds. [ActiveAnimation.tick] receives milliseconds
+ * from TickManager and converts them to seconds internally.
+ */
+class Animation(
+    val commandList: List<AnimationCommand>,
+    val keepFinalState: Boolean = true
+) {
+    private val timeline: List<TimelineFrame>
+    private val sceneTimes: Map<String, Double>
+
     init {
         if (commandList.isEmpty()) {
             throw IllegalArgumentException("No animation commands available")
         }
+
+        val frames = mutableListOf(TimelineFrame(0.0, INITIAL_TRANSFORM, null, null))
+        var t = 0.0
+        for (command in commandList) {
+            t += max(0.0, command.deltaT)
+            frames.add(TimelineFrame(t, command.transform, command.scene, command.displayState))
+        }
+        timeline = frames.sortedBy { it.timeSeconds }
+        sceneTimes = timeline.mapNotNull { frame -> frame.scene?.let { it to frame.timeSeconds } }.toMap()
     }
 
-    fun activate(startFrom: Double = 0.0, onDestroy: (ActiveAnimation) -> Unit) : ActiveAnimation {
-        return ActiveAnimation(onDestroy, this, startFrom)
+    fun activate(
+        startFrom: Double = 0.0,
+        onDestroy: (ActiveAnimation) -> Unit,
+        onCommit: (ActiveAnimation) -> Unit = {}
+    ): ActiveAnimation {
+        val start = startFrom.coerceIn(firstTime, lastTime)
+        return ActiveAnimation(
+            onDestroy = onDestroy,
+            onCommit = onCommit,
+            frames = segmentFrames(start, lastTime),
+            keepFinalState = keepFinalState,
+            targetScene = timeline.lastOrNull { it.timeSeconds == lastTime }?.scene
+        )
+    }
+
+    fun hasScene(sceneName: String): Boolean = sceneTimes.containsKey(normalizeSceneName(sceneName))
+
+    fun stateAtScene(sceneName: String): Pair<CompactTransform, AnimationDisplayState?>? {
+        val sceneTime = sceneTimes[normalizeSceneName(sceneName)] ?: return null
+        return interpolateAt(sceneTime) to displayStateAt(sceneTime)
+    }
+
+    fun activateToScene(
+        sceneName: String,
+        currentScene: String? = null,
+        currentTransform: CompactTransform? = null,
+        onDestroy: (ActiveAnimation) -> Unit,
+        onCommit: (ActiveAnimation) -> Unit = {}
+    ): ActiveAnimation {
+        val targetScene = normalizeSceneName(sceneName)
+        val targetTime = sceneTimes[targetScene]
+            ?: throw IllegalArgumentException("Animation scene not found: $sceneName")
+        val normalizedCurrentScene = normalizeSceneName(currentScene)
+        val currentSceneTime = normalizedCurrentScene?.let { sceneTimes[it] }
+
+        val frames = if (currentSceneTime != null) {
+            segmentFrames(currentSceneTime, targetTime)
+        } else if (currentTransform != null) {
+            val targetTransform = interpolateAt(targetTime)
+            val duration = max(MIN_SCENE_DURATION_SECONDS, abs(targetTime - firstTime))
+            listOf(
+                PlaybackFrame(0.0, currentTransform, null),
+                PlaybackFrame(duration, targetTransform, displayStateAt(targetTime))
+            )
+        } else {
+            segmentFrames(firstTime, targetTime)
+        }
+
+        return ActiveAnimation(
+            onDestroy = onDestroy,
+            onCommit = onCommit,
+            frames = frames,
+            keepFinalState = keepFinalState,
+            targetScene = targetScene
+        )
+    }
+
+    private val firstTime: Double get() = timeline.first().timeSeconds
+    private val lastTime: Double get() = timeline.last().timeSeconds
+
+    private fun segmentFrames(startTime: Double, endTime: Double): List<PlaybackFrame> {
+        val start = startTime.coerceIn(firstTime, lastTime)
+        val end = endTime.coerceIn(firstTime, lastTime)
+        if (abs(start - end) <= EPSILON) {
+            return listOf(PlaybackFrame(0.0, interpolateAt(end), displayStateAt(end)))
+        }
+
+        val forward = end > start
+        val low = min(start, end)
+        val high = max(start, end)
+        val keyTimes = buildList {
+            add(start)
+            timeline.asSequence()
+                .map { it.timeSeconds }
+                .filter { it > low + EPSILON && it < high - EPSILON }
+                .forEach { add(it) }
+            add(end)
+        }.distinct().sorted().let { if (forward) it else it.asReversed() }
+
+        var elapsed = 0.0
+        var previous = keyTimes.first()
+        return keyTimes.mapIndexed { index, time ->
+            if (index > 0) elapsed += abs(time - previous)
+            previous = time
+            PlaybackFrame(elapsed, interpolateAt(time), displayStateAt(time))
+        }
+    }
+
+    private fun displayStateAt(timeSeconds: Double): AnimationDisplayState? {
+        val t = timeSeconds.coerceIn(firstTime, lastTime)
+        return timeline.lastOrNull { it.timeSeconds <= t + EPSILON && it.displayState != null }?.displayState
+    }
+
+    private fun interpolateAt(timeSeconds: Double): CompactTransform {
+        val t = timeSeconds.coerceIn(firstTime, lastTime)
+        val exact = timeline.lastOrNull { abs(it.timeSeconds - t) <= EPSILON }
+        if (exact != null) return exact.transform
+
+        val next = timeline.firstOrNull { it.timeSeconds > t } ?: return timeline.last().transform
+        val previous = timeline.lastOrNull { it.timeSeconds < t } ?: return timeline.first().transform
+        val span = next.timeSeconds - previous.timeSeconds
+        if (span <= EPSILON) return next.transform
+        return previous.transform.lerp(next.transform, (t - previous.timeSeconds) / span)
     }
 
     class AnimationCommand(
         val transform: CompactTransform,
-        val deltaT: Double
+        val deltaT: Double,
+        val scene: String? = null,
+        val displayState: AnimationDisplayState? = null
     ) {
         companion object {
-            val INITIAL_STATE = AnimationCommand(CompactTransform(), 0.0)
+            val INITIAL_STATE = AnimationCommand(INITIAL_TRANSFORM, 0.0)
         }
     }
 
-    class ActiveAnimation(
+    class ActiveAnimation internal constructor(
         private val onDestroy: (ActiveAnimation) -> Unit,
-        private val animation: Animation,
-        t: Double = 0.0,
-    ) : TickingObject, Destroyable {
-        // 从开始到现在的总时间
-        private var t: Double
-        // 从上一个command到现在的总时间
-        private var dt: Double
-        private lateinit var animationTransform: CompactTransform
-        private var currentCommand: AnimationCommand
-        private var nextCommandIndex: Int
-        private val nextCommand: AnimationCommand
-            get() = animation.commandList[nextCommandIndex]
+        private val onCommit: (ActiveAnimation) -> Unit,
+        private val frames: List<PlaybackFrame>,
+        val keepFinalState: Boolean,
+        val targetScene: String?
+    ) : TickingObject, Synchronizable, Destroyable {
+        private var elapsedSeconds: Double = 0.0
+        private var destroyed: Boolean = false
+        private var finished: Boolean = false
+        private var animationTransform: CompactTransform = frames.firstOrNull()?.transform ?: INITIAL_TRANSFORM
+        private var displayState: AnimationDisplayState? = frames.firstOrNull()?.displayState
 
-        /**
-         * 获取当前插值后的动画变换。
-         * 每帧更新，用于渲染。
-         */
+        /** Current interpolated transform for rendering. */
         val currentTransform: CompactTransform
             get() = animationTransform
 
+        val finalTransform: CompactTransform
+            get() = frames.lastOrNull()?.transform ?: animationTransform
+
+        val currentDisplayState: AnimationDisplayState?
+            get() = displayState
+
+        val finalDisplayState: AnimationDisplayState?
+            get() = frames.lastOrNull { it.displayState != null }?.displayState
+
         init {
-            val command = getCommand(t) ?: throw IllegalArgumentException("Invalid animation start time T")
-            currentCommand = command.first
-            nextCommandIndex = command.second
-            this.t = t
-            dt = command.third
-            lerp()
-        }
-
-        // 获取现在是哪个command
-        // Triple<当前, 下一个, dt>
-        private fun getCommand(t: Double): Triple<AnimationCommand, Int, Double>? {
-            var animT = 0.0
-            var current = INITIAL_STATE
-            for (i in animation.commandList.indices) {
-                val next = animation.commandList[i]
-                if (t in animT..<animT + next.deltaT) {
-                    return Triple(current, i, t - animT)
-                }
-                animT += next.deltaT
-                current = next
-            }
-            return null
-        }
-
-        private fun CompactTransform.lerp(target: CompactTransform, alpha: Double) : CompactTransform {
-            return CompactTransform(
-                this.position.lerp(target.position, alpha, Vector3d()),
-                this.rotation.slerp(target.rotation, alpha, Quaterniond())
-            )
-        }
-
-        private fun lerp() {
-            animationTransform = currentCommand.transform.lerp(nextCommand.transform, dt / nextCommand.deltaT)
+            updateTransform()
         }
 
         override fun tick(deltaT: Double) {
-            t += deltaT
-            dt += deltaT
-            if (dt >= nextCommand.deltaT) {
-                currentCommand = nextCommand
-                nextCommandIndex += 1
-                if (nextCommandIndex >= animation.commandList.size) {
-                    destroy()
-                    return
-                }
+            if (destroyed || finished) return
+            elapsedSeconds += max(0.0, deltaT) / 1000.0
+            updateTransform()
+            if (elapsedSeconds >= durationSeconds - EPSILON) {
+                animationTransform = finalTransform
+                displayState = finalDisplayState
+                finished = true
             }
-            lerp()
+        }
+
+        override fun commit() {
+            if (destroyed) return
+            onCommit.invoke(this)
+            if (finished) {
+                destroy()
+            }
+        }
+
+        private val durationSeconds: Double
+            get() = frames.lastOrNull()?.timeSeconds ?: 0.0
+
+        private fun updateTransform() {
+            if (frames.isEmpty()) return
+            if (frames.size == 1 || durationSeconds <= EPSILON) {
+                animationTransform = finalTransform
+                displayState = finalDisplayState
+                return
+            }
+
+            val t = elapsedSeconds.coerceIn(0.0, durationSeconds)
+            val nextIndex = frames.indexOfFirst { it.timeSeconds >= t - EPSILON }.takeIf { it >= 0 }
+                ?: frames.lastIndex
+            if (nextIndex <= 0) {
+                animationTransform = frames.first().transform
+                displayState = frames.first().displayState
+                return
+            }
+            val previous = frames[nextIndex - 1]
+            val next = frames[nextIndex]
+            val span = next.timeSeconds - previous.timeSeconds
+            animationTransform = if (span <= EPSILON) {
+                next.transform
+            } else {
+                previous.transform.lerp(next.transform, (t - previous.timeSeconds) / span)
+            }
+            displayState = frames.take(nextIndex + 1).lastOrNull { it.displayState != null }?.displayState
         }
 
         override fun destroy() {
+            if (destroyed) return
+            destroyed = true
             onDestroy.invoke(this)
+        }
+    }
+
+    private data class TimelineFrame(
+        val timeSeconds: Double,
+        val transform: CompactTransform,
+        val scene: String?,
+        val displayState: AnimationDisplayState?
+    )
+
+    internal data class PlaybackFrame(
+        val timeSeconds: Double,
+        val transform: CompactTransform,
+        val displayState: AnimationDisplayState?
+    )
+
+    companion object {
+        private const val EPSILON = 1e-9
+        private const val MIN_SCENE_DURATION_SECONDS = 0.05
+        private val INITIAL_TRANSFORM = CompactTransform()
+
+        fun normalizeSceneName(scene: String?): String? {
+            return when (val normalized = scene?.trim()?.lowercase()) {
+                null, "" -> null
+                "o" -> "open"
+                "c" -> "closed"
+                else -> normalized
+            }
         }
     }
 }

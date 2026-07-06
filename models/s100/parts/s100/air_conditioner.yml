@@ -1,0 +1,6 @@
+config-version: 1
+name: air_conditioner
+type: item_display
+item:
+  type: IRON_NUGGET
+  item-model: "art1st/tc/s100/air_conditioner"

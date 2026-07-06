@@ -88,13 +88,42 @@ class PackageLoader(
             name = manifest.displayName ?: manifest.name,
             composition = composition
         )
+        val actions = loadActions(File(packageDir, "actions.yml"))
+        val behavior = loadBehavior(File(packageDir, "behavior.js"))
 
         return LoadedTrainPackage(
             manifest = manifest,
             partRegistry = partRegistry,
             cars = cars,
-            train = train
+            train = train,
+            actions = actions,
+            behavior = behavior
         )
+    }
+
+    private fun loadActions(file: File): Map<String, TrainActionConfig> {
+        if (!file.exists() || !file.isFile) return emptyMap()
+        return try {
+            val yaml = Yaml()
+            val map = yaml.load<Map<String, Any>>(file.inputStream())
+            TrainActionConfig.parseActions(map)
+        } catch (e: Exception) {
+            System.err.println("[MineRails] Failed to load train actions ${file.path}: ${e.message}")
+            emptyMap()
+        }
+    }
+
+    private fun loadBehavior(file: File): TrainBehaviorScript? {
+        if (!file.exists() || !file.isFile) return null
+        return try {
+            TrainBehaviorScript(
+                fileName = file.name,
+                source = file.readText()
+            )
+        } catch (e: Exception) {
+            System.err.println("[MineRails] Failed to load train behavior ${file.path}: ${e.message}")
+            null
+        }
     }
 
     private fun loadCarsFromDir(

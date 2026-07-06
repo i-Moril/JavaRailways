@@ -34,6 +34,15 @@ data class CompactTransform(
     /**
      * 左结合。localTransform.then(baseTransform)
      */
+    fun lerp(target: CompactTransform, alpha: Double): CompactTransform {
+        val clampedAlpha = alpha.coerceIn(0.0, 1.0)
+        return CompactTransform(
+            position.lerp(target.position, clampedAlpha, Vector3d()),
+            rotation.slerp(target.rotation, clampedAlpha, Quaterniond()),
+            scale.lerp(target.scale, clampedAlpha, Vector3d())
+        )
+    }
+
     fun applyTo(baseTransform: CompactTransform): CompactTransform {
         val localRotation = Quaterniond(rotation)
         val offset = Vector3d(position)

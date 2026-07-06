@@ -1,0 +1,7 @@
+config-version: 1
+name: floor_platform
+type: platform
+platform:
+  rows: 3
+  columns: 18
+  spacing: {x: 1.0, z: 1.0}

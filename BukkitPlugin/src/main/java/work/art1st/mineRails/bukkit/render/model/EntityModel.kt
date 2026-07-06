@@ -2,7 +2,9 @@ package work.art1st.mineRails.bukkit.render.model
 
 import org.bukkit.Location
 import org.bukkit.entity.Entity
+import org.bukkit.entity.LivingEntity
 import org.bukkit.util.Vector
+import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.core.api.physics.World
@@ -19,10 +21,28 @@ abstract class EntityModel internal constructor(
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
         entity?.let {
-            it.teleport(Location(it.world, state.x, state.y, state.z, state.yaw.toFloat(), state.pitch.toFloat()))
+            val location = entityLocation(it)
+            it.teleport(location)
+            it.setRotation(location.yaw, location.pitch)
+            if (it is LivingEntity) {
+                it.setBodyYaw(location.yaw)
+            }
             it.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())
             // Ignore roll
         }
+    }
+
+    protected open fun entityLocation(entity: Entity): Location {
+        val (yaw, pitch) = entityYawPitch()
+        return Location(entity.world, state.x, state.y, state.z, yaw, pitch)
+    }
+
+    protected fun entityYawPitch(): Pair<Float, Float> {
+        val forward = Vector3d(0.0, 0.0, 1.0)
+        state.worldTransform.rotation.transform(forward)
+        val yaw = Math.toDegrees(kotlin.math.atan2(-forward.x(), forward.z())).toFloat()
+        val pitch = Math.toDegrees(kotlin.math.asin(forward.y().coerceIn(-1.0, 1.0))).toFloat()
+        return yaw to pitch
     }
 
     override fun destroy() {

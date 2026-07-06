@@ -14,8 +14,10 @@ import work.art1st.mineRails.bukkit.render.model.AbstractModel
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.bukkit.render.model.DisplayModel
+import work.art1st.mineRails.bukkit.render.model.InteractionModel
 import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
+import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.bukkit.render.model.configureTrainDisplaySmoothing
 import work.art1st.mineRails.core.api.physics.World
 
@@ -33,13 +35,14 @@ class DummyModel internal constructor(
  * Builds the AbstractModel tree from configuration definitions.
  *
  * Converts PartDefinition/CarDefinition into a renderable model tree
- * consisting of DisplayModel (for ITEM_DISPLAY parts), PlatformModel
- * (for INTERACT parts/seat attachment points), and DummyModel (for
- * transform grouping nodes).
+ * consisting of DisplayModel (for ITEM_DISPLAY parts), InteractionModel
+ * (for INTERACT hitboxes), SeatModel (for invisible minecart seats),
+ * PlatformModel (for collision platforms), and DummyModel (for transform
+ * grouping nodes).
  */
 class ModelTreeBuilder(
     private val world: World,
-    private val partRegistry: PartRegistry
+    private val partRegistry: PartResolver
 ) {
     private val bukkitWorld
         get() = world.bukkitWorldData.bukkitWorld
@@ -189,6 +192,7 @@ class ModelTreeBuilder(
         )
 
         val children = buildPartList(def.parts, childNamespace)
+        val animations = ((def.item?.animations ?: emptyList()) + def.animations).toRuntimeAnimationMap()
         // Spawn entities at the car's root location so they start near the player,
         // not at world origin. DisplayModel.updateState will teleport them to exact positions.
         val spawnLoc = rootLocation.clone()
@@ -198,13 +202,19 @@ class ModelTreeBuilder(
                 val itemConfig = def.item
                     ?: throw IllegalArgumentException("ITEM_DISPLAY part '${def.name}' missing item config")
                 val entity = spawnItemDisplay(spawnLoc, itemConfig)
-                DisplayModel(world = world, state = modelState, attachedModels = children, animation = emptyMap(), entity = entity)
+                DisplayModel(world = world, state = modelState, attachedModels = children, animation = animations, entity = entity)
             }
-            PartType.INTERACT, PartType.SEAT -> {
-                PlatformModel(world = world, state = modelState, attachedModels = children, animation = emptyMap())
+            PartType.INTERACT -> {
+                InteractionModel(world = world, state = modelState, attachedModels = children, animation = animations, interactionConfig = def.interaction, initialLocation = spawnLoc)
+            }
+            PartType.SEAT -> {
+                SeatModel(world = world, state = modelState, attachedModels = children, animation = animations, initialLocation = spawnLoc)
+            }
+            PartType.PLATFORM -> {
+                PlatformModel(world = world, state = modelState, attachedModels = children, animation = animations, initialLocation = spawnLoc, platformConfig = def.platform)
             }
             PartType.DUMMY -> {
-                DummyModel(world = world, state = modelState, attachedModels = children, animation = emptyMap())
+                DummyModel(world = world, state = modelState, attachedModels = children, animation = animations)
             }
         }
     }

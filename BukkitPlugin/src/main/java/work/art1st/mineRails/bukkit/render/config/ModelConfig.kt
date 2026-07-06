@@ -10,6 +10,7 @@ import org.joml.Quaterniond
 import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.extension.bukkitLocation
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
+import work.art1st.mineRails.bukkit.config.model.PartPlatformConfig
 import work.art1st.mineRails.bukkit.render.model.AbstractModel
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
@@ -125,7 +126,9 @@ class PlatformModelConfigV1(
             world = dependency.world,
             state = modelState,
             attachedModels = attachedModels.map { it.load(dependency) },
-            animation = animations.mapValues { it.value.load(dependency) }
+            animation = animations.mapValues { it.value.load(dependency) },
+            initialLocation = dependency.bukkitLocation,
+            platformConfig = PartPlatformConfig()
         )
         return model
     }

@@ -15,7 +15,7 @@ import java.io.File
  */
 class PartRegistry(
     private val partsDir: File
-) {
+) : PartResolver {
     private val parts: MutableMap<String, PartDefinition> = mutableMapOf()
 
     /**
@@ -69,7 +69,7 @@ class PartRegistry(
      * @param refName the part name, optionally namespace-qualified
      * @param defaultNamespace the namespace to use if refName is unqualified
      */
-    fun resolve(refName: String, defaultNamespace: String): ResolvedPart {
+    override fun resolve(refName: String, defaultNamespace: String): ResolvedPart {
         val qualifiedName = if (refName.contains("/")) {
             refName
         } else {
@@ -120,17 +120,23 @@ class PartRegistry(
             val type = PartType.fromString(typeStr)
 
             val item = parseItemConfig(map["item"] as? Map<String, Any>)
+            val interaction = parseInteractionConfig(map["interaction"] as? Map<String, Any>)
+            val platform = parsePlatformConfig(map["platform"] as? Map<String, Any>)
             val offset = parseVec3(map["offset"] as? Map<String, Any>)
             val rotation = parseVec3(map["rotation"] as? Map<String, Any>)
             val parts = parsePartList(map["parts"] as? List<*>, namespace)
+            val animations = parseAnimations(map["animations"] as? List<*>)
 
             return PartDefinition(
                 name = qualifiedName,
                 type = type,
                 item = item,
+                interaction = interaction,
+                platform = platform,
                 offset = offset,
                 rotation = rotation,
-                parts = parts
+                parts = parts,
+                animations = animations
             )
         }
 
@@ -142,6 +148,31 @@ class PartRegistry(
                 customModelData = (map["custom-model-data"] as? Number)?.toInt(),
                 scale = parseScale(map["scale"] as? Map<String, Any>),
                 animations = parseAnimations(map["animations"] as? List<*>)
+            )
+        }
+
+        fun parseInteractionConfig(map: Map<String, Any>?): PartInteractionConfig {
+            if (map == null) return PartInteractionConfig()
+            return PartInteractionConfig(
+                width = (map["width"] as? Number)?.toDouble() ?: 1.0,
+                height = (map["height"] as? Number)?.toDouble() ?: 1.0
+            )
+        }
+
+        fun parsePlatformConfig(map: Map<String, Any>?): PartPlatformConfig {
+            if (map == null) return PartPlatformConfig()
+            val spacing = parseVec3(map["spacing"] as? Map<String, Any>)
+            return PartPlatformConfig(
+                rows = (map["rows"] as? Number)?.toInt() ?: 1,
+                columns = (map["columns"] as? Number)?.toInt() ?: 1,
+                spacingX = (map["spacing-x"] as? Number)?.toDouble()
+                    ?: (map["spacingX"] as? Number)?.toDouble()
+                    ?: spacing.x.takeIf { it != 0.0 }
+                    ?: 1.0,
+                spacingZ = (map["spacing-z"] as? Number)?.toDouble()
+                    ?: (map["spacingZ"] as? Number)?.toDouble()
+                    ?: spacing.z.takeIf { it != 0.0 }
+                    ?: 1.0
             )
         }
 
@@ -194,10 +225,79 @@ class PartRegistry(
             if (list == null) return emptyList()
             return list.mapNotNull { entry ->
                 val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
+                val name = entryMap["name"] as? String ?: return@mapNotNull null
+                val commands = parseAnimationCommands(entryMap["commands"] as? List<*>)
+                val keyframes = parseAnimationKeyframes(entryMap["keyframes"] as? List<*>)
+                validateUniqueScenes(name, commands.mapNotNull { it.scene } + keyframes.mapNotNull { it.scene })
+
                 PartAnimationConfig(
-                    name = entryMap["name"] as? String ?: return@mapNotNull null,
-                    commands = (entryMap["commands"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                    name = name,
+                    keepFinalState = (entryMap["keep-final-state"] as? Boolean) ?: true,
+                    commands = commands,
+                    keyframes = keyframes.sortedBy { it.at }
                 )
+            }
+        }
+
+        private fun parseAnimationCommands(list: List<*>?): List<PartAnimationCommandConfig> {
+            if (list == null) return emptyList()
+            return list.mapNotNull { entry ->
+                val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
+                PartAnimationCommandConfig(
+                    duration = (entryMap["duration"] as? Number)?.toDouble() ?: 0.0,
+                    offset = parseVec3(entryMap["offset"] as? Map<String, Any>),
+                    rotation = parseVec3(entryMap["rotation"] as? Map<String, Any>),
+                    scale = parseScale(entryMap["scale"] as? Map<String, Any>),
+                    scene = normalizeSceneName(entryMap["scene"] as? String),
+                    itemType = entryMap["item-type"] as? String,
+                    itemModel = entryMap["item-model"] as? String,
+                    customModelData = (entryMap["custom-model-data"] as? Number)?.toInt(),
+                    brightness = parseBrightness(entryMap["brightness"] as? Map<String, Any>)
+                )
+            }
+        }
+
+        private fun parseAnimationKeyframes(list: List<*>?): List<PartAnimationKeyframeConfig> {
+            if (list == null) return emptyList()
+            return list.mapNotNull { entry ->
+                val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
+                val at = (entryMap["at"] as? Number)?.toDouble()
+                    ?: throw IllegalArgumentException("Animation keyframe missing 'at'")
+                PartAnimationKeyframeConfig(
+                    at = at,
+                    scene = normalizeSceneName(entryMap["scene"] as? String),
+                    offset = parseVec3(entryMap["offset"] as? Map<String, Any>),
+                    rotation = parseVec3(entryMap["rotation"] as? Map<String, Any>),
+                    scale = parseScale(entryMap["scale"] as? Map<String, Any>),
+                    itemType = entryMap["item-type"] as? String,
+                    itemModel = entryMap["item-model"] as? String,
+                    customModelData = (entryMap["custom-model-data"] as? Number)?.toInt(),
+                    brightness = parseBrightness(entryMap["brightness"] as? Map<String, Any>)
+                )
+            }
+        }
+
+        fun parseBrightness(map: Map<String, Any>?): PartBrightnessConfig? {
+            if (map == null) return null
+            return PartBrightnessConfig(
+                block = (map["block"] as? Number)?.toInt() ?: 0,
+                sky = (map["sky"] as? Number)?.toInt() ?: 0
+            )
+        }
+
+        private fun normalizeSceneName(scene: String?): String? {
+            return when (val normalized = scene?.trim()?.lowercase()) {
+                null, "" -> null
+                "o" -> "open"
+                "c" -> "closed"
+                else -> normalized
+            }
+        }
+
+        private fun validateUniqueScenes(animationName: String, scenes: List<String>) {
+            val duplicates = scenes.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+            require(duplicates.isEmpty()) {
+                "Animation '$animationName' has duplicate scene(s): ${duplicates.joinToString()}"
             }
         }
     }

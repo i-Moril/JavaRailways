@@ -31,6 +31,7 @@ class ModelState(
     fun applyRotation(baseRelative: CompactTransform, root: CompactTransform, animationTransformOverlay: CompactTransform? = null) {
         val localRotation = Quaterniond(localTransform.rotation)
         val offset = Vector3d(localTransform.position)
+        val localScale = Vector3d(localTransform.scale)
 
         // 先apply animation transformation
         animationTransformOverlay?.let {
@@ -39,9 +40,12 @@ class ModelState(
 
             // 局部旋转右乘相对旋转
             localRotation.mul(it.rotation)
+
+            // 缩放叠加
+            localScale.mul(it.scale)
         }
 
-        rootRelativeTransform = CompactTransform(offset, localRotation).applyTo(baseRelative)
+        rootRelativeTransform = CompactTransform(offset, localRotation, localScale).applyTo(baseRelative)
         worldTransform = rootRelativeTransform.applyTo(root)
     }
 }

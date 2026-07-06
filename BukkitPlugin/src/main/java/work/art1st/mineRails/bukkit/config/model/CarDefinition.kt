@@ -1,11 +1,15 @@
 package work.art1st.mineRails.bukkit.config.model
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
+
 /**
  * A car definition loaded from a car YAML file.
  *
  * A car is composed of body parts (the car body, doors, lights, etc.)
  * and bogies (each bogie has its own parts and wheel parts).
  */
+@Serializable
 data class CarDefinition(
     val name: String,                             // Fully qualified name e.g. "s100/passenger"
     val length: Double = 2.0,                     // Car length in blocks
@@ -30,5 +34,6 @@ data class CarDefinition(
         }
 
     /** The package this car belongs to. Set by PackageLoader after loading. */
+    @Transient
     var packageName: String? = null
 }

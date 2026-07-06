@@ -12,7 +12,11 @@ data class LoadedTrainPackage(
     /** Car definitions keyed by car name (e.g. "head", "passenger"). */
     val cars: Map<String, CarDefinition>,
     /** The resolved train definition. */
-    val train: TrainDefinition
+    val train: TrainDefinition,
+    /** Declarative train actions keyed by action name. */
+    val actions: Map<String, TrainActionConfig> = emptyMap(),
+    /** Optional JS behavior script for this train package. */
+    val behavior: TrainBehaviorScript? = null
 )
 
 /**

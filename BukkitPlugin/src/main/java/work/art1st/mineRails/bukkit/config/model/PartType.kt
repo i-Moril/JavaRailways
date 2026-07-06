@@ -1,13 +1,17 @@
 package work.art1st.mineRails.bukkit.config.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * Part types matching template.yml.
  */
+@Serializable
 enum class PartType {
     ITEM_DISPLAY,
     INTERACT,
     DUMMY,
-    SEAT;
+    SEAT,
+    PLATFORM;
 
     companion object {
         fun fromString(s: String): PartType = when (s.lowercase()) {
@@ -15,6 +19,7 @@ enum class PartType {
             "interact" -> INTERACT
             "dummy" -> DUMMY
             "seat" -> SEAT
+            "platform" -> PLATFORM
             else -> throw IllegalArgumentException("Unknown part type: $s")
         }
     }

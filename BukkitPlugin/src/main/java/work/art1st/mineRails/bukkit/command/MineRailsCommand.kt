@@ -242,6 +242,8 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr train create - 在轨道上创建列车")
         sender.sendMessage("/mr train start - 启动列车（手动驾驶）")
         sender.sendMessage("/mr train stop - 停止列车")
+        sender.sendMessage("/mr train anim <name> [scene] - 触发列车部件动画")
+        sender.sendMessage("/mr train action <name> - 触发列车动作（动画/声音等）")
         sender.sendMessage("/mr wand rail - 获取 RailWand")
         sender.sendMessage("/mr wand operation - 获取 OperationWand")
         sender.sendMessage("/mr waypoint list|info|remove - 管理路径点")

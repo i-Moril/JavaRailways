@@ -1,0 +1,11 @@
+config-version: 1
+name: bogie
+type: dummy
+# Reference: frame at posY=1.0, wheels at posZ=±wheel_distance/2=±0.84375
+parts:
+  - name: bogie_frame
+    offset: {x: 0, y: 0.44, z: 0}
+  - name: wheel
+    offset: {x: 0, y: -0.09, z: 0.84}
+  - name: wheel
+    offset: {x: 0, y: -0.09, z: -0.84}

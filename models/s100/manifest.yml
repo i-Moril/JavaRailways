@@ -1,0 +1,9 @@
+config-version: 2
+name: s100
+type: train
+display-name: "S100 EMU"
+composition:
+  - head
+  - passenger
+  - passenger
+  - head_tail

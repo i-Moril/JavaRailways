@@ -4,6 +4,18 @@ floor-height: 1.0
 connector-length-a: 0.1
 connector-length-b: 0.1
 name: motor_tail
+control:
+  mass: 37000
+  rotating-mass-factor: 1.08
+  motor:
+    enabled: true
+    max-force: 90000
+    max-power: 950000
+    adhesion-mass-ratio: 1.0
+  brake:
+    max-force: 52000
+    regenerative-force: 30000
+    adhesion-mass-ratio: 1.0
 # S100 01MP motor car: mirrored 00MP with active/retrieved pantographs.
 body-parts:
   # Collision platform: 3x18 shulker grid across the full car and connectors

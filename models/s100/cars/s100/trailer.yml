@@ -4,6 +4,14 @@ floor-height: 1.0
 connector-length-a: 0.1
 connector-length-b: 0.1
 name: trailer
+control:
+  mass: 32000
+  rotating-mass-factor: 1.08
+  motor:
+    enabled: false
+  brake:
+    max-force: 48000
+    adhesion-mass-ratio: 1.0
 # S100 00T0 trailer car: connector + seated sections, no pantograph.
 body-parts:
   # Collision platform: 3x18 shulker grid across the full car and connectors

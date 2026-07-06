@@ -4,6 +4,7 @@
 
 - 模型包目录结构
 - `manifest.yml`、车厢、部件、动画与动作配置
+- `control.yml` 与车厢 `control` 动力性能配置
 - 平台碰撞、座位、交互实体的写法
 - `behavior.js` 列车行为脚本写法
 - 保存策略 `follow-package` / `snapshot`
@@ -39,6 +40,7 @@ plugins/MineRails/trains/s100/
   manifest.yml
   actions.yml          # 可选：声明式动作
   behavior.js          # 可选：列车行为脚本
+  control.yml          # 可选：手柄控制/列车动力学参数
   cars/
     s100/
       head.yml
@@ -160,7 +162,71 @@ bogies:
 
 ---
 
-## 4. 部件引用写法
+## 4. 手柄控制与动力学配置
+
+模型包可以用 `control.yml` 定义共通手柄、制动建立时间、阻力、粘着与 jerk 限制；每节车在 `cars/*.yml` 的 `control` 块中定义质量、是否动车、牵引力和制动力。运行时会按编组自动聚合：动车提供牵引力，所有车提供质量、阻力和制动力。
+
+`control.yml` 示例：
+
+```yml
+config-version: 1
+max-speed: 33.3
+controller:
+  power-notches: [P1, P2, P3, P4, P5]
+  brake-notches: [B1, B2, B3, B4, B5, B6, B7, EB]
+traction:
+  notch-scales: {P1: 0.2, P2: 0.4, P3: 0.6, P4: 0.8, P5: 1.0}
+brake:
+  notch-scales: {B1: 0.15, B2: 0.30, B7: 1.0, EB: 1.25}
+  apply-time: 1.2
+  release-time: 1.8
+resistance:
+  a: 900
+  b: 22
+  c: 5.5
+adhesion:
+  coefficient: 0.22
+jerk:
+  traction: 0.7
+  brake: 1.0
+```
+
+车厢 `control` 示例：
+
+```yml
+control:
+  mass: 37000
+  rotating-mass-factor: 1.08
+  motor:
+    enabled: true
+    max-force: 90000
+    max-power: 950000
+    adhesion-mass-ratio: 1.0
+  brake:
+    max-force: 52000
+    regenerative-force: 30000
+```
+
+每 tick 计算近似为：
+
+```text
+F = Σ牵引力 - Σ制动力 - ΣDavis阻力 - Σ坡度阻力
+a = F / Σ有效质量
+```
+
+其中坡度阻力由每节车当前轨道方向的竖直分量估算，牵引/制动力受粘着限制，最终加速度受 jerk 限制。命令：
+
+```text
+/mr train start
+/mr train handle P3
+/mr train handle N
+/mr train handle B4
+/mr train handle EB
+```
+
+---
+
+## 5. 部件引用写法
 
 ### 4.1 import 引用
 
@@ -194,7 +260,7 @@ bogies:
 
 ---
 
-## 5. 部件配置 parts/*.yml
+## 6. 部件配置 parts/*.yml
 
 所有部件都需要：
 
@@ -211,14 +277,14 @@ type: dummy
 | `dummy` | 无实体 | 纯分组/变换节点。 |
 | `item_display` | Bukkit `ItemDisplay` | 显示资源包模型。 |
 | `interact` | Bukkit `Interaction` | 点击/交互 hitbox。 |
-| `seat` | 隐形 `Minecart` | 座位。 |
+| `seat` | 点击 `Interaction` + 零尺寸乘客 `Interaction` | 座位。 |
 | `platform` | chicken-mounted invisible shulker grid | 可碰撞地板/平台。 |
 
 `offset`、`rotation`、`parts`、`animations` 可以用于任意部件类型。
 
 ---
 
-## 6. item_display 部件
+## 7. item_display 部件
 
 示例：
 
@@ -243,7 +309,7 @@ item:
 
 ---
 
-## 7. interact / seat / platform
+## 8. interact / seat / platform
 
 ### 7.1 interact
 
@@ -297,7 +363,7 @@ invisible Chicken vehicle, non-collidable
 
 ---
 
-## 8. 部件动画 animations
+## 9. 部件动画 animations
 
 动画可以写在部件顶层：
 
@@ -379,7 +445,7 @@ animations:
 
 ---
 
-## 9. actions.yml：声明式列车动作
+## 10. actions.yml：声明式列车动作
 
 `actions.yml` 用于把多个低层动画和声音组合成业务动作。
 
@@ -442,7 +508,7 @@ actions:
 
 ---
 
-## 10. behavior.js：列车 JS 行为脚本
+## 11. behavior.js：列车 JS 行为脚本
 
 `behavior.js` 用于描述“什么时候做什么”。它不直接写模型资源，而是调用 `actions.yml` 里的动作。
 
@@ -546,7 +612,7 @@ behavior.js:     行为逻辑，例如 onStation 到站开关门
 
 ---
 
-## 11. 保存策略：follow-package 与 snapshot
+## 12. 保存策略：follow-package 与 snapshot
 
 全局配置：
 
@@ -583,7 +649,7 @@ train-model-update-policy: snapshot
 
 ---
 
-## 12. 常用验证命令
+## 13. 常用验证命令
 
 ```text
 /mr train create s100
@@ -610,7 +676,7 @@ train-model-update-policy: snapshot
 
 ---
 
-## 13. 编写建议
+## 14. 编写建议
 
 - 先用 `dummy` 搭层级，再把实际显示模型挂到 dummy 下。
 - 多个门页可以共享同一个动画名；触发一次会递归分发给所有匹配部件。

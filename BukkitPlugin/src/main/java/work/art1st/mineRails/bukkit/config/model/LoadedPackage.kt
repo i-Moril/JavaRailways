@@ -16,7 +16,9 @@ data class LoadedTrainPackage(
     /** Declarative train actions keyed by action name. */
     val actions: Map<String, TrainActionConfig> = emptyMap(),
     /** Optional JS behavior script for this train package. */
-    val behavior: TrainBehaviorScript? = null
+    val behavior: TrainBehaviorScript? = null,
+    /** Manual-controller performance and physics configuration. */
+    val control: TrainControlConfig = TrainControlConfig()
 )
 
 /**

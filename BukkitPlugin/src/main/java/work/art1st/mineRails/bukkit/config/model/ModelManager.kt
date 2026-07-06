@@ -125,6 +125,13 @@ class ModelManager(
         return trainPackages.values.firstNotNullOfOrNull { it.behavior }
     }
 
+    fun getTrainControl(packageName: String?): TrainControlConfig {
+        if (packageName != null) {
+            trainPackages[packageName]?.control?.let { return it }
+        }
+        return TrainControlConfig()
+    }
+
     fun getRailConfig(name: String): RailModelConfig? {
         return railPackages[name]?.railConfig
     }

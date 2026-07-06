@@ -4,6 +4,14 @@ floor-height: 1.0
 connector-length-a: 0.1
 connector-length-b: 0.1
 name: passenger
+control:
+  mass: 32000
+  rotating-mass-factor: 1.08
+  motor:
+    enabled: false
+  brake:
+    max-force: 48000
+    adhesion-mass-ratio: 1.0
 # 6 sections: z=0..5 → posZ = 7.5, 4.5, 1.5, -1.5, -4.5, -7.5
 body-parts:
   # Collision platform: 3x18 shulker grid across the full car and connectors

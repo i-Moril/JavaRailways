@@ -4,12 +4,14 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.joml.Vector3d
 import org.joml.Vector3dc
-import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorCallResult
+import work.art1st.mineRails.bukkit.config.model.CarControlConfig
 import work.art1st.mineRails.bukkit.config.model.CarDefinition
+import work.art1st.mineRails.bukkit.config.model.TrainControlConfig
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.TrainExtension
+import work.art1st.mineRails.bukkit.control.RealisticManualController
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.core.api.physics.World
@@ -23,12 +25,12 @@ import java.util.UUID
 
 object TrainCommand {
     /** 玩家 UUID -> 手动控制器 */
-    private val playerControllers = mutableMapOf<UUID, ManualController>()
+    private val playerControllers = mutableMapOf<UUID, RealisticManualController>()
 
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /mr train <create|start|stop|throttle|reverse|anim|action|behavior|info|list|delete>")
+            sender.sendMessage("用法: /mr train <create|start|stop|handle|throttle|reverse|anim|action|behavior|info|list|delete>")
             return true
         }
 
@@ -36,6 +38,7 @@ object TrainCommand {
             "create" -> return handleCreate(sender, args.drop(1))
             "start" -> return handleStart(sender, args.drop(1))
             "stop" -> return handleStop(sender)
+            "handle", "notch" -> return handleHandle(sender, args.drop(1))
             "throttle" -> return handleThrottle(sender, args.drop(1))
             "reverse" -> return handleReverse(sender)
             "anim", "animation" -> return handleAnim(sender, args.drop(1))
@@ -275,17 +278,25 @@ object TrainCommand {
             return true
         }
 
-        val controller = ManualController(train, coreWorld)
+        val (controlConfig, carControls) = resolveControlProfile(train)
+        val controller = RealisticManualController(train, coreWorld, controlConfig, carControls)
         train.setController(controller)
         playerControllers[sender.uniqueId] = controller
 
-        val throttle = args.firstOrNull()?.toDoubleOrNull() ?: 0.0
-        if (throttle != 0.0) {
-            controller.setThrottle(throttle.coerceIn(-1.0, 1.0))
+        val initialHandle = args.firstOrNull()
+        if (initialHandle != null) {
+            val throttle = initialHandle.toDoubleOrNull()
+            if (throttle != null) {
+                controller.setThrottle(throttle)
+            } else if (!controller.setHandle(initialHandle)) {
+                sender.sendMessage("未知手柄档位: $initialHandle")
+                sender.sendMessage("可用档位: ${availableHandles(controlConfig)}")
+            }
         }
 
         sender.sendMessage("控制器已连接至列车: ${train.id}")
-        sender.sendMessage("使用 /mr train throttle <0~1> 加速")
+        sender.sendMessage("使用 /mr train handle <P1..P5|N|B1..B7|EB> 设置手柄")
+        sender.sendMessage("使用 /mr train throttle <-1~1> 兼容旧式比例控制")
         sender.sendMessage("使用 /mr train stop 断开连接")
         return true
     }
@@ -303,6 +314,34 @@ object TrainCommand {
 
         (controller.controlledTrain as? CoreTrain)?.setController(null)
         sender.sendMessage("控制器已断开连接")
+        return true
+    }
+
+    private fun handleHandle(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        val controller = playerControllers[sender.uniqueId]
+        if (controller == null) {
+            sender.sendMessage("当前没有连接的控制器，先用 /mr train start")
+            return true
+        }
+
+        val handle = args.firstOrNull()
+        if (handle == null) {
+            sender.sendMessage("用法: /mr train handle <P1..P5|N|B1..B7|EB>")
+            sender.sendMessage("当前手柄: ${controller.handle}")
+            sender.sendMessage("当前速度: ${"%.2f".format(controller.speed)} m/s")
+            sender.sendMessage("当前加速度: ${"%.3f".format(controller.acceleration)} m/s²")
+            return true
+        }
+
+        if (!controller.setHandle(handle)) {
+            sender.sendMessage("未知手柄档位: $handle")
+            return true
+        }
+        sender.sendMessage("手柄设置为 ${controller.handle}")
         return true
     }
 
@@ -567,8 +606,15 @@ object TrainCommand {
             sender.sendMessage("列车: ${train.id}")
             if (controller != null) {
                 sender.sendMessage("速度: ${"%.2f".format(controller.speed)} m/s")
-                sender.sendMessage("目标速度: ${"%.2f".format(controller.targetSpeed)} m/s")
-                sender.sendMessage("手柄: ${"%.2f".format(controller.throttle)}")
+                sender.sendMessage("加速度: ${"%.3f".format(controller.acceleration)} m/s²")
+                sender.sendMessage("手柄: ${controller.handle} (${"%.2f".format(controller.throttle)})")
+                sender.sendMessage("制动建立: ${"%.2f".format(controller.brakeScale)}")
+                sender.sendMessage(
+                    "力: 牵引=${"%.0f".format(controller.tractionForce)}N " +
+                        "制动=${"%.0f".format(controller.brakeForce)}N " +
+                        "阻力=${"%.0f".format(controller.resistanceForce)}N " +
+                        "坡度=${"%.0f".format(controller.gradeForce)}N"
+                )
             } else {
                 sender.sendMessage("控制器: 未连接")
             }
@@ -593,6 +639,26 @@ object TrainCommand {
             sender.sendMessage("  ${train.id} - ${train.length} 节车厢")
         }
         return true
+    }
+
+    private fun resolveControlProfile(train: CoreTrain): Pair<TrainControlConfig, List<CarControlConfig>> {
+        val modelManager = BukkitPlugin.INSTANCE.modelManager
+        val carModelNames = train.cars.map { car ->
+            runCatching { (car.renderer as? CarExtension)?.carModelName }.getOrNull()
+        }
+        val packageName = carModelNames.firstNotNullOfOrNull { modelName ->
+            modelName?.let { modelManager.getCar(it)?.packageName }
+        }
+        val trainControl = modelManager.getTrainControl(packageName)
+        val carControls = carModelNames.map { modelName ->
+            modelName?.let { modelManager.getCar(it)?.control } ?: CarControlConfig()
+        }
+        return trainControl to carControls
+    }
+
+    private fun availableHandles(controlConfig: TrainControlConfig): String {
+        return (controlConfig.powerNotches + listOf(RealisticManualController.NEUTRAL_HANDLE) + controlConfig.brakeNotches)
+            .joinToString("|")
     }
 
     private fun findNearestTrain(sender: Player, coreWorld: CoreWorld): CoreTrain? {

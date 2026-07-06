@@ -90,6 +90,7 @@ class PackageLoader(
         )
         val actions = loadActions(File(packageDir, "actions.yml"))
         val behavior = loadBehavior(File(packageDir, "behavior.js"))
+        val control = loadControl(File(packageDir, "control.yml"))
 
         return LoadedTrainPackage(
             manifest = manifest,
@@ -97,7 +98,8 @@ class PackageLoader(
             cars = cars,
             train = train,
             actions = actions,
-            behavior = behavior
+            behavior = behavior,
+            control = control
         )
     }
 
@@ -123,6 +125,18 @@ class PackageLoader(
         } catch (e: Exception) {
             System.err.println("[MineRails] Failed to load train behavior ${file.path}: ${e.message}")
             null
+        }
+    }
+
+    private fun loadControl(file: File): TrainControlConfig {
+        if (!file.exists() || !file.isFile) return TrainControlConfig()
+        return try {
+            val yaml = Yaml()
+            val map = yaml.load<Map<String, Any>>(file.inputStream())
+            TrainControlConfig.parse(map)
+        } catch (e: Exception) {
+            System.err.println("[MineRails] Failed to load train control ${file.path}: ${e.message}")
+            TrainControlConfig()
         }
     }
 

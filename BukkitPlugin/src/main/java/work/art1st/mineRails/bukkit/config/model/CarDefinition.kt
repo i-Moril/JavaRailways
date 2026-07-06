@@ -19,7 +19,10 @@ data class CarDefinition(
     val connectorLengthA: Double = 0.3,           // Connector length at head end (A-end)
     val connectorLengthB: Double = 0.3,           // Connector length at tail end (B-end)
     val bogieAOffset: Double? = null,             // Bogie A offset from center (positive toward head)
-    val bogieBOffset: Double? = null              // Bogie B offset from center (negative toward tail)
+    val bogieBOffset: Double? = null,             // Bogie B offset from center (negative toward tail)
+    /** Physics/control data is not part of render snapshots. */
+    @Transient
+    val control: CarControlConfig = CarControlConfig()
 ) {
     val namespace: String
         get() {

@@ -4,6 +4,14 @@ floor-height: 1.0
 connector-length-a: 0.1
 connector-length-b: 0.1
 name: head_tail
+control:
+  mass: 34000
+  rotating-mass-factor: 1.08
+  motor:
+    enabled: false
+  brake:
+    max-force: 50000
+    adhesion-mass-ratio: 1.0
 # Body sections along car Z (= model Z → car direction = along track)
 # posZ formula: (3 - z) * 3.0 - 1.5
 # Note: use offset.z for length direction, offset.x for width

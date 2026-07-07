@@ -79,7 +79,7 @@ object RailAutoConnector {
     fun selectSmoothestActiveRail(view: RailView): Boolean {
         val best = view.mutableNextRails
             .mapNotNull { next ->
-                RailConnectionPolicy.transitionAngleDegrees(view, next)?.let { angle -> angle to next }
+                RailConnectionPolicy.activeSelectionScoreDegrees(view, next)?.let { angle -> angle to next }
             }
             .minWithOrNull(compareBy<Pair<Double, RailView>> { it.first }.thenBy { it.second.rail.id.toString() })
             ?.second

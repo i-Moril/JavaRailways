@@ -45,7 +45,7 @@ class RailAutoConnectorTest {
     fun `created rail can select smoothest active branch after unordered auto connects`() {
         val world = createTestWorld()
         val created = CoreRail(world, straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
-        val branch = CoreRail(world, curveEndingAt(Vector3d(10.0, 0.0, 0.0), 200.0), mutableListOf(), mutableListOf())
+        val branch = CoreRail(world, curvedBranchEndingAt(Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
         val straight = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
 
         assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(created, branch).outcome)
@@ -87,14 +87,13 @@ class RailAutoConnectorTest {
         return straightCurve(from, to)
     }
 
-    private fun curveEndingAt(to: Vector3d, awayAngleDegrees: Double, length: Double = 10.0): PrimeCurve {
-        val radians = Math.toRadians(awayAngleDegrees)
-        val from = Vector3d(
-            to.x + cos(radians) * length,
-            to.y,
-            to.z + sin(radians) * length
-        )
-        return straightCurve(from, to)
+    private fun curvedBranchEndingAt(to: Vector3d): PrimeCurve {
+        val normal = Vector3d(0.0, 1.0, 0.0)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(to.x - 10.0, to.y, to.z + 2.0), Vector3d(1.0, 0.0, -0.2).normalize(), Vector3d(normal), 0.0),
+            Curve.RawPoint(Vector3d(to.x - 5.0, to.y, to.z + 1.0), Vector3d(1.0, 0.0, -0.2).normalize(), Vector3d(normal), 5.1),
+            Curve.RawPoint(Vector3d(to), Vector3d(1.0, 0.0, 0.0), Vector3d(normal), 10.2)
+        ))
     }
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {

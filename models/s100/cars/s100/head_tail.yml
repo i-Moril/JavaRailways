@@ -46,6 +46,29 @@ body-parts:
     offset: {x: 0, y: 1.25, z: 7.5}
     rotation: {y: 0}
 
+  # --- Lights ---
+  - import: tail_light
+    offset: {x: 0, y: 1.25, z: -7.5}
+    rotation: {y: 180}
+  - import: cabin_light_head
+    offset: {x: 0, y: 1.25, z: -7.5}
+    rotation: {y: 180}
+  - import: cabin_light
+    offset: {x: 0, y: 1.25, z: -4.5}
+    rotation: {y: 0}
+  - import: cabin_light
+    offset: {x: 0, y: 1.25, z: -1.5}
+    rotation: {y: 180}
+  - import: cabin_light
+    offset: {x: 0, y: 1.25, z: 1.5}
+    rotation: {y: 0}
+  - import: cabin_light
+    offset: {x: 0, y: 1.25, z: 4.5}
+    rotation: {y: 180}
+  - import: cabin_light_connector_toilet
+    offset: {x: 0, y: 1.25, z: 7.5}
+    rotation: {y: 0}
+
   # --- Overlays ---
   - import: body_head_overlay
     offset: {x: 0, y: 1.25, z: -7.5}

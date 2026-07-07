@@ -48,6 +48,30 @@ function door(side, scene) {
   runDoorAction(side, suffix)
 }
 
+function refreshLights() {
+  action(operatingEnd() === "tail" ? "lights-tail-running" : "lights-head-running")
+}
+
+defineAction("lights-refresh", { displayName: "刷新头尾灯", executable: true, requiresControl: false }, function() {
+  refreshLights()
+})
+
+defineAction("end-lights-off", { displayName: "关闭头尾灯", executable: true, requiresControl: true }, function() {
+  action("end-lights-off")
+})
+
+defineAction("cabin-lights-on", { displayName: "开启车内灯", executable: true, requiresControl: true }, function() {
+  action("cabin-lights-on")
+})
+
+defineAction("cabin-lights-off", { displayName: "关闭车内灯", executable: true, requiresControl: true }, function() {
+  action("cabin-lights-off")
+})
+
+function onReverse() {
+  refreshLights()
+}
+
 function horn() {
   sound("minecraft:entity.minecart.riding", 0.8, 1.0)
 }

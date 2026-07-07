@@ -4,3 +4,16 @@ type: item_display
 item:
   type: IRON_NUGGET
   item-model: "art1st/tc/s100/cabin_light_head"
+animations:
+  - name: cabin_lights
+    keep-final-state: true
+    keyframes:
+      - at: 0.0
+        scene: on
+        item-type: IRON_NUGGET
+        item-model: "art1st/tc/s100/cabin_light_head"
+        brightness: {block: 15, sky: 0}
+      - at: 0.1
+        scene: off
+        item-type: AIR
+        brightness: {block: 0, sky: 0}

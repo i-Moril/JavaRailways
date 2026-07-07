@@ -35,6 +35,23 @@ body-parts:
     offset: {x: 0, y: 1.25, z: -7.5}
     rotation: {y: 180}
 
+  # Lights
+  - import: cabin_light_connector
+    offset: {x: 0, y: 1.25, z: 7.5}
+  - import: cabin_light
+    offset: {x: 0, y: 1.25, z: 4.5}
+    rotation: {y: 180}
+  - import: cabin_light
+    offset: {x: 0, y: 1.25, z: 1.5}
+  - import: cabin_light
+    offset: {x: 0, y: 1.25, z: -1.5}
+    rotation: {y: 180}
+  - import: cabin_light
+    offset: {x: 0, y: 1.25, z: -4.5}
+  - import: cabin_light_connector
+    offset: {x: 0, y: 1.25, z: -7.5}
+    rotation: {y: 180}
+
   # Overlays
   - import: body_overlay
     offset: {x: 0, y: 1.25, z: 7.5}

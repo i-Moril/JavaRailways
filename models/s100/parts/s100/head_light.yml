@@ -4,3 +4,21 @@ type: item_display
 item:
   type: IRON_NUGGET
   item-model: "art1st/tc/s100/head_light"
+animations:
+  - name: front_end_light
+    keep-final-state: true
+    keyframes:
+      - at: 0.0
+        scene: head
+        item-type: IRON_NUGGET
+        item-model: "art1st/tc/s100/head_light"
+        brightness: {block: 15, sky: 0}
+      - at: 0.1
+        scene: tail
+        item-type: IRON_NUGGET
+        item-model: "art1st/tc/s100/tail_light"
+        brightness: {block: 11, sky: 0}
+      - at: 0.2
+        scene: off
+        item-type: AIR
+        brightness: {block: 0, sky: 0}

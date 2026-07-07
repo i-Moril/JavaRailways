@@ -120,6 +120,11 @@ object TrainCommand {
                 sender.sendMessage("请站在更靠轨道中段的位置，或先把斜坡与前后轨道连接起来。")
                 return true
             }
+        val blockingTrainId = findBlockingTrainForPlacement(headLocation, requiredBehindHead)
+        if (blockingTrainId != null) {
+            sender.sendMessage("错误: 放置区域已有列车 $blockingTrainId，请先移走或删除后再创建")
+            return true
+        }
         val firstHeadBogieOffset = headBogieToEndPointOffset(carDefs.first())
         val initialBogieLocation = headLocation.forward(-firstHeadBogieOffset)
             ?: run {
@@ -215,6 +220,12 @@ object TrainCommand {
 
     private fun formatVector(vector: Vector3dc): String =
         "(%.2f, %.2f, %.2f)".format(vector.x(), vector.y(), vector.z())
+
+    private fun findBlockingTrainForPlacement(headLocation: RailLocationWithFacing, requiredBehindHead: Double): String? {
+        val margin = 5.0
+        val nearbyEnds = headLocation.peekTrains(-(requiredBehindHead + margin)) + headLocation.peekTrains(margin)
+        return nearbyEnds.firstOrNull()?.train?.id
+    }
 
     private fun estimateTrainLengthBehindHead(carDefs: List<CarDefinition>): Double {
         if (carDefs.isEmpty()) return 0.0

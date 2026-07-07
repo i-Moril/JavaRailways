@@ -133,13 +133,17 @@ class SeatModel internal constructor(
             driverSeatVacatedHandlers.add(handler)
         }
 
+        fun drivingTrainFor(player: Player): Train? {
+            val vehicle = player.vehicle as? Interaction ?: return null
+            val binding = seatsByCarrier[vehicle.uniqueId] ?: return null
+            if (!binding.driverSeat) return null
+            if (!binding.carrier.passengers.any { it.uniqueId == player.uniqueId }) return null
+            val ownerCar = binding.ownerCar ?: return null
+            return ownerCar.world.allTrains.firstOrNull { train -> train.cars.any { it === ownerCar } }
+        }
+
         fun isPlayerDrivingTrain(player: Player, train: Train): Boolean {
-            val vehicle = player.vehicle as? Interaction ?: return false
-            val binding = seatsByCarrier[vehicle.uniqueId] ?: return false
-            if (!binding.driverSeat) return false
-            if (!binding.carrier.passengers.any { it.uniqueId == player.uniqueId }) return false
-            val ownerCar = binding.ownerCar ?: return false
-            return train.cars.any { it === ownerCar }
+            return drivingTrainFor(player) === train
         }
 
         @EventHandler

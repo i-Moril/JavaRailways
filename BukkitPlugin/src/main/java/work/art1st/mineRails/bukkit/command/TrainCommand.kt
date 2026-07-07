@@ -12,6 +12,7 @@ import work.art1st.mineRails.bukkit.config.model.TrainControlConfig
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.control.RealisticManualController
+import work.art1st.mineRails.bukkit.control.TrainKeyItem
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.render.model.SeatModel
@@ -33,24 +34,18 @@ object TrainCommand {
             val controller = playerControllers[player.uniqueId] ?: return@addDriverSeatVacatedHandler
             if (controller.controlledTrain === train) {
                 controller.coast()
-                player.sendMessage("已离开驾驶座，手柄自动回到 N")
             }
         }
     }
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /mr train <create|start|stop|handle|throttle|reverse|anim|action|behavior|info|list|delete>")
+            sender.sendMessage("用法: /mr train <create|anim|action|behavior|info|list|delete|sit|stand>")
             return true
         }
 
         when (args[0].lowercase()) {
             "create" -> return handleCreate(sender, args.drop(1))
-            "start" -> return handleStart(sender, args.drop(1))
-            "stop" -> return handleStop(sender)
-            "handle", "notch" -> return handleHandle(sender, args.drop(1))
-            "throttle" -> return handleThrottle(sender, args.drop(1))
-            "reverse" -> return handleReverse(sender)
             "anim", "animation" -> return handleAnim(sender, args.drop(1))
             "action" -> return handleAction(sender, args.drop(1))
             "behavior" -> return handleBehavior(sender, args.drop(1))
@@ -192,7 +187,9 @@ object TrainCommand {
         // Force model build for the creating player immediately
         cars.forEach { it.renderer.sendTo(sender) }
 
+        sender.inventory.addItem(TrainKeyItem.create(train))
         sender.sendMessage("创建列车成功: ${train.id} (类型: ${trainDef.key})")
+        sender.sendMessage("已发放列车钥匙，请手持钥匙坐在驾驶座上驾驶。")
         sender.sendMessage("车厢数量: ${cars.size}")
         sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
         sender.sendMessage("列车尾部位置: ${formatVector(train.tail.location.position)}")
@@ -692,6 +689,24 @@ object TrainCommand {
     }
 
     fun controllerFor(player: Player): RealisticManualController? = playerControllers[player.uniqueId]
+
+    fun controllerForKeyedDriver(player: Player): RealisticManualController? {
+        val train = SeatModel.SeatInteractionListener.drivingTrainFor(player) as? CoreTrain ?: return null
+        if (!TrainKeyItem.playerHasKeyFor(player, train)) return null
+
+        playerControllers[player.uniqueId]?.let { existing ->
+            if (existing.controlledTrain === train) return existing
+            existing.coast()
+        }
+
+        val existingTrainController = train.controller as? RealisticManualController
+        val controller = existingTrainController ?: run {
+            val (controlConfig, carControls) = resolveControlProfile(train)
+            RealisticManualController(train, train.world, controlConfig, carControls).also { train.setController(it) }
+        }
+        playerControllers[player.uniqueId] = controller
+        return controller
+    }
 
     fun isDrivingControlledTrain(player: Player, controller: RealisticManualController): Boolean {
         val train = controller.controlledTrain as? CoreTrain ?: return false

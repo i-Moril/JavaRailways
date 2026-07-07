@@ -216,20 +216,12 @@ a = F / Σ有效质量
 
 其中坡度阻力由每节车当前轨道方向的竖直分量估算，牵引/制动力受粘着限制，最终加速度受 jerk 限制。命令：
 
-```text
-/mr train start
-/mr train handle P3
-/mr train handle N
-/mr train handle B4
-/mr train handle EB
-```
-
-`start`、`handle`、`throttle` 和 `reverse` 只对坐在当前列车驾驶座上的玩家有效。坐在驾驶座并连接控制器后，也可以直接用移动键操作手柄：
+创建列车时会向创建者发放绑定该列车 ID 的列车钥匙。手动驾驶不再需要控制命令：玩家必须手持对应钥匙坐在驾驶座上，然后直接用移动键操作手柄。
 
 | 输入 | 效果 |
 |---|---|
-| `W` | 手柄上拉一档，长按会连续上拉到最大牵引档。 |
-| `S` | 手柄下拉一档，长按会连续下拉到最大制动档。 |
+| `W` | 手柄上拉一档，长按会连续上拉到最大制动档。 |
+| `S` | 手柄下拉一档，长按会连续下拉到最大牵引档。 |
 | `D` | 手柄回中到 `N`。 |
 
 ---
@@ -350,7 +342,7 @@ interaction:
   driver: true
 ```
 
-玩家必须坐在 `driver: true` 的驾驶座上，`/mr train start`、`handle`、`throttle`、`reverse` 才会生效。
+玩家必须手持对应列车钥匙坐在 `driver: true` 的驾驶座上，W/S/D 手柄控制才会生效。
 
 ### 8.3 platform
 

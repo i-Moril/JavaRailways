@@ -58,8 +58,8 @@ class TrainHandleInputListener : Listener {
                 iterator.remove()
                 continue
             }
-            val controller = TrainCommand.controllerFor(player)
-            if (controller == null || !TrainCommand.isDrivingControlledTrain(player, controller)) {
+            val controller = TrainCommand.controllerForKeyedDriver(player)
+            if (controller == null) {
                 iterator.remove()
                 continue
             }
@@ -78,15 +78,11 @@ class TrainHandleInputListener : Listener {
     }
 
     private fun applyDirection(player: Player, direction: HandleDirection) {
-        val controller = TrainCommand.controllerFor(player) ?: return
-        if (!TrainCommand.isDrivingControlledTrain(player, controller)) return
-        val handle = when (direction) {
-            HandleDirection.UP -> controller.shiftHandleTowardPower()
-            HandleDirection.DOWN -> controller.shiftHandleTowardBrake()
-            HandleDirection.CENTER -> {
-                controller.coast()
-                controller.handle
-            }
+        val controller = TrainCommand.controllerForKeyedDriver(player) ?: return
+        when (direction) {
+            HandleDirection.UP -> controller.shiftHandleTowardBrake()
+            HandleDirection.DOWN -> controller.shiftHandleTowardPower()
+            HandleDirection.CENTER -> controller.coast()
             HandleDirection.NONE -> return
         }
         sendControllerActionBar(player, controller)
@@ -94,10 +90,8 @@ class TrainHandleInputListener : Listener {
 
     private fun updateDriverActionBars() {
         Bukkit.getOnlinePlayers().forEach { player ->
-            val controller = TrainCommand.controllerFor(player) ?: return@forEach
-            if (TrainCommand.isDrivingControlledTrain(player, controller)) {
-                sendControllerActionBar(player, controller)
-            }
+            val controller = TrainCommand.controllerForKeyedDriver(player) ?: return@forEach
+            sendControllerActionBar(player, controller)
         }
     }
 

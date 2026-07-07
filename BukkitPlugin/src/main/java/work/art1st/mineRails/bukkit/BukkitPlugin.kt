@@ -61,7 +61,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         server.pluginManager.registerEvents(worldManager, this)
         trainControlManager = TrainControlManager(this)
         trainControlManager.start()
-        trainHandleInputListener = TrainHandleInputListener()
+        trainHandleInputListener = TrainHandleInputListener(trainControlManager)
         trainHandleInputListener.start(this)
 
         // 加载全局配置

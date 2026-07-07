@@ -11,13 +11,25 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.scheduler.BukkitTask
 import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.config.model.CarControlConfig
+import work.art1st.mineRails.bukkit.extension.train.CarExtension
+import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.core.api.physics.train.Train
+import work.art1st.mineRails.core.physics.train.CoreTrain
 import java.util.UUID
 
 class TrainControlManager(
     private val plugin: BukkitPlugin
 ) : Listener {
+    sealed class AcquireResult {
+        data class Acquired(val session: ManualControlSession) : AcquireResult()
+        data class AlreadyControlled(val ownerId: UUID) : AcquireResult()
+        data object MissingKey : AcquireResult()
+        data object NotDriverSeat : AcquireResult()
+        data object TrainUnavailable : AcquireResult()
+    }
+
     data class ManualControlSession(
         val trainId: String,
         val playerId: UUID,
@@ -31,6 +43,10 @@ class TrainControlManager(
 
     fun start() {
         plugin.server.pluginManager.registerEvents(this, plugin)
+        SeatModel.SeatInteractionListener.addDriverSeatVacatedHandler { player, train ->
+            val session = sessionsByPlayer[player.uniqueId] ?: return@addDriverSeatVacatedHandler
+            if (session.trainId == train.id) releaseManualControl(player.uniqueId)
+        }
         bindingScanTask = plugin.server.scheduler.runTaskTimer(plugin, Runnable { scanBoundKeys() }, 20L, 20L)
     }
 
@@ -46,7 +62,28 @@ class TrainControlManager(
 
     fun sessionFor(train: Train): ManualControlSession? = sessionsByTrain[train.id]
 
-    fun controllerFor(player: Player): RealisticManualController? = sessionFor(player)?.controller
+    fun controllerFor(player: Player): RealisticManualController? {
+        val session = sessionFor(player) ?: return null
+        val train = session.controller.controlledTrain
+        return if (SeatModel.SeatInteractionListener.isPlayerDrivingTrain(player, train)) session.controller else null
+    }
+
+    fun acquireManualControl(player: Player, train: Train): AcquireResult {
+        val coreTrain = train as? CoreTrain ?: return AcquireResult.TrainUnavailable
+        if (!playerHasBoundKeyFor(player, train)) return AcquireResult.MissingKey
+        if (!SeatModel.SeatInteractionListener.isPlayerDrivingTrain(player, train)) return AcquireResult.NotDriverSeat
+        sessionsByTrain[train.id]?.let { existing ->
+            if (existing.playerId != player.uniqueId) return AcquireResult.AlreadyControlled(existing.playerId)
+            return AcquireResult.Acquired(existing)
+        }
+
+        releaseManualControl(player.uniqueId)
+        val (controlConfig, carControls) = resolveControlProfile(coreTrain)
+        val controller = RealisticManualController(coreTrain, coreTrain.world, controlConfig, carControls)
+        controller.coast()
+        coreTrain.setController(controller)
+        return AcquireResult.Acquired(registerManualControl(player, coreTrain, controller))
+    }
 
     fun registerManualControl(player: Player, train: Train, controller: RealisticManualController): ManualControlSession {
         releaseManualControl(player.uniqueId)
@@ -70,6 +107,9 @@ class TrainControlManager(
         val session = sessionsByPlayer.remove(playerId) ?: return null
         sessionsByTrain.remove(session.trainId)
         session.controller.coast()
+        (session.controller.controlledTrain as? CoreTrain)?.let { controlledTrain ->
+            if (controlledTrain.controller === session.controller) controlledTrain.setController(null)
+        }
         return session
     }
 
@@ -77,11 +117,19 @@ class TrainControlManager(
         val session = sessionsByTrain.remove(train.id) ?: return null
         sessionsByPlayer.remove(session.playerId)
         session.controller.coast()
+        (session.controller.controlledTrain as? CoreTrain)?.let { controlledTrain ->
+            if (controlledTrain.controller === session.controller) controlledTrain.setController(null)
+        }
         return session
     }
 
     fun clear() {
-        sessionsByPlayer.values.forEach { it.controller.coast() }
+        sessionsByPlayer.values.forEach { session ->
+            session.controller.coast()
+            (session.controller.controlledTrain as? CoreTrain)?.let { controlledTrain ->
+                if (controlledTrain.controller === session.controller) controlledTrain.setController(null)
+            }
+        }
         sessionsByPlayer.clear()
         sessionsByTrain.clear()
     }
@@ -137,6 +185,16 @@ class TrainControlManager(
         dialog.show(player, train)
     }
 
+    fun playerHasBoundKeyFor(player: Player, train: Train): Boolean {
+        return player.inventory.contents.asSequence()
+            .filterNotNull()
+            .any { item ->
+                TrainKeyItem.isKey(item) &&
+                    TrainKeyItem.boundTrainId(item) == train.id &&
+                    TrainKeyItem.boundWorldId(item) == player.world.uid
+            }
+    }
+
     private fun resolveBoundTrain(item: ItemStack): Train? {
         val trainId = TrainKeyItem.boundTrainId(item) ?: return null
         val worldId = TrainKeyItem.boundWorldId(item) ?: return null
@@ -150,5 +208,19 @@ class TrainControlManager(
         if (maxDistance <= 0.0) return false
         val playerPos = Vector3d(player.location.x, player.location.y, player.location.z)
         return train.cars.any { car -> car.position.distance(playerPos) <= maxDistance }
+    }
+
+    private fun resolveControlProfile(train: CoreTrain): Pair<work.art1st.mineRails.bukkit.config.model.TrainControlConfig, List<CarControlConfig>> {
+        val carModelNames = train.cars.map { car ->
+            runCatching { (car.renderer as? CarExtension)?.carModelName }.getOrNull()
+        }
+        val packageName = carModelNames.firstNotNullOfOrNull { modelName ->
+            modelName?.let { plugin.modelManager.getCar(it)?.packageName }
+        }
+        val trainControl = plugin.modelManager.getTrainControl(packageName)
+        val carControls = carModelNames.map { modelName ->
+            modelName?.let { plugin.modelManager.getCar(it)?.control } ?: CarControlConfig()
+        }
+        return trainControl to carControls
     }
 }

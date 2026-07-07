@@ -40,10 +40,29 @@ class TrainControlDialog(
         }
 
         val buttons = mutableListOf<ActionButton>()
-        buttons.add(actionButton("尝试获取控制权", NamedTextColor.GREEN) { p ->
-            p.sendActionBar(Component.text("获取控制权将在下一阶段实现", NamedTextColor.YELLOW))
-            show(p, train)
-        })
+        if (ownedByPlayer) {
+            buttons.add(actionButton("释放控制权", NamedTextColor.YELLOW) { p ->
+                manager.releaseManualControl(p)
+                p.sendActionBar(Component.text("已释放列车控制权", NamedTextColor.YELLOW))
+                show(p, train)
+            })
+        } else {
+            buttons.add(actionButton("获取控制权", NamedTextColor.GREEN) { p ->
+                when (val result = manager.acquireManualControl(p, train)) {
+                    is TrainControlManager.AcquireResult.Acquired -> {
+                        p.sendActionBar(Component.text("已获取列车控制权", NamedTextColor.GREEN))
+                    }
+                    is TrainControlManager.AcquireResult.AlreadyControlled -> {
+                        val owner = Bukkit.getOfflinePlayer(result.ownerId).name ?: result.ownerId.toString().take(8)
+                        p.sendActionBar(Component.text("列车正由 $owner 控制", NamedTextColor.RED))
+                    }
+                    TrainControlManager.AcquireResult.MissingKey -> p.sendActionBar(Component.text("需要绑定的列车钥匙", NamedTextColor.RED))
+                    TrainControlManager.AcquireResult.NotDriverSeat -> p.sendActionBar(Component.text("请坐在该列车驾驶座上", NamedTextColor.RED))
+                    TrainControlManager.AcquireResult.TrainUnavailable -> p.sendActionBar(Component.text("列车暂不可控", NamedTextColor.RED))
+                }
+                show(p, train)
+            })
+        }
         executableActions.forEach { action ->
             buttons.add(actionButton(action.displayName, NamedTextColor.AQUA) { p ->
                 val applied = train.renderer.applyAction(action.name)

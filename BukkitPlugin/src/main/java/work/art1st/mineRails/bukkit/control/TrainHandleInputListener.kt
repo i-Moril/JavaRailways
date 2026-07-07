@@ -8,10 +8,11 @@ import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerInputEvent
 import org.bukkit.plugin.Plugin
 import org.bukkit.scheduler.BukkitTask
-import work.art1st.mineRails.bukkit.command.TrainCommand
 import java.util.UUID
 
-class TrainHandleInputListener : Listener {
+class TrainHandleInputListener(
+    private val controlManager: TrainControlManager
+) : Listener {
     private val states = mutableMapOf<UUID, InputState>()
     private var repeatTask: BukkitTask? = null
     private var ticks: Long = 0L
@@ -58,7 +59,7 @@ class TrainHandleInputListener : Listener {
                 iterator.remove()
                 continue
             }
-            val controller = TrainCommand.controllerForKeyedDriver(player)
+            val controller = controlManager.controllerFor(player)
             if (controller == null) {
                 iterator.remove()
                 continue
@@ -78,7 +79,7 @@ class TrainHandleInputListener : Listener {
     }
 
     private fun applyDirection(player: Player, direction: HandleDirection) {
-        val controller = TrainCommand.controllerForKeyedDriver(player) ?: return
+        val controller = controlManager.controllerFor(player) ?: return
         when (direction) {
             HandleDirection.UP -> controller.shiftHandleTowardBrake()
             HandleDirection.DOWN -> controller.shiftHandleTowardPower()
@@ -90,7 +91,7 @@ class TrainHandleInputListener : Listener {
 
     private fun updateDriverActionBars() {
         Bukkit.getOnlinePlayers().forEach { player ->
-            val controller = TrainCommand.controllerForKeyedDriver(player) ?: return@forEach
+            val controller = controlManager.controllerFor(player) ?: return@forEach
             sendControllerActionBar(player, controller)
         }
     }

@@ -26,6 +26,7 @@ import work.art1st.mineRails.basic.curve.RailCurveFactory
 import work.art1st.mineRails.basic.curve.RailCurveTemplateType
 import work.art1st.mineRails.basic.curve.StraightMode
 import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
+import work.art1st.mineRails.basic.rail.RailAutoConnector
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
 import work.art1st.mineRails.bukkit.persistence.PersistedRailRenderMeta
@@ -786,6 +787,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun connectCreatedRailsToExisting(createdRails: List<CoreRail>, existingRails: List<CoreRail>): Int {
         var connected = 0
         val checkedPairs = HashSet<Pair<UUID, UUID>>()
+        val options = RailAutoConnector.Options(endpointTolerance = Curve.TOLERANCE)
         for (created in createdRails) {
             for (existing in existingRails) {
                 if (created == existing) continue
@@ -795,27 +797,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     existing.id to created.id
                 }
                 if (!checkedPairs.add(key)) continue
-                if (areRailsConnected(created, existing)) continue
-                if (closestEndpointDistance(created, existing) > Curve.TOLERANCE) continue
-                runCatching {
-                    CoreRail.connect(created, existing)
-                    connected++
+                when (RailAutoConnector.connectIfAllowed(created, existing, options).outcome) {
+                    RailAutoConnector.Outcome.CONNECTED -> connected++
+                    RailAutoConnector.Outcome.ALREADY_CONNECTED,
+                    RailAutoConnector.Outcome.TOO_FAR,
+                    RailAutoConnector.Outcome.ANGLE_TOO_SHARP,
+                    RailAutoConnector.Outcome.INVALID_TANGENT -> Unit
                 }
             }
         }
         return connected
-    }
-
-    private fun areRailsConnected(a: CoreRail, b: CoreRail): Boolean =
-        a.viewAB.nextRails.any { it.rail == b } ||
-            a.viewBA.nextRails.any { it.rail == b } ||
-            b.viewAB.nextRails.any { it.rail == a } ||
-            b.viewBA.nextRails.any { it.rail == a }
-
-    private fun closestEndpointDistance(a: CoreRail, b: CoreRail): Double {
-        val aPoints = listOf(a.viewAB.startPoint.position, a.viewAB.endPoint.position)
-        val bPoints = listOf(b.viewAB.startPoint.position, b.viewAB.endPoint.position)
-        return aPoints.minOf { pa -> bPoints.minOf { pb -> pa.distance(pb) } }
     }
 
     private fun createCurveBetweenAnchors(from: Anchor, to: Anchor, state: WandPlayerState): PrimeCurve? {

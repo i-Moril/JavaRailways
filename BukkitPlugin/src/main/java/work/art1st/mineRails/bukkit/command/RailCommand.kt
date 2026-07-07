@@ -5,6 +5,7 @@ import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
+import work.art1st.mineRails.basic.rail.RailAutoConnector
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.api.physics.curve.Curve
@@ -119,21 +120,18 @@ object RailCommand {
 
         val result = connectNearbyEndpoints(rails, tolerance)
 
-        sender.sendMessage("轨道自动连接完成: 新增 ${result.connected} 条连接，候选失败 ${result.failed} 条，容差=${"%.4f".format(tolerance)}m")
+        sender.sendMessage("轨道自动连接完成: 新增 ${result.connected} 条连接，角度跳过 ${result.skippedByAngle} 条，候选失败 ${result.failed} 条，容差=${"%.4f".format(tolerance)}m")
         if (result.connected == 0) {
-            sender.sendMessage("如果视觉上贴合但仍未连接，请检查两个端点坐标是否完全重合（/mr rail list 可看连接数）。")
+            if (result.skippedByAngle > 0) {
+                sender.sendMessage("部分端点因切向夹角超过 30° 被跳过；请使用真实过渡曲线/道岔曲线连接侧线。")
+            } else {
+                sender.sendMessage("如果视觉上贴合但仍未连接，请检查两个端点坐标是否完全重合（/mr rail list 可看连接数）。")
+            }
         }
         return true
     }
 
-    private fun areConnected(a: CoreRail, b: CoreRail): Boolean {
-        return a.viewAB.nextRails.any { it.rail == b } ||
-            a.viewBA.nextRails.any { it.rail == b } ||
-            b.viewAB.nextRails.any { it.rail == a } ||
-            b.viewBA.nextRails.any { it.rail == a }
-    }
-
-    private data class ConnectResult(val connected: Int, val failed: Int)
+    private data class ConnectResult(val connected: Int, val skippedByAngle: Int, val failed: Int)
     private data class Endpoint(val rail: CoreRail, val position: Vector3dc)
     private data class CellKey(val x: Long, val y: Long, val z: Long)
     private data class RailPairKey(val first: UUID, val second: UUID)
@@ -153,25 +151,27 @@ object RailCommand {
         val buckets = HashMap<CellKey, MutableList<Endpoint>>()
         val considered = HashSet<RailPairKey>()
         var connected = 0
+        var skippedByAngle = 0
         var failed = 0
 
+        val options = RailAutoConnector.Options(endpointTolerance = tolerance)
         for (endpoint in endpoints) {
             for (candidate in nearbyEndpoints(endpoint.position, tolerance, buckets)) {
                 if (candidate.rail == endpoint.rail) continue
                 val pairKey = railPairKey(endpoint.rail, candidate.rail)
                 if (!considered.add(pairKey)) continue
                 if (endpoint.position.distance(candidate.position) > tolerance) continue
-                if (areConnected(endpoint.rail, candidate.rail)) continue
-                runCatching {
-                    CoreRail.connect(endpoint.rail, candidate.rail)
-                    connected++
-                }.onFailure {
-                    failed++
+                when (RailAutoConnector.connectIfAllowed(endpoint.rail, candidate.rail, options).outcome) {
+                    RailAutoConnector.Outcome.CONNECTED -> connected++
+                    RailAutoConnector.Outcome.ANGLE_TOO_SHARP -> skippedByAngle++
+                    RailAutoConnector.Outcome.INVALID_TANGENT -> failed++
+                    RailAutoConnector.Outcome.ALREADY_CONNECTED,
+                    RailAutoConnector.Outcome.TOO_FAR -> Unit
                 }
             }
             buckets.getOrPut(cellKey(endpoint.position, tolerance)) { mutableListOf() }.add(endpoint)
         }
-        return ConnectResult(connected, failed)
+        return ConnectResult(connected, skippedByAngle, failed)
     }
 
     private fun nearbyEndpoints(

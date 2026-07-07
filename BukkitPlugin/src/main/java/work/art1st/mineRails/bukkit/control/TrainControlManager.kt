@@ -7,6 +7,8 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.inventory.ItemStack
+import org.bukkit.scheduler.BukkitTask
 import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.render.model.SeatModel
@@ -24,9 +26,17 @@ class TrainControlManager(
 
     private val sessionsByPlayer: MutableMap<UUID, ManualControlSession> = mutableMapOf()
     private val sessionsByTrain: MutableMap<String, ManualControlSession> = mutableMapOf()
+    private var bindingScanTask: BukkitTask? = null
 
     fun start() {
         plugin.server.pluginManager.registerEvents(this, plugin)
+        bindingScanTask = plugin.server.scheduler.runTaskTimer(plugin, Runnable { scanBoundKeys() }, 20L, 20L)
+    }
+
+    fun stop() {
+        bindingScanTask?.cancel()
+        bindingScanTask = null
+        clear()
     }
 
     fun ownerOf(train: Train): UUID? = sessionsByTrain[train.id]?.playerId
@@ -75,6 +85,22 @@ class TrainControlManager(
         sessionsByTrain.clear()
     }
 
+    private fun scanBoundKeys() {
+        plugin.server.onlinePlayers.forEach { player ->
+            validateHeldKeyBinding(player, player.inventory.itemInMainHand)
+            validateHeldKeyBinding(player, player.inventory.itemInOffHand)
+        }
+    }
+
+    private fun validateHeldKeyBinding(player: Player, item: ItemStack) {
+        if (!TrainKeyItem.isKey(item)) return
+        if (TrainKeyItem.boundTrainId(item) == null && TrainKeyItem.boundWorldId(item) == null) return
+        val train = resolveBoundTrain(item)
+        if (train != null && isWithinBindingDistance(player, train)) return
+        TrainKeyItem.unbind(item)
+        player.sendActionBar(Component.text("列车钥匙已自动解绑", NamedTextColor.YELLOW))
+    }
+
     @EventHandler
     fun onPlayerUseTrainKey(event: PlayerInteractEvent) {
         if (event.action != Action.RIGHT_CLICK_AIR && event.action != Action.RIGHT_CLICK_BLOCK) return
@@ -109,7 +135,7 @@ class TrainControlManager(
         player.sendActionBar(Component.text("钥匙已绑定列车: ${train.id}", NamedTextColor.GREEN))
     }
 
-    private fun resolveBoundTrain(item: org.bukkit.inventory.ItemStack): Train? {
+    private fun resolveBoundTrain(item: ItemStack): Train? {
         val trainId = TrainKeyItem.boundTrainId(item) ?: return null
         val worldId = TrainKeyItem.boundWorldId(item) ?: return null
         val bukkitWorld = plugin.server.getWorld(worldId) ?: return null

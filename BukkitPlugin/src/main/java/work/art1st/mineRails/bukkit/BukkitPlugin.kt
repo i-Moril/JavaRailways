@@ -100,7 +100,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         val worlds = worldManager.railWorlds.keys.toList()
         worlds.forEach { worldManager.unregisterRailWorld(it) }
         runCatching { trainHandleInputListener.stop() }
-        runCatching { trainControlManager.clear() }
+        runCatching { trainControlManager.stop() }
         runCatching { TrainDebugLog.close() }
     }
 

@@ -67,7 +67,16 @@ class RenderChunkManager(
     }
 
     internal fun remove(renderable: Renderable) {
-        remove(renderable, renderable.chunk)
+        val emptyChunks = mutableListOf<RenderChunk>()
+        renderableObjects.forEach { (chunk, objects) ->
+            if (objects.remove(renderable) && objects.isEmpty()) {
+                emptyChunks.add(chunk)
+            }
+        }
+        emptyChunks.forEach { chunk ->
+            renderableObjects.remove(chunk)
+            removeChunk(chunk)
+        }
     }
 
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {

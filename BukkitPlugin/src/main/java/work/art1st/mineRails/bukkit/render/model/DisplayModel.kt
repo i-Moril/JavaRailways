@@ -27,6 +27,9 @@ class DisplayModel internal constructor(
 
     init {
         entity.isPersistent = false
+        entity.interpolationDelay = 0
+        entity.interpolationDuration = 2
+        entity.teleportDuration = 2
     }
 
     // P4: transformDirty 控制是否重设 transformation（teleport 总是执行）

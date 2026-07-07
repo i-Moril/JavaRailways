@@ -103,7 +103,10 @@ class RealisticManualController(
     }
 
     override fun tick(deltaT: Double) {
-        val deltaSeconds = deltaT.coerceAtLeast(0.0) * 0.001
+        // Render is committed once per Minecraft tick; using real wall-clock spikes here
+        // makes seated players see uneven per-tick movement. Clamp to one visual tick so
+        // lag appears as slow motion instead of a large camera jump.
+        val deltaSeconds = deltaT.coerceIn(0.0, MAX_VISUAL_TICK_MILLIS) * 0.001
         val currentDirection = directionRef.get()
         val currentHandle = if (currentDirection == TrainDriveDirection.NEUTRAL && controlConfig.tractionNotchScales.containsKey(handleRef.get())) {
             NEUTRAL_HANDLE
@@ -152,5 +155,6 @@ class RealisticManualController(
 
     companion object {
         const val NEUTRAL_HANDLE = "N"
+        private const val MAX_VISUAL_TICK_MILLIS = 50.0
     }
 }

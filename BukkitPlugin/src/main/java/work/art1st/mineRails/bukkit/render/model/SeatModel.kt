@@ -7,7 +7,9 @@ import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDismountEvent
+import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
@@ -38,14 +40,14 @@ class SeatModel internal constructor(
     override fun spawnEntity() {
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
         val hitbox = bukkitWorld.spawn(initialLocation, Interaction::class.java)
-        configureSeatHitbox(hitbox)
+        configureSeatHitbox(hitbox, occupied = false)
 
         val carrier = bukkitWorld.spawn(bottomCarrierLocation(hitbox.location), Interaction::class.java)
         configureSeatCarrier(carrier)
 
         entity = hitbox
         carrierEntity = carrier
-        SeatInteractionListener.register(hitbox.uniqueId, SeatBinding(carrier, ownerCar, driverSeat, controlEnd))
+        SeatInteractionListener.register(hitbox.uniqueId, SeatBinding(hitbox, carrier, ownerCar, driverSeat, controlEnd))
     }
 
     override fun updateState(
@@ -57,7 +59,7 @@ class SeatModel internal constructor(
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
         val hitbox = entity as? Interaction ?: return
         val carrier = carrierEntity ?: return
-        configureSeatHitbox(hitbox)
+        configureSeatHitbox(hitbox, occupied = carrier.passengers.isNotEmpty())
         configureSeatCarrier(carrier)
         carrier.teleport(bottomCarrierLocation(hitbox.location))
     }
@@ -75,18 +77,18 @@ class SeatModel internal constructor(
         super.destroy()
     }
 
-    private fun configureSeatHitbox(interaction: Interaction) {
+    private fun configureSeatHitbox(interaction: Interaction, occupied: Boolean) {
         configureCommonInteraction(interaction)
-        interaction.setResponsive(true)
-        interaction.setInteractionWidth(1.0f)
-        interaction.setInteractionHeight(1.0f)
+        interaction.setResponsive(!occupied)
+        interaction.setInteractionWidth(if (occupied) 0.0f else 1.0f)
+        interaction.setInteractionHeight(if (occupied) 0.0f else 1.0f)
     }
 
     private fun configureSeatCarrier(interaction: Interaction) {
         configureCommonInteraction(interaction)
         interaction.setResponsive(false)
-        interaction.setInteractionWidth(0.0f)
-        interaction.setInteractionHeight(0.0f)
+        interaction.setInteractionWidth(0.01f)
+        interaction.setInteractionHeight(0.01f)
     }
 
     private fun configureCommonInteraction(interaction: Interaction) {
@@ -104,6 +106,7 @@ class SeatModel internal constructor(
     }
 
     data class SeatBinding(
+        val hitbox: Interaction,
         val carrier: Interaction,
         val ownerCar: Car?,
         val driverSeat: Boolean,
@@ -163,10 +166,21 @@ class SeatModel internal constructor(
             val player = event.entity as? Player ?: return
             val carrier = event.dismounted as? Interaction ?: return
             val binding = seatsByCarrier[carrier.uniqueId] ?: return
+            Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable { restoreIfEmpty(binding) })
             if (!binding.driverSeat) return
             val ownerCar = binding.ownerCar ?: return
             val train = ownerCar.world.allTrains.firstOrNull { train -> train.cars.any { it === ownerCar } } ?: return
             driverSeatVacatedHandlers.forEach { handler -> handler(player, train) }
+        }
+
+        @EventHandler
+        fun onPlayerQuit(event: PlayerQuitEvent) {
+            Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable { restoreSeatsFor(event.player.uniqueId) })
+        }
+
+        @EventHandler
+        fun onPlayerDeath(event: PlayerDeathEvent) {
+            Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable { restoreSeatsFor(event.player.uniqueId) })
         }
 
         @EventHandler
@@ -179,7 +193,38 @@ class SeatModel internal constructor(
             if (!carrier.isValid || carrier.passengers.isNotEmpty()) return
 
             val player: Player = event.player
-            carrier.addPassenger(player)
+            setSeatOccupied(binding, occupied = true)
+            Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable {
+                if (!player.isOnline || !carrier.isValid || carrier.passengers.isNotEmpty()) {
+                    restoreIfEmpty(binding)
+                    return@Runnable
+                }
+                if (!carrier.addPassenger(player)) {
+                    restoreIfEmpty(binding)
+                }
+            })
+        }
+
+        private fun restoreSeatsFor(playerId: UUID) {
+            seatsByCarrier.values.forEach { binding ->
+                binding.carrier.passengers.firstOrNull { it.uniqueId == playerId }?.let { binding.carrier.removePassenger(it) }
+                restoreIfEmpty(binding)
+            }
+        }
+
+        private fun restoreIfEmpty(binding: SeatBinding) {
+            if (!binding.carrier.isValid || binding.carrier.passengers.isEmpty() ||
+                binding.carrier.passengers.filterIsInstance<Player>().none { it.isOnline && !it.isDead }
+            ) {
+                setSeatOccupied(binding, occupied = false)
+            }
+        }
+
+        private fun setSeatOccupied(binding: SeatBinding, occupied: Boolean) {
+            if (!binding.hitbox.isValid) return
+            binding.hitbox.setResponsive(!occupied)
+            binding.hitbox.setInteractionWidth(if (occupied) 0.0f else 1.0f)
+            binding.hitbox.setInteractionHeight(if (occupied) 0.0f else 1.0f)
         }
     }
 }

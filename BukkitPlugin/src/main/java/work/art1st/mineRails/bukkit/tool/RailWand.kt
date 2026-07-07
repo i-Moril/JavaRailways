@@ -435,8 +435,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
         val inheritedTangents = getCreateModeInheritedTangents(player, state)
-        val tangent = inheritedTangents?.firstOrNull() ?: getSnappedTangent(player, state)
-        val newAnchors = createParallelAnchorGroup(player, position, tangent, state, inheritedTangents)
+        val placementTangent = getSnappedTangent(player, state)
+        val newAnchors = createParallelAnchorGroup(player, position, placementTangent, state, inheritedTangents)
         val newAnchorIds = newAnchors.map { it.id }
 
         val undoActions = newAnchors.map { WandAction.CreateAnchor(player.world.uid, it.id) }
@@ -475,17 +475,17 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun createParallelAnchorGroup(
         player: Player,
         center: Vector3dc,
-        tangent: Vector3dc,
+        placementTangent: Vector3dc,
         state: WandPlayerState,
         inheritedTangents: List<Vector3dc>? = null
     ): List<Anchor> {
         val count = state.parallelCount.coerceAtLeast(1)
-        val right = perpendicularRight(tangent)
+        val right = perpendicularRight(placementTangent)
         return (0 until count).map { index ->
             val offset = (index - (count - 1) / 2.0) * state.parallelSpacing
             val position = Vector3d(center).fma(offset, right)
             val anchorId = nextAnchorId()
-            val anchorTangent = inheritedTangents?.getOrNull(index) ?: tangent
+            val anchorTangent = inheritedTangents?.getOrNull(index) ?: placementTangent
             Anchor(anchorId, position, Vector3d(anchorTangent), worldId = player.world.uid.toString()).also { anchor ->
                 addAnchor(player.world, anchor)
                 spawnAnchorDisplay(player, anchor)

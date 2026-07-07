@@ -14,6 +14,7 @@ import java.util.UUID
 class TrainHandleInputListener : Listener {
     private val states = mutableMapOf<UUID, InputState>()
     private var repeatTask: BukkitTask? = null
+    private var ticks: Long = 0L
 
     fun start(plugin: Plugin) {
         Bukkit.getPluginManager().registerEvents(this, plugin)
@@ -24,6 +25,7 @@ class TrainHandleInputListener : Listener {
         repeatTask?.cancel()
         repeatTask = null
         states.clear()
+        ticks = 0L
     }
 
     @EventHandler
@@ -46,6 +48,7 @@ class TrainHandleInputListener : Listener {
     }
 
     private fun tickHeldInputs() {
+        ticks++
         val iterator = states.iterator()
         while (iterator.hasNext()) {
             val (playerId, state) = iterator.next()
@@ -69,6 +72,9 @@ class TrainHandleInputListener : Listener {
             }
             state.heldTicks = heldTicks
         }
+        if (ticks % ACTION_BAR_INTERVAL_TICKS == 0L) {
+            updateDriverActionBars()
+        }
     }
 
     private fun applyDirection(player: Player, direction: HandleDirection) {
@@ -83,7 +89,24 @@ class TrainHandleInputListener : Listener {
             }
             HandleDirection.NONE -> return
         }
-        player.sendActionBar(Component.text("手柄: $handle"))
+        sendControllerActionBar(player, controller)
+    }
+
+    private fun updateDriverActionBars() {
+        Bukkit.getOnlinePlayers().forEach { player ->
+            val controller = TrainCommand.controllerFor(player) ?: return@forEach
+            if (TrainCommand.isDrivingControlledTrain(player, controller)) {
+                sendControllerActionBar(player, controller)
+            }
+        }
+    }
+
+    private fun sendControllerActionBar(player: Player, controller: RealisticManualController) {
+        val speedMps = controller.displaySpeed
+        val speedKmh = speedMps * 3.6
+        player.sendActionBar(Component.text(
+            "挡位: ${controller.handle}  速度: ${"%.1f".format(speedKmh)} km/h (${"%.2f".format(speedMps)} m/s)"
+        ))
     }
 
     private data class InputState(
@@ -101,5 +124,6 @@ class TrainHandleInputListener : Listener {
     companion object {
         private const val INITIAL_REPEAT_DELAY_TICKS = 8
         private const val REPEAT_INTERVAL_TICKS = 4
+        private const val ACTION_BAR_INTERVAL_TICKS = 5L
     }
 }

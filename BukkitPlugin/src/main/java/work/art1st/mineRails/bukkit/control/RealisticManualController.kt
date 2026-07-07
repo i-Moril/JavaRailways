@@ -35,6 +35,7 @@ class RealisticManualController(
     val targetSpeed: Double
         get() = if (controlConfig.tractionNotchScales.containsKey(handle)) controlConfig.maxSpeed else 0.0
 
+    val displaySpeed: Double get() = dynamicsState.speed
     val acceleration: Double get() = dynamicsState.acceleration
     val brakeScale: Double get() = dynamicsState.brakeScale
     val tractionForce: Double get() = lastForces.tractionForce

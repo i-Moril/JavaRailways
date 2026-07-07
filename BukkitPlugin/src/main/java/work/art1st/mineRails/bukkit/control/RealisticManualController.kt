@@ -6,6 +6,7 @@ import work.art1st.mineRails.core.api.control.TrainController
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Train
+import java.util.concurrent.atomic.AtomicReference
 
 class RealisticManualController(
     train: Train,
@@ -13,11 +14,14 @@ class RealisticManualController(
     private val controlConfig: TrainControlConfig,
     private val carControls: List<CarControlConfig>
 ) : TrainController(train, world) {
+    @Volatile
     private var dynamicsState = TrainDynamics.State()
+    @Volatile
     private var lastForces = TrainDynamics.StepResult(dynamicsState, 0.0, 0.0, 0.0, 0.0, 0.0)
+    private val handleRef = AtomicReference(NEUTRAL_HANDLE)
 
-    var handle: String = NEUTRAL_HANDLE
-        private set
+    val handle: String
+        get() = handleRef.get()
 
     /** Compatibility view for the older /mr train throttle command. */
     val throttle: Double
@@ -45,42 +49,44 @@ class RealisticManualController(
             controlConfig.tractionNotchScales.containsKey(normalized) ||
             controlConfig.brakeNotchScales.containsKey(normalized)
         if (!known) return false
-        handle = normalized
+        handleRef.set(normalized)
         return true
     }
 
     fun setThrottle(value: Double) {
         val clamped = value.coerceIn(-1.0, 1.0)
-        handle = when {
+        handleRef.set(when {
             clamped > 0.0 -> nearestNotch(controlConfig.tractionNotchScales, clamped) ?: NEUTRAL_HANDLE
             clamped < 0.0 -> nearestNotch(controlConfig.brakeNotchScales, -clamped) ?: NEUTRAL_HANDLE
             else -> NEUTRAL_HANDLE
-        }
+        })
     }
 
     fun emergencyBrake() {
-        handle = if (controlConfig.brakeNotchScales.containsKey("EB")) "EB" else {
+        handleRef.set(if (controlConfig.brakeNotchScales.containsKey("EB")) "EB" else {
             controlConfig.brakeNotchScales.maxByOrNull { it.value }?.key ?: NEUTRAL_HANDLE
-        }
+        })
     }
 
     fun coast() {
-        handle = NEUTRAL_HANDLE
+        handleRef.set(NEUTRAL_HANDLE)
     }
 
     override fun tick(deltaT: Double) {
         val deltaSeconds = deltaT.coerceAtLeast(0.0) * 0.001
+        val currentHandle = handleRef.get()
         val cars = buildCarInputs(train.cars)
-        lastForces = TrainDynamics.step(
+        val result = TrainDynamics.step(
             state = dynamicsState.copy(speed = speed),
             config = controlConfig,
             cars = cars,
-            handle = handle,
+            handle = currentHandle,
             deltaSeconds = deltaSeconds
         )
-        dynamicsState = lastForces.state
-        speed = dynamicsState.speed
-        train.moveTrainForward(lastForces.distance)
+        lastForces = result
+        dynamicsState = result.state
+        speed = result.state.speed
+        train.moveTrainForward(result.distance)
     }
 
     private fun buildCarInputs(cars: List<Car>): List<TrainDynamics.CarInput> {

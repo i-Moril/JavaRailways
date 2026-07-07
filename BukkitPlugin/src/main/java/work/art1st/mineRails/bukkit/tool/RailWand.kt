@@ -805,6 +805,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             }
         }
+        createdRails.forEach { created ->
+            RailAutoConnector.selectSmoothestActiveRail(created.viewAB)
+            RailAutoConnector.selectSmoothestActiveRail(created.viewBA)
+        }
         return connected
     }
 

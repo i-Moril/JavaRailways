@@ -76,6 +76,19 @@ object RailAutoConnector {
             second.viewAB.nextRails.any { it.rail == first } ||
             second.viewBA.nextRails.any { it.rail == first }
 
+    fun selectSmoothestActiveRail(view: RailView): Boolean {
+        val best = view.mutableNextRails
+            .mapNotNull { next ->
+                RailConnectionPolicy.transitionAngleDegrees(view, next)?.let { angle -> angle to next }
+            }
+            .minWithOrNull(compareBy<Pair<Double, RailView>> { it.first }.thenBy { it.second.rail.id.toString() })
+            ?.second
+            ?: return false
+        if (view.activeRail == best) return false
+        view.activeRail = best
+        return true
+    }
+
     private fun addNextPreservingActive(fromView: RailView, nextView: RailView): Boolean {
         val added = if (!fromView.mutableNextRails.contains(nextView)) {
             fromView.mutableNextRails.add(nextView)

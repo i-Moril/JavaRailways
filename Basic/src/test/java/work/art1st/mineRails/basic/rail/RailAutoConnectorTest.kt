@@ -42,6 +42,24 @@ class RailAutoConnectorTest {
     }
 
     @Test
+    fun `created rail can select smoothest active branch after unordered auto connects`() {
+        val world = createTestWorld()
+        val created = CoreRail(world, straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        val branch = CoreRail(world, curveEndingAt(Vector3d(10.0, 0.0, 0.0), 200.0), mutableListOf(), mutableListOf())
+        val straight = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+
+        assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(created, branch).outcome)
+        assertSame(branch.viewBA, created.viewBA.nextActiveRail)
+        assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(created, straight).outcome)
+        assertSame(branch.viewBA, created.viewBA.nextActiveRail)
+
+        assertTrue(RailAutoConnector.selectSmoothestActiveRail(created.viewBA))
+
+        assertEquals(2, created.viewBA.nextRails.size)
+        assertSame(straight.viewBA, created.viewBA.nextActiveRail)
+    }
+
+    @Test
     fun `auto connector preserves existing active rail when adding another legal branch`() {
         val world = createTestWorld()
         val approach = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
@@ -65,6 +83,16 @@ class RailAutoConnectorTest {
             from.x + cos(radians) * length,
             from.y,
             from.z + sin(radians) * length
+        )
+        return straightCurve(from, to)
+    }
+
+    private fun curveEndingAt(to: Vector3d, awayAngleDegrees: Double, length: Double = 10.0): PrimeCurve {
+        val radians = Math.toRadians(awayAngleDegrees)
+        val from = Vector3d(
+            to.x + cos(radians) * length,
+            to.y,
+            to.z + sin(radians) * length
         )
         return straightCurve(from, to)
     }

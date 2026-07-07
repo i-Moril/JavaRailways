@@ -18,10 +18,10 @@ class MineRailsConfigTest {
     }
 
     @Test
-    fun `defaults train key bind distance to ten meters`() {
+    fun `defaults train key bind distance to twenty meters`() {
         val config = MineRailsConfig.fromYaml(YamlConfiguration())
 
         assertEquals(TrainModelUpdatePolicy.FOLLOW_PACKAGE, config.trainModelUpdatePolicy)
-        assertEquals(10.0, config.trainKeyBindDistance)
+        assertEquals(20.0, config.trainKeyBindDistance)
     }
 }

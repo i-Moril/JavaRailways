@@ -6,7 +6,7 @@ import java.io.File
 
 data class MineRailsConfig(
     val trainModelUpdatePolicy: TrainModelUpdatePolicy = TrainModelUpdatePolicy.FOLLOW_PACKAGE,
-    val trainKeyBindDistance: Double = 10.0
+    val trainKeyBindDistance: Double = 20.0
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
@@ -26,7 +26,7 @@ data class MineRailsConfig(
             )
             return MineRailsConfig(
                 trainModelUpdatePolicy = policy,
-                trainKeyBindDistance = yaml.getDouble("train-key-bind-distance", 10.0).coerceAtLeast(0.0)
+                trainKeyBindDistance = yaml.getDouble("train-key-bind-distance", 20.0).coerceAtLeast(0.0)
             )
         }
 
@@ -37,7 +37,7 @@ data class MineRailsConfig(
             train-model-update-policy: follow-package
 
             # Maximum distance in meters between a player and any car of the bound train before a train key unbinds.
-            train-key-bind-distance: 10.0
+            train-key-bind-distance: 20.0
         """.trimIndent() + "\n"
     }
 }

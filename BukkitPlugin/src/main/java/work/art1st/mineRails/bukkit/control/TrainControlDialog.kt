@@ -12,6 +12,8 @@ import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
+import work.art1st.mineRails.bukkit.config.model.TrainActionConfig
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.core.api.physics.train.Train
@@ -81,7 +83,8 @@ class TrainControlDialog(
         }
         executableActions.forEach { action ->
             buttons.add(actionButton(action.displayName, NamedTextColor.AQUA) { p ->
-                val applied = train.renderer.applyAction(action.name)
+                val resolvedActionName = resolveActionNameForOperatingDirection(train, action)
+                val applied = train.renderer.applyAction(resolvedActionName)
                 p.sendActionBar(Component.text(
                     if (applied) "已执行: ${action.displayName}" else "动作未生效: ${action.displayName}",
                     if (applied) NamedTextColor.GREEN else NamedTextColor.YELLOW
@@ -111,6 +114,13 @@ class TrainControlDialog(
         }
     }
 
+    private fun resolveActionNameForOperatingDirection(train: Train, action: TrainActionConfig): String {
+        val match = DOOR_ACTION_PATTERN.matchEntire(action.name) ?: return action.name
+        if (manager.operatingControlEndFor(train) != DriverControlEnd.TAIL) return action.name
+        val mirroredSide = if (match.groupValues[1] == "left") "right" else "left"
+        return "door-$mirroredSide-${match.groupValues[2]}"
+    }
+
     private fun actionButton(label: String, color: NamedTextColor, action: (Player) -> Unit): ActionButton {
         val click = DialogAction.customClick(
             { _, audience ->
@@ -136,5 +146,9 @@ class TrainControlDialog(
             runCatching { (car.renderer as? CarExtension)?.carModelName }.getOrNull()
         } ?: return null
         return plugin.modelManager.getCar(firstModelName)?.packageName
+    }
+
+    companion object {
+        private val DOOR_ACTION_PATTERN = Regex("door-(left|right)-(open|close)")
     }
 }

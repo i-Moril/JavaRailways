@@ -34,7 +34,8 @@ class TrainControlManager(
     data class ManualControlSession(
         val trainId: String,
         val playerId: UUID,
-        val controller: RealisticManualController
+        val controller: RealisticManualController,
+        val controlEnd: DriverControlEnd?
     )
 
     private val sessionsByPlayer: MutableMap<UUID, ManualControlSession> = mutableMapOf()
@@ -63,6 +64,11 @@ class TrainControlManager(
 
     fun sessionFor(train: Train): ManualControlSession? = sessionsByTrain[train.id]
 
+    fun operatingControlEndFor(train: Train): DriverControlEnd {
+        sessionsByTrain[train.id]?.controlEnd?.let { return it }
+        return if ((train as? CoreTrain)?.isReversed == true) DriverControlEnd.TAIL else DriverControlEnd.HEAD
+    }
+
     fun controllerFor(player: Player): RealisticManualController? {
         val session = sessionFor(player) ?: return null
         val train = session.controller.controlledTrain
@@ -88,10 +94,15 @@ class TrainControlManager(
         controller.markCurrentPhysicalDirectionAsForward()
         controller.setDirection(TrainDriveDirection.NEUTRAL)
         controller.coast()
-        return AcquireResult.Acquired(registerManualControl(player, coreTrain, controller))
+        return AcquireResult.Acquired(registerManualControl(player, coreTrain, controller, driverSeat.controlEnd))
     }
 
-    fun registerManualControl(player: Player, train: Train, controller: RealisticManualController): ManualControlSession {
+    fun registerManualControl(
+        player: Player,
+        train: Train,
+        controller: RealisticManualController,
+        controlEnd: DriverControlEnd?
+    ): ManualControlSession {
         releaseManualControl(player.uniqueId)
         val previousForTrain = sessionsByTrain.remove(train.id)
         if (previousForTrain != null) {
@@ -100,7 +111,8 @@ class TrainControlManager(
         val session = ManualControlSession(
             trainId = train.id,
             playerId = player.uniqueId,
-            controller = controller
+            controller = controller,
+            controlEnd = controlEnd
         )
         sessionsByPlayer[player.uniqueId] = session
         sessionsByTrain[train.id] = session

@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit.render.model
 
-import io.papermc.paper.entity.TeleportFlag
 import org.bukkit.Location
 import org.bukkit.entity.Entity
 import org.bukkit.entity.LivingEntity
@@ -23,7 +22,7 @@ abstract class EntityModel internal constructor(
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
         entity?.let {
             val location = entityLocation(it)
-            it.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
+            it.teleport(location)
             it.setRotation(location.yaw, location.pitch)
             if (it is LivingEntity) {
                 it.setBodyYaw(location.yaw)

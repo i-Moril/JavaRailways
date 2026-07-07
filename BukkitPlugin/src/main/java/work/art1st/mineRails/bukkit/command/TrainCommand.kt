@@ -573,8 +573,8 @@ object TrainCommand {
             }
 
         playerControllers.entries.removeIf { it.value.controlledTrain == train }
-        runCatching { BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train) }
         train.destroy()
+        coreWorld.removeTrain(train)
         sender.sendMessage("已删除列车: ${train.id}")
         return true
     }

@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit.render.model
 
-import io.papermc.paper.entity.TeleportFlag
 import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.entity.Interaction
@@ -62,7 +61,7 @@ class SeatModel internal constructor(
         val carrier = carrierEntity ?: return
         configureSeatHitbox(hitbox, occupied = carrier.passengers.isNotEmpty())
         configureSeatCarrier(carrier)
-        carrier.teleport(bottomCarrierLocation(hitbox.location), TeleportFlag.EntityState.RETAIN_PASSENGERS)
+        carrier.teleport(bottomCarrierLocation(hitbox.location))
     }
 
     override fun destroy() {

@@ -498,6 +498,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
      * 这样斜向直线由第一个锚点方向决定，第二次点击只提供终点位置，不会因为玩家当前朝向造成端点切线突变。
      */
     private fun getCreateModeInheritedTangents(player: Player, state: WandPlayerState): List<Vector3dc>? {
+        if (state.curveTemplate == RailCurveTemplateType.FIVE_SEGMENT || state.curveTemplate == RailCurveTemplateType.TURNOUT) {
+            return null
+        }
         val count = state.parallelCount.coerceAtLeast(1)
         if (state.selectedAnchors.size != count) return null
         val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
@@ -549,18 +552,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val from: Anchor, val to: Anchor,
             val primeCurve: PrimeCurve
         )
-        val curvePairs = mutableListOf<CurvePair>()
-        for (i in 0 until state.parallelCount) {
-            val fromAnchor = startAnchors[i]
-            val toAnchor = endAnchors[i]
-            val curve = createCurveBetweenAnchors(fromAnchor, toAnchor, state)
-                ?: run {
-                    player.sendActionBar(Component.text(
-                        "无法创建曲线: ${fromAnchor.id}→${toAnchor.id}", NamedTextColor.RED
-                    ))
-                    return null
-                }
-            curvePairs.add(CurvePair(fromAnchor, toAnchor, curve))
+        val curves = createCurvesBetweenParallelAnchors(startAnchors, endAnchors, state)
+            ?: run {
+                player.sendActionBar(Component.text("无法创建并行曲线", NamedTextColor.RED))
+                return null
+            }
+        val curvePairs = startAnchors.zip(endAnchors).zip(curves).map { (anchors, curve) ->
+            CurvePair(anchors.first, anchors.second, curve)
         }
 
         val existingRails = RailRenderMetaStore.load(player.world)
@@ -810,11 +808,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun createCurveBetweenAnchors(from: Anchor, to: Anchor, state: WandPlayerState): PrimeCurve? {
-        val options = RailCurveBuildOptions(
-            template = state.curveTemplate,
-            radius = state.curveRadius,
-            straightMode = if (state.straightUsesChordDirection) StraightMode.USE_CHORD else StraightMode.REQUIRE_TANGENT
-        )
+        val options = railCurveBuildOptions(state)
         val result = RailCurveFactory.build(from, to, options)
         if (!result.isSuccess) {
             plugin.logger.warning(
@@ -823,6 +817,35 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             )
         }
         return result.curve
+    }
+
+    private fun createCurvesBetweenParallelAnchors(
+        startAnchors: List<Anchor>,
+        endAnchors: List<Anchor>,
+        state: WandPlayerState
+    ): List<PrimeCurve>? {
+        val options = railCurveBuildOptions(state)
+        if (startAnchors.size <= 1) {
+            return startAnchors.zip(endAnchors).map { (from, to) ->
+                createCurveBetweenAnchors(from, to, state) ?: return null
+            }
+        }
+        val result = RailCurveFactory.buildParallel(startAnchors, endAnchors, options)
+        if (!result.isSuccess) {
+            plugin.logger.warning(
+                "RailWand parallel curve build failed: template=${result.selectedTemplate ?: state.curveTemplate}, " +
+                    "reason=${result.selectedReason ?: "n/a"}, error=${result.error ?: "unknown error"}"
+            )
+        }
+        return result.curves
+    }
+
+    private fun railCurveBuildOptions(state: WandPlayerState): RailCurveBuildOptions {
+        return RailCurveBuildOptions(
+            template = state.curveTemplate,
+            radius = state.curveRadius,
+            straightMode = if (state.straightUsesChordDirection) StraightMode.USE_CHORD else StraightMode.REQUIRE_TANGENT
+        )
     }
 
     // ═══════════════════════════════════════════

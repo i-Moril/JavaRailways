@@ -4,6 +4,7 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
@@ -59,6 +60,29 @@ data class RailCurveBuildResult(
     }
 }
 
+data class RailParallelCurveBuildResult(
+    val curves: List<PrimeCurve>?,
+    val error: String? = null,
+    val selectedTemplate: RailCurveTemplateType? = null,
+    val selectedReason: String? = null
+) {
+    val isSuccess: Boolean get() = curves != null
+
+    companion object {
+        fun success(
+            curves: List<PrimeCurve>,
+            template: RailCurveTemplateType?,
+            reason: String? = null
+        ): RailParallelCurveBuildResult = RailParallelCurveBuildResult(curves, selectedTemplate = template, selectedReason = reason)
+
+        fun failure(
+            error: String,
+            template: RailCurveTemplateType? = null,
+            reason: String? = null
+        ): RailParallelCurveBuildResult = RailParallelCurveBuildResult(null, error, template, reason)
+    }
+}
+
 /**
  * Builds Core PrimeCurve geometry from editor anchors.
  *
@@ -89,6 +113,46 @@ object RailCurveFactory {
         }
     }
 
+    fun buildParallel(fromAnchors: List<Anchor>, toAnchors: List<Anchor>, options: RailCurveBuildOptions): RailParallelCurveBuildResult {
+        if (fromAnchors.isEmpty()) return RailParallelCurveBuildResult.failure("并行曲线至少需要 1 组锚点")
+        if (fromAnchors.size != toAnchors.size) return RailParallelCurveBuildResult.failure("并行曲线起终点数量不一致")
+        if (fromAnchors.size == 1) {
+            val result = build(fromAnchors.single(), toAnchors.single(), options)
+            return if (result.isSuccess) {
+                RailParallelCurveBuildResult.success(listOf(result.curve!!), result.selectedTemplate, result.selectedReason)
+            } else {
+                RailParallelCurveBuildResult.failure(result.error ?: "曲线创建失败", result.selectedTemplate, result.selectedReason)
+            }
+        }
+
+        val centerFrom = centerAnchor("parallel-center-from", fromAnchors)
+            ?: return RailParallelCurveBuildResult.failure("无法计算并行起点中心")
+        val centerTo = centerAnchor("parallel-center-to", toAnchors)
+            ?: return RailParallelCurveBuildResult.failure("无法计算并行终点中心")
+        val centerResult = build(centerFrom, centerTo, options)
+        if (!centerResult.isSuccess) {
+            return RailParallelCurveBuildResult.failure(centerResult.error ?: "中心曲线创建失败", centerResult.selectedTemplate, centerResult.selectedReason)
+        }
+
+        val startRight = rightVector(centerFrom.tangent)
+            ?: return RailParallelCurveBuildResult.failure("无法计算并行偏移方向", centerResult.selectedTemplate, centerResult.selectedReason)
+        val offsets = fromAnchors.map { anchor -> Vector3d(anchor.position).sub(centerFrom.position).dot(startRight) }
+        val curves = offsets.map { offset -> offsetCurve(centerResult.curve!!, offset) }
+        val tolerance = maxOf(0.25, estimatedSpacing(offsets) * 0.1)
+        curves.forEachIndexed { index, curve ->
+            val startDistance = curve.getPointAt(0.0).position.distance(fromAnchors[index].position)
+            val endDistance = curve.getPointAt(curve.totalArcLength).position.distance(toAnchors[index].position)
+            if (startDistance > tolerance || endDistance > tolerance) {
+                return RailParallelCurveBuildResult.failure(
+                    "并行曲线端点偏离锚点过大: ${fromAnchors[index].id}→${toAnchors[index].id}",
+                    centerResult.selectedTemplate,
+                    centerResult.selectedReason
+                )
+            }
+        }
+        return RailParallelCurveBuildResult.success(curves, centerResult.selectedTemplate, centerResult.selectedReason)
+    }
+
     private data class PreparedAnchors(
         val from: Anchor,
         val to: Anchor,
@@ -103,6 +167,54 @@ object RailCurveFactory {
         val toTan2d: Vector3d,
         val angle: Double
     )
+
+    private fun centerAnchor(id: String, anchors: List<Anchor>): Anchor? {
+        if (anchors.isEmpty()) return null
+        val position = Vector3d()
+        val tangent = Vector3d()
+        anchors.forEach { anchor ->
+            position.add(anchor.position)
+            tangent.add(anchor.tangent)
+        }
+        position.div(anchors.size.toDouble())
+        if (tangent.lengthSquared() < 1e-12) return null
+        tangent.normalize()
+        return Anchor(id, position, tangent, anchors.firstOrNull()?.worldId)
+    }
+
+    private fun rightVector(tangent: Vector3dc): Vector3d? {
+        val horizontal = Vector3d(tangent.x(), 0.0, tangent.z())
+        if (horizontal.lengthSquared() < 1e-12) return null
+        return horizontal.normalize().cross(Vector3d(0.0, 1.0, 0.0)).normalize()
+    }
+
+    private fun estimatedSpacing(offsets: List<Double>): Double {
+        if (offsets.size < 2) return 0.0
+        return offsets.sorted().zipWithNext { a, b -> abs(b - a) }.average()
+    }
+
+    @OptIn(Heavy::class)
+    private fun offsetCurve(curve: PrimeCurve, offset: Double): PrimeCurve {
+        val centerPoints = curve.stream().toList()
+        val offsetPositions = centerPoints.map { point ->
+            val right = rightVector(point.tangent) ?: Vector3d(1.0, 0.0, 0.0)
+            Vector3d(point.position).fma(offset, right)
+        }
+        val cumulative = MutableList(offsetPositions.size) { 0.0 }
+        for (i in 1 until offsetPositions.size) {
+            cumulative[i] = cumulative[i - 1] + offsetPositions[i - 1].distance(offsetPositions[i])
+        }
+        val raw = offsetPositions.mapIndexed { index, position ->
+            val source = centerPoints[index]
+            val tangent = Vector3d(source.tangent).normalize()
+            val normal = Vector3d(source.normal)
+            val projection = normal.dot(tangent)
+            normal.sub(Vector3d(tangent).mul(projection))
+            if (normal.lengthSquared() < 1e-12) normal.set(0.0, 1.0, 0.0) else normal.normalize()
+            Curve.RawPoint(position, tangent, normal, cumulative[index])
+        }
+        return PrimeCurve.fromPoints(raw)
+    }
 
     private fun prepareAnchors(from: Anchor, to: Anchor): PreparedAnchors? {
         val fromPos = Vector3d(from.position)

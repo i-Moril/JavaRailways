@@ -7,6 +7,7 @@ import work.art1st.mineRails.bukkit.config.RailModelConfig
 import work.art1st.mineRails.bukkit.config.loadRailModelConfig
 import work.art1st.mineRails.bukkit.config.getDefaultRailModelConfig
 import work.art1st.mineRails.bukkit.config.model.ModelManager
+import work.art1st.mineRails.bukkit.control.TrainControlManager
 import work.art1st.mineRails.bukkit.control.TrainHandleInputListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.logic.WorldManager
@@ -40,6 +41,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** RailWand 工具 */
     lateinit var railWand: RailWand
 
+    /** 列车控制权与钥匙绑定管理 */
+    lateinit var trainControlManager: TrainControlManager
+
     /** 驾驶座 WASD 手柄输入 */
     lateinit var trainHandleInputListener: TrainHandleInputListener
 
@@ -55,6 +59,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         viewDistanceManager = ViewDistanceManager()
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
+        trainControlManager = TrainControlManager()
         trainHandleInputListener = TrainHandleInputListener()
         trainHandleInputListener.start(this)
 
@@ -94,6 +99,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         val worlds = worldManager.railWorlds.keys.toList()
         worlds.forEach { worldManager.unregisterRailWorld(it) }
         runCatching { trainHandleInputListener.stop() }
+        runCatching { trainControlManager.clear() }
         runCatching { TrainDebugLog.close() }
     }
 

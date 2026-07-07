@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.mineRails.core.api.physics.curve.Curve
 
 class RailCurveFactoryTemplateTest {
     @Test
@@ -75,8 +76,8 @@ class RailCurveFactoryTemplateTest {
         assertEquals(3, result.curves!!.size)
         assertEquals(RailCurveTemplateType.FIVE_SEGMENT, result.selectedTemplate)
         result.curves.forEachIndexed { index, curve ->
-            assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < 0.25)
-            assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < 0.25)
+            assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < Curve.TOLERANCE)
+            assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < Curve.TOLERANCE)
         }
         val mid0 = result.curves[0].getPointAt(result.curves[0].totalArcLength * 0.5).position
         val mid1 = result.curves[1].getPointAt(result.curves[1].totalArcLength * 0.5).position

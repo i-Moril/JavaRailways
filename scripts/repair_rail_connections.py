@@ -5,7 +5,7 @@ This is a one-shot/offline repair tool for worlds that were saved after RailWand
 created/selected the wrong active/default path at coincident rail endpoints.
 
 It rebuilds each rail's nextRailAtA/nextRailAtB from endpoint geometry:
-  * endpoints must coincide within --tolerance;
+  * endpoints must coincide within --tolerance (default 5cm for legacy near-miss endpoints);
   * both transition directions must be no sharper than --max-angle;
   * activeTrackAtA/B is set to the smoothest candidate at that endpoint.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_WORLD = Path("BukkitPlugin/run/plugins/MineRails/worlds/92b47942-f5b4-4230-9784-5b4c57d45fb9.json")
-DEFAULT_TOLERANCE = 5e-3
+DEFAULT_TOLERANCE = 5e-2
 DEFAULT_MAX_ANGLE_DEGREES = 30.0
 DEFAULT_LOOKAHEAD_METERS = 2.0
 EPSILON = 1e-9

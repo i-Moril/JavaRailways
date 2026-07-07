@@ -10,6 +10,7 @@ import org.bukkit.event.entity.EntityDismountEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerQuitEvent
+import org.bukkit.util.Vector
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
@@ -31,6 +32,7 @@ class SeatModel internal constructor(
     private val controlEnd: DriverControlEnd?
 ) : EntityModel(world, state, attachedModels, animation, null) {
     private var carrierEntity: Interaction? = null
+    private val visualLocationDelay: ArrayDeque<Location> = ArrayDeque()
 
     init {
         SeatInteractionListener.ensureRegistered()
@@ -59,9 +61,13 @@ class SeatModel internal constructor(
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
         val hitbox = entity as? Interaction ?: return
         val carrier = carrierEntity ?: return
+        val visualLocation = delayedVisualLocation(hitbox.location)
+        hitbox.teleport(visualLocation)
+        hitbox.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())
         configureSeatHitbox(hitbox, occupied = carrier.passengers.isNotEmpty())
         configureSeatCarrier(carrier)
-        carrier.teleport(bottomCarrierLocation(hitbox.location))
+        carrier.teleport(bottomCarrierLocation(visualLocation))
+        carrier.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())
     }
 
     override fun destroy() {
@@ -74,6 +80,7 @@ class SeatModel internal constructor(
             carrier.remove()
         }
         carrierEntity = null
+        visualLocationDelay.clear()
         super.destroy()
     }
 
@@ -98,11 +105,27 @@ class SeatModel internal constructor(
         interaction.setGravity(false)
     }
 
+    private fun delayedVisualLocation(current: Location): Location {
+        visualLocationDelay.addLast(current.clone())
+        while (visualLocationDelay.size > SEAT_VISUAL_DELAY_TICKS + 1) {
+            visualLocationDelay.removeFirst()
+        }
+        return if (visualLocationDelay.size > SEAT_VISUAL_DELAY_TICKS) {
+            visualLocationDelay.first().clone()
+        } else {
+            current.clone()
+        }
+    }
+
     private fun bottomCarrierLocation(hitboxLocation: Location): Location {
         // Bukkit entity locations are the bottom-center of the entity hitbox.
         // Keep the actual vehicle there, with zero size, so passengers do not sit
         // on top of the 1-block interaction hitbox.
         return hitboxLocation.clone()
+    }
+
+    companion object {
+        private const val SEAT_VISUAL_DELAY_TICKS = 2
     }
 
     data class SeatBinding(

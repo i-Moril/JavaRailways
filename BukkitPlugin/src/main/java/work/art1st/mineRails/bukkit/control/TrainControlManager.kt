@@ -13,9 +13,11 @@ import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
 import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
+import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.render.model.SeatModel
+import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import java.util.UUID
@@ -155,18 +157,36 @@ class TrainControlManager(
 
     private fun scanBoundKeys() {
         plugin.server.onlinePlayers.forEach { player ->
-            validateHeldKeyBinding(player, player.inventory.itemInMainHand)
-            validateHeldKeyBinding(player, player.inventory.itemInOffHand)
+            var unboundAny = false
+            val inventory = player.inventory
+
+            val storageContents = inventory.storageContents
+            storageContents.forEachIndexed { index, item ->
+                if (item != null && validateKeyBinding(player, item)) {
+                    storageContents[index] = item
+                    unboundAny = true
+                }
+            }
+            inventory.storageContents = storageContents
+
+            val offHand = inventory.itemInOffHand
+            if (validateKeyBinding(player, offHand)) {
+                inventory.setItemInOffHand(offHand)
+                unboundAny = true
+            }
+
+            if (unboundAny) {
+                player.sendActionBar(Component.text("列车钥匙已自动解绑", NamedTextColor.YELLOW))
+            }
         }
     }
 
-    private fun validateHeldKeyBinding(player: Player, item: ItemStack) {
-        if (!TrainKeyItem.isKey(item)) return
-        if (TrainKeyItem.boundTrainId(item) == null && TrainKeyItem.boundWorldId(item) == null) return
+    private fun validateKeyBinding(player: Player, item: ItemStack): Boolean {
+        if (!TrainKeyItem.isKey(item)) return false
+        if (TrainKeyItem.boundTrainId(item) == null && TrainKeyItem.boundWorldId(item) == null) return false
         val train = resolveBoundTrain(item)
-        if (train != null && isWithinBindingDistance(player, train)) return
-        TrainKeyItem.unbind(item)
-        player.sendActionBar(Component.text("列车钥匙已自动解绑", NamedTextColor.YELLOW))
+        if (train != null && isWithinBindingDistance(player, train)) return false
+        return TrainKeyItem.unbind(item)
     }
 
     @EventHandler
@@ -239,8 +259,23 @@ class TrainControlManager(
     private fun isWithinBindingDistance(player: Player, train: Train): Boolean {
         val maxDistance = plugin.mineRailsConfig.trainKeyBindDistance
         if (maxDistance <= 0.0) return false
+        if (train.world.bukkitWorldData.bukkitWorld.uid != player.world.uid) return false
+        if (SeatModel.SeatInteractionListener.drivingTrainFor(player) === train) return true
+
         val playerPos = Vector3d(player.location.x, player.location.y, player.location.z)
-        return train.cars.any { car -> car.position.distance(playerPos) <= maxDistance }
+        return train.cars.any { car -> distanceToCarBody(playerPos, car) <= maxDistance }
+    }
+
+    private fun distanceToCarBody(playerPos: Vector3d, car: Car): Double {
+        val direction = Vector3d(car.direction)
+        if (direction.lengthSquared() <= 1e-9) return car.position.distance(playerPos)
+        direction.normalize()
+
+        val halfLength = car.length / 2.0 + CAR_END_DISTANCE_MARGIN
+        val fromCenter = Vector3d(playerPos).sub(car.position)
+        val alongCar = fromCenter.dot(direction).coerceIn(-halfLength, halfLength)
+        val closest = Vector3d(car.position).add(direction.mul(alongCar))
+        return closest.distance(playerPos)
     }
 
     private fun resolveControlProfile(train: CoreTrain): Pair<work.art1st.mineRails.bukkit.config.model.TrainControlConfig, List<CarControlConfig>> {
@@ -255,5 +290,9 @@ class TrainControlManager(
             modelName?.let { plugin.modelManager.getCar(it)?.control } ?: CarControlConfig()
         }
         return trainControl to carControls
+    }
+
+    companion object {
+        private const val CAR_END_DISTANCE_MARGIN = 1.0
     }
 }

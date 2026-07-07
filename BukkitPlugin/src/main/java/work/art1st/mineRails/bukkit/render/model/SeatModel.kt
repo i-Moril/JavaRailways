@@ -6,12 +6,15 @@ import org.bukkit.entity.Interaction
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
+import org.bukkit.event.entity.EntityDismountEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.train.Car
+import work.art1st.mineRails.core.api.physics.train.Train
 import java.util.UUID
 
 class SeatModel internal constructor(
@@ -19,7 +22,9 @@ class SeatModel internal constructor(
     state: ModelState,
     attachedModels: Collection<AbstractModel>,
     animation: Map<String, Animation>,
-    private val initialLocation: Location
+    private val initialLocation: Location,
+    private val ownerCar: Car?,
+    private val driverSeat: Boolean
 ) : EntityModel(world, state, attachedModels, animation, null) {
     private var carrierEntity: Interaction? = null
 
@@ -38,7 +43,7 @@ class SeatModel internal constructor(
 
         entity = hitbox
         carrierEntity = carrier
-        SeatInteractionListener.register(hitbox.uniqueId, carrier)
+        SeatInteractionListener.register(hitbox.uniqueId, SeatBinding(carrier, ownerCar, driverSeat))
     }
 
     override fun updateState(
@@ -96,8 +101,16 @@ class SeatModel internal constructor(
         return hitboxLocation.clone()
     }
 
-    private object SeatInteractionListener : Listener {
-        private val seatCarriers = mutableMapOf<UUID, Interaction>()
+    data class SeatBinding(
+        val carrier: Interaction,
+        val ownerCar: Car?,
+        val driverSeat: Boolean
+    )
+
+    object SeatInteractionListener : Listener {
+        private val seatsByHitbox = mutableMapOf<UUID, SeatBinding>()
+        private val seatsByCarrier = mutableMapOf<UUID, SeatBinding>()
+        private val driverSeatVacatedHandlers = mutableListOf<(Player, Train) -> Unit>()
         private var registered = false
 
         fun ensureRegistered() {
@@ -106,18 +119,45 @@ class SeatModel internal constructor(
             registered = true
         }
 
-        fun register(hitboxId: UUID, carrier: Interaction) {
-            seatCarriers[hitboxId] = carrier
+        fun register(hitboxId: UUID, binding: SeatBinding) {
+            seatsByHitbox[hitboxId] = binding
+            seatsByCarrier[binding.carrier.uniqueId] = binding
         }
 
         fun unregister(hitboxId: UUID) {
-            seatCarriers.remove(hitboxId)
+            val binding = seatsByHitbox.remove(hitboxId) ?: return
+            seatsByCarrier.remove(binding.carrier.uniqueId)
+        }
+
+        fun addDriverSeatVacatedHandler(handler: (Player, Train) -> Unit) {
+            driverSeatVacatedHandlers.add(handler)
+        }
+
+        fun isPlayerDrivingTrain(player: Player, train: Train): Boolean {
+            val vehicle = player.vehicle as? Interaction ?: return false
+            val binding = seatsByCarrier[vehicle.uniqueId] ?: return false
+            if (!binding.driverSeat) return false
+            if (!binding.carrier.passengers.any { it.uniqueId == player.uniqueId }) return false
+            val ownerCar = binding.ownerCar ?: return false
+            return train.cars.any { it === ownerCar }
+        }
+
+        @EventHandler
+        fun onPlayerDismountSeat(event: EntityDismountEvent) {
+            val player = event.entity as? Player ?: return
+            val carrier = event.dismounted as? Interaction ?: return
+            val binding = seatsByCarrier[carrier.uniqueId] ?: return
+            if (!binding.driverSeat) return
+            val ownerCar = binding.ownerCar ?: return
+            val train = ownerCar.world.allTrains.firstOrNull { train -> train.cars.any { it === ownerCar } } ?: return
+            driverSeatVacatedHandlers.forEach { handler -> handler(player, train) }
         }
 
         @EventHandler
         fun onPlayerInteractAtSeat(event: PlayerInteractAtEntityEvent) {
             val hitbox = event.rightClicked as? Interaction ?: return
-            val carrier = seatCarriers[hitbox.uniqueId] ?: return
+            val binding = seatsByHitbox[hitbox.uniqueId] ?: return
+            val carrier = binding.carrier
 
             event.isCancelled = true
             if (!carrier.isValid || carrier.passengers.isNotEmpty()) return

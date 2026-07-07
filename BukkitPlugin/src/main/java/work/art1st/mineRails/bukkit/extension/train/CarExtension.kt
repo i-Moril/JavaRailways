@@ -92,7 +92,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val rootLocation = Location(bukkitWorld, self.position.x(), self.position.y(), self.position.z())
 
-        bodyModel = builder.buildCarBody(carDef, rootLocation)
+        bodyModel = builder.buildCarBody(carDef, rootLocation, self)
         bogieModels = carDef.bogies.map { bogieDef ->
             builder.buildBogie(bogieDef, carDef.namespace, rootLocation)
         }

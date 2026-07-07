@@ -1,0 +1,5 @@
+config-version: 1
+name: driver_seat
+type: seat
+interaction:
+  driver: true

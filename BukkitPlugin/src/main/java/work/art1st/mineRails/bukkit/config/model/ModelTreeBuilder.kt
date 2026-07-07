@@ -20,6 +20,7 @@ import work.art1st.mineRails.bukkit.render.model.PlatformModel
 import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.bukkit.render.model.configureTrainDisplaySmoothing
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.train.Car
 
 /**
  * Dummy model with no entity - purely a transform grouping node.
@@ -50,6 +51,7 @@ class ModelTreeBuilder(
     // Root location used as spawn anchor for display entities,
     // ensuring they start near the player instead of at (0,0,0).
     private var rootLocation: Location = Location(null, 0.0, 0.0, 0.0)
+    private var ownerCar: Car? = null
 
     /**
      * Build the car body model tree at the given root location.
@@ -57,9 +59,11 @@ class ModelTreeBuilder(
      */
     fun buildCarBody(
         carDef: CarDefinition,
-        rootLocation: Location
+        rootLocation: Location,
+        ownerCar: Car? = null
     ): CompositeModel {
         this.rootLocation = rootLocation
+        this.ownerCar = ownerCar
 
         val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace)
 
@@ -85,6 +89,7 @@ class ModelTreeBuilder(
         rootLocation: Location
     ): CompositeModel {
         this.rootLocation = rootLocation
+        this.ownerCar = null
 
         val bogieModel = buildBogieGroup(bogieDef, namespace, includeLongitudinalOffset = false)
 
@@ -208,7 +213,15 @@ class ModelTreeBuilder(
                 InteractionModel(world = world, state = modelState, attachedModels = children, animation = animations, interactionConfig = def.interaction, initialLocation = spawnLoc)
             }
             PartType.SEAT -> {
-                SeatModel(world = world, state = modelState, attachedModels = children, animation = animations, initialLocation = spawnLoc)
+                SeatModel(
+                    world = world,
+                    state = modelState,
+                    attachedModels = children,
+                    animation = animations,
+                    initialLocation = spawnLoc,
+                    ownerCar = ownerCar,
+                    driverSeat = def.interaction.driver
+                )
             }
             PartType.PLATFORM -> {
                 PlatformModel(world = world, state = modelState, attachedModels = children, animation = animations, initialLocation = spawnLoc, platformConfig = def.platform)

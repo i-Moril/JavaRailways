@@ -224,6 +224,8 @@ a = F / Σ有效质量
 /mr train handle EB
 ```
 
+`start`、`handle`、`throttle` 和 `reverse` 只对坐在当前列车驾驶座上的玩家有效。
+
 ---
 
 ## 5. 部件引用写法
@@ -324,18 +326,27 @@ interaction:
 
 `interact` 只负责交互 hitbox，不当座位，也不当可站立地板。
 
-### 7.2 seat
+### 8.2 seat
 
 ```yml
 config-version: 1
-name: seat_a
+name: seat
 type: seat
-offset: {x: 0.4, y: 0.3, z: 1.0}
 ```
 
-`seat` 使用隐形 Minecart。
+`seat` 使用一个 1×1×1 的 `Interaction` 作为点击 hitbox，并使用一个零尺寸 `Interaction` 作为实际乘客 carrier。驾驶座可以在同一个部件上添加：
 
-### 7.3 platform
+```yml
+config-version: 1
+name: driver_seat
+type: seat
+interaction:
+  driver: true
+```
+
+玩家必须坐在 `driver: true` 的驾驶座上，`/mr train start`、`handle`、`throttle`、`reverse` 才会生效。
+
+### 8.3 platform
 
 ```yml
 config-version: 1

@@ -14,6 +14,7 @@ import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.control.RealisticManualController
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
@@ -27,6 +28,15 @@ object TrainCommand {
     /** 玩家 UUID -> 手动控制器 */
     private val playerControllers = mutableMapOf<UUID, RealisticManualController>()
 
+    init {
+        SeatModel.SeatInteractionListener.addDriverSeatVacatedHandler { player, train ->
+            val controller = playerControllers[player.uniqueId] ?: return@addDriverSeatVacatedHandler
+            if (controller.controlledTrain === train) {
+                controller.coast()
+                player.sendMessage("已离开驾驶座，手柄自动回到 N")
+            }
+        }
+    }
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
@@ -273,8 +283,8 @@ object TrainCommand {
             return true
         }
 
-        val train = findNearestTrain(sender, coreWorld) ?: run {
-            sender.sendMessage("错误: 附近没有列车")
+        val train = findDrivenTrain(sender, coreWorld) ?: run {
+            sender.sendMessage("错误: 请先坐在驾驶座上再连接控制器")
             return true
         }
 
@@ -327,6 +337,10 @@ object TrainCommand {
             sender.sendMessage("当前没有连接的控制器，先用 /mr train start")
             return true
         }
+        if (!isDrivingControlledTrain(sender, controller)) {
+            sender.sendMessage("手柄无效：请坐在当前列车的驾驶座上")
+            return true
+        }
 
         val handle = args.firstOrNull()
         if (handle == null) {
@@ -359,6 +373,11 @@ object TrainCommand {
             return true
         }
 
+        if (!isDrivingControlledTrain(sender, controller)) {
+            sender.sendMessage("手柄无效：请坐在当前列车的驾驶座上")
+            return true
+        }
+
         val throttle = args.firstOrNull()?.toDoubleOrNull()
         if (throttle == null) {
             sender.sendMessage("用法: /mr train throttle <-1~1>")
@@ -381,6 +400,11 @@ object TrainCommand {
         val controller = playerControllers[sender.uniqueId]
         if (controller == null) {
             sender.sendMessage("当前没有连接的控制器，先用 /mr train start")
+            return true
+        }
+
+        if (!isDrivingControlledTrain(sender, controller)) {
+            sender.sendMessage("换向无效：请坐在当前列车的驾驶座上")
             return true
         }
 
@@ -659,6 +683,17 @@ object TrainCommand {
     private fun availableHandles(controlConfig: TrainControlConfig): String {
         return (controlConfig.powerNotches + listOf(RealisticManualController.NEUTRAL_HANDLE) + controlConfig.brakeNotches)
             .joinToString("|")
+    }
+
+    private fun findDrivenTrain(player: Player, coreWorld: CoreWorld): CoreTrain? {
+        return coreWorld.allTrains.firstOrNull { train ->
+            SeatModel.SeatInteractionListener.isPlayerDrivingTrain(player, train)
+        }
+    }
+
+    private fun isDrivingControlledTrain(player: Player, controller: RealisticManualController): Boolean {
+        val train = controller.controlledTrain as? CoreTrain ?: return false
+        return SeatModel.SeatInteractionListener.isPlayerDrivingTrain(player, train)
     }
 
     private fun findNearestTrain(sender: Player, coreWorld: CoreWorld): CoreTrain? {

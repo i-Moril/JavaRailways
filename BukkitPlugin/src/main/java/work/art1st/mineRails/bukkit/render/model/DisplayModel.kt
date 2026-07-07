@@ -27,6 +27,9 @@ class DisplayModel internal constructor(
 
     init {
         entity.isPersistent = false
+        entity.interpolationDelay = 0
+        entity.interpolationDuration = DISPLAY_INTERPOLATION_TICKS
+        entity.teleportDuration = DISPLAY_INTERPOLATION_TICKS
     }
 
     // P4: transformDirty 控制是否重设 transformation（teleport 总是执行）
@@ -81,5 +84,9 @@ class DisplayModel internal constructor(
     override fun destroy() {
         super.destroy()
         entity.remove()
+    }
+
+    companion object {
+        private const val DISPLAY_INTERPOLATION_TICKS = 2
     }
 }

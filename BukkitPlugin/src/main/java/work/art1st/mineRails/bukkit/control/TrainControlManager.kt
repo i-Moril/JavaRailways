@@ -81,10 +81,12 @@ class TrainControlManager(
 
         releaseManualControl(player.uniqueId)
         alignTrainHeadToDriverSeat(coreTrain, driverSeat.controlEnd)
-        val (controlConfig, carControls) = resolveControlProfile(coreTrain)
-        val controller = RealisticManualController(coreTrain, coreTrain.world, controlConfig, carControls)
+        val controller = coreTrain.controller as? RealisticManualController ?: run {
+            val (controlConfig, carControls) = resolveControlProfile(coreTrain)
+            RealisticManualController(coreTrain, coreTrain.world, controlConfig, carControls).also { coreTrain.setController(it) }
+        }
+        controller.setDirection(TrainDriveDirection.NEUTRAL)
         controller.coast()
-        coreTrain.setController(controller)
         return AcquireResult.Acquired(registerManualControl(player, coreTrain, controller))
     }
 
@@ -110,31 +112,32 @@ class TrainControlManager(
         val session = sessionsByPlayer.remove(playerId) ?: return null
         sessionsByTrain.remove(session.trainId)
         session.controller.coast()
-        (session.controller.controlledTrain as? CoreTrain)?.let { controlledTrain ->
-            if (controlledTrain.controller === session.controller) controlledTrain.setController(null)
-        }
         return session
     }
 
     fun releaseTrain(train: Train): ManualControlSession? {
         val session = sessionsByTrain.remove(train.id) ?: return null
         sessionsByPlayer.remove(session.playerId)
-        session.controller.coast()
-        (session.controller.controlledTrain as? CoreTrain)?.let { controlledTrain ->
-            if (controlledTrain.controller === session.controller) controlledTrain.setController(null)
-        }
+        stopController(session.controller)
         return session
     }
 
     fun clear() {
-        sessionsByPlayer.values.forEach { session ->
-            session.controller.coast()
-            (session.controller.controlledTrain as? CoreTrain)?.let { controlledTrain ->
-                if (controlledTrain.controller === session.controller) controlledTrain.setController(null)
+        sessionsByPlayer.values.forEach { session -> stopController(session.controller) }
+        plugin.worldManager.railWorlds.values.forEach { railWorld ->
+            railWorld.allTrains.forEach { train ->
+                ((train as? CoreTrain)?.controller as? RealisticManualController)?.let(::stopController)
             }
         }
         sessionsByPlayer.clear()
         sessionsByTrain.clear()
+    }
+
+    private fun stopController(controller: RealisticManualController) {
+        controller.coast()
+        (controller.controlledTrain as? CoreTrain)?.let { controlledTrain ->
+            if (controlledTrain.controller === controller) controlledTrain.setController(null)
+        }
     }
 
     private fun scanBoundKeys() {

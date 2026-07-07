@@ -494,11 +494,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     /**
-     * 创建模式连续建线时，新终点锚点继承上一组锚点/轨道端点的切线。
+     * 创建模式连续建直线时，新终点锚点继承上一组锚点/轨道端点的切线。
      * 这样斜向直线由第一个锚点方向决定，第二次点击只提供终点位置，不会因为玩家当前朝向造成端点切线突变。
+     * 非直线模板必须使用玩家当前朝向作为终点切线，否则会把五段式/S 弯错误压成同向约束。
      */
     private fun getCreateModeInheritedTangents(player: Player, state: WandPlayerState): List<Vector3dc>? {
-        if (state.curveTemplate == RailCurveTemplateType.FIVE_SEGMENT || state.curveTemplate == RailCurveTemplateType.TURNOUT) {
+        if (state.curveTemplate != RailCurveTemplateType.STRAIGHT) {
             return null
         }
         val count = state.parallelCount.coerceAtLeast(1)

@@ -50,6 +50,7 @@ open class CoreTrain @MainThread internal constructor(
         get() = _isDerailed.get()
     var isReversed: Boolean = false
         protected set
+    private var signedMovementReversed: Boolean = false
     override val length
         get() = cars.size
     var head: TrainEnd
@@ -100,17 +101,18 @@ open class CoreTrain @MainThread internal constructor(
      * @throws IllegalStateException 如果列车没有转向架
      */
     override fun moveTrainForward(deltaS: Double) {
+        setSignedMovementReversed(false)
         moveTrainForwardInternal(deltaS)
     }
 
     override fun moveTrainSigned(deltaS: Double) {
         if (deltaS >= 0.0) {
+            setSignedMovementReversed(false)
             moveTrainForwardInternal(deltaS)
             return
         }
-        reverseInternal()
+        setSignedMovementReversed(true)
         moveTrainForwardInternal(-deltaS)
-        reverseInternal()
     }
 
     private fun moveTrainForwardInternal(deltaS: Double) {
@@ -184,7 +186,14 @@ open class CoreTrain @MainThread internal constructor(
 
     override fun reverse() {
         reverseInternal()
+        signedMovementReversed = false
         EventManager.fire(TrainReverseEvent(this))
+    }
+
+    private fun setSignedMovementReversed(reversed: Boolean) {
+        if (signedMovementReversed == reversed) return
+        reverseInternal()
+        signedMovementReversed = reversed
     }
 
     private fun reverseInternal() {

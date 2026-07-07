@@ -26,6 +26,7 @@ class TrainControlManager(
 
     private val sessionsByPlayer: MutableMap<UUID, ManualControlSession> = mutableMapOf()
     private val sessionsByTrain: MutableMap<String, ManualControlSession> = mutableMapOf()
+    private val dialog = TrainControlDialog(plugin, this)
     private var bindingScanTask: BukkitTask? = null
 
     fun start() {
@@ -112,7 +113,7 @@ class TrainControlManager(
         val boundTrain = resolveBoundTrain(item)
         if (boundTrain != null) {
             if (isWithinBindingDistance(player, boundTrain)) {
-                player.sendActionBar(Component.text("列车钥匙已绑定: ${boundTrain.id}（操控界面稍后实现）", NamedTextColor.GREEN))
+                dialog.show(player, boundTrain)
             } else {
                 TrainKeyItem.unbind(item)
                 player.sendActionBar(Component.text("距离列车过远，钥匙已解绑", NamedTextColor.YELLOW))
@@ -133,6 +134,7 @@ class TrainControlManager(
         }
         TrainKeyItem.bind(item, train)
         player.sendActionBar(Component.text("钥匙已绑定列车: ${train.id}", NamedTextColor.GREEN))
+        dialog.show(player, train)
     }
 
     private fun resolveBoundTrain(item: ItemStack): Train? {

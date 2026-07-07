@@ -322,11 +322,13 @@ class CoreCar @MainThread internal constructor(
 
     override fun commit() {
         bogies.forEach { it.commit() }
-        _position.commit()
-        _direction.commit()
-        _normal.commit()
-        _motionState.commit()
-        super.commit()
+        if (dirty) {
+            _position.commit()
+            _direction.commit()
+            _normal.commit()
+            _motionState.commit()
+            super.commit()
+        }
     }
 
     companion object {

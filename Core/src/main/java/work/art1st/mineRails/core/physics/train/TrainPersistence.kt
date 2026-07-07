@@ -34,7 +34,10 @@ data class SavedTrainV1(
     val extension: Map<String, SerializableExtensionData>
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
-        return CoreTrain(id, cars.map { it.load(dependency) }, dependency, extension)
+        val train = CoreTrain(id, cars.map { it.load(dependency) }, dependency, extension)
+        train.setLocation(train.head.location)
+        train.commit()
+        return train
     }
 }
 

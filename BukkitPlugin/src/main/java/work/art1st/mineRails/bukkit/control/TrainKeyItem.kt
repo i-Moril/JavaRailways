@@ -12,10 +12,6 @@ object TrainKeyItem {
     private val genericKey: NamespacedKey
         get() = NamespacedKey(BukkitPlugin.INSTANCE, "train_key")
 
-    /** Legacy bound-key marker from earlier development builds; accepted as a generic key. */
-    private val legacyTrainIdKey: NamespacedKey
-        get() = NamespacedKey(BukkitPlugin.INSTANCE, "train_key_id")
-
     fun create(): ItemStack {
         val item = ItemStack(Material.TRIPWIRE_HOOK)
         item.editMeta { meta ->
@@ -31,9 +27,7 @@ object TrainKeyItem {
     fun isKey(item: ItemStack?): Boolean {
         if (item == null || item.type.isAir) return false
         val meta = item.itemMeta ?: return false
-        val container = meta.persistentDataContainer
-        return container.get(genericKey, PersistentDataType.BYTE) == 1.toByte() ||
-            container.has(legacyTrainIdKey, PersistentDataType.STRING)
+        return meta.persistentDataContainer.get(genericKey, PersistentDataType.BYTE) == 1.toByte()
     }
 
     fun playerHasKey(player: Player): Boolean {

@@ -7,6 +7,9 @@ package work.art1st.mineRails.bukkit.config.model
  */
 data class TrainActionConfig(
     val name: String,
+    val displayName: String = name,
+    val executable: Boolean = false,
+    val requiresControl: Boolean = false,
     val animations: List<TrainActionAnimationConfig> = emptyList(),
     val sounds: List<TrainActionSoundConfig> = emptyList()
 ) {
@@ -19,6 +22,9 @@ data class TrainActionConfig(
                 val actionMap = value as? Map<*, *> ?: return@mapNotNull null
                 name to TrainActionConfig(
                     name = name,
+                    displayName = actionMap["display-name"] as? String ?: name,
+                    executable = (actionMap["executable"] as? Boolean) ?: false,
+                    requiresControl = (actionMap["requires-control"] as? Boolean) ?: false,
                     animations = parseAnimations(actionMap["animations"] as? List<*>),
                     sounds = parseSounds(actionMap["sounds"] as? List<*>)
                 )

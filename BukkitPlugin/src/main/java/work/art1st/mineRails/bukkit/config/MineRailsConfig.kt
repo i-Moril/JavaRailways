@@ -5,7 +5,8 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import java.io.File
 
 data class MineRailsConfig(
-    val trainModelUpdatePolicy: TrainModelUpdatePolicy = TrainModelUpdatePolicy.FOLLOW_PACKAGE
+    val trainModelUpdatePolicy: TrainModelUpdatePolicy = TrainModelUpdatePolicy.FOLLOW_PACKAGE,
+    val trainKeyBindDistance: Double = 10.0
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
@@ -16,10 +17,17 @@ data class MineRailsConfig(
             }
 
             val yaml = YamlConfiguration.loadConfiguration(file)
+            return fromYaml(yaml)
+        }
+
+        fun fromYaml(yaml: YamlConfiguration): MineRailsConfig {
             val policy = TrainModelUpdatePolicy.fromConfig(
                 yaml.getString("train-model-update-policy")
             )
-            return MineRailsConfig(trainModelUpdatePolicy = policy)
+            return MineRailsConfig(
+                trainModelUpdatePolicy = policy,
+                trainKeyBindDistance = yaml.getDouble("train-key-bind-distance", 10.0).coerceAtLeast(0.0)
+            )
         }
 
         private val DEFAULT_CONFIG = """
@@ -27,6 +35,9 @@ data class MineRailsConfig(
             # follow-package: saved trains keep their car model names, but rebuild from latest package files.
             # snapshot: saved trains store a resolved model snapshot and do not follow package changes.
             train-model-update-policy: follow-package
+
+            # Maximum distance in meters between a player and any car of the bound train before a train key unbinds.
+            train-key-bind-distance: 10.0
         """.trimIndent() + "\n"
     }
 }

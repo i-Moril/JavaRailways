@@ -156,7 +156,8 @@ class PartRegistry(
             return PartInteractionConfig(
                 width = (map["width"] as? Number)?.toDouble() ?: 1.0,
                 height = (map["height"] as? Number)?.toDouble() ?: 1.0,
-                driver = (map["driver"] as? Boolean) ?: false
+                driver = (map["driver"] as? Boolean) ?: false,
+                controlEnd = DriverControlEnd.fromConfig(map["control-end"] as? String)
             )
         }
 

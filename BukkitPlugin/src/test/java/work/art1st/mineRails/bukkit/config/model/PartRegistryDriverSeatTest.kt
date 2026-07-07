@@ -1,5 +1,6 @@
 package work.art1st.mineRails.bukkit.config.model
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -11,11 +12,12 @@ class PartRegistryDriverSeatTest {
                 "config-version" to 1,
                 "name" to "driver_seat",
                 "type" to "seat",
-                "interaction" to mapOf("driver" to true)
+                "interaction" to mapOf("driver" to true, "control-end" to "tail")
             ),
             "s100"
         )
 
         assertTrue(part.interaction.driver)
+        assertEquals(DriverControlEnd.TAIL, part.interaction.controlEnd)
     }
 }

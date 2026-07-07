@@ -11,6 +11,9 @@ class TrainActionConfigTest {
             mapOf(
                 "actions" to mapOf(
                     "door-left-open" to mapOf(
+                        "display-name" to "Open left doors",
+                        "executable" to true,
+                        "requires-control" to true,
                         "animations" to listOf(
                             mapOf("name" to "doors_l", "scene" to "o", "at" to 0.6),
                             "legacy_animation"
@@ -30,6 +33,9 @@ class TrainActionConfigTest {
 
         val action = actions.getValue("door-left-open")
         assertEquals("door-left-open", action.name)
+        assertEquals("Open left doors", action.displayName)
+        assertEquals(true, action.executable)
+        assertEquals(true, action.requiresControl)
         assertEquals(2, action.animations.size)
         assertEquals("doors_l", action.animations[0].name)
         assertEquals("open", action.animations[0].scene)

@@ -14,7 +14,7 @@ Replace the current implicit key-driven manual control with a proper train key w
 8. If the key-bound train is farther than a configurable distance from the player, the key auto-unbinds.
 9. In manual control, reverse direction `R` uses negative speed without triggering physical `reverse()`.
 10. If the player acquires control from the opposite cab, trigger train `reverse()` once.
-11. Train YAML/JS can define an `on reverse` behavior, used by S100 to switch headlights.
+11. Train YAML/JS can define generic `on reverse` event listeners; switching headlights is only one possible listener use case.
 
 ## Current state summary
 
@@ -215,9 +215,9 @@ On acquire:
 - If player is in the opposite cab for current train orientation, call `train.reverse()` once.
 - This is a **control acquisition reverse trigger**, distinct from selecting `R` while already controlling.
 
-### Reverse event / on reverse behavior
+### Reverse event listener / on reverse behavior
 
-Add a train-level reverse hook called when `CoreTrain.reverse()` is triggered intentionally:
+Add a train-level reverse event hook called when `CoreTrain.reverse()` is triggered intentionally. This should be treated as a generic event listener mechanism, not as a headlight-specific feature:
 
 Options:
 
@@ -234,19 +234,22 @@ Recommended: core event or TrainExtension hook around `CoreTrain.reverse()`.
 
 YAML/JS behavior API:
 
-- YAML manifest or actions:
+- YAML manifest or actions can map the event to one or more actions:
 
 ```yml
-reverse:
-  action: reverse-lights
+events:
+  reverse:
+    actions:
+      - some-train-specific-action
 ```
 
-or behavior.js:
+or behavior.js can implement a listener:
 
 ```js
 function onReverse(state) {
-  if (state.reversed) action("lights-tail-forward")
-  else action("lights-head-forward")
+  log(`reverse triggered, reversed=${state.reversed}`)
+  // Example only: a model package may choose to swap headlights here.
+  // Other packages may update displays, sounds, announcements, etc.
 }
 ```
 
@@ -260,7 +263,7 @@ train.renderer.callBehavior("onReverse", listOf(train.isReversed))
 
 - If missing, no-op.
 
-For S100, define actions that swap headlight display states and call them from `onReverse`.
+For S100, swapping headlight display states can be used as a sample `onReverse` listener implementation, but the engine should expose the event generically.
 
 ### Executable YAML actions
 
@@ -468,7 +471,7 @@ Commit:
 Control dialog phase 6: reverse train when acquiring from opposite cab
 ```
 
-### Phase 7: Reverse hook and S100 lights
+### Phase 7: Generic reverse event hook
 
 Files:
 
@@ -476,19 +479,19 @@ Files:
 - `TrainExtension.kt`
 - `behavior.js`
 - `actions.yml`
-- S100 display parts if needed
+- S100 display parts if using headlight swapping as an example
 
 Tasks:
 
 1. Fire/call `onReverse` whenever reverse is triggered.
-2. Expose reverse state to JS.
-3. Add S100 actions/behavior to swap head/tail lights.
-4. Tests for behavior call if feasible.
+2. Expose reverse state and train context to JS/YAML event listeners.
+3. Optionally add S100 actions/behavior that swap head/tail lights as an example listener.
+4. Tests for behavior/event call if feasible.
 
 Commit:
 
 ```text
-Control dialog phase 7: trigger behavior on train reverse
+Control dialog phase 7: add generic reverse event hook
 ```
 
 ### Phase 8: Polish and docs
@@ -532,7 +535,7 @@ Docs: document train key control dialog
 11. Moving > configured distance unbinds the key.
 12. Acquire from rear cab triggers reverse once.
 13. Selecting R in Dialog changes signed direction/speed but does not call reverse.
-14. Reverse trigger swaps S100 lights via JS/YAML.
+14. Reverse trigger calls generic YAML/JS listeners; optional S100 headlight swapping is only an example listener.
 
 ---
 

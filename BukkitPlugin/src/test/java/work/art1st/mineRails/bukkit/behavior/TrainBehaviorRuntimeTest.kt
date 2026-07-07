@@ -56,6 +56,36 @@ class TrainBehaviorRuntimeTest {
     }
 
     @Test
+    fun `behavior can define executable actions`() {
+        val bindings = RecordingBindings()
+        val runtime = TrainBehaviorRuntime(
+            TrainBehaviorScript(
+                fileName = "behavior.js",
+                source = """
+                    defineAction("door-left-open", { displayName: "左侧开门", requiresControl: true }, function() {
+                      return action(`door-${'$'}{operatingEnd() === "tail" ? "right" : "left"}-open`)
+                    })
+                """.trimIndent()
+            ),
+            bindings
+        )
+
+        val actions = runtime.listActions()
+        assertEquals(1, actions.size)
+        assertEquals("door-left-open", actions[0].name)
+        assertEquals("左侧开门", actions[0].displayName)
+        assertTrue(actions[0].requiresControl)
+
+        assertTrue(runtime.runDefinedAction("door-left-open") is TrainBehaviorCallResult.Success)
+        assertEquals(listOf("door-left-open"), bindings.actions)
+
+        bindings.operatingEndValue = "tail"
+        assertTrue(runtime.runDefinedAction("door-left-open") is TrainBehaviorCallResult.Success)
+        assertEquals(listOf("door-left-open", "door-right-open"), bindings.actions)
+        runtime.close()
+    }
+
+    @Test
     fun `missing method returns failure`() {
         val runtime = TrainBehaviorRuntime(
             TrainBehaviorScript(fileName = "behavior.js", source = "function horn() {}"),
@@ -71,6 +101,7 @@ class TrainBehaviorRuntimeTest {
         val actions = mutableListOf<String>()
         val sounds = mutableListOf<Triple<String, Double, Double>>()
         val logs = mutableListOf<String>()
+        var operatingEndValue: String = "head"
 
         override fun action(name: String): Boolean {
             actions += name
@@ -85,5 +116,7 @@ class TrainBehaviorRuntimeTest {
         override fun log(message: String) {
             logs += message
         }
+
+        override fun operatingEnd(): String = operatingEndValue
     }
 }

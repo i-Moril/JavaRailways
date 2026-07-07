@@ -8,20 +8,44 @@ function forDoorSide(door_side, callback) {
   }
 }
 
+function physicalDoorSide(semanticSide) {
+  const side = String(semanticSide || "left").toLowerCase()
+  if (side !== "left" && side !== "right") return side
+  return operatingEnd() === "tail" ? (side === "left" ? "right" : "left") : side
+}
+
+function runDoorAction(side, suffix) {
+  forDoorSide(side, function(doorSide) {
+    action(`door-${physicalDoorSide(doorSide)}-${suffix}`)
+  })
+}
+
+defineAction("door-left-open", { displayName: "左侧开门", executable: true, requiresControl: false }, function() {
+  runDoorAction("left", "open")
+})
+
+defineAction("door-left-close", { displayName: "左侧关门", executable: true, requiresControl: false }, function() {
+  runDoorAction("left", "close")
+})
+
+defineAction("door-right-open", { displayName: "右侧开门", executable: true, requiresControl: false }, function() {
+  runDoorAction("right", "open")
+})
+
+defineAction("door-right-close", { displayName: "右侧关门", executable: true, requiresControl: false }, function() {
+  runDoorAction("right", "close")
+})
+
 function onStation(time, door_side) {
   const t = Number(time)
-  forDoorSide(door_side, function(side) {
-    if (t === 0) action(`door-${side}-open`)
-    if (t >= 20) action(`door-${side}-close`)
-  })
+  if (t === 0) runDoorAction(door_side, "open")
+  if (t >= 20) runDoorAction(door_side, "close")
 }
 
 function door(side, scene) {
   const normalizedScene = String(scene || "open").toLowerCase()
   const suffix = normalizedScene === "closed" || normalizedScene === "close" ? "close" : "open"
-  forDoorSide(side, function(doorSide) {
-    action(`door-${doorSide}-${suffix}`)
-  })
+  runDoorAction(side, suffix)
 }
 
 function horn() {

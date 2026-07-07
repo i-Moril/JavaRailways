@@ -12,8 +12,6 @@ import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
-import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
-import work.art1st.mineRails.bukkit.config.model.TrainActionConfig
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.core.api.physics.train.Train
@@ -33,6 +31,9 @@ class TrainControlDialog(
             .values
             .filter { it.executable && (!it.requiresControl || ownedByPlayer) }
             .sortedBy { it.displayName }
+        val behaviorActions = train.renderer.behaviorActions()
+            .filter { it.executable && (!it.requiresControl || ownedByPlayer) }
+            .sortedBy { it.displayName }
 
         val bodies = mutableListOf<DialogBody>()
         bodies.add(DialogBody.plainMessage(Component.text("列车: ${train.id}", NamedTextColor.GRAY)))
@@ -41,7 +42,7 @@ class TrainControlDialog(
         if (controller != null) {
             bodies.add(DialogBody.plainMessage(Component.text("方向: ${controller.direction.label}  挡位: ${controller.handle}", NamedTextColor.GRAY)))
         }
-        if (executableActions.isEmpty()) {
+        if (executableActions.isEmpty() && behaviorActions.isEmpty()) {
             bodies.add(DialogBody.plainMessage(Component.text("没有可执行动作", NamedTextColor.DARK_GRAY)))
         }
 
@@ -81,10 +82,18 @@ class TrainControlDialog(
             buttons.add(directionButton(controller, TrainDriveDirection.NEUTRAL, "方向 N"))
             buttons.add(directionButton(controller, TrainDriveDirection.REVERSE, "方向 R"))
         }
+        behaviorActions.forEach { action ->
+            buttons.add(actionButton(action.displayName, NamedTextColor.AQUA) { p ->
+                val applied = train.renderer.applyBehaviorAction(action.name)
+                p.sendActionBar(Component.text(
+                    if (applied) "已执行: ${action.displayName}" else "动作未生效: ${action.displayName}",
+                    if (applied) NamedTextColor.GREEN else NamedTextColor.YELLOW
+                ))
+            })
+        }
         executableActions.forEach { action ->
             buttons.add(actionButton(action.displayName, NamedTextColor.AQUA) { p ->
-                val resolvedActionName = resolveActionNameForOperatingDirection(train, action)
-                val applied = train.renderer.applyAction(resolvedActionName)
+                val applied = train.renderer.applyAction(action.name)
                 p.sendActionBar(Component.text(
                     if (applied) "已执行: ${action.displayName}" else "动作未生效: ${action.displayName}",
                     if (applied) NamedTextColor.GREEN else NamedTextColor.YELLOW
@@ -114,13 +123,6 @@ class TrainControlDialog(
         }
     }
 
-    private fun resolveActionNameForOperatingDirection(train: Train, action: TrainActionConfig): String {
-        val match = DOOR_ACTION_PATTERN.matchEntire(action.name) ?: return action.name
-        if (manager.operatingControlEndFor(train) != DriverControlEnd.TAIL) return action.name
-        val mirroredSide = if (match.groupValues[1] == "left") "right" else "left"
-        return "door-$mirroredSide-${match.groupValues[2]}"
-    }
-
     private fun actionButton(label: String, color: NamedTextColor, action: (Player) -> Unit): ActionButton {
         val click = DialogAction.customClick(
             { _, audience ->
@@ -148,7 +150,4 @@ class TrainControlDialog(
         return plugin.modelManager.getCar(firstModelName)?.packageName
     }
 
-    companion object {
-        private val DOOR_ACTION_PATTERN = Regex("door-(left|right)-(open|close)")
-    }
 }

@@ -2,6 +2,7 @@ package work.art1st.mineRails.bukkit.extension.train
 
 import org.bukkit.Location
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorBindings
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorRuntime
@@ -73,12 +74,25 @@ class TrainExtension : CoreTrainExtension {
     }
 
     fun callBehavior(method: String, args: List<Any?> = emptyList()): TrainBehaviorCallResult {
-        val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val script = modelManager.getTrainBehavior(resolvePackageName())
-            ?: return TrainBehaviorCallResult.Failure("当前列车模型包没有 behavior.js")
-        val runtime = ensureBehaviorRuntime(script)
-            ?: return TrainBehaviorCallResult.Failure("行为脚本加载失败")
+        val runtime = ensureBehaviorRuntime()
+            ?: return TrainBehaviorCallResult.Failure("当前列车模型包没有 behavior.js 或行为脚本加载失败")
         return runtime.call(method, args)
+    }
+
+    fun behaviorActions(): List<TrainBehaviorActionDefinition> {
+        return ensureBehaviorRuntime()?.listActions() ?: emptyList()
+    }
+
+    fun applyBehaviorAction(name: String): Boolean {
+        val runtime = ensureBehaviorRuntime() ?: return false
+        val result = runtime.runDefinedAction(name)
+        return result is TrainBehaviorCallResult.Success && result.returnValue != false
+    }
+
+    private fun ensureBehaviorRuntime(): TrainBehaviorRuntime? {
+        val modelManager = BukkitPlugin.INSTANCE.modelManager
+        val script = modelManager.getTrainBehavior(resolvePackageName()) ?: return null
+        return ensureBehaviorRuntime(script)
     }
 
     private fun ensureBehaviorRuntime(script: TrainBehaviorScript): TrainBehaviorRuntime? {
@@ -105,6 +119,10 @@ class TrainExtension : CoreTrainExtension {
 
             override fun log(message: String) {
                 BukkitPlugin.INSTANCE.logger.info("[TrainBehavior:${self.id}] $message")
+            }
+
+            override fun operatingEnd(): String {
+                return BukkitPlugin.INSTANCE.trainControlManager.operatingControlEndFor(self).name.lowercase()
             }
         }
     }

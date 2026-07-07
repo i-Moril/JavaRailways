@@ -12,7 +12,15 @@ interface TrainBehaviorBindings {
     fun action(name: String): Boolean
     fun sound(key: String, volume: Double = 1.0, pitch: Double = 1.0): Boolean
     fun log(message: String)
+    fun operatingEnd(): String = "head"
 }
+
+data class TrainBehaviorActionDefinition(
+    val name: String,
+    val displayName: String,
+    val executable: Boolean = true,
+    val requiresControl: Boolean = false
+)
 
 sealed class TrainBehaviorCallResult {
     data class Success(val method: String, val returnValue: Any? = null) : TrainBehaviorCallResult()
@@ -37,6 +45,29 @@ class TrainBehaviorRuntime(
         context.eval("js", PRELUDE)
         val source = Source.newBuilder("js", script.source, script.fileName).build()
         context.eval(source)
+    }
+
+    fun listActions(): List<TrainBehaviorActionDefinition> {
+        val function = context.getBindings("js").getMember("__mineRailsListActions") ?: return emptyList()
+        if (!function.canExecute()) return emptyList()
+        return try {
+            val value = function.execute()
+            if (!value.hasArrayElements()) return emptyList()
+            (0 until value.arraySize).mapNotNull { index ->
+                val entry = value.getArrayElement(index)
+                val name = entry.getMember("name")?.takeIf { it.isString }?.asString() ?: return@mapNotNull null
+                val displayName = entry.getMember("displayName")?.takeIf { it.isString }?.asString() ?: name
+                val executable = entry.getMember("executable")?.takeIf { it.isBoolean }?.asBoolean() ?: true
+                val requiresControl = entry.getMember("requiresControl")?.takeIf { it.isBoolean }?.asBoolean() ?: false
+                TrainBehaviorActionDefinition(name, displayName, executable, requiresControl)
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun runDefinedAction(name: String): TrainBehaviorCallResult {
+        return call("__mineRailsRunAction", listOf(name))
     }
 
     fun call(method: String, args: List<Any?> = emptyList()): TrainBehaviorCallResult {
@@ -72,6 +103,9 @@ class TrainBehaviorRuntime(
         fun log(message: String) {
             bindings.log(message)
         }
+
+        @HostAccess.Export
+        fun operatingEnd(): String = bindings.operatingEnd()
     }
 
     companion object {
@@ -86,8 +120,47 @@ class TrainBehaviorRuntime(
                 pitch === undefined ? 1.0 : Number(pitch)
               );
             }
+            const __mineRailsDefinedActions = Object.create(null);
             function log(message) {
               return __mineRailsTrain.log(String(message));
+            }
+            function operatingEnd() {
+              return String(__mineRailsTrain.operatingEnd());
+            }
+            function defineAction(name, displayNameOrOptions, handler) {
+              const key = String(name);
+              let options = {};
+              let fn = handler;
+              if (typeof displayNameOrOptions === 'function') {
+                fn = displayNameOrOptions;
+              } else if (typeof displayNameOrOptions === 'string') {
+                options.displayName = displayNameOrOptions;
+              } else if (displayNameOrOptions && typeof displayNameOrOptions === 'object') {
+                options = displayNameOrOptions;
+              }
+              if (typeof fn !== 'function') throw new Error('defineAction ' + key + ': handler must be a function');
+              __mineRailsDefinedActions[key] = {
+                name: key,
+                displayName: String(options.displayName || options['display-name'] || key),
+                executable: options.executable === undefined ? true : Boolean(options.executable),
+                requiresControl: Boolean(options.requiresControl || options['requires-control']),
+                handler: fn
+              };
+            }
+            function __mineRailsListActions() {
+              return Object.values(__mineRailsDefinedActions).map(function(action) {
+                return {
+                  name: action.name,
+                  displayName: action.displayName,
+                  executable: action.executable,
+                  requiresControl: action.requiresControl
+                };
+              });
+            }
+            function __mineRailsRunAction(name) {
+              const action = __mineRailsDefinedActions[String(name)];
+              if (!action) return false;
+              return action.handler() !== false;
             }
         """
 

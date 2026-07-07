@@ -10,7 +10,6 @@ import org.bukkit.event.entity.EntityDismountEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.bukkit.event.player.PlayerQuitEvent
-import org.bukkit.util.Vector
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
@@ -63,11 +62,9 @@ class SeatModel internal constructor(
         val carrier = carrierEntity ?: return
         val visualLocation = delayedVisualLocation(hitbox.location)
         hitbox.teleport(visualLocation)
-        hitbox.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())
         configureSeatHitbox(hitbox, occupied = carrier.passengers.isNotEmpty())
         configureSeatCarrier(carrier)
         carrier.teleport(bottomCarrierLocation(visualLocation))
-        carrier.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())
     }
 
     override fun destroy() {
@@ -125,7 +122,7 @@ class SeatModel internal constructor(
     }
 
     companion object {
-        private const val SEAT_VISUAL_DELAY_TICKS = 2
+        private const val SEAT_VISUAL_DELAY_TICKS = 1
     }
 
     data class SeatBinding(

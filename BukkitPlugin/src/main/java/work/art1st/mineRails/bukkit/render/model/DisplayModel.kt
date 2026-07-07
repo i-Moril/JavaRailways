@@ -87,6 +87,6 @@ class DisplayModel internal constructor(
     }
 
     companion object {
-        private const val DISPLAY_INTERPOLATION_TICKS = 2
+        private const val DISPLAY_INTERPOLATION_TICKS = 1
     }
 }

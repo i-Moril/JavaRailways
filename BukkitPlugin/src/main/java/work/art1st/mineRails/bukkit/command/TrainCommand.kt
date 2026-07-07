@@ -225,7 +225,12 @@ object TrainCommand {
     private fun findBlockingTrainForPlacement(headLocation: RailLocationWithFacing, requiredBehindHead: Double): String? {
         val margin = 5.0
         val nearbyEnds = headLocation.peekTrains(-(requiredBehindHead + margin)) + headLocation.peekTrains(margin)
-        return nearbyEnds.firstOrNull()?.train?.id
+        return nearbyEnds.firstNotNullOfOrNull { end ->
+            end.trainOrNull?.id ?: run {
+                end.destroy()
+                null
+            }
+        }
     }
 
     private fun estimateTrainLengthBehindHead(carDefs: List<CarDefinition>): Double {

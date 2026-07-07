@@ -114,10 +114,19 @@ open class CoreTrain @MainThread internal constructor(
             // 假设两车相向而行，那么下一tick的移动距离为deltaS_1 + deltaS_2
             // 小于较大的deltaS * 2
             val obstacles = head.location.peekTrains(2 * deltaS)
-            if (obstacles.isNotEmpty()) {
-                // 不可能有超过一个trainEnd
-                val previousEnd = obstacles[0]
-                val prevTrain = previousEnd.train
+            val obstacle = obstacles.firstNotNullOfOrNull { trainEnd ->
+                val train = trainEnd.trainOrNull
+                when {
+                    train == null -> {
+                        trainEnd.destroy()
+                        null
+                    }
+                    train === this -> null
+                    else -> trainEnd to train
+                }
+            }
+            if (obstacle != null) {
+                val (previousEnd, prevTrain) = obstacle
                 val prevSpeed = if (previousEnd.type == TrainEnd.Type.HEAD) -prevTrain.speed else prevTrain.speed
                 if (speed - prevSpeed >= COLLISION_SPEED) {
                     throw Collision(this, prevTrain)
@@ -221,6 +230,9 @@ open class CoreTrain @MainThread internal constructor(
             }
             tail.location =
                 tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotCreateTrainException()
+            otherTrain.removeController()
+            otherTrain.head.destroy()
+            otherTrain.tail.destroy()
             world.removeTrain(otherTrain)
         }
     }

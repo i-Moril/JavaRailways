@@ -6,7 +6,7 @@ import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.api.util.Destroyable
-import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
+import java.lang.ref.WeakReference
 
 /**
  * 车辆端部
@@ -21,7 +21,13 @@ open class TrainEnd(
         location.rail.addTrainEnd(this)
     }
 
-    val train: CoreTrain by WeakReferenceWrapper(train)
+    private val trainRef = WeakReference(train)
+
+    val trainOrNull: CoreTrain?
+        get() = trainRef.get()
+
+    val train: CoreTrain
+        get() = trainOrNull ?: throw IllegalStateException("TrainEnd no longer references a live train")
 
     private var commitTask: Runnable? = null
     override var location: RailLocationWithFacing = location

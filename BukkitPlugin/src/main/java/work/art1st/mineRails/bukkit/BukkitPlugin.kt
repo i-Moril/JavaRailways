@@ -10,6 +10,7 @@ import work.art1st.mineRails.bukkit.config.getDefaultRailModelConfig
 import work.art1st.mineRails.bukkit.config.model.ModelManager
 import work.art1st.mineRails.bukkit.control.TrainControlManager
 import work.art1st.mineRails.bukkit.control.TrainHandleInputListener
+import work.art1st.mineRails.bukkit.debug.TrainDebugEventListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
@@ -52,6 +53,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** Core reverse event -> train behavior.js onReverse bridge */
     lateinit var trainReverseBehaviorListener: TrainReverseBehaviorListener
 
+    /** Extra CSV rows for train debug events such as derailment. */
+    lateinit var trainDebugEventListener: TrainDebugEventListener
+
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var operationWand: OperationWand
 
@@ -70,10 +74,18 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         trainHandleInputListener.start(this)
         trainReverseBehaviorListener = TrainReverseBehaviorListener()
         EventManager.register(trainReverseBehaviorListener)
+        trainDebugEventListener = TrainDebugEventListener()
+        EventManager.register(trainDebugEventListener)
 
         // 加载全局配置
         mineRailsConfig = MineRailsConfig.load(this)
+        if (mineRailsConfig.trainDebugLog) {
+            TrainDebugLog.enabled = true
+        }
         logger.info("Train model update policy: ${mineRailsConfig.trainModelUpdatePolicy.name.lowercase().replace('_', '-')}")
+        if (TrainDebugLog.enabled) {
+            logger.warning("Train debug log enabled: ${dataFolder.resolve("debug/train_debug.csv")}")
+        }
 
         // 加载轨道可视化配置
         railModelConfig = loadRailModelConfigFromPlugin()
@@ -109,6 +121,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         runCatching { trainHandleInputListener.stop() }
         runCatching { trainControlManager.stop() }
         runCatching { EventManager.unregister(trainReverseBehaviorListener) }
+        runCatching { EventManager.unregister(trainDebugEventListener) }
         runCatching { TrainDebugLog.close() }
     }
 

@@ -6,7 +6,8 @@ import java.io.File
 
 data class MineRailsConfig(
     val trainModelUpdatePolicy: TrainModelUpdatePolicy = TrainModelUpdatePolicy.FOLLOW_PACKAGE,
-    val trainKeyBindDistance: Double = 20.0
+    val trainKeyBindDistance: Double = 20.0,
+    val trainDebugLog: Boolean = false
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
@@ -26,7 +27,8 @@ data class MineRailsConfig(
             )
             return MineRailsConfig(
                 trainModelUpdatePolicy = policy,
-                trainKeyBindDistance = yaml.getDouble("train-key-bind-distance", 20.0).coerceAtLeast(0.0)
+                trainKeyBindDistance = yaml.getDouble("train-key-bind-distance", 20.0).coerceAtLeast(0.0),
+                trainDebugLog = yaml.getBoolean("train-debug-log", false)
             )
         }
 
@@ -38,6 +40,10 @@ data class MineRailsConfig(
 
             # Maximum distance in meters between a player and any car of the bound train before a train key unbinds.
             train-key-bind-distance: 20.0
+
+            # Per-tick train/car diagnostics. Writes plugins/MineRails/debug/train_debug.csv.
+            # Keep disabled unless collecting a short trace.
+            train-debug-log: false
         """.trimIndent() + "\n"
     }
 }

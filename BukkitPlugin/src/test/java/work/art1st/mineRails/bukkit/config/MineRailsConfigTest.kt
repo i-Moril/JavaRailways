@@ -10,11 +10,13 @@ class MineRailsConfigTest {
         val yaml = YamlConfiguration()
         yaml.set("train-model-update-policy", "snapshot")
         yaml.set("train-key-bind-distance", 24.5)
+        yaml.set("train-debug-log", true)
 
         val config = MineRailsConfig.fromYaml(yaml)
 
         assertEquals(TrainModelUpdatePolicy.SNAPSHOT, config.trainModelUpdatePolicy)
         assertEquals(24.5, config.trainKeyBindDistance)
+        assertEquals(true, config.trainDebugLog)
     }
 
     @Test
@@ -23,5 +25,6 @@ class MineRailsConfigTest {
 
         assertEquals(TrainModelUpdatePolicy.FOLLOW_PACKAGE, config.trainModelUpdatePolicy)
         assertEquals(20.0, config.trainKeyBindDistance)
+        assertEquals(false, config.trainDebugLog)
     }
 }

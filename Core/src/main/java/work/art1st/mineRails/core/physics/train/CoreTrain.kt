@@ -5,6 +5,7 @@ import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.DerailEvent
 import work.art1st.mineRails.core.api.event.processor.EventManager
 import work.art1st.mineRails.core.api.event.PassSignalEvent
+import work.art1st.mineRails.core.api.event.TrainReverseEvent
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException
 import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardException
@@ -183,6 +184,7 @@ open class CoreTrain @MainThread internal constructor(
 
     override fun reverse() {
         reverseInternal()
+        EventManager.fire(TrainReverseEvent(this))
     }
 
     private fun reverseInternal() {

@@ -1,6 +1,7 @@
 package work.art1st.mineRails.bukkit
 
 import org.bukkit.plugin.java.JavaPlugin
+import work.art1st.mineRails.bukkit.behavior.TrainReverseBehaviorListener
 import work.art1st.mineRails.bukkit.command.MineRailsCommand
 import work.art1st.mineRails.bukkit.config.MineRailsConfig
 import work.art1st.mineRails.bukkit.config.RailModelConfig
@@ -15,6 +16,7 @@ import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.mineRails.bukkit.tool.OperationWand
 import work.art1st.mineRails.bukkit.tool.RailWand
 import work.art1st.mineRails.basic.BasicPlugin
+import work.art1st.mineRails.core.api.event.processor.EventManager
 import work.art1st.mineRails.core.api.util.plugin.Plugin
 import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
@@ -47,6 +49,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** 驾驶座 WASD 手柄输入 */
     lateinit var trainHandleInputListener: TrainHandleInputListener
 
+    /** Core reverse event -> train behavior.js onReverse bridge */
+    lateinit var trainReverseBehaviorListener: TrainReverseBehaviorListener
+
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var operationWand: OperationWand
 
@@ -63,6 +68,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         trainControlManager.start()
         trainHandleInputListener = TrainHandleInputListener(trainControlManager)
         trainHandleInputListener.start(this)
+        trainReverseBehaviorListener = TrainReverseBehaviorListener()
+        EventManager.register(trainReverseBehaviorListener)
 
         // 加载全局配置
         mineRailsConfig = MineRailsConfig.load(this)
@@ -101,6 +108,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         worlds.forEach { worldManager.unregisterRailWorld(it) }
         runCatching { trainHandleInputListener.stop() }
         runCatching { trainControlManager.stop() }
+        runCatching { EventManager.unregister(trainReverseBehaviorListener) }
         runCatching { TrainDebugLog.close() }
     }
 

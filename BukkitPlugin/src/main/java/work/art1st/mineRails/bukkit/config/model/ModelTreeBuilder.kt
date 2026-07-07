@@ -220,7 +220,8 @@ class ModelTreeBuilder(
                     animation = animations,
                     initialLocation = spawnLoc,
                     ownerCar = ownerCar,
-                    driverSeat = def.interaction.driver
+                    driverSeat = def.interaction.driver,
+                    controlEnd = def.interaction.controlEnd
                 )
             }
             PartType.PLATFORM -> {

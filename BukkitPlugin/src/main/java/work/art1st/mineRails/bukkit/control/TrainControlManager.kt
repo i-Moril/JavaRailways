@@ -12,6 +12,7 @@ import org.bukkit.scheduler.BukkitTask
 import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
+import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.render.model.SeatModel
@@ -71,13 +72,15 @@ class TrainControlManager(
     fun acquireManualControl(player: Player, train: Train): AcquireResult {
         val coreTrain = train as? CoreTrain ?: return AcquireResult.TrainUnavailable
         if (!playerHasBoundKeyFor(player, train)) return AcquireResult.MissingKey
-        if (!SeatModel.SeatInteractionListener.isPlayerDrivingTrain(player, train)) return AcquireResult.NotDriverSeat
+        val driverSeat = SeatModel.SeatInteractionListener.driverSeatFor(player)
+        if (driverSeat?.train !== train) return AcquireResult.NotDriverSeat
         sessionsByTrain[train.id]?.let { existing ->
             if (existing.playerId != player.uniqueId) return AcquireResult.AlreadyControlled(existing.playerId)
             return AcquireResult.Acquired(existing)
         }
 
         releaseManualControl(player.uniqueId)
+        alignTrainHeadToDriverSeat(coreTrain, driverSeat.controlEnd)
         val (controlConfig, carControls) = resolveControlProfile(coreTrain)
         val controller = RealisticManualController(coreTrain, coreTrain.world, controlConfig, carControls)
         controller.coast()
@@ -193,6 +196,12 @@ class TrainControlManager(
                     TrainKeyItem.boundTrainId(item) == train.id &&
                     TrainKeyItem.boundWorldId(item) == player.world.uid
             }
+    }
+
+    private fun alignTrainHeadToDriverSeat(train: CoreTrain, controlEnd: DriverControlEnd?) {
+        val targetEnd = controlEnd ?: return
+        val activeHeadEnd = if (train.isReversed) DriverControlEnd.TAIL else DriverControlEnd.HEAD
+        if (targetEnd != activeHeadEnd) train.reverse()
     }
 
     private fun resolveBoundTrain(item: ItemStack): Train? {

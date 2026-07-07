@@ -10,6 +10,7 @@ import org.bukkit.event.entity.EntityDismountEvent
 import org.bukkit.event.player.PlayerInteractAtEntityEvent
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.core.api.physics.World
@@ -24,7 +25,8 @@ class SeatModel internal constructor(
     animation: Map<String, Animation>,
     private val initialLocation: Location,
     private val ownerCar: Car?,
-    private val driverSeat: Boolean
+    private val driverSeat: Boolean,
+    private val controlEnd: DriverControlEnd?
 ) : EntityModel(world, state, attachedModels, animation, null) {
     private var carrierEntity: Interaction? = null
 
@@ -43,7 +45,7 @@ class SeatModel internal constructor(
 
         entity = hitbox
         carrierEntity = carrier
-        SeatInteractionListener.register(hitbox.uniqueId, SeatBinding(carrier, ownerCar, driverSeat))
+        SeatInteractionListener.register(hitbox.uniqueId, SeatBinding(carrier, ownerCar, driverSeat, controlEnd))
     }
 
     override fun updateState(
@@ -104,7 +106,8 @@ class SeatModel internal constructor(
     data class SeatBinding(
         val carrier: Interaction,
         val ownerCar: Car?,
-        val driverSeat: Boolean
+        val driverSeat: Boolean,
+        val controlEnd: DriverControlEnd?
     )
 
     object SeatInteractionListener : Listener {
@@ -133,18 +136,27 @@ class SeatModel internal constructor(
             driverSeatVacatedHandlers.add(handler)
         }
 
-        fun drivingTrainFor(player: Player): Train? {
+        fun drivingTrainFor(player: Player): Train? = driverSeatFor(player)?.train
+
+        fun driverSeatFor(player: Player): DriverSeatContext? {
             val vehicle = player.vehicle as? Interaction ?: return null
             val binding = seatsByCarrier[vehicle.uniqueId] ?: return null
             if (!binding.driverSeat) return null
             if (!binding.carrier.passengers.any { it.uniqueId == player.uniqueId }) return null
             val ownerCar = binding.ownerCar ?: return null
-            return ownerCar.world.allTrains.firstOrNull { train -> train.cars.any { it === ownerCar } }
+            val train = ownerCar.world.allTrains.firstOrNull { train -> train.cars.any { it === ownerCar } } ?: return null
+            return DriverSeatContext(train, ownerCar, binding.controlEnd)
         }
 
         fun isPlayerDrivingTrain(player: Player, train: Train): Boolean {
             return drivingTrainFor(player) === train
         }
+
+        data class DriverSeatContext(
+            val train: Train,
+            val car: Car,
+            val controlEnd: DriverControlEnd?
+        )
 
         @EventHandler
         fun onPlayerDismountSeat(event: EntityDismountEvent) {

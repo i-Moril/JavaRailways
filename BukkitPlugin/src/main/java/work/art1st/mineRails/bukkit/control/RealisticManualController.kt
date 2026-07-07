@@ -26,6 +26,8 @@ class RealisticManualController(
     private var lastForces = TrainDynamics.StepResult(dynamicsState, 0.0, 0.0, 0.0, 0.0, 0.0)
     private val handleRef = AtomicReference(NEUTRAL_HANDLE)
     private val directionRef = AtomicReference(TrainDriveDirection.NEUTRAL)
+    @Volatile
+    private var movementSign: Double = 1.0
 
     val handle: String
         get() = handleRef.get()
@@ -45,7 +47,7 @@ class RealisticManualController(
     val targetSpeed: Double
         get() = if (controlConfig.tractionNotchScales.containsKey(handle)) controlConfig.maxSpeed else 0.0
 
-    val displaySpeed: Double get() = dynamicsState.speed
+    val displaySpeed: Double get() = dynamicsState.speed * movementSign
     val acceleration: Double get() = dynamicsState.acceleration
     val brakeScale: Double get() = dynamicsState.brakeScale
     val tractionForce: Double get() = lastForces.tractionForce
@@ -83,6 +85,11 @@ class RealisticManualController(
 
     fun setDirection(direction: TrainDriveDirection) {
         directionRef.set(direction)
+        when (direction) {
+            TrainDriveDirection.FORWARD -> movementSign = 1.0
+            TrainDriveDirection.REVERSE -> movementSign = -1.0
+            TrainDriveDirection.NEUTRAL -> Unit
+        }
     }
 
     fun emergencyBrake() {
@@ -114,7 +121,12 @@ class RealisticManualController(
         lastForces = result
         dynamicsState = result.state
         speed = result.state.speed
-        train.moveTrainForward(result.distance)
+        val signedDistance = result.distance * movementSign
+        if (directionRef.get() == TrainDriveDirection.NEUTRAL && result.state.speed == 0.0) {
+            train.moveTrainSigned(0.0)
+        } else {
+            train.moveTrainSigned(signedDistance)
+        }
     }
 
     private fun buildCarInputs(cars: List<Car>): List<TrainDynamics.CarInput> {

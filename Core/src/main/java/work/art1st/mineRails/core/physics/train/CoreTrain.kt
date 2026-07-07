@@ -99,6 +99,20 @@ open class CoreTrain @MainThread internal constructor(
      * @throws IllegalStateException 如果列车没有转向架
      */
     override fun moveTrainForward(deltaS: Double) {
+        moveTrainForwardInternal(deltaS)
+    }
+
+    override fun moveTrainSigned(deltaS: Double) {
+        if (deltaS >= 0.0) {
+            moveTrainForwardInternal(deltaS)
+            return
+        }
+        reverseInternal()
+        moveTrainForwardInternal(-deltaS)
+        reverseInternal()
+    }
+
+    private fun moveTrainForwardInternal(deltaS: Double) {
         if (isDerailed) return
 
         require(deltaS >= 0.0) { "deltaS must >= 0" }
@@ -168,6 +182,10 @@ open class CoreTrain @MainThread internal constructor(
     }
 
     override fun reverse() {
+        reverseInternal()
+    }
+
+    private fun reverseInternal() {
         isReversed = !isReversed
         cars.forEach { obj: CoreCar -> obj.reverse() }
     }

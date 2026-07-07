@@ -100,7 +100,7 @@ class TrainHandleInputListener(
         val speedMps = controller.displaySpeed
         val speedKmh = speedMps * 3.6
         player.sendActionBar(Component.text(
-            "挡位: ${controller.handle}  速度: ${"%.1f".format(speedKmh)} km/h (${"%.2f".format(speedMps)} m/s)"
+            "方向: ${controller.direction.label}  挡位: ${controller.handle}  速度: ${"%.1f".format(speedKmh)} km/h (${"%.2f".format(speedMps)} m/s)"
         ))
     }
 

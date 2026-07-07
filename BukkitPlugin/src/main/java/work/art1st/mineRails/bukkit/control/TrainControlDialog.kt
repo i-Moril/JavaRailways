@@ -25,6 +25,7 @@ class TrainControlDialog(
         val ownedByPlayer = ownerId == player.uniqueId
         val ownerName = ownerId?.let { Bukkit.getOfflinePlayer(it).name ?: it.toString().take(8) } ?: "无"
         val speedKmh = train.speed * 3.6
+        val controller = manager.sessionFor(train)?.controller
         val packageName = resolvePackageName(train)
         val executableActions = plugin.modelManager.getTrainActions(packageName)
             .values
@@ -35,6 +36,9 @@ class TrainControlDialog(
         bodies.add(DialogBody.plainMessage(Component.text("列车: ${train.id}", NamedTextColor.GRAY)))
         bodies.add(DialogBody.plainMessage(Component.text("控制者: $ownerName", NamedTextColor.GRAY)))
         bodies.add(DialogBody.plainMessage(Component.text("速度: ${"%.1f".format(speedKmh)} km/h", NamedTextColor.GRAY)))
+        if (controller != null) {
+            bodies.add(DialogBody.plainMessage(Component.text("方向: ${controller.direction.label}  挡位: ${controller.handle}", NamedTextColor.GRAY)))
+        }
         if (executableActions.isEmpty()) {
             bodies.add(DialogBody.plainMessage(Component.text("没有可执行动作", NamedTextColor.DARK_GRAY)))
         }
@@ -63,6 +67,11 @@ class TrainControlDialog(
                 show(p, train)
             })
         }
+        if (ownedByPlayer && controller != null) {
+            buttons.add(directionButton(controller, TrainDriveDirection.FORWARD, "方向 F"))
+            buttons.add(directionButton(controller, TrainDriveDirection.NEUTRAL, "方向 N"))
+            buttons.add(directionButton(controller, TrainDriveDirection.REVERSE, "方向 R"))
+        }
         executableActions.forEach { action ->
             buttons.add(actionButton(action.displayName, NamedTextColor.AQUA) { p ->
                 val applied = train.renderer.applyAction(action.name)
@@ -86,6 +95,15 @@ class TrainControlDialog(
                 .type(DialogType.multiAction(buttons, exit, 1))
         }
         player.showDialog(dialog)
+    }
+
+    private fun directionButton(controller: RealisticManualController, direction: TrainDriveDirection, label: String): ActionButton {
+        return actionButton(label, NamedTextColor.LIGHT_PURPLE) { p ->
+            controller.setDirection(direction)
+            controller.coast()
+            p.sendActionBar(Component.text("方向已切换为 ${direction.label}", NamedTextColor.GREEN))
+            show(p, controller.controlledTrain)
+        }
     }
 
     private fun actionButton(label: String, color: NamedTextColor, action: (Player) -> Unit): ActionButton {

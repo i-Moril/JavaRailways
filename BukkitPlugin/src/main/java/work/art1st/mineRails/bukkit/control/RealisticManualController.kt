@@ -8,6 +8,12 @@ import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Train
 import java.util.concurrent.atomic.AtomicReference
 
+enum class TrainDriveDirection(val label: String) {
+    FORWARD("F"),
+    NEUTRAL("N"),
+    REVERSE("R")
+}
+
 class RealisticManualController(
     train: Train,
     world: World,
@@ -19,9 +25,13 @@ class RealisticManualController(
     @Volatile
     private var lastForces = TrainDynamics.StepResult(dynamicsState, 0.0, 0.0, 0.0, 0.0, 0.0)
     private val handleRef = AtomicReference(NEUTRAL_HANDLE)
+    private val directionRef = AtomicReference(TrainDriveDirection.NEUTRAL)
 
     val handle: String
         get() = handleRef.get()
+
+    val direction: TrainDriveDirection
+        get() = directionRef.get()
 
     /** Compatibility view for the older /mr train throttle command. */
     val throttle: Double
@@ -71,6 +81,10 @@ class RealisticManualController(
         return handleRef.updateAndGet { current -> shiftedHandle(current, -1) }
     }
 
+    fun setDirection(direction: TrainDriveDirection) {
+        directionRef.set(direction)
+    }
+
     fun emergencyBrake() {
         handleRef.set(if (controlConfig.brakeNotchScales.containsKey("EB")) "EB" else {
             controlConfig.brakeNotchScales.maxByOrNull { it.value }?.key ?: NEUTRAL_HANDLE
@@ -83,7 +97,12 @@ class RealisticManualController(
 
     override fun tick(deltaT: Double) {
         val deltaSeconds = deltaT.coerceAtLeast(0.0) * 0.001
-        val currentHandle = handleRef.get()
+        val currentDirection = directionRef.get()
+        val currentHandle = if (currentDirection == TrainDriveDirection.NEUTRAL && controlConfig.tractionNotchScales.containsKey(handleRef.get())) {
+            NEUTRAL_HANDLE
+        } else {
+            handleRef.get()
+        }
         val cars = buildCarInputs(train.cars)
         val result = TrainDynamics.step(
             state = dynamicsState.copy(speed = speed),

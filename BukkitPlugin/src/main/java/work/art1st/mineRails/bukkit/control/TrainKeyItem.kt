@@ -7,33 +7,36 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
 import work.art1st.mineRails.bukkit.BukkitPlugin
-import work.art1st.mineRails.core.api.physics.train.Train
 
 object TrainKeyItem {
-    private val trainIdKey: NamespacedKey
+    private val genericKey: NamespacedKey
+        get() = NamespacedKey(BukkitPlugin.INSTANCE, "train_key")
+
+    /** Legacy bound-key marker from earlier development builds; accepted as a generic key. */
+    private val legacyTrainIdKey: NamespacedKey
         get() = NamespacedKey(BukkitPlugin.INSTANCE, "train_key_id")
 
-    fun create(train: Train): ItemStack {
+    fun create(): ItemStack {
         val item = ItemStack(Material.TRIPWIRE_HOOK)
         item.editMeta { meta ->
-            meta.displayName(Component.text("列车钥匙 ${train.id}"))
+            meta.displayName(Component.text("列车钥匙"))
             meta.lore(listOf(
-                Component.text("Train: ${train.id}"),
                 Component.text("手持此钥匙坐在驾驶座上控制列车")
             ))
-            meta.persistentDataContainer.set(trainIdKey, PersistentDataType.STRING, train.id)
+            meta.persistentDataContainer.set(genericKey, PersistentDataType.BYTE, 1)
         }
         return item
     }
 
-    fun trainId(item: ItemStack?): String? {
-        if (item == null || item.type.isAir) return null
-        val meta = item.itemMeta ?: return null
-        return meta.persistentDataContainer.get(trainIdKey, PersistentDataType.STRING)
+    fun isKey(item: ItemStack?): Boolean {
+        if (item == null || item.type.isAir) return false
+        val meta = item.itemMeta ?: return false
+        val container = meta.persistentDataContainer
+        return container.get(genericKey, PersistentDataType.BYTE) == 1.toByte() ||
+            container.has(legacyTrainIdKey, PersistentDataType.STRING)
     }
 
-    fun playerHasKeyFor(player: Player, train: Train): Boolean {
-        return trainId(player.inventory.itemInMainHand) == train.id ||
-            trainId(player.inventory.itemInOffHand) == train.id
+    fun playerHasKey(player: Player): Boolean {
+        return isKey(player.inventory.itemInMainHand) || isKey(player.inventory.itemInOffHand)
     }
 }

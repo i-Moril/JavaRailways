@@ -40,12 +40,13 @@ object TrainCommand {
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /mr train <create|anim|action|behavior|info|list|delete|sit|stand>")
+            sender.sendMessage("用法: /mr train <create|key|anim|action|behavior|info|list|delete|sit|stand>")
             return true
         }
 
         when (args[0].lowercase()) {
             "create" -> return handleCreate(sender, args.drop(1))
+            "key" -> return handleKey(sender)
             "anim", "animation" -> return handleAnim(sender, args.drop(1))
             "action" -> return handleAction(sender, args.drop(1))
             "behavior" -> return handleBehavior(sender, args.drop(1))
@@ -187,9 +188,8 @@ object TrainCommand {
         // Force model build for the creating player immediately
         cars.forEach { it.renderer.sendTo(sender) }
 
-        sender.inventory.addItem(TrainKeyItem.create(train))
         sender.sendMessage("创建列车成功: ${train.id} (类型: ${trainDef.key})")
-        sender.sendMessage("已发放列车钥匙，请手持钥匙坐在驾驶座上驾驶。")
+        sender.sendMessage("手持通用列车钥匙坐在驾驶座上驾驶，可用 /mr train key 获取。")
         sender.sendMessage("车厢数量: ${cars.size}")
         sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
         sender.sendMessage("列车尾部位置: ${formatVector(train.tail.location.position)}")
@@ -200,6 +200,16 @@ object TrainCommand {
                     "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
             )
         }
+        return true
+    }
+
+    private fun handleKey(sender: CommandSender): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        sender.inventory.addItem(TrainKeyItem.create())
+        sender.sendMessage("已给予通用列车钥匙")
         return true
     }
 
@@ -692,7 +702,7 @@ object TrainCommand {
 
     fun controllerForKeyedDriver(player: Player): RealisticManualController? {
         val train = SeatModel.SeatInteractionListener.drivingTrainFor(player) as? CoreTrain ?: return null
-        if (!TrainKeyItem.playerHasKeyFor(player, train)) return null
+        if (!TrainKeyItem.playerHasKey(player)) return null
 
         playerControllers[player.uniqueId]?.let { existing ->
             if (existing.controlledTrain === train) return existing

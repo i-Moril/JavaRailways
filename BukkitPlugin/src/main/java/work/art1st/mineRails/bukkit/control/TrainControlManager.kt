@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import org.bukkit.scheduler.BukkitTask
 import org.joml.Vector3d
@@ -160,7 +161,7 @@ class TrainControlManager(
 
             val storageContents = inventory.storageContents
             storageContents.forEachIndexed { index, item ->
-                if (item != null && validateKeyBinding(player, item)) {
+                if (item != null && validateKeyBinding(player, item, "inventory[$index]")) {
                     storageContents[index] = item
                     unboundAny = true
                 }
@@ -168,7 +169,7 @@ class TrainControlManager(
             inventory.storageContents = storageContents
 
             val offHand = inventory.itemInOffHand
-            if (validateKeyBinding(player, offHand)) {
+            if (validateKeyBinding(player, offHand, "offhand")) {
                 inventory.setItemInOffHand(offHand)
                 unboundAny = true
             }
@@ -179,35 +180,50 @@ class TrainControlManager(
         }
     }
 
-    private fun validateKeyBinding(player: Player, item: ItemStack): Boolean {
+    private fun validateKeyBinding(player: Player, item: ItemStack, source: String): Boolean {
         if (!TrainKeyItem.isKey(item)) return false
-        if (TrainKeyItem.boundTrainId(item) == null && TrainKeyItem.boundWorldId(item) == null) return false
+        val trainId = TrainKeyItem.boundTrainId(item)
+        val worldId = TrainKeyItem.boundWorldId(item)
+        if (trainId == null && worldId == null) return false
         val train = resolveBoundTrain(item)
-        if (train != null && isWithinBindingDistance(player, train)) return false
+        if (train == null) {
+            logKeyUnbind(player, source, trainId, worldId, "train-not-found")
+            return TrainKeyItem.unbind(item)
+        }
+        val maxDistance = plugin.mineRailsConfig.trainKeyBindDistance
+        val minDistance = minDistanceToTrainCenters(player, train)
+        if (maxDistance > 0.0 && minDistance != null && minDistance <= maxDistance) return false
+        val distanceText = minDistance?.let { "%.2f".format(it) } ?: "none"
+        logKeyUnbind(player, source, trainId, worldId, "too-far minDistance=$distanceText maxDistance=${"%.2f".format(maxDistance)}")
         return TrainKeyItem.unbind(item)
     }
 
     @EventHandler
     fun onPlayerUseTrainKey(event: PlayerInteractEvent) {
         if (event.action != Action.RIGHT_CLICK_AIR && event.action != Action.RIGHT_CLICK_BLOCK) return
-        val item = event.item ?: return
+        val player = event.player
+        val hand = event.hand
+        val item = keyItemInUse(player, hand) ?: event.item ?: return
         if (!TrainKeyItem.isKey(item)) return
 
         event.isCancelled = true
-        val player = event.player
         val boundTrain = resolveBoundTrain(item)
         if (boundTrain != null) {
             if (isWithinBindingDistance(player, boundTrain)) {
                 dialog.show(player, boundTrain)
             } else {
+                logKeyUnbind(player, handName(hand), TrainKeyItem.boundTrainId(item), TrainKeyItem.boundWorldId(item), "right-click-too-far")
                 TrainKeyItem.unbind(item)
+                setKeyItemInUse(player, hand, item)
                 player.sendActionBar(Component.text("距离列车过远，钥匙已解绑", NamedTextColor.YELLOW))
             }
             return
         }
 
         if (TrainKeyItem.boundTrainId(item) != null || TrainKeyItem.boundWorldId(item) != null) {
+            logKeyUnbind(player, handName(hand), TrainKeyItem.boundTrainId(item), TrainKeyItem.boundWorldId(item), "right-click-train-not-found")
             TrainKeyItem.unbind(item)
+            setKeyItemInUse(player, hand, item)
             player.sendActionBar(Component.text("绑定的列车不可用，钥匙已解绑", NamedTextColor.YELLOW))
             return
         }
@@ -218,6 +234,8 @@ class TrainControlManager(
             return
         }
         TrainKeyItem.bind(item, train)
+        setKeyItemInUse(player, hand, item)
+        plugin.logger.info("[TrainKey] Bound key player=${player.name} source=${handName(hand)} train=${train.id}")
         player.sendActionBar(Component.text("钥匙已绑定列车: ${train.id}", NamedTextColor.GREEN))
         dialog.show(player, train)
     }
@@ -257,8 +275,44 @@ class TrainControlManager(
     private fun isWithinBindingDistance(player: Player, train: Train): Boolean {
         val maxDistance = plugin.mineRailsConfig.trainKeyBindDistance
         if (maxDistance <= 0.0) return false
+        return minDistanceToTrainCenters(player, train)?.let { it <= maxDistance } ?: false
+    }
+
+    private fun minDistanceToTrainCenters(player: Player, train: Train): Double? {
         val playerPos = Vector3d(player.location.x, player.location.y, player.location.z)
-        return train.cars.any { car -> car.position.distance(playerPos) <= maxDistance }
+        return train.cars.minOfOrNull { car -> car.position.distance(playerPos) }
+    }
+
+    private fun keyItemInUse(player: Player, hand: EquipmentSlot?): ItemStack? {
+        return when (hand) {
+            EquipmentSlot.HAND -> player.inventory.itemInMainHand
+            EquipmentSlot.OFF_HAND -> player.inventory.itemInOffHand
+            else -> null
+        }
+    }
+
+    private fun setKeyItemInUse(player: Player, hand: EquipmentSlot?, item: ItemStack) {
+        when (hand) {
+            EquipmentSlot.HAND -> player.inventory.setItemInMainHand(item)
+            EquipmentSlot.OFF_HAND -> player.inventory.setItemInOffHand(item)
+            else -> Unit
+        }
+    }
+
+    private fun handName(hand: EquipmentSlot?): String {
+        return when (hand) {
+            EquipmentSlot.HAND -> "mainhand"
+            EquipmentSlot.OFF_HAND -> "offhand"
+            null -> "unknown-hand"
+            else -> hand.name.lowercase()
+        }
+    }
+
+    private fun logKeyUnbind(player: Player, source: String, trainId: String?, worldId: UUID?, reason: String) {
+        plugin.logger.info(
+            "[TrainKey] Auto-unbind player=${player.name} source=$source train=${trainId ?: "<none>"} " +
+                "world=${worldId ?: "<none>"} reason=$reason"
+        )
     }
 
     private fun resolveControlProfile(train: CoreTrain): Pair<work.art1st.mineRails.bukkit.config.model.TrainControlConfig, List<CarControlConfig>> {

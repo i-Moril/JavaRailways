@@ -59,7 +59,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         viewDistanceManager = ViewDistanceManager()
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
-        trainControlManager = TrainControlManager()
+        trainControlManager = TrainControlManager(this)
+        trainControlManager.start()
         trainHandleInputListener = TrainHandleInputListener()
         trainHandleInputListener.start(this)
 

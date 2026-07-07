@@ -7,6 +7,7 @@ import work.art1st.mineRails.bukkit.config.RailModelConfig
 import work.art1st.mineRails.bukkit.config.loadRailModelConfig
 import work.art1st.mineRails.bukkit.config.getDefaultRailModelConfig
 import work.art1st.mineRails.bukkit.config.model.ModelManager
+import work.art1st.mineRails.bukkit.control.TrainHandleInputListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
@@ -39,6 +40,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** RailWand 工具 */
     lateinit var railWand: RailWand
 
+    /** 驾驶座 WASD 手柄输入 */
+    lateinit var trainHandleInputListener: TrainHandleInputListener
+
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var operationWand: OperationWand
 
@@ -51,6 +55,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         viewDistanceManager = ViewDistanceManager()
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
+        trainHandleInputListener = TrainHandleInputListener()
+        trainHandleInputListener.start(this)
 
         // 加载全局配置
         mineRailsConfig = MineRailsConfig.load(this)
@@ -87,6 +93,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     override fun onDisable() {
         val worlds = worldManager.railWorlds.keys.toList()
         worlds.forEach { worldManager.unregisterRailWorld(it) }
+        runCatching { trainHandleInputListener.stop() }
         runCatching { TrainDebugLog.close() }
     }
 

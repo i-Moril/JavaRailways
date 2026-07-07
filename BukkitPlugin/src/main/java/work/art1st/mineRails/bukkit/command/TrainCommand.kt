@@ -691,7 +691,9 @@ object TrainCommand {
         }
     }
 
-    private fun isDrivingControlledTrain(player: Player, controller: RealisticManualController): Boolean {
+    fun controllerFor(player: Player): RealisticManualController? = playerControllers[player.uniqueId]
+
+    fun isDrivingControlledTrain(player: Player, controller: RealisticManualController): Boolean {
         val train = controller.controlledTrain as? CoreTrain ?: return false
         return SeatModel.SeatInteractionListener.isPlayerDrivingTrain(player, train)
     }

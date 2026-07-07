@@ -62,6 +62,14 @@ class RealisticManualController(
         })
     }
 
+    fun shiftHandleTowardPower(): String {
+        return handleRef.updateAndGet { current -> shiftedHandle(current, +1) }
+    }
+
+    fun shiftHandleTowardBrake(): String {
+        return handleRef.updateAndGet { current -> shiftedHandle(current, -1) }
+    }
+
     fun emergencyBrake() {
         handleRef.set(if (controlConfig.brakeNotchScales.containsKey("EB")) "EB" else {
             controlConfig.brakeNotchScales.maxByOrNull { it.value }?.key ?: NEUTRAL_HANDLE
@@ -101,6 +109,13 @@ class RealisticManualController(
 
     private fun nearestNotch(scales: Map<String, Double>, target: Double): String? {
         return scales.minByOrNull { (_, scale) -> kotlin.math.abs(scale - target) }?.key
+    }
+
+    private fun shiftedHandle(current: String, delta: Int): String {
+        val order = controlConfig.brakeNotches.asReversed() + NEUTRAL_HANDLE + controlConfig.powerNotches
+        val normalized = current.uppercase()
+        val index = order.indexOf(normalized).takeIf { it >= 0 } ?: order.indexOf(NEUTRAL_HANDLE)
+        return order[(index + delta).coerceIn(0, order.lastIndex)]
     }
 
     companion object {

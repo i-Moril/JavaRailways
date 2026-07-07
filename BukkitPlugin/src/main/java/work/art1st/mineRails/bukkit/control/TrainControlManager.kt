@@ -191,11 +191,19 @@ class TrainControlManager(
     fun playerHasBoundKeyFor(player: Player, train: Train): Boolean {
         return player.inventory.contents.asSequence()
             .filterNotNull()
-            .any { item ->
-                TrainKeyItem.isKey(item) &&
-                    TrainKeyItem.boundTrainId(item) == train.id &&
-                    TrainKeyItem.boundWorldId(item) == player.world.uid
-            }
+            .any { item -> item.isBoundTo(player, train) }
+    }
+
+    fun unbindKeyFor(player: Player, train: Train): Boolean {
+        val handItems = listOf(player.inventory.itemInMainHand, player.inventory.itemInOffHand)
+        val item = handItems.firstOrNull { it.isBoundTo(player, train) } ?: return false
+        return TrainKeyItem.unbind(item)
+    }
+
+    private fun ItemStack.isBoundTo(player: Player, train: Train): Boolean {
+        return TrainKeyItem.isKey(this) &&
+            TrainKeyItem.boundTrainId(this) == train.id &&
+            TrainKeyItem.boundWorldId(this) == player.world.uid
     }
 
     private fun alignTrainHeadToDriverSeat(train: CoreTrain, controlEnd: DriverControlEnd?) {

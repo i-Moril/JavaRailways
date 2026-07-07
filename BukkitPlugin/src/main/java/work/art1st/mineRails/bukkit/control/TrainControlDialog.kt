@@ -48,7 +48,6 @@ class TrainControlDialog(
             buttons.add(actionButton("释放控制权", NamedTextColor.YELLOW) { p ->
                 manager.releaseManualControl(p)
                 p.sendActionBar(Component.text("已释放列车控制权", NamedTextColor.YELLOW))
-                show(p, train)
             })
         } else {
             buttons.add(actionButton("获取控制权", NamedTextColor.GREEN) { p ->
@@ -64,9 +63,17 @@ class TrainControlDialog(
                     TrainControlManager.AcquireResult.NotDriverSeat -> p.sendActionBar(Component.text("请坐在该列车驾驶座上", NamedTextColor.RED))
                     TrainControlManager.AcquireResult.TrainUnavailable -> p.sendActionBar(Component.text("列车暂不可控", NamedTextColor.RED))
                 }
-                show(p, train)
             })
         }
+        buttons.add(actionButton("解绑此钥匙", NamedTextColor.RED) { p ->
+            val unbound = manager.unbindKeyFor(p, train)
+            if (unbound) {
+                if (manager.ownerOf(train) == p.uniqueId) manager.releaseManualControl(p)
+                p.sendActionBar(Component.text("列车钥匙已解绑", NamedTextColor.YELLOW))
+            } else {
+                p.sendActionBar(Component.text("手上没有绑定此列车的钥匙", NamedTextColor.RED))
+            }
+        })
         if (ownedByPlayer && controller != null) {
             buttons.add(directionButton(controller, TrainDriveDirection.FORWARD, "方向 F"))
             buttons.add(directionButton(controller, TrainDriveDirection.NEUTRAL, "方向 N"))
@@ -79,7 +86,6 @@ class TrainControlDialog(
                     if (applied) "已执行: ${action.displayName}" else "动作未生效: ${action.displayName}",
                     if (applied) NamedTextColor.GREEN else NamedTextColor.YELLOW
                 ))
-                show(p, train)
             })
         }
 
@@ -102,14 +108,18 @@ class TrainControlDialog(
             controller.setDirection(direction)
             controller.coast()
             p.sendActionBar(Component.text("方向已切换为 ${direction.label}", NamedTextColor.GREEN))
-            show(p, controller.controlledTrain)
         }
     }
 
     private fun actionButton(label: String, color: NamedTextColor, action: (Player) -> Unit): ActionButton {
         val click = DialogAction.customClick(
             { _, audience ->
-                if (audience is Player) action(audience)
+                if (audience is Player) {
+                    plugin.server.scheduler.runTask(plugin, Runnable {
+                        audience.closeInventory()
+                        action(audience)
+                    })
+                }
             },
             ClickCallback.Options.builder()
                 .uses(1)

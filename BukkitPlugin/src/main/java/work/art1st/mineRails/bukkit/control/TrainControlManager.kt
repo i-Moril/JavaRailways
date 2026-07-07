@@ -13,11 +13,9 @@ import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
 import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
-import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.render.model.SeatModel
-import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import java.util.UUID
@@ -216,7 +214,7 @@ class TrainControlManager(
 
         val train = SeatModel.SeatInteractionListener.drivingTrainFor(player)
         if (train == null) {
-            player.sendActionBar(Component.text("请先坐在驾驶座上再绑定列车", NamedTextColor.RED))
+            player.sendActionBar(Component.text("未绑定列车", NamedTextColor.YELLOW))
             return
         }
         TrainKeyItem.bind(item, train)
@@ -259,23 +257,8 @@ class TrainControlManager(
     private fun isWithinBindingDistance(player: Player, train: Train): Boolean {
         val maxDistance = plugin.mineRailsConfig.trainKeyBindDistance
         if (maxDistance <= 0.0) return false
-        if (train.world.bukkitWorldData.bukkitWorld.uid != player.world.uid) return false
-        if (SeatModel.SeatInteractionListener.drivingTrainFor(player) === train) return true
-
         val playerPos = Vector3d(player.location.x, player.location.y, player.location.z)
-        return train.cars.any { car -> distanceToCarBody(playerPos, car) <= maxDistance }
-    }
-
-    private fun distanceToCarBody(playerPos: Vector3d, car: Car): Double {
-        val direction = Vector3d(car.direction)
-        if (direction.lengthSquared() <= 1e-9) return car.position.distance(playerPos)
-        direction.normalize()
-
-        val halfLength = car.length / 2.0 + CAR_END_DISTANCE_MARGIN
-        val fromCenter = Vector3d(playerPos).sub(car.position)
-        val alongCar = fromCenter.dot(direction).coerceIn(-halfLength, halfLength)
-        val closest = Vector3d(car.position).add(direction.mul(alongCar))
-        return closest.distance(playerPos)
+        return train.cars.any { car -> car.position.distance(playerPos) <= maxDistance }
     }
 
     private fun resolveControlProfile(train: CoreTrain): Pair<work.art1st.mineRails.bukkit.config.model.TrainControlConfig, List<CarControlConfig>> {
@@ -292,7 +275,4 @@ class TrainControlManager(
         return trainControl to carControls
     }
 
-    companion object {
-        private const val CAR_END_DISTANCE_MARGIN = 1.0
-    }
 }

@@ -16,9 +16,5 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     val headLocation: RailLocation
     val tailLocation: RailLocation
     fun moveTrainForward(deltaS: Double)
-    fun moveTrainSigned(deltaS: Double) {
-        require(deltaS >= 0.0) { "default Train.moveTrainSigned only supports non-negative deltas" }
-        moveTrainForward(deltaS)
-    }
     fun reverse()
 }

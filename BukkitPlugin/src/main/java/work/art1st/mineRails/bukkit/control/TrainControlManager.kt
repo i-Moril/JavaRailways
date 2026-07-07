@@ -85,6 +85,7 @@ class TrainControlManager(
             val (controlConfig, carControls) = resolveControlProfile(coreTrain)
             RealisticManualController(coreTrain, coreTrain.world, controlConfig, carControls).also { coreTrain.setController(it) }
         }
+        controller.markCurrentPhysicalDirectionAsForward()
         controller.setDirection(TrainDriveDirection.NEUTRAL)
         controller.coast()
         return AcquireResult.Acquired(registerManualControl(player, coreTrain, controller))

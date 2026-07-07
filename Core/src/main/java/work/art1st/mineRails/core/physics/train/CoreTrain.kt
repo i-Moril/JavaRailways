@@ -5,7 +5,7 @@ import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.DerailEvent
 import work.art1st.mineRails.core.api.event.processor.EventManager
 import work.art1st.mineRails.core.api.event.PassSignalEvent
-import work.art1st.mineRails.core.api.event.TrainReverseEvent
+import work.art1st.mineRails.core.api.event.TrainSwitchDirectionEvent
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException
 import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardException
@@ -50,7 +50,6 @@ open class CoreTrain @MainThread internal constructor(
         get() = _isDerailed.get()
     var isReversed: Boolean = false
         protected set
-    private var signedMovementReversed: Boolean = false
     override val length
         get() = cars.size
     var head: TrainEnd
@@ -101,21 +100,6 @@ open class CoreTrain @MainThread internal constructor(
      * @throws IllegalStateException 如果列车没有转向架
      */
     override fun moveTrainForward(deltaS: Double) {
-        setSignedMovementReversed(false)
-        moveTrainForwardInternal(deltaS)
-    }
-
-    override fun moveTrainSigned(deltaS: Double) {
-        if (deltaS >= 0.0) {
-            setSignedMovementReversed(false)
-            moveTrainForwardInternal(deltaS)
-            return
-        }
-        setSignedMovementReversed(true)
-        moveTrainForwardInternal(-deltaS)
-    }
-
-    private fun moveTrainForwardInternal(deltaS: Double) {
         if (isDerailed) return
 
         require(deltaS >= 0.0) { "deltaS must >= 0" }
@@ -186,14 +170,7 @@ open class CoreTrain @MainThread internal constructor(
 
     override fun reverse() {
         reverseInternal()
-        signedMovementReversed = false
-        EventManager.fire(TrainReverseEvent(this))
-    }
-
-    private fun setSignedMovementReversed(reversed: Boolean) {
-        if (signedMovementReversed == reversed) return
-        reverseInternal()
-        signedMovementReversed = reversed
+        EventManager.fire(TrainSwitchDirectionEvent(this))
     }
 
     private fun reverseInternal() {

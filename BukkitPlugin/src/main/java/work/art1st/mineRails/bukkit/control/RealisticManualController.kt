@@ -26,6 +26,7 @@ class RealisticManualController(
     private var lastForces = TrainDynamics.StepResult(dynamicsState, 0.0, 0.0, 0.0, 0.0, 0.0)
     private val handleRef = AtomicReference(NEUTRAL_HANDLE)
     private val directionRef = AtomicReference(TrainDriveDirection.NEUTRAL)
+    private val runningDirectionRef = AtomicReference(TrainDriveDirection.FORWARD)
     @Volatile
     private var movementSign: Double = 1.0
 
@@ -83,11 +84,23 @@ class RealisticManualController(
         return handleRef.updateAndGet { current -> shiftedHandle(current, -1) }
     }
 
+    fun markCurrentPhysicalDirectionAsForward() {
+        runningDirectionRef.set(TrainDriveDirection.FORWARD)
+        if (directionRef.get() != TrainDriveDirection.REVERSE) {
+            movementSign = 1.0
+        }
+    }
+
     fun setDirection(direction: TrainDriveDirection) {
         directionRef.set(direction)
         when (direction) {
-            TrainDriveDirection.FORWARD -> movementSign = 1.0
-            TrainDriveDirection.REVERSE -> movementSign = -1.0
+            TrainDriveDirection.FORWARD, TrainDriveDirection.REVERSE -> {
+                val previousRunningDirection = runningDirectionRef.getAndSet(direction)
+                if (previousRunningDirection != direction) {
+                    train.reverse()
+                }
+                movementSign = if (direction == TrainDriveDirection.FORWARD) 1.0 else -1.0
+            }
             TrainDriveDirection.NEUTRAL -> Unit
         }
     }
@@ -121,12 +134,7 @@ class RealisticManualController(
         lastForces = result
         dynamicsState = result.state
         speed = result.state.speed
-        val signedDistance = result.distance * movementSign
-        if (directionRef.get() == TrainDriveDirection.NEUTRAL && result.state.speed == 0.0) {
-            train.moveTrainSigned(0.0)
-        } else {
-            train.moveTrainSigned(signedDistance)
-        }
+        train.moveTrainForward(result.distance)
     }
 
     private fun buildCarInputs(cars: List<Car>): List<TrainDynamics.CarInput> {

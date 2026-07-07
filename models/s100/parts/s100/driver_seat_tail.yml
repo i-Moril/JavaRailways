@@ -1,5 +1,6 @@
 config-version: 1
-name: driver_seat
+name: driver_seat_tail
 type: seat
 interaction:
   driver: true
+  control-end: tail

@@ -1,5 +1,8 @@
 actions:
   door-left-open:
+    display-name: "左侧开门"
+    executable: true
+    requires-control: false
     animations:
       - name: doors_l_light
         at: 0.0
@@ -12,6 +15,9 @@ actions:
         pitch: 1.0
         at: 0.0
   door-left-close:
+    display-name: "左侧关门"
+    executable: true
+    requires-control: false
     animations:
       - name: doors_l_light
         at: 0.0
@@ -24,6 +30,9 @@ actions:
         pitch: 1.0
         at: 0.6
   door-right-open:
+    display-name: "右侧开门"
+    executable: true
+    requires-control: false
     animations:
       - name: doors_r_light
         at: 0.0
@@ -36,6 +45,9 @@ actions:
         pitch: 1.0
         at: 0.0
   door-right-close:
+    display-name: "右侧关门"
+    executable: true
+    requires-control: false
     animations:
       - name: doors_r_light
         at: 0.0

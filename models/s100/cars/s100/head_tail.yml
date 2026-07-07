@@ -22,7 +22,7 @@ body-parts:
 
   # --- Body sections (6 segments) ---
   # z=0: head cab (CMD 10002) at posZ=7.5
-  - import: body_head
+  - import: body_head_tail
     offset: {x: 0, y: 1.25, z: -7.5}
     rotation: {y: 180}
   # z=1: seat_b (CMD 10000, rotY=180) at posZ=4.5

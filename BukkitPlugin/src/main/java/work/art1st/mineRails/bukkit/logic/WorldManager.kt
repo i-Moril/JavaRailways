@@ -8,6 +8,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.debug.AbnormalTrainMarker
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
@@ -28,6 +29,7 @@ class WorldManager(
         railWorlds[bukkitWorld] = railWorld
         if (snapshot != null && railWorld is CoreWorld) {
             restoreBukkitTrainExtensions(railWorld, snapshot)
+            markSkippedPersistedTrains(bukkitWorld, railWorld, snapshot)
         }
     }
 
@@ -54,14 +56,32 @@ class WorldManager(
                     "Failed to refresh restored train '${train.id}' render state: " +
                         "${error::class.simpleName}: ${error.message ?: ""}"
                 )
+                AbnormalTrainMarker.markTrain(train, "restore failed: ${error::class.simpleName}")
             }
         }
+    }
+
+    private fun markSkippedPersistedTrains(
+        bukkitWorld: BukkitWorld,
+        coreWorld: CoreWorld,
+        snapshot: CoreWorld.SavedWorldV1
+    ) {
+        val loadedIds = coreWorld.allTrains.map { it.id }.toSet()
+        snapshot.trains
+            .filter { savedTrain -> savedTrain.id !in loadedIds }
+            .forEach { savedTrain ->
+                BukkitPlugin.INSTANCE.logger.warning(
+                    "Persisted train '${savedTrain.id}' could not be loaded; showing abnormal train marker"
+                )
+                AbnormalTrainMarker.markSavedTrain(coreWorld, bukkitWorld, savedTrain, "load failed")
+            }
     }
 
     fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
         railWorlds[bukkitWorld]?.let { rw ->
             (rw as? CoreWorld)?.let { WorldPersistence.saveSnapshot(bukkitWorld, it) }
         }
+        AbnormalTrainMarker.clearWorld(bukkitWorld)
         railWorlds.remove(bukkitWorld)
     }
 
@@ -112,6 +132,9 @@ class WorldManager(
                         }
                     }
                 }
+            }
+            (railWorld as? CoreWorld)?.let { coreWorld ->
+                AbnormalTrainMarker.tick(coreWorld, world)
             }
             railWorld.renderChunkManager.render()
         }

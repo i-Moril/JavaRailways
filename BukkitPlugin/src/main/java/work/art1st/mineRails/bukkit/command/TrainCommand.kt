@@ -7,6 +7,7 @@ import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
+import work.art1st.mineRails.bukkit.debug.AbnormalTrainMarker
 import work.art1st.mineRails.bukkit.config.model.CarDefinition
 import work.art1st.mineRails.bukkit.config.model.TrainControlConfig
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
@@ -585,6 +586,7 @@ object TrainCommand {
 
         playerControllers.entries.removeIf { it.value.controlledTrain == train }
         BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
+        AbnormalTrainMarker.clearTrain(sender.world, train.id)
         train.destroy()
         sender.sendMessage("已删除列车: ${train.id}")
         return true

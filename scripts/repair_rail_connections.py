@@ -7,7 +7,8 @@ created/selected the wrong active/default path at coincident rail endpoints.
 It rebuilds each rail's nextRailAtA/nextRailAtB from endpoint geometry:
   * endpoints must coincide within --tolerance (default 5cm for legacy near-miss endpoints);
   * both transition directions must be no sharper than --max-angle;
-  * activeTrackAtA/B is set to the smoothest candidate at that endpoint.
+  * activeTrackAtA/B is set to the smoothest candidate at that endpoint;
+  * by default, accepted near-miss endpoint clusters are snapped to one shared position.
 
 Run while the server/plugin is stopped, otherwise the server may overwrite the file
 on world/plugin unload.
@@ -82,6 +83,12 @@ class Candidate:
     angle: float
 
 
+@dataclass(frozen=True)
+class EndpointKey:
+    rail_index: int
+    end: str
+
+
 @dataclass
 class EndpointPlan:
     candidates: list[Candidate] = field(default_factory=list)
@@ -117,6 +124,31 @@ def point_at(points: list[dict[str, Any]], arc_length: float) -> Vec:
 
 def subtract(a: Vec, b: Vec) -> Vec:
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def set_endpoint_position(rails: list[dict[str, Any]], key: EndpointKey, position: Vec) -> None:
+    points = rails[key.rail_index]["curveAB"]["pointList"]
+    point = points[0] if key.end == "A" else points[-1]
+    point["position"]["x"] = position[0]
+    point["position"]["y"] = position[1]
+    point["position"]["z"] = position[2]
+
+
+class UnionFind:
+    def __init__(self) -> None:
+        self.parent: dict[EndpointKey, EndpointKey] = {}
+
+    def find(self, value: EndpointKey) -> EndpointKey:
+        self.parent.setdefault(value, value)
+        if self.parent[value] != value:
+            self.parent[value] = self.find(self.parent[value])
+        return self.parent[value]
+
+    def union(self, left: EndpointKey, right: EndpointKey) -> None:
+        left_root = self.find(left)
+        right_root = self.find(right)
+        if left_root != right_root:
+            self.parent[right_root] = left_root
 
 
 def endpoints_for(rails: list[dict[str, Any]], lookahead_meters: float) -> list[Endpoint]:
@@ -155,12 +187,20 @@ def endpoints_for(rails: list[dict[str, Any]], lookahead_meters: float) -> list[
     return endpoints
 
 
-def repair(data: dict[str, Any], tolerance: float, max_angle_degrees: float, lookahead_meters: float) -> tuple[int, int, int]:
+def repair(
+    data: dict[str, Any],
+    tolerance: float,
+    max_angle_degrees: float,
+    lookahead_meters: float,
+    snap_endpoints: bool,
+) -> tuple[int, int, int, int]:
     rails = data.get("rails") or []
     endpoints = endpoints_for(rails, lookahead_meters)
-    plans: dict[tuple[int, str], EndpointPlan] = {
-        (endpoint.rail_index, endpoint.end): EndpointPlan() for endpoint in endpoints
+    plans: dict[EndpointKey, EndpointPlan] = {
+        EndpointKey(endpoint.rail_index, endpoint.end): EndpointPlan() for endpoint in endpoints
     }
+    endpoint_by_key = {EndpointKey(endpoint.rail_index, endpoint.end): endpoint for endpoint in endpoints}
+    endpoint_sets = UnionFind()
     accepted_pairs = 0
     rejected_by_angle = 0
 
@@ -182,16 +222,39 @@ def repair(data: dict[str, Any], tolerance: float, max_angle_degrees: float, loo
             right_chord = angle_degrees(right.tangent_into_joint, left.chord_away_from_joint)
             left_score = max(left_to_right, left_chord if left_chord is not None else left_to_right)
             right_score = max(right_to_left, right_chord if right_chord is not None else right_to_left)
-            plans[(left.rail_index, left.end)].candidates.append(Candidate(right.rail_id, left_score))
-            plans[(right.rail_index, right.end)].candidates.append(Candidate(left.rail_id, right_score))
+            left_key = EndpointKey(left.rail_index, left.end)
+            right_key = EndpointKey(right.rail_index, right.end)
+            plans[left_key].candidates.append(Candidate(right.rail_id, left_score))
+            plans[right_key].candidates.append(Candidate(left.rail_id, right_score))
+            endpoint_sets.union(left_key, right_key)
             accepted_pairs += 1
+
+    snapped_endpoints = 0
+    if snap_endpoints:
+        groups: dict[EndpointKey, list[EndpointKey]] = {}
+        for key, endpoint in endpoint_by_key.items():
+            if plans[key].candidates:
+                groups.setdefault(endpoint_sets.find(key), []).append(key)
+        for keys in groups.values():
+            if len(keys) < 2:
+                continue
+            positions = [endpoint_by_key[key].position for key in keys]
+            target = (
+                sum(position[0] for position in positions) / len(positions),
+                sum(position[1] for position in positions) / len(positions),
+                sum(position[2] for position in positions) / len(positions),
+            )
+            for key in keys:
+                if dist(endpoint_by_key[key].position, target) > EPSILON:
+                    snapped_endpoints += 1
+                set_endpoint_position(rails, key, target)
 
     changed = 0
     for endpoint in endpoints:
         rail = rails[endpoint.rail_index]
         field = f"nextRailAt{endpoint.end}"
         active_field = f"activeTrackAt{endpoint.end}"
-        candidates = plans[(endpoint.rail_index, endpoint.end)].sorted_candidates()
+        candidates = plans[EndpointKey(endpoint.rail_index, endpoint.end)].sorted_candidates()
         next_ids = [candidate.rail_id for candidate in candidates]
         active_id = candidates[0].rail_id if candidates else None
         if rail.get(field) != next_ids or rail.get(active_field) != active_id:
@@ -199,7 +262,7 @@ def repair(data: dict[str, Any], tolerance: float, max_angle_degrees: float, loo
         rail[field] = next_ids
         rail[active_field] = active_id
 
-    return changed, accepted_pairs, rejected_by_angle
+    return changed, accepted_pairs, rejected_by_angle, snapped_endpoints
 
 
 def main() -> int:
@@ -208,6 +271,7 @@ def main() -> int:
     parser.add_argument("--tolerance", type=float, default=DEFAULT_TOLERANCE, help="endpoint coincidence tolerance in meters")
     parser.add_argument("--max-angle", type=float, default=DEFAULT_MAX_ANGLE_DEGREES, help="maximum tangent transition angle in degrees")
     parser.add_argument("--lookahead", type=float, default=DEFAULT_LOOKAHEAD_METERS, help="meters used to break same-tangent active-path ties by curve chord")
+    parser.add_argument("--no-snap", action="store_true", help="only repair connection fields; do not move near-miss endpoint coordinates")
     parser.add_argument("--apply", action="store_true", help="write changes; without this, only prints a dry-run summary")
     parser.add_argument("--no-backup", action="store_true", help="do not create a .bak timestamp backup when applying")
     args = parser.parse_args()
@@ -215,13 +279,22 @@ def main() -> int:
     path = args.world
     before_text = path.read_text()
     data = json.loads(before_text)
-    changed_endpoints, accepted_pairs, rejected_by_angle = repair(data, args.tolerance, args.max_angle, args.lookahead)
+    changed_endpoints, accepted_pairs, rejected_by_angle, snapped_endpoints = repair(
+        data,
+        args.tolerance,
+        args.max_angle,
+        args.lookahead,
+        snap_endpoints=not args.no_snap,
+    )
     after_text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
     changed_file = before_text != after_text
 
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(f"[{mode}] {path}")
-    print(f"rails={len(data.get('rails') or [])} changed_endpoints={changed_endpoints} accepted_pairs={accepted_pairs} rejected_by_angle={rejected_by_angle}")
+    print(
+        f"rails={len(data.get('rails') or [])} changed_endpoints={changed_endpoints} "
+        f"snapped_endpoints={snapped_endpoints} accepted_pairs={accepted_pairs} rejected_by_angle={rejected_by_angle}"
+    )
 
     if not args.apply:
         if changed_file:

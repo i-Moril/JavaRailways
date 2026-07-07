@@ -105,10 +105,10 @@ class CoreRail @MainThread private constructor(
         return SavedRailV1(
             id.toString(),
             curveSnapshot,
-            viewAB.nextRails.map { it.rail.id.toString() },
             viewBA.nextRails.map { it.rail.id.toString() },
-            viewAB.nextActiveRail?.rail?.id?.toString(),
-            viewBA.nextActiveRail?.rail?.id?.toString()
+            viewAB.nextRails.map { it.rail.id.toString() },
+            viewBA.nextActiveRail?.rail?.id?.toString(),
+            viewAB.nextActiveRail?.rail?.id?.toString()
         )
     }
 
@@ -143,27 +143,28 @@ class CoreRail @MainThread private constructor(
         fun restoreConnections(rail: CoreRail, dependency: Dependency) {
             val pointA = rail.curve.getPointAt(0.0)
             val pointB = rail.curve.getPointAt(rail.curve.totalArcLength)
-            val nextAtA = nextRailAtA.mapNotNull { resolveRailView(pointA, it, dependency) }
-            val nextAtB = nextRailAtB.mapNotNull { resolveRailView(pointB, it, dependency) }
+            val savedNextRailIds = (nextRailAtA + nextRailAtB).distinct()
+            val nextAtA = savedNextRailIds.mapNotNull { resolveRailView(pointA, it, dependency) }
+            val nextAtB = savedNextRailIds.mapNotNull { resolveRailView(pointB, it, dependency) }
+            val savedActiveRailIds = listOfNotNull(activeTrackAtA, activeTrackAtB).distinct()
             rail.viewBA.activeRail = null
             rail.viewBA.mutableNextRails.clear()
             rail.viewBA.mutableNextRails.addAll(nextAtA)
-            rail.viewBA.activeRail = activeTrackAtA
-                ?.takeIf { nextRailAtA.contains(it) }
-                ?.let { resolveRailView(pointA, it, dependency) }
-                ?.takeIf { nextAtA.contains(it) }
+            rail.viewBA.activeRail = savedActiveRailIds
+                .firstNotNullOfOrNull { resolveRailView(pointA, it, dependency)?.takeIf { view -> nextAtA.contains(view) } }
             rail.viewAB.activeRail = null
             rail.viewAB.mutableNextRails.clear()
             rail.viewAB.mutableNextRails.addAll(nextAtB)
-            rail.viewAB.activeRail = activeTrackAtB
-                ?.takeIf { nextRailAtB.contains(it) }
-                ?.let { resolveRailView(pointB, it, dependency) }
-                ?.takeIf { nextAtB.contains(it) }
+            rail.viewAB.activeRail = savedActiveRailIds
+                .firstNotNullOfOrNull { resolveRailView(pointB, it, dependency)?.takeIf { view -> nextAtB.contains(view) } }
         }
 
         private fun resolveRailView(point: Curve.Point, railId: String, dependency: Dependency): RailView? {
             val uuid = runCatching { UUID.fromString(railId) }.getOrNull() ?: return null
             val rail = dependency.world.getRail(uuid) ?: return null
+            val distA = rail.viewAB.startPoint.position.distance(point.position)
+            val distB = rail.viewAB.endPoint.position.distance(point.position)
+            if (minOf(distA, distB) > TOLERANCE) return null
             return getDirection(point, rail)
         }
 

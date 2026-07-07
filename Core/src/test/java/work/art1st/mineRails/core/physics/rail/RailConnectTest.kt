@@ -2,12 +2,67 @@ package work.art1st.mineRails.core.physics.rail
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.physics.train.createTestWorld
 
 class RailConnectTest {
+    @Test
+    fun `save stores connections at semantic endpoints`() {
+        val world = createTestWorld()
+        val first = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        val second = CoreRail(world, straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+
+        CoreRail.connect(first, second)
+
+        val firstSaved = first.save()
+        val secondSaved = second.save()
+        assertEquals(emptyList<String>(), firstSaved.nextRailAtA)
+        assertEquals(listOf(second.id.toString()), firstSaved.nextRailAtB)
+        assertNull(firstSaved.activeTrackAtA)
+        assertEquals(second.id.toString(), firstSaved.activeTrackAtB)
+        assertEquals(listOf(first.id.toString()), secondSaved.nextRailAtA)
+        assertEquals(emptyList<String>(), secondSaved.nextRailAtB)
+        assertEquals(first.id.toString(), secondSaved.activeTrackAtA)
+        assertNull(secondSaved.activeTrackAtB)
+    }
+
+    @Test
+    fun `restore migrates legacy swapped endpoint connections by geometry`() {
+        val sourceWorld = createTestWorld()
+        val first = CoreRail(sourceWorld, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        val second = CoreRail(sourceWorld, straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        CoreRail.connect(first, second)
+        val firstLegacy = first.save().copy(
+            nextRailAtA = listOf(second.id.toString()),
+            nextRailAtB = emptyList(),
+            activeTrackAtA = second.id.toString(),
+            activeTrackAtB = null
+        )
+        val secondLegacy = second.save().copy(
+            nextRailAtA = emptyList(),
+            nextRailAtB = listOf(first.id.toString()),
+            activeTrackAtA = null,
+            activeTrackAtB = first.id.toString()
+        )
+
+        val targetWorld = createTestWorld()
+        val dependency = CoreRail.SavedRailV1.Dependency(targetWorld)
+        val loadedFirst = firstLegacy.loadDisconnected(dependency)
+        val loadedSecond = secondLegacy.loadDisconnected(dependency)
+        firstLegacy.restoreConnections(loadedFirst, dependency)
+        secondLegacy.restoreConnections(loadedSecond, dependency)
+
+        assertEquals(listOf(loadedSecond.viewAB), loadedFirst.viewAB.nextRails)
+        assertEquals(loadedSecond.viewAB, loadedFirst.viewAB.nextActiveRail)
+        assertEquals(emptyList<RailView>(), loadedFirst.viewBA.nextRails)
+        assertEquals(listOf(loadedFirst.viewBA), loadedSecond.viewBA.nextRails)
+        assertEquals(loadedFirst.viewBA, loadedSecond.viewBA.nextActiveRail)
+        assertEquals(emptyList<RailView>(), loadedSecond.viewAB.nextRails)
+    }
+
     @Test
     fun `connecting the same adjacent rails twice does not duplicate next rails`() {
         val world = createTestWorld()

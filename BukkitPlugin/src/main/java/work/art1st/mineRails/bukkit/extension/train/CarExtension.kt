@@ -1,6 +1,7 @@
 package work.art1st.mineRails.bukkit.extension.train
 
 import org.bukkit.Location
+import org.bukkit.entity.Player
 import org.joml.Matrix3d
 import org.joml.Quaterniond
 import org.joml.Vector3d
@@ -10,6 +11,7 @@ import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.persistence.CarModelSnapshotStore
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
+import work.art1st.mineRails.bukkit.render.model.PlatformModel
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Bogie
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
@@ -33,6 +35,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var savedModelSnapshotHash: String? = null
     private var bodyModel: CompositeModel? = null
     private var bogieModels: List<CompositeModel> = emptyList()
+    private var platformModels: List<PlatformModel> = emptyList()
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
         super.initialize(host, savedExtensionData)
@@ -96,6 +99,10 @@ class CarExtension : TrainComponentExtension<Car>() {
         bogieModels = carDef.bogies.map { bogieDef ->
             builder.buildBogie(bogieDef, carDef.namespace, rootLocation)
         }
+        platformModels = buildList {
+            bodyModel?.collectPlatformModels(this)
+            bogieModels.forEach { it.collectPlatformModels(this) }
+        }
         applyHeldScenes(pendingHeldScenes)
     }
 
@@ -135,6 +142,16 @@ class CarExtension : TrainComponentExtension<Car>() {
             )
             bogieModel.updateState(bogieTransform, bogie.velocity)
         }
+
+        refreshPlatformActivationForAudience()
+    }
+
+    override fun refreshFor(player: Player) {
+        refreshPlatformActivation(player)
+    }
+
+    override fun onAudienceRemoved(player: Player) {
+        deactivatePlatformsFor(player)
     }
 
     override fun destroyModel() {
@@ -142,6 +159,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         bogieModels.forEach { it.destroy() }
         bodyModel = null
         bogieModels = emptyList()
+        platformModels = emptyList()
     }
 
     override fun applyAnimation(name: String): Boolean {
@@ -181,6 +199,24 @@ class CarExtension : TrainComponentExtension<Car>() {
         }
         if (applied) {
             pendingHeldScenes = scenes
+        }
+    }
+
+    private fun refreshPlatformActivationForAudience() {
+        forEachAudiencePlayer(::refreshPlatformActivation)
+    }
+
+    private fun refreshPlatformActivation(player: Player) {
+        platformModels.forEach { it.refreshActivation(player) }
+    }
+
+    private fun deactivatePlatformsFor(player: Player) {
+        platformModels.forEach { it.deactivateFor(player) }
+    }
+
+    private fun CompositeModel.collectPlatformModels(target: MutableList<PlatformModel>) {
+        forEachModelRecursive { model ->
+            if (model is PlatformModel) target += model
         }
     }
 

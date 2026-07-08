@@ -4,14 +4,17 @@ import org.bukkit.GameMode
 import org.bukkit.Location
 import org.bukkit.block.BlockFace
 import org.bukkit.entity.Chicken
+import org.bukkit.entity.Player
 import org.bukkit.entity.Shulker
 import org.bukkit.util.Vector
+import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.config.model.PartPlatformConfig
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.core.api.physics.World
+import java.util.UUID
 import kotlin.math.abs
 
 class PlatformModel internal constructor(
@@ -24,32 +27,39 @@ class PlatformModel internal constructor(
 ) : AbstractModel(world, state, attachedModels, animation) {
     private val units: MutableList<PlatformUnit> = mutableListOf()
     private val cellOffsets = platformConfig.cellOffsets().map { Vector3d(it.x, it.y, it.z) }
-    private var activationTtlTicks: Int = 0
+    private val platformHalfX = ((platformConfig.rows.coerceAtLeast(1) - 1) * platformConfig.spacingX) / 2.0 + CELL_HALF_EXTENT
+    private val platformHalfZ = ((platformConfig.columns.coerceAtLeast(1) - 1) * platformConfig.spacingZ) / 2.0 + CELL_HALF_EXTENT
+    private val activePlayers: MutableSet<UUID> = hashSetOf()
+    private var lastRootVelocity: Vector3dc = Vector3d()
 
     private fun spawnEntities() {
         if (units.isNotEmpty()) return
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
+        val (yaw, pitch) = entityYawPitch()
         for (offset in cellOffsets) {
-            val chicken = bukkitWorld.spawn(initialLocation, Chicken::class.java)
-            chicken.isPersistent = false
-            chicken.isSilent = true
-            chicken.isInvisible = true
-            chicken.isInvulnerable = true
-            chicken.isCollidable = false
-            chicken.setAI(false)
-            chicken.setGravity(false)
-            chicken.setIsChickenJockey(true)
+            val location = unitLocation(offset, yaw, pitch)
+            val chicken = bukkitWorld.spawn(location, Chicken::class.java) { chicken ->
+                chicken.isPersistent = false
+                chicken.isSilent = true
+                chicken.isInvisible = true
+                chicken.isInvulnerable = true
+                chicken.isCollidable = false
+                chicken.setAI(false)
+                chicken.setGravity(false)
+                chicken.setIsChickenJockey(true)
+            }
 
-            val shulker = bukkitWorld.spawn(initialLocation, Shulker::class.java)
-            shulker.isPersistent = false
-            shulker.isSilent = true
-            shulker.isInvisible = true
-            shulker.isInvulnerable = true
-            shulker.isCollidable = true
-            shulker.setAI(false)
-            shulker.setGravity(false)
-            shulker.setAttachedFace(BlockFace.UP)
-            shulker.setPeek(0.0f)
+            val shulker = bukkitWorld.spawn(location, Shulker::class.java) { shulker ->
+                shulker.isPersistent = false
+                shulker.isSilent = true
+                shulker.isInvisible = true
+                shulker.isInvulnerable = true
+                shulker.isCollidable = true
+                shulker.setAI(false)
+                shulker.setGravity(false)
+                shulker.setAttachedFace(BlockFace.UP)
+                shulker.setPeek(0.0f)
+            }
 
             chicken.addPassenger(shulker)
             units += PlatformUnit(chicken, shulker, offset)
@@ -67,39 +77,48 @@ class PlatformModel internal constructor(
     override fun updateState(
         parentRelativeTransform: CompactTransform,
         rootTransform: CompactTransform,
-        rootVelocity: org.joml.Vector3dc,
+        rootVelocity: Vector3dc,
         transformDirty: Boolean
     ) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
-
-        if (hasNearbyPlayers(state.position)) {
-            activationTtlTicks = ACTIVE_TTL_TICKS
-        } else if (activationTtlTicks > 0) {
-            activationTtlTicks -= 1
+        lastRootVelocity = Vector3d(rootVelocity)
+        if (units.isNotEmpty()) {
+            syncEntities(rootVelocity)
         }
+    }
 
-        if (activationTtlTicks <= 0) {
-            if (units.isNotEmpty()) destroyEntities()
+    fun refreshActivation(player: Player) {
+        if (!isEligible(player)) {
+            deactivateFor(player)
             return
         }
 
-        if (units.isEmpty()) {
-            spawnEntities()
+        val playerId = player.uniqueId
+        val alreadyActive = playerId in activePlayers
+        val horizontalMargin = if (alreadyActive) DEACTIVATE_HORIZONTAL_MARGIN else ACTIVATE_HORIZONTAL_MARGIN
+        val verticalMargin = if (alreadyActive) DEACTIVATE_VERTICAL_MARGIN else 0.0
+        if (!containsPlayer(player, horizontalMargin, verticalMargin)) {
+            deactivateFor(player)
+            return
         }
 
+        activePlayers.add(playerId)
+        if (units.isEmpty()) {
+            spawnEntities()
+            syncEntities(lastRootVelocity)
+        }
+    }
+
+    fun deactivateFor(player: Player) {
+        if (activePlayers.remove(player.uniqueId) && activePlayers.isEmpty()) {
+            destroyEntities()
+        }
+    }
+
+    private fun syncEntities(rootVelocity: Vector3dc) {
         val (yaw, pitch) = entityYawPitch()
         for (unit in units) {
-            val position = Vector3d(unit.localOffset)
-            state.worldTransform.rotation.transform(position)
-            position.add(state.worldTransform.position)
-            val location = Location(
-                unit.chicken.world,
-                position.x,
-                position.y - SHULKER_PASSENGER_Y_OFFSET,
-                position.z,
-                yaw,
-                pitch
-            )
+            val location = unitLocation(unit.localOffset, yaw, pitch)
             unit.chicken.teleport(location)
             unit.chicken.setRotation(location.yaw, location.pitch)
             unit.chicken.setBodyYaw(location.yaw)
@@ -107,20 +126,35 @@ class PlatformModel internal constructor(
         }
     }
 
-    private fun hasNearbyPlayers(position: Vector3dc): Boolean {
-        val radiusSq = ACTIVE_HORIZONTAL_RADIUS * ACTIVE_HORIZONTAL_RADIUS
-        val px = position.x()
-        val py = position.y()
-        val pz = position.z()
-        return world.bukkitWorldData.bukkitWorld.players.any { player ->
-            if (!player.isValid || player.isDead || player.gameMode == GameMode.SPECTATOR) {
-                return@any false
-            }
-            val location = player.location
-            val dx = location.x - px
-            val dz = location.z - pz
-            dx * dx + dz * dz <= radiusSq && abs(location.y - py) <= ACTIVE_VERTICAL_RADIUS
-        }
+    private fun unitLocation(offset: Vector3dc, yaw: Float, pitch: Float): Location {
+        val position = Vector3d(offset)
+        state.worldTransform.rotation.transform(position)
+        position.add(state.worldTransform.position)
+        return Location(
+            world.bukkitWorldData.bukkitWorld,
+            position.x,
+            position.y - SHULKER_PASSENGER_Y_OFFSET,
+            position.z,
+            yaw,
+            pitch
+        )
+    }
+
+    private fun isEligible(player: Player): Boolean {
+        return player.isValid &&
+            !player.isDead &&
+            player.gameMode != GameMode.SPECTATOR &&
+            player.world == world.bukkitWorldData.bukkitWorld
+    }
+
+    private fun containsPlayer(player: Player, horizontalMargin: Double, verticalMargin: Double): Boolean {
+        val location = player.location
+        val local = Vector3d(location.x, location.y, location.z).sub(state.worldTransform.position)
+        Quaterniond(state.worldTransform.rotation).conjugate().transform(local)
+        return abs(local.x()) <= platformHalfX + horizontalMargin &&
+            abs(local.z()) <= platformHalfZ + horizontalMargin &&
+            local.y() >= -ACTIVE_VERTICAL_BELOW - verticalMargin &&
+            local.y() <= ACTIVE_VERTICAL_ABOVE + verticalMargin
     }
 
     private fun entityYawPitch(): Pair<Float, Float> {
@@ -132,6 +166,7 @@ class PlatformModel internal constructor(
     }
 
     override fun destroy() {
+        activePlayers.clear()
         destroyEntities()
         super.destroy()
     }
@@ -146,13 +181,11 @@ class PlatformModel internal constructor(
         /** Empirical mount lift compensation for a shulker passenger on a chicken. */
         private const val SHULKER_PASSENGER_Y_OFFSET = 0.6875
 
-        /**
-         * Only keep platform collision entities alive while players are close enough to potentially board
-         * or walk inside the carriage. This turns the platform cost from “per carriage, always on” into
-         * “per occupied/nearby carriage”.
-         */
-        private const val ACTIVE_HORIZONTAL_RADIUS = 20.0
-        private const val ACTIVE_VERTICAL_RADIUS = 6.0
-        private const val ACTIVE_TTL_TICKS = 40
+        private const val CELL_HALF_EXTENT = 0.5
+        private const val ACTIVATE_HORIZONTAL_MARGIN = 3.0
+        private const val DEACTIVATE_HORIZONTAL_MARGIN = 5.0
+        private const val ACTIVE_VERTICAL_ABOVE = 3.0
+        private const val ACTIVE_VERTICAL_BELOW = 2.0
+        private const val DEACTIVATE_VERTICAL_MARGIN = 1.0
     }
 }

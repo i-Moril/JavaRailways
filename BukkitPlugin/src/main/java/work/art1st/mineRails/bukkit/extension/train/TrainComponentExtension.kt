@@ -1,5 +1,6 @@
 package work.art1st.mineRails.bukkit.extension.train
 
+import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.BukkitRenderable
@@ -48,6 +49,16 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     protected abstract fun updateModel()
 
     /**
+     * 玩家仍在可见范围内时的轻量刷新入口。
+     */
+    open fun refreshFor(player: Player) = Unit
+
+    /**
+     * 玩家离开可见范围时的清理入口。
+     */
+    protected open fun onAudienceRemoved(player: Player) = Unit
+
+    /**
      * 主线程：销毁所有可视化实体。
      */
     protected abstract fun destroyModel()
@@ -60,11 +71,14 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
             modelBuilt = true
             updateModel()
         }
+        refreshFor(player)
     }
 
     @MainThread
     fun hideFrom(player: Player) {
-        if (!audience.remove(player.uniqueId) || audience.isNotEmpty() || !modelBuilt) return
+        if (!audience.remove(player.uniqueId)) return
+        onAudienceRemoved(player)
+        if (audience.isNotEmpty() || !modelBuilt) return
         modelBuilt = false
         destroyModel()
     }
@@ -84,6 +98,12 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         audience.clear()
         modelBuilt = false
         destroyModel()
+    }
+
+    protected fun forEachAudiencePlayer(action: (Player) -> Unit) {
+        audience.forEach { playerId ->
+            Bukkit.getPlayer(playerId)?.let(action)
+        }
     }
 
     open fun applyAnimation(name: String): Boolean = false

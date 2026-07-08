@@ -109,6 +109,7 @@ class RenderChunkManager(
 
         oldVisible.filterNot { it in newVisible }.forEach { dispatchHideFrom(it, player) }
         newVisible.filterNot { it in oldVisible }.forEach { dispatchSendTo(it, player) }
+        newVisible.forEach { dispatchRefreshFor(it, player) }
 
         if (newVisible.isEmpty()) {
             visibleByPlayer.remove(player.uniqueId)
@@ -133,6 +134,14 @@ class RenderChunkManager(
         when (renderable) {
             is Car -> renderable.renderer.hideFrom(player)
             is Bogie -> renderable.renderer.hideFrom(player)
+            is RailArcVisualSegment -> Unit
+        }
+    }
+
+    private fun dispatchRefreshFor(renderable: Renderable, player: Player) {
+        when (renderable) {
+            is Car -> renderable.renderer.refreshFor(player)
+            is Bogie -> renderable.renderer.refreshFor(player)
             is RailArcVisualSegment -> Unit
         }
     }

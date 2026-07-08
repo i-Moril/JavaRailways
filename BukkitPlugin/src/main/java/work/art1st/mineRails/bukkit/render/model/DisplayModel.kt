@@ -6,6 +6,7 @@ import net.kyori.adventure.key.Key
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.entity.Display
+import org.bukkit.entity.Entity
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.inventory.ItemStack
 import org.joml.Quaternionf
@@ -24,22 +25,36 @@ class DisplayModel internal constructor(
     private val entity: Display
 ) : AbstractModel(world, state, attachedModels, animation) {
     private var lastDisplayState: AnimationDisplayState? = null
+    private var mountedToRoot: Boolean = false
 
     init {
         entity.isPersistent = false
-        entity.interpolationDelay = 0
-        entity.interpolationDuration = DISPLAY_INTERPOLATION_TICKS
-        entity.teleportDuration = DISPLAY_INTERPOLATION_TICKS
+        entity.configureTrainDisplaySmoothing()
+    }
+
+    fun mountTo(parent: Entity) {
+        if (entity.vehicle != parent) {
+            entity.vehicle?.removePassenger(entity)
+            parent.addPassenger(entity)
+            RenderVerificationStats.onDisplayMount()
+        }
+        mountedToRoot = true
     }
 
     // P4: transformDirty 控制是否重设 transformation（teleport 总是执行）
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
-        val worldPos = state.worldTransform.position
-        entity.teleport(Location(entity.world, worldPos.x(), worldPos.y(), worldPos.z()))
+        if (!mountedToRoot) {
+            val worldPos = state.worldTransform.position
+            entity.teleport(Location(entity.world, worldPos.x(), worldPos.y(), worldPos.z()))
+            RenderVerificationStats.onDisplayWorldTeleport()
+        } else {
+            RenderVerificationStats.onDisplayMountedUpdate()
+        }
         if (transformDirty) {
+            entity.configureTrainDisplaySmoothing()
             entity.transformation = org.bukkit.util.Transformation(
-                Vector3f(0f, 0f, 0f),
+                if (mountedToRoot) state.rootRelativeTransform.position.get(Vector3f()) else Vector3f(0f, 0f, 0f),
                 Quaternionf(),
                 state.rootRelativeTransform.scale.get(Vector3f()),
                 state.rootRelativeTransform.rotation.get(Quaternionf())
@@ -86,7 +101,4 @@ class DisplayModel internal constructor(
         entity.remove()
     }
 
-    companion object {
-        private const val DISPLAY_INTERPOLATION_TICKS = 1
-    }
 }

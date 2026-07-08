@@ -36,7 +36,7 @@ class RailSegments internal constructor(
 
     fun <T> searchRailLocation(tolerance: Double, f: ((RailLocationWithFacing) -> T), condition: ((T) -> Double)): T? {
         for (segment in segments) {
-            val result = searchArcRange(segment, f, condition)
+            val result = searchArcRange(segment, tolerance, f, condition)
             if (result != null && abs(condition(result)) < tolerance) {
                 return result
             }
@@ -45,7 +45,12 @@ class RailSegments internal constructor(
     }
 
     /** 在弧长范围内二分搜索，找到 condition 穿过零的位置 */
-    private fun <T> searchArcRange(segment: RailSegment, f: (RailLocationWithFacing) -> T, condition: (T) -> Double): T? {
+    private fun <T> searchArcRange(
+        segment: RailSegment,
+        tolerance: Double,
+        f: (RailLocationWithFacing) -> T,
+        condition: (T) -> Double
+    ): T? {
         var lo = segment.startArcLength
         var hi = segment.endArcLength
         val loResult = f(segment.railView.getRailLocationAt(lo))
@@ -53,21 +58,22 @@ class RailSegments internal constructor(
         var vLo = condition(loResult)
         val vHi = condition(hiResult)
         // 端点之一满足，直接返回
-        if (abs(vLo) < 1e-12) return loResult
-        if (abs(vHi) < 1e-12) return hiResult
+        if (abs(vLo) < tolerance) return loResult
+        if (abs(vHi) < tolerance) return hiResult
         // 无穿零点
         if (vLo * vHi > 0) return null
 
         var bestResult = if (abs(vLo) <= abs(vHi)) loResult else hiResult
         var bestValue = minOf(abs(vLo), abs(vHi))
-        for (i in 0 until 50) { // 50 次二分足够 double 精度
+        for (i in 0 until 50) {
             val mid = (lo + hi) / 2.0
             val t = f(segment.railView.getRailLocationAt(mid))
             val vMid = condition(t)
-            if (abs(vMid) < 1e-12) return t
-            if (abs(vMid) < bestValue) {
+            val absMid = abs(vMid)
+            if (absMid < tolerance) return t
+            if (absMid < bestValue) {
                 bestResult = t
-                bestValue = abs(vMid)
+                bestValue = absMid
             }
             if (vLo * vMid < 0) {
                 hi = mid

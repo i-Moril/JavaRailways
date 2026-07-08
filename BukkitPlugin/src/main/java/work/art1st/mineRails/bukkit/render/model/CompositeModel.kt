@@ -1,10 +1,11 @@
 package work.art1st.mineRails.bukkit.render.model
 
+import io.papermc.paper.entity.TeleportFlag
 import org.bukkit.Bukkit
 import org.bukkit.Location
+import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
-import org.bukkit.util.Vector
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.joml.Vector3dc
@@ -18,8 +19,16 @@ class CompositeModel internal constructor(
     private val models: List<AbstractModel>,
     private val rootEntity: Entity
 ) : Destroyable {
+    init {
+        forEachModelRecursive {
+            when (it) {
+                is DisplayModel -> it.mountTo(rootEntity)
+                is LodDisplayModel -> it.mountTo(rootEntity)
+            }
+        }
+    }
 
-    // P4: 缓存上一帧的旋转，用于 dirty flag 优化
+    // P4: 缓存上一帧的完整旋转，用于 dirty flag 优化
     private var lastRotation: Quaterniond? = null
     private var destroyed: Boolean = false
 
@@ -45,21 +54,25 @@ class CompositeModel internal constructor(
     }
 
     fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d()) {
-        // parentRelativeTransform carries the rotation; root for world-space uses identity
+        // root 只承担世界坐标锚点；完整姿态仍由 child display 的 transformation 表达。
         val rotatedTransform = CompactTransform(Vector3d(), rootTransform.rotation)
         val worldRoot = CompactTransform(rootTransform.position, Quaterniond())
 
-        // P4: 若旋转未变化，子模型只需 teleport 不需重设 transformation
         val rotationChanged = lastRotation == null || !lastRotation!!.equals(rootTransform.rotation, 1e-12)
         if (rotationChanged) lastRotation = Quaterniond(rootTransform.rotation)
         models.forEach { it.updateState(rotatedTransform, worldRoot, rootVelocity, rotationChanged) }
 
-        // 根元素位置每帧更新（与旋转无关）
-        onMainThread {
-            rootEntity.teleport(
-                Location(rootEntity.world, rootTransform.position.x(), rootTransform.position.y(), rootTransform.position.z())
-            )
-            rootEntity.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())
+        val location = Location(rootEntity.world, rootTransform.position.x(), rootTransform.position.y(), rootTransform.position.z())
+        if (Bukkit.isPrimaryThread()) {
+            (rootEntity as? Display)?.configureTrainRootSmoothing()
+            rootEntity.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
+            RenderVerificationStats.onRootTeleport()
+        } else {
+            onMainThread {
+                (rootEntity as? Display)?.configureTrainRootSmoothing()
+                rootEntity.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
+                RenderVerificationStats.onRootTeleport()
+            }
         }
     }
 

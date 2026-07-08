@@ -80,6 +80,7 @@ class WorldManager(
     fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
         railWorlds[bukkitWorld]?.let { rw ->
             (rw as? CoreWorld)?.let { WorldPersistence.saveSnapshot(bukkitWorld, it) }
+            rw.renderChunkManager.close()
         }
         AbnormalTrainMarker.clearWorld(bukkitWorld)
         railWorlds.remove(bukkitWorld)
@@ -136,7 +137,6 @@ class WorldManager(
             (railWorld as? CoreWorld)?.let { coreWorld ->
                 AbnormalTrainMarker.tick(coreWorld, world)
             }
-            railWorld.renderChunkManager.render()
         }
     }
 }

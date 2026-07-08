@@ -20,16 +20,18 @@ abstract class EntityModel internal constructor(
 
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
-        entity?.let {
-            val location = entityLocation(it)
-            it.teleport(location)
-            it.setRotation(location.yaw, location.pitch)
-            if (it is LivingEntity) {
-                it.setBodyYaw(location.yaw)
-            }
-            it.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())
-            // Ignore roll
+        entity?.let { syncEntity(it, rootVelocity) }
+    }
+
+    protected open fun syncEntity(entity: Entity, rootVelocity: Vector3dc) {
+        val location = entityLocation(entity)
+        entity.teleport(location)
+        entity.setRotation(location.yaw, location.pitch)
+        if (entity is LivingEntity) {
+            entity.setBodyYaw(location.yaw)
         }
+        entity.velocity = Vector(rootVelocity.x(), rootVelocity.y(), rootVelocity.z())
+        // Ignore roll
     }
 
     protected open fun entityLocation(entity: Entity): Location {

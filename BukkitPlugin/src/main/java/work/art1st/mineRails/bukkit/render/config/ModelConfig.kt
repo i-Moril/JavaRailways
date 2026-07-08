@@ -19,6 +19,7 @@ import work.art1st.mineRails.bukkit.render.model.LodDisplayModel
 import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
 import work.art1st.mineRails.bukkit.render.model.configureTrainDisplaySmoothing
+import work.art1st.mineRails.bukkit.render.model.configureTrainRootSmoothing
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.configLib.persistence.Loads
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
@@ -32,7 +33,7 @@ class CompositeModelConfigV1(
             dependency.bukkitLocation,
             ItemDisplay::class.java
         )
-        rootEntity.configureTrainDisplaySmoothing()
+        rootEntity.configureTrainRootSmoothing()
         return CompositeModel(
             world = dependency.world,
             models = attachedModels.map { it.load(dependency) },

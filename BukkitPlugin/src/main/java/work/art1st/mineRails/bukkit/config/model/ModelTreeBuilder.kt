@@ -19,6 +19,7 @@ import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
 import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.bukkit.render.model.configureTrainDisplaySmoothing
+import work.art1st.mineRails.bukkit.render.model.configureTrainRootSmoothing
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Car
 
@@ -69,8 +70,11 @@ class ModelTreeBuilder(
 
         val rootEntity = bukkitWorld.spawn(rootLocation, ItemDisplay::class.java)
         rootEntity.isPersistent = false
-        rootEntity.isVisibleByDefault = false
-        rootEntity.configureTrainDisplaySmoothing()
+        // C1 PoC: passenger displays depend on the root vehicle being tracked client-side.
+        // Keep the root entity visible-by-default so the client receives it; the root has no item,
+        // so this should not add an actual rendered mesh.
+        rootEntity.isVisibleByDefault = true
+        rootEntity.configureTrainRootSmoothing()
 
         return CompositeModel(
             world = world,
@@ -95,8 +99,11 @@ class ModelTreeBuilder(
 
         val rootEntity = bukkitWorld.spawn(rootLocation, ItemDisplay::class.java)
         rootEntity.isPersistent = false
-        rootEntity.isVisibleByDefault = false
-        rootEntity.configureTrainDisplaySmoothing()
+        // C1 PoC: passenger displays depend on the root vehicle being tracked client-side.
+        // Keep the root entity visible-by-default so the client receives it; the root has no item,
+        // so this should not add an actual rendered mesh.
+        rootEntity.isVisibleByDefault = true
+        rootEntity.configureTrainRootSmoothing()
 
         return CompositeModel(
             world = world,

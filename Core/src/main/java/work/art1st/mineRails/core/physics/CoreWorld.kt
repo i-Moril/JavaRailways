@@ -16,6 +16,7 @@ import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.di.WorldParentContext
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.rail.CoreRail
+import work.art1st.mineRails.core.physics.rail.RailSpatialIndex
 import work.art1st.mineRails.core.physics.train.SavedTrainV1
 import java.util.LinkedHashMap
 import java.util.UUID
@@ -32,6 +33,7 @@ class CoreWorld(
     worldParent: WorldParentContext,
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
 ) : World, Extendable<Any> by extensionDataContainer, PersistentBy<CoreWorld.SavedWorldV1> {
+    private val railSpatialIndex = RailSpatialIndex()
 
     init {
         worldParent.attachWorld(this)
@@ -63,19 +65,37 @@ class CoreWorld(
     @MainThread
     internal fun addRail(rail: CoreRail) {
         rails[rail.id] = rail
+        railSpatialIndex.addRail(rail)
     }
+
+    val allRails: Collection<CoreRail>
+        get() = rails.values
 
     override fun getRail(id: UUID): CoreRail? = rails[id]
 
+    fun getRailsNear(position: Vector3dc, radius: Double): Collection<CoreRail> =
+        railSpatialIndex.query(position, radius)
+
+    fun getRailsAlongRay(origin: Vector3dc, direction: Vector3dc, maxDistance: Double, radius: Double): Collection<CoreRail> =
+        railSpatialIndex.queryAlongRay(origin, direction, maxDistance, radius)
+
     @OptIn(Heavy::class)
     fun getNearestRail(position: Vector3dc): CoreRail? {
-        return rails.values.minByOrNull { rail ->
+        var searchRadius = railSpatialIndex.cellSize
+        var candidates: Collection<CoreRail> = emptyList()
+        while (searchRadius <= railSpatialIndex.cellSize * 8 && candidates.isEmpty()) {
+            candidates = railSpatialIndex.query(position, searchRadius)
+            searchRadius *= 2.0
+        }
+        val searchSet = if (candidates.isEmpty()) rails.values else candidates
+        return searchSet.minByOrNull { rail ->
             rail.curve.getNearestPoint(position).position.distance(position)
         }
     }
 
     @MainThread
     override fun removeRail(rail: Rail) {
+        (rail as? CoreRail)?.let { railSpatialIndex.removeRail(it) }
         rails.remove(rail.id)
     }
 

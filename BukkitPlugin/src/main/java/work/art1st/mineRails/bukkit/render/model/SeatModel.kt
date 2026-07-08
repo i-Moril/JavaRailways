@@ -31,6 +31,7 @@ class SeatModel internal constructor(
     private val controlEnd: DriverControlEnd?
 ) : EntityModel(world, state, attachedModels, animation, null) {
     private var carrierEntity: Interaction? = null
+    private lateinit var seatBinding: SeatBinding
     private val visualLocationDelay: ArrayDeque<Location> = ArrayDeque()
 
     init {
@@ -43,13 +44,20 @@ class SeatModel internal constructor(
         val hitbox = bukkitWorld.spawn(initialLocation, Interaction::class.java)
         configureSeatHitbox(hitbox, occupied = false)
 
-        val carrier = bukkitWorld.spawn(bottomCarrierLocation(hitbox.location), Interaction::class.java)
-        configureSeatCarrier(carrier)
-
         entity = hitbox
-        carrierEntity = carrier
-        SeatInteractionListener.register(hitbox.uniqueId, SeatBinding(hitbox, carrier, ownerCar, driverSeat, controlEnd))
+        seatBinding = SeatBinding(
+            hitbox = hitbox,
+            carrier = null,
+            ownerCar = ownerCar,
+            driverSeat = driverSeat,
+            controlEnd = controlEnd,
+            ensureCarrier = ::ensureCarrier,
+            destroyCarrier = ::destroyCarrier
+        )
+        SeatInteractionListener.register(hitbox.uniqueId, seatBinding)
     }
+
+    override fun syncEntity(entity: org.bukkit.entity.Entity, rootVelocity: Vector3dc) = Unit
 
     override fun updateState(
         parentRelativeTransform: CompactTransform,
@@ -59,12 +67,22 @@ class SeatModel internal constructor(
     ) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
         val hitbox = entity as? Interaction ?: return
-        val carrier = carrierEntity ?: return
-        val visualLocation = delayedVisualLocation(hitbox.location)
+        val targetLocation = entityLocation(hitbox)
+        val visualLocation = delayedVisualLocation(targetLocation)
         hitbox.teleport(visualLocation)
-        configureSeatHitbox(hitbox, occupied = carrier.passengers.isNotEmpty())
-        configureSeatCarrier(carrier)
-        carrier.teleport(bottomCarrierLocation(visualLocation))
+
+        val carrier = carrierEntity
+        val occupied = carrier?.passengers?.isNotEmpty() == true
+        configureSeatHitbox(hitbox, occupied)
+
+        carrier?.let {
+            if (!it.isValid) {
+                destroyCarrier()
+                return@let
+            }
+            configureSeatCarrier(it)
+            it.teleport(bottomCarrierLocation(visualLocation))
+        }
     }
 
     override fun destroy() {
@@ -72,13 +90,35 @@ class SeatModel internal constructor(
             SeatInteractionListener.unregister(hitbox.uniqueId)
             hitbox.eject()
         }
-        carrierEntity?.let { carrier ->
-            carrier.eject()
-            carrier.remove()
-        }
-        carrierEntity = null
+        destroyCarrier()
         visualLocationDelay.clear()
         super.destroy()
+    }
+
+    private fun ensureCarrier(): Interaction {
+        carrierEntity?.takeIf { it.isValid }?.let { return it }
+        destroyCarrier()
+        val hitbox = entity as? Interaction ?: error("Seat hitbox not initialized")
+        val carrier = world.bukkitWorldData.bukkitWorld.spawn(bottomCarrierLocation(hitbox.location), Interaction::class.java)
+        configureSeatCarrier(carrier)
+        carrierEntity = carrier
+        seatBinding.carrier = carrier
+        SeatInteractionListener.bindCarrier(seatBinding, carrier)
+        return carrier
+    }
+
+    private fun destroyCarrier() {
+        val bindingCarrier = if (::seatBinding.isInitialized) seatBinding.carrier else null
+        val carrier = carrierEntity ?: bindingCarrier ?: return
+        if (::seatBinding.isInitialized) {
+            SeatInteractionListener.unbindCarrier(seatBinding)
+        }
+        carrier.eject()
+        carrier.remove()
+        if (::seatBinding.isInitialized) {
+            seatBinding.carrier = null
+        }
+        carrierEntity = null
     }
 
     private fun configureSeatHitbox(interaction: Interaction, occupied: Boolean) {
@@ -115,9 +155,6 @@ class SeatModel internal constructor(
     }
 
     private fun bottomCarrierLocation(hitboxLocation: Location): Location {
-        // Bukkit entity locations are the bottom-center of the entity hitbox.
-        // Keep the actual vehicle there, with zero size, so passengers do not sit
-        // on top of the 1-block interaction hitbox.
         return hitboxLocation.clone()
     }
 
@@ -127,10 +164,12 @@ class SeatModel internal constructor(
 
     data class SeatBinding(
         val hitbox: Interaction,
-        val carrier: Interaction,
+        var carrier: Interaction?,
         val ownerCar: Car?,
         val driverSeat: Boolean,
-        val controlEnd: DriverControlEnd?
+        val controlEnd: DriverControlEnd?,
+        val ensureCarrier: () -> Interaction,
+        val destroyCarrier: () -> Unit
     )
 
     object SeatInteractionListener : Listener {
@@ -147,12 +186,21 @@ class SeatModel internal constructor(
 
         fun register(hitboxId: UUID, binding: SeatBinding) {
             seatsByHitbox[hitboxId] = binding
-            seatsByCarrier[binding.carrier.uniqueId] = binding
         }
 
         fun unregister(hitboxId: UUID) {
             val binding = seatsByHitbox.remove(hitboxId) ?: return
-            seatsByCarrier.remove(binding.carrier.uniqueId)
+            binding.carrier?.let { seatsByCarrier.remove(it.uniqueId) }
+        }
+
+        fun bindCarrier(binding: SeatBinding, carrier: Interaction) {
+            binding.carrier?.let { seatsByCarrier.remove(it.uniqueId) }
+            binding.carrier = carrier
+            seatsByCarrier[carrier.uniqueId] = binding
+        }
+
+        fun unbindCarrier(binding: SeatBinding) {
+            binding.carrier?.let { seatsByCarrier.remove(it.uniqueId) }
         }
 
         fun addDriverSeatVacatedHandler(handler: (Player, Train) -> Unit) {
@@ -165,7 +213,8 @@ class SeatModel internal constructor(
             val vehicle = player.vehicle as? Interaction ?: return null
             val binding = seatsByCarrier[vehicle.uniqueId] ?: return null
             if (!binding.driverSeat) return null
-            if (!binding.carrier.passengers.any { it.uniqueId == player.uniqueId }) return null
+            val carrier = binding.carrier ?: return null
+            if (!carrier.passengers.any { it.uniqueId == player.uniqueId }) return null
             val ownerCar = binding.ownerCar ?: return null
             val train = ownerCar.world.allTrains.firstOrNull { train -> train.cars.any { it === ownerCar } } ?: return null
             return DriverSeatContext(train, ownerCar, binding.controlEnd)
@@ -207,10 +256,10 @@ class SeatModel internal constructor(
         fun onPlayerInteractAtSeat(event: PlayerInteractAtEntityEvent) {
             val hitbox = event.rightClicked as? Interaction ?: return
             val binding = seatsByHitbox[hitbox.uniqueId] ?: return
-            val carrier = binding.carrier
+            val carrier = binding.carrier?.takeIf { it.isValid } ?: binding.ensureCarrier()
 
             event.isCancelled = true
-            if (!carrier.isValid || carrier.passengers.isNotEmpty()) return
+            if (carrier.passengers.isNotEmpty()) return
 
             val player: Player = event.player
             setSeatOccupied(binding, occupied = true)
@@ -226,16 +275,22 @@ class SeatModel internal constructor(
         }
 
         private fun restoreSeatsFor(playerId: UUID) {
-            seatsByCarrier.values.forEach { binding ->
-                binding.carrier.passengers.firstOrNull { it.uniqueId == playerId }?.let { binding.carrier.removePassenger(it) }
+            seatsByHitbox.values.forEach { binding ->
+                binding.carrier?.passengers?.firstOrNull { it.uniqueId == playerId }?.let { binding.carrier?.removePassenger(it) }
                 restoreIfEmpty(binding)
             }
         }
 
         private fun restoreIfEmpty(binding: SeatBinding) {
-            if (!binding.carrier.isValid || binding.carrier.passengers.isEmpty() ||
-                binding.carrier.passengers.filterIsInstance<Player>().none { it.isOnline && !it.isDead }
+            val carrier = binding.carrier
+            if (carrier == null) {
+                setSeatOccupied(binding, occupied = false)
+                return
+            }
+            if (!carrier.isValid || carrier.passengers.isEmpty() ||
+                carrier.passengers.filterIsInstance<Player>().none { it.isOnline && !it.isDead }
             ) {
+                binding.destroyCarrier()
                 setSeatOccupied(binding, occupied = false)
             }
         }

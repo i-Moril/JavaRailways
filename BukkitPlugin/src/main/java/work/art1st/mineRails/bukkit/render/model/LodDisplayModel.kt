@@ -1,12 +1,12 @@
 package work.art1st.mineRails.bukkit.render.model
 
 import org.bukkit.entity.Display
+import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
-import work.art1st.mineRails.bukkit.render.asVector3d
 import work.art1st.mineRails.bukkit.render.chunk.railViewDistanceSettings
 import work.art1st.mineRails.core.api.physics.World
 
@@ -22,9 +22,35 @@ class LodDisplayModel internal constructor(
     private val loEntity: Display?,
     private val hiEntity: Display?
 ) : AbstractModel(world, state, attachedModels, animation) {
+    private var mountedToRoot: Boolean = false
+
     init {
         loEntity?.isPersistent = false
+        loEntity?.configureTrainDisplaySmoothing()
         hiEntity?.isPersistent = false
+        hiEntity?.configureTrainDisplaySmoothing()
+    }
+
+    fun mountTo(parent: Entity) {
+        var mountedAny = false
+        loEntity?.let {
+            if (it.vehicle != parent) {
+                it.vehicle?.removePassenger(it)
+                parent.addPassenger(it)
+                mountedAny = true
+            }
+        }
+        hiEntity?.let {
+            if (it.vehicle != parent) {
+                it.vehicle?.removePassenger(it)
+                parent.addPassenger(it)
+                mountedAny = true
+            }
+        }
+        if (mountedAny) {
+            RenderVerificationStats.onLodMount()
+        }
+        mountedToRoot = true
     }
 
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
@@ -32,11 +58,16 @@ class LodDisplayModel internal constructor(
         val worldPos = state.worldTransform.position
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
         val loc = org.bukkit.Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z())
+        var worldTeleports = 0L
         loEntity?.let {
-            it.teleport(loc)
+            if (!mountedToRoot) {
+                it.teleport(loc)
+                worldTeleports++
+            }
             if (transformDirty) {
+                it.configureTrainDisplaySmoothing()
                 it.transformation = org.bukkit.util.Transformation(
-                    org.joml.Vector3f(0f, 0f, 0f),
+                    if (mountedToRoot) state.rootRelativeTransform.position.get(org.joml.Vector3f()) else org.joml.Vector3f(0f, 0f, 0f),
                     org.joml.Quaternionf(),
                     state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
                     state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
@@ -44,15 +75,24 @@ class LodDisplayModel internal constructor(
             }
         }
         hiEntity?.let {
-            it.teleport(loc)
+            if (!mountedToRoot) {
+                it.teleport(loc)
+                worldTeleports++
+            }
             if (transformDirty) {
+                it.configureTrainDisplaySmoothing()
                 it.transformation = org.bukkit.util.Transformation(
-                    org.joml.Vector3f(0f, 0f, 0f),
+                    if (mountedToRoot) state.rootRelativeTransform.position.get(org.joml.Vector3f()) else org.joml.Vector3f(0f, 0f, 0f),
                     org.joml.Quaternionf(),
                     state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
                     state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
                 )
             }
+        }
+        if (mountedToRoot) {
+            RenderVerificationStats.onLodMountedUpdate()
+        } else if (worldTeleports > 0) {
+            RenderVerificationStats.onLodWorldTeleport(worldTeleports)
         }
     }
 
@@ -63,8 +103,12 @@ class LodDisplayModel internal constructor(
     }
 
     fun updatePlayerVisibility(player: Player) {
-        val distance = player.location.asVector3d().distance(state.position)
-        if (distance > player.railViewDistanceSettings.lodThreshold) {
+        val dx = player.location.x - state.position.x()
+        val dy = player.location.y - state.position.y()
+        val dz = player.location.z - state.position.z()
+        val distanceSq = dx * dx + dy * dy + dz * dz
+        val threshold = player.railViewDistanceSettings.lodThreshold
+        if (distanceSq > threshold * threshold) {
             loEntity?.let {
                 player.showEntity(BukkitPlugin.INSTANCE, it)
             }

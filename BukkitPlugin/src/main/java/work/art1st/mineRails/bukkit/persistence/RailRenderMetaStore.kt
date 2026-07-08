@@ -17,6 +17,7 @@ import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
 private data class RailRenderMetaFileV1(
@@ -69,10 +70,17 @@ data class PersistedRailRenderMeta(
 )
 
 object RailRenderMetaStore {
+    private data class CacheEntry(
+        val lastModified: Long,
+        val length: Long,
+        val records: List<PersistedRailRenderMeta>
+    )
+
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
     }
+    private val cache: MutableMap<UUID, CacheEntry> = ConcurrentHashMap()
 
     private fun file(world: World): File =
         File(BukkitPlugin.INSTANCE.dataFolder, "worlds/${world.uid}-rail-render.json").also {
@@ -81,8 +89,16 @@ object RailRenderMetaStore {
 
     fun load(world: World): List<PersistedRailRenderMeta> {
         val f = file(world)
-        if (!f.exists() || !f.canRead()) return emptyList()
-        return try {
+        if (!f.exists() || !f.canRead()) {
+            cache.remove(world.uid)
+            return emptyList()
+        }
+        val lastModified = f.lastModified()
+        val length = f.length()
+        cache[world.uid]?.takeIf { it.lastModified == lastModified && it.length == length }?.let {
+            return it.records
+        }
+        val records = try {
             val decoded = json.decodeFromString<RailRenderMetaFileV1>(f.readText())
             val templatesById = decoded.templates.associate { template ->
                 template.templateId to RailTemplateSnapshot(
@@ -124,6 +140,8 @@ object RailRenderMetaStore {
         } catch (_: Exception) {
             emptyList()
         }
+        cache[world.uid] = CacheEntry(lastModified, length, records)
+        return records
     }
 
     fun saveAll(world: World, records: List<PersistedRailRenderMeta>) {
@@ -181,6 +199,7 @@ object RailRenderMetaStore {
                 StandardCopyOption.REPLACE_EXISTING
             )
         }
+        cache[world.uid] = CacheEntry(target.lastModified(), target.length(), records.toList())
     }
 
     fun upsertRail(world: World, meta: PersistedRailRenderMeta) {

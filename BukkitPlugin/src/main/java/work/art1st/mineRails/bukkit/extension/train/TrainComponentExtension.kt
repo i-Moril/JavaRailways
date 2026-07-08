@@ -10,6 +10,7 @@ import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.Destroyable
+import java.util.UUID
 
 @OptIn(ExtensionData::class)
 val Car.renderer: TrainComponentExtension<Car>
@@ -26,6 +27,7 @@ val Bogie.renderer: TrainComponentExtension<Bogie>
 abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, Destroyable {
     protected open lateinit var self: T
     private var modelBuilt: Boolean = false
+    private val audience: MutableSet<UUID> = hashSetOf()
 
     override fun initialize(host: T, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
@@ -52,6 +54,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
 
     @MainThread
     override fun sendTo(player: Player) {
+        audience.add(player.uniqueId)
         if (!modelBuilt) {
             buildModel()
             modelBuilt = true
@@ -59,14 +62,26 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         }
     }
 
+    @MainThread
+    fun hideFrom(player: Player) {
+        if (!audience.remove(player.uniqueId) || audience.isNotEmpty() || !modelBuilt) return
+        modelBuilt = false
+        destroyModel()
+    }
+
     override fun commit() {
-        if (modelBuilt) {
-            updateModel()
+        if (!modelBuilt) return
+        if (audience.isEmpty()) {
+            modelBuilt = false
+            destroyModel()
+            return
         }
+        updateModel()
     }
 
     @MainThread
     override fun destroy() {
+        audience.clear()
         modelBuilt = false
         destroyModel()
     }

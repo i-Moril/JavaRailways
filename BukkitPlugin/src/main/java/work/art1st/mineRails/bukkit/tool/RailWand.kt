@@ -1018,10 +1018,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         if (direction.lengthSquared() < 1e-12) return null
         direction.normalize()
 
+        val candidates = coreWorld.getRailsAlongRay(origin, direction, maxDistance, hitRadius)
+            .ifEmpty { coreWorld.allRails }
+
         var bestRail: CoreRail? = null
         var bestScore = Double.POSITIVE_INFINITY
-        RailRenderMetaStore.load(player.world).forEach { meta ->
-            val rail = coreWorld.getRail(meta.railId) ?: return@forEach
+        candidates.forEach { rail ->
             rail.curve.stream().use { stream ->
                 val iterator = stream.iterator()
                 while (iterator.hasNext()) {

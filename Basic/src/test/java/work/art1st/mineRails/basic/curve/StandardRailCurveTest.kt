@@ -9,11 +9,58 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.time.Duration
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * StandardRailCurve 回旋线与轨道点生成测试。
  */
 class StandardRailCurveTest {
+
+    @Nested
+    inner class CurveMath {
+        @Test
+        fun `入口回旋线曲率线性增长到圆曲线`() {
+            val R = 30.0
+            val L = 5.0
+            val curve = StandardRailCurve(R, L, 10.0)
+            assertEquals(0.0, curve.curvatureAt(0.0), 1e-9)
+            assertEquals(0.5 / R, curve.curvatureAt(L / 2.0), 1e-9)
+            assertEquals(1.0 / R, curve.curvatureAt(L), 1e-9)
+        }
+
+        @Test
+        fun `出口回旋线曲率从圆曲线连续下降到0`() {
+            val R = 30.0
+            val L = 5.0
+            val Lc = 10.0
+            val curve = StandardRailCurve(R, L, Lc)
+            assertEquals(1.0 / R, curve.curvatureAt(L + Lc), 1e-9)
+            assertEquals(0.5 / R, curve.curvatureAt(L + Lc + L / 2.0), 1e-9)
+            assertEquals(0.0, curve.curvatureAt(2.0 * L + Lc), 1e-9)
+        }
+
+        @Test
+        fun `出口回旋线切向角导数延续圆曲线曲率`() {
+            val R = 30.0
+            val L = 5.0
+            val Lc = 10.0
+            val curve = StandardRailCurve(R, L, Lc)
+            val s = L + Lc
+            val h = 1e-4
+            val derivative = (curve.tangentAngleAt(s + h) - curve.tangentAngleAt(s - h)) / (2.0 * h)
+            assertEquals(1.0 / R, derivative, 1e-5)
+        }
+
+        @Test
+        fun `出口回旋线终点切向角等于总转角`() {
+            val R = 30.0
+            val L = 5.0
+            val Lc = 10.0
+            val curve = StandardRailCurve(R, L, Lc)
+            val expectedTheta = L / (2.0 * R) + Lc / R + L / (2.0 * R)
+            assertEquals(expectedTheta, curve.tangentAngleAt(curve.totalLength), 1e-9)
+        }
+    }
 
     @Nested
     inner class PointAt {
@@ -38,10 +85,10 @@ class StandardRailCurveTest {
             val curve = StandardRailCurve(30.0, 5.0, 10.0)
             val total = curve.totalLength
             val (_, theta, _) = curve.pointAt(total)
-            // 总转角 = 入口回旋线 L²/(2A²) + 圆弧 Lc/R + 出口回旋线 L²/(2RL)
+            // 总转角 = 入口回旋线 L²/(2A²) + 圆弧 Lc/R + 出口回旋线 L/(2R)
             val L = 5.0; val R = 30.0; val Lc = 10.0
-            val A = kotlin.math.sqrt(R * L)
-            val expectedTheta = L * L / (2 * A * A) + Lc / R + L * L / (2 * R * L)
+            val A = sqrt(R * L)
+            val expectedTheta = L * L / (2 * A * A) + Lc / R + L / (2 * R)
             assertEquals(expectedTheta, theta, 0.001, "终点切向角应等于总转角")
         }
 

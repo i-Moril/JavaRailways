@@ -49,7 +49,7 @@ data class SuperelevationConfig(
  * 外轨在曲线左侧（正 Z），内轨在右侧（负 Z）。
  *
  * @param R 圆曲线半径（米），> 0
- * @param L 回旋线总长度（米），每端各 L/2
+ * @param L 单端回旋线长度（米）
  * @param Lc 圆弧段长度（米），中间圆曲线部分
  * @param superelevationConfig 外轨超高配置，null 表示不使用超高
  */
@@ -92,17 +92,17 @@ class StandardRailCurve(
     /**
      * 计算弧长 s 处的曲率 κ
      *
-     * 入口回旋线（0 ≤ s ≤ L）：κ = 2s / (R·L) 线性从 0 到 1/R
+     * 入口回旋线（0 ≤ s ≤ L）：κ = s / (R·L) 线性从 0 到 1/R
      * 圆曲线（L ≤ s ≤ L+Lc）：κ = 1/R
-     * 出口回旋线（L+Lc ≤ s ≤ 2L+Lc）：κ = 2(2L - s) / (R·L) 线性从 1/R 到 0
+     * 出口回旋线（L+Lc ≤ s ≤ 2L+Lc）：κ = (2L + Lc - s) / (R·L) 线性从 1/R 到 0
      */
     fun curvatureAt(s: Double): Double {
         if (L == 0.0) return if (s >= 0 && s <= Lc) 1.0 / R else 0.0
         return when {
             s < 0 -> 0.0
-            s <= L -> 2.0 * s / (R * L)
+            s <= L -> s / (R * L)
             s <= L + Lc -> 1.0 / R
-            s <= 2 * L + Lc -> 2.0 * (2 * L - s) / (R * L)
+            s <= 2 * L + Lc -> (2.0 * L + Lc - s) / (R * L)
             else -> 0.0
         }
     }
@@ -179,8 +179,8 @@ class StandardRailCurve(
                 val thetaAtEndOfSpiral = L * L / (2.0 * A * A)
                 val arcAngle = Lc / R
                 val u = s - (L + Lc) // 从 0 到 L
-                // κ = (L-u)/(R·L)，积分 ∫₀ᵘ (L-t)/(R·L) dt = u²/(2R·L)
-                return thetaAtEndOfSpiral + arcAngle + u * u / (2.0 * R * L)
+                // κ = (L-u)/(R·L)，积分 ∫₀ᵘ (L-t)/(R·L) dt = u/R - u²/(2R·L)
+                return thetaAtEndOfSpiral + arcAngle + u / R - u * u / (2.0 * R * L)
             }
         }
     }
@@ -190,7 +190,7 @@ class StandardRailCurve(
         val thetaAtEndOfSpiral = L * L / (2.0 * A * A)
         val arcAngle = Lc / R
         val u = L
-        return thetaAtEndOfSpiral + arcAngle + u * u / (2.0 * R * L)
+        return thetaAtEndOfSpiral + arcAngle + u / R - u * u / (2.0 * R * L)
     }
 
     /**

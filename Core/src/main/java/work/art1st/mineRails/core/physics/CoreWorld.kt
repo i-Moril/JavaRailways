@@ -81,14 +81,7 @@ class CoreWorld(
 
     @OptIn(Heavy::class)
     fun getNearestRail(position: Vector3dc): CoreRail? {
-        var searchRadius = railSpatialIndex.cellSize
-        var candidates: Collection<CoreRail> = emptyList()
-        while (searchRadius <= railSpatialIndex.cellSize * 8 && candidates.isEmpty()) {
-            candidates = railSpatialIndex.query(position, searchRadius)
-            searchRadius *= 2.0
-        }
-        val searchSet = if (candidates.isEmpty()) rails.values else candidates
-        return searchSet.minByOrNull { rail ->
+        return rails.values.minByOrNull { rail ->
             rail.curve.getNearestPoint(position).position.distance(position)
         }
     }

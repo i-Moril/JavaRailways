@@ -155,6 +155,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun destroyModel() {
+        snapshotHeldScenesForReload()
         bodyModel?.destroy()
         bogieModels.forEach { it.destroy() }
         bodyModel = null
@@ -179,6 +180,13 @@ class CarExtension : TrainComponentExtension<Car>() {
             pendingHeldScenes = pendingHeldScenes - name
         }
         return applied
+    }
+
+    private fun snapshotHeldScenesForReload() {
+        if (bodyModel == null && bogieModels.isEmpty()) return
+        bodyModel?.prepareForUnload()
+        bogieModels.forEach { it.prepareForUnload() }
+        pendingHeldScenes = collectHeldScenes()
     }
 
     private fun collectHeldScenes(): Map<String, String> {

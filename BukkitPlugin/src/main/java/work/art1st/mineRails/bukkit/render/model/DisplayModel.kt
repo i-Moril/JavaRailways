@@ -33,12 +33,12 @@ class DisplayModel internal constructor(
     }
 
     fun mountTo(parent: Entity) {
-        if (entity.vehicle != parent) {
-            entity.vehicle?.removePassenger(entity)
-            parent.addPassenger(entity)
-            RenderVerificationStats.onDisplayMount()
+        if (entity.vehicle == parent) {
+            mountedToRoot = true
+            return
         }
-        mountedToRoot = true
+        entity.vehicle?.removePassenger(entity)
+        mountedToRoot = parent.addPassenger(entity)
     }
 
     // P4: transformDirty 控制是否重设 transformation（teleport 总是执行）
@@ -47,9 +47,6 @@ class DisplayModel internal constructor(
         if (!mountedToRoot) {
             val worldPos = state.worldTransform.position
             entity.teleport(Location(entity.world, worldPos.x(), worldPos.y(), worldPos.z()))
-            RenderVerificationStats.onDisplayWorldTeleport()
-        } else {
-            RenderVerificationStats.onDisplayMountedUpdate()
         }
         if (transformDirty) {
             entity.configureTrainDisplaySmoothing()

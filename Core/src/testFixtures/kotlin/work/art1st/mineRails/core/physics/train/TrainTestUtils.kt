@@ -59,21 +59,21 @@ fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>)
  * @param rail 轨道
  * @param world World
  * @param carLengths 每节车厢长度（米），如 listOf(10.0, 10.0) 表示 2 节 10m
- * @param isLoop 是否为闭环轨道。true 时从起点开始；false（直线）时从起点向前移动列车总长度，避免向后放置时超出轨道起点
+ * @param isLoop 是否为闭环轨道。true 时从起点尝试向前选取安全车头位置；false（直线）时从起点向前移动列车总长度，避免向后放置时超出轨道起点
  * @return 创建的列车
  */
 fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false): CoreTrain {
     // 计算列车总长度（所有车厢长度之和）
     val totalTrainLength = carLengths.sum()
 
+    val startLocation = RailLocationWithFacing(rail.viewAB, 0.0)
+    val offsetDistance = totalTrainLength + 10.0 // 额外10米防止误差导致初始化失败
     val headLocation = if (isLoop) {
-        // 闭环轨道：从起点开始
-        RailLocationWithFacing(rail.viewAB, 0.0)
+        // 闭环/曲线测试也优先使用一个离起点足够远的位置，避免规范化时向后排布跨过未连接的起点。
+        startLocation.forward(offsetDistance) ?: startLocation
     } else {
         // 直线轨道：从起点向前移动（列车总长度 + 10米安全余量），确保列车向后放置时不会超出轨道起点
-        val startLoc = RailLocationWithFacing(rail.viewAB, 0.0)
-        val offsetDistance = totalTrainLength + 10.0 // 额外10米防止误差导致初始化失败
-        startLoc.forward(offsetDistance) ?: error("直线轨道长度不足，无法放置列车（需要至少 $offsetDistance 米）")
+        startLocation.forward(offsetDistance) ?: error("直线轨道长度不足，无法放置列车（需要至少 $offsetDistance 米）")
     }
 
     val cars = carLengths.mapIndexed { index, len ->
@@ -91,7 +91,10 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
             savedExtensionData = emptyMap()
         )
     }
-    return CoreTrain(id, cars, world, emptyMap())
+    return CoreTrain(id, cars, world, emptyMap()).also { train ->
+        train.setLocation(headLocation)
+        train.commit()
+    }
 }
 
 /**

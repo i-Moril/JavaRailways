@@ -144,7 +144,7 @@ open class PrimeCurveImpl : PrimeCurve {
                 val range = hi.arcLength - lo.arcLength
                 val n = maxOf(1, (range / STREAM_LINE_STEP).toInt())
                 for (j in 0..n) {
-                    val arc = lo.arcLength + range * j.toDouble() / n
+                    val arc = (lo.arcLength + range * j.toDouble() / n).coerceIn(lo.arcLength, hi.arcLength)
                     builder.add(getPointAt(arc))
                 }
             } else {

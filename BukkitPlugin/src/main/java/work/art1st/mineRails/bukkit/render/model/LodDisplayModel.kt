@@ -32,25 +32,27 @@ class LodDisplayModel internal constructor(
     }
 
     fun mountTo(parent: Entity) {
-        var mountedAny = false
-        loEntity?.let {
-            if (it.vehicle != parent) {
-                it.vehicle?.removePassenger(it)
-                parent.addPassenger(it)
-                mountedAny = true
+        val entities = listOfNotNull(loEntity, hiEntity)
+        if (entities.isEmpty()) {
+            mountedToRoot = false
+            return
+        }
+
+        val allMounted = entities.all { entity ->
+            if (entity.vehicle == parent) {
+                true
+            } else {
+                entity.vehicle?.removePassenger(entity)
+                parent.addPassenger(entity)
             }
         }
-        hiEntity?.let {
-            if (it.vehicle != parent) {
-                it.vehicle?.removePassenger(it)
-                parent.addPassenger(it)
-                mountedAny = true
+
+        if (!allMounted) {
+            entities.forEach { entity ->
+                if (entity.vehicle == parent) parent.removePassenger(entity)
             }
         }
-        if (mountedAny) {
-            RenderVerificationStats.onLodMount()
-        }
-        mountedToRoot = true
+        mountedToRoot = allMounted
     }
 
     override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
@@ -58,11 +60,9 @@ class LodDisplayModel internal constructor(
         val worldPos = state.worldTransform.position
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
         val loc = org.bukkit.Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z())
-        var worldTeleports = 0L
         loEntity?.let {
             if (!mountedToRoot) {
                 it.teleport(loc)
-                worldTeleports++
             }
             if (transformDirty) {
                 it.configureTrainDisplaySmoothing()
@@ -77,7 +77,6 @@ class LodDisplayModel internal constructor(
         hiEntity?.let {
             if (!mountedToRoot) {
                 it.teleport(loc)
-                worldTeleports++
             }
             if (transformDirty) {
                 it.configureTrainDisplaySmoothing()
@@ -88,11 +87,6 @@ class LodDisplayModel internal constructor(
                     state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
                 )
             }
-        }
-        if (mountedToRoot) {
-            RenderVerificationStats.onLodMountedUpdate()
-        } else if (worldTeleports > 0) {
-            RenderVerificationStats.onLodWorldTeleport(worldTeleports)
         }
     }
 

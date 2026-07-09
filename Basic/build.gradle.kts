@@ -22,6 +22,7 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok:1.18.30")
     testAnnotationProcessor("org.projectlombok:lombok:1.18.30")
     testImplementation(project(":Core"))
+    testImplementation(testFixtures(project(":Core")))
     testImplementation(project(":ConfigLib"))
     implementation(kotlin("stdlib-jdk8"))
     implementation("net.jcip:jcip-annotations:1.0")

@@ -49,6 +49,10 @@ class CompositeModel internal constructor(
         rootEntity.remove()
     }
 
+    fun prepareForUnload() {
+        models.forEach { it.prepareForUnload() }
+    }
+
     fun onMainThread(f: Callable<Unit>) {
         world.tickManager.scheduleMainThreadAfterCommitTask(f)
     }
@@ -66,12 +70,10 @@ class CompositeModel internal constructor(
         if (Bukkit.isPrimaryThread()) {
             (rootEntity as? Display)?.configureTrainRootSmoothing()
             rootEntity.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
-            RenderVerificationStats.onRootTeleport()
         } else {
             onMainThread {
                 (rootEntity as? Display)?.configureTrainRootSmoothing()
                 rootEntity.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
-                RenderVerificationStats.onRootTeleport()
             }
         }
     }

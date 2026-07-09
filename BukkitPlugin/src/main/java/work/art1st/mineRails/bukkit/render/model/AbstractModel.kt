@@ -143,8 +143,18 @@ abstract class AbstractModel(
         }
     }
 
+    /**
+     * Finish runtime-only animation objects before unloading this model tree so reload can restore
+     * the held target scene from the normal held-animation snapshot path.
+     */
+    fun prepareForUnload() {
+        activeAnimation?.destroy()
+        attachedModels.forEach { it.prepareForUnload() }
+    }
+
     @MainThread
     override fun destroy() {
+        activeAnimation?.destroy()
         attachedModels.forEach { it.destroy() }
     }
 

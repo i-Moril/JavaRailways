@@ -104,17 +104,37 @@ class RenderChunkManager(
         val newVisible = getRenderablesAround(
             player.location.asVector3d(),
             player.railViewDistanceSettings.viewDistance
-        ).toMutableSet()
-        val oldVisible = visibleByPlayer[player.uniqueId] ?: emptySet()
+        ).toSet()
+        reconcilePlayerVisibility(player, newVisible)
+    }
 
-        oldVisible.filterNot { it in newVisible }.forEach { dispatchHideFrom(it, player) }
-        newVisible.filterNot { it in oldVisible }.forEach { dispatchSendTo(it, player) }
-        newVisible.forEach { dispatchRefreshFor(it, player) }
+    private fun reconcilePlayerVisibility(player: Player, newVisible: Set<Renderable>) {
+        val oldVisible = visibleByPlayer[player.uniqueId]?.toSet().orEmpty()
+        val touched = LinkedHashSet<Renderable>()
+        touched.addAll(oldVisible)
+        touched.addAll(newVisible)
+        touched.forEach { renderable ->
+            setVisible(player, renderable, renderable in newVisible, refreshExisting = true)
+        }
+    }
 
-        if (newVisible.isEmpty()) {
-            visibleByPlayer.remove(player.uniqueId)
-        } else {
-            visibleByPlayer[player.uniqueId] = newVisible
+    private fun setVisible(player: Player, renderable: Renderable, visible: Boolean, refreshExisting: Boolean = false) {
+        if (visible) {
+            val renderables = visibleByPlayer.getOrPut(player.uniqueId) { LinkedHashSet() }
+            if (renderables.add(renderable)) {
+                dispatchSendTo(renderable, player)
+            } else if (refreshExisting) {
+                dispatchRefreshFor(renderable, player)
+            }
+            return
+        }
+
+        val renderables = visibleByPlayer[player.uniqueId] ?: return
+        if (renderables.remove(renderable)) {
+            dispatchHideFrom(renderable, player)
+            if (renderables.isEmpty()) {
+                visibleByPlayer.remove(player.uniqueId)
+            }
         }
     }
 
@@ -157,11 +177,21 @@ class RenderChunkManager(
 
     internal fun remove(renderable: Renderable) {
         remove(renderable, renderable.chunk)
-        visibleByPlayer.entries.removeIf { (_, renderables) ->
-            renderables.remove(renderable)
-            renderables.isEmpty()
+        val playerIds = visibleByPlayer.entries
+            .filter { (_, renderables) -> renderable in renderables }
+            .map { (playerId, _) -> playerId }
+        val playersById = world.players.associateBy { it.uniqueId }
+        playerIds.forEach { playerId ->
+            val player = playersById[playerId]
+            if (player != null) {
+                setVisible(player, renderable, visible = false)
+            } else {
+                visibleByPlayer[playerId]?.let { renderables ->
+                    renderables.remove(renderable)
+                    if (renderables.isEmpty()) visibleByPlayer.remove(playerId)
+                }
+            }
         }
-        world.players.forEach { player -> dispatchHideFrom(renderable, player) }
     }
 
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {
@@ -181,19 +211,13 @@ class RenderChunkManager(
 
     private fun updateAudience(renderable: Renderable) {
         world.players.forEach { player ->
-            if (player.world != world) return@forEach
-            val renderables = visibleByPlayer.getOrPut(player.uniqueId) { LinkedHashSet() }
-            val radius = player.railViewDistanceSettings.viewDistance
-            if (distanceSquared(renderable.position, player.location.asVector3d()) <= radius * radius) {
-                if (renderables.add(renderable)) {
-                    dispatchSendTo(renderable, player)
-                }
-            } else if (renderables.remove(renderable)) {
-                dispatchHideFrom(renderable, player)
-                if (renderables.isEmpty()) {
-                    visibleByPlayer.remove(player.uniqueId)
-                }
+            if (player.world != world) {
+                clearPlayer(player)
+                return@forEach
             }
+            val radius = player.railViewDistanceSettings.viewDistance
+            val visible = distanceSquared(renderable.position, player.location.asVector3d()) <= radius * radius
+            setVisible(player, renderable, visible)
         }
     }
 

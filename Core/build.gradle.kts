@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    id("java-test-fixtures")
     kotlin("jvm")
     kotlin("plugin.serialization") version "2.3.0"
     //id("com.google.devtools.ksp") version "2.2.21-2.0.5"
@@ -14,6 +15,7 @@ repositories {
 
 dependencies {
     implementation(project(":ConfigLib"))
+    testFixturesImplementation(project(":ConfigLib"))
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

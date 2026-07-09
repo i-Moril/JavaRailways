@@ -15,8 +15,6 @@ import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.control.RealisticManualController
 import work.art1st.mineRails.bukkit.control.TrainKeyItem
 import work.art1st.mineRails.bukkit.extension.train.renderer
-import work.art1st.mineRails.bukkit.extension.renderChunkManager
-import work.art1st.mineRails.bukkit.render.model.RenderVerificationStats
 import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.annotation.Heavy
@@ -42,7 +40,7 @@ object TrainCommand {
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /mr train <create|key|anim|action|behavior|info|list|delete|sit|stand|renderstats>")
+            sender.sendMessage("用法: /mr train <create|key|anim|action|behavior|info|list|delete|sit|stand>")
             return true
         }
 
@@ -57,7 +55,6 @@ object TrainCommand {
             "delete" -> return handleDelete(sender, args.drop(1))
             "sit" -> return handleSit(sender)
             "stand" -> return handleStand(sender)
-            "renderstats" -> return handleRenderStats(sender, args.drop(1))
             else -> sender.sendMessage("未知子命令: ${args[0]}")
         }
         return true
@@ -623,29 +620,6 @@ object TrainCommand {
             return true
         }
         sender.sendMessage("已站立")
-        return true
-    }
-
-    private fun handleRenderStats(sender: CommandSender, args: List<String>): Boolean {
-        when (args.firstOrNull()?.lowercase() ?: "show") {
-            "show" -> {
-                sender.sendMessage("=== renderstats ===")
-                RenderVerificationStats.snapshotLines().forEach(sender::sendMessage)
-            }
-            "on" -> {
-                RenderVerificationStats.enabled = true
-                sender.sendMessage("renderstats 已开启")
-            }
-            "off" -> {
-                RenderVerificationStats.enabled = false
-                sender.sendMessage("renderstats 已关闭")
-            }
-            "reset" -> {
-                RenderVerificationStats.reset()
-                sender.sendMessage("renderstats 已重置")
-            }
-            else -> sender.sendMessage("用法: /mr train renderstats <show|on|off|reset>")
-        }
         return true
     }
 

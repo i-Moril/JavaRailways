@@ -226,8 +226,9 @@ class CoreCar @MainThread internal constructor(
         val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) = calculatePositionByHeadBogie(headBogieNewLocation)
         tailBogie.updateLocation(tailBogieLocation)
         this.position = carPosition
-        this.direction = if (isReversed) -tailToHeadDirection else tailToHeadDirection
-        this.normal = (bogieA.normal + bogieB.normal) * 0.5     // Approx
+        val carDirection = if (isReversed) -tailToHeadDirection else tailToHeadDirection
+        this.direction = carDirection
+        this.normal = (headBogieLocation.normal + tailBogieLocation.normal).projection(carDirection)
         updateMotionStateByHeadBogie()
     }
 
@@ -259,9 +260,9 @@ class CoreCar @MainThread internal constructor(
         headBogie.updateLocation(headBogieLocation)
         tailBogie.updateLocation(tailBogieLocation)
         this.position = carPosition
-        this.direction = if (isReversed) -tailToHeadDirection else tailToHeadDirection
-        val normal = bogieA.normal + bogieB.normal          // Approx
-        this.normal = normal.projection(direction)
+        val carDirection = if (isReversed) -tailToHeadDirection else tailToHeadDirection
+        this.direction = carDirection
+        this.normal = (headBogieLocation.normal + tailBogieLocation.normal).projection(carDirection)
         updateMotionStateByHead(prevCar.tailVelocity())
     }
 

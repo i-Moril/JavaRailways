@@ -1669,7 +1669,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     )
 
     private fun getSnappedTangent(player: Player, state: WandPlayerState): Vector3dc {
-        val yawRad = Math.toRadians(player.location.yaw.toDouble() + 180.0) // 玩家朝向
+        val yawRad = Math.toRadians(player.location.yaw.toDouble())
         val snappedYaw = if (state.snapToAngle) {
             // 对齐到最近 15°
             Math.round(yawRad / (Math.PI / 12.0)) * (Math.PI / 12.0)

@@ -122,7 +122,8 @@ class CarExtension : TrainComponentExtension<Car>() {
         val model = bodyModel ?: return
         modelUpdateSequence += 1L
         val nearDetailAudience = hasAudiencePlayer(::isWithinDetailDistance)
-        val updateInterval = if (nearDetailAudience) NEAR_UPDATE_INTERVAL else FAR_UPDATE_INTERVAL
+        val movingWithAudience = self.velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudiencePlayer { true }
+        val updateInterval = if (nearDetailAudience || movingWithAudience) NEAR_UPDATE_INTERVAL else FAR_UPDATE_INTERVAL
         val shouldUpdateModel = forceNextModelUpdate || !modelStateApplied ||
             updateInterval == 1 || modelUpdateSequence % updateInterval == 0L
         if (!shouldUpdateModel) {
@@ -304,5 +305,6 @@ class CarExtension : TrainComponentExtension<Car>() {
     companion object {
         private const val NEAR_UPDATE_INTERVAL = 1
         private const val FAR_UPDATE_INTERVAL = 4
+        private const val MOVING_EPSILON_SQUARED = 1.0e-6
     }
 }

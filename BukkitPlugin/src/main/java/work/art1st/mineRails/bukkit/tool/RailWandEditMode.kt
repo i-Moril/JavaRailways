@@ -9,39 +9,48 @@ import org.bukkit.event.player.PlayerInteractEvent
 internal class RailWandEditMode(private val wand: RailWand) {
     fun handle(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
         when {
-            // 右键锚点 → 编辑单锚点
             event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
-                val clickedAnchor = wand.findNearestAnchor(player, 3.0)
-                if (clickedAnchor != null) {
+                val anchor = wand.findNearestAnchor(player, 3.0)
+                if (anchor != null) {
+                    state.selectedRails.clear()
                     state.selectedAnchors.clear()
-                    state.selectedAnchors.add(clickedAnchor.id)
+                    state.selectedAnchors.add(anchor.id)
                     wand.updateAnchorDisplay(player)
-                    wand.editAnchor(player, clickedAnchor, state)
-                } else {
-                    // 右键空气 → 编辑已选择的锚点列表
-                    if (state.selectedAnchors.isNotEmpty()) {
-                        wand.editSelectedAnchors(player, state)
+                    wand.editAnchor(player, anchor, state)
+                    return
+                }
+
+                wand.findLookedAtRailAsync(player) { rail ->
+                    if (rail == null) {
+                        player.sendActionBar(Component.text("没有找到所指轨道", NamedTextColor.GRAY))
                     } else {
-                        player.sendActionBar(Component.text("请选择锚点后右键编辑", NamedTextColor.GRAY))
+                        wand.editRail(player, rail, state)
                     }
                 }
             }
-            // 左键锚点 → 选择
+
             event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
-                val clickedAnchor = wand.findNearestAnchor(player, 3.0)
-                if (clickedAnchor != null) {
+                val anchor = wand.findNearestAnchor(player, 3.0)
+                if (anchor != null) {
+                    state.selectedRails.clear()
                     if (player.isSneaking) {
-                        if (clickedAnchor.id !in state.selectedAnchors) {
-                            state.selectedAnchors.add(clickedAnchor.id)
-                        }
+                        if (anchor.id !in state.selectedAnchors) state.selectedAnchors.add(anchor.id)
                     } else {
                         state.selectedAnchors.clear()
-                        state.selectedAnchors.add(clickedAnchor.id)
+                        state.selectedAnchors.add(anchor.id)
                     }
                     wand.updateAnchorDisplay(player)
-                    player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
-                } else {
-                    wand.clearAnchorSelection(player, state)
+                    player.sendActionBar(Component.text("已选择锚点 ${anchor.id}", NamedTextColor.YELLOW))
+                    return
+                }
+
+                wand.findLookedAtRailAsync(player) { rail ->
+                    if (rail == null) {
+                        wand.clearAnchorSelection(player, state)
+                        player.sendActionBar(Component.text("没有找到所指轨道", NamedTextColor.GRAY))
+                    } else {
+                        wand.selectRail(player, rail, state)
+                    }
                 }
             }
         }

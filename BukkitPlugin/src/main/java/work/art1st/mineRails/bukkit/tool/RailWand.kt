@@ -301,6 +301,18 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
     }
 
+    class RailEditKeys {
+        val designSpeedKmH = ConfigKey.build<Double>("rail.edit.designSpeedKmH") {
+            label = "设计时速"
+            description = "该轨道段的设计时速。"
+            defaultValue(80.0)
+            valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(5.0, 500.0, 5.0, "km/h")
+            group = "rail.edit"
+            order = 0
+        }
+    }
+
     /** 锚点编辑配置键 */
     class AnchorEditKeys {
         val anchorId = ConfigKey.build<String>("anchor.id") {
@@ -350,10 +362,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private lateinit var editKeys: AnchorEditKeys
+    private lateinit var railEditKeys: RailEditKeys
 
     private fun registerWandConfig() {
         wandKeys = WandConfigKeys()
         editKeys = AnchorEditKeys()
+        railEditKeys = RailEditKeys()
 
         // wand 设置分组
         val wandGroup = ConfigGroup("wand.settings", "RailWand 设置", description = "RailWand 工具参数设置").apply {
@@ -382,6 +396,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             items.add(ConfigItemImpl(editKeys!!.roll))
         }
         configUI.register(editGroup)
+
+        configUI.register(ConfigGroup(
+            id = "rail.edit",
+            label = "编辑轨道",
+            description = "修改轨道段的基础设施属性。",
+            items = mutableListOf(ConfigItemImpl(railEditKeys.designSpeedKmH))
+        ))
 
         // 锚点批量编辑分组 (增量)
         val batchGroup = ConfigGroup("anchor.batchEdit", "批量平移锚点", description = "对所有选中锚点应用增量").apply {
@@ -1104,6 +1125,43 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("$label 不是有效数字: $raw", NamedTextColor.RED))
             null
         }
+    }
+
+    internal fun editRail(player: Player, rail: CoreRail, state: WandPlayerState) {
+        val currentSpeedKmH = rail.metadata.designSpeedMetersPerSecond?.times(3.6) ?: state.designSpeedKmH
+        state.selectedAnchors.clear()
+        state.selectedRails.clear()
+        state.selectedRails.add(rail.id)
+        state.designSpeedKmH = currentSpeedKmH
+        updateAnchorDisplay(player)
+
+        val session = configUI.getPlayerSession(player.uniqueId)
+        session.setValue(railEditKeys.designSpeedKmH, currentSpeedKmH)
+        dialogRenderer.showConfigDialog(player, "rail.edit") { p ->
+            val liveRail = getCoreWorld(p)?.getRail(rail.id) ?: run {
+                p.sendActionBar(Component.text("轨道已不存在", NamedTextColor.RED))
+                return@showConfigDialog
+            }
+            val designSpeedKmH = configUI.getPlayerSession(p.uniqueId)
+                .getValue(railEditKeys.designSpeedKmH) ?: currentSpeedKmH
+            liveRail.metadata = liveRail.metadata.copy(
+                designSpeedMetersPerSecond = designSpeedKmH / 3.6
+            )
+            getState(p).designSpeedKmH = designSpeedKmH
+            p.sendActionBar(
+                Component.text("轨道设计时速已更新为 ${"%.0f".format(designSpeedKmH)} km/h", NamedTextColor.GREEN)
+            )
+        }
+    }
+
+    internal fun selectRail(player: Player, rail: CoreRail, state: WandPlayerState) {
+        state.selectedAnchors.clear()
+        state.selectedRails.clear()
+        state.selectedRails.add(rail.id)
+        updateAnchorDisplay(player)
+        val speed = rail.metadata.designSpeedMetersPerSecond?.times(3.6)
+        val speedLabel = speed?.let { "%.0f km/h".format(it) } ?: "未设置"
+        player.sendActionBar(Component.text("已选择轨道 ${rail.id}，设计时速 $speedLabel", NamedTextColor.YELLOW))
     }
 
     internal fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {

@@ -16,8 +16,7 @@ enum class RailCurveTemplateType(val displayName: String) {
     AUTO("自动"),
     STRAIGHT("直线"),
     FIVE_SEGMENT("五段式曲线"),
-    S_CURVE("S弯"),
-    TURNOUT("道岔")
+    S_CURVE("S弯")
 }
 
 enum class StraightMode {
@@ -107,11 +106,6 @@ object RailCurveFactory {
             RailCurveTemplateType.STRAIGHT -> buildStraight(prepared, options, match)
             RailCurveTemplateType.FIVE_SEGMENT -> buildFiveSegment(prepared, options, match)
             RailCurveTemplateType.S_CURVE -> buildSCurve(prepared, options, match)
-            RailCurveTemplateType.TURNOUT -> buildFiveSegment(
-                prepared,
-                options.copy(superelevation = null),
-                match
-            )
             RailCurveTemplateType.AUTO -> error("AUTO should be resolved before build")
         }
     }

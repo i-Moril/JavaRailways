@@ -10,7 +10,6 @@ def update(path: Path, design_speed_kmh: float) -> int:
     data = json.loads(path.read_text())
     metadata = {
         "designSpeedMetersPerSecond": design_speed_kmh / 3.6,
-        "kind": "NORMAL",
         "geometry": {
             "curveKind": "UNKNOWN",
             "curveRadiusMeters": None,
@@ -23,7 +22,10 @@ def update(path: Path, design_speed_kmh: float) -> int:
     rails = data["rails"]
     for rail in rails:
         current = rail.setdefault("metadata", metadata.copy())
-        current.setdefault("geometry", metadata["geometry"].copy())
+        current.pop("kind", None)
+        geometry = current.setdefault("geometry", metadata["geometry"].copy())
+        if geometry.get("curveKind") == "TURNOUT":
+            geometry["curveKind"] = "FIVE_SEGMENT"
     path.write_text(json.dumps(data, separators=(",", ":")))
     return len(rails)
 

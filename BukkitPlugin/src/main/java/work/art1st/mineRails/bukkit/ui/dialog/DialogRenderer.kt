@@ -48,6 +48,32 @@ class DialogRenderer(
         private fun toInputKey(configKeyId: String): String = configKeyId.replace('.', '_')
     }
 
+    data class MenuEntry(val label: String, val onSelected: (Player) -> Unit)
+
+    fun showMenu(player: Player, title: String, description: String, entries: List<MenuEntry>) {
+        val buttons = entries.map { entry ->
+            val action = DialogAction.customClick(
+                { _, audience -> if (audience is Player) entry.onSelected(audience) },
+                ClickCallback.Options.builder().uses(1).lifetime(DEFAULT_LIFETIME).build()
+            )
+            ActionButton.builder(Component.text(entry.label, NamedTextColor.YELLOW))
+                .action(action)
+                .build()
+        }
+        val bodies = listOf(DialogBody.plainMessage(Component.text(description, NamedTextColor.GRAY)))
+        val dialog = Dialog.create { factory ->
+            factory.empty()
+                .base(
+                    DialogBase.builder(Component.text(title, NamedTextColor.GOLD))
+                        .body(bodies)
+                        .canCloseWithEscape(true)
+                        .build()
+                )
+                .type(DialogType.multiAction(buttons, null, 1))
+        }
+        player.showDialog(dialog)
+    }
+
     /**
      * 向玩家展示配置分组的原生 Dialog。
      */

@@ -4,18 +4,11 @@ import kotlinx.serialization.Serializable
 
 /** Infrastructure properties persisted with one rail segment. */
 @Serializable
-enum class RailKind {
-    NORMAL,
-    TURNOUT_BRANCH
-}
-
-@Serializable
 enum class RailCurveKind {
     AUTO,
     STRAIGHT,
     FIVE_SEGMENT,
     S_CURVE,
-    TURNOUT,
     UNKNOWN
 }
 
@@ -54,7 +47,6 @@ data class RailGeometryMetadata(
 data class RailMetadata(
     /** Design speed in metres per second. Null means unspecified. */
     val designSpeedMetersPerSecond: Double? = null,
-    val kind: RailKind = RailKind.NORMAL,
     val geometry: RailGeometryMetadata = RailGeometryMetadata()
 ) {
     init {

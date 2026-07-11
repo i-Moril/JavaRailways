@@ -25,6 +25,8 @@ import work.art1st.mineRails.basic.curve.RailCurveBuildOptions
 import work.art1st.mineRails.basic.curve.RailCurveFactory
 import work.art1st.mineRails.basic.curve.RailCurveTemplateType
 import work.art1st.mineRails.basic.curve.StraightMode
+import work.art1st.mineRails.basic.curve.StandardTurnout
+import work.art1st.mineRails.basic.curve.StandardTurnoutFactory
 import work.art1st.mineRails.basic.curve.SuperelevationConfig
 import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.basic.rail.RailAutoConnector
@@ -41,9 +43,9 @@ import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.rail.ParallelRailMetadata
 import work.art1st.mineRails.core.api.physics.rail.RailCurveKind
 import work.art1st.mineRails.core.api.physics.rail.RailGeometryMetadata
-import work.art1st.mineRails.core.api.physics.rail.RailKind
 import work.art1st.mineRails.core.api.physics.rail.RailMetadata
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailView
@@ -57,6 +59,7 @@ import kotlin.math.*
 enum class WandMode(override val displayName: String, override val description: String) : WandModeSpec {
     CREATE("创建模式", "右键创建锚点 | 左键选择锚点 | Shift+F 切换模式"),
     CONNECT("连接模式", "选择两端锚点后右键连接 | Shift+F 切换模式"),
+    TURNOUT("道岔模式", "靠近锚点右键创建标准道岔侧线 | Shift+F 切换模式"),
     EDIT("编辑模式", "右键编辑锚点/轨道 | 左键选择 | Shift+F 切换模式"),
     DELETE("删除模式", "左键锚点/轨道进入待删除 | 再次左键确认 | Shift+F 切换模式"),
     DECORATE("装饰模式", "填充展示实体 | Shift+F 切换模式");
@@ -158,6 +161,8 @@ data class WandPlayerState(
     var curveTemplate: RailCurveTemplateType = RailCurveTemplateType.AUTO,
     /** 直线模板是否允许重设端点 yaw 为两锚点 chord；默认关闭以避免切线突变。 */
     var straightUsesChordDirection: Boolean = false,
+    /** 标准道岔号数，同时确定侧线半径和限速。 */
+    var turnoutStandard: StandardTurnout = StandardTurnout.N9,
     /** 新建轨道的设计时速。 */
     var designSpeedKmH: Double = 80.0,
     /** 五段式曲线是否按设计时速生成外轨超高。 */
@@ -220,6 +225,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private val createMode = RailWandCreateMode(this)
     private val connectMode = RailWandConnectMode(this)
+    private val turnoutMode = RailWandTurnoutMode(this)
     private val editMode = RailWandEditMode(this)
     private val deleteMode = RailWandDeleteMode(this)
     private val decorateMode = RailWandDecorateMode()
@@ -301,7 +307,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
         val curveTemplate = ConfigKey.build<RailCurveTemplateType>("wand.curveTemplate") {
             label = "曲线模板"
-            description = "自动/直线/五段式/S弯/道岔。直线模板可避免斜向直线被误判。"
+            description = "自动/直线/五段式/S弯。直线模板可避免斜向直线被误判。"
             defaultValue(RailCurveTemplateType.AUTO)
             valueType = ConfigValueType.ENUM
             constraints = ConfigConstraints.EnumOptions(
@@ -319,6 +325,18 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             group = "wand.settings"
             order = 8
         }
+        val turnoutStandard = ConfigKey.build<StandardTurnout>("wand.turnoutStandard") {
+            label = "标准道岔号数"
+            description = "道岔号数同时确定侧线半径和侧线限速。"
+            defaultValue(StandardTurnout.N9)
+            valueType = ConfigValueType.ENUM
+            constraints = ConfigConstraints.EnumOptions(
+                StandardTurnout.entries,
+                StandardTurnout.entries.associateWith { it.displayName }
+            )
+            group = "wand.settings"
+            order = 9
+        }
         val designSpeedKmH = ConfigKey.build<Double>("wand.designSpeedKmH") {
             label = "设计时速"
             description = "新建轨道的设计时速，并用于自动计算曲线超高。"
@@ -326,7 +344,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(5.0, 500.0, 5.0, "km/h")
             group = "wand.settings"
-            order = 9
+            order = 10
         }
         val automaticSuperelevation = ConfigKey.build<Boolean>("wand.automaticSuperelevation") {
             label = "自动外轨超高"
@@ -334,7 +352,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             defaultValue(true)
             valueType = ConfigValueType.BOOLEAN
             group = "wand.settings"
-            order = 10
+            order = 11
         }
         val maxSuperelevationMm = ConfigKey.build<Double>("wand.maxSuperelevationMm") {
             label = "最大外轨超高"
@@ -343,7 +361,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
             group = "wand.settings"
-            order = 11
+            order = 12
         }
     }
 
@@ -424,22 +442,33 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         editKeys = AnchorEditKeys()
         railEditKeys = RailEditKeys()
 
-        // wand 设置分组
-        val wandGroup = ConfigGroup("wand.settings", "RailWand 设置", description = "RailWand 工具参数设置").apply {
-            items.add(ConfigItemImpl(wandKeys.parallelCount))
-            items.add(ConfigItemImpl(wandKeys.parallelSpacing))
-            items.add(ConfigItemImpl(wandKeys.snapToAngle))
-            items.add(ConfigItemImpl(wandKeys.snapToBlock))
-            items.add(ConfigItemImpl(wandKeys.openConfigAfterCreate))
-            items.add(ConfigItemImpl(wandKeys.autoDecorate))
-            items.add(ConfigItemImpl(wandKeys.curveRadius))
-            items.add(ConfigItemImpl(wandKeys.curveTemplate))
-            items.add(ConfigItemImpl(wandKeys.straightUsesChordDirection))
-            items.add(ConfigItemImpl(wandKeys.designSpeedKmH))
-            items.add(ConfigItemImpl(wandKeys.automaticSuperelevation))
-            items.add(ConfigItemImpl(wandKeys.maxSuperelevationMm))
-        }
-        configUI.register(wandGroup)
+        configUI.register(ConfigGroup(
+            "wand.settings.general",
+            "RailWand 设置 1/2",
+            description = "锚点吸附、并行线路与显示设置",
+            items = mutableListOf(
+                ConfigItemImpl(wandKeys.parallelCount),
+                ConfigItemImpl(wandKeys.parallelSpacing),
+                ConfigItemImpl(wandKeys.snapToAngle),
+                ConfigItemImpl(wandKeys.snapToBlock),
+                ConfigItemImpl(wandKeys.openConfigAfterCreate),
+                ConfigItemImpl(wandKeys.autoDecorate)
+            )
+        ))
+        configUI.register(ConfigGroup(
+            "wand.settings.geometry",
+            "RailWand 设置 2/2",
+            description = "普通曲线、标准道岔与基础设施参数",
+            items = mutableListOf(
+                ConfigItemImpl(wandKeys.curveRadius),
+                ConfigItemImpl(wandKeys.curveTemplate),
+                ConfigItemImpl(wandKeys.straightUsesChordDirection),
+                ConfigItemImpl(wandKeys.turnoutStandard),
+                ConfigItemImpl(wandKeys.designSpeedKmH),
+                ConfigItemImpl(wandKeys.automaticSuperelevation),
+                ConfigItemImpl(wandKeys.maxSuperelevationMm)
+            )
+        ))
 
         // 锚点编辑分组 (单锚点)
         val editGroup = ConfigGroup("anchor.edit", "编辑锚点", description = "修改锚点位置和朝向").apply {
@@ -494,6 +523,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ?: (configUI.get(wandKeys.curveTemplate) ?: RailCurveTemplateType.AUTO)
         state.straightUsesChordDirection = session.getValue(wandKeys.straightUsesChordDirection)
             ?: (configUI.get(wandKeys.straightUsesChordDirection) ?: false)
+        state.turnoutStandard = session.getValue(wandKeys.turnoutStandard)
+            ?: (configUI.get(wandKeys.turnoutStandard) ?: StandardTurnout.N9)
         state.designSpeedKmH = session.getValue(wandKeys.designSpeedKmH)
             ?: (configUI.get(wandKeys.designSpeedKmH) ?: 80.0)
         state.automaticSuperelevation = session.getValue(wandKeys.automaticSuperelevation)
@@ -515,6 +546,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(wandKeys.curveRadius, state.curveRadius)
         session.setValue(wandKeys.curveTemplate, state.curveTemplate)
         session.setValue(wandKeys.straightUsesChordDirection, state.straightUsesChordDirection)
+        session.setValue(wandKeys.turnoutStandard, state.turnoutStandard)
         session.setValue(wandKeys.designSpeedKmH, state.designSpeedKmH)
         session.setValue(wandKeys.automaticSuperelevation, state.automaticSuperelevation)
         session.setValue(wandKeys.maxSuperelevationMm, state.maxSuperelevationMm)
@@ -548,6 +580,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         when (state.mode) {
             WandMode.CREATE -> createMode.handle(player, state, event)
             WandMode.CONNECT -> connectMode.handle(player, state, event)
+            WandMode.TURNOUT -> turnoutMode.handle(player, state, event)
             WandMode.EDIT -> editMode.handle(player, state, event)
             WandMode.DELETE -> deleteMode.handle(player, state, event)
             WandMode.DECORATE -> decorateMode.handle(player, state, event)
@@ -663,6 +696,73 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val oldEnd: Anchor,
         val oldMetadata: RailMetadata
     )
+
+    @OptIn(Heavy::class)
+    internal fun createTurnoutAtAnchor(player: Player, state: WandPlayerState, anchor: Anchor) {
+        val towards = Vector3d(player.location.x, anchor.position.y(), player.location.z).sub(anchor.position)
+        if (towards.lengthSquared() < 1.0e-6) {
+            player.sendActionBar(Component.text("玩家与锚点的水平方向不明确", NamedTextColor.RED))
+            return
+        }
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "道岔创建")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+
+        val worldId = player.world.uid
+        val standard = state.turnoutStandard
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailWand.createTurnoutAtAnchor",
+            supplier = { StandardTurnoutFactory.build(anchor, towards, standard) },
+            onSuccess = { result ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                if (result == null || getAnchor(livePlayer.world, anchor.id) != anchor) {
+                    livePlayer.sendActionBar(Component.text("锚点已变化或方向无效，请重试", NamedTextColor.RED))
+                    return@supply
+                }
+                val coreWorld = getCoreWorld(livePlayer) ?: return@supply
+                val existingRails = RailRenderMetaStore.load(livePlayer.world)
+                    .mapNotNull { coreWorld.getRail(it.railId) }
+                val rail = CoreRail(
+                    coreWorld,
+                    result.curve,
+                    mutableListOf(),
+                    mutableListOf(),
+                    RailMetadata(
+                        designSpeedMetersPerSecond = standard.divergingSpeedKmH / 3.6,
+                        geometry = RailGeometryMetadata(
+                            curveKind = RailCurveKind.FIVE_SEGMENT,
+                            curveRadiusMeters = standard.radiusMeters,
+                            automaticSuperelevation = false
+                        )
+                    )
+                )
+                val renderMeta = RailVisualBootstrap.registerRail(rail)
+                RailRenderMetaStore.upsertRail(livePlayer.world, renderMeta)
+                val autoConnected = connectCreatedRailsToExisting(listOf(rail), existingRails)
+                pushUndo(livePlayer, WandAction.CreateRail(livePlayer.world.uid, rail.id, "standard"))
+                val liveState = getState(livePlayer)
+                liveState.selectedAnchors.clear()
+                liveState.selectedAnchors.add(railEndpointAnchorId(rail.id, 'B'))
+                updateAnchorDisplay(livePlayer)
+                livePlayer.sendMessage(Component.text(
+                    "✓ 创建 ${standard.number} 号道岔侧线，限速 ${standard.divergingSpeedKmH.toInt()} km/h，连接 $autoConnected 条",
+                    NamedTextColor.GREEN
+                ))
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("RailWand turnout build failed: ${error.message ?: error::class.simpleName}")
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
+                    Component.text("道岔创建失败", NamedTextColor.RED)
+                )
+            }
+        )
+    }
 
     private data class RailConnectionSnapshot(
         val rail: CoreRail,
@@ -1176,11 +1276,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         parallel: ParallelRailMetadata? = null
     ): RailMetadata = RailMetadata(
         designSpeedMetersPerSecond = settings.designSpeedKmH / 3.6,
-        kind = if (settings.curveTemplate == RailCurveTemplateType.TURNOUT) {
-            RailKind.TURNOUT_BRANCH
-        } else {
-            RailKind.NORMAL
-        },
         geometry = RailGeometryMetadata(
             curveKind = RailCurveKind.valueOf(settings.curveTemplate.name),
             curveRadiusMeters = settings.curveRadius.takeIf { it > 0.0 },
@@ -1673,6 +1768,18 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             .minByOrNull { it.position.distance(playerPos) }
     }
 
+    internal fun findLookedAtAnchor(player: Player, maxDistance: Double, hitRadius: Double): Anchor? {
+        val origin = player.eyeLocation.toVector().toVector3d()
+        val direction = player.eyeLocation.direction.toVector3d().normalize()
+        return getAllAnchors(player.world).mapNotNull { anchor ->
+            val offset = Vector3d(anchor.position).sub(origin)
+            val distanceAlongRay = offset.dot(direction)
+            if (distanceAlongRay !in 0.0..maxDistance) return@mapNotNull null
+            val distanceToRay = offset.sub(Vector3d(direction).mul(distanceAlongRay)).length()
+            anchor.takeIf { distanceToRay <= hitRadius }?.let { it to distanceAlongRay }
+        }.minByOrNull { it.second }?.first
+    }
+
     // ═══════════════════════════════════════════
     // 辅助方法 — 位置/朝向吸附
     // ═══════════════════════════════════════════
@@ -1981,13 +2088,25 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // 模式设置 (使用 ConfigAPI + Paper Dialog)
     // ═══════════════════════════════════════════
 
-    /** Shift+右键 → 打开 Paper 原生 Dialog 设置界面 */
+    /** Shift+右键 → 打开分页设置界面。 */
     private fun showModeSettings(player: Player, state: WandPlayerState) {
         syncStateToConfig(player)
-        dialogRenderer.showConfigDialog(player, "wand.settings") { p ->
-            syncConfigToState(p)
-            p.sendActionBar(Component.text("RailWand 设置已更新", NamedTextColor.GREEN))
+        fun openPage(pagePlayer: Player, groupId: String) {
+            dialogRenderer.showConfigDialog(pagePlayer, groupId) { confirmedPlayer ->
+                syncConfigToState(confirmedPlayer)
+                confirmedPlayer.sendActionBar(Component.text("RailWand 设置已更新", NamedTextColor.GREEN))
+                showModeSettings(confirmedPlayer, getState(confirmedPlayer))
+            }
         }
+        dialogRenderer.showMenu(
+            player,
+            "RailWand 设置",
+            "请选择设置分页",
+            listOf(
+                DialogRenderer.MenuEntry("1/2 锚点与并行线路") { openPage(it, "wand.settings.general") },
+                DialogRenderer.MenuEntry("2/2 曲线、道岔与限速") { openPage(it, "wand.settings.geometry") }
+            )
+        )
     }
 
     // ═══════════════════════════════════════════

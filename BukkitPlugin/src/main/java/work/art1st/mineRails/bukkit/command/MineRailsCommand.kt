@@ -1,5 +1,6 @@
 package work.art1st.mineRails.bukkit.command
 
+import org.bukkit.Bukkit
 import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
@@ -12,6 +13,7 @@ import work.art1st.mineRails.basic.timetable.TimetableDumper
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoadResult
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoader
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.core.physics.CoreWorld
 import java.io.File
 
 class MineRailsCommand : CommandExecutor, TabCompleter {
@@ -33,6 +35,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
             "route" -> return handleRoute(sender, args.drop(1))
             "timetable", "tt" -> return handleTimetable(sender, args.drop(1))
+            "perf", "performance" -> return handlePerf(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
             "redo" -> return handleRedo(sender)
             "help" -> sendHelp(sender)
@@ -48,7 +51,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         args: Array<out String>
     ): List<String> {
         if (args.size == 1) {
-            return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "stop", "undo", "redo", "help")
+            return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "stop", "perf", "undo", "redo", "help")
         }
         return emptyList()
     }
@@ -223,6 +226,51 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         return if (inTimetableDir.exists()) inTimetableDir else File(BukkitPlugin.INSTANCE.dataFolder, path)
     }
 
+    private fun handlePerf(sender: CommandSender, args: List<String>): Boolean {
+        val plugin = BukkitPlugin.INSTANCE
+        val requestedWorld = args.firstOrNull()?.let(Bukkit::getWorld)
+        if (args.isNotEmpty() && requestedWorld == null) {
+            sender.sendMessage("世界不存在: ${args.first()}")
+            return true
+        }
+        val bukkitWorld = requestedWorld
+            ?: (sender as? Player)?.world
+            ?: plugin.worldManager.railWorlds.keys.firstOrNull()
+        val coreWorld = bukkitWorld?.let { plugin.worldManager.railWorlds[it] as? CoreWorld }
+        if (bukkitWorld == null || coreWorld == null) {
+            sender.sendMessage("没有可用的 MineRails 世界")
+            return true
+        }
+
+        sender.sendMessage("=== MineRails Performance: ${bukkitWorld.name} ===")
+        plugin.worldManager.latestServerTickMetrics()?.let { metrics ->
+            sender.sendMessage(
+                "server tick=${metrics.tickIndex} impact=${formatMillis(metrics.totalImpactNanos)}ms " +
+                    "compute=${formatMillis(metrics.computeNanos)}ms wait=${formatMillis(metrics.blockedWaitAsyncNanos)}ms"
+            )
+            metrics.phaseBreakdownNanos.entries
+                .filter { (phase, _) -> phase.startsWith("world:${bukkitWorld.name}:") || phase == "seat_extension" }
+                .sortedByDescending { it.value }
+                .take(8)
+                .forEach { (phase, nanos) -> sender.sendMessage("  $phase=${formatMillis(nanos)}ms") }
+        } ?: sender.sendMessage("server metrics: 尚无样本")
+
+        coreWorld.physicsCoordinator.latestMetrics()?.let { metrics ->
+            sender.sendMessage(
+                "physics epoch=${metrics.epoch} wall=${formatMillis(metrics.wallNanos)}ms " +
+                    "workerMax=${formatMillis(metrics.workerMaxNanos)}ms coordinator=${formatMillis(metrics.coordinatorNanos)}ms"
+            )
+            sender.sendMessage(
+                "  active=${metrics.activeTrainCount}/${metrics.totalTrainCount} spans=${metrics.spanCount} " +
+                    "bucketRefs=${metrics.bucketReferenceCount} candidates=${metrics.candidateChecks} " +
+                    "collisions=${metrics.collisionClaims} overloads=${metrics.overloadCountInWindow}"
+            )
+        } ?: sender.sendMessage("physics metrics: 尚无样本")
+        return true
+    }
+
+    private fun formatMillis(nanos: Long): String = "%.3f".format(java.util.Locale.US, nanos / 1_000_000.0)
+
     private fun handleUndo(sender: CommandSender): Boolean {
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
         BukkitPlugin.INSTANCE.railWand.undo(sender)
@@ -250,6 +298,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
+        sender.sendMessage("/mr perf [world] - 查看 Tick、物理和渲染耗时")
         sender.sendMessage("/mr undo - 撤销操作")
         sender.sendMessage("/mr redo - 重做操作")
     }

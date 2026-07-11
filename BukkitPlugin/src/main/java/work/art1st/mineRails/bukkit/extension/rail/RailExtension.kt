@@ -31,6 +31,7 @@ import work.art1st.mineRails.bukkit.extension.BukkitRenderable
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.core.util.ThreadGuard
+import java.util.UUID
 import kotlin.math.ceil
 
 /**
@@ -38,6 +39,7 @@ import kotlin.math.ceil
  */
 class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderable<RailArcVisualSegment> {
     private lateinit var self: RailArcVisualSegment
+    private val audience: MutableSet<UUID> = hashSetOf()
 
     override fun initialize(host: RailArcVisualSegment, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
@@ -50,17 +52,16 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @MainThread
     override fun sendTo(player: Player) {
         ThreadGuard.ensureMainThread("RailExtension.sendTo")
+        audience.add(player.uniqueId)
         buildModel()
     }
 
-    /**
-     * 在主线程主动构建模型（幂等）。
-     * 供 bootstrap 在注册分段后立即触发，避免依赖 sendTo 懒加载。
-     */
+    /** Unload static rail entities after the last nearby player leaves. */
     @MainThread
-    fun ensureBuilt() {
-        ThreadGuard.ensureMainThread("RailExtension.ensureBuilt")
-        buildModel()
+    fun hideFrom(player: Player) {
+        ThreadGuard.ensureMainThread("RailExtension.hideFrom")
+        if (!audience.remove(player.uniqueId)) return
+        if (audience.isEmpty()) destroyModel()
     }
 
     /**
@@ -127,6 +128,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @MainThread
     override fun destroy() {
         ThreadGuard.ensureMainThread("RailExtension.destroy")
+        audience.clear()
         self.world.renderChunkManager.remove(self)
         destroyModel()
     }

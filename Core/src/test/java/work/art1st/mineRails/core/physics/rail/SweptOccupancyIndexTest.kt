@@ -72,6 +72,27 @@ class SweptOccupancyIndexTest {
     }
 
     @Test
+    fun `overlap is prioritized ahead of a capped broad-phase candidate list`() {
+        val spans = buildList {
+            add(span("A", railA, 15.0, 16.0))
+            for (index in 0 until 5) {
+                add(span("B$index", railA, index.toDouble(), index + 0.5))
+            }
+            add(span("Z-collision", railA, 15.5, 17.0))
+        }
+        val occupancy = SweptOccupancyIndex(spans, bucketSize = 32.0)
+
+        val result = occupancy.queryFirstCollision(
+            trainId = "A",
+            ownSpans = listOf(span("A", railA, 15.0, 16.0)),
+            maxCandidates = 2
+        )
+
+        assertEquals("Z-collision", result.collidingTrainId)
+        assertFalse(result.candidateLimitReached)
+    }
+
+    @Test
     fun `candidate limit is explicit`() {
         val spans = buildList {
             add(span("A", railA, 0.0, 1.0))

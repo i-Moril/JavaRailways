@@ -35,6 +35,7 @@ class RenderChunkManager(
 ) : Listener {
     val world: World by WeakReferenceWrapper(world)
     private val visibleByPlayer: MutableMap<UUID, MutableSet<Renderable>> = HashMap()
+    private val refreshStateByPlayer: MutableMap<UUID, PlayerRefreshState> = HashMap()
 
     init {
         Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
@@ -64,7 +65,7 @@ class RenderChunkManager(
     fun onPlayerJoin(event: PlayerJoinEvent) {
         ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerJoin")
         if (event.player.world == world) {
-            refreshPlayer(event.player)
+            refreshPlayer(event.player, force = true)
         }
     }
 
@@ -88,7 +89,7 @@ class RenderChunkManager(
         ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerTeleport")
         if (event.from.world != world && event.to.world != world) return
         Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable {
-            if (event.player.world == world) refreshPlayer(event.player) else clearPlayer(event.player)
+            if (event.player.world == world) refreshPlayer(event.player, force = true) else clearPlayer(event.player)
         })
     }
 
@@ -96,22 +97,41 @@ class RenderChunkManager(
     fun onPlayerChangedWorld(event: PlayerChangedWorldEvent) {
         ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerChangedWorld")
         if (event.player.world == world) {
-            refreshPlayer(event.player)
+            refreshPlayer(event.player, force = true)
         } else if (event.from == world) {
             clearPlayer(event.player)
         }
     }
 
-    private fun refreshPlayer(player: Player) {
+    private fun refreshPlayer(player: Player, force: Boolean = false) {
         if (player.world != world) {
             clearPlayer(player)
             return
         }
-        val newVisible = getRenderablesAround(
-            player.location.asVector3d(),
-            player.railViewDistanceSettings.viewDistance
-        ).toSet()
+        val location = player.location
+        val position = location.asVector3d()
+        val settings = player.railViewDistanceSettings
+        val chunk = RenderChunk(position)
+        val previous = refreshStateByPlayer[player.uniqueId]
+        if (!force && previous != null && previous.chunk == chunk &&
+            previous.viewDistance == settings.viewDistance && previous.lodThreshold == settings.lodThreshold
+        ) {
+            val dx = location.x - previous.x
+            val dy = location.y - previous.y
+            val dz = location.z - previous.z
+            if (dx * dx + dy * dy + dz * dz < PLAYER_REFRESH_DISTANCE_SQ) return
+        }
+
+        val newVisible = getRenderablesAround(position, settings.viewDistance).toSet()
         reconcilePlayerVisibility(player, newVisible)
+        refreshStateByPlayer[player.uniqueId] = PlayerRefreshState(
+            chunk = chunk,
+            x = location.x,
+            y = location.y,
+            z = location.z,
+            viewDistance = settings.viewDistance,
+            lodThreshold = settings.lodThreshold
+        )
     }
 
     private fun reconcilePlayerVisibility(player: Player, newVisible: Set<Renderable>) {
@@ -145,6 +165,7 @@ class RenderChunkManager(
     }
 
     private fun clearPlayer(player: Player) {
+        refreshStateByPlayer.remove(player.uniqueId)
         visibleByPlayer.remove(player.uniqueId)?.forEach { dispatchHideFrom(it, player) }
     }
 
@@ -158,7 +179,7 @@ class RenderChunkManager(
     private fun dispatchHideFrom(renderable: Renderable, player: Player) {
         when (renderable) {
             is Car -> renderable.renderer.hideFrom(player)
-            is RailArcVisualSegment -> Unit
+            is RailArcVisualSegment -> renderable.renderer.hideFrom(player)
         }
     }
 
@@ -173,7 +194,7 @@ class RenderChunkManager(
         renderableObjects[chunk]?.let {
             it.remove(renderable)
             if (it.isEmpty()) {
-                removeChunk(chunk)
+                renderableObjects.remove(chunk, it)
             }
         }
     }
@@ -201,14 +222,14 @@ class RenderChunkManager(
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {
         ThreadGuard.ensureMainThread("RenderChunkManager.update")
         val newChunk = RenderChunk(newPosition)
-        renderableObjects.getOrPut(newChunk) { HashSet() }.add(renderable)
-        addChunk(newChunk)
+        val oldChunk = oldPosition?.let(::RenderChunk)
 
-        if (oldPosition != null) {
-            val oldChunk = RenderChunk(oldPosition)
-            if (oldChunk != newChunk) {
-                remove(renderable, oldChunk)
-            }
+        // The chunk map is an in-memory spatial index, not a reason to force-load Bukkit chunks.
+        // Only mutate it when a renderable is first registered or actually crosses a chunk border.
+        val alreadyIndexed = renderableObjects[newChunk]?.contains(renderable) == true
+        if (!alreadyIndexed || oldChunk == null || oldChunk != newChunk) {
+            renderableObjects.getOrPut(newChunk) { HashSet() }.add(renderable)
+            if (oldChunk != null && oldChunk != newChunk) remove(renderable, oldChunk)
         }
 
         updateAudience(renderable)
@@ -233,19 +254,16 @@ class RenderChunkManager(
         return dx * dx + dy * dy + dz * dz
     }
 
-    /**
-     * 令区块加载，允许区块内的实体被发送给玩家
-     */
-    private fun addChunk(chunk: RenderChunk) {
-        val bukkitChunk = world.getChunkAt(chunk.x, chunk.z)
-        bukkitChunk.addPluginChunkTicket(BukkitPlugin.INSTANCE)
-    }
+    private data class PlayerRefreshState(
+        val chunk: RenderChunk,
+        val x: Double,
+        val y: Double,
+        val z: Double,
+        val viewDistance: Double,
+        val lodThreshold: Double
+    )
 
-    /**
-     * 卸载区块
-     */
-    private fun removeChunk(chunk: RenderChunk) {
-        val bukkitChunk = world.getChunkAt(chunk.x, chunk.z)
-        bukkitChunk.removePluginChunkTicket(BukkitPlugin.INSTANCE)
+    companion object {
+        private const val PLAYER_REFRESH_DISTANCE_SQ = 1.0
     }
 }

@@ -83,19 +83,53 @@ class SweptOccupancyIndex(
             }
         }
 
+        // Check nearest intervals first. Every actual overlap has separation 0, so a colliding
+        // train cannot be hidden behind the broad-phase candidate cap by unrelated spans that only
+        // happen to share a 32 m bucket.
+        val orderedCandidates = candidateSpans.entries
+            .map { (candidateTrainId, rawSpans) ->
+                CandidateTrain(
+                    trainId = candidateTrainId,
+                    spans = rawSpans.distinct(),
+                    separation = minimumSeparation(ownSpans, rawSpans)
+                )
+            }
+            .sortedWith(compareBy<CandidateTrain> { it.separation }.thenBy { it.trainId })
+
         var checked = 0
-        for ((candidateTrainId, rawSpans) in candidateSpans) {
+        for (candidate in orderedCandidates) {
             if (checked >= maxCandidates) {
                 return SweptOccupancyQueryResult(null, checked, candidateLimitReached = true)
             }
             checked++
-            val spansForTrain = rawSpans.distinct()
-            if (ownSpans.any { own -> spansForTrain.any { candidate -> own.overlaps(candidate, tolerance) } }) {
-                return SweptOccupancyQueryResult(candidateTrainId, checked, candidateLimitReached = false)
+            if (ownSpans.any { own -> candidate.spans.any { other -> own.overlaps(other, tolerance) } }) {
+                return SweptOccupancyQueryResult(candidate.trainId, checked, candidateLimitReached = false)
             }
         }
         return SweptOccupancyQueryResult(null, checked, candidateLimitReached = false)
     }
+
+    private fun minimumSeparation(ownSpans: Collection<SweptRailSpan>, candidates: Collection<SweptRailSpan>): Double {
+        var minimum = Double.POSITIVE_INFINITY
+        for (own in ownSpans) {
+            for (candidate in candidates) {
+                if (own.railId != candidate.railId) continue
+                val separation = when {
+                    own.maxArcAB < candidate.minArcAB -> candidate.minArcAB - own.maxArcAB
+                    candidate.maxArcAB < own.minArcAB -> own.minArcAB - candidate.maxArcAB
+                    else -> 0.0
+                }
+                if (separation < minimum) minimum = separation
+            }
+        }
+        return minimum
+    }
+
+    private data class CandidateTrain(
+        val trainId: String,
+        val spans: List<SweptRailSpan>,
+        val separation: Double
+    )
 
     private fun bucketRange(span: SweptRailSpan): LongRange {
         val first = floor(span.minArcAB / bucketSize).toLong()

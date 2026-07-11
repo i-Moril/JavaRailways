@@ -44,6 +44,7 @@ class CoreWorld(
 
     @Volatile
     private var sweptOccupancyIndex: SweptOccupancyIndex = SweptOccupancyIndex.EMPTY
+    private val pendingRenderTrainIds = ConcurrentHashMap.newKeySet<String>()
 
     init {
         worldParent.attachWorld(this)
@@ -76,6 +77,7 @@ class CoreWorld(
 
     @MainThread
     override fun removeTrain(train: Train) {
+        pendingRenderTrainIds.remove(train.id)
         trains.remove(train.id)
     }
 
@@ -127,9 +129,18 @@ class CoreWorld(
             maxCandidates = SweptOccupancyIndex.DEFAULT_MAX_CANDIDATES
         )
 
+    /** Called by the Coordinator after publishing an active train's physics state. */
+    internal fun markTrainRenderPending(trainId: String) {
+        pendingRenderTrainIds.add(trainId)
+    }
+
     /** Main-thread Bukkit render commit; it never flips physics buffers. */
     fun commitPublishedTrainRenderState() {
-        trains.values.forEach { it.commitRenderState() }
+        pendingRenderTrainIds.toList().forEach { trainId ->
+            if (pendingRenderTrainIds.remove(trainId)) {
+                trains[trainId]?.commitRenderState()
+            }
+        }
     }
 
     override fun save(): SavedWorldV1 {

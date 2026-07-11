@@ -307,7 +307,10 @@ class PhysicsCoordinator(
 
             val coordinatorStart = nanoTime()
             // Publish only after every worker has finished reading the previous epoch.
-            snapshot.forEach { it.publishPhysicsState() }
+            snapshot.forEach { controller ->
+                controller.publishPhysicsState()
+                world?.markTrainRenderPending(controller.profileId)
+            }
             world?.rebuildSweptOccupancyIndex()
             val occupancyStats = world?.sweptOccupancyStats() ?: (0 to 0)
             val coordinatorNanos = nanoTime() - coordinatorStart

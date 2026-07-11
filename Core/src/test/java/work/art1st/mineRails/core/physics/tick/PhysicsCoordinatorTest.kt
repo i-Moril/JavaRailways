@@ -1,6 +1,7 @@
 package work.art1st.mineRails.core.physics.tick
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -26,6 +27,33 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class PhysicsCoordinatorTest {
+    @Test
+    fun `published active trains are queued for main-thread render commit`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("render-dirty", rail, world, listOf(10.0))
+        val car = train.cars.single()
+        val initialRenderedPosition = car.lastState.position
+        train.setController(ConstantSpeedController(train, world))
+        coordinator.start()
+        try {
+            coordinator.wakeFromMainThread().await()
+            assertNotEquals(initialRenderedPosition, car.position)
+            assertEquals(initialRenderedPosition, car.lastState.position)
+
+            world.commitPublishedTrainRenderState()
+            assertEquals(car.position, car.lastState.position)
+        } finally {
+            coordinator.close()
+        }
+    }
+
     @Test
     fun `tick end capture returns the currently running ticket`() {
         val coordinator = PhysicsCoordinator(

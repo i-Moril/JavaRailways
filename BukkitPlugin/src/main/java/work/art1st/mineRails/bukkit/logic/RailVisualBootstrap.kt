@@ -61,8 +61,8 @@ object RailVisualBootstrap {
             val extension = RailExtension()
             segment.registerExtensionData(BukkitPlugin.INSTANCE, extension)
             extension.initialize(segment, emptyMap())
-            // 轨道是静态几何，注册后立即构建实体，避免仅靠 sendTo 的懒触发。
-            extension.ensureBuilt()
+            // Register lightweight metadata only. RenderChunkManager builds entities when the
+            // first nearby player becomes an audience member and unloads them after the last leaves.
             renderManager.update(segment, null, segment.position)
         }
         railSegments[railId] = segments.toMutableList()

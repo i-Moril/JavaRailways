@@ -120,6 +120,14 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         }
     }
 
+    protected fun hasAudiencePlayer(predicate: (Player) -> Boolean): Boolean {
+        for (playerId in audience) {
+            val player = Bukkit.getPlayer(playerId) ?: continue
+            if (predicate(player)) return true
+        }
+        return false
+    }
+
     open fun applyAnimation(name: String): Boolean = false
 
     open fun applyAnimation(name: String, sceneName: String): Boolean = false

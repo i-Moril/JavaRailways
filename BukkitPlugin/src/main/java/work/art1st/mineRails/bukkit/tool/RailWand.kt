@@ -81,6 +81,50 @@ data class SavedAnchorData(
     val tx: Double, val ty: Double, val tz: Double
 )
 
+internal class WandActionHistory(private val limit: Int = 10) {
+    private val undoActions = mutableListOf<WandAction>()
+    private val redoActions = mutableListOf<WandAction>()
+
+    internal val undoSize: Int get() = undoActions.size
+    internal val redoSize: Int get() = redoActions.size
+
+    fun record(action: WandAction) {
+        appendBounded(undoActions, action)
+        redoActions.clear()
+    }
+
+    fun takeUndo(): WandAction? {
+        val action = undoActions.removeLastOrNull() ?: return null
+        appendBounded(redoActions, action)
+        return action
+    }
+
+    fun takeRedo(): WandAction? {
+        val action = redoActions.removeLastOrNull() ?: return null
+        appendBounded(undoActions, action)
+        return action
+    }
+
+    fun discardCreatedAnchors(anchorIds: Set<String>) {
+        val retained = undoActions.mapNotNull { it.withoutCreatedAnchors(anchorIds) }
+        undoActions.clear()
+        undoActions.addAll(retained.takeLast(limit))
+    }
+
+    private fun appendBounded(actions: MutableList<WandAction>, action: WandAction) {
+        actions.add(action)
+        if (actions.size > limit) actions.removeAt(0)
+    }
+
+    private fun WandAction.withoutCreatedAnchors(anchorIds: Set<String>): WandAction? = when (this) {
+        is WandAction.CreateAnchor -> takeUnless { anchorId in anchorIds }
+        is WandAction.MultiAction -> actions.mapNotNull { it.withoutCreatedAnchors(anchorIds) }
+            .takeIf { it.isNotEmpty() }
+            ?.let { WandAction.MultiAction(it) }
+        else -> this
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 玩家状态
 // ═══════════════════════════════════════════════════════════════
@@ -171,9 +215,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private val anchorEntities = mutableMapOf<UUID, MutableMap<String, MutableSet<UUID>>>()
     private val heavyOperationGate = PlayerOperationGate()
 
-    /** 撤销/重做栈 (playerId -> stacks) */
-    private val undoStacks = mutableMapOf<UUID, MutableList<WandAction>>()
-    private val redoStacks = mutableMapOf<UUID, MutableList<WandAction>>()
+    /** 每名玩家最近 10 次有效操作。 */
+    private val actionHistories = mutableMapOf<UUID, WandActionHistory>()
 
     private val createMode = RailWandCreateMode(this)
     private val connectMode = RailWandConnectMode(this)
@@ -492,8 +535,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     override fun onPlayerQuit(player: Player, state: WandPlayerState) {
         removeAllAnchorDisplays(player)
-        undoStacks.remove(player.uniqueId)
-        redoStacks.remove(player.uniqueId)
+        actionHistories.remove(player.uniqueId)
         heavyOperationGate.clear(player.uniqueId)
         configUI.removePlayerSession(player.uniqueId)
     }
@@ -744,6 +786,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
                     val autoConnected = connectCreatedRailsToExisting(createdRails, existingRails)
                     RailRenderMetaStore.upsertRails(livePlayer.world, persistedMetas)
+                    actionHistory(livePlayer).discardCreatedAnchors(selectionSnapshot.toSet())
                     pushUndo(livePlayer, WandAction.MultiAction(undoActions))
                     livePlayer.sendMessage(Component.text(
                         "✓ 创建了 ${createdRails.size} 段轨道 (${settingsSnapshot.parallelCount} 条并行线)，自动连接 $autoConnected 条",
@@ -1809,20 +1852,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // Undo / Redo
     // ═══════════════════════════════════════════
 
+    private fun actionHistory(player: Player): WandActionHistory =
+        actionHistories.getOrPut(player.uniqueId) { WandActionHistory() }
+
     private fun pushUndo(player: Player, action: WandAction) {
-        val stack = undoStacks.getOrPut(player.uniqueId) { mutableListOf() }
-        stack.add(action)
-        redoStacks[player.uniqueId]?.clear()  // 新操作清空 redo
+        actionHistory(player).record(action)
     }
 
     fun undo(player: Player): Boolean {
-        val stack = undoStacks[player.uniqueId] ?: return false
-        if (stack.isEmpty()) {
+        val action = actionHistories[player.uniqueId]?.takeUndo()
+        if (action == null) {
             player.sendActionBar(Component.text("没有可撤销的操作", NamedTextColor.GRAY))
             return false
         }
-        val action = stack.removeAt(stack.size - 1)
-        redoStacks.getOrPut(player.uniqueId) { mutableListOf() }.add(action)
 
         when (action) {
             is WandAction.CreateAnchor -> undoCreateAnchor(player, action)
@@ -1846,13 +1888,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     fun redo(player: Player): Boolean {
-        val stack = redoStacks[player.uniqueId] ?: return false
-        if (stack.isEmpty()) {
+        val action = actionHistories[player.uniqueId]?.takeRedo()
+        if (action == null) {
             player.sendActionBar(Component.text("没有可重做的操作", NamedTextColor.GRAY))
             return false
         }
-        val action = stack.removeAt(stack.size - 1)
-        undoStacks.getOrPut(player.uniqueId) { mutableListOf() }.add(action)
 
         when (action) {
             is WandAction.CreateAnchor -> redoCreateAnchor(player, action)
@@ -1913,6 +1953,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             rail.destroy()
             coreWorld.removeRail(rail)
         }
+        val state = getState(player)
+        state.selectedRails.remove(action.railId)
+        state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) == action.railId }
     }
 
     private fun redoCreateRail(player: Player, action: WandAction.CreateRail) {

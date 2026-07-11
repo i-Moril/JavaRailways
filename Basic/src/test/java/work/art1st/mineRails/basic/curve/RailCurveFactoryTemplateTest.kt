@@ -135,6 +135,32 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
+    fun `parallel curves match endpoint sides when end tangent is reversed`() {
+        val spacing = 4.5
+        val starts = listOf(
+            Anchor("A0", Vector3d(0.0, 0.0, spacing / 2.0), Vector3d(1.0, 0.0, 0.0)),
+            Anchor("A1", Vector3d(0.0, 0.0, -spacing / 2.0), Vector3d(1.0, 0.0, 0.0))
+        )
+        val ends = listOf(
+            Anchor("B0", Vector3d(50.0 - spacing / 2.0, 0.0, 50.0), Vector3d(0.0, 0.0, -1.0)),
+            Anchor("B1", Vector3d(50.0 + spacing / 2.0, 0.0, 50.0), Vector3d(0.0, 0.0, -1.0))
+        )
+
+        val result = RailCurveFactory.buildParallel(
+            starts,
+            ends,
+            RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        assertEquals(2, result.curves!!.size)
+        val generatedEnds = result.curves.map { it.getPointAt(it.totalArcLength).position }
+        ends.forEach { expected ->
+            assertTrue(generatedEnds.any { it.distance(expected.position) < Curve.TOLERANCE })
+        }
+    }
+
+    @Test
     fun `straight template can manually use chord direction`() {
         val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
         val to = Anchor("B", Vector3d(10.0, 0.0, 5.0), Vector3d(1.0, 0.0, 0.0))

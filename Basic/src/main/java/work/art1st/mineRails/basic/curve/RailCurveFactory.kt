@@ -138,24 +138,35 @@ object RailCurveFactory {
             return RailParallelCurveBuildResult.failure(centerResult.error ?: "中心曲线创建失败", centerResult.selectedTemplate, centerResult.selectedReason)
         }
 
-        val startRight = rightVector(centerFrom.tangent)
-            ?: return RailParallelCurveBuildResult.failure("无法计算并行偏移方向", centerResult.selectedTemplate, centerResult.selectedReason)
+        val centerCurve = centerResult.curve!!
+        val startRight = rightVector(centerCurve.getPointAt(0.0).tangent)
+            ?: return RailParallelCurveBuildResult.failure("无法计算并行起点偏移方向", centerResult.selectedTemplate, centerResult.selectedReason)
+        val endRight = rightVector(centerCurve.getPointAt(centerCurve.totalArcLength).tangent)
+            ?: return RailParallelCurveBuildResult.failure("无法计算并行终点偏移方向", centerResult.selectedTemplate, centerResult.selectedReason)
         val offsets = fromAnchors.map { anchor -> Vector3d(anchor.position).sub(centerFrom.position).dot(startRight) }
+        val unmatchedEnds = toAnchors.map { anchor ->
+            anchor to Vector3d(anchor.position).sub(centerTo.position).dot(endRight)
+        }.toMutableList()
+        val matchedEnds = offsets.map { offset ->
+            val match = unmatchedEnds.minBy { (_, endOffset) -> abs(endOffset - offset) }
+            unmatchedEnds.remove(match)
+            match.first
+        }
         val tolerance = maxOf(0.25, estimatedSpacing(offsets) * 0.1)
         val curves = offsets.mapIndexed { index, offset ->
-            offsetCurve(centerResult.curve!!, offset, fromAnchors[index], toAnchors[index], tolerance)
+            offsetCurve(centerCurve, offset, fromAnchors[index], matchedEnds[index], tolerance)
                 ?: return RailParallelCurveBuildResult.failure(
-                    "并行曲线端点偏离锚点过大: ${fromAnchors[index].id}→${toAnchors[index].id}",
+                    "并行曲线端点偏离锚点过大: ${fromAnchors[index].id}→${matchedEnds[index].id}",
                     centerResult.selectedTemplate,
                     centerResult.selectedReason
                 )
         }
         curves.forEachIndexed { index, curve ->
             val startDistance = curve.getPointAt(0.0).position.distance(fromAnchors[index].position)
-            val endDistance = curve.getPointAt(curve.totalArcLength).position.distance(toAnchors[index].position)
+            val endDistance = curve.getPointAt(curve.totalArcLength).position.distance(matchedEnds[index].position)
             if (startDistance > Curve.TOLERANCE || endDistance > Curve.TOLERANCE) {
                 return RailParallelCurveBuildResult.failure(
-                    "并行曲线端点未贴合锚点: ${fromAnchors[index].id}→${toAnchors[index].id}",
+                    "并行曲线端点未贴合锚点: ${fromAnchors[index].id}→${matchedEnds[index].id}",
                     centerResult.selectedTemplate,
                     centerResult.selectedReason
                 )

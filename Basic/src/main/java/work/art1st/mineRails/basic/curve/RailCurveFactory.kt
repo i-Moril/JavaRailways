@@ -252,7 +252,11 @@ object RailCurveFactory {
         }
         val raw = offsetPositions.mapIndexed { index, position ->
             val source = centerPoints[index]
-            val tangent = tangentAt(offsetPositions, index) ?: Vector3d(source.tangent).normalize()
+            val tangent = when (index) {
+                0 -> endpointTangent(fromAnchor.tangent, source.tangent)
+                offsetPositions.lastIndex -> endpointTangent(toAnchor.tangent, source.tangent)
+                else -> tangentAt(offsetPositions, index) ?: Vector3d(source.tangent).normalize()
+            }
             val sourceTangent = Vector3d(source.tangent)
             if (sourceTangent.lengthSquared() > 1e-12 && tangent.dot(sourceTangent.normalize()) < 0.0) {
                 tangent.negate()
@@ -264,6 +268,12 @@ object RailCurveFactory {
             Curve.RawPoint(position, tangent, normal, cumulative[index])
         }
         return PrimeCurve.fromPoints(raw)
+    }
+
+    private fun endpointTangent(anchorTangent: Vector3dc, curveTangent: Vector3dc): Vector3d {
+        val tangent = Vector3d(anchorTangent).normalize()
+        if (tangent.dot(curveTangent) < 0.0) tangent.negate()
+        return tangent
     }
 
     private fun tangentAt(positions: List<Vector3d>, index: Int): Vector3d? {

@@ -154,9 +154,12 @@ class RailCurveFactoryTemplateTest {
 
         assertTrue(result.isSuccess, result.error)
         assertEquals(2, result.curves!!.size)
-        val generatedEnds = result.curves.map { it.getPointAt(it.totalArcLength).position }
+        val generatedEnds = result.curves.map { it.getPointAt(it.totalArcLength) }
         ends.forEach { expected ->
-            assertTrue(generatedEnds.any { it.distance(expected.position) < Curve.TOLERANCE })
+            val generated = generatedEnds.minBy { it.position.distance(expected.position) }
+            assertTrue(generated.position.distance(expected.position) < Curve.TOLERANCE)
+            val tangentAlignment = kotlin.math.abs(Vector3d(generated.tangent).normalize().dot(Vector3d(expected.tangent).normalize()))
+            assertTrue(tangentAlignment > 1.0 - 1e-8, "endpoint ${expected.id} tangent alignment=$tangentAlignment")
         }
     }
 

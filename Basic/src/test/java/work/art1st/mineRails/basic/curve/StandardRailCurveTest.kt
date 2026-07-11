@@ -237,6 +237,19 @@ class StandardRailCurveTest {
         }
 
         @Test
+        fun `自动超高按局部曲率在缓和曲线中变化`() {
+            val curve = StandardRailCurve(
+                300.0,
+                10.0,
+                20.0,
+                SuperelevationConfig(autoCalculate = true, designSpeedKmH = 60.0, maxSuperelevation = 1.0)
+            )
+
+            assertEquals(0.0678, curve.superelevationAt(5.0), 1.0e-4)
+            assertEquals(0.1356, curve.superelevationAt(15.0), 1.0e-4)
+        }
+
+        @Test
         fun `圆曲线段超高达到 superelevation`() {
             val config = SuperelevationConfig(
                 autoCalculate = false,

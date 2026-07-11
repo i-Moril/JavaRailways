@@ -9,9 +9,11 @@ import work.art1st.mineRails.core.di.KoinWorldParentContext
 import work.art1st.mineRails.core.di.mineRailsParentScope
 import work.art1st.mineRails.basic.BasicPlugin
 import work.art1st.mineRails.basic.BasicWorldData
+import work.art1st.mineRails.basic.safety.RailSpeedCalculator
 import work.art1st.mineRails.basic.safety.SpeedSafetyMonitor
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.util.TickManagerImpl
 import work.art1st.mineRails.core.physics.tick.PhysicsCoordinator
@@ -21,6 +23,7 @@ import java.util.concurrent.Executors
  * 为 Bukkit 世界创建对应的 Core [World]：Tick、Koin 父 scope、[BukkitWorldData] 扩展一步完成。
  */
 object RailWorldFactory {
+    @OptIn(Heavy::class)
     fun createForBukkit(
         bukkitWorld: BukkitWorld,
         snapshot: CoreWorld.SavedWorldV1? = null
@@ -49,6 +52,19 @@ object RailWorldFactory {
             BasicWorldData()
         )
         val safetyConfig = BukkitPlugin.INSTANCE.mineRailsConfig
+        coreWorld.allRails.forEach { rail ->
+            val requestedSpeed = rail.metadata.designSpeedMetersPerSecond ?: return@forEach
+            val limits = RailSpeedCalculator.calculate(
+                rail.curve,
+                requestedSpeed,
+                rail.metadata.geometry.allowableCantDeficiencyMeters,
+                safetyConfig.derailLateralAccelerationMetersPerSecondSquared
+            )
+            rail.metadata = rail.metadata.copy(
+                speedLimitMetersPerSecond = limits.operatingLimitMetersPerSecond,
+                derailSpeedMetersPerSecond = limits.derailSpeedMetersPerSecond
+            )
+        }
         tickManager.register(
             SpeedSafetyMonitor(
                 coreWorld,

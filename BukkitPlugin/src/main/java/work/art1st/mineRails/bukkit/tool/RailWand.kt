@@ -30,6 +30,8 @@ import work.art1st.mineRails.basic.curve.StandardTurnoutFactory
 import work.art1st.mineRails.basic.curve.SuperelevationConfig
 import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.basic.rail.RailAutoConnector
+import work.art1st.mineRails.basic.safety.RailSpeedCalculator
+import work.art1st.mineRails.basic.safety.RailSpeedLimits
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
 import work.art1st.mineRails.bukkit.persistence.PersistedRailRenderMeta
@@ -165,6 +167,8 @@ data class WandPlayerState(
     var turnoutStandard: StandardTurnout = StandardTurnout.N9,
     /** 新建轨道的设计时速。 */
     var designSpeedKmH: Double = 80.0,
+    /** 运营限速计算允许的欠超高。 */
+    var allowableCantDeficiencyMm: Double = 75.0,
     /** 五段式曲线是否按设计时速生成外轨超高。 */
     var automaticSuperelevation: Boolean = true,
     /** 自动超高上限。 */
@@ -346,13 +350,22 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             group = "wand.settings"
             order = 10
         }
+        val allowableCantDeficiencyMm = ConfigKey.build<Double>("wand.allowableCantDeficiencyMm") {
+            label = "允许欠超高"
+            description = "根据最终曲率和实际超高计算运营限速。"
+            defaultValue(75.0)
+            valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
+            group = "wand.settings"
+            order = 11
+        }
         val automaticSuperelevation = ConfigKey.build<Boolean>("wand.automaticSuperelevation") {
             label = "自动外轨超高"
             description = "五段式曲线按设计时速和半径自动生成外轨超高。"
             defaultValue(true)
             valueType = ConfigValueType.BOOLEAN
             group = "wand.settings"
-            order = 11
+            order = 12
         }
         val maxSuperelevationMm = ConfigKey.build<Double>("wand.maxSuperelevationMm") {
             label = "最大外轨超高"
@@ -361,7 +374,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
             group = "wand.settings"
-            order = 12
+            order = 13
         }
     }
 
@@ -465,6 +478,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 ConfigItemImpl(wandKeys.straightUsesChordDirection),
                 ConfigItemImpl(wandKeys.turnoutStandard),
                 ConfigItemImpl(wandKeys.designSpeedKmH),
+                ConfigItemImpl(wandKeys.allowableCantDeficiencyMm),
                 ConfigItemImpl(wandKeys.automaticSuperelevation),
                 ConfigItemImpl(wandKeys.maxSuperelevationMm)
             )
@@ -527,6 +541,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ?: (configUI.get(wandKeys.turnoutStandard) ?: StandardTurnout.N9)
         state.designSpeedKmH = session.getValue(wandKeys.designSpeedKmH)
             ?: (configUI.get(wandKeys.designSpeedKmH) ?: 80.0)
+        state.allowableCantDeficiencyMm = session.getValue(wandKeys.allowableCantDeficiencyMm)
+            ?: (configUI.get(wandKeys.allowableCantDeficiencyMm) ?: 75.0)
         state.automaticSuperelevation = session.getValue(wandKeys.automaticSuperelevation)
             ?: (configUI.get(wandKeys.automaticSuperelevation) ?: true)
         state.maxSuperelevationMm = session.getValue(wandKeys.maxSuperelevationMm)
@@ -548,6 +564,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(wandKeys.straightUsesChordDirection, state.straightUsesChordDirection)
         session.setValue(wandKeys.turnoutStandard, state.turnoutStandard)
         session.setValue(wandKeys.designSpeedKmH, state.designSpeedKmH)
+        session.setValue(wandKeys.allowableCantDeficiencyMm, state.allowableCantDeficiencyMm)
         session.setValue(wandKeys.automaticSuperelevation, state.automaticSuperelevation)
         session.setValue(wandKeys.maxSuperelevationMm, state.maxSuperelevationMm)
     }
@@ -685,8 +702,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val curveTemplate: RailCurveTemplateType,
         val straightUsesChordDirection: Boolean,
         val designSpeedKmH: Double,
+        val allowableCantDeficiencyMm: Double,
         val automaticSuperelevation: Boolean,
         val maxSuperelevationMm: Double
+    )
+
+    private data class BuiltCurve(
+        val curve: PrimeCurve,
+        val speedLimits: RailSpeedLimits
     )
 
     private data class RailEndpointRebuildInput(
@@ -712,18 +735,30 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
         val worldId = player.world.uid
         val standard = state.turnoutStandard
+        val cantDeficiencyMeters = state.allowableCantDeficiencyMm / 1000.0
+        val derailAcceleration = plugin.mineRailsConfig.derailLateralAccelerationMetersPerSecondSquared
         BukkitAsyncTasks.supply(
             plugin = plugin,
             operation = "RailWand.createTurnoutAtAnchor",
-            supplier = { StandardTurnoutFactory.build(anchor, towards, standard) },
-            onSuccess = { result ->
+            supplier = {
+                StandardTurnoutFactory.build(anchor, towards, standard)?.let { result ->
+                    result to RailSpeedCalculator.calculate(
+                        curve = result.curve,
+                        requestedLimitMetersPerSecond = standard.divergingSpeedKmH / 3.6,
+                        allowableCantDeficiencyMeters = cantDeficiencyMeters,
+                        derailLateralAccelerationMetersPerSecondSquared = derailAcceleration
+                    )
+                }
+            },
+            onSuccess = { builtTurnout ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
-                if (result == null || getAnchor(livePlayer.world, anchor.id) != anchor) {
+                if (builtTurnout == null || getAnchor(livePlayer.world, anchor.id) != anchor) {
                     livePlayer.sendActionBar(Component.text("锚点已变化或方向无效，请重试", NamedTextColor.RED))
                     return@supply
                 }
+                val (result, speedLimits) = builtTurnout
                 val coreWorld = getCoreWorld(livePlayer) ?: return@supply
                 val existingRails = RailRenderMetaStore.load(livePlayer.world)
                     .mapNotNull { coreWorld.getRail(it.railId) }
@@ -734,10 +769,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     mutableListOf(),
                     RailMetadata(
                         designSpeedMetersPerSecond = standard.divergingSpeedKmH / 3.6,
+                        speedLimitMetersPerSecond = speedLimits.operatingLimitMetersPerSecond,
+                        derailSpeedMetersPerSecond = speedLimits.derailSpeedMetersPerSecond,
                         geometry = RailGeometryMetadata(
                             curveKind = RailCurveKind.FIVE_SEGMENT,
                             curveRadiusMeters = standard.radiusMeters,
-                            automaticSuperelevation = false
+                            automaticSuperelevation = false,
+                            allowableCantDeficiencyMeters = cantDeficiencyMeters
                         )
                     )
                 )
@@ -750,7 +788,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 liveState.selectedAnchors.add(railEndpointAnchorId(rail.id, 'B'))
                 updateAnchorDisplay(livePlayer)
                 livePlayer.sendMessage(Component.text(
-                    "✓ 创建 ${standard.number} 号道岔侧线，限速 ${standard.divergingSpeedKmH.toInt()} km/h，连接 $autoConnected 条",
+                    "✓ 创建 ${standard.number} 号道岔侧线，限速 ${(speedLimits.operatingLimitMetersPerSecond * 3.6).toInt()} km/h，连接 $autoConnected 条",
                     NamedTextColor.GREEN
                 ))
             },
@@ -780,6 +818,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             curveTemplate = state.curveTemplate,
             straightUsesChordDirection = state.straightUsesChordDirection,
             designSpeedKmH = state.designSpeedKmH,
+            allowableCantDeficiencyMm = state.allowableCantDeficiencyMm,
             automaticSuperelevation = state.automaticSuperelevation,
             maxSuperelevationMm = state.maxSuperelevationMm
         )
@@ -829,8 +868,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         BukkitAsyncTasks.supply(
             plugin = plugin,
             operation = "RailWand.connectSelectedAnchors",
-            supplier = { createCurvesBetweenParallelAnchors(startAnchors, endAnchors, settingsSnapshot) },
-            onSuccess = { curves ->
+            supplier = { createCurvesWithSpeedLimits(startAnchors, endAnchors, settingsSnapshot) },
+            onSuccess = { builtCurves ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -850,7 +889,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text("锚点已变化，请重试轨道连接", NamedTextColor.YELLOW))
                     return@supply
                 }
-                if (curves == null) {
+                if (builtCurves == null) {
                     livePlayer.sendActionBar(Component.text("无法创建并行曲线", NamedTextColor.RED))
                     return@supply
                 }
@@ -861,13 +900,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
                 val undoActions = mutableListOf<WandAction>()
                 try {
-                    val parallelGroupId = UUID.randomUUID().toString().takeIf { curves.size > 1 }
-                    curves.forEachIndexed { index, curve ->
+                    val parallelGroupId = UUID.randomUUID().toString().takeIf { builtCurves.size > 1 }
+                    builtCurves.forEachIndexed { index, builtCurve ->
+                        val curve = builtCurve.curve
                         val parallel = parallelGroupId?.let {
                             ParallelRailMetadata(
                                 groupId = it,
                                 index = index,
-                                count = curves.size,
+                                count = builtCurves.size,
                                 spacingMeters = settingsSnapshot.parallelSpacing
                             )
                         }
@@ -876,7 +916,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             curve,
                             mutableListOf(),
                             mutableListOf(),
-                            railMetadata(settingsSnapshot, parallel)
+                            railMetadata(settingsSnapshot, builtCurve.speedLimits, parallel)
                         )
                         val meta = RailVisualBootstrap.registerRail(rail)
                         persistedMetas.add(meta)
@@ -925,6 +965,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         )
     }
 
+    @OptIn(Heavy::class)
     private fun rebuildRailForEndpointEdit(
         player: Player,
         state: WandPlayerState,
@@ -991,12 +1032,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             plugin = plugin,
             operation = "RailWand.rebuildRailForEndpointEdit",
             supplier = {
-                val curvesByRailId = linkedMapOf<UUID, PrimeCurve>()
+                val curvesByRailId = linkedMapOf<UUID, BuiltCurve>()
+                val derailAcceleration = plugin.mineRailsConfig.derailLateralAccelerationMetersPerSecondSquared
                 for (input in rebuildInputs) {
                     val newStart = if (input.movedEnd == 'A') updatedEndpoint else input.oldStart
                     val newEnd = if (input.movedEnd == 'B') updatedEndpoint else input.oldEnd
                     val curve = createCurveBetweenAnchors(newStart, newEnd, settingsSnapshot) ?: return@supply null
-                    curvesByRailId[input.railId] = curve
+                    val limits = RailSpeedCalculator.calculate(
+                        curve,
+                        settingsSnapshot.designSpeedKmH / 3.6,
+                        settingsSnapshot.allowableCantDeficiencyMm / 1000.0,
+                        derailAcceleration
+                    )
+                    curvesByRailId[input.railId] = BuiltCurve(curve, limits)
                 }
                 curvesByRailId
             },
@@ -1040,13 +1088,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val oldToNew = mutableMapOf<UUID, CoreRail>()
                 try {
                     rebuildInputs.forEach { input ->
-                        val newCurve = curvesByRailId[input.railId] ?: error("Missing rebuilt curve for ${input.railId}")
+                        val builtCurve = curvesByRailId[input.railId] ?: error("Missing rebuilt curve for ${input.railId}")
                         val newRail = CoreRail(
                             liveCoreWorld,
-                            newCurve,
+                            builtCurve.curve,
                             mutableListOf(),
                             mutableListOf(),
-                            railMetadata(settingsSnapshot, input.oldMetadata.geometry.parallel)
+                            railMetadata(settingsSnapshot, builtCurve.speedLimits, input.oldMetadata.geometry.parallel)
                         )
                         val meta = RailVisualBootstrap.registerRail(newRail)
                         createdRails.add(newRail)
@@ -1251,6 +1299,27 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return result.curves
     }
 
+    @OptIn(Heavy::class)
+    private fun createCurvesWithSpeedLimits(
+        startAnchors: List<Anchor>,
+        endAnchors: List<Anchor>,
+        settings: CurveBuildSettingsSnapshot
+    ): List<BuiltCurve>? {
+        val curves = createCurvesBetweenParallelAnchors(startAnchors, endAnchors, settings) ?: return null
+        val derailAcceleration = plugin.mineRailsConfig.derailLateralAccelerationMetersPerSecondSquared
+        return curves.map { curve ->
+            BuiltCurve(
+                curve,
+                RailSpeedCalculator.calculate(
+                    curve = curve,
+                    requestedLimitMetersPerSecond = settings.designSpeedKmH / 3.6,
+                    allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
+                    derailLateralAccelerationMetersPerSecondSquared = derailAcceleration
+                )
+            )
+        }
+    }
+
     private fun railCurveBuildOptions(state: WandPlayerState): RailCurveBuildOptions {
         return railCurveBuildOptions(snapshotCurveBuildSettings(state))
     }
@@ -1263,7 +1332,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             superelevation = if (settings.automaticSuperelevation) {
                 SuperelevationConfig(
                     maxSuperelevation = settings.maxSuperelevationMm / 1000.0,
-                    designSpeedKmH = settings.designSpeedKmH
+                    designSpeedKmH = (settings.designSpeedKmH - 10.0).coerceAtLeast(0.0)
                 )
             } else {
                 null
@@ -1273,15 +1342,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun railMetadata(
         settings: CurveBuildSettingsSnapshot,
+        speedLimits: RailSpeedLimits,
         parallel: ParallelRailMetadata? = null
     ): RailMetadata = RailMetadata(
         designSpeedMetersPerSecond = settings.designSpeedKmH / 3.6,
+        speedLimitMetersPerSecond = speedLimits.operatingLimitMetersPerSecond,
+        derailSpeedMetersPerSecond = speedLimits.derailSpeedMetersPerSecond,
         geometry = RailGeometryMetadata(
             curveKind = RailCurveKind.valueOf(settings.curveTemplate.name),
             curveRadiusMeters = settings.curveRadius.takeIf { it > 0.0 },
             straightUsesChordDirection = settings.straightUsesChordDirection,
             automaticSuperelevation = settings.automaticSuperelevation,
             maxSuperelevationMeters = settings.maxSuperelevationMm / 1000.0,
+            allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
             parallel = parallel
         )
     )
@@ -1328,20 +1401,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             liveState.designSpeedKmH = designSpeedKmH
             liveState.curveRadius = curveRadius
 
-            if (abs(curveRadius - currentRadius) < 1.0e-6) {
-                val groupedRails = railsInParallelGroup(liveWorld, liveRail)
-                if (groupedRails.isEmpty()) {
-                    p.sendActionBar(Component.text("并行线路信息不完整，无法编辑", NamedTextColor.RED))
-                    return@showConfigDialog
-                }
-                groupedRails.forEach { groupedRail ->
-                    groupedRail.metadata = groupedRail.metadata.copy(
-                        designSpeedMetersPerSecond = designSpeedKmH / 3.6
-                    )
-                }
-                p.sendActionBar(
-                    Component.text("轨道设计时速已更新为 ${"%.0f".format(designSpeedKmH)} km/h", NamedTextColor.GREEN)
-                )
+            if (abs(curveRadius - currentRadius) < 1.0e-6 && abs(designSpeedKmH - currentSpeedKmH) < 1.0e-6) {
+                p.sendActionBar(Component.text("轨道参数未变化", NamedTextColor.GRAY))
             } else {
                 rebuildRailGeometry(p, liveRail, designSpeedKmH, curveRadius)
             }
@@ -1387,6 +1448,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             curveTemplate = template,
             straightUsesChordDirection = geometry.straightUsesChordDirection,
             designSpeedKmH = designSpeedKmH,
+            allowableCantDeficiencyMm = geometry.allowableCantDeficiencyMeters * 1000.0,
             automaticSuperelevation = geometry.automaticSuperelevation,
             maxSuperelevationMm = geometry.maxSuperelevationMeters * 1000.0
         )
@@ -1406,13 +1468,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         BukkitAsyncTasks.supply(
             plugin = plugin,
             operation = "RailWand.rebuildRailGeometry",
-            supplier = { createCurvesBetweenParallelAnchors(starts, ends, settings) },
-            onSuccess = { curves ->
+            supplier = { createCurvesWithSpeedLimits(starts, ends, settings) },
+            onSuccess = { builtCurves ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
                 val liveWorld = getCoreWorld(livePlayer) ?: return@supply
-                if (curves == null || curves.size != oldRails.size) {
+                if (builtCurves == null || builtCurves.size != oldRails.size) {
                     livePlayer.sendActionBar(Component.text("无法按新半径生成曲线", NamedTextColor.RED))
                     return@supply
                 }
@@ -1428,14 +1490,17 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val created = mutableListOf<CoreRail>()
                 val createdRenderMeta = mutableListOf<PersistedRailRenderMeta>()
                 try {
-                    curves.forEachIndexed { index, curve ->
+                    builtCurves.forEachIndexed { index, builtCurve ->
                         val metadata = oldMetadata[index].copy(
                             designSpeedMetersPerSecond = designSpeedKmH / 3.6,
+                            speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
+                            derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond,
                             geometry = oldMetadata[index].geometry.copy(
-                                curveRadiusMeters = curveRadius.takeIf { it > 0.0 }
+                                curveRadiusMeters = curveRadius.takeIf { it > 0.0 },
+                                allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0
                             )
                         )
-                        val newRail = CoreRail(liveWorld, curve, mutableListOf(), mutableListOf(), metadata)
+                        val newRail = CoreRail(liveWorld, builtCurve.curve, mutableListOf(), mutableListOf(), metadata)
                         created += newRail
                         createdRenderMeta += RailVisualBootstrap.registerRail(newRail)
                     }
@@ -1488,11 +1553,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         updateAnchorDisplay(player)
         val speed = rail.metadata.designSpeedMetersPerSecond?.times(3.6)
         val speedLabel = speed?.let { "%.0f km/h".format(it) } ?: "未设置"
+        val limitLabel = rail.metadata.speedLimitMetersPerSecond?.times(3.6)?.let { "%.0f km/h".format(it) } ?: "未设置"
+        val derailLabel = rail.metadata.derailSpeedMetersPerSecond?.times(3.6)?.let { "%.0f km/h".format(it) } ?: "∞"
         val radiusLabel = rail.metadata.geometry.curveRadiusMeters?.let { "%.0f m".format(it) } ?: "自动"
         val parallelLabel = rail.metadata.geometry.parallel?.let { "并行 ${it.index + 1}/${it.count}" } ?: "单线"
         player.sendActionBar(
             Component.text(
-                "已选择轨道 ${rail.id}，设计时速 $speedLabel，半径 $radiusLabel，$parallelLabel",
+                "已选择轨道 ${rail.id}，设计 $speedLabel，限速 $limitLabel，脱轨 $derailLabel，半径 $radiusLabel，$parallelLabel",
                 NamedTextColor.YELLOW
             )
         )

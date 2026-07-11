@@ -4,7 +4,7 @@ import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.tick.TickProfiled
 import work.art1st.mineRails.core.api.util.tick.TickingObject
 
-/** Optional design-speed enforcement for test worlds. */
+/** Optional geometry-derived derail-speed enforcement. */
 class SpeedSafetyMonitor(
     private val world: World,
     private val config: Config
@@ -36,16 +36,16 @@ class SpeedSafetyMonitor(
                 return@forEach
             }
 
-            val designSpeed = train.cars.asSequence()
+            val derailSpeed = train.cars.asSequence()
                 .flatMap { it.bogies.asSequence() }
-                .mapNotNull { it.location.rail.metadata.designSpeedMetersPerSecond }
+                .mapNotNull { it.location.rail.metadata.derailSpeedMetersPerSecond }
                 .minOrNull()
                 ?: run {
                     overspeedTicks.remove(train.id)
                     return@forEach
                 }
 
-            if (train.speed <= designSpeed + config.toleranceMetersPerSecond) {
+            if (train.speed <= derailSpeed + config.toleranceMetersPerSecond) {
                 overspeedTicks.remove(train.id)
                 return@forEach
             }
@@ -54,7 +54,7 @@ class SpeedSafetyMonitor(
             if (ticks >= config.graceTicks) {
                 overspeedTicks.remove(train.id)
                 train.derail(
-                    "Overspeed: %.2f m/s exceeds rail design speed %.2f m/s".format(train.speed, designSpeed)
+                    "Derail speed exceeded: %.2f m/s > %.2f m/s".format(train.speed, derailSpeed)
                 )
             } else {
                 overspeedTicks[train.id] = ticks

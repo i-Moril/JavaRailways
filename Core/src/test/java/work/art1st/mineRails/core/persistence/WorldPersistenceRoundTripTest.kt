@@ -32,10 +32,13 @@ class WorldPersistenceRoundTripTest {
         val rail = createStraightRailFromSegments(world, segments)
         rail.metadata = RailMetadata(
             designSpeedMetersPerSecond = 22.0,
+            speedLimitMetersPerSecond = 20.0,
+            derailSpeedMetersPerSecond = 31.0,
             geometry = RailGeometryMetadata(
                 curveKind = RailCurveKind.FIVE_SEGMENT,
                 curveRadiusMeters = 300.0,
                 automaticSuperelevation = true,
+                allowableCantDeficiencyMeters = 0.09,
                 parallel = ParallelRailMetadata("P1", index = 0, count = 2, spacingMeters = 4.5)
             )
         )
@@ -56,6 +59,9 @@ class WorldPersistenceRoundTripTest {
 
         assertNotNull(loaded.getTrain("persist-t1"))
         assertEquals(22.0, loaded.getRail(rail.id)?.metadata?.designSpeedMetersPerSecond)
+        assertEquals(20.0, loaded.getRail(rail.id)?.metadata?.speedLimitMetersPerSecond)
+        assertEquals(31.0, loaded.getRail(rail.id)?.metadata?.derailSpeedMetersPerSecond)
+        assertEquals(0.09, loaded.getRail(rail.id)?.metadata?.geometry?.allowableCantDeficiencyMeters)
         assertEquals(300.0, loaded.getRail(rail.id)?.metadata?.geometry?.curveRadiusMeters)
         assertEquals("P1", loaded.getRail(rail.id)?.metadata?.geometry?.parallel?.groupId)
         val roundAgain = loaded.save()

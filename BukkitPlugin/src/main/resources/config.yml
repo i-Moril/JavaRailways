@@ -18,9 +18,11 @@ train-debug-log: false
 # 每个世界的列车物理 Worker 数量。必须为正整数；不会被静默修正。
 physics-worker-threads: 4
 
-# 是否让持续超过轨道设计时速的列车脱轨。
+# 是否让持续超过轨道几何脱轨时速的列车脱轨。
 overspeed-derail-enabled: false
-# 超过设计时速多少 km/h 后开始累计超速 tick。
+# 用于反算曲线脱轨时速的硬性未平衡横向加速度。
+derail-lateral-acceleration-mps2: 3.0
+# 超过几何脱轨时速多少 km/h 后开始累计超速 tick。
 overspeed-tolerance-kmh: 5.0
 # 连续超速多少 tick 后脱轨。
 overspeed-grace-ticks: 5

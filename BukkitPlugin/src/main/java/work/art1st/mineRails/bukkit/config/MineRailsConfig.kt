@@ -10,6 +10,7 @@ data class MineRailsConfig(
     val trainDebugLog: Boolean,
     val physicsWorkerThreads: Int,
     val overspeedDerailEnabled: Boolean,
+    val derailLateralAccelerationMetersPerSecondSquared: Double,
     val overspeedToleranceKmH: Double,
     val overspeedGraceTicks: Int
 ) {
@@ -30,6 +31,8 @@ data class MineRailsConfig(
             require(bindDistance >= 0.0) { "train-key-bind-distance must be >= 0.0" }
             val physicsWorkerThreads = requireInt(yaml, "physics-worker-threads")
             require(physicsWorkerThreads > 0) { "physics-worker-threads must be > 0" }
+            val derailLateralAcceleration = requireDouble(yaml, "derail-lateral-acceleration-mps2")
+            require(derailLateralAcceleration > 0.0) { "derail-lateral-acceleration-mps2 must be > 0.0" }
             val overspeedToleranceKmH = requireDouble(yaml, "overspeed-tolerance-kmh")
             require(overspeedToleranceKmH >= 0.0) { "overspeed-tolerance-kmh must be >= 0.0" }
             val overspeedGraceTicks = requireInt(yaml, "overspeed-grace-ticks")
@@ -40,6 +43,7 @@ data class MineRailsConfig(
                 trainDebugLog = requireBoolean(yaml, "train-debug-log"),
                 physicsWorkerThreads = physicsWorkerThreads,
                 overspeedDerailEnabled = requireBoolean(yaml, "overspeed-derail-enabled"),
+                derailLateralAccelerationMetersPerSecondSquared = derailLateralAcceleration,
                 overspeedToleranceKmH = overspeedToleranceKmH,
                 overspeedGraceTicks = overspeedGraceTicks
             )

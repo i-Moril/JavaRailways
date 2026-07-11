@@ -115,8 +115,13 @@ class StandardRailCurve(
      * @return 超高值（米），出口回旋线段从 superelevation 渐变回 0
      */
     fun superelevationAt(s: Double): Double {
-        if (superelevation <= 0 || L == 0.0) return 0.0
         if (s < 0 || s > totalLength) return 0.0
+        if (superelevationConfig?.autoCalculate == true && superelevationConfig.designSpeedKmH > 0.0) {
+            val equilibriumMeters = 11.3 * superelevationConfig.designSpeedKmH *
+                superelevationConfig.designSpeedKmH * curvatureAt(s) / 1000.0
+            return minOf(equilibriumMeters, superelevationConfig.maxSuperelevation)
+        }
+        if (superelevation <= 0 || L == 0.0) return 0.0
 
         return when {
             // 入口回旋线（0 到 L）：超高从 0 过渡到 superelevation

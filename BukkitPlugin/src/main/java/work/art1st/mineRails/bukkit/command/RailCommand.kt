@@ -99,11 +99,13 @@ object RailCommand {
             val rail = coreWorld?.getRail(record.railId)
             val nextCount = rail?.let { it.viewAB.nextRails.size + it.viewBA.nextRails.size } ?: 0
             val designSpeed = rail?.metadata?.designSpeedMetersPerSecond?.let { "%.0fkm/h".format(it * 3.6) } ?: "未设置"
+            val speedLimit = rail?.metadata?.speedLimitMetersPerSecond?.let { "%.0fkm/h".format(it * 3.6) } ?: "未设置"
+            val derailSpeed = rail?.metadata?.derailSpeedMetersPerSecond?.let { "%.0fkm/h".format(it * 3.6) } ?: "∞"
             val radius = rail?.metadata?.geometry?.curveRadiusMeters?.let { "%.0fm".format(it) } ?: "自动"
             val parallel = rail?.metadata?.geometry?.parallel?.let { "${it.index + 1}/${it.count}" } ?: "单线"
             sender.sendMessage(
                 "${idx + 1}. ${record.railId} 分段=${record.segments.size} 连接=$nextCount " +
-                    "设计时速=$designSpeed 半径=$radius 并行=$parallel"
+                    "设计时速=$designSpeed 限速=$speedLimit 脱轨=$derailSpeed 半径=$radius 并行=$parallel"
             )
         }
 

@@ -35,23 +35,29 @@ data class RailGeometryMetadata(
     val straightUsesChordDirection: Boolean = false,
     val automaticSuperelevation: Boolean = false,
     val maxSuperelevationMeters: Double = 0.15,
+    val allowableCantDeficiencyMeters: Double = 0.075,
     val parallel: ParallelRailMetadata? = null
 ) {
     init {
         require(curveRadiusMeters == null || curveRadiusMeters > 0.0)
         require(maxSuperelevationMeters >= 0.0)
+        require(allowableCantDeficiencyMeters >= 0.0)
     }
 }
 
 @Serializable
 data class RailMetadata(
-    /** Design speed in metres per second. Null means unspecified. */
+    /** Requested design speed before geometry-derived limits are applied. */
     val designSpeedMetersPerSecond: Double? = null,
+    /** Effective operating limit after geometry, cant deficiency and infrastructure limits. */
+    val speedLimitMetersPerSecond: Double? = designSpeedMetersPerSecond,
+    /** Hard geometry-derived derail threshold; null means no curvature derail threshold. */
+    val derailSpeedMetersPerSecond: Double? = null,
     val geometry: RailGeometryMetadata = RailGeometryMetadata()
 ) {
     init {
-        require(designSpeedMetersPerSecond == null || designSpeedMetersPerSecond > 0.0) {
-            "designSpeedMetersPerSecond must be > 0 when specified"
-        }
+        require(designSpeedMetersPerSecond == null || designSpeedMetersPerSecond > 0.0)
+        require(speedLimitMetersPerSecond == null || speedLimitMetersPerSecond >= 0.0)
+        require(derailSpeedMetersPerSecond == null || derailSpeedMetersPerSecond >= 0.0)
     }
 }

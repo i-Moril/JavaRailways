@@ -14,6 +14,7 @@ class MineRailsConfigTest {
         yaml.set("train-debug-log", true)
         yaml.set("physics-worker-threads", 3)
         yaml.set("overspeed-derail-enabled", true)
+        yaml.set("derail-lateral-acceleration-mps2", 3.5)
         yaml.set("overspeed-tolerance-kmh", 6.0)
         yaml.set("overspeed-grace-ticks", 4)
 
@@ -24,6 +25,7 @@ class MineRailsConfigTest {
         assertEquals(true, config.trainDebugLog)
         assertEquals(3, config.physicsWorkerThreads)
         assertEquals(true, config.overspeedDerailEnabled)
+        assertEquals(3.5, config.derailLateralAccelerationMetersPerSecondSquared)
         assertEquals(6.0, config.overspeedToleranceKmH)
         assertEquals(4, config.overspeedGraceTicks)
     }
@@ -36,6 +38,7 @@ class MineRailsConfigTest {
         yaml.set("train-debug-log", false)
         yaml.set("physics-worker-threads", 0)
         yaml.set("overspeed-derail-enabled", false)
+        yaml.set("derail-lateral-acceleration-mps2", 3.0)
         yaml.set("overspeed-tolerance-kmh", 5.0)
         yaml.set("overspeed-grace-ticks", 5)
 

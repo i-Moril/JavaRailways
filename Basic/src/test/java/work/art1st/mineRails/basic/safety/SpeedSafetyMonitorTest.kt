@@ -15,13 +15,44 @@ import work.art1st.mineRails.core.physics.train.createTrainWithConfig
 
 class SpeedSafetyMonitorTest {
     @Test
+    fun `exceeding operating limit alone does not derail`() {
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
+        )
+        rail.metadata = RailMetadata(
+            designSpeedMetersPerSecond = 8.0,
+            speedLimitMetersPerSecond = 8.0,
+            derailSpeedMetersPerSecond = 12.0
+        )
+        val train = createTrainWithConfig("T0", rail, world, listOf(8.0))
+        FixedSpeedController(train, world).also {
+            train.setController(it)
+            it.publishSpeed(10.0)
+        }
+        val monitor = SpeedSafetyMonitor(
+            world,
+            SpeedSafetyMonitor.Config(true, 0.0, 1)
+        )
+
+        monitor.tick(50.0)
+
+        assertFalse(train.isDerailed)
+    }
+
+    @Test
     fun `derails only after configured grace ticks`() {
         val world = createTestWorld()
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         )
-        rail.metadata = RailMetadata(designSpeedMetersPerSecond = 10.0)
+        rail.metadata = RailMetadata(
+            designSpeedMetersPerSecond = 8.0,
+            speedLimitMetersPerSecond = 8.0,
+            derailSpeedMetersPerSecond = 10.0
+        )
         val train = createTrainWithConfig("T1", rail, world, listOf(8.0))
         FixedSpeedController(train, world).also {
             train.setController(it)

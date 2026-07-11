@@ -10,12 +10,15 @@ def update(path: Path, design_speed_kmh: float) -> int:
     data = json.loads(path.read_text())
     metadata = {
         "designSpeedMetersPerSecond": design_speed_kmh / 3.6,
+        "speedLimitMetersPerSecond": design_speed_kmh / 3.6,
+        "derailSpeedMetersPerSecond": None,
         "geometry": {
             "curveKind": "UNKNOWN",
             "curveRadiusMeters": None,
             "straightUsesChordDirection": False,
             "automaticSuperelevation": False,
             "maxSuperelevationMeters": 0.15,
+            "allowableCantDeficiencyMeters": 0.075,
             "parallel": None,
         },
     }
@@ -23,7 +26,10 @@ def update(path: Path, design_speed_kmh: float) -> int:
     for rail in rails:
         current = rail.setdefault("metadata", metadata.copy())
         current.pop("kind", None)
+        current.setdefault("speedLimitMetersPerSecond", current.get("designSpeedMetersPerSecond"))
+        current.setdefault("derailSpeedMetersPerSecond", None)
         geometry = current.setdefault("geometry", metadata["geometry"].copy())
+        geometry.setdefault("allowableCantDeficiencyMeters", 0.075)
         if geometry.get("curveKind") == "TURNOUT":
             geometry["curveKind"] = "FIVE_SEGMENT"
     path.write_text(json.dumps(data, separators=(",", ":")))

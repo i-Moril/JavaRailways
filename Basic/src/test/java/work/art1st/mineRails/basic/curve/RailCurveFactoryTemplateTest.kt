@@ -8,6 +8,9 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import work.art1st.mineRails.core.api.util.annotation.Heavy
+import kotlin.math.acos
 import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.util.ThreadGuardPlatformBridge
 
@@ -37,6 +40,7 @@ class RailCurveFactoryTemplateTest {
         assertTrue(result.curve!!.totalArcLength > 10.0)
         assertTrue(result.curve!!.getPointAt(0.0).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
         assertTrue(result.curve!!.getPointAt(result.curve!!.totalArcLength).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
+        assertTangentContinuity(result.curve!!)
     }
 
     @Test
@@ -154,6 +158,14 @@ class RailCurveFactoryTemplateTest {
 
         assertTrue(result.isSuccess, result.error)
         assertEquals(2, result.curves!!.size)
+        val centerResult = RailCurveFactory.build(
+            Anchor("center-start", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
+            Anchor("center-end", Vector3d(50.0, 0.0, 50.0), Vector3d(0.0, 0.0, -1.0)),
+            RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
+        )
+        assertTrue(centerResult.isSuccess, centerResult.error)
+        assertTangentContinuity(centerResult.curve!!)
+        result.curves.forEach(::assertTangentContinuity)
         val generatedEnds = result.curves.map { curve -> curve to curve.getPointAt(curve.totalArcLength) }
         ends.forEach { expected ->
             val (curve, generated) = generatedEnds.minBy { (_, point) -> point.position.distance(expected.position) }
@@ -167,6 +179,31 @@ class RailCurveFactoryTemplateTest {
             val geometryAlignment = kotlin.math.abs(finalSegmentDirection.dot(expectedTangent))
             assertTrue(geometryAlignment > 0.99999, "endpoint ${expected.id} geometry alignment=$geometryAlignment")
         }
+    }
+
+    @Test
+    fun `left turn parallel curves keep tangent continuity at every sample`() {
+        val spacing = 4.5
+        val starts = listOf(
+            Anchor("A0", Vector3d(0.0, 0.0, -spacing), Vector3d(1.0, 0.0, 0.0)),
+            Anchor("A1", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
+            Anchor("A2", Vector3d(0.0, 0.0, spacing), Vector3d(1.0, 0.0, 0.0))
+        )
+        val ends = listOf(
+            Anchor("B0", Vector3d(50.0 + spacing, 0.0, -50.0), Vector3d(0.0, 0.0, 1.0)),
+            Anchor("B1", Vector3d(50.0, 0.0, -50.0), Vector3d(0.0, 0.0, 1.0)),
+            Anchor("B2", Vector3d(50.0 - spacing, 0.0, -50.0), Vector3d(0.0, 0.0, 1.0))
+        )
+
+        val result = RailCurveFactory.buildParallel(
+            starts,
+            ends,
+            RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        assertEquals(3, result.curves!!.size)
+        result.curves.forEach(::assertTangentContinuity)
     }
 
     @Test
@@ -185,6 +222,36 @@ class RailCurveFactoryTemplateTest {
 
         assertTrue(result.isSuccess, result.error)
         assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
+    }
+
+    @OptIn(Heavy::class)
+    private fun assertTangentContinuity(curve: PrimeCurve) {
+        val points = curve.stream().toList()
+        assertTrue(points.size >= 2)
+        points.zipWithNext().forEachIndexed { index, (from, to) ->
+            val fromTangent = Vector3d(from.tangent).normalize()
+            val toTangent = Vector3d(to.tangent).normalize()
+            val chord = Vector3d(to.position).sub(from.position)
+            if (chord.lengthSquared() < 1.0e-12) {
+                val tangentAngle = Math.toDegrees(acos(fromTangent.dot(toTangent).coerceIn(-1.0, 1.0)))
+                assertTrue(tangentAngle < 1.0e-6, "tangent jump at duplicate sample $index: $tangentAngle degrees")
+                return@forEachIndexed
+            }
+            chord.normalize()
+            val meanTangent = Vector3d(fromTangent).add(toTangent)
+            assertTrue(meanTangent.lengthSquared() > 1.0e-12, "opposite tangents at sample $index")
+            meanTangent.normalize()
+            val geometryAngle = Math.toDegrees(acos(chord.dot(meanTangent).coerceIn(-1.0, 1.0)))
+            assertTrue(geometryAngle < 1.0, "geometry tangent jump at sample $index: $geometryAngle degrees")
+        }
+        for (index in 1 until points.lastIndex) {
+            val centeredChord = Vector3d(points[index + 1].position).sub(points[index - 1].position)
+            if (centeredChord.lengthSquared() < 1.0e-12) continue
+            centeredChord.normalize()
+            val tangent = Vector3d(points[index].tangent).normalize()
+            val centeredAngle = Math.toDegrees(acos(centeredChord.dot(tangent).coerceIn(-1.0, 1.0)))
+            assertTrue(centeredAngle < 1.0, "stored tangent differs from local geometry at sample $index: $centeredAngle degrees")
+        }
     }
 
     @Test

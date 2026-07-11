@@ -308,16 +308,15 @@ class StandardRailCurve(
             ))
         }
 
-        // 旧实现每个采样点都调用 pointAt(s)，而 pointAt 又从 0 重新积分到 s，
-        // 总复杂度约 O((L/step)^2)，长曲线会在主线程建轨时卡死。
-        // 这里沿弧长单次前进积分，保持与 positionAt 的左端点欧拉积分一致，复杂度 O(L/step)。
+        // 每个采样区间独立做 Gauss-Legendre 积分，保持 O(L/step)，同时避免左端点欧拉积分
+        // 累积漂移。generateCurve 会用精确端点替换最后一个点；若内部点存在累积漂移，替换会在
+        // 最后一个采样段制造明显折角。
         while (s < totalLength - 1e-9) {
             addPoint(s, x, z)
-            val ds = minOf(step, totalLength - s)
-            val theta = tangentAngleAt(s)
-            x += cos(theta) * ds
-            z += sin(theta) * ds
-            s += ds
+            val nextS = minOf(s + step, totalLength)
+            x += integrateGaussLegendre16(s, nextS) { arc -> cos(tangentAngleAt(arc)) }
+            z += integrateGaussLegendre16(s, nextS) { arc -> sin(tangentAngleAt(arc)) }
+            s = nextS
         }
 
         addPoint(totalLength, x, z)

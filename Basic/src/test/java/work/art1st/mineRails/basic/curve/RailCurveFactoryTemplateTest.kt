@@ -154,12 +154,18 @@ class RailCurveFactoryTemplateTest {
 
         assertTrue(result.isSuccess, result.error)
         assertEquals(2, result.curves!!.size)
-        val generatedEnds = result.curves.map { it.getPointAt(it.totalArcLength) }
+        val generatedEnds = result.curves.map { curve -> curve to curve.getPointAt(curve.totalArcLength) }
         ends.forEach { expected ->
-            val generated = generatedEnds.minBy { it.position.distance(expected.position) }
+            val (curve, generated) = generatedEnds.minBy { (_, point) -> point.position.distance(expected.position) }
             assertTrue(generated.position.distance(expected.position) < Curve.TOLERANCE)
-            val tangentAlignment = kotlin.math.abs(Vector3d(generated.tangent).normalize().dot(Vector3d(expected.tangent).normalize()))
+            val expectedTangent = Vector3d(expected.tangent).normalize()
+            val tangentAlignment = kotlin.math.abs(Vector3d(generated.tangent).normalize().dot(expectedTangent))
             assertTrue(tangentAlignment > 1.0 - 1e-8, "endpoint ${expected.id} tangent alignment=$tangentAlignment")
+
+            val nearEnd = curve.getPointAt(curve.totalArcLength - 1.0e-4).position
+            val finalSegmentDirection = Vector3d(generated.position).sub(nearEnd).normalize()
+            val geometryAlignment = kotlin.math.abs(finalSegmentDirection.dot(expectedTangent))
+            assertTrue(geometryAlignment > 0.99999, "endpoint ${expected.id} geometry alignment=$geometryAlignment")
         }
     }
 

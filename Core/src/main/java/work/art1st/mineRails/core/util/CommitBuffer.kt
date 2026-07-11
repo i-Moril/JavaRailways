@@ -5,8 +5,9 @@ import kotlin.reflect.KProperty
 class CommitBuffer<T>(
     default: T,
 ){
+    @Volatile
     private var active: Int = 0
-    private var buffer: MutableList<T> = mutableListOf(default, default)
+    private val buffer: Array<Any?> = arrayOf(default, default)
 
     operator fun getValue(thisRef: Any?, property: KProperty<*>) : T {
         return get()
@@ -20,14 +21,18 @@ class CommitBuffer<T>(
         buffer[active] = value
     }
 
+    @Suppress("UNCHECKED_CAST")
     fun get() : T {
-        return buffer[1 - active]
+        val activeSnapshot = active
+        return buffer[1 - activeSnapshot] as T
     }
 
+    @Suppress("UNCHECKED_CAST")
     fun getActive() : T {
-        return buffer[active]
+        return buffer[active] as T
     }
 
+    /** Publishes the active slot. The volatile flip provides release/acquire visibility. */
     fun commit() {
         active = 1 - active
     }

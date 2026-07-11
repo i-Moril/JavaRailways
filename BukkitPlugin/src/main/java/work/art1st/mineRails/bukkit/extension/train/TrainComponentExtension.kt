@@ -4,25 +4,35 @@ import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.BukkitRenderable
-import work.art1st.mineRails.core.api.physics.train.Bogie
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.Destroyable
+import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 
 @OptIn(ExtensionData::class)
-val Car.renderer: TrainComponentExtension<Car>
-    get() = getExtensionData(BukkitPlugin.INSTANCE)
+val Car.rendererOrNull: TrainComponentExtension<Car>?
+    get() {
+        val plugin = BukkitPlugin.instanceOrNull() ?: return null
+        return getExtensionDataOrNull(plugin)
+    }
 
-@OptIn(ExtensionData::class)
-val Bogie.renderer: TrainComponentExtension<Bogie>
-    get() = getExtensionData(BukkitPlugin.INSTANCE)
+val Car.renderer: TrainComponentExtension<Car>
+    get() = rendererOrNull
+        ?: throw IllegalStateException("Car renderer 未注册到车厢 ${this.hashCode()} 上")
+
+val Car.carRendererOrNull: CarExtension?
+    get() = rendererOrNull as? CarExtension
+
+val Car.carRenderer: CarExtension
+    get() = carRendererOrNull
+        ?: throw IllegalStateException("车厢 ${this.hashCode()} 上注册的渲染扩展不是 CarExtension")
 
 /**
- * 车厢/转向架等列车组件的渲染扩展基类。
+ * 列车组件渲染扩展基类。
  * 子类通过覆写 [buildModel] 和 [updateModel] 管理可视化模型。
  */
 abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, Destroyable {
@@ -65,6 +75,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
 
     @MainThread
     override fun sendTo(player: Player) {
+        ThreadGuard.ensureMainThread("TrainComponentExtension.sendTo")
         audience.add(player.uniqueId)
         if (!modelBuilt) {
             buildModel()
@@ -76,6 +87,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
 
     @MainThread
     fun hideFrom(player: Player) {
+        ThreadGuard.ensureMainThread("TrainComponentExtension.hideFrom")
         if (!audience.remove(player.uniqueId)) return
         onAudienceRemoved(player)
         if (audience.isNotEmpty() || !modelBuilt) return
@@ -84,6 +96,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     }
 
     override fun commit() {
+        ThreadGuard.ensureMainThread("TrainComponentExtension.commit")
         if (!modelBuilt) return
         if (audience.isEmpty()) {
             modelBuilt = false
@@ -95,6 +108,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
 
     @MainThread
     override fun destroy() {
+        ThreadGuard.ensureMainThread("TrainComponentExtension.destroy")
         audience.clear()
         modelBuilt = false
         destroyModel()
@@ -104,6 +118,14 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         audience.forEach { playerId ->
             Bukkit.getPlayer(playerId)?.let(action)
         }
+    }
+
+    protected fun hasAudiencePlayer(predicate: (Player) -> Boolean): Boolean {
+        for (playerId in audience) {
+            val player = Bukkit.getPlayer(playerId) ?: continue
+            if (predicate(player)) return true
+        }
+        return false
     }
 
     open fun applyAnimation(name: String): Boolean = false

@@ -26,7 +26,8 @@ class SavedCarModelTreeTest {
         val car = CarDefinition(
             name = "s100/passenger",
             length = 17.8,
-            bodyParts = listOf(PartRefEntry.import("body"))
+            bodyParts = listOf(PartRefEntry.import("body")),
+            control = CarControlConfig()
         )
 
         val first = SavedCarModelTree.build(car, registry)

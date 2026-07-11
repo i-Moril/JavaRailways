@@ -1,6 +1,7 @@
 package work.art1st.mineRails.core.api.event.processor
 
 import work.art1st.mineRails.core.api.event.Event
+import work.art1st.mineRails.core.api.util.annotation.AsyncEventApi
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.reflect.KClass
@@ -47,6 +48,26 @@ object EventManager {
     fun fire(event: Event) {
         event::class.getAllSuperClasses().forEach { type ->
             handlers[type]?.lists?.forEach { it.forEach { p -> p.second.call(p.first, event) } }
+        }
+    }
+
+    /** Async dispatch stays on the caller's physics worker and isolates each listener failure. */
+    @AsyncEventApi
+    fun fireAsync(event: Event) {
+        event::class.getAllSuperClasses().forEach { type ->
+            handlers[type]?.lists?.forEach { list ->
+                list.forEach { handler ->
+                    try {
+                        handler.second.call(handler.first, event)
+                    } catch (t: Throwable) {
+                        System.err.println(
+                            "[MineRails] Async event listener ${handler.first::class.qualifiedName}." +
+                                "${handler.second.name} failed for ${event::class.qualifiedName}: ${t.message}"
+                        )
+                        t.printStackTrace()
+                    }
+                }
+            }
         }
     }
 

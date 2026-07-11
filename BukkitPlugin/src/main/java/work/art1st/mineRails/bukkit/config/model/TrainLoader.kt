@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit.config.model
 
-import org.yaml.snakeyaml.Yaml
 import java.io.File
 
 /**
@@ -16,23 +15,29 @@ class TrainLoader(
 
     fun load() {
         trains.clear()
-        if (trainsDir.exists() && trainsDir.isDirectory) {
-            for (file in trainsDir.listFiles() ?: emptyArray()) {
-                if (file.isFile && (file.extension == "yml" || file.extension == "yaml")) {
-                    try {
-                        val train = loadTrainFile(file)
-                        trains[train.key] = train
-                    } catch (e: Exception) {
-                        System.err.println("[MineRails] Failed to load train file ${file.path}: ${e.message}")
-                    }
+        if (!trainsDir.exists() || !trainsDir.isDirectory) return
+
+        val errors = mutableListOf<String>()
+        for (file in trainsDir.listFiles() ?: emptyArray()) {
+            if (file.isFile && (file.extension == "yml" || file.extension == "yaml")) {
+                try {
+                    val train = loadTrainFile(file)
+                    trains[train.key] = train
+                } catch (e: Exception) {
+                    errors += "${file.path}: ${e.message ?: e::class.simpleName.orEmpty()}"
                 }
             }
+        }
+        if (errors.isNotEmpty()) {
+            throw IllegalStateException(buildString {
+                append("Failed to load train definitions under ${trainsDir.path}:")
+                errors.forEach { append("\n- ").append(it) }
+            })
         }
     }
 
     private fun loadTrainFile(file: File): TrainDefinition {
-        val yaml = Yaml()
-        val map = yaml.load<Map<String, Any>>(file.inputStream())
+        val map = loadYamlMap(file, "train definition ${file.path}")
 
         val version = (map["config-version"] as? Number)?.toInt()
             ?: throw IllegalArgumentException("Missing config-version")
@@ -42,8 +47,12 @@ class TrainLoader(
         val key = file.nameWithoutExtension
         val displayName = map["name"] as? String ?: key
 
-        val composition = (map["composition"] as? List<*>)?.mapNotNull { it as? String }
-            ?: throw IllegalArgumentException("Missing or invalid 'composition'")
+        val composition = map.optionalList("composition", "train definition ${file.path}")
+            ?.mapIndexed { index, entry ->
+                entry as? String
+                    ?: throw IllegalArgumentException("train definition ${file.path}.composition[$index] must be a string")
+            }
+            ?: throw IllegalArgumentException("Missing required 'composition'")
 
         // Validate that all referenced cars exist
         for (carName in composition) {

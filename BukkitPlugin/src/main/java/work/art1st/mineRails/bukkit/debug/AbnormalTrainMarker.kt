@@ -6,8 +6,9 @@ import org.bukkit.Particle
 import org.bukkit.World as BukkitWorld
 import org.joml.Vector3d
 import org.joml.Vector3dc
-import work.art1st.mineRails.bukkit.extension.bukkitWorldData
+import work.art1st.mineRails.bukkit.extension.bukkitWorldDataOrNull
 import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.train.SavedTrainV1
 import java.util.UUID
@@ -35,7 +36,7 @@ object AbnormalTrainMarker {
     )
 
     fun markTrain(train: CoreTrain, reason: String) {
-        val bukkitWorld = train.world.bukkitWorldDataOrNull()?.bukkitWorld ?: return
+        val bukkitWorld = train.world.bukkitWorldDataOrNull?.bukkitWorld ?: return
         val marker = markersFor(bukkitWorld).getOrPut(train.id) { Marker(train.id, reason) }
         marker.reason = reason
         marker.staticPositions = null
@@ -64,6 +65,7 @@ object AbnormalTrainMarker {
     }
 
     fun tick(coreWorld: CoreWorld, bukkitWorld: BukkitWorld, nowMs: Long = System.currentTimeMillis()) {
+        ThreadGuard.ensureMainThread("AbnormalTrainMarker.tick")
         coreWorld.allTrains.forEach { train ->
             if (train.isDerailed) {
                 val marker = markersFor(bukkitWorld).getOrPut(train.id) { Marker(train.id, "derailed") }
@@ -137,8 +139,6 @@ object AbnormalTrainMarker {
 
     private fun markersFor(bukkitWorld: BukkitWorld): MutableMap<String, Marker> =
         markers.computeIfAbsent(bukkitWorld.uid) { mutableMapOf() }
-
-    private fun CoreWorld.bukkitWorldDataOrNull() = runCatching { this.bukkitWorldData }.getOrNull()
 
     private val MARKER_OFFSETS = listOf<Vector3dc>(
         Vector3d(0.0, 0.0, 0.0),

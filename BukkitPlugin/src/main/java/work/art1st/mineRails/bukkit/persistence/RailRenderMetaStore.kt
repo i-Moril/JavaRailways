@@ -73,7 +73,9 @@ object RailRenderMetaStore {
     private data class CacheEntry(
         val lastModified: Long,
         val length: Long,
-        val records: List<PersistedRailRenderMeta>
+        val records: List<PersistedRailRenderMeta>,
+        val corrupted: Boolean = false,
+        val errorMessage: String? = null
     )
 
     private val json = Json {
@@ -89,62 +91,36 @@ object RailRenderMetaStore {
 
     fun load(world: World): List<PersistedRailRenderMeta> {
         val f = file(world)
-        if (!f.exists() || !f.canRead()) {
+        if (!f.exists()) {
             cache.remove(world.uid)
             return emptyList()
         }
+
         val lastModified = f.lastModified()
         val length = f.length()
         cache[world.uid]?.takeIf { it.lastModified == lastModified && it.length == length }?.let {
             return it.records
         }
-        val records = try {
-            val decoded = json.decodeFromString<RailRenderMetaFileV1>(f.readText())
-            val templatesById = decoded.templates.associate { template ->
-                template.templateId to RailTemplateSnapshot(
-                    templateId = template.templateId,
-                    repeatLength = template.repeatLength,
-                    elements = template.elements.map { element ->
-                        RailElementTemplateSnapshot(
-                            type = runCatching { RailDisplayType.valueOf(element.type) }.getOrElse { RailDisplayType.ITEM },
-                            itemStack = element.itemStack,
-                            blockMaterial = element.blockMaterial,
-                            offsetX = element.offsetX,
-                            offsetY = element.offsetY,
-                            offsetZ = element.offsetZ,
-                            rotationX = element.rotationX,
-                            rotationY = element.rotationY,
-                            rotationZ = element.rotationZ,
-                            scaleX = element.scaleX,
-                            scaleY = element.scaleY,
-                            scaleZ = element.scaleZ
-                        )
-                    }
-                )
-            }
-            decoded.rails.mapNotNull { entry ->
-                runCatching {
-                    PersistedRailRenderMeta(
-                        railId = UUID.fromString(entry.railId),
-                        segments = entry.segments.map { seg ->
-                            RailArcSegmentMeta(
-                                arcStart = seg.arcStart,
-                                arcEnd = seg.arcEnd,
-                                pointArcs = seg.pointArcs
-                            )
-                        },
-                        templateSnapshot = entry.templateId?.let { templatesById[it] }
-                    )
-                }.getOrNull()
-            }
-        } catch (_: Exception) {
-            emptyList()
+
+        val staleRecords = cache[world.uid]?.takeIf { !it.corrupted }?.records.orEmpty()
+        if (!f.canRead()) {
+            markCorrupted(world, f, lastModified, length, staleRecords, "File is not readable")
+            return staleRecords
         }
-        cache[world.uid] = CacheEntry(lastModified, length, records)
-        return records
+
+        return try {
+            val records = parseFile(f)
+            cache[world.uid] = CacheEntry(lastModified = lastModified, length = length, records = records)
+            records
+        } catch (t: Throwable) {
+            markCorrupted(world, f, lastModified, length, staleRecords, "${t::class.simpleName}: ${t.message ?: ""}")
+            staleRecords
+        }
     }
 
     fun saveAll(world: World, records: List<PersistedRailRenderMeta>) {
+        if (!ensureWritable(world)) return
+
         val templates = LinkedHashMap<String, RailTemplateSnapshot>()
         records.forEach { record ->
             record.templateSnapshot?.let { templates[it.templateId] = it }
@@ -208,13 +184,114 @@ object RailRenderMetaStore {
 
     fun upsertRails(world: World, metas: Collection<PersistedRailRenderMeta>) {
         if (metas.isEmpty()) return
+        if (!ensureWritable(world)) return
         val existing = load(world).associateBy { it.railId }.toMutableMap()
         metas.forEach { meta -> existing[meta.railId] = meta }
         saveAll(world, existing.values.toList())
     }
 
     fun removeRail(world: World, railId: UUID) {
+        if (!ensureWritable(world)) return
         val existing = load(world).filterNot { it.railId == railId }
         saveAll(world, existing)
+    }
+
+    private fun parseFile(file: File): List<PersistedRailRenderMeta> {
+        val decoded = json.decodeFromString<RailRenderMetaFileV1>(file.readText())
+        val templatesById = decoded.templates.associate { template ->
+            template.templateId to RailTemplateSnapshot(
+                templateId = template.templateId,
+                repeatLength = template.repeatLength,
+                elements = template.elements.mapIndexed { index, element ->
+                    val type = try {
+                        RailDisplayType.valueOf(element.type)
+                    } catch (e: IllegalArgumentException) {
+                        throw IllegalArgumentException(
+                            "Template '${template.templateId}' element #${index + 1} has unknown type '${element.type}'",
+                            e
+                        )
+                    }
+                    RailElementTemplateSnapshot(
+                        type = type,
+                        itemStack = element.itemStack,
+                        blockMaterial = element.blockMaterial,
+                        offsetX = element.offsetX,
+                        offsetY = element.offsetY,
+                        offsetZ = element.offsetZ,
+                        rotationX = element.rotationX,
+                        rotationY = element.rotationY,
+                        rotationZ = element.rotationZ,
+                        scaleX = element.scaleX,
+                        scaleY = element.scaleY,
+                        scaleZ = element.scaleZ
+                    )
+                }
+            )
+        }
+        return decoded.rails.mapIndexed { index, entry ->
+            val railId = try {
+                UUID.fromString(entry.railId)
+            } catch (e: IllegalArgumentException) {
+                throw IllegalArgumentException("Rail entry #${index + 1} has invalid railId '${entry.railId}'", e)
+            }
+            PersistedRailRenderMeta(
+                railId = railId,
+                segments = entry.segments.map { seg ->
+                    RailArcSegmentMeta(
+                        arcStart = seg.arcStart,
+                        arcEnd = seg.arcEnd,
+                        pointArcs = seg.pointArcs
+                    )
+                },
+                templateSnapshot = entry.templateId?.let { templateId ->
+                    templatesById[templateId]
+                        ?: throw IllegalArgumentException(
+                            "Rail entry #${index + 1} references missing template '$templateId'"
+                        )
+                }
+            )
+        }
+    }
+
+    private fun ensureWritable(world: World): Boolean {
+        val f = file(world)
+        if (!f.exists()) {
+            cache.remove(world.uid)
+            return true
+        }
+
+        val lastModified = f.lastModified()
+        val length = f.length()
+        val entry = cache[world.uid]?.takeIf { it.lastModified == lastModified && it.length == length } ?: run {
+            load(world)
+            cache[world.uid]?.takeIf { it.lastModified == lastModified && it.length == length }
+        }
+
+        if (entry?.corrupted == true) {
+            BukkitPlugin.INSTANCE.logger.severe(
+                "Refusing to overwrite corrupted rail render metadata for world '${world.name}' at ${f.path}. ${entry.errorMessage ?: ""}"
+            )
+            return false
+        }
+        return true
+    }
+
+    private fun markCorrupted(
+        world: World,
+        file: File,
+        lastModified: Long,
+        length: Long,
+        staleRecords: List<PersistedRailRenderMeta>,
+        detail: String
+    ) {
+        val message = "Failed to parse rail render metadata for world '${world.name}' at ${file.path}. $detail"
+        BukkitPlugin.INSTANCE.logger.severe(message)
+        cache[world.uid] = CacheEntry(
+            lastModified = lastModified,
+            length = length,
+            records = staleRecords,
+            corrupted = true,
+            errorMessage = detail
+        )
     }
 }

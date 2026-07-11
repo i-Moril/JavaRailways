@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit.config.model
 
-import org.yaml.snakeyaml.Yaml
 import java.io.File
 
 /**
@@ -28,24 +27,31 @@ class PartRegistry(
     /** Load all part files from the directory tree. */
     fun load() {
         parts.clear()
-        if (partsDir.exists() && partsDir.isDirectory) {
-            scanDirectory(partsDir, "")
+        if (!partsDir.exists() || !partsDir.isDirectory) return
+
+        val errors = mutableListOf<String>()
+        scanDirectory(partsDir, "", errors)
+        if (errors.isNotEmpty()) {
+            throw IllegalStateException(buildString {
+                append("Failed to load part definitions under ${partsDir.path}:")
+                errors.forEach { append("\n- ").append(it) }
+            })
         }
     }
 
-    private fun scanDirectory(dir: File, namespace: String) {
+    private fun scanDirectory(dir: File, namespace: String, errors: MutableList<String>) {
         for (file in dir.listFiles() ?: emptyArray()) {
             when {
                 file.isDirectory -> {
                     val childNs = if (namespace.isEmpty()) file.name else "$namespace/${file.name}"
-                    scanDirectory(file, childNs)
+                    scanDirectory(file, childNs, errors)
                 }
                 file.isFile && (file.extension == "yml" || file.extension == "yaml") -> {
                     try {
                         val part = loadPartFile(file, namespace)
                         parts[part.name] = part
                     } catch (e: Exception) {
-                        System.err.println("[MineRails] Failed to load part file ${file.path}: ${e.message}")
+                        errors += "${file.path}: ${e.message ?: e::class.simpleName.orEmpty()}"
                     }
                 }
             }
@@ -53,8 +59,7 @@ class PartRegistry(
     }
 
     private fun loadPartFile(file: File, namespace: String): PartDefinition {
-        val yaml = Yaml()
-        val map = yaml.load<Map<String, Any>>(file.inputStream())
+        val map = loadYamlMap(file, "part definition ${file.path}")
         return parsePartDefinition(map, namespace)
     }
 
@@ -119,13 +124,13 @@ class PartRegistry(
                 ?: throw IllegalArgumentException("Missing 'type' in part '$qualifiedName'")
             val type = PartType.fromString(typeStr)
 
-            val item = parseItemConfig(map["item"] as? Map<String, Any>)
-            val interaction = parseInteractionConfig(map["interaction"] as? Map<String, Any>)
-            val platform = parsePlatformConfig(map["platform"] as? Map<String, Any>)
-            val offset = parseVec3(map["offset"] as? Map<String, Any>)
-            val rotation = parseVec3(map["rotation"] as? Map<String, Any>)
-            val parts = parsePartList(map["parts"] as? List<*>, namespace)
-            val animations = parseAnimations(map["animations"] as? List<*>)
+            val item = parseItemConfig(map.optionalMap("item", "part '$qualifiedName'"))
+            val interaction = parseInteractionConfig(map.optionalMap("interaction", "part '$qualifiedName'"))
+            val platform = parsePlatformConfig(map.optionalMap("platform", "part '$qualifiedName'"))
+            val offset = parseVec3(map.optionalMap("offset", "part '$qualifiedName'"))
+            val rotation = parseVec3(map.optionalMap("rotation", "part '$qualifiedName'"))
+            val parts = parsePartList(map.optionalList("parts", "part '$qualifiedName'"), namespace)
+            val animations = parseAnimations(map.optionalList("animations", "part '$qualifiedName'"))
 
             return PartDefinition(
                 name = qualifiedName,
@@ -146,8 +151,8 @@ class PartRegistry(
                 type = map["type"] as? String ?: error("Missing item.type"),
                 itemModel = map["item-model"] as? String,
                 customModelData = (map["custom-model-data"] as? Number)?.toInt(),
-                scale = parseScale(map["scale"] as? Map<String, Any>),
-                animations = parseAnimations(map["animations"] as? List<*>)
+                scale = parseScale(map.optionalMap("scale", "item")),
+                animations = parseAnimations(map.optionalList("animations", "item"))
             )
         }
 
@@ -163,7 +168,7 @@ class PartRegistry(
 
         fun parsePlatformConfig(map: Map<String, Any>?): PartPlatformConfig {
             if (map == null) return PartPlatformConfig()
-            val spacing = parseVec3(map["spacing"] as? Map<String, Any>)
+            val spacing = parseVec3(map.optionalMap("spacing", "platform"))
             return PartPlatformConfig(
                 rows = (map["rows"] as? Number)?.toInt() ?: 1,
                 columns = (map["columns"] as? Number)?.toInt() ?: 1,
@@ -198,15 +203,17 @@ class PartRegistry(
 
         fun parsePartList(list: List<*>?, namespace: String): List<PartRefEntry> {
             if (list == null) return emptyList()
-            return list.mapNotNull { entry ->
-                val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
-                val offset = parseVec3(entryMap["offset"] as? Map<String, Any>)
-                val rotation = parseVec3(entryMap["rotation"] as? Map<String, Any>)
+            return list.mapIndexed { index, entry ->
+                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("parts[$index]")
+                    ?: throw IllegalArgumentException("parts[$index] must be a map")
+                val offset = parseVec3(entryMap.optionalMap("offset", "parts[$index]"))
+                val rotation = parseVec3(entryMap.optionalMap("rotation", "parts[$index]"))
 
                 when {
                     // Import format: "import: namespace/part-name"
                     entryMap.containsKey("import") -> {
-                        val importName = entryMap["import"] as? String ?: return@mapNotNull null
+                        val importName = entryMap["import"] as? String
+                            ?: throw IllegalArgumentException("parts[$index].import must be a string")
                         PartRefEntry(name = importName, offset = offset, rotation = rotation, isImport = true)
                     }
                     // Inline format: "name: ..., type: ..."
@@ -216,7 +223,8 @@ class PartRegistry(
                     }
                     // Legacy format: "name: part-name"
                     else -> {
-                        val refName = entryMap["name"] as? String ?: return@mapNotNull null
+                        val refName = entryMap["name"] as? String
+                            ?: throw IllegalArgumentException("parts[$index].name must be a string")
                         PartRefEntry(name = refName, offset = offset, rotation = rotation)
                     }
                 }
@@ -225,11 +233,13 @@ class PartRegistry(
 
         fun parseAnimations(list: List<*>?): List<PartAnimationConfig> {
             if (list == null) return emptyList()
-            return list.mapNotNull { entry ->
-                val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
-                val name = entryMap["name"] as? String ?: return@mapNotNull null
-                val commands = parseAnimationCommands(entryMap["commands"] as? List<*>)
-                val keyframes = parseAnimationKeyframes(entryMap["keyframes"] as? List<*>)
+            return list.mapIndexed { index, entry ->
+                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("animations[$index]")
+                    ?: throw IllegalArgumentException("animations[$index] must be a map")
+                val name = entryMap["name"] as? String
+                    ?: throw IllegalArgumentException("animations[$index].name must be a string")
+                val commands = parseAnimationCommands(entryMap.optionalList("commands", "animations[$index]"))
+                val keyframes = parseAnimationKeyframes(entryMap.optionalList("keyframes", "animations[$index]"))
                 validateUniqueScenes(name, commands.mapNotNull { it.scene } + keyframes.mapNotNull { it.scene })
 
                 PartAnimationConfig(
@@ -243,38 +253,40 @@ class PartRegistry(
 
         private fun parseAnimationCommands(list: List<*>?): List<PartAnimationCommandConfig> {
             if (list == null) return emptyList()
-            return list.mapNotNull { entry ->
-                val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
+            return list.mapIndexed { index, entry ->
+                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("animation.commands[$index]")
+                    ?: throw IllegalArgumentException("animation.commands[$index] must be a map")
                 PartAnimationCommandConfig(
                     duration = (entryMap["duration"] as? Number)?.toDouble() ?: 0.0,
-                    offset = parseVec3(entryMap["offset"] as? Map<String, Any>),
-                    rotation = parseVec3(entryMap["rotation"] as? Map<String, Any>),
-                    scale = parseScale(entryMap["scale"] as? Map<String, Any>),
+                    offset = parseVec3(entryMap.optionalMap("offset", "animation.commands[$index]")),
+                    rotation = parseVec3(entryMap.optionalMap("rotation", "animation.commands[$index]")),
+                    scale = parseScale(entryMap.optionalMap("scale", "animation.commands[$index]")),
                     scene = normalizeSceneName(entryMap["scene"] as? String),
                     itemType = entryMap["item-type"] as? String,
                     itemModel = entryMap["item-model"] as? String,
                     customModelData = (entryMap["custom-model-data"] as? Number)?.toInt(),
-                    brightness = parseBrightness(entryMap["brightness"] as? Map<String, Any>)
+                    brightness = parseBrightness(entryMap.optionalMap("brightness", "animation.commands[$index]"))
                 )
             }
         }
 
         private fun parseAnimationKeyframes(list: List<*>?): List<PartAnimationKeyframeConfig> {
             if (list == null) return emptyList()
-            return list.mapNotNull { entry ->
-                val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
+            return list.mapIndexed { index, entry ->
+                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("animation.keyframes[$index]")
+                    ?: throw IllegalArgumentException("animation.keyframes[$index] must be a map")
                 val at = (entryMap["at"] as? Number)?.toDouble()
-                    ?: throw IllegalArgumentException("Animation keyframe missing 'at'")
+                    ?: throw IllegalArgumentException("animation.keyframes[$index].at must be a number")
                 PartAnimationKeyframeConfig(
                     at = at,
                     scene = normalizeSceneName(entryMap["scene"] as? String),
-                    offset = parseVec3(entryMap["offset"] as? Map<String, Any>),
-                    rotation = parseVec3(entryMap["rotation"] as? Map<String, Any>),
-                    scale = parseScale(entryMap["scale"] as? Map<String, Any>),
+                    offset = parseVec3(entryMap.optionalMap("offset", "animation.keyframes[$index]")),
+                    rotation = parseVec3(entryMap.optionalMap("rotation", "animation.keyframes[$index]")),
+                    scale = parseScale(entryMap.optionalMap("scale", "animation.keyframes[$index]")),
                     itemType = entryMap["item-type"] as? String,
                     itemModel = entryMap["item-model"] as? String,
                     customModelData = (entryMap["custom-model-data"] as? Number)?.toInt(),
-                    brightness = parseBrightness(entryMap["brightness"] as? Map<String, Any>)
+                    brightness = parseBrightness(entryMap.optionalMap("brightness", "animation.keyframes[$index]"))
                 )
             }
         }

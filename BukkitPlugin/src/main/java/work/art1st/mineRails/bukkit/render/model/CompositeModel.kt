@@ -66,7 +66,12 @@ class CompositeModel internal constructor(
         if (rotationChanged) lastRotation = Quaterniond(rootTransform.rotation)
         models.forEach { it.updateState(rotatedTransform, worldRoot, rootVelocity, rotationChanged) }
 
-        val location = Location(rootEntity.world, rootTransform.position.x(), rootTransform.position.y(), rootTransform.position.z())
+        updateRootPosition(rootTransform.position)
+    }
+
+    /** Move the shared root without traversing or recomputing the detailed child model tree. */
+    fun updateRootPosition(position: Vector3dc) {
+        val location = Location(rootEntity.world, position.x(), position.y(), position.z())
         if (Bukkit.isPrimaryThread()) {
             (rootEntity as? Display)?.configureTrainRootSmoothing()
             rootEntity.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)

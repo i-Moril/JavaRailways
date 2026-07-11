@@ -12,12 +12,15 @@ import work.art1st.mineRails.bukkit.persistence.CarModelSnapshotStore
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
+import work.art1st.mineRails.bukkit.render.model.SeatModel
+import work.art1st.mineRails.bukkit.render.chunk.railViewDistanceSettings
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Bogie
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.core.util.ThreadGuard
 
 /**
  * Car rendering extension: builds the car model from CarDefinition and
@@ -36,6 +39,11 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var bodyModel: CompositeModel? = null
     private var bogieModels: List<CompositeModel> = emptyList()
     private var platformModels: List<PlatformModel> = emptyList()
+    private var seatModels: List<SeatModel> = emptyList()
+    private var modelUpdateSequence: Long = 0L
+    private var modelStateApplied: Boolean = false
+    private var detailStateCurrent: Boolean = false
+    private var forceNextModelUpdate: Boolean = false
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
         super.initialize(host, savedExtensionData)
@@ -100,14 +108,37 @@ class CarExtension : TrainComponentExtension<Car>() {
             builder.buildBogie(bogieDef, carDef.namespace, rootLocation)
         }
         platformModels = buildList {
-            bodyModel?.collectPlatformModels(this)
-            bogieModels.forEach { it.collectPlatformModels(this) }
+            bodyModel?.collectModelsOfType(this)
+            bogieModels.forEach { it.collectModelsOfType(this) }
+        }
+        seatModels = buildList {
+            bodyModel?.collectModelsOfType(this)
+            bogieModels.forEach { it.collectModelsOfType(this) }
         }
         applyHeldScenes(pendingHeldScenes)
     }
 
     override fun updateModel() {
         val model = bodyModel ?: return
+        modelUpdateSequence += 1L
+        val nearDetailAudience = hasAudiencePlayer(::isWithinDetailDistance)
+        val updateInterval = if (nearDetailAudience) NEAR_UPDATE_INTERVAL else FAR_UPDATE_INTERVAL
+        val shouldUpdateModel = forceNextModelUpdate || !modelStateApplied ||
+            updateInterval == 1 || modelUpdateSequence % updateInterval == 0L
+        if (!shouldUpdateModel) {
+            detailStateCurrent = false
+            // Keep world positions exact every tick while avoiding the expensive recursive child
+            // transform walk for distant cars.
+            model.updateRootPosition(self.position)
+            self.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
+                bogieModel.updateRootPosition(bogieRootPosition(bogie))
+            }
+            refreshInteractiveActivationForAudience()
+            return
+        }
+        forceNextModelUpdate = false
+        modelStateApplied = true
+        detailStateCurrent = true
         val renderRotation = rotationFrom(self.direction, self.normal)
         val carTransform = CompactTransform(
             position = self.position,
@@ -133,25 +164,28 @@ class CarExtension : TrainComponentExtension<Car>() {
         }
 
         self.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
-            val bogieRootPosition = Vector3d(bogie.position).add(
-                Vector3d(bogie.normal).mul(self.floorHeight)
-            )
             val bogieTransform = CompactTransform(
-                position = bogieRootPosition,
+                position = bogieRootPosition(bogie),
                 rotation = currentBogieRotation(bogie)
             )
             bogieModel.updateState(bogieTransform, bogie.velocity)
         }
 
-        refreshPlatformActivationForAudience()
+        refreshInteractiveActivationForAudience()
     }
 
     override fun refreshFor(player: Player) {
-        refreshPlatformActivation(player)
+        ThreadGuard.ensureMainThread("CarExtension.refreshFor")
+        if (isWithinDetailDistance(player) && !detailStateCurrent) {
+            forceNextModelUpdate = true
+            updateModel()
+            return
+        }
+        refreshInteractiveActivation(player)
     }
 
     override fun onAudienceRemoved(player: Player) {
-        deactivatePlatformsFor(player)
+        deactivateInteractiveModelsFor(player)
     }
 
     override fun destroyModel() {
@@ -161,6 +195,11 @@ class CarExtension : TrainComponentExtension<Car>() {
         bodyModel = null
         bogieModels = emptyList()
         platformModels = emptyList()
+        seatModels = emptyList()
+        modelUpdateSequence = 0L
+        modelStateApplied = false
+        detailStateCurrent = false
+        forceNextModelUpdate = false
     }
 
     override fun applyAnimation(name: String): Boolean {
@@ -210,21 +249,34 @@ class CarExtension : TrainComponentExtension<Car>() {
         }
     }
 
-    private fun refreshPlatformActivationForAudience() {
-        forEachAudiencePlayer(::refreshPlatformActivation)
+    private fun refreshInteractiveActivationForAudience() {
+        forEachAudiencePlayer(::refreshInteractiveActivation)
     }
 
-    private fun refreshPlatformActivation(player: Player) {
+    private fun refreshInteractiveActivation(player: Player) {
         platformModels.forEach { it.refreshActivation(player) }
+        val playerLocation = player.location
+        seatModels.forEach { it.refreshActivation(player, playerLocation) }
     }
 
-    private fun deactivatePlatformsFor(player: Player) {
+    private fun deactivateInteractiveModelsFor(player: Player) {
         platformModels.forEach { it.deactivateFor(player) }
+        seatModels.forEach { it.deactivateFor(player) }
     }
 
-    private fun CompositeModel.collectPlatformModels(target: MutableList<PlatformModel>) {
+    private fun isWithinDetailDistance(player: Player): Boolean {
+        if (player.world != self.world.bukkitWorldData.bukkitWorld) return false
+        val location = player.location
+        val dx = location.x - self.position.x()
+        val dy = location.y - self.position.y()
+        val dz = location.z - self.position.z()
+        val threshold = player.railViewDistanceSettings.lodThreshold
+        return dx * dx + dy * dy + dz * dz <= threshold * threshold
+    }
+
+    private inline fun <reified T> CompositeModel.collectModelsOfType(target: MutableList<T>) {
         forEachModelRecursive { model ->
-            if (model is PlatformModel) target += model
+            if (model is T) target += model
         }
     }
 
@@ -245,4 +297,12 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     private fun currentBogieRotation(bogie: Bogie): Quaterniond =
         rotationFrom(bogie.direction, bogie.normal)
+
+    private fun bogieRootPosition(bogie: Bogie): Vector3d =
+        Vector3d(bogie.position).add(Vector3d(bogie.normal).mul(self.floorHeight))
+
+    companion object {
+        private const val NEAR_UPDATE_INTERVAL = 1
+        private const val FAR_UPDATE_INTERVAL = 4
+    }
 }

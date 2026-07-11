@@ -1,8 +1,15 @@
+# S100 编组总控制配置。
+# 本文件中的每个键都是必填项；MineRails 不再从代码补默认值。
+
 config-version: 1
+
+# 编组允许的最高速度（m/s）。
 max-speed: 33.3
 
 controller:
+  # 牵引档位列表；必须与 traction.notch-scales 的键一一对应。
   power-notches: [P1, P2, P3, P4, P5]
+  # 制动档位列表；必须与 brake.notch-scales 的键一一对应。
   brake-notches: [B1, B2, B3, B4, B5, B6, B7, EB]
 
 traction:
@@ -23,18 +30,22 @@ brake:
     B6: 0.90
     B7: 1.00
     EB: 1.25
+  # 制动建立时间（秒）。
   apply-time: 1.2
+  # 制动缓解时间（秒）。
   release-time: 1.8
 
-# Davis resistance coefficients in Newtons: R = a + b*v + c*v^2.
+# Davis 阻力系数（单位：牛顿），公式：R = a + b*v + c*v^2。
 resistance:
   a: 900
   b: 22
   c: 5.5
 
+# 黏着系数。
 adhesion:
   coefficient: 0.22
 
+# 牵引 / 制动加加速度限制（m/s^3）。
 jerk:
   traction: 0.70
   brake: 1.00

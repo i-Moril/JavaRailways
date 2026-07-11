@@ -1,0 +1,19 @@
+# MineRails 主配置。
+# 本文件中的每个键都是必填项；如果删除或写错类型，插件会在启动时报错。
+
+# 已保存列车在模型包更新后的跟随策略。
+# follow-package: 保留已保存的车厢模型名，但按当前包文件重新构建模型。
+# snapshot: 保存解析后的模型快照，后续不跟随包文件变更。
+train-model-update-policy: follow-package
+
+# 玩家与绑定列车任意车厢中心的最大允许距离（米）。
+# 超过该距离后，列车钥匙会自动解绑。
+train-key-bind-distance: 20.0
+
+# 是否启用逐 tick 列车调试日志。
+# true 时会写入 plugins/MineRails/debug/train_debug.csv。
+# 仅在短时间采样排障时开启。
+train-debug-log: false
+
+# 每个世界的列车物理 Worker 数量。必须为正整数；不会被静默修正。
+physics-worker-threads: 4

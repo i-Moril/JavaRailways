@@ -97,7 +97,7 @@ class RealisticManualController(
             TrainDriveDirection.FORWARD, TrainDriveDirection.REVERSE -> {
                 val previousRunningDirection = runningDirectionRef.getAndSet(direction)
                 if (previousRunningDirection != direction) {
-                    train.reverse()
+                    reverse()
                 }
                 movementSign = if (direction == TrainDriveDirection.FORWARD) 1.0 else -1.0
             }
@@ -139,7 +139,8 @@ class RealisticManualController(
 
     private fun buildCarInputs(cars: List<Car>): List<TrainDynamics.CarInput> {
         return cars.mapIndexed { index, car ->
-            val control = carControls.getOrNull(index) ?: CarControlConfig()
+            val control = carControls.getOrNull(index)
+                ?: throw IllegalStateException("Missing car control config for car index $index")
             TrainDynamics.CarInput(
                 control = control,
                 grade = car.direction.y()

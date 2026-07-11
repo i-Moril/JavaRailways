@@ -31,17 +31,29 @@ class SeatModel internal constructor(
     private val controlEnd: DriverControlEnd?
 ) : EntityModel(world, state, attachedModels, animation, null) {
     private var carrierEntity: Interaction? = null
-    private lateinit var seatBinding: SeatBinding
+    private var seatBinding: SeatBinding? = null
     private val visualLocationDelay: ArrayDeque<Location> = ArrayDeque()
+    private val activePlayers: MutableSet<UUID> = hashSetOf()
 
     init {
         SeatInteractionListener.ensureRegistered()
-        spawnEntity()
     }
 
+    /** Seat hitboxes are created only while at least one audience player is close enough to use them. */
     override fun spawnEntity() {
+        if (entity?.isValid == true) return
+        destroyRuntimeEntities(force = true)
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
-        val hitbox = bukkitWorld.spawn(initialLocation, Interaction::class.java)
+        val position = state.worldTransform.position
+        val spawnLocation = Location(
+            bukkitWorld,
+            position.x(),
+            position.y(),
+            position.z(),
+            initialLocation.yaw,
+            initialLocation.pitch
+        )
+        val hitbox = bukkitWorld.spawn(spawnLocation, Interaction::class.java)
         configureSeatHitbox(hitbox, occupied = false)
 
         entity = hitbox
@@ -53,8 +65,29 @@ class SeatModel internal constructor(
             controlEnd = controlEnd,
             ensureCarrier = ::ensureCarrier,
             destroyCarrier = ::destroyCarrier
-        )
-        SeatInteractionListener.register(hitbox.uniqueId, seatBinding)
+        ).also { binding ->
+            SeatInteractionListener.register(hitbox.uniqueId, binding)
+        }
+    }
+
+    fun refreshActivation(player: Player, playerLocation: Location = player.location) {
+        if (!isEligible(player)) {
+            deactivateFor(player)
+            return
+        }
+        val playerId = player.uniqueId
+        val radius = if (playerId in activePlayers) DEACTIVATE_DISTANCE else ACTIVATE_DISTANCE
+        if (!isWithinDistance(playerLocation, radius)) {
+            deactivateFor(player)
+            return
+        }
+        activePlayers.add(playerId)
+        if (entity?.isValid != true) spawnEntity()
+    }
+
+    fun deactivateFor(player: Player) {
+        if (!activePlayers.remove(player.uniqueId) || activePlayers.isNotEmpty()) return
+        destroyRuntimeEntities(force = false)
     }
 
     override fun syncEntity(entity: org.bukkit.entity.Entity, rootVelocity: Vector3dc) = Unit
@@ -66,6 +99,10 @@ class SeatModel internal constructor(
         transformDirty: Boolean
     ) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
+        if (activePlayers.isEmpty() && carrierEntity?.passengers?.isNotEmpty() != true) {
+            destroyRuntimeEntities(force = false)
+            return
+        }
         val hitbox = entity as? Interaction ?: return
         val targetLocation = entityLocation(hitbox)
         val visualLocation = delayedVisualLocation(targetLocation)
@@ -86,11 +123,8 @@ class SeatModel internal constructor(
     }
 
     override fun destroy() {
-        (entity as? Interaction)?.let { hitbox ->
-            SeatInteractionListener.unregister(hitbox.uniqueId)
-            hitbox.eject()
-        }
-        destroyCarrier()
+        activePlayers.clear()
+        destroyRuntimeEntities(force = true)
         visualLocationDelay.clear()
         super.destroy()
     }
@@ -102,23 +136,44 @@ class SeatModel internal constructor(
         val carrier = world.bukkitWorldData.bukkitWorld.spawn(bottomCarrierLocation(hitbox.location), Interaction::class.java)
         configureSeatCarrier(carrier)
         carrierEntity = carrier
-        seatBinding.carrier = carrier
-        SeatInteractionListener.bindCarrier(seatBinding, carrier)
+        val binding = seatBinding ?: error("Seat binding not initialized")
+        binding.carrier = carrier
+        SeatInteractionListener.bindCarrier(binding, carrier)
         return carrier
     }
 
     private fun destroyCarrier() {
-        val bindingCarrier = if (::seatBinding.isInitialized) seatBinding.carrier else null
-        val carrier = carrierEntity ?: bindingCarrier ?: return
-        if (::seatBinding.isInitialized) {
-            SeatInteractionListener.unbindCarrier(seatBinding)
-        }
+        val binding = seatBinding
+        val carrier = carrierEntity ?: binding?.carrier ?: return
+        if (binding != null) SeatInteractionListener.unbindCarrier(binding)
         carrier.eject()
         carrier.remove()
-        if (::seatBinding.isInitialized) {
-            seatBinding.carrier = null
-        }
+        binding?.carrier = null
         carrierEntity = null
+    }
+
+    private fun destroyRuntimeEntities(force: Boolean) {
+        if (!force && carrierEntity?.passengers?.isNotEmpty() == true) return
+        destroyCarrier()
+        (entity as? Interaction)?.let { hitbox ->
+            SeatInteractionListener.unregister(hitbox.uniqueId)
+            hitbox.eject()
+            hitbox.remove()
+        }
+        entity = null
+        seatBinding = null
+        visualLocationDelay.clear()
+    }
+
+    private fun isEligible(player: Player): Boolean =
+        player.isValid && !player.isDead && player.world == world.bukkitWorldData.bukkitWorld
+
+    private fun isWithinDistance(playerLocation: Location, radius: Double): Boolean {
+        val seatPosition = state.worldTransform.position
+        val dx = playerLocation.x - seatPosition.x()
+        val dy = playerLocation.y - seatPosition.y()
+        val dz = playerLocation.z - seatPosition.z()
+        return dx * dx + dy * dy + dz * dz <= radius * radius
     }
 
     private fun configureSeatHitbox(interaction: Interaction, occupied: Boolean) {
@@ -160,6 +215,9 @@ class SeatModel internal constructor(
 
     companion object {
         private const val SEAT_VISUAL_DELAY_TICKS = 1
+        // Vanilla interaction reach is below this radius; the extra margin avoids pop-in while moving.
+        private const val ACTIVATE_DISTANCE = 6.0
+        private const val DEACTIVATE_DISTANCE = 8.0
     }
 
     data class SeatBinding(

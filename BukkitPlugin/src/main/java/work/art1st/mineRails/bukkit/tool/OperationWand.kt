@@ -24,7 +24,9 @@ import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
-import work.art1st.mineRails.core.api.util.annotation.Heavy
+import work.art1st.mineRails.bukkit.util.BukkitAsyncTasks
+import work.art1st.mineRails.bukkit.util.HeavyRailQueries
+import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import java.util.UUID
 
 enum class OperationWandMode(
@@ -55,6 +57,7 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
     /** Per-player transient marker entities: player UUID -> (wayPoint id -> entity UUID). */
     private val markerEntities = mutableMapOf<UUID, MutableMap<String, UUID>>()
     private val editingWayPoint = mutableMapOf<UUID, String>()
+    private val heavyOperationGate = PlayerOperationGate()
     private val configUI = ConfigUIRegistry()
     private val dialogRenderer = DialogRenderer(configUI)
     private lateinit var editKeys: WayPointEditKeys
@@ -109,7 +112,6 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
             .forEach { removeMarkerForPlayer(it, wayPointId) }
     }
 
-    @OptIn(Heavy::class)
     private fun handleCreateStopPoint(player: Player, event: PlayerInteractEvent) {
         if (event.action != Action.RIGHT_CLICK_BLOCK && event.action != Action.RIGHT_CLICK_AIR) {
             player.sendActionBar(Component.text("右键轨道附近创建或编辑路径点", NamedTextColor.YELLOW))
@@ -126,44 +128,85 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
             return
         }
 
-        val existing = findNearestWayPoint(coreWorld, targetPosition)
-        if (existing != null && existing.second <= MAX_SELECT_DISTANCE) {
-            showWayPointDialog(player, existing.first.id)
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "路径点查找")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
             return
         }
 
-        val rail = coreWorld.getNearestRail(targetPosition) ?: run {
-            player.sendActionBar(Component.text("世界中没有轨道", NamedTextColor.RED))
-            return
-        }
+        val worldId = player.world.uid
+        val railSnapshot = coreWorld.allRails.toList()
+        val railsById = railSnapshot.associateBy { it.id }
+        val wayPointSnapshot = coreWorld.basicWorldData.wayPoints.all()
+        player.sendActionBar(Component.text("正在查找最近轨道...", NamedTextColor.GRAY))
 
-        val nearestPoint = rail.curve.getNearestPoint(targetPosition)
-        val distance = nearestPoint.position.distance(targetPosition)
-        if (distance > MAX_PLACE_DISTANCE) {
-            player.sendActionBar(
-                Component.text("离最近轨道太远: ${"%.2f".format(distance)}m", NamedTextColor.RED)
-            )
-            return
-        }
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "OperationWand.handleCreateStopPoint",
+            supplier = {
+                val existing = HeavyRailQueries.findNearestWayPoint(wayPointSnapshot, railsById, targetPosition)
+                val nearestRail = HeavyRailQueries.findNearestRail(railSnapshot, targetPosition)
+                CreateStopPointLookup(existing, nearestRail)
+            },
+            onSuccess = { result ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveCoreWorld = getCoreWorld(livePlayer) ?: run {
+                    livePlayer.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
+                    return@supply
+                }
 
-        val store = coreWorld.basicWorldData.wayPoints
-        val id = store.nextId()
-        val wayPoint = WayPoint(
-            id = id,
-            displayName = id,
-            railId = rail.id,
-            arcLength = nearestPoint.arcLength
+                val existing = result.existingWayPoint
+                if (existing != null && existing.distance <= MAX_SELECT_DISTANCE) {
+                    showWayPointDialog(livePlayer, existing.wayPoint.id)
+                    return@supply
+                }
+
+                val nearestRail = result.nearestRail ?: run {
+                    livePlayer.sendActionBar(Component.text("世界中没有轨道", NamedTextColor.RED))
+                    return@supply
+                }
+                if (nearestRail.distance > MAX_PLACE_DISTANCE) {
+                    livePlayer.sendActionBar(
+                        Component.text("离最近轨道太远: ${"%.2f".format(nearestRail.distance)}m", NamedTextColor.RED)
+                    )
+                    return@supply
+                }
+                val rail = liveCoreWorld.getRail(nearestRail.railId) ?: run {
+                    livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.RED))
+                    return@supply
+                }
+
+                val store = liveCoreWorld.basicWorldData.wayPoints
+                val id = store.nextId()
+                val wayPoint = WayPoint(
+                    id = id,
+                    displayName = id,
+                    railId = rail.id,
+                    arcLength = nearestRail.arcLength
+                )
+                store.add(wayPoint)
+                spawnOrReplaceMarker(livePlayer, wayPoint)
+
+                livePlayer.sendMessage(
+                    Component.text(
+                        "已创建路径点 $id: rail=${rail.id}, s=${"%.2f".format(nearestRail.arcLength)}",
+                        NamedTextColor.GREEN
+                    )
+                )
+                showWayPointDialog(livePlayer, id)
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning(
+                    "OperationWand heavy lookup failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
+                )
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
+                    Component.text("路径点查找失败，请重试", NamedTextColor.RED)
+                )
+            }
         )
-        store.add(wayPoint)
-        spawnOrReplaceMarker(player, wayPoint)
-
-        player.sendMessage(
-            Component.text(
-                "已创建路径点 $id: rail=${rail.id}, s=${"%.2f".format(nearestPoint.arcLength)}",
-                NamedTextColor.GREEN
-            )
-        )
-        showWayPointDialog(player, id)
     }
 
     private fun handleDeleteStopPoint(player: Player, state: OperationWandState, event: PlayerInteractEvent) {
@@ -328,7 +371,14 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
     override fun onPlayerQuit(player: Player, state: OperationWandState) {
         clearMarkersForPlayer(player)
         editingWayPoint.remove(player.uniqueId)
+        heavyOperationGate.clear(player.uniqueId)
+        configUI.removePlayerSession(player.uniqueId)
     }
+
+    private data class CreateStopPointLookup(
+        val existingWayPoint: HeavyRailQueries.WayPointMatch?,
+        val nearestRail: HeavyRailQueries.NearestRailMatch?
+    )
 
     companion object {
         private const val MAX_PLACE_DISTANCE = 8.0

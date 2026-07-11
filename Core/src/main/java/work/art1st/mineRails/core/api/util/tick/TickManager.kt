@@ -10,4 +10,9 @@ interface TickManager {
     fun postTick()
     fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T>
     fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T>
+
+    fun latestAsyncPhaseMetrics(): AsyncTickPhaseMetrics? = null
+    fun latestMainThreadTickMetrics(): MainThreadTickMetrics? = null
+    fun asyncObjectMetrics(category: String, id: String): AsyncTickObjectMetrics? = null
+    fun topAsyncObjectMetrics(limit: Int): List<AsyncTickObjectMetrics> = emptyList()
 }

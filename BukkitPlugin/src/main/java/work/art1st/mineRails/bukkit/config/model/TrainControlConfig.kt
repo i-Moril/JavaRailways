@@ -7,8 +7,23 @@ data class TrainControlConfig(
     val maxSpeed: Double = 20.0,
     val powerNotches: List<String> = listOf("P1", "P2", "P3", "P4", "P5"),
     val brakeNotches: List<String> = listOf("B1", "B2", "B3", "B4", "B5", "B6", "B7", "EB"),
-    val tractionNotchScales: Map<String, Double> = defaultPowerScales(),
-    val brakeNotchScales: Map<String, Double> = defaultBrakeScales(),
+    val tractionNotchScales: Map<String, Double> = linkedMapOf(
+        "P1" to 0.20,
+        "P2" to 0.40,
+        "P3" to 0.60,
+        "P4" to 0.80,
+        "P5" to 1.00
+    ),
+    val brakeNotchScales: Map<String, Double> = linkedMapOf(
+        "B1" to 0.15,
+        "B2" to 0.30,
+        "B3" to 0.45,
+        "B4" to 0.60,
+        "B5" to 0.75,
+        "B6" to 0.90,
+        "B7" to 1.00,
+        "EB" to 1.25
+    ),
     val brakeApplyTime: Double = 1.2,
     val brakeReleaseTime: Double = 1.8,
     val resistance: DavisResistanceConfig = DavisResistanceConfig(),
@@ -20,42 +35,54 @@ data class TrainControlConfig(
     fun normalizedBrakeScale(handle: String): Double = brakeNotchScales[handle.uppercase()] ?: 0.0
 
     companion object {
-        fun defaultPowerScales(): Map<String, Double> = linkedMapOf(
-            "P1" to 0.20,
-            "P2" to 0.40,
-            "P3" to 0.60,
-            "P4" to 0.80,
-            "P5" to 1.00
-        )
-
-        fun defaultBrakeScales(): Map<String, Double> = linkedMapOf(
-            "B1" to 0.15,
-            "B2" to 0.30,
-            "B3" to 0.45,
-            "B4" to 0.60,
-            "B5" to 0.75,
-            "B6" to 0.90,
-            "B7" to 1.00,
-            "EB" to 1.25
-        )
-
         fun parse(root: Map<String, Any>?): TrainControlConfig {
-            if (root == null) return TrainControlConfig()
-            val controller = root.map("controller")
-            val traction = root.map("traction")
-            val brake = root.map("brake")
+            val source = root ?: throw IllegalArgumentException("train control config is required")
+            val version = source.requireInt("config-version", "train control")
+            require(version == PartRegistry.CONFIG_VERSION) {
+                "Unsupported train control config-version: $version"
+            }
+            val controller = source.requireMap("controller", "train control")
+            val traction = source.requireMap("traction", "train control")
+            val brake = source.requireMap("brake", "train control")
+            val powerNotches = controller.requireStringList("power-notches", "train control.controller")
+            val brakeNotches = controller.requireStringList("brake-notches", "train control.controller")
+            val tractionScales = traction.requireDoubleMap("notch-scales", "train control.traction")
+            val brakeScales = brake.requireDoubleMap("notch-scales", "train control.brake")
+            validateNotchScales("power-notches", powerNotches, tractionScales, "train control.traction.notch-scales")
+            validateNotchScales("brake-notches", brakeNotches, brakeScales, "train control.brake.notch-scales")
             return TrainControlConfig(
-                maxSpeed = root.double("max-speed") ?: 20.0,
-                powerNotches = controller.stringList("power-notches") ?: TrainControlConfig().powerNotches,
-                brakeNotches = controller.stringList("brake-notches") ?: TrainControlConfig().brakeNotches,
-                tractionNotchScales = traction.doubleMap("notch-scales") ?: defaultPowerScales(),
-                brakeNotchScales = brake.doubleMap("notch-scales") ?: defaultBrakeScales(),
-                brakeApplyTime = brake.double("apply-time") ?: 1.2,
-                brakeReleaseTime = brake.double("release-time") ?: 1.8,
-                resistance = DavisResistanceConfig.parse(root.map("resistance")),
-                adhesion = AdhesionConfig.parse(root.map("adhesion")),
-                jerk = JerkLimitConfig.parse(root.map("jerk"))
+                maxSpeed = source.requireDouble("max-speed", "train control"),
+                powerNotches = powerNotches,
+                brakeNotches = brakeNotches,
+                tractionNotchScales = tractionScales,
+                brakeNotchScales = brakeScales,
+                brakeApplyTime = brake.requireDouble("apply-time", "train control.brake"),
+                brakeReleaseTime = brake.requireDouble("release-time", "train control.brake"),
+                resistance = DavisResistanceConfig.parse(source.requireMap("resistance", "train control")),
+                adhesion = AdhesionConfig.parse(source.requireMap("adhesion", "train control")),
+                jerk = JerkLimitConfig.parse(source.requireMap("jerk", "train control"))
             )
+        }
+
+        private fun validateNotchScales(
+            label: String,
+            notches: List<String>,
+            scales: Map<String, Double>,
+            subject: String
+        ) {
+            require(notches.isNotEmpty()) { "$label must not be empty" }
+            val normalizedNotches = notches.map { it.uppercase() }
+            require(normalizedNotches.toSet().size == normalizedNotches.size) {
+                "$label contains duplicates: ${normalizedNotches.joinToString()}"
+            }
+            val missing = normalizedNotches.filter { it !in scales }
+            require(missing.isEmpty()) {
+                "$subject is missing entries for: ${missing.joinToString()}"
+            }
+            val extras = scales.keys - normalizedNotches.toSet()
+            require(extras.isEmpty()) {
+                "$subject contains unexpected entries: ${extras.joinToString()}"
+            }
         }
     }
 }
@@ -72,13 +99,13 @@ data class CarControlConfig(
 
     companion object {
         fun parse(root: Map<String, Any>?): CarControlConfig {
-            if (root == null) return CarControlConfig()
+            val source = root ?: throw IllegalArgumentException("car control config is required")
             return CarControlConfig(
-                mass = root.double("mass") ?: 32_000.0,
-                rotatingMassFactor = root.double("rotating-mass-factor") ?: 1.08,
-                motor = MotorControlConfig.parse(root.map("motor")),
-                brake = CarBrakeControlConfig.parse(root.map("brake")),
-                resistance = root.map("resistance")?.let { DavisResistanceConfig.parse(it) }
+                mass = source.requireDouble("mass", "car control"),
+                rotatingMassFactor = source.requireDouble("rotating-mass-factor", "car control"),
+                motor = MotorControlConfig.parse(source.requireMap("motor", "car control")),
+                brake = CarBrakeControlConfig.parse(source.requireMap("brake", "car control")),
+                resistance = source.optionalMap("resistance", "car control")?.let { DavisResistanceConfig.parse(it) }
             )
         }
     }
@@ -113,14 +140,16 @@ data class MotorControlConfig(
 
     companion object {
         fun parse(root: Map<String, Any>?): MotorControlConfig {
-            if (root == null) return MotorControlConfig()
+            val source = root ?: throw IllegalArgumentException("motor control config is required")
             return MotorControlConfig(
-                enabled = root.boolean("enabled") ?: false,
-                maxForce = root.double("max-force") ?: 0.0,
-                maxPower = root.double("max-power") ?: 0.0,
-                adhesionMassRatio = root.double("adhesion-mass-ratio") ?: 1.0,
-                forceCurve = root.list("force-curve")?.mapNotNull { entry ->
-                    (entry as? Map<*, *>)?.stringKeyMap()?.let { SpeedForcePoint.parse(it) }
+                enabled = source.requireBoolean("enabled", "car control.motor"),
+                maxForce = source.requireDouble("max-force", "car control.motor"),
+                maxPower = source.requireDouble("max-power", "car control.motor"),
+                adhesionMassRatio = source.requireDouble("adhesion-mass-ratio", "car control.motor"),
+                forceCurve = source.optionalList("force-curve", "car control.motor")?.mapIndexed { index, entry ->
+                    val map = (entry as? Map<*, *>)?.stringKeyMap("force-curve[$index]")
+                        ?: throw IllegalArgumentException("force-curve[$index] must be a map")
+                    SpeedForcePoint.parse(map)
                 } ?: emptyList()
             )
         }
@@ -135,11 +164,11 @@ data class CarBrakeControlConfig(
 ) {
     companion object {
         fun parse(root: Map<String, Any>?): CarBrakeControlConfig {
-            if (root == null) return CarBrakeControlConfig()
+            val source = root ?: throw IllegalArgumentException("brake control config is required")
             return CarBrakeControlConfig(
-                maxForce = root.double("max-force") ?: 45_000.0,
-                regenerativeForce = root.double("regenerative-force") ?: 0.0,
-                adhesionMassRatio = root.double("adhesion-mass-ratio") ?: 1.0
+                maxForce = source.requireDouble("max-force", "car control.brake"),
+                regenerativeForce = source.requireDouble("regenerative-force", "car control.brake"),
+                adhesionMassRatio = source.requireDouble("adhesion-mass-ratio", "car control.brake")
             )
         }
     }
@@ -155,11 +184,11 @@ data class DavisResistanceConfig(
 
     companion object {
         fun parse(root: Map<String, Any>?): DavisResistanceConfig {
-            if (root == null) return DavisResistanceConfig()
+            val source = root ?: throw IllegalArgumentException("resistance config is required")
             return DavisResistanceConfig(
-                a = root.double("a") ?: 1_200.0,
-                b = root.double("b") ?: 20.0,
-                c = root.double("c") ?: 4.0
+                a = source.requireDouble("a", "resistance"),
+                b = source.requireDouble("b", "resistance"),
+                c = source.requireDouble("c", "resistance")
             )
         }
     }
@@ -171,9 +200,9 @@ data class AdhesionConfig(
 ) {
     companion object {
         fun parse(root: Map<String, Any>?): AdhesionConfig {
-            if (root == null) return AdhesionConfig()
+            val source = root ?: throw IllegalArgumentException("adhesion config is required")
             return AdhesionConfig(
-                coefficient = root.double("coefficient") ?: 0.22
+                coefficient = source.requireDouble("coefficient", "adhesion")
             )
         }
     }
@@ -186,10 +215,10 @@ data class JerkLimitConfig(
 ) {
     companion object {
         fun parse(root: Map<String, Any>?): JerkLimitConfig {
-            if (root == null) return JerkLimitConfig()
+            val source = root ?: throw IllegalArgumentException("jerk config is required")
             return JerkLimitConfig(
-                traction = root.double("traction") ?: 0.7,
-                brake = root.double("brake") ?: 1.0
+                traction = source.requireDouble("traction", "jerk"),
+                brake = source.requireDouble("brake", "jerk")
             )
         }
     }
@@ -201,29 +230,105 @@ data class SpeedForcePoint(
     val force: Double
 ) {
     companion object {
-        fun parse(root: Map<String, Any>): SpeedForcePoint? {
-            val speed = root.double("speed") ?: return null
-            val force = root.double("force") ?: return null
+        fun parse(root: Map<String, Any>): SpeedForcePoint {
+            val speed = root.requireDouble("speed", "force-curve point")
+            val force = root.requireDouble("force", "force-curve point")
             return SpeedForcePoint(speed, force)
         }
     }
 }
 
-internal fun Map<String, Any>?.double(key: String): Double? = (this?.get(key) as? Number)?.toDouble()
-internal fun Map<String, Any>?.boolean(key: String): Boolean? = this?.get(key) as? Boolean
-internal fun Map<String, Any>?.map(key: String): Map<String, Any>? = (this?.get(key) as? Map<*, *>)?.stringKeyMap()
-internal fun Map<String, Any>?.list(key: String): List<*>? = this?.get(key) as? List<*>
-internal fun Map<String, Any>?.stringList(key: String): List<String>? = list(key)?.mapNotNull { it as? String }
-internal fun Map<String, Any>?.doubleMap(key: String): Map<String, Double>? {
-    val source = map(key) ?: return null
-    return source.mapNotNull { (k, v) ->
-        val value = (v as? Number)?.toDouble() ?: return@mapNotNull null
-        k.uppercase() to value
-    }.toMap()
+internal fun Map<String, Any>?.double(key: String): Double? {
+    if (this == null || !containsKey(key)) return null
+    val value = this[key] ?: throw IllegalArgumentException("'$key' cannot be null")
+    return (value as? Number)?.toDouble()
+        ?: throw IllegalArgumentException("'$key' must be a number")
 }
 
-internal fun Map<*, *>.stringKeyMap(): Map<String, Any> = entries.mapNotNull { (key, value) ->
-    val stringKey = key as? String ?: return@mapNotNull null
-    @Suppress("UNCHECKED_CAST")
-    stringKey to value as Any
-}.toMap()
+internal fun Map<String, Any>?.boolean(key: String): Boolean? {
+    if (this == null || !containsKey(key)) return null
+    val value = this[key] ?: throw IllegalArgumentException("'$key' cannot be null")
+    return value as? Boolean
+        ?: throw IllegalArgumentException("'$key' must be a boolean")
+}
+
+internal fun Map<String, Any>?.map(key: String): Map<String, Any>? {
+    if (this == null || !containsKey(key)) return null
+    val value = this[key] ?: throw IllegalArgumentException("'$key' cannot be null")
+    return (value as? Map<*, *>)?.stringKeyMap(key)
+        ?: throw IllegalArgumentException("'$key' must be a map")
+}
+
+internal fun Map<String, Any>?.list(key: String): List<*>? {
+    if (this == null || !containsKey(key)) return null
+    val value = this[key] ?: throw IllegalArgumentException("'$key' cannot be null")
+    return value as? List<*>
+        ?: throw IllegalArgumentException("'$key' must be a list")
+}
+
+internal fun Map<String, Any>?.stringList(key: String): List<String>? = list(key)?.mapIndexed { index, value ->
+    value as? String ?: throw IllegalArgumentException("'$key[$index]' must be a string")
+}
+
+internal fun Map<String, Any>?.doubleMap(key: String): Map<String, Double>? {
+    val source = map(key) ?: return null
+    return source.entries.associate { (k, v) ->
+        val value = (v as? Number)?.toDouble()
+            ?: throw IllegalArgumentException("'$key.$k' must be a number")
+        k.uppercase() to value
+    }
+}
+
+internal fun Map<*, *>.stringKeyMap(subject: String = "map"): Map<String, Any> = buildMap {
+    for ((key, value) in this@stringKeyMap) {
+        val stringKey = key as? String
+            ?: throw IllegalArgumentException("$subject contains non-string key: $key")
+        val typedValue = value
+            ?: throw IllegalArgumentException("$subject contains null value for key '$stringKey'")
+        put(stringKey, typedValue)
+    }
+}
+
+internal fun Map<String, Any>.requireDouble(key: String, subject: String): Double {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    return (value as? Number)?.toDouble()
+        ?: throw IllegalArgumentException("$subject.$key must be a number")
+}
+
+internal fun Map<String, Any>.requireBoolean(key: String, subject: String): Boolean {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    return value as? Boolean
+        ?: throw IllegalArgumentException("$subject.$key must be a boolean")
+}
+
+internal fun Map<String, Any>.requireMap(key: String, subject: String): Map<String, Any> {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    return (value as? Map<*, *>)?.stringKeyMap("$subject.$key")
+        ?: throw IllegalArgumentException("$subject.$key must be a map")
+}
+
+internal fun Map<String, Any>.requireStringList(key: String, subject: String): List<String> {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    val list = value as? List<*>
+        ?: throw IllegalArgumentException("$subject.$key must be a list")
+    return list.mapIndexed { index, entry ->
+        entry as? String ?: throw IllegalArgumentException("$subject.$key[$index] must be a string")
+    }
+}
+
+internal fun Map<String, Any>.requireDoubleMap(key: String, subject: String): Map<String, Double> {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    val map = (value as? Map<*, *>)?.stringKeyMap("$subject.$key")
+        ?: throw IllegalArgumentException("$subject.$key must be a map")
+    return map.entries.associate { (entryKey, entryValue) ->
+        entryKey.uppercase() to ((entryValue as? Number)?.toDouble()
+            ?: throw IllegalArgumentException("$subject.$key.$entryKey must be a number"))
+    }
+}
+
+internal fun Map<String, Any>.requireList(key: String, subject: String): List<*> {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    return value as? List<*>
+        ?: throw IllegalArgumentException("$subject.$key must be a list")
+}
+

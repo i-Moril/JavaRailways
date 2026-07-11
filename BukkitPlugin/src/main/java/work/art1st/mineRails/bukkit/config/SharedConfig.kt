@@ -17,25 +17,32 @@ data class OffsetConfig(
  * Shared 3D scale configuration used by both rail and car model configs.
  */
 data class ScaleConfig(
-    val x: Double,
-    val y: Double,
-    val z: Double
+    val x: Double = 1.0,
+    val y: Double = 1.0,
+    val z: Double = 1.0
 )
 
 /** Parse offset from YAML map. */
 internal fun parseOffset(map: Map<String, Any>): OffsetConfig {
     return OffsetConfig(
-        x = (map["x"] as? Number)?.toDouble() ?: 0.0,
-        y = (map["y"] as? Number)?.toDouble() ?: 0.0,
-        z = (map["z"] as? Number)?.toDouble() ?: 0.0
+        x = numberOrDefault(map, "x", "offset", 0.0),
+        y = numberOrDefault(map, "y", "offset", 0.0),
+        z = numberOrDefault(map, "z", "offset", 0.0)
     )
 }
 
 /** Parse scale from YAML map. */
 internal fun parseScale(map: Map<String, Any>): ScaleConfig {
     return ScaleConfig(
-        x = (map["x"] as? Number)?.toDouble() ?: error("Missing scale.x"),
-        y = (map["y"] as? Number)?.toDouble() ?: error("Missing scale.y"),
-        z = (map["z"] as? Number)?.toDouble() ?: error("Missing scale.z")
+        x = numberOrDefault(map, "x", "scale", 1.0),
+        y = numberOrDefault(map, "y", "scale", 1.0),
+        z = numberOrDefault(map, "z", "scale", 1.0)
     )
+}
+
+private fun numberOrDefault(map: Map<String, Any>, key: String, subject: String, defaultValue: Double): Double {
+    if (!map.containsKey(key)) return defaultValue
+    val value = map[key] ?: throw IllegalArgumentException("$subject.$key cannot be null")
+    return (value as? Number)?.toDouble()
+        ?: throw IllegalArgumentException("$subject.$key must be a number")
 }

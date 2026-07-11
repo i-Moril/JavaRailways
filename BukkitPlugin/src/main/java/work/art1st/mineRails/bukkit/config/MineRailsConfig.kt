@@ -5,16 +5,16 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import java.io.File
 
 data class MineRailsConfig(
-    val trainModelUpdatePolicy: TrainModelUpdatePolicy = TrainModelUpdatePolicy.FOLLOW_PACKAGE,
-    val trainKeyBindDistance: Double = 20.0,
-    val trainDebugLog: Boolean = false
+    val trainModelUpdatePolicy: TrainModelUpdatePolicy,
+    val trainKeyBindDistance: Double,
+    val trainDebugLog: Boolean,
+    val physicsWorkerThreads: Int
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
             val file = File(plugin.dataFolder, "config.yml")
             if (!file.exists()) {
-                file.parentFile.mkdirs()
-                file.writeText(DEFAULT_CONFIG)
+                plugin.saveResource("config.yml", false)
             }
 
             val yaml = YamlConfiguration.loadConfiguration(file)
@@ -22,29 +22,48 @@ data class MineRailsConfig(
         }
 
         fun fromYaml(yaml: YamlConfiguration): MineRailsConfig {
-            val policy = TrainModelUpdatePolicy.fromConfig(
-                yaml.getString("train-model-update-policy")
-            )
+            val policy = TrainModelUpdatePolicy.fromConfig(requireString(yaml, "train-model-update-policy"))
+            val bindDistance = requireDouble(yaml, "train-key-bind-distance")
+            require(bindDistance >= 0.0) { "train-key-bind-distance must be >= 0.0" }
+            val physicsWorkerThreads = requireInt(yaml, "physics-worker-threads")
+            require(physicsWorkerThreads > 0) { "physics-worker-threads must be > 0" }
             return MineRailsConfig(
                 trainModelUpdatePolicy = policy,
-                trainKeyBindDistance = yaml.getDouble("train-key-bind-distance", 20.0).coerceAtLeast(0.0),
-                trainDebugLog = yaml.getBoolean("train-debug-log", false)
+                trainKeyBindDistance = bindDistance,
+                trainDebugLog = requireBoolean(yaml, "train-debug-log"),
+                physicsWorkerThreads = physicsWorkerThreads
             )
         }
 
-        private val DEFAULT_CONFIG = """
-            # How saved trains react to train package/model YAML changes.
-            # follow-package: saved trains keep their car model names, but rebuild from latest package files.
-            # snapshot: saved trains store a resolved model snapshot and do not follow package changes.
-            train-model-update-policy: follow-package
+        private fun requireString(yaml: YamlConfiguration, path: String): String {
+            require(yaml.contains(path, true)) { "Missing required config key '$path'" }
+            return yaml.getString(path)
+                ?: throw IllegalArgumentException("Config key '$path' must be a string")
+        }
 
-            # Maximum distance in meters between a player and any car of the bound train before a train key unbinds.
-            train-key-bind-distance: 20.0
+        private fun requireDouble(yaml: YamlConfiguration, path: String): Double {
+            require(yaml.contains(path, true)) { "Missing required config key '$path'" }
+            val raw = yaml.get(path)
+            return (raw as? Number)?.toDouble()
+                ?: throw IllegalArgumentException("Config key '$path' must be a number")
+        }
 
-            # Per-tick train/car diagnostics. Writes plugins/MineRails/debug/train_debug.csv.
-            # Keep disabled unless collecting a short trace.
-            train-debug-log: false
-        """.trimIndent() + "\n"
+        private fun requireInt(yaml: YamlConfiguration, path: String): Int {
+            require(yaml.contains(path, true)) { "Missing required config key '$path'" }
+            val raw = yaml.get(path)
+            val number = raw as? Number
+                ?: throw IllegalArgumentException("Config key '$path' must be an integer")
+            val value = number.toInt()
+            require(number.toDouble() == value.toDouble()) { "Config key '$path' must be an integer" }
+            return value
+        }
+
+        private fun requireBoolean(yaml: YamlConfiguration, path: String): Boolean {
+            require(yaml.contains(path, true)) { "Missing required config key '$path'" }
+            val raw = yaml.get(path)
+            return raw as? Boolean
+                ?: throw IllegalArgumentException("Config key '$path' must be a boolean")
+        }
     }
 }
 
@@ -53,11 +72,13 @@ enum class TrainModelUpdatePolicy {
     SNAPSHOT;
 
     companion object {
-        fun fromConfig(value: String?): TrainModelUpdatePolicy {
-            return when (value?.trim()?.lowercase()) {
-                null, "", "follow-package", "follow_package", "follow" -> FOLLOW_PACKAGE
+        fun fromConfig(value: String): TrainModelUpdatePolicy {
+            return when (value.trim().lowercase()) {
+                "follow-package", "follow_package", "follow" -> FOLLOW_PACKAGE
                 "snapshot", "freeze", "frozen" -> SNAPSHOT
-                else -> FOLLOW_PACKAGE
+                else -> throw IllegalArgumentException(
+                    "Unsupported train-model-update-policy '$value'. Expected one of: follow-package, snapshot"
+                )
             }
         }
     }

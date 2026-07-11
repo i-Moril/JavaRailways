@@ -5,7 +5,10 @@ package work.art1st.mineRails.core.api.util.plugin
  */
 interface Extendable<ExtensionDataBase> {
     @ExtensionData
-    fun <T : ExtensionDataBase> getExtensionData(plugin: Plugin) : T
+    fun <T : ExtensionDataBase> getExtensionDataOrNull(plugin: Plugin) : T?
+
+    @ExtensionData
+    fun <T : ExtensionDataBase> requireExtensionData(plugin: Plugin) : T
 
     /**
      * 将某 [Plugin] 对应的扩展数据挂到当前宿主上（与 [PluginRegistry.register] 的 identifier 对齐）。

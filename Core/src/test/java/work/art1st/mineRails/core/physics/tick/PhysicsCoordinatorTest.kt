@@ -1,0 +1,235 @@
+package work.art1st.mineRails.core.physics.tick
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import work.art1st.mineRails.core.api.control.TrainController
+import work.art1st.mineRails.core.api.event.CollisionEvent
+import work.art1st.mineRails.core.api.event.processor.EventListener
+import work.art1st.mineRails.core.api.event.processor.EventManager
+import work.art1st.mineRails.core.api.event.processor.HandlesEvent
+import work.art1st.mineRails.core.api.util.annotation.AsyncEventApi
+import work.art1st.mineRails.core.api.util.tick.TickManager
+import work.art1st.mineRails.core.di.NoOpWorldParentContext
+import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.mineRails.core.physics.train.CoreTrain
+import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
+import work.art1st.mineRails.core.physics.train.createTrainWithConfig
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Future
+import java.util.concurrent.FutureTask
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+
+class PhysicsCoordinatorTest {
+    @Test
+    fun `published active trains are queued for main-thread render commit`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("render-dirty", rail, world, listOf(10.0))
+        val car = train.cars.single()
+        val initialRenderedPosition = car.lastState.position
+        train.setController(ConstantSpeedController(train, world))
+        coordinator.start()
+        try {
+            coordinator.wakeFromMainThread().await()
+            assertNotEquals(initialRenderedPosition, car.position)
+            assertEquals(initialRenderedPosition, car.lastState.position)
+
+            world.commitPublishedTrainRenderState()
+            assertEquals(car.position, car.lastState.position)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `tick end capture returns the currently running ticket`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("blocking", rail, world, listOf(10.0))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        train.setController(BlockingController(train, world, entered, release))
+        coordinator.start()
+        try {
+            val startedTicket = coordinator.wakeFromMainThread()
+            entered.await()
+            val duplicateWakeTicket = coordinator.wakeFromMainThread()
+            val capturedAtTickEnd = coordinator.captureCurrentTicket()
+            assertTrue(startedTicket === duplicateWakeTicket)
+            assertTrue(startedTicket === capturedAtTickEnd)
+            release.countDown()
+            capturedAtTickEnd.await()
+        } finally {
+            release.countDown()
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `active train detects static overlap once and both derail next epoch`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 2,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val moving = createTrainWithConfig("A", rail, world, listOf(10.0))
+        val stationary = createTrainWithConfig("B", rail, world, listOf(10.0))
+        moving.setController(ConstantSpeedController(moving, world))
+        val listener = CollisionCounter()
+        EventManager.register(listener)
+        coordinator.start()
+        assertEquals("B", world.querySweptCollision(moving).collidingTrainId)
+        try {
+            coordinator.wakeFromMainThread().await()
+            assertEquals(1, listener.count.get())
+            coordinator.wakeFromMainThread().await()
+
+            assertTrue(moving.isDerailed)
+            assertTrue(stationary.isDerailed)
+            assertEquals(1, listener.count.get())
+        } finally {
+            EventManager.unregister(listener)
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `publishes controller movement before ticket completes`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 2,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        train.setController(ConstantSpeedController(train, world))
+        val before = train.head.location.arcLength
+        coordinator.start()
+        try {
+            coordinator.wakeFromMainThread().await()
+            assertTrue(train.head.location.arcLength > before)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `measures delta between adjacent physics epoch starts`() {
+        val clock = AtomicLong(1_000_000_000L)
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 2,
+            nanoTime = clock::get,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        coordinator.start()
+        try {
+            val first = coordinator.wakeFromMainThread().await()
+            clock.addAndGet(73_000_000L)
+            val second = coordinator.wakeFromMainThread().await()
+
+            assertEquals(PhysicsCoordinator.BOOTSTRAP_DELTA_MILLIS, first.deltaMillis)
+            assertEquals(73.0, second.deltaMillis, 0.0001)
+            assertEquals(2L, second.epoch)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `repeated overloads stall without returning an old successful epoch`() {
+        val clock = AtomicLong(0L)
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = { clock.addAndGet(30_000_000L) },
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 50L,
+            overloadWindowMillis = 1_000_000L,
+            overloadsBeforeStall = 3
+        )
+        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        coordinator.start()
+        try {
+            coordinator.wakeFromMainThread().await()
+            coordinator.wakeFromMainThread().await()
+            assertThrows(ExecutionException::class.java) {
+                coordinator.wakeFromMainThread().await()
+            }
+            assertEquals(PhysicsCoordinatorStatus.STALLED, coordinator.status)
+            assertThrows(PhysicsStalledException::class.java) {
+                coordinator.captureCurrentTicket()
+            }
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @OptIn(AsyncEventApi::class)
+    class CollisionCounter : EventListener {
+        val count = AtomicInteger()
+
+        @HandlesEvent
+        fun onCollision(event: CollisionEvent) {
+            count.incrementAndGet()
+        }
+    }
+
+    private class BlockingController(
+        train: CoreTrain,
+        world: CoreWorld,
+        private val entered: CountDownLatch,
+        private val release: CountDownLatch
+    ) : TrainController(train, world) {
+        override fun tick(deltaT: Double) {
+            entered.countDown()
+            release.await()
+        }
+    }
+
+    private class ConstantSpeedController(train: CoreTrain, world: CoreWorld) : TrainController(train, world) {
+        override fun tick(deltaT: Double) {
+            speed = 10.0
+            train.moveTrainForward(activeSpeed * deltaT * 0.001)
+        }
+    }
+
+    private object DummyTickManager : TickManager {
+        override fun register(obj: work.art1st.mineRails.core.api.util.tick.TickingObject) = Unit
+        override fun unregister(obj: work.art1st.mineRails.core.api.util.tick.TickingObject) = Unit
+        override fun preTick(currentTimeMs: Long) = Unit
+        override fun postTick() = Unit
+
+        override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> =
+            FutureTask(task).also { it.run() }
+
+        override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> =
+            FutureTask(task).also { it.run() }
+    }
+}

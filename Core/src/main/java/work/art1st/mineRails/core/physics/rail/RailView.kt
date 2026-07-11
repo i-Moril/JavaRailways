@@ -9,15 +9,17 @@ import work.art1st.mineRails.core.api.physics.exception.CannotConnectRailExcepti
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.physics.rail.RailView as ApiRailView
 import work.art1st.mineRails.core.physics.train.TrainEnd
-import kotlin.properties.Delegates
+import java.util.concurrent.CopyOnWriteArrayList
 
 class RailView(
     override val rail: CoreRail,
     override val viewDirection: ViewDirection,
     override val curve: PrimeCurve,
-    var mutableNextRails: MutableList<RailView>,
+    mutableNextRails: MutableList<RailView>,
     nextActiveRail: RailView? = if (mutableNextRails.isEmpty()) null else mutableNextRails[0]
 ) : ApiRailView {
+    val mutableNextRails: MutableList<RailView> = CopyOnWriteArrayList(mutableNextRails)
+
     init {
         if (nextActiveRail != null && (mutableNextRails.isEmpty() || !mutableNextRails.contains(nextActiveRail))) {
             throw InvalidActiveRailException(this, nextActiveRail)
@@ -28,11 +30,17 @@ class RailView(
     override val nextRails: List<ApiRailView>
         get() = mutableNextRails as List<ApiRailView>
 
-    var activeRail: RailView? by Delegates.vetoable(nextActiveRail) {
-        property, oldValue, newValue ->
-        if (newValue == null || mutableNextRails.contains(newValue)) true else
-            throw InvalidActiveRailException(this, newValue)
-    }
+    @Volatile
+    private var activeRailValue: RailView? = nextActiveRail
+
+    var activeRail: RailView?
+        get() = activeRailValue
+        set(value) {
+            if (value != null && !mutableNextRails.contains(value)) {
+                throw InvalidActiveRailException(this, value)
+            }
+            activeRailValue = value
+        }
 
     override val nextActiveRail: ApiRailView?
         get() = activeRail

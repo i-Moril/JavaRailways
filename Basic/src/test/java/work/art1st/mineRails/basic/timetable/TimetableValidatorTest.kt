@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.basic.WayPoint
+import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
@@ -15,6 +16,7 @@ class TimetableValidatorTest {
     @Test
     fun `validator expands route between waypoint pool and goto target`() {
         val world = createTestWorld()
+        TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
         world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
         world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 70.0))
@@ -41,6 +43,7 @@ class TimetableValidatorTest {
     @Test
     fun `validator reports missing waypoint`() {
         val world = createTestWorld()
+        TestBasicWorldDataRegistry.getOrCreate(world)
         val timetable = Timetable(
             id = "demo",
             services = listOf(

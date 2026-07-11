@@ -11,6 +11,7 @@ import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.persistence.PersistedRailRenderMeta
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
+import work.art1st.mineRails.core.util.ThreadGuard
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -20,6 +21,7 @@ object RailVisualBootstrap {
     private val railSegments: MutableMap<UUID, MutableList<RailArcVisualSegment>> = ConcurrentHashMap()
 
     fun registerRail(rail: CoreRail, railType: String = "standard"): PersistedRailRenderMeta {
+        ThreadGuard.ensureMainThread("RailVisualBootstrap.registerRail")
         val templateSnapshot = createTemplateSnapshot(railType)
         val segments = createSegments(rail, templateSnapshot)
         registerSegments(rail.id, segments)
@@ -31,10 +33,12 @@ object RailVisualBootstrap {
     }
 
     fun unregisterRail(railId: UUID) {
+        ThreadGuard.ensureMainThread("RailVisualBootstrap.unregisterRail")
         railSegments.remove(railId)?.forEach { it.destroy() }
     }
 
     fun fromPersisted(coreWorld: CoreWorld, persisted: PersistedRailRenderMeta): Boolean {
+        ThreadGuard.ensureMainThread("RailVisualBootstrap.fromPersisted")
         val rail = coreWorld.getRail(persisted.railId) ?: return false
         val segments = persisted.segments.map { meta ->
             RailArcVisualSegment(
@@ -57,8 +61,8 @@ object RailVisualBootstrap {
             val extension = RailExtension()
             segment.registerExtensionData(BukkitPlugin.INSTANCE, extension)
             extension.initialize(segment, emptyMap())
-            // 轨道是静态几何，注册后立即构建实体，避免仅靠 sendTo 的懒触发。
-            extension.ensureBuilt()
+            // Register lightweight metadata only. RenderChunkManager builds entities when the
+            // first nearby player becomes an audience member and unloads them after the last leaves.
             renderManager.update(segment, null, segment.position)
         }
         railSegments[railId] = segments.toMutableList()

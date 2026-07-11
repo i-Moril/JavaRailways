@@ -7,6 +7,7 @@ import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.api.util.Destroyable
 import java.lang.ref.WeakReference
+import work.art1st.mineRails.core.util.CommitBuffer
 
 /**
  * 车辆端部
@@ -29,21 +30,31 @@ open class TrainEnd(
     val train: CoreTrain
         get() = trainOrNull ?: throw IllegalStateException("TrainEnd no longer references a live train")
 
-    private var commitTask: Runnable? = null
-    override var location: RailLocationWithFacing = location
+    private val locationBuffer = CommitBuffer(location)
+    private var physicsDirty: Boolean = false
+
+    override var location: RailLocationWithFacing
+        get() = locationBuffer.get()
         set(value) {
-            if (value.rail != field.rail) {
-                commitTask = Runnable {
-                    field.rail.moveTrainEndTo(this, value.rail)
-                }
-            }
-            field = value
+            locationBuffer.set(value)
+            physicsDirty = true
         }
 
-    override fun commit() {
-        commitTask?.run()
-        commitTask = null
+    internal val activeLocation: RailLocationWithFacing
+        get() = if (physicsDirty) locationBuffer.getActive() else locationBuffer.get()
+
+    internal fun publishPhysicsState() {
+        if (!physicsDirty) return
+        val oldLocation = locationBuffer.get()
+        val newLocation = locationBuffer.getActive()
+        if (newLocation.rail != oldLocation.rail) {
+            oldLocation.rail.moveTrainEndTo(this, newLocation.rail)
+        }
+        locationBuffer.commit()
+        physicsDirty = false
     }
+
+    override fun commit() = Unit
 
     @MainThread
     override fun destroy() {
@@ -52,7 +63,11 @@ open class TrainEnd(
 
     @MainThread
     override fun reverse() {
-        location = location.reversed
+        val reversedLocation = location.reversed
+        locationBuffer.set(reversedLocation)
+        locationBuffer.commit()
+        locationBuffer.set(reversedLocation)
+        physicsDirty = false
     }
 
     enum class Type {

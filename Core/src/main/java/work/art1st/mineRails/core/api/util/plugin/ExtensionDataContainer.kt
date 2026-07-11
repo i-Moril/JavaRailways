@@ -11,9 +11,17 @@ class ExtensionDataContainer<Base> : Extendable<Base> {
 
     @ExtensionData
     @Suppress("UNCHECKED_CAST")
-    override fun <T : Base> getExtensionData(plugin: Plugin) : T {
-        ensureCapacity(plugin)
-        return extensionData[plugin.identifier] as T
+    override fun <T : Base> getExtensionDataOrNull(plugin: Plugin) : T? {
+        if (plugin.identifier >= extensionData.size) return null
+        return extensionData[plugin.identifier] as T?
+    }
+
+    @ExtensionData
+    override fun <T : Base> requireExtensionData(plugin: Plugin) : T {
+        return getExtensionDataOrNull(plugin)
+            ?: throw IllegalStateException(
+                "Extension data for plugin ${plugin::class.simpleName ?: "<anonymous>"}#${plugin.identifier} is not registered"
+            )
     }
 
     internal fun <T: Base> setExtensionData(plugin: Plugin, data: T) {

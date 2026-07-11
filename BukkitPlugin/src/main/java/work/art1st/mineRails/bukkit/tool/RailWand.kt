@@ -32,9 +32,11 @@ import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
 import work.art1st.mineRails.bukkit.persistence.PersistedRailRenderMeta
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
+import work.art1st.mineRails.bukkit.util.BukkitAsyncTasks
+import work.art1st.mineRails.bukkit.util.HeavyRailQueries
+import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
-import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
@@ -155,6 +157,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     /** Per-player transient anchor marker entities: player UUID -> (anchorId -> Set<entityId>). */
     private val anchorEntities = mutableMapOf<UUID, MutableMap<String, MutableSet<UUID>>>()
+    private val heavyOperationGate = PlayerOperationGate()
 
     /** 撤销/重做栈 (playerId -> stacks) */
     private val undoStacks = mutableMapOf<UUID, MutableList<WandAction>>()
@@ -408,6 +411,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         removeAllAnchorDisplays(player)
         undoStacks.remove(player.uniqueId)
         redoStacks.remove(player.uniqueId)
+        heavyOperationGate.clear(player.uniqueId)
+        configUI.removePlayerSession(player.uniqueId)
     }
 
     // ═══════════════════════════════════════════
@@ -450,11 +455,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         if (state.selectedAnchors.isNotEmpty()) {
             state.selectedAnchors.addAll(newAnchorIds)
             if (state.selectedAnchors.size >= expectedCount) {
-                val endpointSelection = connectSelectedAnchors(player, state)
-                if (endpointSelection != null) {
-                    state.selectedAnchors.clear()
-                    state.selectedAnchors.addAll(endpointSelection)
-                }
+                connectSelectedAnchors(player, state)
             } else {
                 player.sendActionBar(Component.text(
                     "已选择 ${state.selectedAnchors.size}/$expectedCount 个锚点", NamedTextColor.YELLOW
@@ -519,94 +520,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // 连接模式
     // ═══════════════════════════════════════════
 
-    /** 连接已选择的锚点组，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
-    internal fun connectSelectedAnchors(player: Player, state: WandPlayerState): List<String>? {
-        val expectedCount = state.parallelCount * 2
-        if (state.selectedAnchors.size != expectedCount) {
-            player.sendActionBar(Component.text(
-                "需要选择 $expectedCount 个锚点 (当前: ${state.selectedAnchors.size})", NamedTextColor.RED
-            ))
-            return null
-        }
+    private data class CurveBuildSettingsSnapshot(
+        val parallelCount: Int,
+        val parallelSpacing: Double,
+        val curveRadius: Double,
+        val curveTemplate: RailCurveTemplateType,
+        val straightUsesChordDirection: Boolean
+    )
 
-        val coreWorld = getCoreWorld(player) ?: run {
-            player.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
-            return null
-        }
-
-        val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
-        if (anchors.size != expectedCount) {
-            player.sendActionBar(Component.text("错误: 部分锚点不存在", NamedTextColor.RED))
-            return null
-        }
-
-        val startAnchors = anchors.take(state.parallelCount)
-        val endAnchors = anchors.drop(state.parallelCount)
-        val validationError = validateParallelAnchorGroup(startAnchors, endAnchors, state)
-        if (validationError != null) {
-            player.sendActionBar(Component.text(validationError, NamedTextColor.RED))
-            return null
-        }
-
-        // Step 1: 预计算所有曲线（失败时不留垃圾）
-        data class CurvePair(
-            val from: Anchor, val to: Anchor,
-            val primeCurve: PrimeCurve
-        )
-        val curves = createCurvesBetweenParallelAnchors(startAnchors, endAnchors, state)
-            ?: run {
-                player.sendActionBar(Component.text("无法创建并行曲线", NamedTextColor.RED))
-                return null
-            }
-        val curvePairs = startAnchors.zip(endAnchors).zip(curves).map { (anchors, curve) ->
-            CurvePair(anchors.first, anchors.second, curve)
-        }
-
-        val existingRails = RailRenderMetaStore.load(player.world)
-            .mapNotNull { coreWorld.getRail(it.railId) }
-        val createdRails = mutableListOf<CoreRail>()
-        val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
-        val undoActions = mutableListOf<WandAction>()
-        try {
-            for (pair in curvePairs) {
-                val rail = CoreRail(coreWorld, pair.primeCurve, mutableListOf(), mutableListOf())
-                val meta = RailVisualBootstrap.registerRail(rail)
-                persistedMetas.add(meta)
-                createdRails.add(rail)
-                undoActions.add(WandAction.CreateRail(player.world.uid, rail.id, "standard"))
-            }
-
-            val autoConnected = connectCreatedRailsToExisting(createdRails, existingRails)
-            RailRenderMetaStore.upsertRails(player.world, persistedMetas)
-            pushUndo(player, WandAction.MultiAction(undoActions))
-            player.sendMessage(Component.text(
-                "✓ 创建了 ${createdRails.size} 段轨道 (${state.parallelCount} 条并行线)，自动连接 $autoConnected 条", NamedTextColor.GREEN
-            ))
-            val endpointSelection = createdRails.map { railEndpointAnchorId(it.id, 'B') }
-            state.selectedAnchors.toList().forEach { anchorId ->
-                if (!isRailEndpointAnchorId(anchorId)) {
-                    removeAnchorDisplay(player, anchorId)
-                    removeAnchor(player.world, anchorId)
-                }
-            }
-            refreshAllAnchorsForPlayer(player)
-            return endpointSelection
-        } catch (e: Exception) {
-            createdRails.forEach { rail ->
-                rail.destroy()
-                coreWorld.removeRail(rail)
-                RailVisualBootstrap.unregisterRail(rail.id)
-                RailRenderMetaStore.removeRail(player.world, rail.id)
-            }
-            player.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
-            return null
-        }
-    }
-
-    private data class RailEndpointEditPlan(
-        val oldRail: CoreRail,
+    private data class RailEndpointRebuildInput(
+        val railId: UUID,
         val movedEnd: Char,
-        val newCurve: PrimeCurve
+        val oldStart: Anchor,
+        val oldEnd: Anchor
     )
 
     private data class RailConnectionSnapshot(
@@ -617,15 +543,154 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val baActive: RailView?
     )
 
-    private fun rebuildRailForEndpointEdit(player: Player, endpointAnchorId: String, updatedEndpoint: Anchor): String? {
-        val (editedRailId, editedEnd) = parseRailEndpointAnchorId(endpointAnchorId) ?: return null
+    private fun snapshotCurveBuildSettings(state: WandPlayerState): CurveBuildSettingsSnapshot {
+        return CurveBuildSettingsSnapshot(
+            parallelCount = state.parallelCount,
+            parallelSpacing = state.parallelSpacing,
+            curveRadius = state.curveRadius,
+            curveTemplate = state.curveTemplate,
+            straightUsesChordDirection = state.straightUsesChordDirection
+        )
+    }
+
+    /** 连接已选择的锚点组，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
+    internal fun connectSelectedAnchors(player: Player, state: WandPlayerState) {
+        val expectedCount = state.parallelCount * 2
+        if (state.selectedAnchors.size != expectedCount) {
+            player.sendActionBar(Component.text(
+                "需要选择 $expectedCount 个锚点 (当前: ${state.selectedAnchors.size})", NamedTextColor.RED
+            ))
+            return
+        }
+
         val coreWorld = getCoreWorld(player) ?: run {
             player.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
-            return null
+            return
+        }
+
+        val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
+        if (anchors.size != expectedCount) {
+            player.sendActionBar(Component.text("错误: 部分锚点不存在", NamedTextColor.RED))
+            return
+        }
+
+        val startAnchors = anchors.take(state.parallelCount)
+        val endAnchors = anchors.drop(state.parallelCount)
+        val validationError = validateParallelAnchorGroup(startAnchors, endAnchors, state)
+        if (validationError != null) {
+            player.sendActionBar(Component.text(validationError, NamedTextColor.RED))
+            return
+        }
+
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道连接")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+
+        val selectionSnapshot = state.selectedAnchors.toList()
+        val anchorSnapshotsById = anchors.associateBy { it.id }
+        val settingsSnapshot = snapshotCurveBuildSettings(state)
+        val worldId = player.world.uid
+        player.sendActionBar(Component.text("正在生成轨道曲线...", NamedTextColor.GRAY))
+
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailWand.connectSelectedAnchors",
+            supplier = { createCurvesBetweenParallelAnchors(startAnchors, endAnchors, settingsSnapshot) },
+            onSuccess = { curves ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveCoreWorld = getCoreWorld(livePlayer) ?: run {
+                    livePlayer.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
+                    return@supply
+                }
+                val liveState = getState(livePlayer)
+                if (liveState.selectedAnchors != selectionSnapshot) {
+                    livePlayer.sendActionBar(Component.text("锚点选择已变化，已取消本次轨道创建", NamedTextColor.YELLOW))
+                    return@supply
+                }
+                val anchorsStillSame = selectionSnapshot.all { anchorId ->
+                    getAnchor(livePlayer.world, anchorId) == anchorSnapshotsById[anchorId]
+                }
+                if (!anchorsStillSame) {
+                    livePlayer.sendActionBar(Component.text("锚点已变化，请重试轨道连接", NamedTextColor.YELLOW))
+                    return@supply
+                }
+                if (curves == null) {
+                    livePlayer.sendActionBar(Component.text("无法创建并行曲线", NamedTextColor.RED))
+                    return@supply
+                }
+
+                val existingRails = RailRenderMetaStore.load(livePlayer.world)
+                    .mapNotNull { liveCoreWorld.getRail(it.railId) }
+                val createdRails = mutableListOf<CoreRail>()
+                val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
+                val undoActions = mutableListOf<WandAction>()
+                try {
+                    curves.forEach { curve ->
+                        val rail = CoreRail(liveCoreWorld, curve, mutableListOf(), mutableListOf())
+                        val meta = RailVisualBootstrap.registerRail(rail)
+                        persistedMetas.add(meta)
+                        createdRails.add(rail)
+                        undoActions.add(WandAction.CreateRail(livePlayer.world.uid, rail.id, "standard"))
+                    }
+
+                    val autoConnected = connectCreatedRailsToExisting(createdRails, existingRails)
+                    RailRenderMetaStore.upsertRails(livePlayer.world, persistedMetas)
+                    pushUndo(livePlayer, WandAction.MultiAction(undoActions))
+                    livePlayer.sendMessage(Component.text(
+                        "✓ 创建了 ${createdRails.size} 段轨道 (${settingsSnapshot.parallelCount} 条并行线)，自动连接 $autoConnected 条",
+                        NamedTextColor.GREEN
+                    ))
+                    val endpointSelection = createdRails.map { railEndpointAnchorId(it.id, 'B') }
+                    selectionSnapshot.forEach { anchorId ->
+                        if (!isRailEndpointAnchorId(anchorId)) {
+                            removeAnchorDisplay(livePlayer, anchorId)
+                            removeAnchor(livePlayer.world, anchorId)
+                        }
+                    }
+                    liveState.selectedAnchors.clear()
+                    liveState.selectedAnchors.addAll(endpointSelection)
+                    refreshAllAnchorsForPlayer(livePlayer)
+                    updateAnchorDisplay(livePlayer)
+                } catch (e: Exception) {
+                    createdRails.forEach { rail ->
+                        rail.destroy()
+                        liveCoreWorld.removeRail(rail)
+                        RailVisualBootstrap.unregisterRail(rail.id)
+                        RailRenderMetaStore.removeRail(livePlayer.world, rail.id)
+                    }
+                    livePlayer.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
+                }
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning(
+                    "RailWand connect failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
+                )
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
+                    Component.text("轨道连接失败，请重试", NamedTextColor.RED)
+                )
+            }
+        )
+    }
+
+    private fun rebuildRailForEndpointEdit(
+        player: Player,
+        state: WandPlayerState,
+        endpointAnchorId: String,
+        updatedEndpoint: Anchor
+    ) {
+        val (editedRailId, editedEnd) = parseRailEndpointAnchorId(endpointAnchorId) ?: return
+        val coreWorld = getCoreWorld(player) ?: run {
+            player.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
+            return
         }
         val editedRail = coreWorld.getRail(editedRailId) ?: run {
             player.sendActionBar(Component.text("轨道不存在: $editedRailId", NamedTextColor.RED))
-            return null
+            return
         }
         val movedPoint = if (editedEnd == 'A') editedRail.viewAB.startPoint.position else editedRail.viewAB.endPoint.position
         val existingMetas = RailRenderMetaStore.load(player.world)
@@ -636,14 +701,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
         if (affectedRails.isEmpty()) {
             player.sendActionBar(Component.text("没有找到连接到该端点的轨道", NamedTextColor.RED))
-            return null
+            return
         }
         if (affectedRails.any { it.trains.isNotEmpty() }) {
             player.sendActionBar(Component.text("不能编辑有列车占用的轨道", NamedTextColor.RED))
-            return null
+            return
         }
 
-        val plans = affectedRails.mapNotNull { rail ->
+        val rebuildInputs = affectedRails.mapNotNull { rail ->
             val moveA = rail.viewAB.startPoint.position.distance(movedPoint) <= Curve.TOLERANCE
             val moveB = rail.viewAB.endPoint.position.distance(movedPoint) <= Curve.TOLERANCE
             val movedEnd = when {
@@ -651,64 +716,134 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 moveB -> 'B'
                 else -> return@mapNotNull null
             }
-            val oldStart = anchorFromRailEndpoint(player.world, rail, 'A')
-            val oldEnd = anchorFromRailEndpoint(player.world, rail, 'B')
-            val newStart = if (movedEnd == 'A') updatedEndpoint else oldStart
-            val newEnd = if (movedEnd == 'B') updatedEndpoint else oldEnd
-            val newCurve = createCurveBetweenAnchors(newStart, newEnd, getState(player)) ?: run {
-                player.sendActionBar(Component.text("无法根据新端点生成轨道: ${rail.id}", NamedTextColor.RED))
-                return null
-            }
-            RailEndpointEditPlan(rail, movedEnd, newCurve)
-        }
-        if (plans.size != affectedRails.size) {
-            player.sendActionBar(Component.text("端点编辑计划不完整，已取消", NamedTextColor.RED))
-            return null
-        }
-
-        val snapshots = allPersistedRails.map { snapshotRailConnections(it) }
-        val createdRails = mutableListOf<CoreRail>()
-        val createdMetas = mutableListOf<PersistedRailRenderMeta>()
-        val oldIds = plans.map { it.oldRail.id }.toSet()
-        val oldToNew = mutableMapOf<UUID, CoreRail>()
-        return try {
-            plans.forEach { plan ->
-                val newRail = CoreRail(coreWorld, plan.newCurve, mutableListOf(), mutableListOf())
-                val meta = RailVisualBootstrap.registerRail(newRail)
-                createdRails.add(newRail)
-                createdMetas.add(meta)
-                oldToNew[plan.oldRail.id] = newRail
-            }
-
-            val nextMetas = existingMetas.filterNot { it.railId in oldIds } + createdMetas
-            RailRenderMetaStore.saveAll(player.world, nextMetas)
-
-            detachRailReferences(oldIds, allPersistedRails.filter { it.id !in oldIds })
-            connectCreatedRailsToExisting(
-                createdRails,
-                allPersistedRails.filter { it.id !in oldIds } + createdRails
+            RailEndpointRebuildInput(
+                railId = rail.id,
+                movedEnd = movedEnd,
+                oldStart = anchorFromRailEndpoint(player.world, rail, 'A'),
+                oldEnd = anchorFromRailEndpoint(player.world, rail, 'B')
             )
-
-            plans.forEach { plan ->
-                RailVisualBootstrap.unregisterRail(plan.oldRail.id)
-                plan.oldRail.destroy()
-                coreWorld.removeRail(plan.oldRail)
-            }
-
-            val replacementForEdited = oldToNew[editedRailId] ?: createdRails.first()
-            railEndpointAnchorId(replacementForEdited.id, editedEnd)
-        } catch (e: Exception) {
-            createdRails.forEach { rail ->
-                RailVisualBootstrap.unregisterRail(rail.id)
-                rail.destroy()
-                coreWorld.removeRail(rail)
-            }
-            restoreRailConnections(snapshots)
-            RailRenderMetaStore.saveAll(player.world, existingMetas)
-            existingMetas.forEach { RailVisualBootstrap.fromPersisted(coreWorld, it) }
-            player.sendActionBar(Component.text("端点编辑失败，已回滚: ${e.message}", NamedTextColor.RED))
-            null
         }
+        if (rebuildInputs.size != affectedRails.size) {
+            player.sendActionBar(Component.text("端点编辑计划不完整，已取消", NamedTextColor.RED))
+            return
+        }
+
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道端点重建")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+
+        val settingsSnapshot = snapshotCurveBuildSettings(state)
+        val worldId = player.world.uid
+        player.sendActionBar(Component.text("正在重建轨道...", NamedTextColor.GRAY))
+
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailWand.rebuildRailForEndpointEdit",
+            supplier = {
+                val curvesByRailId = linkedMapOf<UUID, PrimeCurve>()
+                for (input in rebuildInputs) {
+                    val newStart = if (input.movedEnd == 'A') updatedEndpoint else input.oldStart
+                    val newEnd = if (input.movedEnd == 'B') updatedEndpoint else input.oldEnd
+                    val curve = createCurveBetweenAnchors(newStart, newEnd, settingsSnapshot) ?: return@supply null
+                    curvesByRailId[input.railId] = curve
+                }
+                curvesByRailId
+            },
+            onSuccess = { curvesByRailId ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveCoreWorld = getCoreWorld(livePlayer) ?: run {
+                    livePlayer.sendActionBar(Component.text("错误: 无法获取 MineRails 世界", NamedTextColor.RED))
+                    return@supply
+                }
+                if (curvesByRailId == null) {
+                    livePlayer.sendActionBar(Component.text("无法根据新端点生成轨道", NamedTextColor.RED))
+                    return@supply
+                }
+
+                val liveAffectedRails = rebuildInputs.map { input ->
+                    val rail = liveCoreWorld.getRail(input.railId) ?: run {
+                        livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.YELLOW))
+                        return@supply
+                    }
+                    val currentStart = anchorFromRailEndpoint(livePlayer.world, rail, 'A')
+                    val currentEnd = anchorFromRailEndpoint(livePlayer.world, rail, 'B')
+                    if (currentStart != input.oldStart || currentEnd != input.oldEnd) {
+                        livePlayer.sendActionBar(Component.text("轨道端点已变化，请重试", NamedTextColor.YELLOW))
+                        return@supply
+                    }
+                    rail
+                }
+                if (liveAffectedRails.any { it.trains.isNotEmpty() }) {
+                    livePlayer.sendActionBar(Component.text("不能编辑有列车占用的轨道", NamedTextColor.RED))
+                    return@supply
+                }
+
+                val liveExistingMetas = RailRenderMetaStore.load(livePlayer.world)
+                val liveAllPersistedRails = liveExistingMetas.mapNotNull { liveCoreWorld.getRail(it.railId) }
+                val snapshots = liveAllPersistedRails.map { snapshotRailConnections(it) }
+                val createdRails = mutableListOf<CoreRail>()
+                val createdMetas = mutableListOf<PersistedRailRenderMeta>()
+                val oldIds = rebuildInputs.map { it.railId }.toSet()
+                val oldToNew = mutableMapOf<UUID, CoreRail>()
+                try {
+                    rebuildInputs.forEach { input ->
+                        val newCurve = curvesByRailId[input.railId] ?: error("Missing rebuilt curve for ${input.railId}")
+                        val newRail = CoreRail(liveCoreWorld, newCurve, mutableListOf(), mutableListOf())
+                        val meta = RailVisualBootstrap.registerRail(newRail)
+                        createdRails.add(newRail)
+                        createdMetas.add(meta)
+                        oldToNew[input.railId] = newRail
+                    }
+
+                    val nextMetas = liveExistingMetas.filterNot { it.railId in oldIds } + createdMetas
+                    RailRenderMetaStore.saveAll(livePlayer.world, nextMetas)
+
+                    detachRailReferences(oldIds, liveAllPersistedRails.filter { it.id !in oldIds })
+                    connectCreatedRailsToExisting(
+                        createdRails,
+                        liveAllPersistedRails.filter { it.id !in oldIds } + createdRails
+                    )
+
+                    liveAffectedRails.forEach { rail ->
+                        RailVisualBootstrap.unregisterRail(rail.id)
+                        rail.destroy()
+                        liveCoreWorld.removeRail(rail)
+                    }
+
+                    val replacementForEdited = oldToNew[editedRailId] ?: createdRails.first()
+                    val newEndpointId = railEndpointAnchorId(replacementForEdited.id, editedEnd)
+                    val liveState = getState(livePlayer)
+                    liveState.selectedAnchors.clear()
+                    liveState.selectedAnchors.add(newEndpointId)
+                    refreshAllAnchorsForPlayer(livePlayer)
+                    updateAnchorDisplay(livePlayer)
+                    livePlayer.sendActionBar(Component.text("轨道端点已更新", NamedTextColor.GREEN))
+                } catch (e: Exception) {
+                    createdRails.forEach { rail ->
+                        RailVisualBootstrap.unregisterRail(rail.id)
+                        rail.destroy()
+                        liveCoreWorld.removeRail(rail)
+                    }
+                    restoreRailConnections(snapshots)
+                    RailRenderMetaStore.saveAll(livePlayer.world, liveExistingMetas)
+                    liveExistingMetas.forEach { RailVisualBootstrap.fromPersisted(liveCoreWorld, it) }
+                    livePlayer.sendActionBar(Component.text("端点编辑失败，已回滚: ${e.message}", NamedTextColor.RED))
+                }
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning(
+                    "RailWand endpoint rebuild failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
+                )
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
+                    Component.text("轨道端点重建失败，请重试", NamedTextColor.RED)
+                )
+            }
+        )
     }
 
     private fun anchorFromRailEndpoint(world: World, rail: CoreRail, end: Char): Anchor {
@@ -813,11 +948,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun createCurveBetweenAnchors(from: Anchor, to: Anchor, state: WandPlayerState): PrimeCurve? {
-        val options = railCurveBuildOptions(state)
+        return createCurveBetweenAnchors(from, to, snapshotCurveBuildSettings(state))
+    }
+
+    private fun createCurveBetweenAnchors(
+        from: Anchor,
+        to: Anchor,
+        settings: CurveBuildSettingsSnapshot
+    ): PrimeCurve? {
+        val options = railCurveBuildOptions(settings)
         val result = RailCurveFactory.build(from, to, options)
         if (!result.isSuccess) {
             plugin.logger.warning(
-                "RailWand curve build failed: template=${result.selectedTemplate ?: state.curveTemplate}, " +
+                "RailWand curve build failed: template=${result.selectedTemplate ?: settings.curveTemplate}, " +
                     "reason=${result.selectedReason ?: "n/a"}, error=${result.error ?: "unknown error"}"
             )
         }
@@ -829,16 +972,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         endAnchors: List<Anchor>,
         state: WandPlayerState
     ): List<PrimeCurve>? {
-        val options = railCurveBuildOptions(state)
+        return createCurvesBetweenParallelAnchors(startAnchors, endAnchors, snapshotCurveBuildSettings(state))
+    }
+
+    private fun createCurvesBetweenParallelAnchors(
+        startAnchors: List<Anchor>,
+        endAnchors: List<Anchor>,
+        settings: CurveBuildSettingsSnapshot
+    ): List<PrimeCurve>? {
+        val options = railCurveBuildOptions(settings)
         if (startAnchors.size <= 1) {
             return startAnchors.zip(endAnchors).map { (from, to) ->
-                createCurveBetweenAnchors(from, to, state) ?: return null
+                createCurveBetweenAnchors(from, to, settings) ?: return null
             }
         }
         val result = RailCurveFactory.buildParallel(startAnchors, endAnchors, options)
         if (!result.isSuccess) {
             plugin.logger.warning(
-                "RailWand parallel curve build failed: template=${result.selectedTemplate ?: state.curveTemplate}, " +
+                "RailWand parallel curve build failed: template=${result.selectedTemplate ?: settings.curveTemplate}, " +
                     "reason=${result.selectedReason ?: "n/a"}, error=${result.error ?: "unknown error"}"
             )
         }
@@ -846,10 +997,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun railCurveBuildOptions(state: WandPlayerState): RailCurveBuildOptions {
+        return railCurveBuildOptions(snapshotCurveBuildSettings(state))
+    }
+
+    private fun railCurveBuildOptions(settings: CurveBuildSettingsSnapshot): RailCurveBuildOptions {
         return RailCurveBuildOptions(
-            template = state.curveTemplate,
-            radius = state.curveRadius,
-            straightMode = if (state.straightUsesChordDirection) StraightMode.USE_CHORD else StraightMode.REQUIRE_TANGENT
+            template = settings.curveTemplate,
+            radius = settings.curveRadius,
+            straightMode = if (settings.straightUsesChordDirection) StraightMode.USE_CHORD else StraightMode.REQUIRE_TANGENT
         )
     }
 
@@ -895,11 +1050,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val newTan = AnchorGeometry.tangentFromYawPitch(newYaw, newPitch)
             val updated = AnchorGeometry.withRoll(anchor.withPosition(newPos).withTangent(newTan), newRoll)
             if (isRailEndpointAnchorId(anchor.id)) {
-                val newEndpointId = rebuildRailForEndpointEdit(p, anchor.id, updated) ?: return@showConfigDialog
-                state.selectedAnchors.clear()
-                state.selectedAnchors.add(newEndpointId)
-                refreshAllAnchorsForPlayer(p)
-                p.sendActionBar(Component.text("轨道端点已更新", NamedTextColor.GREEN))
+                rebuildRailForEndpointEdit(p, state, anchor.id, updated)
             } else {
                 updateAnchor(player.world, updated)
                 removeAnchorDisplay(player, anchor.id)
@@ -1009,40 +1160,62 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         player.sendActionBar(Component.text("已删除轨道 $railId", NamedTextColor.GREEN))
     }
 
-    @OptIn(Heavy::class)
-    internal fun findLookedAtRail(player: Player, maxDistance: Double = 64.0, hitRadius: Double = 1.5): CoreRail? {
-        val coreWorld = getCoreWorld(player) ?: return null
+    internal fun findLookedAtRailAsync(
+        player: Player,
+        maxDistance: Double = 64.0,
+        hitRadius: Double = 1.5,
+        onResolved: (CoreRail?) -> Unit
+    ) {
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道选取")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+
+        val coreWorld = getCoreWorld(player)
+        if (coreWorld == null) {
+            heavyOperationGate.finish(player.uniqueId)
+            onResolved(null)
+            return
+        }
+
         val eye = player.eyeLocation
         val origin = Vector3d(eye.x, eye.y, eye.z)
         val direction = Vector3d(eye.direction.x, eye.direction.y, eye.direction.z)
-        if (direction.lengthSquared() < 1e-12) return null
-        direction.normalize()
+        if (direction.lengthSquared() < 1e-12) {
+            heavyOperationGate.finish(player.uniqueId)
+            onResolved(null)
+            return
+        }
 
+        val worldId = player.world.uid
         val candidates = coreWorld.getRailsAlongRay(origin, direction, maxDistance, hitRadius)
             .ifEmpty { coreWorld.allRails }
+            .toList()
+        player.sendActionBar(Component.text("正在查找所指轨道...", NamedTextColor.GRAY))
 
-        var bestRail: CoreRail? = null
-        var bestScore = Double.POSITIVE_INFINITY
-        candidates.forEach { rail ->
-            rail.curve.stream().use { stream ->
-                val iterator = stream.iterator()
-                while (iterator.hasNext()) {
-                    val point = iterator.next()
-                    val toPoint = Vector3d(point.position).sub(origin)
-                    val projection = toPoint.dot(direction)
-                    if (projection < 0.0 || projection > maxDistance) continue
-                    val closest = Vector3d(origin).fma(projection, direction)
-                    val distance = closest.distance(point.position)
-                    if (distance > hitRadius) continue
-                    val score = projection + distance * 8.0
-                    if (score < bestScore) {
-                        bestScore = score
-                        bestRail = rail
-                    }
-                }
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailWand.findLookedAtRail",
+            supplier = { HeavyRailQueries.findLookedAtRail(candidates, origin, direction, maxDistance, hitRadius) },
+            onSuccess = { railId ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveRail = railId?.let { getCoreWorld(livePlayer)?.getRail(it) }
+                onResolved(liveRail)
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning(
+                    "RailWand look-at rail search failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
+                )
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                livePlayer.sendActionBar(Component.text("轨道查找失败，请重试", NamedTextColor.RED))
+                onResolved(null)
             }
-        }
-        return bestRail
+        )
     }
 
     // ═══════════════════════════════════════════

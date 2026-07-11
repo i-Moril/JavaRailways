@@ -13,10 +13,7 @@ internal class RailWandConnectMode(private val wand: RailWand) {
             event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
                 val expectedCount = state.parallelCount * 2  // 并行 × (起点+终点)
                 if (state.selectedAnchors.size >= expectedCount) {
-                    if (wand.connectSelectedAnchors(player, state) != null) {
-                        state.selectedAnchors.clear()
-                        wand.updateAnchorDisplay(player)
-                    }
+                    wand.connectSelectedAnchors(player, state)
                 } else {
                     player.sendActionBar(Component.text("请选择 $expectedCount 个锚点 (当前: ${state.selectedAnchors.size})", NamedTextColor.RED))
                 }

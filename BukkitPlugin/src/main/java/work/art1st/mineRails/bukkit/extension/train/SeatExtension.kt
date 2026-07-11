@@ -16,6 +16,7 @@ import work.art1st.mineRails.bukkit.config.model.SeatConfig
 import work.art1st.mineRails.core.api.physics.train.Seat
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
+import work.art1st.mineRails.core.util.ThreadGuard
 import kotlin.math.asin
 import kotlin.math.atan2
 
@@ -36,16 +37,19 @@ class SeatExtension(
     private val seatedPlayers = mutableMapOf<Player, Int>()
 
     init {
+        ThreadGuard.ensureMainThread("SeatExtension.init")
         Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
         SeatExtension.register(this)
         car.seats.forEach { seat -> spawnSeatEntity(seat) }
     }
 
     fun onSeatAdded(seat: Seat) {
+        ThreadGuard.ensureMainThread("SeatExtension.onSeatAdded")
         spawnSeatEntity(seat)
     }
 
     fun onSeatRemoved(seatIndex: Int) {
+        ThreadGuard.ensureMainThread("SeatExtension.onSeatRemoved")
         seatEntities.remove(seatIndex)?.remove()
     }
 
@@ -55,6 +59,7 @@ class SeatExtension(
      * 2. 同步坐着的玩家位置
      */
     fun tick() {
+        ThreadGuard.ensureMainThread("SeatExtension.tick")
         val carPos = car.position
         val direction = car.direction
         val carLength = car.length
@@ -85,6 +90,7 @@ class SeatExtension(
     }
 
     fun destroy() {
+        ThreadGuard.ensureMainThread("SeatExtension.destroy")
         seatedPlayers.keys.toList().forEach { seatedPlayers.remove(it) }
         seatEntities.values.forEach { it.remove() }
         seatEntities.clear()
@@ -94,6 +100,7 @@ class SeatExtension(
     }
 
     fun makePlayerSit(player: Player, seatIndex: Int) {
+        ThreadGuard.ensureMainThread("SeatExtension.makePlayerSit")
         seatedPlayers[player] = seatIndex
         val entity = seatEntities[seatIndex] ?: return
         val seatPos = computeSeatPosition(car.position, car.direction, car.length, seatIndex)
@@ -202,6 +209,7 @@ class SeatExtension(
 
         @JvmStatic
         fun tickAll() {
+            ThreadGuard.ensureMainThread("SeatExtension.tickAll")
             allExtensions.forEach { it.tick() }
         }
 

@@ -100,11 +100,12 @@ class PartRegistryAnimationTest {
         )
 
         val keyframe = part.animations.single().keyframes.single()
+        val brightness = keyframe.brightness ?: error("brightness should be parsed")
         assertEquals("IRON_NUGGET", keyframe.itemType)
         assertEquals("art1st/tc/s100/left_door_light_warning", keyframe.itemModel)
         assertEquals(10015, keyframe.customModelData)
-        assertEquals(5, keyframe.brightness!!.block)
-        assertEquals(0, keyframe.brightness!!.sky)
+        assertEquals(5, brightness.block)
+        assertEquals(0, brightness.sky)
     }
 
     @Test
@@ -151,6 +152,35 @@ class PartRegistryAnimationTest {
         assertEquals(1.0, platform.platform.cellOffsets().last().x)
         assertEquals(8.5, platform.platform.cellOffsets().last().z)
         assertEquals(PartType.SEAT, seat.type)
+    }
+
+    @Test
+    fun `defaults missing offset rotation and scale components in car part config`() {
+        val part = PartRegistry.parsePartDefinition(
+            mapOf(
+                "config-version" to 1,
+                "name" to "door_marker",
+                "type" to "item_display",
+                "offset" to mapOf("z" to 0.4),
+                "rotation" to mapOf("y" to 90.0),
+                "item" to mapOf(
+                    "type" to "IRON_NUGGET",
+                    "scale" to mapOf("z" to 1.5)
+                )
+            ),
+            "s100"
+        )
+
+        val itemScale = part.item?.scale ?: error("item scale should be parsed")
+        assertEquals(0.0, part.offset.x)
+        assertEquals(0.0, part.offset.y)
+        assertEquals(0.4, part.offset.z)
+        assertEquals(0.0, part.rotation.x)
+        assertEquals(90.0, part.rotation.y)
+        assertEquals(0.0, part.rotation.z)
+        assertEquals(1.0, itemScale.x)
+        assertEquals(1.0, itemScale.y)
+        assertEquals(1.5, itemScale.z)
     }
 
     @Test

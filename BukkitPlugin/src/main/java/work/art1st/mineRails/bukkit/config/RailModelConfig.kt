@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit.config
 
-import org.joml.Vector3d
 import org.bukkit.Material
 import org.bukkit.inventory.ItemStack
 import org.yaml.snakeyaml.Yaml
@@ -30,7 +29,7 @@ data class RailItemConfig(
     val customModelData: Int? = null
 ) {
     fun toItemStack(): ItemStack {
-        val item = ItemStack(runCatching { Material.valueOf(material.uppercase()) }.getOrElse { Material.STONE })
+        val item = ItemStack(Material.valueOf(material.uppercase()))
         if (customModelData != null) {
             val meta = item.itemMeta
             meta.setCustomModelData(customModelData)
@@ -70,13 +69,24 @@ data class RotationConfig(
  */
 fun loadRailModelConfig(input: InputStream): RailModelConfig {
     val yaml = Yaml()
-    val map = yaml.load<Map<String, Any>>(input)
-    return parseRailModelConfig(map)
+    val loaded = input.use { yaml.load<Any?>(it) }
+        ?: throw IllegalArgumentException("rail_model.yml is empty")
+    val map = loaded as? Map<*, *>
+        ?: throw IllegalArgumentException("rail_model.yml root must be a YAML mapping")
+    return parseRailModelConfig(map.toStringKeyMap("rail_model.yml"))
 }
 
 private fun parseRailModelConfig(map: Map<String, Any>): RailModelConfig {
-    val repeatLength = (map["repeat_length"] as? Number)?.toDouble() ?: 2.0
-    val elementsList = (map["elements"] as? List<*>)?.mapNotNull { parseRailElement(it as? Map<String, Any>) } ?: emptyList()
+    val repeatLength = map.requireDouble("repeat_length", "rail_model.yml")
+    require(repeatLength > 0.0) { "rail_model.yml.repeat_length must be > 0" }
+    val elementsList = map.requireList("elements", "rail_model.yml")
+        .mapIndexed { index, entry ->
+            parseRailElement(
+                (entry as? Map<*, *>)?.toStringKeyMap("rail_model.yml.elements[$index]")
+                    ?: throw IllegalArgumentException("rail_model.yml.elements[$index] must be a map")
+            )
+        }
+    require(elementsList.isNotEmpty()) { "rail_model.yml.elements must not be empty" }
 
     return RailModelConfig(
         repeatLength = repeatLength,
@@ -84,22 +94,20 @@ private fun parseRailModelConfig(map: Map<String, Any>): RailModelConfig {
     )
 }
 
-private fun parseRailElement(map: Map<String, Any>?): RailElementConfig? {
-    if (map == null) return null
-    val type = (map["type"] as? String)?.uppercase()?.let {
-        runCatching { RailDisplayType.valueOf(it) }.getOrElse { RailDisplayType.ITEM }
-    } ?: RailDisplayType.ITEM
-    val material = map["material"] as? String
-    val itemMap = map["item"] as? Map<String, Any>
-    val offsetMap = map["offset"] as? Map<String, Any> ?: emptyMap()
-    val rotationMap = map["rotation"] as? Map<String, Any> ?: emptyMap()
-    val scaleMap = map["scale"] as? Map<String, Any> ?: error("Missing scale in rail element")
+private fun parseRailElement(map: Map<String, Any>): RailElementConfig {
+    val type = parseRailDisplayType(map.requireString("type", "rail element"))
+    val material = map.requireString("material", "rail element")
+    val offsetMap = map.requireMap("offset", "rail element")
+    val rotationMap = map.requireMap("rotation", "rail element")
+    val scaleMap = map.requireMap("scale", "rail element")
+    val itemMap = map.optionalMap("item", "rail element")
 
     val item = if (type == RailDisplayType.ITEM) {
         parseRailItem(itemMap, material)
     } else null
     val blockMaterial = if (type == RailDisplayType.BLOCK) {
-        material ?: "STONE"
+        validateBlockMaterial(material, "rail element.material")
+        material
     } else null
 
     return RailElementConfig(
@@ -112,49 +120,91 @@ private fun parseRailElement(map: Map<String, Any>?): RailElementConfig? {
     )
 }
 
-private fun parseRailItem(map: Map<String, Any>?, fallbackMaterial: String?): RailItemConfig {
-    val material = (map?.get("material") as? String) ?: fallbackMaterial ?: "RAIL"
-    val customModelData = (map?.get("custom_model_data") as? Number)?.toInt()
+private fun parseRailDisplayType(raw: String): RailDisplayType = try {
+    RailDisplayType.valueOf(raw.trim().uppercase())
+} catch (e: IllegalArgumentException) {
+    throw IllegalArgumentException("Unsupported rail element type '$raw'. Expected ITEM or BLOCK", e)
+}
+
+private fun parseRailItem(map: Map<String, Any>?, fallbackMaterial: String): RailItemConfig {
+    val material = map?.requireString("material", "rail element.item") ?: fallbackMaterial
+    validateMaterial(material, "rail element item material")
+    val customModelData = map?.let {
+        if (!it.containsKey("custom_model_data")) {
+            null
+        } else {
+            (it["custom_model_data"] as? Number)?.toInt()
+                ?: throw IllegalArgumentException("rail element.item.custom_model_data must be a number")
+        }
+    }
     return RailItemConfig(material = material, customModelData = customModelData)
 }
 
 private fun parseRotation(map: Map<String, Any>): RotationConfig {
     return RotationConfig(
-        x = (map["x"] as? Number)?.toDouble() ?: 0.0,
-        y = (map["y"] as? Number)?.toDouble() ?: 0.0,
-        z = (map["z"] as? Number)?.toDouble() ?: 0.0
+        x = map.doubleOrDefault("x", "rotation", 0.0),
+        y = map.doubleOrDefault("y", "rotation", 0.0),
+        z = map.doubleOrDefault("z", "rotation", 0.0)
     )
 }
 
-/** 获取默认轨道可视化配置 */
-fun getDefaultRailModelConfig(): RailModelConfig {
-    // 默认：每2米放置一组枕木+铁轨
-    return RailModelConfig(
-        repeatLength = 2.0,
-        elements = listOf(
-            // 枕木（垂直于轨道的木板）
-            RailElementConfig(
-                type = RailDisplayType.BLOCK,
-                blockMaterial = "OAK_PLANKS",
-                offset = OffsetConfig(x = 0.0, y = -0.18, z = 0.0),
-                rotation = RotationConfig(),
-                scale = ScaleConfig(x = 1.6, y = 0.08, z = 1.4)
-            ),
-            // 两条铁轨
-            RailElementConfig(
-                type = RailDisplayType.ITEM,
-                item = RailItemConfig(material = "RAIL"),
-                offset = OffsetConfig(x = 0.0, y = -0.1, z = 0.3),
-                rotation = RotationConfig(x = -90.0),
-                scale = ScaleConfig(x = 1.0, y = 0.05, z = 0.1)
-            ),
-            RailElementConfig(
-                type = RailDisplayType.ITEM,
-                item = RailItemConfig(material = "RAIL"),
-                offset = OffsetConfig(x = 0.0, y = -0.1, z = -0.3),
-                rotation = RotationConfig(x = -90.0),
-                scale = ScaleConfig(x = 1.0, y = 0.05, z = 0.1)
-            )
-        )
-    )
+private fun validateMaterial(material: String, subject: String) {
+    try {
+        Material.valueOf(material.uppercase())
+    } catch (e: IllegalArgumentException) {
+        throw IllegalArgumentException("Unsupported $subject '$material'", e)
+    }
+}
+
+private fun validateBlockMaterial(material: String, subject: String) {
+    val parsed = try {
+        Material.valueOf(material.uppercase())
+    } catch (e: IllegalArgumentException) {
+        throw IllegalArgumentException("Unsupported $subject '$material'", e)
+    }
+    require(parsed.isBlock) { "$subject '$material' must be a block material" }
+}
+
+private fun Map<*, *>.toStringKeyMap(subject: String): Map<String, Any> = buildMap {
+    for ((key, value) in this@toStringKeyMap) {
+        val stringKey = key as? String
+            ?: throw IllegalArgumentException("$subject contains non-string key: $key")
+        val typedValue = value
+            ?: throw IllegalArgumentException("$subject contains null value for key '$stringKey'")
+        put(stringKey, typedValue)
+    }
+}
+
+private fun Map<String, Any>.requireString(key: String, subject: String): String {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    return value as? String ?: throw IllegalArgumentException("$subject.$key must be a string")
+}
+
+private fun Map<String, Any>.requireDouble(key: String, subject: String): Double {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    return (value as? Number)?.toDouble()
+        ?: throw IllegalArgumentException("$subject.$key must be a number")
+}
+
+private fun Map<String, Any>.doubleOrDefault(key: String, subject: String, defaultValue: Double): Double {
+    if (!containsKey(key)) return defaultValue
+    val value = this[key] ?: throw IllegalArgumentException("$subject.$key cannot be null")
+    return (value as? Number)?.toDouble()
+        ?: throw IllegalArgumentException("$subject.$key must be a number")
+}
+
+private fun Map<String, Any>.requireMap(key: String, subject: String): Map<String, Any> {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    return (value as? Map<*, *>)?.toStringKeyMap("$subject.$key")
+        ?: throw IllegalArgumentException("$subject.$key must be a map")
+}
+
+private fun Map<String, Any>.optionalMap(key: String, subject: String): Map<String, Any>? {
+    if (!containsKey(key)) return null
+    return requireMap(key, subject)
+}
+
+private fun Map<String, Any>.requireList(key: String, subject: String): List<*> {
+    val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
+    return value as? List<*> ?: throw IllegalArgumentException("$subject.$key must be a list")
 }

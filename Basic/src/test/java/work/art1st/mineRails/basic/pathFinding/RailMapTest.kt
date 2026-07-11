@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.physics.train.createTestWorld
@@ -75,6 +76,16 @@ class RailMapTest {
     fun `empty map has no destinations`() {
         val map = RailMap()
         assertFalse(map.hasDestination("any"))
+    }
+
+    @Test
+    fun `basicWorldData requires explicit registration`() {
+        assertThrows(IllegalStateException::class.java) {
+            world.basicWorldData
+        }
+
+        val data = TestBasicWorldDataRegistry.getOrCreate(world)
+        assertEquals(data, world.basicWorldData)
     }
 
     @Nested

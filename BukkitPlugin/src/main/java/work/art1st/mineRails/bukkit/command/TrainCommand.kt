@@ -14,10 +14,13 @@ import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.control.RealisticManualController
 import work.art1st.mineRails.bukkit.control.TrainKeyItem
+import work.art1st.mineRails.bukkit.extension.train.carRendererOrNull
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.render.model.SeatModel
+import work.art1st.mineRails.bukkit.util.BukkitAsyncTasks
+import work.art1st.mineRails.bukkit.util.HeavyRailQueries
+import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import work.art1st.mineRails.core.api.physics.World
-import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.train.CoreBogie
 import work.art1st.mineRails.core.physics.train.CoreCar
@@ -28,6 +31,7 @@ import java.util.UUID
 object TrainCommand {
     /** 玩家 UUID -> 手动控制器 */
     private val playerControllers = mutableMapOf<UUID, RealisticManualController>()
+    private val heavyOperationGate = PlayerOperationGate()
 
     init {
         SeatModel.SeatInteractionListener.addDriverSeatVacatedHandler { player, train ->
@@ -60,7 +64,6 @@ object TrainCommand {
         return true
     }
 
-    @OptIn(Heavy::class)
     private fun handleCreate(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) {
             sender.sendMessage("此命令需要玩家执行")
@@ -72,25 +75,27 @@ object TrainCommand {
             return true
         }
 
+        val pendingOperation = heavyOperationGate.tryStart(sender.uniqueId, "列车创建轨道查找")
+        if (pendingOperation != null) {
+            sender.sendMessage("正在执行$pendingOperation，请稍候")
+            return true
+        }
+
         val playerPos = Vector3d(sender.location.x, sender.location.y, sender.location.z)
-        val nearestRail = coreWorld.getNearestRail(playerPos)
-        if (nearestRail == null) {
+        val worldId = sender.world.uid
+        val railSnapshot = coreWorld.allRails.toList()
+        if (railSnapshot.isEmpty()) {
+            heavyOperationGate.finish(sender.uniqueId)
             sender.sendMessage("错误: 世界中没有轨道，请先使用 /mr rail create 创建轨道")
             return true
         }
 
-        // 参数: /mr train create <train_type>
         val trainTypeName = args.firstOrNull() ?: "s100"
-
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-            ?: run {
-                sender.sendMessage("错误: ModelManager 未初始化")
-                return true
-            }
 
-        // 查找列车定义
         val trainDef = modelManager.getTrain(trainTypeName)
         if (trainDef == null) {
+            heavyOperationGate.finish(sender.uniqueId)
             sender.sendMessage("错误: 未知列车类型 '$trainTypeName'")
             val availablePkgNames = modelManager.trainPackages.keys
             val availableLegacyNames = modelManager.trainLoader.getAllNames()
@@ -101,44 +106,92 @@ object TrainCommand {
         val carDefs = trainDef.composition.map { carModelName ->
             modelManager.getCar(carModelName)
                 ?: run {
+                    heavyOperationGate.finish(sender.uniqueId)
                     sender.sendMessage("错误: 未知车厢模型 '$carModelName'")
                     return true
                 }
         }
         if (carDefs.isEmpty()) {
+            heavyOperationGate.finish(sender.uniqueId)
             sender.sendMessage("错误: 列车类型 '$trainTypeName' 没有车厢编组")
             return true
         }
-        val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
 
-        val railViewAB = nearestRail.getView(work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB)
-        val nearestPoint = railViewAB.curve.getNearestPoint(playerPos)
-        val rawHeadAB = RailLocationWithFacing(railViewAB, nearestPoint.arcLength)
+        sender.sendMessage("正在查找可放置轨道，请稍候...")
+        BukkitAsyncTasks.supply(
+            plugin = BukkitPlugin.INSTANCE,
+            operation = "TrainCommand.handleCreate",
+            supplier = { HeavyRailQueries.findNearestRail(railSnapshot, playerPos) },
+            onSuccess = { nearestRail ->
+                heavyOperationGate.finish(sender.uniqueId)
+                val livePlayer = BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveWorld = getPlayerWorld(livePlayer) as? CoreWorld ?: run {
+                    livePlayer.sendMessage("错误: 无法获取 CoreWorld")
+                    return@supply
+                }
+                completeCreateOnMainThread(livePlayer, liveWorld, trainTypeName, trainDef, carDefs, playerPos, nearestRail)
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(sender.uniqueId)
+                BukkitPlugin.INSTANCE.logger.warning(
+                    "TrainCommand create lookup failed for player ${sender.name}: ${error::class.simpleName}: ${error.message ?: ""}"
+                )
+                BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId)?.sendMessage("错误: 轨道查找失败，请重试")
+            }
+        )
+        return true
+    }
+
+    private fun handleKey(sender: CommandSender): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        sender.inventory.addItem(TrainKeyItem.create())
+        sender.sendMessage("已给予通用列车钥匙")
+        return true
+    }
+
+    private fun completeCreateOnMainThread(
+        sender: Player,
+        coreWorld: CoreWorld,
+        trainTypeName: String,
+        trainDef: work.art1st.mineRails.bukkit.config.model.TrainDefinition,
+        carDefs: List<CarDefinition>,
+        playerPos: Vector3dc,
+        nearestRail: HeavyRailQueries.NearestRailMatch?
+    ) {
+        val rail = nearestRail?.let { coreWorld.getRail(it.railId) }
+        if (rail == null) {
+            sender.sendMessage("错误: 世界中没有轨道，请先使用 /mr rail create 创建轨道")
+            return
+        }
+
+        val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
+        val railViewAB = rail.getView(work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB)
+        val rawHeadAB = RailLocationWithFacing(railViewAB, nearestRail.arcLength)
         val headLocation = findPlaceableHeadLocation(rawHeadAB, requiredBehindHead, playerPos)
             ?: run {
                 sender.sendMessage("错误: 附近轨道长度不足，无法放置 ${"%.1f".format(requiredBehindHead)}m 的列车")
                 sender.sendMessage("请站在更靠轨道中段的位置，或先把斜坡与前后轨道连接起来。")
-                return true
+                return
             }
         val blockingTrainId = findBlockingTrainForPlacement(headLocation, requiredBehindHead)
         if (blockingTrainId != null) {
             sender.sendMessage("错误: 放置区域已有列车 $blockingTrainId，请先移走或删除后再创建")
-            return true
+            return
         }
         val firstHeadBogieOffset = headBogieToEndPointOffset(carDefs.first())
         val initialBogieLocation = headLocation.forward(-firstHeadBogieOffset)
             ?: run {
                 sender.sendMessage("错误: 无法初始化车头转向架位置")
-                return true
+                return
             }
 
         val cars = mutableListOf<CoreCar>()
-
         for ((i, carModelName) in trainDef.composition.withIndex()) {
             val carDef = carDefs[i]
-
-            // 初始时所有转向架先放在一个已验证可用的位置；随后 setLocation() 会按整列车几何重新排布。
-            // 这样避免在轨道末端/斜坡底部创建列车时，临时向前摆放 bogie 导致误判或越界。
             val bogieA = CoreBogie.create(initialBogieLocation)
             val bogieB = CoreBogie.create(initialBogieLocation)
 
@@ -156,7 +209,6 @@ object TrainCommand {
             )
             cars.add(car)
 
-            // 注册车厢渲染扩展
             val carExtension = CarExtension()
             car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
             carExtension.initialize(car, emptyMap())
@@ -182,17 +234,16 @@ object TrainCommand {
             sender.sendMessage("错误: 创建列车失败: ${e.javaClass.simpleName}${e.message?.let { ": $it" } ?: ""}")
             sender.sendMessage("提示: 斜坡短轨道需要先连接到足够长的前后轨道，否则整列车无法排布。")
             cars.forEach { it.destroy() }
-            return true
+            return
         }
         val trainExtension = TrainExtension()
         train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
         trainExtension.initialize(train, emptyMap())
 
         train.commit()
-        // Force model build for the creating player immediately
         cars.forEach { it.renderer.sendTo(sender) }
 
-        sender.sendMessage("创建列车成功: ${train.id} (类型: ${trainDef.key})")
+        sender.sendMessage("创建列车成功: ${train.id} (类型: $trainTypeName)")
         sender.sendMessage("手持通用列车钥匙坐在驾驶座上驾驶，可用 /mr train key 获取。")
         sender.sendMessage("车厢数量: ${cars.size}")
         sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
@@ -204,17 +255,6 @@ object TrainCommand {
                     "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
             )
         }
-        return true
-    }
-
-    private fun handleKey(sender: CommandSender): Boolean {
-        if (sender !is Player) {
-            sender.sendMessage("此命令需要玩家执行")
-            return true
-        }
-        sender.inventory.addItem(TrainKeyItem.create())
-        sender.sendMessage("已给予通用列车钥匙")
-        return true
     }
 
     private fun formatVector(vector: Vector3dc): String =
@@ -310,7 +350,12 @@ object TrainCommand {
             return true
         }
 
-        val (controlConfig, carControls) = resolveControlProfile(train)
+        val (controlConfig, carControls) = try {
+            resolveControlProfile(train)
+        } catch (e: IllegalArgumentException) {
+            sender.sendMessage("错误: ${e.message}")
+            return true
+        }
         val controller = RealisticManualController(train, coreWorld, controlConfig, carControls)
         train.setController(controller)
         playerControllers[sender.uniqueId] = controller
@@ -634,13 +679,51 @@ object TrainCommand {
             return true
         }
 
-        val playerPos = Vector3d(sender.location.x, sender.location.y, sender.location.z)
-        val nearestRail = coreWorld.getNearestRail(playerPos)
+        val pendingOperation = heavyOperationGate.tryStart(sender.uniqueId, "附近轨道查询")
+        if (pendingOperation != null) {
+            sender.sendMessage("正在执行$pendingOperation，请稍候")
+            return true
+        }
 
+        val playerPos = Vector3d(sender.location.x, sender.location.y, sender.location.z)
+        val worldId = sender.world.uid
+        val railSnapshot = coreWorld.allRails.toList()
+        sender.sendMessage("正在查询附近轨道，请稍候...")
+        BukkitAsyncTasks.supply(
+            plugin = BukkitPlugin.INSTANCE,
+            operation = "TrainCommand.handleInfo",
+            supplier = { HeavyRailQueries.findNearestRail(railSnapshot, playerPos) },
+            onSuccess = { nearestRail ->
+                heavyOperationGate.finish(sender.uniqueId)
+                val livePlayer = BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveWorld = getPlayerWorld(livePlayer) as? CoreWorld ?: run {
+                    livePlayer.sendMessage("错误: 无法获取 CoreWorld")
+                    return@supply
+                }
+                sendInfoOnMainThread(livePlayer, liveWorld, nearestRail)
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(sender.uniqueId)
+                BukkitPlugin.INSTANCE.logger.warning(
+                    "TrainCommand info lookup failed for player ${sender.name}: ${error::class.simpleName}: ${error.message ?: ""}"
+                )
+                BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId)?.sendMessage("错误: 附近轨道查询失败，请重试")
+            }
+        )
+        return true
+    }
+
+    private fun sendInfoOnMainThread(
+        sender: Player,
+        coreWorld: CoreWorld,
+        nearestRail: HeavyRailQueries.NearestRailMatch?
+    ) {
         sender.sendMessage("=== 附近信息 ===")
-        if (nearestRail != null) {
-            sender.sendMessage("最近轨道: ${nearestRail.id}")
-            sender.sendMessage("轨道长度: ${"%.2f".format(nearestRail.curve.totalArcLength)} 米")
+        val rail = nearestRail?.let { coreWorld.getRail(it.railId) }
+        if (rail != null) {
+            sender.sendMessage("最近轨道: ${rail.id}")
+            sender.sendMessage("轨道长度: ${"%.2f".format(rail.curve.totalArcLength)} 米")
         } else {
             sender.sendMessage("附近没有轨道")
         }
@@ -671,8 +754,6 @@ object TrainCommand {
                 sender.sendMessage("当前 rail 前向连接数: ${coreTrain.head.location.railView.nextRails.size}")
             }
         }
-
-        return true
     }
 
     private fun handleList(sender: CommandSender): Boolean {
@@ -690,15 +771,17 @@ object TrainCommand {
 
     private fun resolveControlProfile(train: CoreTrain): Pair<TrainControlConfig, List<CarControlConfig>> {
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val carModelNames = train.cars.map { car ->
-            runCatching { (car.renderer as? CarExtension)?.carModelName }.getOrNull()
+        val carModelNames = train.cars.mapIndexed { index, car ->
+            car.carRendererOrNull?.carModelName
+                ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢缺少 carModelName，无法解析控制配置")
         }
         val packageName = carModelNames.firstNotNullOfOrNull { modelName ->
-            modelName?.let { modelManager.getCar(it)?.packageName }
-        }
+            modelManager.getCar(modelName)?.packageName
+        } ?: throw IllegalArgumentException("列车 ${train.id} 的车厢模型未关联到任何 train package")
         val trainControl = modelManager.getTrainControl(packageName)
-        val carControls = carModelNames.map { modelName ->
-            modelName?.let { modelManager.getCar(it)?.control } ?: CarControlConfig()
+        val carControls = carModelNames.mapIndexed { index, modelName ->
+            modelManager.getCar(modelName)?.control
+                ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢模型 '$modelName' 没有控制配置")
         }
         return trainControl to carControls
     }
@@ -727,7 +810,12 @@ object TrainCommand {
 
         val existingTrainController = train.controller as? RealisticManualController
         val controller = existingTrainController ?: run {
-            val (controlConfig, carControls) = resolveControlProfile(train)
+            val (controlConfig, carControls) = try {
+                resolveControlProfile(train)
+            } catch (e: IllegalArgumentException) {
+                BukkitPlugin.INSTANCE.logger.warning("Failed to resolve control profile for train ${train.id}: ${e.message}")
+                return null
+            }
             RealisticManualController(train, train.world, controlConfig, carControls).also { train.setController(it) }
         }
         playerControllers[player.uniqueId] = controller

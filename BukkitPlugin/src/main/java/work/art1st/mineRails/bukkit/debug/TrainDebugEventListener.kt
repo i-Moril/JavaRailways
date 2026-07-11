@@ -1,19 +1,21 @@
 package work.art1st.mineRails.bukkit.debug
 
-import work.art1st.mineRails.bukkit.extension.bukkitWorldData
+import work.art1st.mineRails.bukkit.extension.bukkitWorldDataOrNull
 import work.art1st.mineRails.core.api.event.DerailEvent
 import work.art1st.mineRails.core.api.event.processor.EventListener
 import work.art1st.mineRails.core.api.event.processor.HandlesEvent
 import work.art1st.mineRails.core.physics.train.CoreTrain
+import work.art1st.mineRails.core.api.util.annotation.AsyncEventApi
 
 /** Adds one-shot event rows to the train debug CSV for failures that happen between ticks. */
+@OptIn(AsyncEventApi::class)
 class TrainDebugEventListener : EventListener {
     @HandlesEvent
     fun onDerail(event: DerailEvent) {
         if (!TrainDebugLog.enabled) return
         val train = event.train
         val coreTrain = train as? CoreTrain
-        val bukkitWorld = runCatching { train.world.bukkitWorldData.bukkitWorld.uid }.getOrNull()
+        val bukkitWorld = train.world.bukkitWorldDataOrNull?.bukkitWorld?.uid
         train.cars.forEachIndexed { index, car ->
             TrainDebugLog.logRow(listOf(
                 System.currentTimeMillis(), "derail", bukkitWorld, train.id, index, car.hashCode(),

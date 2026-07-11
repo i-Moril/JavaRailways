@@ -1,7 +1,6 @@
 package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.api.control.TrainController
-import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.DerailEvent
 import work.art1st.mineRails.core.api.event.processor.EventManager
 import work.art1st.mineRails.core.api.event.PassSignalEvent
@@ -9,12 +8,12 @@ import work.art1st.mineRails.core.api.event.TrainSwitchDirectionEvent
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException
 import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardException
-import work.art1st.mineRails.core.api.physics.exception.Collision
 import work.art1st.mineRails.core.api.physics.exception.PhysicsException
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainExtension
 import work.art1st.mineRails.core.api.util.annotation.MainThread
+import work.art1st.mineRails.core.api.util.annotation.AsyncEventApi
 import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
@@ -22,11 +21,14 @@ import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
+import work.art1st.mineRails.core.physics.rail.RailSegment
+import work.art1st.mineRails.core.physics.rail.SweptRailSpan
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.configLib.persistence.PersistentBy
 import work.art1st.mineRails.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 
 /**
  * 列车类
@@ -39,6 +41,7 @@ open class CoreTrain @MainThread internal constructor(
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<TrainExtension> = ExtensionDataContainer(),
 ) : Train, TrainComponentTrait<Train, TrainExtension>, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
+    @Volatile
     private var _controller: TrainController? = null
     val controller: TrainController?
         get() = _controller
@@ -46,8 +49,14 @@ open class CoreTrain @MainThread internal constructor(
         protected set
     // 使用AtomicBoolean防止fire两遍Collision, 见下面fire
     private var _isDerailed: AtomicBoolean = AtomicBoolean(false)
+
+    @Volatile
+    internal var publishedSweptSpans: List<SweptRailSpan> = emptyList()
+        private set
+    private var pendingSweptSpans: List<SweptRailSpan>? = null
     override val isDerailed: Boolean
         get() = _isDerailed.get()
+    @Volatile
     var isReversed: Boolean = false
         protected set
     override val length
@@ -71,6 +80,7 @@ open class CoreTrain @MainThread internal constructor(
         )
         world.addTrain(this)
         this.initialize(savedExtensionData)
+        publishedSweptSpans = spansFromLocations(currentRailLocations())
     }
 
     val headCar
@@ -99,58 +109,37 @@ open class CoreTrain @MainThread internal constructor(
      * @throws IllegalArgumentException 如果输入参数无效
      * @throws IllegalStateException 如果列车没有转向架
      */
+    @OptIn(AsyncEventApi::class)
     override fun moveTrainForward(deltaS: Double) {
         if (isDerailed) return
 
         require(deltaS >= 0.0) { "deltaS must >= 0" }
 
+        if (world.physicsCoordinator.detectSweptCollision(this)) return
+
         if (deltaS == 0.0) {
+            pendingSweptSpans = spansFromLocations(currentRailLocations())
             return
         }
 
         try {
-            // Collision detection
-            // 2 * deltaS: 保证相向而行的列车一定能被检查到
-            // 假设两车相向而行，那么下一tick的移动距离为deltaS_1 + deltaS_2
-            // 小于较大的deltaS * 2
-            val obstacles = head.location.peekTrains(2 * deltaS)
-            val obstacle = obstacles.firstNotNullOfOrNull { trainEnd ->
-                val train = trainEnd.trainOrNull
-                when {
-                    train == null -> {
-                        trainEnd.destroy()
-                        null
-                    }
-                    train === this -> null
-                    else -> trainEnd to train
-                }
-            }
-            if (obstacle != null) {
-                val (previousEnd, prevTrain) = obstacle
-                val prevSpeed = if (previousEnd.type == TrainEnd.Type.HEAD) -prevTrain.speed else prevTrain.speed
-                if (speed - prevSpeed >= COLLISION_SPEED) {
-                    throw Collision(this, prevTrain)
-                } else {
-                    if (prevTrain.canLink(this)) {
-                        prevTrain.linkWith(this)
-                    }
-                }
-            }
-
             // PassSignal detection
             val signals = head.location.peekSignals(deltaS)
             if (signals.isNotEmpty()) {
-                signals.forEach { EventManager.fire(PassSignalEvent(this, it)) }
+                signals.forEach { EventManager.fireAsync(PassSignalEvent(this, it)) }
             }
 
+            val previousLocations = currentRailLocations()
+            val traversedSegments = head.location.peekCurve(deltaS).toList()
             headBogie.moveForward(deltaS)
             updateAfterHeadBogie()
+            pendingSweptSpans = mergeSweptSpans(
+                spansFromLocations(previousLocations + activeRailLocations()) +
+                    traversedSegments.map(::spanFromSegment)
+            )
         } catch (e: PhysicsException) {
-            if (e is Collision) {
-                fireCollisionEvent(e)
-            }
             setDerailed()
-            EventManager.fire(DerailEvent(this, e.toString()))
+            EventManager.fireAsync(DerailEvent(this, e.toString()))
         }
     }
 
@@ -159,8 +148,10 @@ open class CoreTrain @MainThread internal constructor(
         clearDerailed()
         // 正面面朝此location
         if (isReversed) reverse()
+        val previousLocations = currentRailLocations()
         headBogie.updateLocation(headLocation.forward(-headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this))
         updateAfterHeadBogie()
+        pendingSweptSpans = spansFromLocations(previousLocations + activeRailLocations())
     }
 
     private fun updateAfterHeadBogie() {
@@ -180,6 +171,13 @@ open class CoreTrain @MainThread internal constructor(
     override fun reverse() {
         reverseInternal()
         EventManager.fire(TrainSwitchDirectionEvent(this))
+    }
+
+    internal fun reverseFromPhysics() {
+        reverseInternal()
+        world.tickManager.scheduleMainThreadPostTickTask {
+            EventManager.fire(TrainSwitchDirectionEvent(this))
+        }
     }
 
     private fun reverseInternal() {
@@ -237,10 +235,71 @@ open class CoreTrain @MainThread internal constructor(
         }
     }
 
-    override fun commit() {
+    internal fun publishPhysicsState() {
+        cars.forEach { it.publishPhysicsState() }
+        head.publishPhysicsState()
+        tail.publishPhysicsState()
+        pendingSweptSpans?.let {
+            publishedSweptSpans = it
+            pendingSweptSpans = null
+        }
+    }
+
+    private fun currentRailLocations(): List<RailLocationWithFacing> = buildList {
+        add(head.location)
+        cars.forEach { car -> car.bogies.forEach { add(it.location) } }
+        add(tail.location)
+    }
+
+    private fun activeRailLocations(): List<RailLocationWithFacing> = buildList {
+        add(head.activeLocation)
+        cars.forEach { car -> car.bogies.forEach { add(it.activeLocation) } }
+        add(tail.activeLocation)
+    }
+
+    private fun spansFromLocations(locations: List<RailLocationWithFacing>): List<SweptRailSpan> {
+        val grouped = locations.groupBy { it.rail.id }
+        return grouped.map { (railId, railLocations) ->
+            val arcs = railLocations.map { it.arcLengthIn(ViewDirection.AB) }
+            SweptRailSpan(id, railId, arcs.min(), arcs.max())
+        }
+    }
+
+    private fun spanFromSegment(segment: RailSegment): SweptRailSpan {
+        val curveLength = segment.railView.curve.totalArcLength
+        val startAB = if (segment.railView.viewDirection == ViewDirection.AB) {
+            segment.startArcLength
+        } else {
+            curveLength - segment.startArcLength
+        }
+        val endAB = if (segment.railView.viewDirection == ViewDirection.AB) {
+            segment.endArcLength
+        } else {
+            curveLength - segment.endArcLength
+        }
+        return SweptRailSpan(id, segment.railView.rail.id, minOf(startAB, endAB), maxOf(startAB, endAB))
+    }
+
+    private fun mergeSweptSpans(spans: List<SweptRailSpan>): List<SweptRailSpan> =
+        spans.groupBy { it.railId }.map { (railId, railSpans) ->
+            SweptRailSpan(
+                trainId = id,
+                railId = railId,
+                minArcAB = railSpans.minOf { it.minArcAB },
+                maxArcAB = railSpans.maxOf { it.maxArcAB }
+            )
+        }
+
+    internal fun commitRenderState() {
         cars.forEach { it.commit() }
         head.commit()
         tail.commit()
+    }
+
+    override fun commit() {
+        // Explicit command/test paths still publish and render synchronously.
+        publishPhysicsState()
+        commitRenderState()
     }
 
     override fun destroy() {
@@ -256,9 +315,9 @@ open class CoreTrain @MainThread internal constructor(
     open fun canLink(otherTrain: CoreTrain): Boolean = true
 
     fun setController(value: TrainController?) {
-        _controller?.let { world.tickManager.unregister(it) }
+        _controller?.let { world.physicsCoordinator.unregister(it) }
         _controller = value
-        value?.let { world.tickManager.register(it) }
+        value?.let { world.physicsCoordinator.register(it) }
     }
 
     fun removeController() {
@@ -268,6 +327,12 @@ open class CoreTrain @MainThread internal constructor(
     protected fun setDerailed() {
         _isDerailed.set(true)
         removeController()
+    }
+
+    internal fun markDerailedFromPhysics() {
+        if (_isDerailed.compareAndSet(false, true)) {
+            removeController()
+        }
     }
 
     protected fun clearDerailed() {
@@ -285,22 +350,6 @@ open class CoreTrain @MainThread internal constructor(
             extensionData: Map<String, SerializableExtensionData> = emptyMap()
         ): CoreTrain = CoreTrain(id, cars, world, extensionData)
 
-        private fun fireCollisionEvent(e: Collision) {
-            // 使用AtomicBoolean防止fire两遍Collision
-            var trainA: CoreTrain
-            var trainB: CoreTrain
-            if (e.trainA.hashCode() < e.trainB.hashCode()) {
-                trainA = e.trainA as CoreTrain
-                trainB = e.trainB as CoreTrain
-            } else {
-                trainA = e.trainB as CoreTrain
-                trainB = e.trainA as CoreTrain
-            }
-            if (trainA._isDerailed.compareAndSet(false, true)) {
-                trainB._isDerailed.set(true)
-                EventManager.fire(CollisionEvent(e.trainA, e.trainB))
-            }
-        }
     }
 
     override fun save(): SavedTrainV1 {

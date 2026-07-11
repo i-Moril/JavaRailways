@@ -16,6 +16,7 @@ import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.configLib.persistence.PersistentBy
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 转向架类
@@ -60,6 +61,8 @@ class CoreBogie @MainThread internal constructor(
 
     override var lastState: RenderableStateSnapshot = takeSnapshot()
     override var dirty = false
+    private var physicsDirty = false
+    private val renderPending = AtomicBoolean(false)
 
     init {
         this.initialize(savedExtensionData)
@@ -70,17 +73,25 @@ class CoreBogie @MainThread internal constructor(
         updateLocation(location.forward(distance) ?: throw BogieException(this))
     }
 
+    /** Publishes Core state off the Bukkit main thread after all physics workers complete. */
+    internal fun publishPhysicsState() {
+        if (!physicsDirty) return
+        _location.commit()
+        _velocity.commit()
+        physicsDirty = false
+        renderPending.set(true)
+    }
+
+    /** Main-thread render notification; it no longer publishes physics buffers. */
     override fun commit() {
-        if (dirty) {
-            _location.commit()
-            _velocity.commit()
-            super.commit()
-        }
+        if (!renderPending.getAndSet(false)) return
+        dirty = true
+        super.commit()
     }
 
     fun updateLocation(location: RailLocationWithFacing) {
         this.location = location
-        dirty = true
+        physicsDirty = true
     }
 
     @MainThread

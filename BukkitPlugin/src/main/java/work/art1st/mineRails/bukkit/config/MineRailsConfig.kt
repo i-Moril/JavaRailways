@@ -7,7 +7,8 @@ import java.io.File
 data class MineRailsConfig(
     val trainModelUpdatePolicy: TrainModelUpdatePolicy,
     val trainKeyBindDistance: Double,
-    val trainDebugLog: Boolean
+    val trainDebugLog: Boolean,
+    val physicsWorkerThreads: Int
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
@@ -24,10 +25,13 @@ data class MineRailsConfig(
             val policy = TrainModelUpdatePolicy.fromConfig(requireString(yaml, "train-model-update-policy"))
             val bindDistance = requireDouble(yaml, "train-key-bind-distance")
             require(bindDistance >= 0.0) { "train-key-bind-distance must be >= 0.0" }
+            val physicsWorkerThreads = requireInt(yaml, "physics-worker-threads")
+            require(physicsWorkerThreads > 0) { "physics-worker-threads must be > 0" }
             return MineRailsConfig(
                 trainModelUpdatePolicy = policy,
                 trainKeyBindDistance = bindDistance,
-                trainDebugLog = requireBoolean(yaml, "train-debug-log")
+                trainDebugLog = requireBoolean(yaml, "train-debug-log"),
+                physicsWorkerThreads = physicsWorkerThreads
             )
         }
 
@@ -42,6 +46,16 @@ data class MineRailsConfig(
             val raw = yaml.get(path)
             return (raw as? Number)?.toDouble()
                 ?: throw IllegalArgumentException("Config key '$path' must be a number")
+        }
+
+        private fun requireInt(yaml: YamlConfiguration, path: String): Int {
+            require(yaml.contains(path, true)) { "Missing required config key '$path'" }
+            val raw = yaml.get(path)
+            val number = raw as? Number
+                ?: throw IllegalArgumentException("Config key '$path' must be an integer")
+            val value = number.toInt()
+            require(number.toDouble() == value.toDouble()) { "Config key '$path' must be an integer" }
+            return value
         }
 
         private fun requireBoolean(yaml: YamlConfiguration, path: String): Boolean {

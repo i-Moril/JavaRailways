@@ -97,7 +97,7 @@ class RealisticManualController(
             TrainDriveDirection.FORWARD, TrainDriveDirection.REVERSE -> {
                 val previousRunningDirection = runningDirectionRef.getAndSet(direction)
                 if (previousRunningDirection != direction) {
-                    train.reverse()
+                    reverse()
                 }
                 movementSign = if (direction == TrainDriveDirection.FORWARD) 1.0 else -1.0
             }

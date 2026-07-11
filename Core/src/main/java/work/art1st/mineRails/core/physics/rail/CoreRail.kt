@@ -21,6 +21,7 @@ import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.jvm.Throws
 
 /**
@@ -34,7 +35,7 @@ class CoreRail @MainThread private constructor(
     nextRailsB: Collection<RailView>,
     activeTrackAtA: RailView? = null,
     activeTrackAtB: RailView? = null,
-    val signals: MutableCollection<Signal> = mutableSetOf(),
+    val signals: MutableCollection<Signal> = CopyOnWriteArraySet(),
     // trains is maintained only on runtime
     val trains: ConcurrentLinkedQueue<TrainEnd> = ConcurrentLinkedQueue(),
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Rail>> = ExtensionDataContainer()

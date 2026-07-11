@@ -13,6 +13,7 @@ import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.util.TickManagerImpl
+import work.art1st.mineRails.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.Executors
 
 /**
@@ -28,11 +29,14 @@ object RailWorldFactory {
             Executors.newSingleThreadScheduledExecutor(),
             System.currentTimeMillis()
         )
+        val physicsCoordinator = PhysicsCoordinator(
+            workerThreads = BukkitPlugin.INSTANCE.mineRailsConfig.physicsWorkerThreads
+        )
         val worldParent = KoinWorldParentContext(mineRailsParentScope())
         val coreWorld = if (snapshot != null) {
-            snapshot.load(CoreWorld.SavedWorldV1.Dependency(tickManager, worldParent))
+            snapshot.load(CoreWorld.SavedWorldV1.Dependency(tickManager, worldParent, physicsCoordinator))
         } else {
-            CoreWorld.createEmpty(tickManager, worldParent)
+            CoreWorld.createEmpty(tickManager, worldParent, physicsCoordinator)
         }
         val renderChunkManager = RenderChunkManager(bukkitWorld)
         coreWorld.registerExtensionData(
@@ -48,6 +52,7 @@ object RailWorldFactory {
         if (restored.size != persisted.size) {
             RailRenderMetaStore.saveAll(bukkitWorld, restored)
         }
+        physicsCoordinator.start()
         return coreWorld
     }
 }

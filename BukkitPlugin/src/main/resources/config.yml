@@ -14,3 +14,6 @@ train-key-bind-distance: 20.0
 # true 时会写入 plugins/MineRails/debug/train_debug.csv。
 # 仅在短时间采样排障时开启。
 train-debug-log: false
+
+# 每个世界的列车物理 Worker 数量。必须为正整数；不会被静默修正。
+physics-worker-threads: 4

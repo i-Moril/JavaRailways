@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicLong
 class TickManagerImpl(
     private val scheduler: ScheduledExecutorService,
     private var currentTick: Long
-) : TickManager {
+) : TickManager, AutoCloseable {
     private val tickingObjects: MutableSet<TickingObject> = HashSet()
     private val tickingSynchronizableObjects: MutableSet<Synchronizable> = HashSet()
 
@@ -239,6 +239,10 @@ class TickManagerImpl(
         companion object {
             val EMPTY = PostTickBarrierMetrics(0L, 0L)
         }
+    }
+
+    override fun close() {
+        scheduler.shutdownNow()
     }
 
     private class AsyncObjectMetricState {

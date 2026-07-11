@@ -21,6 +21,7 @@ import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.configLib.persistence.PersistentBy
 import kotlin.math.absoluteValue
 import kotlin.math.max
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 车厢类
@@ -106,6 +107,8 @@ class CoreCar @MainThread internal constructor(
 
     override var lastState: RenderableStateSnapshot = takeSnapshot()
     override var dirty: Boolean = false
+    private var physicsDirty: Boolean = false
+    private val renderPending = AtomicBoolean(false)
 
     var isReversed: Boolean = false
         protected set
@@ -185,7 +188,7 @@ class CoreCar @MainThread internal constructor(
      */
     @Throws(BogieException::class)
     protected fun calculatePositionByHeadBogie(headBogieNewLocation: RailLocationWithFacing): IntermediateResult {
-        dirty = true
+        physicsDirty = true
         val headBogieConnectorPosition = connectorPosition(headBogieNewLocation)
         val tailBogieNewLocation = findTailBogieByHead(headBogieNewLocation)
         val tailBogieConnectorPosition = connectorPosition(tailBogieNewLocation)
@@ -205,7 +208,7 @@ class CoreCar @MainThread internal constructor(
      */
     @Throws(BogieException::class)
     protected fun calculatePositionByTailBogie(tailBogieNewLocation: RailLocationWithFacing): IntermediateResult {
-        dirty = true
+        physicsDirty = true
         val tailBogieConnectorPosition = connectorPosition(tailBogieNewLocation)
         val headBogieNewLocation = findHeadBogieByTail(tailBogieNewLocation)
         val headBogieConnectorPosition = connectorPosition(headBogieNewLocation)
@@ -320,15 +323,24 @@ class CoreCar @MainThread internal constructor(
         super.destroy()
     }
 
+    /** Publishes Core state after all workers finish reading the previous epoch. */
+    internal fun publishPhysicsState() {
+        bogies.forEach { it.publishPhysicsState() }
+        if (!physicsDirty) return
+        _position.commit()
+        _direction.commit()
+        _normal.commit()
+        _motionState.commit()
+        physicsDirty = false
+        renderPending.set(true)
+    }
+
+    /** Main-thread render notification; physics publication happens in the Coordinator. */
     override fun commit() {
         bogies.forEach { it.commit() }
-        if (dirty) {
-            _position.commit()
-            _direction.commit()
-            _normal.commit()
-            _motionState.commit()
-            super.commit()
-        }
+        if (!renderPending.getAndSet(false)) return
+        dirty = true
+        super.commit()
     }
 
     companion object {

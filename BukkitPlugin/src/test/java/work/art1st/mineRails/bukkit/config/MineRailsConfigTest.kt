@@ -12,12 +12,27 @@ class MineRailsConfigTest {
         yaml.set("train-model-update-policy", "snapshot")
         yaml.set("train-key-bind-distance", 24.5)
         yaml.set("train-debug-log", true)
+        yaml.set("physics-worker-threads", 3)
 
         val config = MineRailsConfig.fromYaml(yaml)
 
         assertEquals(TrainModelUpdatePolicy.SNAPSHOT, config.trainModelUpdatePolicy)
         assertEquals(24.5, config.trainKeyBindDistance)
         assertEquals(true, config.trainDebugLog)
+        assertEquals(3, config.physicsWorkerThreads)
+    }
+
+    @Test
+    fun `physics worker threads must be positive`() {
+        val yaml = YamlConfiguration()
+        yaml.set("train-model-update-policy", "snapshot")
+        yaml.set("train-key-bind-distance", 24.5)
+        yaml.set("train-debug-log", false)
+        yaml.set("physics-worker-threads", 0)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            MineRailsConfig.fromYaml(yaml)
+        }
     }
 
     @Test

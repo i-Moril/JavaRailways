@@ -109,8 +109,18 @@ class WorldManager(
     fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
         railWorlds[bukkitWorld]?.let { rw ->
-            (rw as? CoreWorld)?.let { WorldPersistence.saveSnapshot(bukkitWorld, it) }
-            rw.renderChunkManager.close()
+            val coreWorld = rw as? CoreWorld
+            try {
+                coreWorld?.physicsCoordinator?.captureCurrentTicket()?.await()
+                coreWorld?.let { WorldPersistence.saveSnapshot(bukkitWorld, it) }
+            } finally {
+                coreWorld?.physicsCoordinator?.close()
+                try {
+                    rw.renderChunkManager.close()
+                } finally {
+                    (rw.tickManager as? AutoCloseable)?.close()
+                }
+            }
         }
         AbnormalTrainMarker.clearWorld(bukkitWorld)
         railWorlds.remove(bukkitWorld)
@@ -134,6 +144,7 @@ class WorldManager(
         serverTickIndex += 1L
         val currentTimeMs = System.currentTimeMillis()
         railWorlds.forEach { (_, railWorld) ->
+            (railWorld as? CoreWorld)?.physicsCoordinator?.wakeFromMainThread()
             railWorld.tickManager.preTick(currentTimeMs)
         }
     }
@@ -153,6 +164,21 @@ class WorldManager(
         computeNanos += seatExtensionNanos
 
         railWorlds.forEach { (world, railWorld) ->
+            (railWorld as? CoreWorld)?.let { coreWorld ->
+                // Capture once: if the fallback timer currently owns an epoch, TickEnd must wait
+                // for that exact ticket instead of rendering an older published state.
+                val physicsTicket = coreWorld.physicsCoordinator.captureCurrentTicket()
+                val physicsWaitNanos = measureNanoTime { physicsTicket.await() }
+                phaseBreakdown["world:${world.name}:physics_wait"] = physicsWaitNanos
+                blockedWaitAsyncNanos += physicsWaitNanos
+
+                val renderCommitNanos = measureNanoTime {
+                    coreWorld.commitPublishedTrainRenderState()
+                }
+                phaseBreakdown["world:${world.name}:train_render_commit"] = renderCommitNanos
+                computeNanos += renderCommitNanos
+            }
+
             railWorld.tickManager.postTick()
             railWorld.tickManager.latestMainThreadTickMetrics()?.let { metrics ->
                 computeNanos += metrics.computeNanos

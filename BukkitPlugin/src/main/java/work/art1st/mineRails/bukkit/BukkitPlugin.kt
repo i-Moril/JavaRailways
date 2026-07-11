@@ -87,6 +87,14 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             TrainDebugLog.enabled = true
         }
         logger.info("Train model update policy: ${mineRailsConfig.trainModelUpdatePolicy.name.lowercase().replace('_', '-')}")
+        logger.info("Physics worker threads per world: ${mineRailsConfig.physicsWorkerThreads}")
+        val availableProcessors = Runtime.getRuntime().availableProcessors()
+        if (mineRailsConfig.physicsWorkerThreads >= availableProcessors) {
+            logger.warning(
+                "physics-worker-threads=${mineRailsConfig.physicsWorkerThreads} leaves no dedicated CPU for the server main thread " +
+                    "(availableProcessors=$availableProcessors); the configured value will still be used"
+            )
+        }
         if (TrainDebugLog.enabled) {
             logger.warning("Train debug log enabled: ${dataFolder.resolve("debug/train_debug.csv")}")
         }

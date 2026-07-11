@@ -265,7 +265,9 @@ class TrainControlManager(
     private fun alignTrainHeadToDriverSeat(train: CoreTrain, controlEnd: DriverControlEnd?) {
         val targetEnd = controlEnd ?: return
         val activeHeadEnd = if (train.isReversed) DriverControlEnd.TAIL else DriverControlEnd.HEAD
-        if (targetEnd != activeHeadEnd) train.reverse()
+        if (targetEnd != activeHeadEnd) {
+            train.controller?.reverse() ?: train.reverse()
+        }
     }
 
     private fun resolveBoundTrain(item: ItemStack): Train? {

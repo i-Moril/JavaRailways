@@ -17,10 +17,14 @@ import work.art1st.mineRails.core.di.WorldParentContext
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailSpatialIndex
+import work.art1st.mineRails.core.physics.rail.SweptOccupancyIndex
+import work.art1st.mineRails.core.physics.rail.SweptOccupancyQueryResult
 import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.physics.train.SavedTrainV1
+import work.art1st.mineRails.core.physics.tick.PhysicsCoordinator
 import java.util.LinkedHashMap
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 物理世界：由 [createEmpty] 或 [SavedWorldV1.load] 创建；Bukkit 等平台在创建后通过
@@ -31,21 +35,33 @@ class CoreWorld(
     private val trains: MutableMap<String, CoreTrain>,
     private val signals: MutableMap<String, Signal>,
     override val tickManager: TickManager,
+    val physicsCoordinator: PhysicsCoordinator,
     worldParent: WorldParentContext,
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
 ) : World, Extendable<Any> by extensionDataContainer, PersistentBy<CoreWorld.SavedWorldV1> {
     private val railSpatialIndex = RailSpatialIndex()
+    val runtimeId: String = UUID.randomUUID().toString()
+
+    @Volatile
+    private var sweptOccupancyIndex: SweptOccupancyIndex = SweptOccupancyIndex.EMPTY
 
     init {
         worldParent.attachWorld(this)
+        physicsCoordinator.attachWorld(this)
     }
 
-    private constructor(tickManager: TickManager, worldParent: WorldParentContext)
-            : this(LinkedHashMap(), hashMapOf(), hashMapOf(), tickManager, worldParent)
+    private constructor(
+        tickManager: TickManager,
+        physicsCoordinator: PhysicsCoordinator,
+        worldParent: WorldParentContext
+    ) : this(LinkedHashMap(), ConcurrentHashMap(), hashMapOf(), tickManager, physicsCoordinator, worldParent)
 
     companion object {
-        fun createEmpty(tickManager: TickManager, worldParent: WorldParentContext): CoreWorld =
-            CoreWorld(tickManager, worldParent)
+        fun createEmpty(
+            tickManager: TickManager,
+            worldParent: WorldParentContext,
+            physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1)
+        ): CoreWorld = CoreWorld(tickManager, physicsCoordinator, worldParent)
     }
 
     @MainThread
@@ -94,6 +110,28 @@ class CoreWorld(
         rails.remove(rail.id)
     }
 
+    /** Rebuilt by the physics Coordinator after all train states are published. */
+    internal fun rebuildSweptOccupancyIndex() {
+        sweptOccupancyIndex = SweptOccupancyIndex(
+            trains.values.flatMap { it.publishedSweptSpans }
+        )
+    }
+
+    internal fun sweptOccupancyStats(): Pair<Int, Int> =
+        sweptOccupancyIndex.spanCount to sweptOccupancyIndex.bucketReferenceCount
+
+    internal fun querySweptCollision(train: CoreTrain): SweptOccupancyQueryResult =
+        sweptOccupancyIndex.queryFirstCollision(
+            trainId = train.id,
+            ownSpans = train.publishedSweptSpans,
+            maxCandidates = SweptOccupancyIndex.DEFAULT_MAX_CANDIDATES
+        )
+
+    /** Main-thread Bukkit render commit; it never flips physics buffers. */
+    fun commitPublishedTrainRenderState() {
+        trains.values.forEach { it.commitRenderState() }
+    }
+
     override fun save(): SavedWorldV1 {
         return SavedWorldV1(
             rails.values.map { it.save() },
@@ -108,11 +146,12 @@ class CoreWorld(
     ) : Loads<CoreWorld, SavedWorldV1.Dependency> {
         data class Dependency(
             val tickManager: TickManager,
-            val worldParent: WorldParentContext
+            val worldParent: WorldParentContext,
+            val physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1)
         )
 
         override fun load(dependency: Dependency): CoreWorld {
-            val world = CoreWorld(dependency.tickManager, dependency.worldParent)
+            val world = CoreWorld(dependency.tickManager, dependency.physicsCoordinator, dependency.worldParent)
             val railDependency = CoreRail.SavedRailV1.Dependency(world)
             val loadedRails = rails.map { it.loadDisconnected(railDependency) }
             rails.zip(loadedRails).forEach { (savedRail, rail) ->

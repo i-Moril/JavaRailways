@@ -2,6 +2,7 @@ package work.art1st.mineRails.core.api.control
 
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
+import work.art1st.mineRails.core.api.util.tick.TickProfiled
 import work.art1st.mineRails.core.api.util.tick.TickingObject
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
@@ -9,8 +10,10 @@ import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
 abstract class TrainController(
     train: Train,
     world: World
-) : TickingObject, Synchronizable {
+) : TickingObject, Synchronizable, TickProfiled {
     protected val train: Train by WeakReferenceWrapper(train)
+    override val profileCategory: String = "train-controller"
+    override val profileId: String get() = train.id
     /**
      * Meters per second, >=0
      */

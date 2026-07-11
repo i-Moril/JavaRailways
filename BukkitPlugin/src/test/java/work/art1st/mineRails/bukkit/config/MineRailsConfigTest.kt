@@ -2,6 +2,7 @@ package work.art1st.mineRails.bukkit.config
 
 import org.bukkit.configuration.file.YamlConfiguration
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class MineRailsConfigTest {
@@ -20,11 +21,9 @@ class MineRailsConfigTest {
     }
 
     @Test
-    fun `defaults train key bind distance to twenty meters`() {
-        val config = MineRailsConfig.fromYaml(YamlConfiguration())
-
-        assertEquals(TrainModelUpdatePolicy.FOLLOW_PACKAGE, config.trainModelUpdatePolicy)
-        assertEquals(20.0, config.trainKeyBindDistance)
-        assertEquals(false, config.trainDebugLog)
+    fun `missing required keys now fails explicitly`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            MineRailsConfig.fromYaml(YamlConfiguration())
+        }
     }
 }

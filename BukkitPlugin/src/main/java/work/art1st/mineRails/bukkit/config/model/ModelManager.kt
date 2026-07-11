@@ -48,10 +48,8 @@ class ModelManager(
             if (!manifestFile.exists()) continue
 
             val loader = PackageLoader(dir)
-            val result = loader.load()
-            if (result is LoadedTrainPackage) {
-                trainPackages[result.manifest.name] = result
-            }
+            val result = loader.loadTrainPackage() ?: continue
+            trainPackages[result.manifest.name] = result
         }
     }
 
@@ -65,10 +63,8 @@ class ModelManager(
             if (!manifestFile.exists()) continue
 
             val loader = PackageLoader(dir)
-            val result = loader.load()
-            if (result is LoadedRailPackage) {
-                railPackages[result.manifest.name] = result
-            }
+            val result = loader.loadRailPackage() ?: continue
+            railPackages[result.manifest.name] = result
         }
     }
 
@@ -126,10 +122,10 @@ class ModelManager(
     }
 
     fun getTrainControl(packageName: String?): TrainControlConfig {
-        if (packageName != null) {
-            trainPackages[packageName]?.control?.let { return it }
-        }
-        return TrainControlConfig()
+        val resolvedPackageName = packageName
+            ?: throw IllegalArgumentException("Train control package name is required")
+        return trainPackages[resolvedPackageName]?.control
+            ?: throw IllegalArgumentException("Train package '$resolvedPackageName' has no loaded control profile")
     }
 
     fun getRailConfig(name: String): RailModelConfig? {

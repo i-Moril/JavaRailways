@@ -14,8 +14,7 @@ import org.joml.Vector3d
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
 import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
-import work.art1st.mineRails.bukkit.extension.train.CarExtension
-import work.art1st.mineRails.bukkit.extension.train.renderer
+import work.art1st.mineRails.bukkit.extension.train.carRendererOrNull
 import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.physics.train.CoreTrain
@@ -27,6 +26,7 @@ class TrainControlManager(
     sealed class AcquireResult {
         data class Acquired(val session: ManualControlSession) : AcquireResult()
         data class AlreadyControlled(val ownerId: UUID) : AcquireResult()
+        data class ConfigError(val message: String) : AcquireResult()
         data object MissingKey : AcquireResult()
         data object NotDriverSeat : AcquireResult()
         data object TrainUnavailable : AcquireResult()
@@ -89,7 +89,11 @@ class TrainControlManager(
         releaseManualControl(player.uniqueId)
         alignTrainHeadToDriverSeat(coreTrain, driverSeat.controlEnd)
         val controller = coreTrain.controller as? RealisticManualController ?: run {
-            val (controlConfig, carControls) = resolveControlProfile(coreTrain)
+            val (controlConfig, carControls) = try {
+                resolveControlProfile(coreTrain)
+            } catch (e: IllegalArgumentException) {
+                return AcquireResult.ConfigError(e.message ?: "列车控制配置无效")
+            }
             RealisticManualController(coreTrain, coreTrain.world, controlConfig, carControls).also { coreTrain.setController(it) }
         }
         controller.markCurrentPhysicalDirectionAsForward()
@@ -316,15 +320,17 @@ class TrainControlManager(
     }
 
     private fun resolveControlProfile(train: CoreTrain): Pair<work.art1st.mineRails.bukkit.config.model.TrainControlConfig, List<CarControlConfig>> {
-        val carModelNames = train.cars.map { car ->
-            runCatching { (car.renderer as? CarExtension)?.carModelName }.getOrNull()
+        val carModelNames = train.cars.mapIndexed { index, car ->
+            car.carRendererOrNull?.carModelName
+                ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢缺少 carModelName，无法解析控制配置")
         }
         val packageName = carModelNames.firstNotNullOfOrNull { modelName ->
-            modelName?.let { plugin.modelManager.getCar(it)?.packageName }
-        }
+            plugin.modelManager.getCar(modelName)?.packageName
+        } ?: throw IllegalArgumentException("列车 ${train.id} 的车厢模型未关联到任何 train package")
         val trainControl = plugin.modelManager.getTrainControl(packageName)
-        val carControls = carModelNames.map { modelName ->
-            modelName?.let { plugin.modelManager.getCar(it)?.control } ?: CarControlConfig()
+        val carControls = carModelNames.mapIndexed { index, modelName ->
+            plugin.modelManager.getCar(modelName)?.control
+                ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢模型 '$modelName' 没有控制配置")
         }
         return trainControl to carControls
     }

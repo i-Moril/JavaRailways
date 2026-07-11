@@ -16,10 +16,18 @@ import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.api.util.tick.TickingObject
+import work.art1st.mineRails.core.util.ThreadGuard
 
 @OptIn(ExtensionData::class)
+val Train.rendererOrNull: TrainExtension?
+    get() {
+        val plugin = BukkitPlugin.instanceOrNull() ?: return null
+        return getExtensionDataOrNull(plugin)
+    }
+
 val Train.renderer: TrainExtension
-    get() = getExtensionData(BukkitPlugin.INSTANCE)
+    get() = rendererOrNull
+        ?: throw IllegalStateException("Train renderer 未注册到列车 ${this.id} 上")
 
 class TrainExtension : CoreTrainExtension {
     lateinit var self: Train
@@ -129,13 +137,12 @@ class TrainExtension : CoreTrainExtension {
 
     private fun resolvePackageName(): String? {
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val firstModelName = self.cars.firstOrNull()?.let { car ->
-            runCatching { (car.renderer as? CarExtension)?.carModelName }.getOrNull()
-        } ?: return null
+        val firstModelName = self.cars.firstOrNull()?.carRendererOrNull?.carModelName ?: return null
         return modelManager.getCar(firstModelName)?.packageName
     }
 
     private fun playSound(key: String, volume: Double = 1.0, pitch: Double = 1.0) {
+        ThreadGuard.ensureMainThread("TrainExtension.playSound")
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val position = self.headLocation.position
         val location = Location(bukkitWorld, position.x(), position.y(), position.z())

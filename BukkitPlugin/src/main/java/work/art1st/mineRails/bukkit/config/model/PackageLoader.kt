@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit.config.model
 
-import org.yaml.snakeyaml.Yaml
 import work.art1st.mineRails.bukkit.config.RailModelConfig
 import work.art1st.mineRails.bukkit.config.loadRailModelConfig
 import java.io.File
@@ -19,53 +18,64 @@ class PackageLoader(
     val packageName: String = packageDir.name
 
     /**
-     * Load the package. Returns null if manifest is missing or invalid.
+     * Load a train package. Returns null only when manifest is missing.
+     * Existing manifests and referenced config files must be complete and valid.
      */
-    fun load(): Any? {
-        val manifestFile = File(packageDir, "manifest.yml")
-        if (!manifestFile.exists()) return null
-
-        val manifest = loadManifest(manifestFile) ?: return null
-
-        return when (manifest.type) {
-            PackageType.TRAIN -> loadTrainPackage(manifest)
-            PackageType.RAIL -> loadRailPackage(manifest)
+    fun loadTrainPackage(): LoadedTrainPackage? {
+        val manifest = loadManifestOrNull() ?: return null
+        require(manifest.type == PackageType.TRAIN) {
+            "Package ${packageDir.path} declares type '${manifest.type.name.lowercase()}' in manifest.yml but was loaded as a train package"
         }
+        return buildTrainPackage(manifest)
+    }
+
+    /**
+     * Load a rail package. Returns null only when manifest is missing.
+     * Existing manifests and referenced config files must be complete and valid.
+     */
+    fun loadRailPackage(): LoadedRailPackage? {
+        val manifest = loadManifestOrNull() ?: return null
+        require(manifest.type == PackageType.RAIL) {
+            "Package ${packageDir.path} declares type '${manifest.type.name.lowercase()}' in manifest.yml but was loaded as a rail package"
+        }
+        return buildRailPackage(manifest)
     }
 
     // -- Manifest ──────────────────────────────────────────────
 
-    private fun loadManifest(file: File): PackageManifest? {
-        return try {
-            val yaml = Yaml()
-            val map = yaml.load<Map<String, Any>>(file.inputStream())
+    private fun loadManifestOrNull(): PackageManifest? {
+        val manifestFile = File(packageDir, "manifest.yml")
+        if (!manifestFile.exists() || !manifestFile.isFile) return null
+        return loadManifest(manifestFile)
+    }
 
-            val version = (map["config-version"] as? Number)?.toInt() ?: 1
-            val typeStr = map["type"] as? String
-                ?: return null
-            val type = try {
-                PackageType.valueOf(typeStr.uppercase())
-            } catch (e: IllegalArgumentException) {
-                return null
-            }
-
-            PackageManifest(
-                name = map["name"] as? String ?: packageName,
-                type = type,
-                version = version,
-                displayName = map["display-name"] as? String,
-                composition = (map["composition"] as? List<*>)?.mapNotNull { it as? String },
-                railConfigFile = map["rail-config"] as? String
-            )
-        } catch (e: Exception) {
-            System.err.println("[MineRails] Failed to load package manifest ${file.path}: ${e.message}")
-            null
+    private fun loadManifest(file: File): PackageManifest {
+        val map = loadYamlMap(file, "package manifest ${file.path}")
+        val version = map.requireInt("config-version", "package manifest ${file.path}")
+        val typeStr = map["type"] as? String
+            ?: throw IllegalArgumentException("Package manifest ${file.path} is missing required field 'type'")
+        val type = try {
+            PackageType.valueOf(typeStr.uppercase())
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("Unsupported package type '$typeStr' in ${file.path}", e)
         }
+
+        return PackageManifest(
+            name = map.requireString("name", "package manifest ${file.path}"),
+            type = type,
+            version = version,
+            displayName = map["display-name"] as? String,
+            composition = map.optionalList("composition", "package manifest ${file.path}")?.mapIndexed { index, entry ->
+                entry as? String
+                    ?: throw IllegalArgumentException("package manifest ${file.path}.composition[$index] must be a string")
+            },
+            railConfigFile = map["rail-config"] as? String
+        )
     }
 
     // -- TRAIN package ─────────────────────────────────────────
 
-    private fun loadTrainPackage(manifest: PackageManifest): LoadedTrainPackage? {
+    private fun buildTrainPackage(manifest: PackageManifest): LoadedTrainPackage {
         val partsDir = File(packageDir, "parts")
         val carsDir = File(packageDir, "cars")
 
@@ -82,7 +92,8 @@ class PackageLoader(
         }
 
         // Build train definition
-        val composition = manifest.composition ?: cars.keys.toList()
+        val composition = manifest.composition
+            ?: throw IllegalArgumentException("Train package ${packageDir.path} must declare composition in manifest.yml")
         val train = TrainDefinition(
             key = manifest.name,
             name = manifest.displayName ?: manifest.name,
@@ -105,14 +116,8 @@ class PackageLoader(
 
     private fun loadActions(file: File): Map<String, TrainActionConfig> {
         if (!file.exists() || !file.isFile) return emptyMap()
-        return try {
-            val yaml = Yaml()
-            val map = yaml.load<Map<String, Any>>(file.inputStream())
-            TrainActionConfig.parseActions(map)
-        } catch (e: Exception) {
-            System.err.println("[MineRails] Failed to load train actions ${file.path}: ${e.message}")
-            emptyMap()
-        }
+        val map = loadYamlMap(file, "train actions ${file.path}")
+        return TrainActionConfig.parseActions(map)
     }
 
     private fun loadBehavior(file: File): TrainBehaviorScript? {
@@ -123,21 +128,16 @@ class PackageLoader(
                 source = file.readText()
             )
         } catch (e: Exception) {
-            System.err.println("[MineRails] Failed to load train behavior ${file.path}: ${e.message}")
-            null
+            throw IllegalStateException("Failed to load train behavior ${file.path}", e)
         }
     }
 
     private fun loadControl(file: File): TrainControlConfig {
-        if (!file.exists() || !file.isFile) return TrainControlConfig()
-        return try {
-            val yaml = Yaml()
-            val map = yaml.load<Map<String, Any>>(file.inputStream())
-            TrainControlConfig.parse(map)
-        } catch (e: Exception) {
-            System.err.println("[MineRails] Failed to load train control ${file.path}: ${e.message}")
-            TrainControlConfig()
+        if (!file.exists() || !file.isFile) {
+            throw IllegalArgumentException("Train package ${packageDir.path} is missing required control.yml")
         }
+        val map = loadYamlMap(file, "train control ${file.path}")
+        return TrainControlConfig.parse(map)
     }
 
     private fun loadCarsFromDir(
@@ -162,20 +162,19 @@ class PackageLoader(
 
     // -- RAIL package ──────────────────────────────────────────
 
-    private fun loadRailPackage(manifest: PackageManifest): LoadedRailPackage? {
-        val configFileName = manifest.railConfigFile ?: "rail_model.yml"
+    private fun buildRailPackage(manifest: PackageManifest): LoadedRailPackage {
+        val configFileName = manifest.railConfigFile
+            ?: throw IllegalArgumentException("Rail package ${packageDir.path} must declare rail-config in manifest.yml")
         val configFile = File(packageDir, configFileName)
 
         val railConfig = if (configFile.exists()) {
             try {
                 configFile.inputStream().use { loadRailModelConfig(it) }
             } catch (e: Exception) {
-                System.err.println("[MineRails] Failed to load rail config ${configFile.path}: ${e.message}")
-                return null
+                throw IllegalStateException("Failed to load rail config ${configFile.path}", e)
             }
         } else {
-            System.err.println("[MineRails] Rail config file not found: ${configFile.path}")
-            return null
+            throw IllegalArgumentException("Rail config file not found: ${configFile.path}")
         }
 
         return LoadedRailPackage(

@@ -5,6 +5,7 @@ import org.joml.Vector3dc
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.util.annotation.Heavy
+import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
@@ -93,6 +94,7 @@ object RailCurveFactory {
         build(from, to, RailCurveBuildOptions(radius = radius))
 
     fun build(from: Anchor, to: Anchor, options: RailCurveBuildOptions): RailCurveBuildResult {
+        ThreadGuard.ensureOffMainThread("RailCurveFactory.build")
         val prepared = prepareAnchors(from, to)
             ?: return RailCurveBuildResult.failure("端点切线或距离无效")
         val match = when (options.template) {
@@ -114,6 +116,7 @@ object RailCurveFactory {
     }
 
     fun buildParallel(fromAnchors: List<Anchor>, toAnchors: List<Anchor>, options: RailCurveBuildOptions): RailParallelCurveBuildResult {
+        ThreadGuard.ensureOffMainThread("RailCurveFactory.buildParallel")
         if (fromAnchors.isEmpty()) return RailParallelCurveBuildResult.failure("并行曲线至少需要 1 组锚点")
         if (fromAnchors.size != toAnchors.size) return RailParallelCurveBuildResult.failure("并行曲线起终点数量不一致")
         if (fromAnchors.size == 1) {

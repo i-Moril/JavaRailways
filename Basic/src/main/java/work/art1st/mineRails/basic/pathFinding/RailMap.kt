@@ -64,30 +64,46 @@ fun RailView.removeDestination(label: String) {
 /**
  * 在指定世界上获取 Basic 模块运营数据。
  *
- * 运行时优先读取挂在 [BasicPlugin] 下的 [BasicWorldData]；测试或 standalone 场景若尚未注册
- * Basic 扩展数据，则回退到测试 registry。
+ * 生产路径要求 [BasicWorldData] 已显式注册；若缺失则直接报错，避免将初始化问题伪装成空数据。
  */
 @OptIn(ExtensionData::class)
+val World.basicWorldDataOrNull: BasicWorldData?
+    get() {
+        val plugin = BasicPlugin.instanceOrNull() ?: return null
+        return getExtensionDataOrNull(plugin)
+    }
+
+@OptIn(ExtensionData::class)
 val World.basicWorldData: BasicWorldData
-    get() = runCatching {
-        getExtensionData<BasicWorldData>(BasicPlugin.INSTANCE)
-    }.getOrElse {
-        TestBasicWorldDataRegistry.getOrCreate(this)
+    get() {
+        val plugin = BasicPlugin.instanceOrNull()
+            ?: throw IllegalStateException(
+                "BasicPlugin.INSTANCE 尚未初始化；请先显式注册 BasicWorldData 后再访问 world.basicWorldData"
+            )
+        return getExtensionDataOrNull(plugin)
+            ?: throw IllegalStateException(
+                "BasicWorldData 未注册到当前 world；请在运行时创建世界时显式注册，测试中请使用 TestBasicWorldDataRegistry.register"
+            )
     }
 
 /** 在指定世界上获取对应的 [RailMap]。 */
 val World.railMap: RailMap
     get() = basicWorldData.railMap
 
-/** 测试注册表，绕过 BasicPlugin 初始化或运行时扩展数据注册。 */
+/**
+ * 测试注册表：为测试显式安装 [BasicWorldData]，避免生产代码隐式回退到测试数据。
+ */
 object TestBasicWorldDataRegistry {
     private val registry = WeakHashMap<World, BasicWorldData>()
 
     fun getOrCreate(world: World): BasicWorldData {
-        return registry.computeIfAbsent(world) { BasicWorldData() }
+        registry[world]?.let { return it }
+        return BasicWorldData().also { register(world, it) }
     }
 
     fun register(world: World, data: BasicWorldData) {
+        val plugin = BasicPlugin.instanceOrNull() ?: BasicPlugin(0).also { BasicPlugin.INSTANCE = it }
+        world.registerExtensionData(plugin, data)
         registry[world] = data
     }
 }

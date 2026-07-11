@@ -12,7 +12,7 @@ import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
-import work.art1st.mineRails.bukkit.extension.train.CarExtension
+import work.art1st.mineRails.bukkit.extension.train.carRendererOrNull
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.core.api.physics.train.Train
 
@@ -61,6 +61,9 @@ class TrainControlDialog(
                     is TrainControlManager.AcquireResult.AlreadyControlled -> {
                         val owner = Bukkit.getOfflinePlayer(result.ownerId).name ?: result.ownerId.toString().take(8)
                         p.sendActionBar(Component.text("列车正由 $owner 控制", NamedTextColor.RED))
+                    }
+                    is TrainControlManager.AcquireResult.ConfigError -> {
+                        p.sendActionBar(Component.text(result.message, NamedTextColor.RED))
                     }
                     TrainControlManager.AcquireResult.MissingKey -> p.sendActionBar(Component.text("需要绑定的列车钥匙", NamedTextColor.RED))
                     TrainControlManager.AcquireResult.NotDriverSeat -> p.sendActionBar(Component.text("请坐在该列车驾驶座上", NamedTextColor.RED))
@@ -144,9 +147,7 @@ class TrainControlDialog(
     }
 
     private fun resolvePackageName(train: Train): String? {
-        val firstModelName = train.cars.firstOrNull()?.let { car ->
-            runCatching { (car.renderer as? CarExtension)?.carModelName }.getOrNull()
-        } ?: return null
+        val firstModelName = train.cars.firstOrNull()?.carRendererOrNull?.carModelName ?: return null
         return plugin.modelManager.getCar(firstModelName)?.packageName
     }
 

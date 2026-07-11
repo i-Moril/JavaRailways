@@ -4,9 +4,12 @@ import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.util.ThreadGuard
+import work.art1st.mineRails.core.util.ThreadGuardPlatformBridge
 
 class RailCurveFactoryTemplateTest {
     @Test
@@ -102,5 +105,22 @@ class RailCurveFactoryTemplateTest {
 
         assertTrue(result.isSuccess, result.error)
         assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
+    }
+
+    @Test
+    fun `build fails on installed main thread`() {
+        val mainThread = Thread.currentThread()
+        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+            override fun isMainThread(): Boolean = Thread.currentThread() === mainThread
+        })
+        try {
+            val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
+            val to = Anchor("B", Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
+            assertThrows(IllegalStateException::class.java) {
+                RailCurveFactory.build(from, to, RailCurveBuildOptions())
+            }
+        } finally {
+            ThreadGuard.clearPlatformBridge()
+        }
     }
 }

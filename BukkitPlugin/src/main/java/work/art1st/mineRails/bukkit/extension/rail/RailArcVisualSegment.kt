@@ -68,4 +68,8 @@ class RailArcVisualSegment(
 
 @OptIn(ExtensionData::class)
 val RailArcVisualSegment.renderer: RailExtension
-    get() = getExtensionData(BukkitPlugin.INSTANCE)
+    get() {
+        val plugin = BukkitPlugin.instanceOrNull()
+            ?: throw IllegalStateException("BukkitPlugin.INSTANCE 尚未初始化；请在访问 rail segment renderer 前先初始化 BukkitPlugin")
+        return requireExtensionData(plugin)
+    }

@@ -11,6 +11,7 @@ import work.art1st.mineRails.basic.BasicPlugin
 import work.art1st.mineRails.basic.BasicWorldData
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.util.TickManagerImpl
 import java.util.concurrent.Executors
 
@@ -22,6 +23,7 @@ object RailWorldFactory {
         bukkitWorld: BukkitWorld,
         snapshot: CoreWorld.SavedWorldV1? = null
     ): World {
+        ThreadGuard.ensureMainThread("RailWorldFactory.createForBukkit")
         val tickManager = TickManagerImpl(
             Executors.newSingleThreadScheduledExecutor(),
             System.currentTimeMillis()

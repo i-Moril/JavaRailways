@@ -4,6 +4,7 @@ floor-height: 1.0
 connector-length-a: 0.1
 connector-length-b: 0.1
 name: motor
+# 控制参数必须显式写全；不要依赖代码默认值。
 control:
   mass: 37000
   rotating-mass-factor: 1.08

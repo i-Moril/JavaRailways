@@ -17,6 +17,7 @@ import work.art1st.mineRails.core.di.WorldParentContext
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailSpatialIndex
+import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.physics.train.SavedTrainV1
 import java.util.LinkedHashMap
 import java.util.UUID
@@ -81,6 +82,7 @@ class CoreWorld(
 
     @OptIn(Heavy::class)
     fun getNearestRail(position: Vector3dc): CoreRail? {
+        ThreadGuard.ensureOffMainThread("CoreWorld.getNearestRail")
         return rails.values.minByOrNull { rail ->
             rail.curve.getNearestPoint(position).position.distance(position)
         }

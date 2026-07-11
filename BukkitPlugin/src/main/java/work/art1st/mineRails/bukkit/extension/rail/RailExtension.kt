@@ -30,6 +30,7 @@ import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.bukkit.extension.BukkitRenderable
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.core.util.ThreadGuard
 import kotlin.math.ceil
 
 /**
@@ -48,6 +49,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
 
     @MainThread
     override fun sendTo(player: Player) {
+        ThreadGuard.ensureMainThread("RailExtension.sendTo")
         buildModel()
     }
 
@@ -57,6 +59,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
      */
     @MainThread
     fun ensureBuilt() {
+        ThreadGuard.ensureMainThread("RailExtension.ensureBuilt")
         buildModel()
     }
 
@@ -123,6 +126,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
 
     @MainThread
     override fun destroy() {
+        ThreadGuard.ensureMainThread("RailExtension.destroy")
         self.world.renderChunkManager.remove(self)
         destroyModel()
     }

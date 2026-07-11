@@ -18,6 +18,7 @@ import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.core.util.ThreadGuard
 
 /**
  * Car rendering extension: builds the car model from CarDefinition and
@@ -147,6 +148,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun refreshFor(player: Player) {
+        ThreadGuard.ensureMainThread("CarExtension.refreshFor")
         refreshPlatformActivation(player)
     }
 

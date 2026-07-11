@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit.config.model
 
-import org.yaml.snakeyaml.Yaml
 import java.io.File
 
 /**
@@ -17,24 +16,31 @@ class CarLoader(
 
     fun load() {
         cars.clear()
-        if (carsDir.exists() && carsDir.isDirectory) {
-            scanDirectory(carsDir, "")
+        if (!carsDir.exists() || !carsDir.isDirectory) return
+
+        val errors = mutableListOf<String>()
+        scanDirectory(carsDir, "", errors)
+        if (errors.isNotEmpty()) {
+            throw IllegalStateException(buildString {
+                append("Failed to load car definitions under ${carsDir.path}:")
+                errors.forEach { append("\n- ").append(it) }
+            })
         }
     }
 
-    private fun scanDirectory(dir: File, namespace: String) {
+    private fun scanDirectory(dir: File, namespace: String, errors: MutableList<String>) {
         for (file in dir.listFiles() ?: emptyArray()) {
             when {
                 file.isDirectory -> {
                     val childNs = if (namespace.isEmpty()) file.name else "$namespace/${file.name}"
-                    scanDirectory(file, childNs)
+                    scanDirectory(file, childNs, errors)
                 }
                 file.isFile && (file.extension == "yml" || file.extension == "yaml") -> {
                     try {
                         val car = loadCarFile(file, namespace)
                         cars[car.name] = car
                     } catch (e: Exception) {
-                        System.err.println("[MineRails] Failed to load car file ${file.path}: ${e.message}")
+                        errors += "${file.path}: ${e.message ?: e::class.simpleName.orEmpty()}"
                     }
                 }
             }
@@ -42,8 +48,7 @@ class CarLoader(
     }
 
     private fun loadCarFile(file: File, namespace: String): CarDefinition {
-        val yaml = Yaml()
-        val map = yaml.load<Map<String, Any>>(file.inputStream())
+        val map = loadYamlMap(file, "car definition ${file.path}")
 
         val version = (map["config-version"] as? Number)?.toInt()
             ?: throw IllegalArgumentException("Missing config-version")
@@ -53,13 +58,13 @@ class CarLoader(
             ?: throw IllegalArgumentException("Missing 'name'")
         val qualifiedName = if (namespace.isEmpty()) simpleName else "$namespace/$simpleName"
 
-        val length = (map["length"] as? Number)?.toDouble() ?: 2.0
-        val floorHeight = (map["floor-height"] as? Number)?.toDouble() ?: 0.5
-        val connectorLengthA = (map["connector-length-a"] as? Number)?.toDouble() ?: 0.3
-        val connectorLengthB = (map["connector-length-b"] as? Number)?.toDouble() ?: 0.3
-        val bodyParts = PartRegistry.parsePartList(map["body-parts"] as? List<*>, namespace)
-        val bogies = parseBogies(map["bogies"] as? List<*>, namespace)
-        val control = CarControlConfig.parse((map["control"] as? Map<*, *>)?.stringKeyMap())
+        val length = map.requireDouble("length", "car definition ${file.path}")
+        val floorHeight = map.requireDouble("floor-height", "car definition ${file.path}")
+        val connectorLengthA = map.requireDouble("connector-length-a", "car definition ${file.path}")
+        val connectorLengthB = map.requireDouble("connector-length-b", "car definition ${file.path}")
+        val bodyParts = PartRegistry.parsePartList(map.requireList("body-parts", "car definition ${file.path}"), namespace)
+        val bogies = parseBogies(map.requireList("bogies", "car definition ${file.path}"), namespace)
+        val control = CarControlConfig.parse(map.requireMap("control", "car definition ${file.path}"))
 
         // Extract physics bogie offsets from YAML bogie definitions (z component)
         val bogieAOffset = bogies.getOrNull(0)?.offset?.z
@@ -81,12 +86,13 @@ class CarLoader(
 
     private fun parseBogies(list: List<*>?, namespace: String): List<BogieDefinition> {
         if (list == null) return emptyList()
-        return list.mapNotNull { entry ->
-            val entryMap = entry as? Map<String, Any> ?: return@mapNotNull null
+        return list.mapIndexed { index, entry ->
+            val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("bogies[$index]")
+                ?: throw IllegalArgumentException("bogies[$index] must be a map")
             BogieDefinition(
-                offset = PartRegistry.parseVec3(entryMap["offset"] as? Map<String, Any>),
-                parts = PartRegistry.parsePartList(entryMap["parts"] as? List<*>, namespace),
-                wheelParts = PartRegistry.parsePartList(entryMap["wheel-parts"] as? List<*>, namespace),
+                offset = PartRegistry.parseVec3(entryMap.optionalMap("offset", "bogies[$index]")),
+                parts = PartRegistry.parsePartList(entryMap.optionalList("parts", "bogies[$index]"), namespace),
+                wheelParts = PartRegistry.parsePartList(entryMap.optionalList("wheel-parts", "bogies[$index]"), namespace),
                 wheelDiameter = (entryMap["wheel-diameter"] as? Number)?.toDouble() ?: 1.0
             )
         }

@@ -204,7 +204,7 @@ open class CoreTrain @MainThread internal constructor(
                 PluginRegistry.plugins.forEach {
                     newTrain.extensionDataContainer.setExtensionData(
                         it,
-                        this.getExtensionData<TrainExtension>(it).splitFrom(carNum, newId)
+                        this.requireExtensionData<TrainExtension>(it).splitFrom(carNum, newId)
                     )
                 }
                 newTrain

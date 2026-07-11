@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import work.art1st.mineRails.basic.WayPoint
+import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.timetable.TimetableAction
 import work.art1st.mineRails.basic.timetable.TimetableStep
@@ -21,6 +22,7 @@ class TimetableScriptLoaderTest {
     @Test
     fun `loads js timetable dsl`() {
         val world = createTestWorld()
+        TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
         world.basicWorldData.wayPoints.add(WayPoint("depot1", "depot1", rail.id, 0.0))
         world.basicWorldData.wayPoints.add(WayPoint("a0", "a0", rail.id, 20.0))
@@ -55,6 +57,7 @@ class TimetableScriptLoaderTest {
     @Test
     fun `reports js syntax errors`() {
         val world = createTestWorld()
+        TestBasicWorldDataRegistry.getOrCreate(world)
         val script = File(tempDir, "broken.js")
         script.writeText("function main(timetable) {")
 

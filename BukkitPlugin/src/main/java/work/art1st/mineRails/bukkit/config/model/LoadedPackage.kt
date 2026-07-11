@@ -18,7 +18,7 @@ data class LoadedTrainPackage(
     /** Optional JS behavior script for this train package. */
     val behavior: TrainBehaviorScript? = null,
     /** Manual-controller performance and physics configuration. */
-    val control: TrainControlConfig = TrainControlConfig()
+    val control: TrainControlConfig
 )
 
 /**

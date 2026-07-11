@@ -18,10 +18,10 @@ import work.art1st.mineRails.bukkit.extension.rail.RailArcVisualSegment
 import work.art1st.mineRails.bukkit.extension.rail.renderer
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.render.asVector3d
-import work.art1st.mineRails.core.api.physics.train.Bogie
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
+import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
@@ -41,6 +41,7 @@ class RenderChunkManager(
     }
 
     fun close() {
+        ThreadGuard.ensureMainThread("RenderChunkManager.close")
         world.players.forEach(::clearPlayer)
         HandlerList.unregisterAll(this)
     }
@@ -61,6 +62,7 @@ class RenderChunkManager(
 
     @EventHandler
     fun onPlayerJoin(event: PlayerJoinEvent) {
+        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerJoin")
         if (event.player.world == world) {
             refreshPlayer(event.player)
         }
@@ -68,11 +70,13 @@ class RenderChunkManager(
 
     @EventHandler
     fun onPlayerQuit(event: PlayerQuitEvent) {
+        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerQuit")
         clearPlayer(event.player)
     }
 
     @EventHandler
     fun onPlayerMove(event: PlayerMoveEvent) {
+        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerMove")
         val to = event.to
         if (event.player.world != world) return
         if (event.from.x == to.x && event.from.y == to.y && event.from.z == to.z) return
@@ -81,6 +85,7 @@ class RenderChunkManager(
 
     @EventHandler
     fun onPlayerTeleport(event: PlayerTeleportEvent) {
+        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerTeleport")
         if (event.from.world != world && event.to.world != world) return
         Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable {
             if (event.player.world == world) refreshPlayer(event.player) else clearPlayer(event.player)
@@ -89,6 +94,7 @@ class RenderChunkManager(
 
     @EventHandler
     fun onPlayerChangedWorld(event: PlayerChangedWorldEvent) {
+        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerChangedWorld")
         if (event.player.world == world) {
             refreshPlayer(event.player)
         } else if (event.from == world) {
@@ -145,7 +151,6 @@ class RenderChunkManager(
     private fun dispatchSendTo(renderable: Renderable, player: Player) {
         when (renderable) {
             is Car -> renderable.renderer.sendTo(player)
-            is Bogie -> renderable.renderer.sendTo(player)
             is RailArcVisualSegment -> renderable.renderer.sendTo(player)
         }
     }
@@ -153,7 +158,6 @@ class RenderChunkManager(
     private fun dispatchHideFrom(renderable: Renderable, player: Player) {
         when (renderable) {
             is Car -> renderable.renderer.hideFrom(player)
-            is Bogie -> renderable.renderer.hideFrom(player)
             is RailArcVisualSegment -> Unit
         }
     }
@@ -161,7 +165,6 @@ class RenderChunkManager(
     private fun dispatchRefreshFor(renderable: Renderable, player: Player) {
         when (renderable) {
             is Car -> renderable.renderer.refreshFor(player)
-            is Bogie -> renderable.renderer.refreshFor(player)
             is RailArcVisualSegment -> Unit
         }
     }
@@ -176,6 +179,7 @@ class RenderChunkManager(
     }
 
     internal fun remove(renderable: Renderable) {
+        ThreadGuard.ensureMainThread("RenderChunkManager.remove")
         remove(renderable, renderable.chunk)
         val playerIds = visibleByPlayer.entries
             .filter { (_, renderables) -> renderable in renderables }
@@ -195,6 +199,7 @@ class RenderChunkManager(
     }
 
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {
+        ThreadGuard.ensureMainThread("RenderChunkManager.update")
         val newChunk = RenderChunk(newPosition)
         renderableObjects.getOrPut(newChunk) { HashSet() }.add(renderable)
         addChunk(newChunk)

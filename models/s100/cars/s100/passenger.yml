@@ -4,13 +4,18 @@ floor-height: 1.0
 connector-length-a: 0.1
 connector-length-b: 0.1
 name: passenger
+# 控制参数必须显式写全；不要依赖代码默认值。
 control:
   mass: 32000
   rotating-mass-factor: 1.08
   motor:
     enabled: false
+    max-force: 0
+    max-power: 0
+    adhesion-mass-ratio: 1.0
   brake:
     max-force: 48000
+    regenerative-force: 0
     adhesion-mass-ratio: 1.0
 # 6 sections: z=0..5 → posZ = 7.5, 4.5, 1.5, -1.5, -4.5, -7.5
 body-parts:

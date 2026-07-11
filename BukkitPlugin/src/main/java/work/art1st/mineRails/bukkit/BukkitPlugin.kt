@@ -6,7 +6,6 @@ import work.art1st.mineRails.bukkit.command.MineRailsCommand
 import work.art1st.mineRails.bukkit.config.MineRailsConfig
 import work.art1st.mineRails.bukkit.config.RailModelConfig
 import work.art1st.mineRails.bukkit.config.loadRailModelConfig
-import work.art1st.mineRails.bukkit.config.getDefaultRailModelConfig
 import work.art1st.mineRails.bukkit.config.model.ModelManager
 import work.art1st.mineRails.bukkit.control.TrainControlManager
 import work.art1st.mineRails.bukkit.control.TrainHandleInputListener
@@ -21,12 +20,16 @@ import work.art1st.mineRails.core.api.event.processor.EventManager
 import work.art1st.mineRails.core.api.util.plugin.Plugin
 import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
+import work.art1st.mineRails.core.util.ThreadGuard
+import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import java.io.File
 
 class BukkitPlugin : Plugin, JavaPlugin() {
     companion object {
         const val EXTENSION_ID = "BUKKIT"
         lateinit var INSTANCE: BukkitPlugin
+
+        fun instanceOrNull(): BukkitPlugin? = if (::INSTANCE.isInitialized) INSTANCE else null
     }
 
     lateinit var viewDistanceManager: ViewDistanceManager
@@ -65,6 +68,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         PluginRegistry.register(BasicPlugin.INSTANCE)
         PluginRegistry.register(this)
         INSTANCE = this
+        ThreadGuard.installPlatformBridge(BukkitThreadGuardBridge)
         viewDistanceManager = ViewDistanceManager()
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
@@ -123,25 +127,28 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         runCatching { EventManager.unregister(trainReverseBehaviorListener) }
         runCatching { EventManager.unregister(trainDebugEventListener) }
         runCatching { TrainDebugLog.close() }
+        ThreadGuard.clearPlatformBridge()
     }
 
     private fun loadRailModelConfigFromPlugin(): RailModelConfig {
         val configFile = File(dataFolder, "rail_model.yml")
-        return if (configFile.exists()) {
-            try {
+        if (configFile.exists()) {
+            return try {
                 configFile.inputStream().use { loadRailModelConfig(it) }
             } catch (e: Exception) {
-                logger.warning("Failed to load rail_model.yml: ${e.message}, using default")
-                getDefaultRailModelConfig()
+                throw IllegalStateException(
+                    "Failed to load rail_model.yml at ${configFile.path}; fix or remove the file instead of silently falling back to defaults",
+                    e
+                )
             }
-        } else {
-            try {
-                javaClass.getResourceAsStream("/rail_model.yml")?.use { loadRailModelConfig(it) }
-                    ?: getDefaultRailModelConfig()
-            } catch (e: Exception) {
-                logger.warning("Failed to load bundled rail_model.yml: ${e.message}")
-                getDefaultRailModelConfig()
-            }
+        }
+
+        val bundled = javaClass.getResourceAsStream("/rail_model.yml")
+            ?: throw IllegalStateException("Bundled rail_model.yml is missing from plugin resources")
+        return try {
+            bundled.use { loadRailModelConfig(it) }
+        } catch (e: Exception) {
+            throw IllegalStateException("Failed to load bundled rail_model.yml", e)
         }
     }
 

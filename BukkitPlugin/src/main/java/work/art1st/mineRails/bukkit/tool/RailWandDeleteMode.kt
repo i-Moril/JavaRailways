@@ -30,15 +30,16 @@ internal class RailWandDeleteMode(private val wand: RailWand) {
                     return
                 }
 
-                val lookedRail = wand.findLookedAtRail(player)
-                if (lookedRail != null) {
-                    handleRailDelete(player, state, lookedRail.id)
-                    return
-                }
+                wand.findLookedAtRailAsync(player) { lookedRail ->
+                    if (lookedRail != null) {
+                        handleRailDelete(player, state, lookedRail.id)
+                        return@findLookedAtRailAsync
+                    }
 
-                state.pendingDeleteAnchor = null
-                state.pendingDeleteRail = null
-                player.sendActionBar(Component.text("未找到可删除的锚点或轨道", NamedTextColor.GRAY))
+                    state.pendingDeleteAnchor = null
+                    state.pendingDeleteRail = null
+                    player.sendActionBar(Component.text("未找到可删除的锚点或轨道", NamedTextColor.GRAY))
+                }
             }
         }
     }

@@ -47,18 +47,6 @@ class ConfigItemImpl<T> @JvmOverloads constructor(
     }
 
     /**
-     * 以类型安全方式获取当前值。类型不匹配时返回 null。
-     */
-    @Suppress("UNCHECKED_CAST")
-    fun typedValue(): T? {
-        return try {
-            currentValue as? T
-        } catch (_: ClassCastException) {
-            null
-        }
-    }
-
-    /**
      * 提交更改，清除 dirty 标记。
      */
     fun commit() {

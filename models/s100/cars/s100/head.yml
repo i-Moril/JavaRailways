@@ -4,13 +4,18 @@ floor-height: 1.0
 connector-length-a: 0.1
 connector-length-b: 0.1
 name: head
+# 控制参数必须显式写全；不要依赖代码默认值。
 control:
   mass: 34000
   rotating-mass-factor: 1.08
   motor:
     enabled: false
+    max-force: 0
+    max-power: 0
+    adhesion-mass-ratio: 1.0
   brake:
     max-force: 50000
+    regenerative-force: 0
     adhesion-mass-ratio: 1.0
 # Body sections along car Z (= model Z → car direction = along track)
 # posZ formula: (3 - z) * 3.0 - 1.5

@@ -139,7 +139,8 @@ class RealisticManualController(
 
     private fun buildCarInputs(cars: List<Car>): List<TrainDynamics.CarInput> {
         return cars.mapIndexed { index, car ->
-            val control = carControls.getOrNull(index) ?: CarControlConfig()
+            val control = carControls.getOrNull(index)
+                ?: throw IllegalStateException("Missing car control config for car index $index")
             TrainDynamics.CarInput(
                 control = control,
                 grade = car.direction.y()

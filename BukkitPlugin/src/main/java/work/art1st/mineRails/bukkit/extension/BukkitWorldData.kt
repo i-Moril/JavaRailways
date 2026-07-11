@@ -11,8 +11,20 @@ class BukkitWorldData (
 )
 
 @OptIn(ExtensionData::class)
+val World.bukkitWorldDataOrNull: BukkitWorldData?
+    get() {
+        val plugin = BukkitPlugin.instanceOrNull() ?: return null
+        return getExtensionDataOrNull(plugin)
+    }
+
+@OptIn(ExtensionData::class)
 val World.bukkitWorldData: BukkitWorldData
-    get() = getExtensionData(BukkitPlugin.INSTANCE)
+    get() {
+        val plugin = BukkitPlugin.instanceOrNull()
+            ?: throw IllegalStateException("BukkitPlugin.INSTANCE 尚未初始化；请在访问 world.bukkitWorldData 前先初始化 BukkitPlugin")
+        return getExtensionDataOrNull(plugin)
+            ?: throw IllegalStateException("BukkitWorldData 未注册到当前 world")
+    }
 
 val World.renderChunkManager: RenderChunkManager
     get() = bukkitWorldData.renderChunkManager

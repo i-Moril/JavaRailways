@@ -11,7 +11,7 @@ class S100PackageLoadTest {
         val packageDir = File("../models/s100").canonicalFile
         assertTrue(packageDir.isDirectory, "S100 model package should exist at ${packageDir.path}")
 
-        val loaded = PackageLoader(packageDir).load() as? LoadedTrainPackage
+        val loaded = PackageLoader(packageDir).loadTrainPackage()
         assertNotNull(loaded, "S100 model package should load")
         loaded!!
 

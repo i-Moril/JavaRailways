@@ -107,7 +107,8 @@ class AbstractModelAnimationTest {
         override fun removeTrain(train: Train) = Unit
         override fun getRail(id: UUID): Rail? = null
         override fun removeRail(rail: Rail) = Unit
-        override fun <T : Any> getExtensionData(plugin: Plugin): T = error("No extensions")
+        override fun <T : Any> getExtensionDataOrNull(plugin: Plugin): T? = null
+        override fun <T : Any> requireExtensionData(plugin: Plugin): T = error("No extensions")
         override fun <T : Any> registerExtensionData(plugin: Plugin, data: T) = Unit
         override fun forEachExtensionData(action: (Any) -> Unit) = Unit
         override fun <T> forEachExtensionData(action: (Any) -> T): List<T> = emptyList()

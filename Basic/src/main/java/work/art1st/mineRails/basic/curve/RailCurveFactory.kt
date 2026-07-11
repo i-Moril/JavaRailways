@@ -30,7 +30,8 @@ enum class StraightMode {
 data class RailCurveBuildOptions(
     val template: RailCurveTemplateType = RailCurveTemplateType.AUTO,
     val radius: Double = 0.0,
-    val straightMode: StraightMode = StraightMode.REQUIRE_TANGENT
+    val straightMode: StraightMode = StraightMode.REQUIRE_TANGENT,
+    val superelevation: SuperelevationConfig? = null
 )
 
 data class CurveTemplateMatch(
@@ -106,10 +107,10 @@ object RailCurveFactory {
             RailCurveTemplateType.STRAIGHT -> buildStraight(prepared, options, match)
             RailCurveTemplateType.FIVE_SEGMENT -> buildFiveSegment(prepared, options, match)
             RailCurveTemplateType.S_CURVE -> buildSCurve(prepared, options, match)
-            RailCurveTemplateType.TURNOUT -> RailCurveBuildResult.failure(
-                "道岔模板尚未实现；道岔将使用独立几何，不能复用普通曲线模板",
-                match.template,
-                match.reason
+            RailCurveTemplateType.TURNOUT -> buildFiveSegment(
+                prepared,
+                options.copy(superelevation = null),
+                match
             )
             RailCurveTemplateType.AUTO -> error("AUTO should be resolved before build")
         }
@@ -376,7 +377,8 @@ object RailCurveFactory {
             prepared.toTan3d,
             0.2,
             prepared.fromRoll,
-            prepared.toRoll
+            prepared.toRoll,
+            options.superelevation
         )
         val curve = PrimeCurve.fromPoints(curvePoints)
         if (!validateGeneratedCurve(curve, prepared.fromPos, prepared.toPos, prepared.fromTan3d, prepared.toTan3d, prepared.fromRoll, prepared.toRoll)) {

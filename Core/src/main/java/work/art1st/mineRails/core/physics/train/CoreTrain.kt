@@ -138,8 +138,7 @@ open class CoreTrain @MainThread internal constructor(
                     traversedSegments.map(::spanFromSegment)
             )
         } catch (e: PhysicsException) {
-            setDerailed()
-            EventManager.fireAsync(DerailEvent(this, e.toString()))
+            derail(e.toString())
         }
     }
 
@@ -324,9 +323,12 @@ open class CoreTrain @MainThread internal constructor(
         setController(null)
     }
 
-    protected fun setDerailed() {
-        _isDerailed.set(true)
-        removeController()
+    @OptIn(AsyncEventApi::class)
+    override fun derail(reason: String) {
+        if (_isDerailed.compareAndSet(false, true)) {
+            removeController()
+            EventManager.fireAsync(DerailEvent(this, reason))
+        }
     }
 
     internal fun markDerailedFromPhysics() {

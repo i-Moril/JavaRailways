@@ -90,6 +90,51 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
+    fun `turnout template builds a branch without superelevation`() {
+        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
+        val to = Anchor("B", Vector3d(50.0, 0.0, 50.0), Vector3d(0.0, 0.0, 1.0))
+        val result = RailCurveFactory.build(
+            from,
+            to,
+            RailCurveBuildOptions(
+                template = RailCurveTemplateType.TURNOUT,
+                radius = 30.0,
+                superelevation = SuperelevationConfig(designSpeedKmH = 80.0)
+            )
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        assertEquals(RailCurveTemplateType.TURNOUT, result.selectedTemplate)
+        val middleNormal = result.curve!!.getPointAt(result.curve!!.totalArcLength * 0.5).normal
+        assertTrue(middleNormal.dot(Vector3d(0.0, 1.0, 0.0)) > 0.999)
+    }
+
+    @Test
+    fun `five segment curve applies automatic superelevation`() {
+        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
+        val to = Anchor("B", Vector3d(50.0, 0.0, 50.0), Vector3d(0.0, 0.0, 1.0))
+        val result = RailCurveFactory.build(
+            from,
+            to,
+            RailCurveBuildOptions(
+                template = RailCurveTemplateType.FIVE_SEGMENT,
+                radius = 30.0,
+                superelevation = SuperelevationConfig(
+                    designSpeedKmH = 80.0,
+                    maxSuperelevation = 0.15
+                )
+            )
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        val curve = result.curve!!
+        val middleNormal = curve.getPointAt(curve.totalArcLength * 0.5).normal
+        assertTrue(kotlin.math.abs(middleNormal.x()) + kotlin.math.abs(middleNormal.z()) > 0.01)
+        assertTrue(curve.getPointAt(0.0).normal.dot(Vector3d(0.0, 1.0, 0.0)) > 0.999)
+        assertTrue(curve.getPointAt(curve.totalArcLength).normal.dot(Vector3d(0.0, 1.0, 0.0)) > 0.999)
+    }
+
+    @Test
     fun `straight template can manually use chord direction`() {
         val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
         val to = Anchor("B", Vector3d(10.0, 0.0, 5.0), Vector3d(1.0, 0.0, 0.0))

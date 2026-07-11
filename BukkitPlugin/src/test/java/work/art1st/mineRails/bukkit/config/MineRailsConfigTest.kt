@@ -13,6 +13,9 @@ class MineRailsConfigTest {
         yaml.set("train-key-bind-distance", 24.5)
         yaml.set("train-debug-log", true)
         yaml.set("physics-worker-threads", 3)
+        yaml.set("overspeed-derail-enabled", true)
+        yaml.set("overspeed-tolerance-kmh", 6.0)
+        yaml.set("overspeed-grace-ticks", 4)
 
         val config = MineRailsConfig.fromYaml(yaml)
 
@@ -20,6 +23,9 @@ class MineRailsConfigTest {
         assertEquals(24.5, config.trainKeyBindDistance)
         assertEquals(true, config.trainDebugLog)
         assertEquals(3, config.physicsWorkerThreads)
+        assertEquals(true, config.overspeedDerailEnabled)
+        assertEquals(6.0, config.overspeedToleranceKmH)
+        assertEquals(4, config.overspeedGraceTicks)
     }
 
     @Test
@@ -29,6 +35,9 @@ class MineRailsConfigTest {
         yaml.set("train-key-bind-distance", 24.5)
         yaml.set("train-debug-log", false)
         yaml.set("physics-worker-threads", 0)
+        yaml.set("overspeed-derail-enabled", false)
+        yaml.set("overspeed-tolerance-kmh", 5.0)
+        yaml.set("overspeed-grace-ticks", 5)
 
         assertThrows(IllegalArgumentException::class.java) {
             MineRailsConfig.fromYaml(yaml)

@@ -98,7 +98,10 @@ object RailCommand {
         records.forEachIndexed { idx, record ->
             val rail = coreWorld?.getRail(record.railId)
             val nextCount = rail?.let { it.viewAB.nextRails.size + it.viewBA.nextRails.size } ?: 0
-            sender.sendMessage("${idx + 1}. ${record.railId} 分段=${record.segments.size} 连接=${nextCount}")
+            val designSpeed = rail?.metadata?.designSpeedMetersPerSecond?.let { "%.0fkm/h".format(it * 3.6) } ?: "未设置"
+            sender.sendMessage(
+                "${idx + 1}. ${record.railId} 分段=${record.segments.size} 连接=$nextCount 设计时速=$designSpeed"
+            )
         }
 
         return true

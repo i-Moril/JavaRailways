@@ -25,6 +25,7 @@ import work.art1st.mineRails.basic.curve.RailCurveBuildOptions
 import work.art1st.mineRails.basic.curve.RailCurveFactory
 import work.art1st.mineRails.basic.curve.RailCurveTemplateType
 import work.art1st.mineRails.basic.curve.StraightMode
+import work.art1st.mineRails.basic.curve.SuperelevationConfig
 import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
 import work.art1st.mineRails.basic.rail.RailAutoConnector
 import work.art1st.mineRails.bukkit.BukkitPlugin
@@ -37,6 +38,8 @@ import work.art1st.mineRails.bukkit.util.HeavyRailQueries
 import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import work.art1st.mineRails.core.api.physics.rail.RailKind
+import work.art1st.mineRails.core.api.physics.rail.RailMetadata
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
@@ -107,7 +110,13 @@ data class WandPlayerState(
     /** 曲线模板。AUTO 会按端点几何自动分类；STRAIGHT 可强制斜向直线。 */
     var curveTemplate: RailCurveTemplateType = RailCurveTemplateType.AUTO,
     /** 直线模板是否允许重设端点 yaw 为两锚点 chord；默认关闭以避免切线突变。 */
-    var straightUsesChordDirection: Boolean = false
+    var straightUsesChordDirection: Boolean = false,
+    /** 新建轨道的设计时速。 */
+    var designSpeedKmH: Double = 80.0,
+    /** 五段式曲线是否按设计时速生成外轨超高。 */
+    var automaticSuperelevation: Boolean = true,
+    /** 自动超高上限。 */
+    var maxSuperelevationMm: Double = 150.0
 ) : WandState<WandMode>
 
 // ═══════════════════════════════════════════════════════════════
@@ -264,6 +273,32 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             group = "wand.settings"
             order = 8
         }
+        val designSpeedKmH = ConfigKey.build<Double>("wand.designSpeedKmH") {
+            label = "设计时速"
+            description = "新建轨道的设计时速，并用于自动计算曲线超高。"
+            defaultValue(80.0)
+            valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(5.0, 500.0, 5.0, "km/h")
+            group = "wand.settings"
+            order = 9
+        }
+        val automaticSuperelevation = ConfigKey.build<Boolean>("wand.automaticSuperelevation") {
+            label = "自动外轨超高"
+            description = "五段式曲线按设计时速和半径自动生成外轨超高。"
+            defaultValue(true)
+            valueType = ConfigValueType.BOOLEAN
+            group = "wand.settings"
+            order = 10
+        }
+        val maxSuperelevationMm = ConfigKey.build<Double>("wand.maxSuperelevationMm") {
+            label = "最大外轨超高"
+            description = "自动外轨超高的上限。"
+            defaultValue(150.0)
+            valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
+            group = "wand.settings"
+            order = 11
+        }
     }
 
     /** 锚点编辑配置键 */
@@ -331,6 +366,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             items.add(ConfigItemImpl(wandKeys.curveRadius))
             items.add(ConfigItemImpl(wandKeys.curveTemplate))
             items.add(ConfigItemImpl(wandKeys.straightUsesChordDirection))
+            items.add(ConfigItemImpl(wandKeys.designSpeedKmH))
+            items.add(ConfigItemImpl(wandKeys.automaticSuperelevation))
+            items.add(ConfigItemImpl(wandKeys.maxSuperelevationMm))
         }
         configUI.register(wandGroup)
 
@@ -377,6 +415,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ?: (configUI.get(wandKeys.curveTemplate) ?: RailCurveTemplateType.AUTO)
         state.straightUsesChordDirection = session.getValue(wandKeys.straightUsesChordDirection)
             ?: (configUI.get(wandKeys.straightUsesChordDirection) ?: false)
+        state.designSpeedKmH = session.getValue(wandKeys.designSpeedKmH)
+            ?: (configUI.get(wandKeys.designSpeedKmH) ?: 80.0)
+        state.automaticSuperelevation = session.getValue(wandKeys.automaticSuperelevation)
+            ?: (configUI.get(wandKeys.automaticSuperelevation) ?: true)
+        state.maxSuperelevationMm = session.getValue(wandKeys.maxSuperelevationMm)
+            ?: (configUI.get(wandKeys.maxSuperelevationMm) ?: 150.0)
     }
 
     /** 将 WandPlayerState 中的值同步到 ConfigAPI session (在打开 Dialog 前调用) */
@@ -392,6 +436,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(wandKeys.curveRadius, state.curveRadius)
         session.setValue(wandKeys.curveTemplate, state.curveTemplate)
         session.setValue(wandKeys.straightUsesChordDirection, state.straightUsesChordDirection)
+        session.setValue(wandKeys.designSpeedKmH, state.designSpeedKmH)
+        session.setValue(wandKeys.automaticSuperelevation, state.automaticSuperelevation)
+        session.setValue(wandKeys.maxSuperelevationMm, state.maxSuperelevationMm)
     }
 
     override fun clearSelection(player: Player, state: WandPlayerState) {
@@ -525,7 +572,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val parallelSpacing: Double,
         val curveRadius: Double,
         val curveTemplate: RailCurveTemplateType,
-        val straightUsesChordDirection: Boolean
+        val straightUsesChordDirection: Boolean,
+        val designSpeedKmH: Double,
+        val automaticSuperelevation: Boolean,
+        val maxSuperelevationMm: Double
     )
 
     private data class RailEndpointRebuildInput(
@@ -549,7 +599,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             parallelSpacing = state.parallelSpacing,
             curveRadius = state.curveRadius,
             curveTemplate = state.curveTemplate,
-            straightUsesChordDirection = state.straightUsesChordDirection
+            straightUsesChordDirection = state.straightUsesChordDirection,
+            designSpeedKmH = state.designSpeedKmH,
+            automaticSuperelevation = state.automaticSuperelevation,
+            maxSuperelevationMm = state.maxSuperelevationMm
         )
     }
 
@@ -630,7 +683,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val undoActions = mutableListOf<WandAction>()
                 try {
                     curves.forEach { curve ->
-                        val rail = CoreRail(liveCoreWorld, curve, mutableListOf(), mutableListOf())
+                        val rail = CoreRail(
+                            liveCoreWorld,
+                            curve,
+                            mutableListOf(),
+                            mutableListOf(),
+                            railMetadata(settingsSnapshot)
+                        )
                         val meta = RailVisualBootstrap.registerRail(rail)
                         persistedMetas.add(meta)
                         createdRails.add(rail)
@@ -792,7 +851,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 try {
                     rebuildInputs.forEach { input ->
                         val newCurve = curvesByRailId[input.railId] ?: error("Missing rebuilt curve for ${input.railId}")
-                        val newRail = CoreRail(liveCoreWorld, newCurve, mutableListOf(), mutableListOf())
+                        val newRail = CoreRail(
+                            liveCoreWorld,
+                            newCurve,
+                            mutableListOf(),
+                            mutableListOf(),
+                            railMetadata(settingsSnapshot)
+                        )
                         val meta = RailVisualBootstrap.registerRail(newRail)
                         createdRails.add(newRail)
                         createdMetas.add(meta)
@@ -1004,9 +1069,26 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return RailCurveBuildOptions(
             template = settings.curveTemplate,
             radius = settings.curveRadius,
-            straightMode = if (settings.straightUsesChordDirection) StraightMode.USE_CHORD else StraightMode.REQUIRE_TANGENT
+            straightMode = if (settings.straightUsesChordDirection) StraightMode.USE_CHORD else StraightMode.REQUIRE_TANGENT,
+            superelevation = if (settings.automaticSuperelevation) {
+                SuperelevationConfig(
+                    maxSuperelevation = settings.maxSuperelevationMm / 1000.0,
+                    designSpeedKmH = settings.designSpeedKmH
+                )
+            } else {
+                null
+            }
         )
     }
+
+    private fun railMetadata(settings: CurveBuildSettingsSnapshot): RailMetadata = RailMetadata(
+        designSpeedMetersPerSecond = settings.designSpeedKmH / 3.6,
+        kind = if (settings.curveTemplate == RailCurveTemplateType.TURNOUT) {
+            RailKind.TURNOUT_BRANCH
+        } else {
+            RailKind.NORMAL
+        }
+    )
 
     // ═══════════════════════════════════════════
     // 编辑模式

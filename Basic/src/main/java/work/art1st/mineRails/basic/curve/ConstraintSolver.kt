@@ -87,7 +87,8 @@ object ConstraintSolver {
     fun generateCurve(
         r: ConstraintSolveResult.Success, fromPos: Vector3dc, fromTangent: Vector3dc,
         toPos: Vector3dc, toTangent: Vector3dc, step: Double = 0.2,
-        fromRollDegrees: Double = 0.0, toRollDegrees: Double = 0.0
+        fromRollDegrees: Double = 0.0, toRollDegrees: Double = 0.0,
+        superelevationConfig: SuperelevationConfig? = null
     ): List<Curve.RawPoint> {
         val fx = Vector3d(fromTangent.x(), 0.0, fromTangent.z()).normalize()
         val fz = if (r.leftTurn)
@@ -156,7 +157,7 @@ object ConstraintSolver {
         curveOrigin.y = heightAt(r.straightA)
 
         // clothoid + arc + clothoid
-        val curve = StandardRailCurve(r.R, r.L1, r.Lc)
+        val curve = StandardRailCurve(r.R, r.L1, r.Lc, superelevationConfig)
         val curveStep = minOf(step, adaptiveCurveStep(r.R))
         val localPoints = curve.generatePoints(curveStep).toMutableList()
         if (localPoints.isNotEmpty()) {
@@ -175,7 +176,9 @@ object ConstraintSolver {
             val slope = gradeAt(arc)
             val tan3d = Vector3d(gtx, slope, gtz).normalize()
             val (_, baseNormal, _) = computeFrame(tan3d)
-            val nrm3d = applyRoll(baseNormal, tan3d, rollAt(arc))
+            val cantSign = if (r.leftTurn) -1.0 else 1.0
+            val cantRoll = cantSign * curve.superelevationAngleAt(lp.arcLength)
+            val nrm3d = applyRoll(baseNormal, tan3d, rollAt(arc) + cantRoll)
             pts.add(Curve.RawPoint(Vector3d(gx, gy, gz), tan3d, nrm3d, arc))
         }
         s += curve.totalLength

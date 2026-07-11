@@ -14,7 +14,6 @@ import java.util.concurrent.atomic.AtomicLong
  */
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
-    val railMetadata: RailMetadataStore = RailMetadataStore(),
     val wayPoints: WayPointStore = WayPointStore(),
     val timetables: TimetableStore = TimetableStore(),
     val dispatcher: TimetableDispatcher = TimetableDispatcher()
@@ -23,8 +22,6 @@ data class BasicWorldData(
     val stopPoints: WayPointStore
         get() = wayPoints
 }
-
-class RailMetadataStore
 
 /** 轨道上的路径点。第一版只保存可持久化引用，不直接持有 Core 内部 location 对象。 */
 data class WayPoint(

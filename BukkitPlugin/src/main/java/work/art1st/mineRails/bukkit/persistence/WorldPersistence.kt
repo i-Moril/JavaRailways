@@ -5,6 +5,8 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.core.persistence.WorldSnapshotCodec
 import work.art1st.mineRails.core.physics.CoreWorld
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.StandardCopyOption
 
 /**
  * 将 [CoreWorld] 快照保存到插件数据目录下，按 Bukkit 世界 [World.getUID] 区分文件。
@@ -34,8 +36,19 @@ object WorldPersistence {
     }
 
     fun saveSnapshot(world: World, core: CoreWorld) {
-        val f = snapshotFile(world)
-        f.parentFile.mkdirs()
-        f.writeText(WorldSnapshotCodec.encodeToString(core.save()))
+        val target = snapshotFile(world)
+        target.parentFile.mkdirs()
+        val temp = File(target.parentFile, "${target.name}.tmp")
+        temp.writeText(WorldSnapshotCodec.encodeToString(core.save()))
+        try {
+            java.nio.file.Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            java.nio.file.Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
     }
 }

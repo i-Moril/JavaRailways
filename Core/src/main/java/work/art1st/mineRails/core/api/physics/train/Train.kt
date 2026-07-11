@@ -17,4 +17,5 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     val tailLocation: RailLocation
     fun moveTrainForward(deltaS: Double)
     fun reverse()
+    fun derail(reason: String)
 }

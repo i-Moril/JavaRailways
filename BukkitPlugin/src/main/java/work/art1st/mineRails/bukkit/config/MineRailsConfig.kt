@@ -8,7 +8,10 @@ data class MineRailsConfig(
     val trainModelUpdatePolicy: TrainModelUpdatePolicy,
     val trainKeyBindDistance: Double,
     val trainDebugLog: Boolean,
-    val physicsWorkerThreads: Int
+    val physicsWorkerThreads: Int,
+    val overspeedDerailEnabled: Boolean,
+    val overspeedToleranceKmH: Double,
+    val overspeedGraceTicks: Int
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
@@ -27,11 +30,18 @@ data class MineRailsConfig(
             require(bindDistance >= 0.0) { "train-key-bind-distance must be >= 0.0" }
             val physicsWorkerThreads = requireInt(yaml, "physics-worker-threads")
             require(physicsWorkerThreads > 0) { "physics-worker-threads must be > 0" }
+            val overspeedToleranceKmH = requireDouble(yaml, "overspeed-tolerance-kmh")
+            require(overspeedToleranceKmH >= 0.0) { "overspeed-tolerance-kmh must be >= 0.0" }
+            val overspeedGraceTicks = requireInt(yaml, "overspeed-grace-ticks")
+            require(overspeedGraceTicks > 0) { "overspeed-grace-ticks must be > 0" }
             return MineRailsConfig(
                 trainModelUpdatePolicy = policy,
                 trainKeyBindDistance = bindDistance,
                 trainDebugLog = requireBoolean(yaml, "train-debug-log"),
-                physicsWorkerThreads = physicsWorkerThreads
+                physicsWorkerThreads = physicsWorkerThreads,
+                overspeedDerailEnabled = requireBoolean(yaml, "overspeed-derail-enabled"),
+                overspeedToleranceKmH = overspeedToleranceKmH,
+                overspeedGraceTicks = overspeedGraceTicks
             )
         }
 

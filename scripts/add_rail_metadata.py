@@ -11,10 +11,19 @@ def update(path: Path, design_speed_kmh: float) -> int:
     metadata = {
         "designSpeedMetersPerSecond": design_speed_kmh / 3.6,
         "kind": "NORMAL",
+        "geometry": {
+            "curveKind": "UNKNOWN",
+            "curveRadiusMeters": None,
+            "straightUsesChordDirection": False,
+            "automaticSuperelevation": False,
+            "maxSuperelevationMeters": 0.15,
+            "parallel": None,
+        },
     }
     rails = data["rails"]
     for rail in rails:
-        rail["metadata"] = metadata.copy()
+        current = rail.setdefault("metadata", metadata.copy())
+        current.setdefault("geometry", metadata["geometry"].copy())
     path.write_text(json.dumps(data, separators=(",", ":")))
     return len(rails)
 

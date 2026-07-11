@@ -38,6 +38,9 @@ import work.art1st.mineRails.bukkit.util.HeavyRailQueries
 import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import work.art1st.mineRails.core.api.physics.rail.ParallelRailMetadata
+import work.art1st.mineRails.core.api.physics.rail.RailCurveKind
+import work.art1st.mineRails.core.api.physics.rail.RailGeometryMetadata
 import work.art1st.mineRails.core.api.physics.rail.RailKind
 import work.art1st.mineRails.core.api.physics.rail.RailMetadata
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
@@ -311,6 +314,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             group = "rail.edit"
             order = 0
         }
+        val curveRadius = ConfigKey.build<Double>("rail.edit.curveRadius") {
+            label = "曲线半径"
+            description = "0 表示自动选择；S弯中作为最小半径。并行线路会整组重建。"
+            defaultValue(0.0)
+            valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(0.0, 10000.0, 10.0, "m")
+            group = "rail.edit"
+            order = 1
+        }
     }
 
     /** 锚点编辑配置键 */
@@ -400,8 +412,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         configUI.register(ConfigGroup(
             id = "rail.edit",
             label = "编辑轨道",
-            description = "修改轨道段的基础设施属性。",
-            items = mutableListOf(ConfigItemImpl(railEditKeys.designSpeedKmH))
+            description = "修改轨道段的基础设施属性。修改曲线半径会重建轨道。",
+            items = mutableListOf(
+                ConfigItemImpl(railEditKeys.designSpeedKmH),
+                ConfigItemImpl(railEditKeys.curveRadius)
+            )
         ))
 
         // 锚点批量编辑分组 (增量)
@@ -603,7 +618,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val railId: UUID,
         val movedEnd: Char,
         val oldStart: Anchor,
-        val oldEnd: Anchor
+        val oldEnd: Anchor,
+        val oldMetadata: RailMetadata
     )
 
     private data class RailConnectionSnapshot(
@@ -703,13 +719,22 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
                 val undoActions = mutableListOf<WandAction>()
                 try {
-                    curves.forEach { curve ->
+                    val parallelGroupId = UUID.randomUUID().toString().takeIf { curves.size > 1 }
+                    curves.forEachIndexed { index, curve ->
+                        val parallel = parallelGroupId?.let {
+                            ParallelRailMetadata(
+                                groupId = it,
+                                index = index,
+                                count = curves.size,
+                                spacingMeters = settingsSnapshot.parallelSpacing
+                            )
+                        }
                         val rail = CoreRail(
                             liveCoreWorld,
                             curve,
                             mutableListOf(),
                             mutableListOf(),
-                            railMetadata(settingsSnapshot)
+                            railMetadata(settingsSnapshot, parallel)
                         )
                         val meta = RailVisualBootstrap.registerRail(rail)
                         persistedMetas.add(meta)
@@ -800,7 +825,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 railId = rail.id,
                 movedEnd = movedEnd,
                 oldStart = anchorFromRailEndpoint(player.world, rail, 'A'),
-                oldEnd = anchorFromRailEndpoint(player.world, rail, 'B')
+                oldEnd = anchorFromRailEndpoint(player.world, rail, 'B'),
+                oldMetadata = rail.metadata
             )
         }
         if (rebuildInputs.size != affectedRails.size) {
@@ -877,7 +903,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             newCurve,
                             mutableListOf(),
                             mutableListOf(),
-                            railMetadata(settingsSnapshot)
+                            railMetadata(settingsSnapshot, input.oldMetadata.geometry.parallel)
                         )
                         val meta = RailVisualBootstrap.registerRail(newRail)
                         createdRails.add(newRail)
@@ -1102,13 +1128,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         )
     }
 
-    private fun railMetadata(settings: CurveBuildSettingsSnapshot): RailMetadata = RailMetadata(
+    private fun railMetadata(
+        settings: CurveBuildSettingsSnapshot,
+        parallel: ParallelRailMetadata? = null
+    ): RailMetadata = RailMetadata(
         designSpeedMetersPerSecond = settings.designSpeedKmH / 3.6,
         kind = if (settings.curveTemplate == RailCurveTemplateType.TURNOUT) {
             RailKind.TURNOUT_BRANCH
         } else {
             RailKind.NORMAL
-        }
+        },
+        geometry = RailGeometryMetadata(
+            curveKind = RailCurveKind.valueOf(settings.curveTemplate.name),
+            curveRadiusMeters = settings.curveRadius.takeIf { it > 0.0 },
+            straightUsesChordDirection = settings.straightUsesChordDirection,
+            automaticSuperelevation = settings.automaticSuperelevation,
+            maxSuperelevationMeters = settings.maxSuperelevationMm / 1000.0,
+            parallel = parallel
+        )
     )
 
     // ═══════════════════════════════════════════
@@ -1129,29 +1166,181 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     internal fun editRail(player: Player, rail: CoreRail, state: WandPlayerState) {
         val currentSpeedKmH = rail.metadata.designSpeedMetersPerSecond?.times(3.6) ?: state.designSpeedKmH
+        val currentRadius = rail.metadata.geometry.curveRadiusMeters ?: 0.0
         state.selectedAnchors.clear()
         state.selectedRails.clear()
         state.selectedRails.add(rail.id)
         state.designSpeedKmH = currentSpeedKmH
+        state.curveRadius = currentRadius
         updateAnchorDisplay(player)
 
         val session = configUI.getPlayerSession(player.uniqueId)
         session.setValue(railEditKeys.designSpeedKmH, currentSpeedKmH)
+        session.setValue(railEditKeys.curveRadius, currentRadius)
         dialogRenderer.showConfigDialog(player, "rail.edit") { p ->
-            val liveRail = getCoreWorld(p)?.getRail(rail.id) ?: run {
+            val liveWorld = getCoreWorld(p) ?: return@showConfigDialog
+            val liveRail = liveWorld.getRail(rail.id) ?: run {
                 p.sendActionBar(Component.text("轨道已不存在", NamedTextColor.RED))
                 return@showConfigDialog
             }
-            val designSpeedKmH = configUI.getPlayerSession(p.uniqueId)
-                .getValue(railEditKeys.designSpeedKmH) ?: currentSpeedKmH
-            liveRail.metadata = liveRail.metadata.copy(
-                designSpeedMetersPerSecond = designSpeedKmH / 3.6
-            )
-            getState(p).designSpeedKmH = designSpeedKmH
-            p.sendActionBar(
-                Component.text("轨道设计时速已更新为 ${"%.0f".format(designSpeedKmH)} km/h", NamedTextColor.GREEN)
-            )
+            val values = configUI.getPlayerSession(p.uniqueId)
+            val designSpeedKmH = values.getValue(railEditKeys.designSpeedKmH) ?: currentSpeedKmH
+            val curveRadius = values.getValue(railEditKeys.curveRadius) ?: currentRadius
+            val liveState = getState(p)
+            liveState.designSpeedKmH = designSpeedKmH
+            liveState.curveRadius = curveRadius
+
+            if (abs(curveRadius - currentRadius) < 1.0e-6) {
+                val groupedRails = railsInParallelGroup(liveWorld, liveRail)
+                if (groupedRails.isEmpty()) {
+                    p.sendActionBar(Component.text("并行线路信息不完整，无法编辑", NamedTextColor.RED))
+                    return@showConfigDialog
+                }
+                groupedRails.forEach { groupedRail ->
+                    groupedRail.metadata = groupedRail.metadata.copy(
+                        designSpeedMetersPerSecond = designSpeedKmH / 3.6
+                    )
+                }
+                p.sendActionBar(
+                    Component.text("轨道设计时速已更新为 ${"%.0f".format(designSpeedKmH)} km/h", NamedTextColor.GREEN)
+                )
+            } else {
+                rebuildRailGeometry(p, liveRail, designSpeedKmH, curveRadius)
+            }
         }
+    }
+
+    private fun railsInParallelGroup(world: CoreWorld, rail: CoreRail): List<CoreRail> {
+        val parallel = rail.metadata.geometry.parallel ?: return listOf(rail)
+        val rails = world.allRails
+            .filter { it.metadata.geometry.parallel?.groupId == parallel.groupId }
+            .sortedBy { it.metadata.geometry.parallel!!.index }
+        return if (rails.size == parallel.count) rails else emptyList()
+    }
+
+    private fun rebuildRailGeometry(
+        player: Player,
+        selectedRail: CoreRail,
+        designSpeedKmH: Double,
+        curveRadius: Double
+    ) {
+        val coreWorld = getCoreWorld(player) ?: return
+        val oldRails = railsInParallelGroup(coreWorld, selectedRail)
+        if (oldRails.isEmpty()) {
+            player.sendActionBar(Component.text("并行线路信息不完整，无法重建", NamedTextColor.RED))
+            return
+        }
+        if (oldRails.any { it.trains.isNotEmpty() }) {
+            player.sendActionBar(Component.text("不能重建有列车占用的轨道", NamedTextColor.RED))
+            return
+        }
+
+        val geometry = selectedRail.metadata.geometry
+        if (geometry.curveKind == RailCurveKind.UNKNOWN) {
+            player.sendActionBar(Component.text("旧轨道没有曲线模板信息，请重新创建", NamedTextColor.RED))
+            return
+        }
+        val template = RailCurveTemplateType.valueOf(geometry.curveKind.name)
+        val parallel = geometry.parallel
+        val settings = CurveBuildSettingsSnapshot(
+            parallelCount = parallel?.count ?: 1,
+            parallelSpacing = parallel?.spacingMeters ?: 4.5,
+            curveRadius = curveRadius,
+            curveTemplate = template,
+            straightUsesChordDirection = geometry.straightUsesChordDirection,
+            designSpeedKmH = designSpeedKmH,
+            automaticSuperelevation = geometry.automaticSuperelevation,
+            maxSuperelevationMm = geometry.maxSuperelevationMeters * 1000.0
+        )
+        val starts = oldRails.map { anchorFromRailEndpoint(player.world, it, 'A') }
+        val ends = oldRails.map { anchorFromRailEndpoint(player.world, it, 'B') }
+        val oldIds = oldRails.map { it.id }.toSet()
+        val oldMetadata = oldRails.map { it.metadata }
+        val selectedIndex = oldRails.indexOfFirst { it.id == selectedRail.id }
+        val worldId = player.world.uid
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道曲率重建")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+        player.sendActionBar(Component.text("正在重建轨道曲线...", NamedTextColor.GRAY))
+
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailWand.rebuildRailGeometry",
+            supplier = { createCurvesBetweenParallelAnchors(starts, ends, settings) },
+            onSuccess = { curves ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                if (curves == null || curves.size != oldRails.size) {
+                    livePlayer.sendActionBar(Component.text("无法按新半径生成曲线", NamedTextColor.RED))
+                    return@supply
+                }
+                val liveOldRails = oldRails.map { old -> liveWorld.getRail(old.id) ?: return@supply }
+                if (liveOldRails.any { it.trains.isNotEmpty() }) {
+                    livePlayer.sendActionBar(Component.text("不能重建有列车占用的轨道", NamedTextColor.RED))
+                    return@supply
+                }
+
+                val persisted = RailRenderMetaStore.load(livePlayer.world)
+                val allRails = persisted.mapNotNull { liveWorld.getRail(it.railId) }
+                val connectionSnapshots = allRails.map(::snapshotRailConnections)
+                val created = mutableListOf<CoreRail>()
+                val createdRenderMeta = mutableListOf<PersistedRailRenderMeta>()
+                try {
+                    curves.forEachIndexed { index, curve ->
+                        val metadata = oldMetadata[index].copy(
+                            designSpeedMetersPerSecond = designSpeedKmH / 3.6,
+                            geometry = oldMetadata[index].geometry.copy(
+                                curveRadiusMeters = curveRadius.takeIf { it > 0.0 }
+                            )
+                        )
+                        val newRail = CoreRail(liveWorld, curve, mutableListOf(), mutableListOf(), metadata)
+                        created += newRail
+                        createdRenderMeta += RailVisualBootstrap.registerRail(newRail)
+                    }
+
+                    RailRenderMetaStore.saveAll(
+                        livePlayer.world,
+                        persisted.filterNot { it.railId in oldIds } + createdRenderMeta
+                    )
+                    detachRailReferences(oldIds, allRails.filter { it.id !in oldIds })
+                    connectCreatedRailsToExisting(created, allRails.filter { it.id !in oldIds } + created)
+                    liveOldRails.forEach { old ->
+                        RailVisualBootstrap.unregisterRail(old.id)
+                        old.destroy()
+                        liveWorld.removeRail(old)
+                    }
+
+                    val replacement = created[selectedIndex.coerceAtLeast(0)]
+                    val state = getState(livePlayer)
+                    state.selectedRails.clear()
+                    state.selectedRails.add(replacement.id)
+                    refreshAllAnchorsForPlayer(livePlayer)
+                    updateAnchorDisplay(livePlayer)
+                    livePlayer.sendActionBar(Component.text("轨道曲线半径已更新", NamedTextColor.GREEN))
+                } catch (error: Exception) {
+                    created.forEach { rail ->
+                        RailVisualBootstrap.unregisterRail(rail.id)
+                        rail.destroy()
+                        liveWorld.removeRail(rail)
+                    }
+                    restoreRailConnections(connectionSnapshots)
+                    RailRenderMetaStore.saveAll(livePlayer.world, persisted)
+                    persisted.forEach { RailVisualBootstrap.fromPersisted(liveWorld, it) }
+                    livePlayer.sendActionBar(Component.text("轨道重建失败，已回滚: ${error.message}", NamedTextColor.RED))
+                }
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("Rail radius rebuild failed: ${error.message ?: error::class.simpleName}")
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
+                    Component.text("轨道重建失败", NamedTextColor.RED)
+                )
+            }
+        )
     }
 
     internal fun selectRail(player: Player, rail: CoreRail, state: WandPlayerState) {
@@ -1161,7 +1350,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         updateAnchorDisplay(player)
         val speed = rail.metadata.designSpeedMetersPerSecond?.times(3.6)
         val speedLabel = speed?.let { "%.0f km/h".format(it) } ?: "未设置"
-        player.sendActionBar(Component.text("已选择轨道 ${rail.id}，设计时速 $speedLabel", NamedTextColor.YELLOW))
+        val radiusLabel = rail.metadata.geometry.curveRadiusMeters?.let { "%.0f m".format(it) } ?: "自动"
+        val parallelLabel = rail.metadata.geometry.parallel?.let { "并行 ${it.index + 1}/${it.count}" } ?: "单线"
+        player.sendActionBar(
+            Component.text(
+                "已选择轨道 ${rail.id}，设计时速 $speedLabel，半径 $radiusLabel，$parallelLabel",
+                NamedTextColor.YELLOW
+            )
+        )
     }
 
     internal fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {

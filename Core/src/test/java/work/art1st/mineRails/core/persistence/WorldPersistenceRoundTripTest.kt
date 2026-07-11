@@ -8,6 +8,9 @@ import org.junit.jupiter.api.Test
 import work.art1st.mineRails.core.di.KoinWorldParentContext
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
 import work.art1st.mineRails.core.di.mineRailsParentScope
+import work.art1st.mineRails.core.api.physics.rail.ParallelRailMetadata
+import work.art1st.mineRails.core.api.physics.rail.RailCurveKind
+import work.art1st.mineRails.core.api.physics.rail.RailGeometryMetadata
 import work.art1st.mineRails.core.api.physics.rail.RailMetadata
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
@@ -27,7 +30,15 @@ class WorldPersistenceRoundTripTest {
         val world = CoreWorld.createEmpty(tickManager, worldParent)
         val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         val rail = createStraightRailFromSegments(world, segments)
-        rail.metadata = RailMetadata(designSpeedMetersPerSecond = 22.0)
+        rail.metadata = RailMetadata(
+            designSpeedMetersPerSecond = 22.0,
+            geometry = RailGeometryMetadata(
+                curveKind = RailCurveKind.FIVE_SEGMENT,
+                curveRadiusMeters = 300.0,
+                automaticSuperelevation = true,
+                parallel = ParallelRailMetadata("P1", index = 0, count = 2, spacingMeters = 4.5)
+            )
+        )
         createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
 
         val snapshot = world.save()
@@ -45,6 +56,8 @@ class WorldPersistenceRoundTripTest {
 
         assertNotNull(loaded.getTrain("persist-t1"))
         assertEquals(22.0, loaded.getRail(rail.id)?.metadata?.designSpeedMetersPerSecond)
+        assertEquals(300.0, loaded.getRail(rail.id)?.metadata?.geometry?.curveRadiusMeters)
+        assertEquals("P1", loaded.getRail(rail.id)?.metadata?.geometry?.parallel?.groupId)
         val roundAgain = loaded.save()
         assertEquals(snapshot.rails.size, roundAgain.rails.size)
         assertEquals(snapshot.trains.size, roundAgain.trains.size)

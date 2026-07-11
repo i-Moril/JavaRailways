@@ -14,11 +14,23 @@ enum class StandardTurnout(
     val radiusMeters: Double,
     val divergingSpeedKmH: Double
 ) {
+    N4(4, 30.0, 10.0),
+    N5(5, 50.0, 15.0),
+    N6(6, 80.0, 20.0),
+    N7(7, 100.0, 20.0),
+    N8(8, 145.0, 25.0),
     N9(9, 180.0, 30.0),
+    N10(10, 220.0, 35.0),
     N12(12, 330.0, 45.0),
+    N14(14, 500.0, 55.0),
+    N16(16, 700.0, 65.0),
     N18(18, 1100.0, 80.0),
+    N20(20, 1400.0, 90.0),
+    N24(24, 1600.0, 100.0),
     N30(30, 2700.0, 140.0),
-    N42(42, 5000.0, 160.0);
+    N38(38, 4000.0, 150.0),
+    N42(42, 5000.0, 160.0),
+    N60(60, 10000.0, 200.0);
 
     val branchAngleRadians: Double get() = atan(1.0 / number)
     val displayName: String get() = "${number}号 (R${radiusMeters.toInt()}m / ${divergingSpeedKmH.toInt()}km/h)"

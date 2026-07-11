@@ -30,17 +30,20 @@ class StandardTurnoutFactoryTest {
     }
 
     @Test
-    fun `standard number defines radius angle and diverging speed`() {
-        val standard = StandardTurnout.N12
-        val result = requireNotNull(StandardTurnoutFactory.build(
-            Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
-            Vector3d(1.0, 0.0, 0.2),
-            standard
-        ))
-
-        assertEquals(12, standard.number)
-        assertEquals(330.0, standard.radiusMeters)
-        assertEquals(45.0, standard.divergingSpeedKmH)
-        assertEquals(standard.radiusMeters * standard.branchAngleRadians, result.curve.totalArcLength, 1.0e-9)
+    fun `catalog includes compact and mainline turnout numbers with speed limits`() {
+        assertEquals(
+            listOf(4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 24, 30, 38, 42, 60),
+            StandardTurnout.entries.map { it.number }
+        )
+        StandardTurnout.entries.forEach { standard ->
+            val result = requireNotNull(StandardTurnoutFactory.build(
+                Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
+                Vector3d(1.0, 0.0, 0.2),
+                standard
+            ))
+            assertTrue(standard.radiusMeters > 0.0)
+            assertTrue(standard.divergingSpeedKmH > 0.0)
+            assertEquals(standard.radiusMeters * standard.branchAngleRadians, result.curve.totalArcLength, 1.0e-9)
+        }
     }
 }

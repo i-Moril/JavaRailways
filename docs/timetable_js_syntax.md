@@ -206,7 +206,7 @@ timetable.service("001", function(t) {
 
 ## 路径点要求
 
-时刻表中引用的是 OperationWand 创建的 WayPoint id。
+时刻表中引用的是 RailObjectWand 创建的 WayPoint id。
 
 可用命令查看：
 

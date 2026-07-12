@@ -14,6 +14,7 @@ import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.inventory.ItemStack
 import org.joml.Vector3d
+import work.art1st.mineRails.basic.DirectionRestrictionResolver
 import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.ui.config.ConfigConstraints
 import work.art1st.mineRails.basic.api.ui.config.ConfigGroup
@@ -29,30 +30,31 @@ import work.art1st.mineRails.bukkit.util.HeavyRailQueries
 import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import java.util.UUID
 
-enum class OperationWandMode(
+enum class RailObjectWandMode(
     override val displayName: String,
     override val description: String
 ) : WandModeSpec {
-    CREATE_STOP_POINT("路径点创建", "右键轨道附近创建/编辑路径点 | Shift+F 切换模式"),
-    DELETE("删除模式", "左键路径点选择，再次左键确认删除 | Shift+F 切换模式")
+    WAY_POINT("路径点模式", "右键创建/编辑路径点 | 左键选择并删除 | Shift+F 切换模式"),
+    DIRECTION_RESTRICTION("方向限制模式", "右键添加方向限制 | 左键删除 | Shift+F 切换模式")
 }
 
-data class OperationWandState(
-    override var mode: OperationWandMode = OperationWandMode.CREATE_STOP_POINT,
-    var pendingDeleteStopPoint: String? = null
-) : WandState<OperationWandMode>
+data class RailObjectWandState(
+    override var mode: RailObjectWandMode = RailObjectWandMode.WAY_POINT,
+    var pendingDeleteWayPoint: String? = null
+) : WandState<RailObjectWandMode>
 
-class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, OperationWandMode>(
+class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, RailObjectWandMode>(
     plugin = plugin,
-    wandKey = "mineRails_operationWand",
+    wandKey = "mineRails_railObjectWand",
     material = Material.BLAZE_ROD,
-    itemDisplayName = Component.text("OperationWand", NamedTextColor.AQUA),
+    itemDisplayName = Component.text("RailObjectWand", NamedTextColor.AQUA),
     itemLore = listOf(
-        Component.text("右键轨道附近创建路径点", NamedTextColor.GRAY),
+        Component.text("路径点：右键添加，左键删除", NamedTextColor.GRAY),
+        Component.text("方向限制：右键添加，左键删除", NamedTextColor.GRAY),
         Component.text("Shift+F 切换模式", NamedTextColor.GRAY),
         Component.text("Shift+右键 打开设置", NamedTextColor.GRAY)
     ),
-    modes = OperationWandMode.entries.toList()
+    modes = RailObjectWandMode.entries.toList()
 ) {
     /** Per-player transient marker entities: player UUID -> (wayPoint id -> entity UUID). */
     private val markerEntities = mutableMapOf<UUID, MutableMap<String, UUID>>()
@@ -62,20 +64,20 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
     private val dialogRenderer = DialogRenderer(configUI)
     private lateinit var editKeys: WayPointEditKeys
 
-    override fun createDefaultState(): OperationWandState = OperationWandState()
+    override fun createDefaultState(): RailObjectWandState = RailObjectWandState()
 
     override fun onBeforeRegisterEvents() {
         registerConfig()
     }
 
     override fun onAfterRegisterEvents() {
-        plugin.logger.info("OperationWand initialized")
+        plugin.logger.info("RailObjectWand initialized")
     }
 
     private fun registerConfig() {
         editKeys = WayPointEditKeys()
         configUI.register(ConfigGroup(
-            id = "operation.waypoint.edit",
+            id = "railObject.waypoint.edit",
             label = "路径点设置",
             description = "路径点是列车寻路和时刻表动作的基准点，不一定要求列车停车。",
             items = mutableListOf(ConfigItemImpl(editKeys.name))
@@ -83,27 +85,31 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
     }
 
     class WayPointEditKeys {
-        val name = ConfigKey.build<String>("operation.waypoint.name") {
+        val name = ConfigKey.build<String>("railObject.waypoint.name") {
             label = "路径点名称"
             description = "用于 JS 时刻表和寻路动作引用的唯一名称"
             defaultValue("waypoint")
             valueType = ConfigValueType.STRING
             constraints = ConfigConstraints.StringLength(1, 64)
-            group = "operation.waypoint.edit"
+            group = "railObject.waypoint.edit"
             order = 0
         }
     }
 
-    override fun handleWandInteract(player: Player, state: OperationWandState, event: PlayerInteractEvent) {
+    override fun handleWandInteract(player: Player, state: RailObjectWandState, event: PlayerInteractEvent) {
         when (state.mode) {
-            OperationWandMode.CREATE_STOP_POINT -> handleCreateStopPoint(player, event)
-            OperationWandMode.DELETE -> handleDeleteStopPoint(player, state, event)
+            RailObjectWandMode.WAY_POINT -> when (event.action) {
+                Action.RIGHT_CLICK_BLOCK, Action.RIGHT_CLICK_AIR -> handleCreateWayPoint(player, event)
+                Action.LEFT_CLICK_BLOCK, Action.LEFT_CLICK_AIR -> handleDeleteWayPoint(player, state, event)
+                else -> Unit
+            }
+            RailObjectWandMode.DIRECTION_RESTRICTION -> handleDirectionRestriction(player, event)
         }
     }
 
-    override fun clearSelection(player: Player, state: OperationWandState) {
-        state.pendingDeleteStopPoint?.let { setMarkerMaterial(player, it, Material.LIME_CONCRETE) }
-        state.pendingDeleteStopPoint = null
+    override fun clearSelection(player: Player, state: RailObjectWandState) {
+        state.pendingDeleteWayPoint?.let { setMarkerMaterial(player, it, Material.LIME_CONCRETE) }
+        state.pendingDeleteWayPoint = null
     }
 
     fun removeMarker(worldId: UUID, wayPointId: String) {
@@ -112,7 +118,7 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
             .forEach { removeMarkerForPlayer(it, wayPointId) }
     }
 
-    private fun handleCreateStopPoint(player: Player, event: PlayerInteractEvent) {
+    private fun handleCreateWayPoint(player: Player, event: PlayerInteractEvent) {
         if (event.action != Action.RIGHT_CLICK_BLOCK && event.action != Action.RIGHT_CLICK_AIR) {
             player.sendActionBar(Component.text("右键轨道附近创建或编辑路径点", NamedTextColor.YELLOW))
             return
@@ -142,11 +148,11 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
 
         BukkitAsyncTasks.supply(
             plugin = plugin,
-            operation = "OperationWand.handleCreateStopPoint",
+            operation = "RailObjectWand.handleCreateWayPoint",
             supplier = {
                 val existing = HeavyRailQueries.findNearestWayPoint(wayPointSnapshot, railsById, targetPosition)
                 val nearestRail = HeavyRailQueries.findNearestRail(railSnapshot, targetPosition)
-                CreateStopPointLookup(existing, nearestRail)
+                CreateWayPointLookup(existing, nearestRail)
             },
             onSuccess = { result ->
                 heavyOperationGate.finish(player.uniqueId)
@@ -200,7 +206,7 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning(
-                    "OperationWand heavy lookup failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
+                    "RailObjectWand heavy lookup failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
                 )
                 plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
                     Component.text("路径点查找失败，请重试", NamedTextColor.RED)
@@ -209,7 +215,7 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
         )
     }
 
-    private fun handleDeleteStopPoint(player: Player, state: OperationWandState, event: PlayerInteractEvent) {
+    private fun handleDeleteWayPoint(player: Player, state: RailObjectWandState, event: PlayerInteractEvent) {
         if (event.action != Action.LEFT_CLICK_BLOCK && event.action != Action.LEFT_CLICK_AIR) {
             player.sendActionBar(Component.text("左键路径点选择，再次左键确认删除", NamedTextColor.YELLOW))
             return
@@ -236,19 +242,97 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
             return
         }
 
-        if (state.pendingDeleteStopPoint == wayPoint.id) {
+        if (state.pendingDeleteWayPoint == wayPoint.id) {
             coreWorld.basicWorldData.wayPoints.remove(wayPoint.id)
             removeMarker(player.world.uid, wayPoint.id)
-            state.pendingDeleteStopPoint = null
+            state.pendingDeleteWayPoint = null
             player.sendMessage(Component.text("已删除路径点 ${wayPoint.id}", NamedTextColor.GREEN))
         } else {
-            state.pendingDeleteStopPoint?.let { setMarkerMaterial(player, it, Material.LIME_CONCRETE) }
-            state.pendingDeleteStopPoint = wayPoint.id
+            state.pendingDeleteWayPoint?.let { setMarkerMaterial(player, it, Material.LIME_CONCRETE) }
+            state.pendingDeleteWayPoint = wayPoint.id
             setMarkerMaterial(player, wayPoint.id, Material.YELLOW_CONCRETE)
             player.sendActionBar(
                 Component.text("再次左键确认删除路径点 ${wayPoint.id}", NamedTextColor.YELLOW)
             )
         }
+    }
+
+    private fun handleDirectionRestriction(player: Player, event: PlayerInteractEvent) {
+        if (event.action != Action.RIGHT_CLICK_BLOCK && event.action != Action.RIGHT_CLICK_AIR &&
+            event.action != Action.LEFT_CLICK_BLOCK && event.action != Action.LEFT_CLICK_AIR
+        ) return
+        val coreWorld = getCoreWorld(player) ?: return
+        val targetPosition = getTargetPosition(player, event) ?: run {
+            player.sendActionBar(Component.text("请点击轨道附近", NamedTextColor.RED))
+            return
+        }
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "方向限制查找")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+
+        val worldId = player.world.uid
+        val delete = event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR
+        val playerPosition = Vector3d(player.location.x, player.location.y, player.location.z)
+        val rails = coreWorld.allRails.toList()
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailObjectWand.handleDirectionRestriction",
+            supplier = {
+                val pointB = HeavyRailQueries.findNearestRail(rails, targetPosition)
+                    ?: return@supply null
+                val selectedRail = rails.firstOrNull { it.id == pointB.railId }
+                    ?: return@supply null
+                val pointA = HeavyRailQueries.findNearestRail(listOf(selectedRail), playerPosition)
+                    ?: return@supply null
+                DirectionRestrictionLookup(pointA, pointB)
+            },
+            onSuccess = { lookup ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                if (lookup == null || lookup.pointB.distance > MAX_PLACE_DISTANCE) {
+                    livePlayer.sendActionBar(Component.text("点击位置附近没有轨道", NamedTextColor.RED))
+                    return@supply
+                }
+                val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                val rail = liveWorld.getRail(lookup.pointB.railId) ?: run {
+                    livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.RED))
+                    return@supply
+                }
+                if (delete) {
+                    if (rail.metadata.allowedDirection == null) {
+                        livePlayer.sendActionBar(Component.text("该轨道没有方向限制", NamedTextColor.GRAY))
+                    } else {
+                        rail.metadata = rail.metadata.copy(allowedDirection = null)
+                        livePlayer.sendMessage(Component.text("已删除轨道 ${rail.id} 的方向限制", NamedTextColor.GREEN))
+                    }
+                    return@supply
+                }
+
+                val allowedDirection = DirectionRestrictionResolver.fromArcPoints(
+                    lookup.pointA.arcLength,
+                    lookup.pointB.arcLength,
+                    MIN_DIRECTION_ARC_DIFFERENCE
+                ) ?: run {
+                    livePlayer.sendActionBar(Component.text("玩家位置与点击位置太近，无法确定方向", NamedTextColor.RED))
+                    return@supply
+                }
+                rail.metadata = rail.metadata.copy(allowedDirection = allowedDirection)
+                livePlayer.sendMessage(Component.text(
+                    "已限制轨道 ${rail.id} 只允许 ${allowedDirection.name} 方向行驶",
+                    NamedTextColor.GREEN
+                ))
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("RailObjectWand direction lookup failed: ${error.message ?: error::class.simpleName}")
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
+                    Component.text("方向限制操作失败", NamedTextColor.RED)
+                )
+            }
+        )
     }
 
     private fun findNearestWayPoint(
@@ -275,7 +359,7 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
         editingWayPoint[player.uniqueId] = wayPointId
         val session = configUI.getPlayerSession(player.uniqueId)
         session.setValue(editKeys.name, wayPoint.id)
-        dialogRenderer.showConfigDialog(player, "operation.waypoint.edit") { p ->
+        dialogRenderer.showConfigDialog(player, "railObject.waypoint.edit") { p ->
             applyWayPointDialog(p)
         }
     }
@@ -354,28 +438,33 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
     }
 
     @EventHandler
-    fun onOperationWandHeldChange(event: PlayerItemHeldEvent) {
+    fun onRailObjectWandHeldChange(event: PlayerItemHeldEvent) {
         scheduleMarkerVisibilityRefresh(event.player)
     }
 
     @EventHandler
-    fun onOperationWandSwapHands(event: PlayerSwapHandItemsEvent) {
+    fun onRailObjectWandSwapHands(event: PlayerSwapHandItemsEvent) {
         scheduleMarkerVisibilityRefresh(event.player)
     }
 
     @EventHandler
-    fun onOperationWandPlayerJoin(event: PlayerJoinEvent) {
+    fun onRailObjectWandPlayerJoin(event: PlayerJoinEvent) {
         scheduleMarkerVisibilityRefresh(event.player)
     }
 
-    override fun onPlayerQuit(player: Player, state: OperationWandState) {
+    override fun onPlayerQuit(player: Player, state: RailObjectWandState) {
         clearMarkersForPlayer(player)
         editingWayPoint.remove(player.uniqueId)
         heavyOperationGate.clear(player.uniqueId)
         configUI.removePlayerSession(player.uniqueId)
     }
 
-    private data class CreateStopPointLookup(
+    private data class DirectionRestrictionLookup(
+        val pointA: HeavyRailQueries.NearestRailMatch,
+        val pointB: HeavyRailQueries.NearestRailMatch
+    )
+
+    private data class CreateWayPointLookup(
         val existingWayPoint: HeavyRailQueries.WayPointMatch?,
         val nearestRail: HeavyRailQueries.NearestRailMatch?
     )
@@ -383,5 +472,6 @@ class OperationWand(plugin: BukkitPlugin) : AbstractWand<OperationWandState, Ope
     companion object {
         private const val MAX_PLACE_DISTANCE = 8.0
         private const val MAX_SELECT_DISTANCE = 6.0
+        private const val MIN_DIRECTION_ARC_DIFFERENCE = 0.25
     }
 }

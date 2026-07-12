@@ -1094,7 +1094,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             builtCurve.curve,
                             mutableListOf(),
                             mutableListOf(),
-                            railMetadata(settingsSnapshot, builtCurve.speedLimits, input.oldMetadata.geometry.parallel)
+                            railMetadata(
+                                settingsSnapshot,
+                                builtCurve.speedLimits,
+                                input.oldMetadata.geometry.parallel,
+                                input.oldMetadata.allowedDirection
+                            )
                         )
                         val meta = RailVisualBootstrap.registerRail(newRail)
                         createdRails.add(newRail)
@@ -1343,11 +1348,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun railMetadata(
         settings: CurveBuildSettingsSnapshot,
         speedLimits: RailSpeedLimits,
-        parallel: ParallelRailMetadata? = null
+        parallel: ParallelRailMetadata? = null,
+        allowedDirection: ViewDirection? = null
     ): RailMetadata = RailMetadata(
         designSpeedMetersPerSecond = settings.designSpeedKmH / 3.6,
         speedLimitMetersPerSecond = speedLimits.operatingLimitMetersPerSecond,
         derailSpeedMetersPerSecond = speedLimits.derailSpeedMetersPerSecond,
+        allowedDirection = allowedDirection,
         geometry = RailGeometryMetadata(
             curveKind = RailCurveKind.valueOf(settings.curveTemplate.name),
             curveRadiusMeters = settings.curveRadius.takeIf { it > 0.0 },

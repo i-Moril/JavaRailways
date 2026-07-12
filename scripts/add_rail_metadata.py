@@ -12,6 +12,7 @@ def update(path: Path, design_speed_kmh: float) -> int:
         "designSpeedMetersPerSecond": design_speed_kmh / 3.6,
         "speedLimitMetersPerSecond": design_speed_kmh / 3.6,
         "derailSpeedMetersPerSecond": None,
+        "allowedDirection": None,
         "geometry": {
             "curveKind": "UNKNOWN",
             "curveRadiusMeters": None,
@@ -28,6 +29,7 @@ def update(path: Path, design_speed_kmh: float) -> int:
         current.pop("kind", None)
         current.setdefault("speedLimitMetersPerSecond", current.get("designSpeedMetersPerSecond"))
         current.setdefault("derailSpeedMetersPerSecond", None)
+        current.setdefault("allowedDirection", None)
         geometry = current.setdefault("geometry", metadata["geometry"].copy())
         geometry.setdefault("allowableCantDeficiencyMeters", 0.075)
         if geometry.get("curveKind") == "TURNOUT":

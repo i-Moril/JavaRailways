@@ -63,11 +63,11 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 BukkitPlugin.INSTANCE.railWand.giveWand(sender)
                 sender.sendMessage("RailWand 已给予")
             }
-            "operation", "op", "signal" -> {
-                BukkitPlugin.INSTANCE.operationWand.giveWand(sender)
-                sender.sendMessage("OperationWand 已给予")
+            "railobject", "object", "ro" -> {
+                BukkitPlugin.INSTANCE.railObjectWand.giveWand(sender)
+                sender.sendMessage("RailObjectWand 已给予")
             }
-            else -> sender.sendMessage("用法: /mr wand <rail|operation> (设置请 Shift+右键打开 Dialog)")
+            else -> sender.sendMessage("用法: /mr wand <rail|railobject> (设置请 Shift+右键打开 Dialog)")
         }
         return true
     }
@@ -116,7 +116,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     if (removed == null) {
                         sender.sendMessage("路径点不存在: $id")
                     } else {
-                        BukkitPlugin.INSTANCE.operationWand.removeMarker(sender.world.uid, id)
+                        BukkitPlugin.INSTANCE.railObjectWand.removeMarker(sender.world.uid, id)
                         sender.sendMessage("已删除路径点: $id")
                     }
                 }
@@ -293,7 +293,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr train anim <name> [scene] - 触发列车部件动画")
         sender.sendMessage("/mr train action <name> - 触发列车动作（动画/声音等）")
         sender.sendMessage("/mr wand rail - 获取 RailWand")
-        sender.sendMessage("/mr wand operation - 获取 OperationWand")
+        sender.sendMessage("/mr wand railobject - 获取 RailObjectWand")
         sender.sendMessage("/mr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")

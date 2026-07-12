@@ -2,6 +2,7 @@ package work.art1st.mineRails.basic
 
 import work.art1st.mineRails.basic.pathFinding.RailMap
 import work.art1st.mineRails.basic.timetable.Timetable
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -60,6 +61,18 @@ class WayPointStore {
     operator fun get(id: String): WayPoint? = wayPoints[id]
 
     fun all(): List<WayPoint> = wayPoints.values.sortedBy { it.id }
+}
+
+object DirectionRestrictionResolver {
+    fun fromArcPoints(
+        playerArcLength: Double,
+        clickedArcLength: Double,
+        minimumDifference: Double = 0.25
+    ): ViewDirection? {
+        val delta = clickedArcLength - playerArcLength
+        if (kotlin.math.abs(delta) < minimumDifference) return null
+        return if (delta > 0.0) ViewDirection.AB else ViewDirection.BA
+    }
 }
 
 typealias StopPoint = WayPoint

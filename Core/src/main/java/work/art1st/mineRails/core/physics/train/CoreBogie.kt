@@ -70,6 +70,11 @@ class CoreBogie @MainThread internal constructor(
 
     @Throws(BogieException::class)
     override fun moveForward(distance: Double) {
+        val movementView = if (distance >= 0.0) location.railView else location.railView.reversed
+        val allowedDirection = movementView.rail.metadata.allowedDirection
+        if (allowedDirection != null && allowedDirection != movementView.viewDirection) {
+            throw BogieException(this)
+        }
         updateLocation(location.forward(distance) ?: throw BogieException(this))
     }
 

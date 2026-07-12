@@ -18,6 +18,9 @@ class PathFinder(
      * @return 路径经过的所有 [RailView]（从起点到终点），若不存在则返回 null。
      */
     fun findPath(start: RailView, label: String): List<RailView>? {
+        fun allows(view: RailView): Boolean =
+            view.rail.metadata.allowedDirection?.let { it == view.viewDirection } ?: true
+        if (!allows(start)) return null
         val pending: ArrayDeque<State> = ArrayDeque()
         // 记录当前 view 来自哪个 view（用于路径重建）
         val predecessor = HashMap<RailView, RailView?>()
@@ -35,13 +38,13 @@ class PathFinder(
             val neighbors = mutableListOf<RailView>()
             // 沿 nextRails 前进（顺向搜索）
             for (next in current.view.nextRails) {
-                if (!predecessor.containsKey(next)) {
+                if (allows(next) && !predecessor.containsKey(next)) {
                     neighbors.add(next)
                 }
             }
             // 反向（同 rail 的另一个方向）
             val reversed = current.view.reversed
-            if (!predecessor.containsKey(reversed)) {
+            if (allows(reversed) && !predecessor.containsKey(reversed)) {
                 neighbors.add(reversed)
             }
 

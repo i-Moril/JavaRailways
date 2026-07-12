@@ -53,6 +53,8 @@ data class RailMetadata(
     val speedLimitMetersPerSecond: Double? = designSpeedMetersPerSecond,
     /** Hard geometry-derived derail threshold; null means no curvature derail threshold. */
     val derailSpeedMetersPerSecond: Double? = null,
+    /** Null allows both directions; otherwise only the selected RailView direction is legal. */
+    val allowedDirection: ViewDirection? = null,
     val geometry: RailGeometryMetadata = RailGeometryMetadata()
 ) {
     init {

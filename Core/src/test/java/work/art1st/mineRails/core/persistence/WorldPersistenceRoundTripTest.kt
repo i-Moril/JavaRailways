@@ -12,6 +12,7 @@ import work.art1st.mineRails.core.api.physics.rail.ParallelRailMetadata
 import work.art1st.mineRails.core.api.physics.rail.RailCurveKind
 import work.art1st.mineRails.core.api.physics.rail.RailGeometryMetadata
 import work.art1st.mineRails.core.api.physics.rail.RailMetadata
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
@@ -34,6 +35,7 @@ class WorldPersistenceRoundTripTest {
             designSpeedMetersPerSecond = 22.0,
             speedLimitMetersPerSecond = 20.0,
             derailSpeedMetersPerSecond = 31.0,
+            allowedDirection = ViewDirection.AB,
             geometry = RailGeometryMetadata(
                 curveKind = RailCurveKind.FIVE_SEGMENT,
                 curveRadiusMeters = 300.0,
@@ -61,6 +63,7 @@ class WorldPersistenceRoundTripTest {
         assertEquals(22.0, loaded.getRail(rail.id)?.metadata?.designSpeedMetersPerSecond)
         assertEquals(20.0, loaded.getRail(rail.id)?.metadata?.speedLimitMetersPerSecond)
         assertEquals(31.0, loaded.getRail(rail.id)?.metadata?.derailSpeedMetersPerSecond)
+        assertEquals(ViewDirection.AB, loaded.getRail(rail.id)?.metadata?.allowedDirection)
         assertEquals(0.09, loaded.getRail(rail.id)?.metadata?.geometry?.allowableCantDeficiencyMeters)
         assertEquals(300.0, loaded.getRail(rail.id)?.metadata?.geometry?.curveRadiusMeters)
         assertEquals("P1", loaded.getRail(rail.id)?.metadata?.geometry?.parallel?.groupId)

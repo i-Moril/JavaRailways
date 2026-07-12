@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.physics.train.createLoopRailFromSegments
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
@@ -40,6 +41,17 @@ class PathFinderTest {
             assertNotNull(path)
             assertTrue(path!!.isNotEmpty())
             assertTrue(path.any { it.rail == rail })
+        }
+
+        @Test
+        fun `findPath respects rail direction restriction`() {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(50.0))
+            rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)
+            val map = RailMap()
+            map.addDestination(rail.viewBA, RailDestination(rail.viewBA, "reverse"))
+
+            assertNull(PathFinder(map).findPath(rail.viewAB, "reverse"))
+            assertNull(PathFinder(map).findPath(rail.viewBA, "reverse"))
         }
 
         @Test

@@ -52,8 +52,8 @@ class RoutePlanner(private val world: World) {
     }
 
     /**
-     * 路径点本身不带方向。这里会尝试起点/终点所在 rail 的 AB、BA 两种视图组合，
-     * 并选择可达路线中总长度最短的一条。方向限制后续由独立的运营 metadata 处理。
+     * 路径点本身不带方向。这里会尝试方向限制允许的 RailView 组合，
+     * 并选择可达路线中总长度最短的一条。
      */
     fun buildRoute(from: WayPoint, to: WayPoint): RouteBuildResult {
         val startCandidates = resolveViews(from)
@@ -90,7 +90,7 @@ class RoutePlanner(private val world: World) {
         return listOf(
             rail.getView(ViewDirection.AB),
             rail.getView(ViewDirection.BA)
-        )
+        ).filter(::allowsDirection)
     }
 
     private fun arcLengthInView(wayPoint: WayPoint, direction: ViewDirection, totalLength: Double): Double {
@@ -116,6 +116,7 @@ class RoutePlanner(private val world: World) {
         while (pending.isNotEmpty()) {
             val current = pending.removeFirst()
             for (next in current.nextRails) {
+                if (!allowsDirection(next)) continue
                 if (predecessor.containsKey(next)) continue
                 predecessor[next] = current
                 if (next == goal) return rebuildPath(predecessor, next)
@@ -124,6 +125,9 @@ class RoutePlanner(private val world: World) {
         }
         return null
     }
+
+    private fun allowsDirection(view: RailView): Boolean =
+        view.rail.metadata.allowedDirection?.let { it == view.viewDirection } ?: true
 
     private fun rebuildPath(predecessor: Map<RailView, RailView?>, goal: RailView): List<RailView> {
         val path = LinkedList<RailView>()

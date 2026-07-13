@@ -50,11 +50,6 @@ abstract class AbstractWand<S, M>(
         initialized = true
         onBeforeRegisterEvents()
         plugin.server.pluginManager.registerEvents(this, plugin)
-        plugin.server.scheduler.runTaskTimer(plugin, Runnable {
-            plugin.server.onlinePlayers.forEach { player ->
-                playerStates[player.uniqueId]?.let { persistBoundState(player, it) }
-            }
-        }, STATE_FLUSH_TICKS, STATE_FLUSH_TICKS)
         onAfterRegisterEvents()
     }
 
@@ -210,8 +205,4 @@ abstract class AbstractWand<S, M>(
 
     protected fun getCoreWorld(player: Player): CoreWorld? =
         plugin.worldManager.railWorlds[player.world] as? CoreWorld
-
-    companion object {
-        private const val STATE_FLUSH_TICKS = 20L
-    }
 }

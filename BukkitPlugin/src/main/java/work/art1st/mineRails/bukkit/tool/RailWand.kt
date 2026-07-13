@@ -874,6 +874,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val liveState = getState(livePlayer)
                 liveState.selectedAnchors.clear()
                 liveState.selectedAnchors.add(railEndpointAnchorId(rail.id, 'B'))
+                persistState(livePlayer, liveState)
                 updateAnchorDisplay(livePlayer)
                 livePlayer.sendMessage(Component.text(
                     "✓ 创建 ${standard.number} 号道岔侧线，限速 ${(speedLimits.operatingLimitMetersPerSecond * 3.6).toInt()} km/h，连接 $autoConnected 条",
@@ -1029,6 +1030,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     }
                     liveState.selectedAnchors.clear()
                     liveState.selectedAnchors.addAll(endpointSelection)
+                    persistState(livePlayer, liveState)
                     refreshAllAnchorsForPlayer(livePlayer)
                     updateAnchorDisplay(livePlayer)
                 } catch (e: Exception) {
@@ -1215,6 +1217,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     val liveState = getState(livePlayer)
                     liveState.selectedAnchors.clear()
                     liveState.selectedAnchors.add(newEndpointId)
+                    persistState(livePlayer, liveState)
                     refreshAllAnchorsForPlayer(livePlayer)
                     updateAnchorDisplay(livePlayer)
                     livePlayer.sendActionBar(Component.text("轨道端点已更新", NamedTextColor.GREEN))
@@ -1495,6 +1498,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val liveState = getState(p)
             liveState.designSpeedKmH = designSpeedKmH
             liveState.curveRadius = curveRadius
+            persistState(p, liveState)
 
             if (abs(curveRadius - currentRadius) < 1.0e-6 && abs(designSpeedKmH - currentSpeedKmH) < 1.0e-6) {
                 p.sendActionBar(Component.text("轨道参数未变化", NamedTextColor.GRAY))
@@ -1616,6 +1620,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     val state = getState(livePlayer)
                     state.selectedRails.clear()
                     state.selectedRails.add(replacement.id)
+                    persistState(livePlayer, state)
                     refreshAllAnchorsForPlayer(livePlayer)
                     updateAnchorDisplay(livePlayer)
                     livePlayer.sendActionBar(Component.text("轨道曲线半径已更新", NamedTextColor.GREEN))
@@ -1645,6 +1650,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         state.selectedAnchors.clear()
         state.selectedRails.clear()
         state.selectedRails.add(rail.id)
+        persistState(player, state)
         updateAnchorDisplay(player)
         val speed = rail.metadata.designSpeedMetersPerSecond?.times(3.6)
         val speedLabel = speed?.let { "%.0f km/h".format(it) } ?: "未设置"
@@ -2152,6 +2158,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             }
         }
+        persistState(player, getState(player))
         player.sendActionBar(Component.text("已撤销", NamedTextColor.GREEN))
         return true
     }
@@ -2180,6 +2187,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
             }
         }
+        persistState(player, getState(player))
         player.sendActionBar(Component.text("已重做", NamedTextColor.GREEN))
         return true
     }
@@ -2280,6 +2288,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         state.selectedRails.clear()
         state.pendingDeleteAnchor = null
         state.pendingDeleteRail = null
+    }
+
+    internal fun persistPlayerState(player: Player, state: WandPlayerState) {
+        persistState(player, state)
     }
 
     internal fun clearAnchorSelection(player: Player, state: WandPlayerState) {

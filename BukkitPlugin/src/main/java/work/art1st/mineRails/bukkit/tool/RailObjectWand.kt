@@ -2,8 +2,10 @@ package work.art1st.mineRails.bukkit.tool
 
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
+import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.Material
+import org.bukkit.Particle
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -43,6 +45,20 @@ data class RailObjectWandState(
     var pendingDeleteWayPoint: String? = null
 ) : WandState<RailObjectWandMode>
 
+internal object DirectionRestrictionParticleLayout {
+    fun arcLengths(totalLength: Double, phase: Double, maxPoints: Int = 6): List<Double> {
+        if (totalLength <= 0.0 || maxPoints <= 0) return emptyList()
+        val spacing = if (totalLength <= 8.0) totalLength else maxOf(8.0, totalLength / maxPoints)
+        var arc = ((phase % spacing) + spacing) % spacing
+        val result = mutableListOf<Double>()
+        while (arc <= totalLength && result.size < maxPoints) {
+            result += arc
+            arc += spacing
+        }
+        return result
+    }
+}
+
 class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, RailObjectWandMode>(
     plugin = plugin,
     wandKey = "mineRails_railObjectWand",
@@ -60,6 +76,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private val markerEntities = mutableMapOf<UUID, MutableMap<String, UUID>>()
     private val editingWayPoint = mutableMapOf<UUID, String>()
     private val heavyOperationGate = PlayerOperationGate()
+    private val visibleDirectionRails = mutableMapOf<UUID, MutableSet<UUID>>()
+    private var directionParticleFrame: Long = 0L
     private val configUI = ConfigUIRegistry()
     private val dialogRenderer = DialogRenderer(configUI)
     private lateinit var editKeys: WayPointEditKeys
@@ -71,6 +89,10 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     }
 
     override fun onAfterRegisterEvents() {
+        plugin.server.scheduler.runTaskTimer(plugin, Runnable {
+            directionParticleFrame++
+            plugin.server.onlinePlayers.forEach(::renderDirectionRestrictionParticles)
+        }, PARTICLE_REFRESH_TICKS, PARTICLE_REFRESH_TICKS)
         plugin.logger.info("RailObjectWand initialized")
     }
 
@@ -353,6 +375,71 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         return Vector3d(block.x + 0.5, block.y + 0.5, block.z + 0.5)
     }
 
+    private fun renderDirectionRestrictionParticles(player: Player) {
+        if ((!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) ||
+            getState(player).mode != RailObjectWandMode.DIRECTION_RESTRICTION
+        ) {
+            visibleDirectionRails.remove(player.uniqueId)
+            return
+        }
+        val coreWorld = getCoreWorld(player) ?: return
+        val playerPosition = Vector3d(player.location.x, player.location.y, player.location.z)
+        val previousVisible = visibleDirectionRails.getOrPut(player.uniqueId) { mutableSetOf() }
+        val candidates = coreWorld.allRails.mapNotNull { rail ->
+            val allowedDirection = rail.metadata.allowedDirection ?: return@mapNotNull null
+            val distanceSquared = approximateDistanceSquared(rail.curve, playerPosition)
+            val radius = if (rail.id in previousVisible) PARTICLE_EXIT_RADIUS else PARTICLE_ENTER_RADIUS
+            if (distanceSquared > radius * radius) return@mapNotNull null
+            Triple(rail, allowedDirection, distanceSquared)
+        }.sortedBy { it.third }.take(MAX_VISIBLE_DIRECTION_RAILS)
+
+        previousVisible.clear()
+        previousVisible.addAll(candidates.map { it.first.id })
+        var remainingParticles = MAX_PARTICLES_PER_REFRESH
+        val flowPhase = directionParticleFrame * FLOW_METERS_PER_REFRESH
+        for ((rail, allowedDirection, _) in candidates) {
+            if (remainingParticles <= 0) break
+            val view = rail.getView(allowedDirection)
+            for (arc in DirectionRestrictionParticleLayout.arcLengths(view.curve.totalArcLength, flowPhase)) {
+                if (remainingParticles <= 0) break
+                val point = view.curve.getPointAt(arc)
+                val position = Vector3d(point.position).fma(0.35, point.normal)
+                spawnDust(player, position, ALLOWED_DIRECTION_COLOR, 0.9f)
+                remainingParticles--
+            }
+            if (remainingParticles > 0) {
+                val end = view.endPoint
+                spawnDust(player, Vector3d(end.position).fma(0.4, end.normal), FORBIDDEN_ENTRY_COLOR, 1.3f)
+                remainingParticles--
+            }
+            if (remainingParticles > 0) {
+                val end = view.endPoint
+                spawnDust(player, Vector3d(end.position).fma(0.9, end.normal), FORBIDDEN_ENTRY_COLOR, 1.0f)
+                remainingParticles--
+            }
+        }
+    }
+
+    private fun approximateDistanceSquared(
+        curve: work.art1st.mineRails.core.api.physics.curve.PrimeCurve,
+        position: Vector3d
+    ): Double = DISTANCE_PROBES.minOf { ratio ->
+        curve.getPointAt(curve.totalArcLength * ratio).position.distanceSquared(position)
+    }
+
+    private fun spawnDust(player: Player, position: Vector3d, color: Color, size: Float) {
+        player.spawnParticle(
+            Particle.DUST,
+            Location(player.world, position.x(), position.y(), position.z()),
+            1,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            Particle.DustOptions(color, size)
+        )
+    }
+
     private fun showWayPointDialog(player: Player, wayPointId: String) {
         val coreWorld = getCoreWorld(player) ?: return
         val wayPoint = coreWorld.basicWorldData.wayPoints[wayPointId] ?: return
@@ -456,6 +543,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         clearMarkersForPlayer(player)
         editingWayPoint.remove(player.uniqueId)
         heavyOperationGate.clear(player.uniqueId)
+        visibleDirectionRails.remove(player.uniqueId)
         configUI.removePlayerSession(player.uniqueId)
     }
 
@@ -473,5 +561,14 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         private const val MAX_PLACE_DISTANCE = 8.0
         private const val MAX_SELECT_DISTANCE = 6.0
         private const val MIN_DIRECTION_ARC_DIFFERENCE = 0.25
+        private const val PARTICLE_REFRESH_TICKS = 4L
+        private const val PARTICLE_ENTER_RADIUS = 64.0
+        private const val PARTICLE_EXIT_RADIUS = 72.0
+        private const val MAX_VISIBLE_DIRECTION_RAILS = 16
+        private const val MAX_PARTICLES_PER_REFRESH = 128
+        private const val FLOW_METERS_PER_REFRESH = 1.25
+        private val DISTANCE_PROBES = doubleArrayOf(0.0, 0.25, 0.5, 0.75, 1.0)
+        private val ALLOWED_DIRECTION_COLOR = Color.fromRGB(64, 255, 96)
+        private val FORBIDDEN_ENTRY_COLOR = Color.fromRGB(255, 48, 48)
     }
 }

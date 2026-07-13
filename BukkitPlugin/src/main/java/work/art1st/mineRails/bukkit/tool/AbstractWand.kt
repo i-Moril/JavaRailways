@@ -37,14 +37,24 @@ abstract class AbstractWand<S, M>(
     private val itemLore: List<Component>,
     private val modes: List<M>
 ) : Listener where S : WandState<M>, M : Enum<M>, M : WandModeSpec {
+    /** PDC is persisted by modern Paper inside the item's minecraft:custom_data component. */
+    private data class BoundState<S>(val itemId: UUID, val state: S)
+
     private var initialized = false
-    private val playerStates = mutableMapOf<UUID, S>()
+    private val playerStates = mutableMapOf<UUID, BoundState<S>>()
+    private val itemIdKey by lazy { NamespacedKey(plugin, "wand_instance_id") }
+    private val itemStateKey by lazy { NamespacedKey(plugin, "wand_state") }
 
     fun init() {
         if (initialized) return
         initialized = true
         onBeforeRegisterEvents()
         plugin.server.pluginManager.registerEvents(this, plugin)
+        plugin.server.scheduler.runTaskTimer(plugin, Runnable {
+            plugin.server.onlinePlayers.forEach { player ->
+                playerStates[player.uniqueId]?.let { persistBoundState(player, it) }
+            }
+        }, STATE_FLUSH_TICKS, STATE_FLUSH_TICKS)
         onAfterRegisterEvents()
     }
 
@@ -54,8 +64,34 @@ abstract class AbstractWand<S, M>(
 
     protected abstract fun createDefaultState(): S
 
-    fun getState(player: Player): S =
-        playerStates.getOrPut(player.uniqueId) { createDefaultState() }
+    protected abstract fun encodeState(state: S): String
+
+    protected abstract fun decodeState(encoded: String): S?
+
+    fun getState(player: Player): S {
+        val item = findActiveWand(player) ?: return playerStates[player.uniqueId]?.state ?: createDefaultState()
+        val itemId = ensureItemId(item)
+        val current = playerStates[player.uniqueId]
+        if (current?.itemId == itemId) return current.state
+        if (current != null) persistBoundState(player, current)
+        val encoded = item.itemMeta?.persistentDataContainer?.get(itemStateKey, PersistentDataType.STRING)
+        val state = encoded?.let { runCatching { decodeState(it) }.getOrNull() } ?: createDefaultState()
+        playerStates[player.uniqueId] = BoundState(itemId, state)
+        persistState(player, state)
+        return state
+    }
+
+    protected fun persistState(player: Player, state: S) {
+        val bound = playerStates[player.uniqueId]
+        if (bound != null && bound.state === state) {
+            persistBoundState(player, bound)
+            return
+        }
+        val item = findActiveWand(player) ?: return
+        val replacement = BoundState(ensureItemId(item), state)
+        playerStates[player.uniqueId] = replacement
+        persistBoundState(player, replacement)
+    }
 
     fun isWandItem(item: ItemStack?): Boolean {
         if (item == null || item.type != material) return false
@@ -68,6 +104,8 @@ abstract class AbstractWand<S, M>(
         val meta = item.itemMeta as ItemMeta
         meta.displayName(itemDisplayName)
         meta.persistentDataContainer.set(NamespacedKey(plugin, wandKey), PersistentDataType.BOOLEAN, true)
+        meta.persistentDataContainer.set(itemIdKey, PersistentDataType.STRING, UUID.randomUUID().toString())
+        meta.persistentDataContainer.set(itemStateKey, PersistentDataType.STRING, encodeState(createDefaultState()))
         meta.lore(itemLore)
         item.itemMeta = meta
         player.inventory.addItem(item)
@@ -103,6 +141,7 @@ abstract class AbstractWand<S, M>(
                 handleWandInteract(player, state, event)
             }
         }
+        persistState(player, state)
     }
 
     @EventHandler
@@ -115,9 +154,10 @@ abstract class AbstractWand<S, M>(
 
     @EventHandler
     fun onQuit(event: PlayerQuitEvent) {
-        val state = playerStates.remove(event.player.uniqueId)
-        if (state != null) {
-            onPlayerQuit(event.player, state)
+        val bound = playerStates.remove(event.player.uniqueId)
+        if (bound != null) {
+            persistBoundState(event.player, bound)
+            onPlayerQuit(event.player, bound.state)
         }
     }
 
@@ -126,6 +166,7 @@ abstract class AbstractWand<S, M>(
         val currentIndex = modes.indexOf(state.mode).takeIf { it >= 0 } ?: 0
         state.mode = modes[(currentIndex + 1) % modes.size]
         clearSelection(player, state)
+        persistState(player, state)
         player.sendActionBar(Component.text("${state.mode.displayName}: ${state.mode.description}", NamedTextColor.GREEN))
     }
 
@@ -139,6 +180,38 @@ abstract class AbstractWand<S, M>(
 
     protected open fun onPlayerQuit(player: Player, state: S) {}
 
+    private fun findActiveWand(player: Player): ItemStack? = when {
+        isWandItem(player.inventory.itemInMainHand) -> player.inventory.itemInMainHand
+        isWandItem(player.inventory.itemInOffHand) -> player.inventory.itemInOffHand
+        else -> player.inventory.contents.firstOrNull(::isWandItem)
+    }
+
+    private fun ensureItemId(item: ItemStack): UUID {
+        val meta = item.itemMeta ?: return UUID.randomUUID()
+        val existing = meta.persistentDataContainer.get(itemIdKey, PersistentDataType.STRING)
+            ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+        if (existing != null) return existing
+        val created = UUID.randomUUID()
+        meta.persistentDataContainer.set(itemIdKey, PersistentDataType.STRING, created.toString())
+        item.itemMeta = meta
+        return created
+    }
+
+    private fun persistBoundState(player: Player, bound: BoundState<S>) {
+        val item = player.inventory.contents.firstOrNull { candidate ->
+            if (!isWandItem(candidate)) return@firstOrNull false
+            candidate?.itemMeta?.persistentDataContainer
+                ?.get(itemIdKey, PersistentDataType.STRING) == bound.itemId.toString()
+        } ?: return
+        val meta = item.itemMeta ?: return
+        meta.persistentDataContainer.set(itemStateKey, PersistentDataType.STRING, encodeState(bound.state))
+        item.itemMeta = meta
+    }
+
     protected fun getCoreWorld(player: Player): CoreWorld? =
         plugin.worldManager.railWorlds[player.world] as? CoreWorld
+
+    companion object {
+        private const val STATE_FLUSH_TICKS = 20L
+    }
 }

@@ -1,5 +1,9 @@
 package work.art1st.mineRails.bukkit.tool
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Color
@@ -45,6 +49,29 @@ data class RailObjectWandState(
     var pendingDeleteWayPoint: String? = null
 ) : WandState<RailObjectWandMode>
 
+@Serializable
+internal data class SavedRailObjectWandStateV1(
+    val mode: String = RailObjectWandMode.WAY_POINT.name,
+    val pendingDeleteWayPoint: String? = null
+)
+
+internal object RailObjectWandStateCodec {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    fun encode(state: RailObjectWandState): String = json.encodeToString(
+        SavedRailObjectWandStateV1(state.mode.name, state.pendingDeleteWayPoint)
+    )
+
+    fun decode(encoded: String): RailObjectWandState? = runCatching {
+        val saved = json.decodeFromString<SavedRailObjectWandStateV1>(encoded)
+        RailObjectWandState(
+            mode = RailObjectWandMode.entries.firstOrNull { it.name == saved.mode }
+                ?: RailObjectWandMode.WAY_POINT,
+            pendingDeleteWayPoint = saved.pendingDeleteWayPoint
+        )
+    }.getOrNull()
+}
+
 internal object DirectionRestrictionParticleLayout {
     fun arcLengths(totalLength: Double, phase: Double, maxPoints: Int = 6): List<Double> {
         if (totalLength <= 0.0 || maxPoints <= 0) return emptyList()
@@ -83,6 +110,10 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private lateinit var editKeys: WayPointEditKeys
 
     override fun createDefaultState(): RailObjectWandState = RailObjectWandState()
+
+    override fun encodeState(state: RailObjectWandState): String = RailObjectWandStateCodec.encode(state)
+
+    override fun decodeState(encoded: String): RailObjectWandState? = RailObjectWandStateCodec.decode(encoded)
 
     override fun onBeforeRegisterEvents() {
         registerConfig()

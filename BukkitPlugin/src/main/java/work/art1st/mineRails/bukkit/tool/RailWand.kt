@@ -1,5 +1,9 @@
 package work.art1st.mineRails.bukkit.tool
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.*
@@ -175,6 +179,85 @@ data class WandPlayerState(
     var maxSuperelevationMm: Double = 150.0
 ) : WandState<WandMode>
 
+@Serializable
+internal data class SavedRailWandStateV1(
+    val mode: String = WandMode.CREATE.name,
+    val selectedAnchors: List<String> = emptyList(),
+    val selectedRails: List<String> = emptyList(),
+    val pendingDeleteAnchor: String? = null,
+    val pendingDeleteRail: String? = null,
+    val parallelCount: Int = 1,
+    val parallelSpacing: Double = 4.5,
+    val snapToAngle: Boolean = true,
+    val snapToBlock: Boolean = true,
+    val openConfigAfterCreate: Boolean = false,
+    val autoDecorate: Boolean = true,
+    val curveRadius: Double = 0.0,
+    val curveTemplate: String = RailCurveTemplateType.AUTO.name,
+    val straightUsesChordDirection: Boolean = false,
+    val turnoutStandard: String = StandardTurnout.N9.name,
+    val designSpeedKmH: Double = 80.0,
+    val allowableCantDeficiencyMm: Double = 75.0,
+    val automaticSuperelevation: Boolean = true,
+    val maxSuperelevationMm: Double = 150.0
+)
+
+internal object RailWandStateCodec {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    fun encode(state: WandPlayerState): String = json.encodeToString(
+        SavedRailWandStateV1(
+            mode = state.mode.name,
+            selectedAnchors = state.selectedAnchors.toList(),
+            selectedRails = state.selectedRails.map(UUID::toString),
+            pendingDeleteAnchor = state.pendingDeleteAnchor,
+            pendingDeleteRail = state.pendingDeleteRail?.toString(),
+            parallelCount = state.parallelCount,
+            parallelSpacing = state.parallelSpacing,
+            snapToAngle = state.snapToAngle,
+            snapToBlock = state.snapToBlock,
+            openConfigAfterCreate = state.openConfigAfterCreate,
+            autoDecorate = state.autoDecorate,
+            curveRadius = state.curveRadius,
+            curveTemplate = state.curveTemplate.name,
+            straightUsesChordDirection = state.straightUsesChordDirection,
+            turnoutStandard = state.turnoutStandard.name,
+            designSpeedKmH = state.designSpeedKmH,
+            allowableCantDeficiencyMm = state.allowableCantDeficiencyMm,
+            automaticSuperelevation = state.automaticSuperelevation,
+            maxSuperelevationMm = state.maxSuperelevationMm
+        )
+    )
+
+    fun decode(encoded: String): WandPlayerState? = runCatching {
+        val saved = json.decodeFromString<SavedRailWandStateV1>(encoded)
+        WandPlayerState(
+            mode = enumValueOrDefault(saved.mode, WandMode.CREATE),
+            selectedAnchors = saved.selectedAnchors.toMutableList(),
+            selectedRails = saved.selectedRails.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }.toMutableList(),
+            pendingDeleteAnchor = saved.pendingDeleteAnchor,
+            pendingDeleteRail = saved.pendingDeleteRail?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+            parallelCount = saved.parallelCount.coerceIn(1, 10),
+            parallelSpacing = saved.parallelSpacing.coerceIn(1.0, 20.0),
+            snapToAngle = saved.snapToAngle,
+            snapToBlock = saved.snapToBlock,
+            openConfigAfterCreate = saved.openConfigAfterCreate,
+            autoDecorate = saved.autoDecorate,
+            curveRadius = saved.curveRadius.coerceAtLeast(0.0),
+            curveTemplate = enumValueOrDefault(saved.curveTemplate, RailCurveTemplateType.AUTO),
+            straightUsesChordDirection = saved.straightUsesChordDirection,
+            turnoutStandard = enumValueOrDefault(saved.turnoutStandard, StandardTurnout.N9),
+            designSpeedKmH = saved.designSpeedKmH.coerceIn(5.0, 500.0),
+            allowableCantDeficiencyMm = saved.allowableCantDeficiencyMm.coerceIn(0.0, 300.0),
+            automaticSuperelevation = saved.automaticSuperelevation,
+            maxSuperelevationMm = saved.maxSuperelevationMm.coerceIn(0.0, 300.0)
+        )
+    }.getOrNull()
+
+    private inline fun <reified E : Enum<E>> enumValueOrDefault(value: String, fallback: E): E =
+        enumValues<E>().firstOrNull { it.name == value } ?: fallback
+}
+
 // ═══════════════════════════════════════════════════════════════
 // RailWand 主类
 // ═══════════════════════════════════════════════════════════════
@@ -235,6 +318,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private val decorateMode = RailWandDecorateMode()
 
     override fun createDefaultState(): WandPlayerState = WandPlayerState()
+
+    override fun encodeState(state: WandPlayerState): String = RailWandStateCodec.encode(state)
+
+    override fun decodeState(encoded: String): WandPlayerState? = RailWandStateCodec.decode(encoded)
 
     override fun onBeforeRegisterEvents() {
         registerWandConfig()
@@ -547,6 +634,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ?: (configUI.get(wandKeys.automaticSuperelevation) ?: true)
         state.maxSuperelevationMm = session.getValue(wandKeys.maxSuperelevationMm)
             ?: (configUI.get(wandKeys.maxSuperelevationMm) ?: 150.0)
+        persistState(player, state)
     }
 
     /** 将 WandPlayerState 中的值同步到 ConfigAPI session (在打开 Dialog 前调用) */

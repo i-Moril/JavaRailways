@@ -24,7 +24,8 @@ abstract class TrainController(
     train: Train,
     world: World
 ) : TickingObject, Synchronizable, TickProfiled {
-    protected val train: Train by WeakReferenceWrapper(train)
+    /** Controlled train. The weak reference fails fast after the train is no longer live. */
+    val train: Train by WeakReferenceWrapper(train)
     override val profileCategory: String = "train-controller"
     override val profileId: String get() = train.id
     /** Meters per second, >=0. Published only after the whole physics epoch finishes. */

@@ -1,8 +1,12 @@
 package work.art1st.mineRails.basic
 
+import work.art1st.mineRails.basic.api.ato.AtoWorldCoordinator
+import work.art1st.mineRails.basic.api.ato.provider.AtoProviderRegistry
+import work.art1st.mineRails.basic.api.ato.provider.RailObjectStore
 import work.art1st.mineRails.basic.pathFinding.RailMap
 import work.art1st.mineRails.basic.timetable.Timetable
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
+import work.art1st.mineRails.core.api.physics.train.TrainSnapshot
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -10,14 +14,16 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Basic 模块挂在每个 World 上的运营层数据容器。
  *
- * 这里保存自动时刻表、停车点、轨道运营 metadata 等非 Core 物理数据。
- * 当前阶段只落地容器和占位 store，后续 phase 再逐步填充具体模型。
+ * 这里保存自动时刻表、停车点、ATO 协调器、Provider 和轨道运营对象等非 Core 物理数据。
  */
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
     val timetables: TimetableStore = TimetableStore(),
-    val dispatcher: TimetableDispatcher = TimetableDispatcher()
+    val dispatcher: TimetableDispatcher = TimetableDispatcher(),
+    val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
+    val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
+    val railObjects: RailObjectStore = RailObjectStore()
 ) {
     /** 兼容早期 Phase2 命名；后续代码应使用 wayPoints。 */
     val stopPoints: WayPointStore
@@ -93,4 +99,14 @@ class TimetableStore {
     fun all(): List<Timetable> = timetables.values.sortedBy { it.id }
 }
 
-class TimetableDispatcher
+class TimetableDispatcher {
+    private val initialTrains = ConcurrentHashMap<String, TrainSnapshot>()
+
+    fun recordInitialTrain(snapshot: TrainSnapshot) {
+        initialTrains[snapshot.trainId] = snapshot
+    }
+
+    fun initialTrain(trainId: String): TrainSnapshot? = initialTrains[trainId]
+
+    fun initialTrains(): Map<String, TrainSnapshot> = initialTrains.toMap()
+}

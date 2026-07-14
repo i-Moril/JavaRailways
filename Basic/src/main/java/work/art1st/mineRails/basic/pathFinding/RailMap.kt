@@ -33,6 +33,9 @@ class RailMap {
         return destinations[railView]?.any { it.label == label } == true
     }
 
+    fun destinationsOn(railView: RailView): List<RailDestination> =
+        destinations[railView]?.toList().orEmpty()
+
     /**
      * 添加目的地，将其挂载到 [RailView] 上。
      */

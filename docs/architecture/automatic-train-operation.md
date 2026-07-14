@@ -18,7 +18,7 @@ Phase A 已于 2026-07-14 落地以下基础契约：
 - 不持有 live World/Rail/Train 的 Train、RailObject、Route、Perception 快照；
 - 带严格单调 revision、拒绝旧命令的 `RevisionedCommandQueue`。
 
-感知引擎、约束、规划器、Mission 和车站状态机仍属于后续 Phase。
+Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand → TrainActuator`、SimpleATO、前车跟随、目标停车、可选单一信号 Provider，以及按 World 隔离的 ATO Stall。Mission 和车站状态机仍属于后续 Phase。
 
 ## 1. 背景
 
@@ -75,7 +75,7 @@ ATO 不直接把“看见一个对象”翻译成任意列车动作。完整链�
 不同扩展轴彼此独立：
 
 - ATO 驾驶算法决定速度曲线、舒适性和准点策略；
-- `MovementAuthorityProvider` 解释某种信号或移动授权系统；
+- 可选 `AtoProvider` 解释某种信号或移动授权系统；
 - `RailObjectRule` 解释特定运营对象；
 - 车辆 Actuator 处理不同牵引和制动模型。
 
@@ -87,9 +87,9 @@ ATO 不直接把“看见一个对象”翻译成任意列车动作。完整链�
 
 ### 3.4 约束默认保守失效
 
-- 外部 provider 的动态约束应使用原子替换或短租约；
-- provider 异常、目标消失或插件卸载后，系统必须执行明确的 fail-safe 策略；
-- 安全约束、运营约束和建议约束应有不同权限，普通插件不能删除不属于自己的约束。
+- 外部 Provider 每 Tick 原子替换自己的约束；
+- Provider 或 ATO 异常直接 Stall 当前 World 的全部 ATO，不实现自动恢复；
+- 安全约束、运营约束和建议约束有不同所有者，普通插件不能删除不属于自己的约束。
 
 ## 4. 总体架构
 
@@ -101,7 +101,7 @@ flowchart TB
     Dynamic[Train Occupancy] --> Perception
 
     Perception --> Rules[RailObjectRule Providers]
-    SignalAdapter[MovementAuthorityProvider] --> Rules
+    SignalAdapter[AtoProvider] --> Rules
     Mission --> Rules
     Rules --> Constraints[Constraint Set]
     Constraints --> Planner[ATO Planner]
@@ -286,7 +286,7 @@ previous - current       => EXIT
 跨越列车参考点           => PASS
 ```
 
-因此前车驶出范围、转入其他分支、被销毁或与其他列车连接，都能在下一轮产生 EXIT。跟车约束还应带短租约，防止 provider 异常时留下永久限制。
+因此前车驶出范围、转入其他分支、被销毁或与其他列车连接，都能在下一轮产生 EXIT。只有完整感知结果产生的 EXIT 才会移除对应跟车约束；感知过程抛出异常则直接触发 World-local Stall。
 
 ## 7. 约束模型
 
@@ -387,7 +387,7 @@ data class StopTarget(
 - 最小安全间隔；
 - 反应时间；
 - service/emergency braking profile；
-- observation revision 或 expiry epoch。
+- observation revision。
 
 允许速度可从相对运动和保守制动模型计算；第一版可以采用简化公式，但模型必须可替换且参数必须显式。
 
@@ -411,31 +411,18 @@ interface RailObjectRule<T : RailObject> {
 
 注册时应返回 `Registration`，用于插件卸载时取消注册和清理 owner 约束。
 
-### 8.2 `MovementAuthorityProvider`
+### 8.2 `AtoProvider`
 
-信号系统不应只监听“红/黄/绿”然后修改一个全局速度。不同信号制式最终应向 ATO 提供统一的移动授权：
+SimpleATO 不依赖信号系统即可运行。每列车最多激活一个可选 Provider，它只在内建线路限速、停车和跟车约束之上贡献额外约束：
 
 ```kotlin
-interface MovementAuthorityProvider {
-    val id: ProviderId
-
-    fun evaluate(
-        train: TrainSnapshot,
-        route: RouteSnapshot,
-        perception: PerceptionSnapshot
-    ): MovementAuthority
+interface AtoProvider {
+    val id: String
+    fun constraints(context: AtoProviderContext): Collection<AtoConstraint>
 }
 ```
 
-`MovementAuthority` 可以表达：
-
-- 授权终点；
-- 目标速度或分段速度曲线；
-- revision；
-- 有效期限；
-- 无法确定授权时的 fail-safe 行为。
-
-固定闭塞、移动闭塞和无信号目视驾驶都可以实现该接口，不需要继承 `SimpleATO`。
+方向感知的 `AtoProviderBoundary` RailObject 在列车 PASS 后原子激活或停用 Provider。找不到 Provider、返回错误 ID 或执行异常时，当前 World 的 ATO 子系统进入 Stall。固定闭塞和其他信号制式不需要继承 `SimpleATO`。
 
 ### 8.3 Provider 并发约束
 
@@ -626,25 +613,18 @@ PhysicsRailEvent
 
 ## 13. 一致性、故障与安全策略
 
-### 13.1 Route revision
+### 13.1 Route 一致性
 
-感知、停车目标和移动授权都应绑定 route revision。若道岔或经路变化导致 revision 不匹配：
+SimpleATO 保存本轮实际选择的 RailView 序列，并在移动前直接比较相邻道岔的当前选择。Route revision 只区分 ATO 提交的新旧路线，不作为世界拓扑真值。若规划期间道岔选择发生变化，当前 World 的 ATO 子系统进入 Stall。
 
-1. 当前规划结果失效；
-2. 重新解析前方对象和停车目标；
-3. 在新授权建立前采用保守速度或停车；
-4. 向调度器报告 route invalidated。
+### 13.2 异常处理
 
-不允许一次扫描沿途读取到多个不同版本的道岔状态并拼成混合经路。
+本项目不实现复杂的自动降级和错误恢复。ATO、Planner、Actuator 或活动 Provider 抛出异常时，`AtoWorldCoordinator` 将当前 World 的全部 ATO 置为 `STALLED`：
 
-### 13.2 Provider 失败
-
-每个 provider 注册时声明 failure policy，但安全相关 provider 不允许选择无限期沿用旧授权。可选策略包括：
-
-- `STOP_AT_END_OF_AUTHORITY`；
-- `IMMEDIATE_SERVICE_BRAKE`；
-- `EMERGENCY_BRAKE`；
-- 仅对非安全建议使用 `IGNORE_FOR_THIS_EPOCH`。
+- ATO 停止规划和移动并将速度冻结为 0；
+- 其他 World、手动列车和 Core 物理继续运行；
+- 首个错误报告记录初始列车位置、当前 Train/Route/Perception 快照、Provider 和约束；
+- 系统不会自动恢复，管理员恢复列车位置后显式 reset。
 
 ### 13.3 任务替换
 
@@ -699,7 +679,7 @@ CREATED -> ATTACHED -> ACTIVE -> SUSPENDED -> DETACHED -> CLOSED
 
 ### Phase D：插件与 Registry
 
-- 建立 AtoRegistry、RailObjectRule Registry 和 MovementAuthorityProvider Registry；
+- 建立 AtoRegistry、RailObjectRule Registry，并完善 AtoProvider 插件生命周期；
 - 提供 Java/Kotlin 示例扩展；
 - 接入时刻表的 `atoTypeId`；
 - 定义插件卸载和人工接管策略。
@@ -724,7 +704,7 @@ CREATED -> ATTACHED -> ACTIVE -> SUSPENDED -> DETACHED -> CLOSED
 7. Mission revision 乱序到达时拒绝旧任务；
 8. 道岔变化使 route revision 失效时进入保守状态；
 9. 同一 provider 更新约束是原子的，不出现一 Tick 的无限制窗口；
-10. provider 抛出异常时遵守 failure policy，其他列车 controller 继续运行；
+10. Provider 抛出异常时当前 World 的全部 ATO Stall，其他 World 和非 ATO controller 继续运行；
 11. 列车停稳后只触发一次 BERTHED，不重复开门；
 12. 未确认关门完成时不解除 DepartureHold；
 13. 人工接管时 ATO 停止输出，调度器收到状态变化；
@@ -735,12 +715,11 @@ CREATED -> ATTACHED -> ACTIVE -> SUSPENDED -> DETACHED -> CLOSED
 
 以下内容在实现前需要形成明确决策：
 
-- 第一版制动模型是否只使用固定减速度，是否立即纳入坡度和 jerk；
-- route 的所有者是 Dispatcher、RouteManager 还是独立联锁服务；
+- 后续是否需要预计算的坡度/jerk 制动曲线；当前只使用 O(1) 固定减速度公式；
+- Mission 引入后 route 的所有者是 Dispatcher 还是独立 RouteManager；
 - StationBerth 的列车参考点如何表达不同编组的车门对齐；
 - 关门动作是否必须返回可确认完成的 ticket，超时策略是什么；
 - safety、operational、advisory 三类约束的权限和优先级；
-- provider failure policy 是否允许插件配置，哪些安全 provider 必须由 Basic 强制保守；
 - ATO options 和 Mission 的持久化版本格式；
 - 人工接管结束后是恢复原 Mission、重新规划还是取消车次。
 

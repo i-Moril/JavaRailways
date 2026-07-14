@@ -8,6 +8,7 @@ import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.di.KoinWorldParentContext
 import work.art1st.mineRails.core.di.mineRailsParentScope
 import work.art1st.mineRails.basic.BasicPlugin
+import work.art1st.mineRails.basic.api.ato.AtoWorldCoordinator
 import work.art1st.mineRails.basic.BasicWorldData
 import work.art1st.mineRails.basic.safety.RailSpeedCalculator
 import work.art1st.mineRails.basic.safety.SpeedSafetyMonitor
@@ -49,7 +50,11 @@ object RailWorldFactory {
         )
         coreWorld.registerExtensionData(
             BasicPlugin.INSTANCE,
-            BasicWorldData()
+            BasicWorldData(
+                atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
+                    BukkitPlugin.INSTANCE.logger.severe(report.format())
+                }
+            )
         )
         val safetyConfig = BukkitPlugin.INSTANCE.mineRailsConfig
         coreWorld.allRails.forEach { rail ->

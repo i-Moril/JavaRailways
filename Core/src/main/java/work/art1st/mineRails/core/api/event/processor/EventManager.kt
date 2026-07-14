@@ -12,6 +12,13 @@ import kotlin.reflect.full.hasAnnotation
 import kotlin.reflect.full.isSubtypeOf
 import kotlin.reflect.full.starProjectedType
 
+/**
+ * Process-wide synchronous event bus for Core events.
+ *
+ * Listener functions are discovered with Kotlin reflection at registration time. The bus is not
+ * scoped per world and has no cancellation model. [fire] and [fireAsync] both execute handlers on
+ * the caller's thread; the latter adds asynchronous opt-in semantics and listener failure isolation.
+ */
 object EventManager {
     private class HandlerList {
         val lists: List<CopyOnWriteArrayList<Pair<EventListener, KFunction<*>>>> = listOf(CopyOnWriteArrayList(), CopyOnWriteArrayList(), CopyOnWriteArrayList(), CopyOnWriteArrayList(), CopyOnWriteArrayList())
@@ -21,6 +28,7 @@ object EventManager {
 
     private val handlers = ConcurrentHashMap<KClass<*>, HandlerList>()
 
+    /** Register all valid [HandlesEvent] functions declared by [eventListener]. */
     fun register(eventListener: EventListener) {
         eventListener::class.functions.forEach { function ->
             if (function.hasAnnotation<HandlesEvent>()) {
@@ -33,6 +41,7 @@ object EventManager {
         }
     }
 
+    /** Remove all handlers previously registered for the same listener instance. */
     fun unregister(eventListener: EventListener) {
         eventListener::class.functions.forEach { function ->
             if (function.hasAnnotation<HandlesEvent>()) {
@@ -45,6 +54,11 @@ object EventManager {
         }
     }
 
+    /**
+     * Dispatch [event] synchronously on the caller's thread.
+     *
+     * Handler exceptions propagate and stop dispatch; use only where that failure policy is intended.
+     */
     fun fire(event: Event) {
         event::class.getAllSuperClasses().forEach { type ->
             handlers[type]?.lists?.forEach { it.forEach { p -> p.second.call(p.first, event) } }

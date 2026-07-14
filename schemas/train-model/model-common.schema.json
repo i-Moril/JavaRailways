@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "model-common.schema.json",
+  "title": "MineRails train model common definitions",
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      }
+    },
+    "scale": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      }
+    },
+    "brightness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "block": {"type": "integer"},
+        "sky": {"type": "integer"}
+      }
+    },
+    "animationCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration": {"type": "number", "default": 0.0},
+        "offset": {"$ref": "#/$defs/vector"},
+        "rotation": {"$ref": "#/$defs/vector"},
+        "scale": {"$ref": "#/$defs/scale"},
+        "scene": {"type": "string"},
+        "item-type": {"type": "string"},
+        "item-model": {"type": "string"},
+        "custom-model-data": {"type": "integer"},
+        "brightness": {"$ref": "#/$defs/brightness"}
+      }
+    },
+    "animationKeyframe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at"],
+      "properties": {
+        "at": {"type": "number"},
+        "scene": {"type": "string"},
+        "offset": {"$ref": "#/$defs/vector"},
+        "rotation": {"$ref": "#/$defs/vector"},
+        "scale": {"$ref": "#/$defs/scale"},
+        "item-type": {"type": "string"},
+        "item-model": {"type": "string"},
+        "custom-model-data": {"type": "integer"},
+        "brightness": {"$ref": "#/$defs/brightness"}
+      }
+    },
+    "animation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"$ref": "#/$defs/nonEmptyString"},
+        "keep-final-state": {"type": "boolean", "default": true},
+        "commands": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/animationCommand"}
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/animationKeyframe"}
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "anyOf": [
+        {
+          "properties": {"item-model": {"$ref": "#/$defs/nonEmptyString"}},
+          "required": ["item-model"]
+        },
+        {
+          "properties": {"custom-model-data": {"type": "integer"}},
+          "required": ["custom-model-data"]
+        }
+      ],
+      "properties": {
+        "type": {"$ref": "#/$defs/nonEmptyString"},
+        "item-model": {"$ref": "#/$defs/nonEmptyString"},
+        "custom-model-data": {"type": "integer"},
+        "scale": {"$ref": "#/$defs/scale"},
+        "animations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/animation"}
+        }
+      }
+    },
+    "interaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "width": {"type": "number", "default": 1.0},
+        "height": {"type": "number", "default": 1.0},
+        "driver": {"type": "boolean", "default": false},
+        "control-end": {
+          "type": "string",
+          "enum": ["head", "front", "f", "tail", "rear", "back", "r"]
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rows": {"type": "integer", "default": 1},
+        "columns": {"type": "integer", "default": 1},
+        "spacing-x": {"type": "number"},
+        "spacingX": {"type": "number"},
+        "spacing-z": {"type": "number"},
+        "spacingZ": {"type": "number"},
+        "spacing": {"$ref": "#/$defs/vector"}
+      }
+    },
+    "partDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config-version", "name", "type"],
+      "properties": {
+        "config-version": {"const": 1},
+        "name": {"$ref": "#/$defs/nonEmptyString"},
+        "type": {
+          "type": "string",
+          "enum": ["dummy", "item_display", "interact", "seat", "platform"]
+        },
+        "item": {"$ref": "#/$defs/item"},
+        "interaction": {"$ref": "#/$defs/interaction"},
+        "platform": {"$ref": "#/$defs/platform"},
+        "offset": {"$ref": "#/$defs/vector"},
+        "rotation": {"$ref": "#/$defs/vector"},
+        "parts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/partReference"}
+        },
+        "animations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/animation"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "item_display"}}},
+          "then": {
+            "properties": {"item": {"$ref": "#/$defs/item"}},
+            "required": ["item"]
+          }
+        }
+      ]
+    },
+    "importReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["import"],
+      "properties": {
+        "import": {"$ref": "#/$defs/nonEmptyString"},
+        "offset": {"$ref": "#/$defs/vector"},
+        "rotation": {"$ref": "#/$defs/vector"}
+      }
+    },
+    "legacyReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"$ref": "#/$defs/nonEmptyString"},
+        "offset": {"$ref": "#/$defs/vector"},
+        "rotation": {"$ref": "#/$defs/vector"}
+      }
+    },
+    "partReference": {
+      "oneOf": [
+        {"$ref": "#/$defs/importReference"},
+        {"$ref": "#/$defs/partDefinition"},
+        {"$ref": "#/$defs/legacyReference"}
+      ]
+    }
+  }
+}

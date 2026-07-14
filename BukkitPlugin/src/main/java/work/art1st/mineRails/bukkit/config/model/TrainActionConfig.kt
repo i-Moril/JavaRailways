@@ -14,51 +14,78 @@ data class TrainActionConfig(
     val sounds: List<TrainActionSoundConfig> = emptyList()
 ) {
     companion object {
-        fun parseActions(map: Map<String, Any>?): Map<String, TrainActionConfig> {
-            if (map == null) return emptyMap()
-            val actionsMap = map["actions"] as? Map<*, *> ?: return emptyMap()
-            return actionsMap.mapNotNull { (key, value) ->
-                val name = key as? String ?: return@mapNotNull null
-                val actionMap = value as? Map<*, *> ?: return@mapNotNull null
+        const val CONFIG_VERSION = 1
+
+        fun parseActions(root: Map<String, Any>?): Map<String, TrainActionConfig> {
+            val source = root ?: throw IllegalArgumentException("train actions config is required")
+            source.requireOnlyKeys(setOf("config-version", "actions"), "train actions")
+            val version = source.requireInt("config-version", "train actions")
+            require(version == CONFIG_VERSION) {
+                "Unsupported train actions config-version: $version (expected $CONFIG_VERSION)"
+            }
+            val actionsMap = source.requireMap("actions", "train actions")
+            return actionsMap.entries.associate { (name, rawValue) ->
+                require(name.isNotBlank()) { "train actions contains a blank action name" }
+                val actionMap = (rawValue as? Map<*, *>)?.toStringKeyMap("train actions.$name")
+                    ?: throw IllegalArgumentException("train actions.$name must be a map")
+                actionMap.requireOnlyKeys(
+                    setOf("display-name", "executable", "requires-control", "animations", "sounds"),
+                    "train actions.$name"
+                )
                 name to TrainActionConfig(
                     name = name,
-                    displayName = actionMap["display-name"] as? String ?: name,
-                    executable = (actionMap["executable"] as? Boolean) ?: false,
-                    requiresControl = (actionMap["requires-control"] as? Boolean) ?: false,
-                    animations = parseAnimations(actionMap["animations"] as? List<*>),
-                    sounds = parseSounds(actionMap["sounds"] as? List<*>)
+                    displayName = actionMap.optionalStringValue("display-name", "train actions.$name") ?: name,
+                    executable = actionMap.optionalBooleanValue("executable", "train actions.$name") ?: false,
+                    requiresControl = actionMap.optionalBooleanValue("requires-control", "train actions.$name") ?: false,
+                    animations = parseAnimations(actionMap.optionalList("animations", "train actions.$name"), name),
+                    sounds = parseSounds(actionMap.optionalList("sounds", "train actions.$name"), name)
                 )
-            }.toMap()
+            }
         }
 
-        private fun parseAnimations(list: List<*>?): List<TrainActionAnimationConfig> {
+        private fun parseAnimations(list: List<*>?, actionName: String): List<TrainActionAnimationConfig> {
             if (list == null) return emptyList()
-            return list.mapNotNull { entry ->
+            return list.mapIndexed { index, entry ->
                 when (entry) {
-                    is String -> TrainActionAnimationConfig(name = entry)
+                    is String -> {
+                        require(entry.isNotBlank()) {
+                            "train actions.$actionName.animations[$index] must not be blank"
+                        }
+                        TrainActionAnimationConfig(name = entry)
+                    }
                     is Map<*, *> -> {
-                        val name = entry["name"] as? String ?: return@mapNotNull null
+                        val subject = "train actions.$actionName.animations[$index]"
+                        val map = entry.toStringKeyMap(subject)
+                        map.requireOnlyKeys(setOf("name", "scene", "at"), subject)
+                        val name = map.requireString("name", subject)
+                        require(name.isNotBlank()) { "$subject.name must not be blank" }
                         TrainActionAnimationConfig(
                             name = name,
-                            scene = normalizeSceneName(entry["scene"] as? String),
-                            at = (entry["at"] as? Number)?.toDouble() ?: 0.0
+                            scene = normalizeSceneName(map.optionalStringValue("scene", subject)),
+                            at = map.optionalDoubleValue("at", subject) ?: 0.0
                         )
                     }
-                    else -> null
+                    else -> throw IllegalArgumentException(
+                        "train actions.$actionName.animations[$index] must be a string or map"
+                    )
                 }
             }
         }
 
-        private fun parseSounds(list: List<*>?): List<TrainActionSoundConfig> {
+        private fun parseSounds(list: List<*>?, actionName: String): List<TrainActionSoundConfig> {
             if (list == null) return emptyList()
-            return list.mapNotNull { entry ->
-                val map = entry as? Map<*, *> ?: return@mapNotNull null
-                val key = map["key"] as? String ?: return@mapNotNull null
+            return list.mapIndexed { index, entry ->
+                val subject = "train actions.$actionName.sounds[$index]"
+                val map = (entry as? Map<*, *>)?.toStringKeyMap(subject)
+                    ?: throw IllegalArgumentException("$subject must be a map")
+                map.requireOnlyKeys(setOf("key", "volume", "pitch", "at"), subject)
+                val key = map.requireString("key", subject)
+                require(key.isNotBlank()) { "$subject.key must not be blank" }
                 TrainActionSoundConfig(
                     key = key,
-                    volume = (map["volume"] as? Number)?.toDouble() ?: 1.0,
-                    pitch = (map["pitch"] as? Number)?.toDouble() ?: 1.0,
-                    at = (map["at"] as? Number)?.toDouble() ?: 0.0
+                    volume = map.optionalDoubleValue("volume", subject) ?: 1.0,
+                    pitch = map.optionalDoubleValue("pitch", subject) ?: 1.0,
+                    at = map.optionalDoubleValue("at", subject) ?: 0.0
                 )
             }
         }
@@ -71,6 +98,7 @@ data class TrainActionConfig(
                 else -> normalized
             }
         }
+
     }
 }
 

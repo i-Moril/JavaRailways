@@ -1,0 +1,48 @@
+:root {
+  --ifm-color-primary: #1f6f5f;
+  --ifm-color-primary-dark: #1c6456;
+  --ifm-color-primary-darker: #1a5e51;
+  --ifm-color-primary-darkest: #154e43;
+  --ifm-color-primary-light: #227a68;
+  --ifm-color-primary-lighter: #24806d;
+  --ifm-color-primary-lightest: #29917b;
+  --ifm-code-font-size: 95%;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #58c4ad;
+  --ifm-color-primary-dark: #43bca3;
+  --ifm-color-primary-darker: #3db49c;
+  --ifm-color-primary-darkest: #329580;
+  --ifm-color-primary-light: #6dcbb7;
+  --ifm-color-primary-lighter: #79cfbd;
+  --ifm-color-primary-lightest: #99dacd;
+}
+
+.theme-doc-markdown table {
+  display: table;
+  width: 100%;
+}
+
+.minerails-pagefind-search {
+  position: fixed;
+  top: 0.45rem;
+  right: 1rem;
+  z-index: calc(var(--ifm-z-index-fixed) + 1);
+}
+
+.minerails-pagefind-search pagefind-modal-trigger {
+  --pagefind-ui-primary: var(--ifm-color-primary);
+  --pagefind-ui-text: var(--ifm-font-color-base);
+  --pagefind-ui-background: var(--ifm-navbar-background-color);
+  --pagefind-ui-border: var(--ifm-color-emphasis-300);
+  --pagefind-ui-border-width: 1px;
+  --pagefind-ui-border-radius: 0.4rem;
+  --pagefind-ui-font: var(--ifm-font-family-base);
+}
+
+@media (max-width: 996px) {
+  .minerails-pagefind-search {
+    right: 0.5rem;
+  }
+}

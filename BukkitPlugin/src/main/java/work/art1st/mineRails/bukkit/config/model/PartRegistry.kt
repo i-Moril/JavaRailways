@@ -111,17 +111,25 @@ class PartRegistry(
     companion object {
         const val CONFIG_VERSION = 1
 
+        private val PART_KEYS = setOf(
+            "config-version", "name", "type", "item", "interaction", "platform",
+            "offset", "rotation", "parts", "animations"
+        )
+        private val TRANSFORM_KEYS = setOf("x", "y", "z")
+        private val SCALE_KEYS = setOf("x", "y", "z")
+
         fun parsePartDefinition(map: Map<String, Any>, namespace: String): PartDefinition {
-            val version = (map["config-version"] as? Number)?.toInt()
-                ?: throw IllegalArgumentException("Missing config-version")
+            map.requireOnlyKeys(PART_KEYS, "part definition")
+            val version = map.requireInt("config-version", "part definition")
             require(version == CONFIG_VERSION) { "Unsupported config-version: $version" }
 
-            val simpleName = map["name"] as? String
-                ?: throw IllegalArgumentException("Missing 'name' in part definition")
+            val simpleName = map.requireString("name", "part definition")
+            require(simpleName.isNotBlank()) { "part definition.name must not be blank" }
             val qualifiedName = if (namespace.isEmpty()) simpleName else "$namespace/$simpleName"
 
             val typeStr = map["type"] as? String
                 ?: throw IllegalArgumentException("Missing 'type' in part '$qualifiedName'")
+            require(typeStr == typeStr.lowercase()) { "Part '$qualifiedName'.type must be lowercase" }
             val type = PartType.fromString(typeStr)
 
             val item = parseItemConfig(map.optionalMap("item", "part '$qualifiedName'"))
@@ -131,6 +139,9 @@ class PartRegistry(
             val rotation = parseVec3(map.optionalMap("rotation", "part '$qualifiedName'"))
             val parts = parsePartList(map.optionalList("parts", "part '$qualifiedName'"), namespace)
             val animations = parseAnimations(map.optionalList("animations", "part '$qualifiedName'"))
+            require(type != PartType.ITEM_DISPLAY || item != null) {
+                "Part '$qualifiedName' of type item_display must declare item"
+            }
 
             return PartDefinition(
                 name = qualifiedName,
@@ -147,10 +158,22 @@ class PartRegistry(
 
         fun parseItemConfig(map: Map<String, Any>?): PartItemConfig? {
             if (map == null) return null
+            map.requireOnlyKeys(
+                setOf("type", "item-model", "custom-model-data", "scale", "animations"),
+                "item"
+            )
+            val itemModel = map.optionalStringValue("item-model", "item")
+            val customModelData = map.optionalIntValue("custom-model-data", "item")
+            require(itemModel != null || customModelData != null) {
+                "item must declare item-model or custom-model-data"
+            }
+            require(itemModel == null || itemModel.isNotBlank()) { "item.item-model must not be blank" }
+            val itemType = map.requireString("type", "item")
+            require(itemType.isNotBlank()) { "item.type must not be blank" }
             return PartItemConfig(
-                type = map["type"] as? String ?: error("Missing item.type"),
-                itemModel = map["item-model"] as? String,
-                customModelData = (map["custom-model-data"] as? Number)?.toInt(),
+                type = itemType,
+                itemModel = itemModel,
+                customModelData = customModelData,
                 scale = parseScale(map.optionalMap("scale", "item")),
                 animations = parseAnimations(map.optionalList("animations", "item"))
             )
@@ -158,26 +181,41 @@ class PartRegistry(
 
         fun parseInteractionConfig(map: Map<String, Any>?): PartInteractionConfig {
             if (map == null) return PartInteractionConfig()
+            map.requireOnlyKeys(setOf("width", "height", "driver", "control-end"), "interaction")
+            val controlEndText = map["control-end"]?.let {
+                it as? String ?: throw IllegalArgumentException("interaction.control-end must be a string")
+            }
+            require(controlEndText == null || controlEndText == controlEndText.trim().lowercase()) {
+                "interaction.control-end must be a lowercase value without surrounding whitespace"
+            }
+            val controlEnd = DriverControlEnd.fromConfig(controlEndText)
+            require(controlEndText == null || controlEnd != null) {
+                "interaction.control-end has unsupported value: $controlEndText"
+            }
             return PartInteractionConfig(
-                width = (map["width"] as? Number)?.toDouble() ?: 1.0,
-                height = (map["height"] as? Number)?.toDouble() ?: 1.0,
-                driver = (map["driver"] as? Boolean) ?: false,
-                controlEnd = DriverControlEnd.fromConfig(map["control-end"] as? String)
+                width = map.optionalDoubleValue("width", "interaction") ?: 1.0,
+                height = map.optionalDoubleValue("height", "interaction") ?: 1.0,
+                driver = map.optionalBooleanValue("driver", "interaction") ?: false,
+                controlEnd = controlEnd
             )
         }
 
         fun parsePlatformConfig(map: Map<String, Any>?): PartPlatformConfig {
             if (map == null) return PartPlatformConfig()
+            map.requireOnlyKeys(
+                setOf("rows", "columns", "spacing-x", "spacingX", "spacing-z", "spacingZ", "spacing"),
+                "platform"
+            )
             val spacing = parseVec3(map.optionalMap("spacing", "platform"))
             return PartPlatformConfig(
-                rows = (map["rows"] as? Number)?.toInt() ?: 1,
-                columns = (map["columns"] as? Number)?.toInt() ?: 1,
-                spacingX = (map["spacing-x"] as? Number)?.toDouble()
-                    ?: (map["spacingX"] as? Number)?.toDouble()
+                rows = map.optionalIntValue("rows", "platform") ?: 1,
+                columns = map.optionalIntValue("columns", "platform") ?: 1,
+                spacingX = map.optionalDoubleValue("spacing-x", "platform")
+                    ?: map.optionalDoubleValue("spacingX", "platform")
                     ?: spacing.x.takeIf { it != 0.0 }
                     ?: 1.0,
-                spacingZ = (map["spacing-z"] as? Number)?.toDouble()
-                    ?: (map["spacingZ"] as? Number)?.toDouble()
+                spacingZ = map.optionalDoubleValue("spacing-z", "platform")
+                    ?: map.optionalDoubleValue("spacingZ", "platform")
                     ?: spacing.z.takeIf { it != 0.0 }
                     ?: 1.0
             )
@@ -185,19 +223,21 @@ class PartRegistry(
 
         fun parseScale(map: Map<String, Any>?): PartScaleConfig? {
             if (map == null) return null
+            map.requireOnlyKeys(SCALE_KEYS, "scale")
             return PartScaleConfig(
-                x = (map["x"] as? Number)?.toDouble() ?: 1.0,
-                y = (map["y"] as? Number)?.toDouble() ?: 1.0,
-                z = (map["z"] as? Number)?.toDouble() ?: 1.0
+                x = map.optionalDoubleValue("x", "scale") ?: 1.0,
+                y = map.optionalDoubleValue("y", "scale") ?: 1.0,
+                z = map.optionalDoubleValue("z", "scale") ?: 1.0
             )
         }
 
         fun parseVec3(map: Map<String, Any>?): Vec3Config {
             if (map == null) return Vec3Config()
+            map.requireOnlyKeys(TRANSFORM_KEYS, "vector")
             return Vec3Config(
-                x = (map["x"] as? Number)?.toDouble() ?: 0.0,
-                y = (map["y"] as? Number)?.toDouble() ?: 0.0,
-                z = (map["z"] as? Number)?.toDouble() ?: 0.0
+                x = map.optionalDoubleValue("x", "vector") ?: 0.0,
+                y = map.optionalDoubleValue("y", "vector") ?: 0.0,
+                z = map.optionalDoubleValue("z", "vector") ?: 0.0
             )
         }
 
@@ -212,19 +252,22 @@ class PartRegistry(
                 when {
                     // Import format: "import: namespace/part-name"
                     entryMap.containsKey("import") -> {
-                        val importName = entryMap["import"] as? String
-                            ?: throw IllegalArgumentException("parts[$index].import must be a string")
+                        entryMap.requireOnlyKeys(setOf("import", "offset", "rotation"), "parts[$index]")
+                        val importName = entryMap.requireString("import", "parts[$index]")
+                        require(importName.isNotBlank()) { "parts[$index].import must not be blank" }
                         PartRefEntry(name = importName, offset = offset, rotation = rotation, isImport = true)
                     }
                     // Inline format: "name: ..., type: ..."
                     entryMap.containsKey("type") -> {
+                        entryMap.requireOnlyKeys(PART_KEYS, "parts[$index]")
                         val def = parsePartDefinition(entryMap, namespace)
                         PartRefEntry(name = def.name, offset = offset, rotation = rotation, inline = def)
                     }
                     // Legacy format: "name: part-name"
                     else -> {
-                        val refName = entryMap["name"] as? String
-                            ?: throw IllegalArgumentException("parts[$index].name must be a string")
+                        entryMap.requireOnlyKeys(setOf("name", "offset", "rotation"), "parts[$index]")
+                        val refName = entryMap.requireString("name", "parts[$index]")
+                        require(refName.isNotBlank()) { "parts[$index].name must not be blank" }
                         PartRefEntry(name = refName, offset = offset, rotation = rotation)
                     }
                 }
@@ -236,15 +279,19 @@ class PartRegistry(
             return list.mapIndexed { index, entry ->
                 val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("animations[$index]")
                     ?: throw IllegalArgumentException("animations[$index] must be a map")
-                val name = entryMap["name"] as? String
-                    ?: throw IllegalArgumentException("animations[$index].name must be a string")
+                entryMap.requireOnlyKeys(
+                    setOf("name", "keep-final-state", "commands", "keyframes"),
+                    "animations[$index]"
+                )
+                val name = entryMap.requireString("name", "animations[$index]")
+                require(name.isNotBlank()) { "animations[$index].name must not be blank" }
                 val commands = parseAnimationCommands(entryMap.optionalList("commands", "animations[$index]"))
                 val keyframes = parseAnimationKeyframes(entryMap.optionalList("keyframes", "animations[$index]"))
                 validateUniqueScenes(name, commands.mapNotNull { it.scene } + keyframes.mapNotNull { it.scene })
 
                 PartAnimationConfig(
                     name = name,
-                    keepFinalState = (entryMap["keep-final-state"] as? Boolean) ?: true,
+                    keepFinalState = entryMap.optionalBooleanValue("keep-final-state", "animations[$index]") ?: true,
                     commands = commands,
                     keyframes = keyframes.sortedBy { it.at }
                 )
@@ -254,18 +301,26 @@ class PartRegistry(
         private fun parseAnimationCommands(list: List<*>?): List<PartAnimationCommandConfig> {
             if (list == null) return emptyList()
             return list.mapIndexed { index, entry ->
-                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("animation.commands[$index]")
-                    ?: throw IllegalArgumentException("animation.commands[$index] must be a map")
+                val subject = "animation.commands[$index]"
+                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap(subject)
+                    ?: throw IllegalArgumentException("$subject must be a map")
+                entryMap.requireOnlyKeys(
+                    setOf(
+                        "duration", "offset", "rotation", "scale", "scene", "item-type",
+                        "item-model", "custom-model-data", "brightness"
+                    ),
+                    subject
+                )
                 PartAnimationCommandConfig(
-                    duration = (entryMap["duration"] as? Number)?.toDouble() ?: 0.0,
-                    offset = parseVec3(entryMap.optionalMap("offset", "animation.commands[$index]")),
-                    rotation = parseVec3(entryMap.optionalMap("rotation", "animation.commands[$index]")),
-                    scale = parseScale(entryMap.optionalMap("scale", "animation.commands[$index]")),
-                    scene = normalizeSceneName(entryMap["scene"] as? String),
-                    itemType = entryMap["item-type"] as? String,
-                    itemModel = entryMap["item-model"] as? String,
-                    customModelData = (entryMap["custom-model-data"] as? Number)?.toInt(),
-                    brightness = parseBrightness(entryMap.optionalMap("brightness", "animation.commands[$index]"))
+                    duration = entryMap.optionalDoubleValue("duration", subject) ?: 0.0,
+                    offset = parseVec3(entryMap.optionalMap("offset", subject)),
+                    rotation = parseVec3(entryMap.optionalMap("rotation", subject)),
+                    scale = parseScale(entryMap.optionalMap("scale", subject)),
+                    scene = normalizeSceneName(entryMap.optionalStringValue("scene", subject)),
+                    itemType = entryMap.optionalStringValue("item-type", subject),
+                    itemModel = entryMap.optionalStringValue("item-model", subject),
+                    customModelData = entryMap.optionalIntValue("custom-model-data", subject),
+                    brightness = parseBrightness(entryMap.optionalMap("brightness", subject))
                 )
             }
         }
@@ -273,29 +328,38 @@ class PartRegistry(
         private fun parseAnimationKeyframes(list: List<*>?): List<PartAnimationKeyframeConfig> {
             if (list == null) return emptyList()
             return list.mapIndexed { index, entry ->
-                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("animation.keyframes[$index]")
-                    ?: throw IllegalArgumentException("animation.keyframes[$index] must be a map")
-                val at = (entryMap["at"] as? Number)?.toDouble()
-                    ?: throw IllegalArgumentException("animation.keyframes[$index].at must be a number")
+                val subject = "animation.keyframes[$index]"
+                val entryMap = (entry as? Map<*, *>)?.toStringKeyMap(subject)
+                    ?: throw IllegalArgumentException("$subject must be a map")
+                entryMap.requireOnlyKeys(
+                    setOf(
+                        "at", "scene", "offset", "rotation", "scale", "item-type",
+                        "item-model", "custom-model-data", "brightness"
+                    ),
+                    subject
+                )
+                val at = entryMap.optionalDoubleValue("at", subject)
+                    ?: throw IllegalArgumentException("$subject.at is required")
                 PartAnimationKeyframeConfig(
                     at = at,
-                    scene = normalizeSceneName(entryMap["scene"] as? String),
-                    offset = parseVec3(entryMap.optionalMap("offset", "animation.keyframes[$index]")),
-                    rotation = parseVec3(entryMap.optionalMap("rotation", "animation.keyframes[$index]")),
-                    scale = parseScale(entryMap.optionalMap("scale", "animation.keyframes[$index]")),
-                    itemType = entryMap["item-type"] as? String,
-                    itemModel = entryMap["item-model"] as? String,
-                    customModelData = (entryMap["custom-model-data"] as? Number)?.toInt(),
-                    brightness = parseBrightness(entryMap.optionalMap("brightness", "animation.keyframes[$index]"))
+                    scene = normalizeSceneName(entryMap.optionalStringValue("scene", subject)),
+                    offset = parseVec3(entryMap.optionalMap("offset", subject)),
+                    rotation = parseVec3(entryMap.optionalMap("rotation", subject)),
+                    scale = parseScale(entryMap.optionalMap("scale", subject)),
+                    itemType = entryMap.optionalStringValue("item-type", subject),
+                    itemModel = entryMap.optionalStringValue("item-model", subject),
+                    customModelData = entryMap.optionalIntValue("custom-model-data", subject),
+                    brightness = parseBrightness(entryMap.optionalMap("brightness", subject))
                 )
             }
         }
 
         fun parseBrightness(map: Map<String, Any>?): PartBrightnessConfig? {
             if (map == null) return null
+            map.requireOnlyKeys(setOf("block", "sky"), "brightness")
             return PartBrightnessConfig(
-                block = (map["block"] as? Number)?.toInt() ?: 0,
-                sky = (map["sky"] as? Number)?.toInt() ?: 0
+                block = map.optionalIntValue("block", "brightness") ?: 0,
+                sky = map.optionalIntValue("sky", "brightness") ?: 0
             )
         }
 

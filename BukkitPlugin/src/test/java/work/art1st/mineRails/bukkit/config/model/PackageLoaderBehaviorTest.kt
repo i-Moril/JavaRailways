@@ -14,7 +14,7 @@ class PackageLoaderBehaviorTest {
         val packageDir = File(tempDir, "s100").apply { mkdirs() }
         File(packageDir, "manifest.yml").writeText(
             """
-            config-version: 1
+            config-version: 2
             name: s100
             type: train
             composition: []

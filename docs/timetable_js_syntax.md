@@ -1,6 +1,15 @@
+---
+title: JS 时刻表语法
+slug: /timetable/
+---
+
 # MineRails JS 时刻表语法说明
 
-本文档描述当前 Phase 5 首版 JS 时刻表 DSL。JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入运行期时刻表 store。
+:::warning 实验性能力
+本文档描述当前 Phase 5 首版 JS 时刻表 DSL。它只实现脚本加载、内部模型生成和 dry-run，尚不会调度或驾驶真实列车。
+:::
+
+JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
 
 ## 文件位置与命令
 
@@ -35,7 +44,7 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable dump <id>
 ```
 
-如果省略 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。
+如果省略 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
 
 ## 入口函数
 
@@ -48,6 +57,10 @@ function main(timetable) {
 ```
 
 `main` 参数 `timetable` 是 MineRails 提供的 DSL 对象。
+
+:::danger 只加载可信脚本
+当前时刻表 loader 使用 GraalJS `allowAllAccess(true)`，没有沙箱或执行超时。脚本可以访问 JVM host，并且错误的死循环可能阻塞加载线程。只能加载服务器管理员完全信任的文件，不能接受玩家上传或第三方不可信脚本。
+:::
 
 ## 基本示例
 
@@ -84,7 +97,8 @@ timetable.setPeriod(16000)
 
 规则：
 
-- `ticks` 必须大于 0。
+- `ticks` 必须是大于 0 的整数。
+- `setPeriod` 当前可以省略，此时内部 `periodTicks` 为 `null`；其调度语义尚未定义。
 - 当前阶段只记录和验证，不实际循环调度。
 
 ### `timetable.service(id, builder)`
@@ -142,7 +156,7 @@ t.at(1000).goto("a0")
 
 规则：
 
-- `tick` 必须大于等于 0。
+- `tick` 必须是大于等于 0 的整数。
 - 同一个 service 内，`at` 的 tick 不应倒退。
 - `wayPointId` 必须是已存在路径点。
 - 如果 validator 能确定当前位置，会验证当前位置到目标路径点是否可达。
@@ -177,7 +191,7 @@ t.at(2000).stop(100)
 
 规则：
 
-- `ticks` 必须大于 0。
+- `ticks` 必须是大于 0 的整数。
 - 当前阶段只记录停站/停留动作，不驱动车辆。
 
 ### `t.check(wayPointId)`
@@ -216,6 +230,33 @@ timetable.service("001", function(t) {
 ```
 
 WayPoint 本身不带方向；经路验证会尝试 AB/BA 方向组合，并选择可达路线中最短的一条。方向限制后续会由独立运营 metadata 表达。
+
+## 编辑器补全与类型检查
+
+仓库提供 `types/timetable.d.ts`。示例脚本可以在文件开头引用它：
+
+```js
+// @ts-check
+/// <reference path="../../types/timetable.d.ts" />
+```
+
+并为入口参数添加 JSDoc：
+
+```js
+/** @param {MineRailsTimetableBuilder} timetable */
+function main(timetable) {
+  // ...
+}
+```
+
+运行静态检查：
+
+```bash
+cd docs-site
+npm run check-dsl-types
+```
+
+JavaScript 的 `number` 类型不能表达“必须是整数”，因此 tick 的整数约束仍由运行时 DSL 校验。
 
 ## Dry-run 验证内容
 
@@ -282,6 +323,8 @@ function main(timetable) {
 
 ## 完整示例
 
+仓库中的可检查示例位于 `examples/timetables/demo.js`。下面展示同一类完整脚本：
+
 ```js
 const depot = ["depot1", "depot2"]
 const outbound = ["a0", "a1", "b0"]
@@ -315,5 +358,7 @@ Phase 5 只实现“脚本加载 + 内部模型生成 + dry-run 验证”。当�
 - 检查同一时刻线路占用冲突。
 - 执行周期循环。
 - 处理速度限制、方向限制、会让/越行等运营规则。
+- 持久化已加载时刻表或运行状态；重启后需要重新加载。
+- 限制脚本的 host access、执行时间、内存或死循环。
 
-这些会在后续 Phase 中继续实现。
+这些会在后续 Phase 中继续实现。在沙箱完成前，“支持 JavaScript”不表示可以安全执行不可信脚本。

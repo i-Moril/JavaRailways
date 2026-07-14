@@ -9,6 +9,7 @@ class TrainActionConfigTest {
     fun `parses actions with animations and sounds`() {
         val actions = TrainActionConfig.parseActions(
             mapOf(
+                "config-version" to 1,
                 "actions" to mapOf(
                     "door-left-open" to mapOf(
                         "display-name" to "Open left doors",

@@ -22,6 +22,13 @@ internal fun Map<*, *>.toStringKeyMap(subject: String): Map<String, Any> = build
     }
 }
 
+internal fun Map<String, Any>.requireOnlyKeys(allowed: Set<String>, subject: String) {
+    val unknown = keys - allowed
+    require(unknown.isEmpty()) {
+        "$subject contains unknown key(s): ${unknown.sorted().joinToString()}"
+    }
+}
+
 internal fun Map<String, Any>.requireString(key: String, subject: String): String {
     val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
     return value as? String ?: throw IllegalArgumentException("$subject.$key must be a string")
@@ -29,8 +36,40 @@ internal fun Map<String, Any>.requireString(key: String, subject: String): Strin
 
 internal fun Map<String, Any>.requireInt(key: String, subject: String): Int {
     val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
-    return (value as? Number)?.toInt()
-        ?: throw IllegalArgumentException("$subject.$key must be an integer")
+    return value.toStrictInt("$subject.$key")
+}
+
+internal fun Map<String, Any>.optionalStringValue(key: String, subject: String): String? {
+    val value = this[key] ?: return null
+    return value as? String ?: throw IllegalArgumentException("$subject.$key must be a string")
+}
+
+internal fun Map<String, Any>.optionalDoubleValue(key: String, subject: String): Double? {
+    val value = this[key] ?: return null
+    val number = value as? Number ?: throw IllegalArgumentException("$subject.$key must be a number")
+    return number.toDouble().also {
+        require(it.isFinite()) { "$subject.$key must be finite" }
+    }
+}
+
+internal fun Map<String, Any>.optionalIntValue(key: String, subject: String): Int? {
+    val value = this[key] ?: return null
+    return value.toStrictInt("$subject.$key")
+}
+
+internal fun Map<String, Any>.optionalBooleanValue(key: String, subject: String): Boolean? {
+    val value = this[key] ?: return null
+    return value as? Boolean ?: throw IllegalArgumentException("$subject.$key must be a boolean")
+}
+
+private fun Any.toStrictInt(subject: String): Int {
+    val number = this as? Number ?: throw IllegalArgumentException("$subject must be an integer")
+    val doubleValue = number.toDouble()
+    require(doubleValue.isFinite() && doubleValue % 1.0 == 0.0) { "$subject must be an integer" }
+    require(doubleValue >= Int.MIN_VALUE.toDouble() && doubleValue <= Int.MAX_VALUE.toDouble()) {
+        "$subject is outside the supported integer range"
+    }
+    return doubleValue.toInt()
 }
 
 internal fun Map<String, Any>.optionalMap(key: String, subject: String): Map<String, Any>? {

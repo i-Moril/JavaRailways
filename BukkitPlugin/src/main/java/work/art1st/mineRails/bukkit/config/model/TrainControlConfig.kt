@@ -37,6 +37,10 @@ data class TrainControlConfig(
     companion object {
         fun parse(root: Map<String, Any>?): TrainControlConfig {
             val source = root ?: throw IllegalArgumentException("train control config is required")
+            source.requireOnlyKeys(
+                setOf("config-version", "max-speed", "controller", "traction", "brake", "resistance", "adhesion", "jerk"),
+                "train control"
+            )
             val version = source.requireInt("config-version", "train control")
             require(version == PartRegistry.CONFIG_VERSION) {
                 "Unsupported train control config-version: $version"
@@ -44,6 +48,9 @@ data class TrainControlConfig(
             val controller = source.requireMap("controller", "train control")
             val traction = source.requireMap("traction", "train control")
             val brake = source.requireMap("brake", "train control")
+            controller.requireOnlyKeys(setOf("power-notches", "brake-notches"), "train control.controller")
+            traction.requireOnlyKeys(setOf("notch-scales"), "train control.traction")
+            brake.requireOnlyKeys(setOf("notch-scales", "apply-time", "release-time"), "train control.brake")
             val powerNotches = controller.requireStringList("power-notches", "train control.controller")
             val brakeNotches = controller.requireStringList("brake-notches", "train control.controller")
             val tractionScales = traction.requireDoubleMap("notch-scales", "train control.traction")
@@ -100,6 +107,10 @@ data class CarControlConfig(
     companion object {
         fun parse(root: Map<String, Any>?): CarControlConfig {
             val source = root ?: throw IllegalArgumentException("car control config is required")
+            source.requireOnlyKeys(
+                setOf("mass", "rotating-mass-factor", "motor", "brake", "resistance"),
+                "car control"
+            )
             return CarControlConfig(
                 mass = source.requireDouble("mass", "car control"),
                 rotatingMassFactor = source.requireDouble("rotating-mass-factor", "car control"),
@@ -141,6 +152,10 @@ data class MotorControlConfig(
     companion object {
         fun parse(root: Map<String, Any>?): MotorControlConfig {
             val source = root ?: throw IllegalArgumentException("motor control config is required")
+            source.requireOnlyKeys(
+                setOf("enabled", "max-force", "max-power", "adhesion-mass-ratio", "force-curve"),
+                "car control.motor"
+            )
             return MotorControlConfig(
                 enabled = source.requireBoolean("enabled", "car control.motor"),
                 maxForce = source.requireDouble("max-force", "car control.motor"),
@@ -165,6 +180,10 @@ data class CarBrakeControlConfig(
     companion object {
         fun parse(root: Map<String, Any>?): CarBrakeControlConfig {
             val source = root ?: throw IllegalArgumentException("brake control config is required")
+            source.requireOnlyKeys(
+                setOf("max-force", "regenerative-force", "adhesion-mass-ratio"),
+                "car control.brake"
+            )
             return CarBrakeControlConfig(
                 maxForce = source.requireDouble("max-force", "car control.brake"),
                 regenerativeForce = source.requireDouble("regenerative-force", "car control.brake"),
@@ -185,6 +204,7 @@ data class DavisResistanceConfig(
     companion object {
         fun parse(root: Map<String, Any>?): DavisResistanceConfig {
             val source = root ?: throw IllegalArgumentException("resistance config is required")
+            source.requireOnlyKeys(setOf("a", "b", "c"), "resistance")
             return DavisResistanceConfig(
                 a = source.requireDouble("a", "resistance"),
                 b = source.requireDouble("b", "resistance"),
@@ -201,6 +221,7 @@ data class AdhesionConfig(
     companion object {
         fun parse(root: Map<String, Any>?): AdhesionConfig {
             val source = root ?: throw IllegalArgumentException("adhesion config is required")
+            source.requireOnlyKeys(setOf("coefficient"), "adhesion")
             return AdhesionConfig(
                 coefficient = source.requireDouble("coefficient", "adhesion")
             )
@@ -216,6 +237,7 @@ data class JerkLimitConfig(
     companion object {
         fun parse(root: Map<String, Any>?): JerkLimitConfig {
             val source = root ?: throw IllegalArgumentException("jerk config is required")
+            source.requireOnlyKeys(setOf("traction", "brake"), "jerk")
             return JerkLimitConfig(
                 traction = source.requireDouble("traction", "jerk"),
                 brake = source.requireDouble("brake", "jerk")
@@ -231,6 +253,7 @@ data class SpeedForcePoint(
 ) {
     companion object {
         fun parse(root: Map<String, Any>): SpeedForcePoint {
+            root.requireOnlyKeys(setOf("speed", "force"), "force-curve point")
             val speed = root.requireDouble("speed", "force-curve point")
             val force = root.requireDouble("force", "force-curve point")
             return SpeedForcePoint(speed, force)
@@ -291,8 +314,10 @@ internal fun Map<*, *>.stringKeyMap(subject: String = "map"): Map<String, Any> =
 
 internal fun Map<String, Any>.requireDouble(key: String, subject: String): Double {
     val value = this[key] ?: throw IllegalArgumentException("$subject is missing required key '$key'")
-    return (value as? Number)?.toDouble()
-        ?: throw IllegalArgumentException("$subject.$key must be a number")
+    val number = value as? Number ?: throw IllegalArgumentException("$subject.$key must be a number")
+    return number.toDouble().also {
+        require(it.isFinite()) { "$subject.$key must be finite" }
+    }
 }
 
 internal fun Map<String, Any>.requireBoolean(key: String, subject: String): Boolean {
@@ -312,7 +337,10 @@ internal fun Map<String, Any>.requireStringList(key: String, subject: String): L
     val list = value as? List<*>
         ?: throw IllegalArgumentException("$subject.$key must be a list")
     return list.mapIndexed { index, entry ->
-        entry as? String ?: throw IllegalArgumentException("$subject.$key[$index] must be a string")
+        val value = entry as? String
+            ?: throw IllegalArgumentException("$subject.$key[$index] must be a string")
+        require(value.isNotBlank()) { "$subject.$key[$index] must not be blank" }
+        value
     }
 }
 
@@ -321,8 +349,11 @@ internal fun Map<String, Any>.requireDoubleMap(key: String, subject: String): Ma
     val map = (value as? Map<*, *>)?.stringKeyMap("$subject.$key")
         ?: throw IllegalArgumentException("$subject.$key must be a map")
     return map.entries.associate { (entryKey, entryValue) ->
-        entryKey.uppercase() to ((entryValue as? Number)?.toDouble()
-            ?: throw IllegalArgumentException("$subject.$key.$entryKey must be a number"))
+        val number = entryValue as? Number
+            ?: throw IllegalArgumentException("$subject.$key.$entryKey must be a number")
+        val doubleValue = number.toDouble()
+        require(doubleValue.isFinite()) { "$subject.$key.$entryKey must be finite" }
+        entryKey.uppercase() to doubleValue
     }
 }
 

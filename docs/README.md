@@ -1,13 +1,30 @@
-# MineRails 文档索引
+---
+id: index
+slug: /
+title: MineRails 文档
+sidebar_position: 1
+---
 
-- [性能评估（2026-07-07）](performance_assessment.md)
-  - 运行时热点
-  - 渲染/碰撞实体开销
-  - 物理热路径与编辑器查询开销
-- [列车模型包与行为脚本教程](train_model_packages.md)
-  - `manifest.yml`
-  - 车厢与部件 YAML
-  - 动画、Actions、平台碰撞
-  - `behavior.js` 列车 JS 行为脚本
-  - `follow-package` / `snapshot` 保存策略
-- [JS 时刻表语法说明](timetable_js_syntax.md)
+# MineRails 文档
+
+MineRails 是面向 Paper 的铁路模拟插件。当前文档首先覆盖工程设计、扩展开发边界、列车模型包和 JS 时刻表。
+
+:::warning 当前状态
+项目仍使用 `1.0-SNAPSHOT`，公开 Java/Kotlin API、列车模型格式和时刻表 DSL 尚未承诺稳定兼容。页面描述的是当前源码实现；实验性能力会在页面中单独标记。
+:::
+
+## 文档入口
+
+- [工程设计](architecture/overview.md)：模块边界、线程模型、物理 epoch 和持久化。
+- [自动驾驶与运营协同设计](architecture/automatic-train-operation.md)：Basic ATO、感知、约束、时刻表和扩展协议的 Proposed 方案。
+- [扩展插件开发](extensions/overview.md)：当前公开 API 状态、Dokka Reference 和使用限制。
+- [列车模型包](train_model_packages.md)：模型包 YAML、动作和 `behavior.js`。
+- [JS 时刻表](timetable_js_syntax.md)：时刻表 DSL、dry-run 和当前限制。
+- [性能评估](performance_assessment.md)：已知热点和优化方向。
+
+## 文档维护原则
+
+1. API、配置格式或 DSL 变更必须在同一个变更中更新文档和示例。
+2. `ai_tasks/` 是内部计划与历史记录，不作为当前行为的依据。
+3. 生成的站点和 API Reference 不是事实来源；发生冲突时以对应版本源码和测试为准，并修正文档。
+4. 示例应尽量来自 `models/` 或 `examples/` 下可被自动检查的文件。

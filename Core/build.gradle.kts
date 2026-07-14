@@ -3,6 +3,8 @@ plugins {
     id("java-test-fixtures")
     kotlin("jvm")
     kotlin("plugin.serialization") version "2.3.0"
+    id("org.jetbrains.dokka")
+    id("org.jetbrains.dokka-javadoc")
     //id("com.google.devtools.ksp") version "2.2.21-2.0.5"
 }
 
@@ -36,4 +38,34 @@ tasks.test {
 }
 kotlin {
     jvmToolchain(17)
+}
+
+tasks.register<Jar>("dokkaJavadocJar") {
+    description = "Packages the Core API Dokka Javadoc output."
+    dependsOn("dokkaGeneratePublicationJavadoc")
+    from(layout.buildDirectory.dir("dokka/javadoc"))
+    archiveClassifier.set("javadoc")
+}
+
+dokka {
+    dokkaPublications.html {
+        moduleName.set("MineRails Core API")
+        includes.from("src/main/dokka/Module.md", "src/main/dokka/CorePackages.md")
+        failOnWarning.set(false)
+    }
+    dokkaSourceSets.main {
+        reportUndocumented.set(true)
+        skipEmptyPackages.set(true)
+        perPackageOption {
+            matchingRegex.set("""work\.art1st\.mineRails\.core(?!\.api(?:\.|$)).*""")
+            suppress.set(true)
+        }
+        providers.environmentVariable("DOKKA_SOURCE_URL").orNull?.let { sourceRoot ->
+            sourceLink {
+                localDirectory.set(file("src/main/java"))
+                remoteUrl.set(uri("${sourceRoot.trimEnd('/')}/${project.name}/src/main/java"))
+                remoteLineSuffix.set("#L")
+            }
+        }
+    }
 }

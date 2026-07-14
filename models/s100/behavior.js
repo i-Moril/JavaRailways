@@ -1,3 +1,6 @@
+// @ts-check
+/// <reference path="../../types/train-behavior.d.ts" />
+
 function forDoorSide(door_side, callback) {
   const side = String(door_side || "left").toLowerCase()
   if (side === "both" || side === "all") {

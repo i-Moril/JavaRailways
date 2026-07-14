@@ -9,11 +9,11 @@ animations:
     keep-final-state: true
     keyframes:
       - at: 0.0
-        scene: on
+        scene: "on"
         item-type: IRON_NUGGET
         item-model: "art1st/tc/s100/cabin_light_connector_toilet"
         brightness: {block: 15, sky: 0}
       - at: 0.1
-        scene: off
+        scene: "off"
         item-type: AIR
         brightness: {block: 0, sky: 0}

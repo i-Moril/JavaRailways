@@ -1,4 +1,13 @@
+---
+title: 列车模型包与行为脚本
+slug: /train-model/
+---
+
 # MineRails 列车模型包与行为脚本教程
+
+:::warning 格式状态
+本文描述当前源码实现。模型包格式已经带有 `config-version`，但尚未发布跨 MineRails 版本的兼容承诺；发布模型包时应同时声明测试过的 MineRails 版本。
+:::
 
 本文说明如何编写 MineRails 的列车模型包，包括：
 
@@ -8,6 +17,8 @@
 - 平台碰撞、座位、交互实体的写法
 - `behavior.js` 列车行为脚本写法
 - 保存策略 `follow-package` / `snapshot`
+
+字段结构采用严格校验；Schema、编辑器配置和校验命令见 [YAML Schema 与严格校验](train-model/schema-reference.md)。
 
 当前可参考的完整示例在：
 
@@ -40,7 +51,7 @@ plugins/MineRails/trains/s100/
   manifest.yml
   actions.yml          # 可选：声明式动作
   behavior.js          # 可选：列车行为脚本
-  control.yml          # 可选：手柄控制/列车动力学参数
+  control.yml          # 必需：手柄控制/列车动力学参数
   cars/
     s100/
       head.yml
@@ -64,6 +75,7 @@ plugins/MineRails/trains/s100/
 - `parts/` 下定义可复用部件。
 - `actions.yml` 描述“开左门”“关右门”等业务动作。
 - `behavior.js` 描述“什么时候调用哪些动作”。
+- `control.yml` 和每个车厢的 `control` 块都是必需配置；当前 loader 不再用代码默认值补齐缺失字段。
 
 `cars/s100/motor.yml` 中的 `name: motor` 会形成车厢名 `s100/motor`。在 `manifest.yml` 的 `composition` 中通常写简单名：`motor`。
 
@@ -90,7 +102,7 @@ composition:
 
 | 字段 | 说明 |
 |---|---|
-| `config-version` | 配置版本。当前 train package 示例使用 `2`。 |
+| `config-version` | 配置版本。当前 manifest 必须使用 `2`，其他值会拒绝加载。 |
 | `name` | 包名，也用于 `/mr train create <name>`。 |
 | `type` | 必须是 `train`。 |
 | `display-name` | 显示名，可选。 |
@@ -115,6 +127,18 @@ length: 17.8
 floor-height: 1.0
 connector-length-a: 0.1
 connector-length-b: 0.1
+control:
+  mass: 37000
+  rotating-mass-factor: 1.08
+  motor:
+    enabled: true
+    max-force: 90000
+    max-power: 950000
+    adhesion-mass-ratio: 1.0
+  brake:
+    max-force: 52000
+    regenerative-force: 30000
+    adhesion-mass-ratio: 1.0
 
 body-parts:
   - import: floor_platform
@@ -164,7 +188,7 @@ bogies:
 
 ## 4. 手柄控制与动力学配置
 
-模型包可以用 `control.yml` 定义共通手柄、制动建立时间、阻力、粘着与 jerk 限制；每节车在 `cars/*.yml` 的 `control` 块中定义质量、是否动车、牵引力和制动力。运行时会按编组自动聚合：动车提供牵引力，所有车提供质量、阻力和制动力。
+模型包必须用 `control.yml` 定义共通手柄、制动建立时间、阻力、粘着与 jerk 限制；每节车也必须在 `cars/*.yml` 的 `control` 块中写全质量、牵引力和制动力字段。运行时会按编组自动聚合：动车提供牵引力，所有车提供质量、阻力和制动力。
 
 `control.yml` 示例：
 
@@ -177,7 +201,7 @@ controller:
 traction:
   notch-scales: {P1: 0.2, P2: 0.4, P3: 0.6, P4: 0.8, P5: 1.0}
 brake:
-  notch-scales: {B1: 0.15, B2: 0.30, B7: 1.0, EB: 1.25}
+  notch-scales: {B1: 0.15, B2: 0.30, B3: 0.45, B4: 0.60, B5: 0.75, B6: 0.90, B7: 1.0, EB: 1.25}
   apply-time: 1.2
   release-time: 1.8
 resistance:
@@ -205,7 +229,10 @@ control:
   brake:
     max-force: 52000
     regenerative-force: 30000
+    adhesion-mass-ratio: 1.0
 ```
+
+`power-notches` / `brake-notches` 必须非空且不能重复，`notch-scales` 的键必须与对应档位列表严格一致。`control.yml` 的所有分组和示例中的数值字段都是必填项。车厢可以额外提供 `motor.force-curve` 和覆盖全局 Davis 系数的 `resistance`。
 
 每 tick 计算近似为：
 
@@ -228,7 +255,7 @@ a = F / Σ有效质量
 
 ## 5. 部件引用写法
 
-### 4.1 import 引用
+### 5.1 import 引用
 
 ```yml
 - import: door
@@ -238,7 +265,7 @@ a = F / Σ有效质量
 
 `import` 会在当前 namespace 下查找部件。例如车厢在 `cars/s100/` 下，则 `door` 默认解析为 `parts/s100/door.yml`。
 
-### 4.2 跨包引用
+### 5.2 跨包引用
 
 ```yml
 - import: other_package/shared_part
@@ -246,12 +273,13 @@ a = F / Σ有效质量
 
 如果当前包找不到，会尝试按第一个路径段查找其他已加载模型包。
 
-### 4.3 inline 部件
+### 5.3 inline 部件
 
 简单部件也可以内联：
 
 ```yml
-- name: marker
+- config-version: 1
+  name: marker
   type: dummy
   offset: {x: 0, y: 1, z: 0}
   parts:
@@ -311,7 +339,7 @@ item:
 
 ## 8. interact / seat / platform
 
-### 7.1 interact
+### 8.1 interact
 
 ```yml
 config-version: 1
@@ -340,7 +368,10 @@ name: driver_seat
 type: seat
 interaction:
   driver: true
+  control-end: head
 ```
+
+`control-end` 可写 `head` / `front` / `f` 或 `tail` / `rear` / `back` / `r`，用于说明该驾驶室控制列车哪一端；省略时由当前控制逻辑决定。
 
 玩家必须手持通用列车钥匙坐在 `driver: true` 的驾驶座上，W/S/D 手柄控制才会生效。
 
@@ -393,7 +424,7 @@ animations:
 
 也兼容旧写法，写在 `item.animations` 内。
 
-### 8.1 keyframes 绝对时间轴
+### 9.1 keyframes 绝对时间轴
 
 ```yml
 animations:
@@ -437,7 +468,7 @@ animations:
 /mr train anim doors_l:open
 ```
 
-### 8.2 commands 相对时间写法
+### 9.2 commands 相对时间写法
 
 ```yml
 animations:
@@ -461,6 +492,7 @@ animations:
 示例：
 
 ```yml
+config-version: 1
 actions:
   door-left-open:
     animations:
@@ -493,7 +525,11 @@ actions:
 
 | 字段 | 说明 |
 |---|---|
+| `config-version` | Actions 格式版本，当前必须为 `1`。 |
 | `actions.<name>` | 动作名。 |
+| `actions.<name>.display-name` | 控制界面显示名，默认使用动作名。 |
+| `actions.<name>.executable` | 是否直接显示为可执行动作，默认 `false`。 |
+| `actions.<name>.requires-control` | 执行动作是否要求玩家持有列车控制权，默认 `false`。 |
 | `animations[].name` | 要触发的动画名。 |
 | `animations[].scene` | 可选目标 scene。 |
 | `animations[].at` | 延迟执行时间，单位秒。 |
@@ -554,7 +590,7 @@ function horn() {
 }
 ```
 
-### 10.1 可用全局 API
+### 11.1 可用全局 API
 
 MineRails 会向脚本注入以下全局函数：
 
@@ -562,6 +598,8 @@ MineRails 会向脚本注入以下全局函数：
 action(name)
 sound(key, volume, pitch)
 log(message)
+operatingEnd()
+defineAction(name, options, handler)
 ```
 
 | API | 说明 |
@@ -569,6 +607,29 @@ log(message)
 | `action(name)` | 调用 `actions.yml` 中的动作，返回是否成功触发。 |
 | `sound(key, volume, pitch)` | 在列车附近播放声音。`volume` / `pitch` 可省略，默认 `1.0`。 |
 | `log(message)` | 写入插件日志。 |
+| `operatingEnd()` | 返回当前操纵端：`"head"` 或 `"tail"`。可用于映射语义上的左右侧和头尾灯。 |
+| `defineAction(name, options, handler)` | 注册控制界面可发现的行为动作。`options` 支持 `displayName`、`executable`、`requiresControl`。也可以把第二个参数直接写成显示名或 handler。 |
+
+`defineAction` 示例：
+
+```js
+defineAction("door-left-open", {
+  displayName: "左侧开门",
+  executable: true,
+  requiresControl: false
+}, function() {
+  action(operatingEnd() === "tail" ? "door-right-open" : "door-left-open")
+})
+```
+
+编辑器类型声明位于 `types/train-behavior.d.ts`。模型包源码可以加入：
+
+```js
+// @ts-check
+/// <reference path="../../types/train-behavior.d.ts" />
+```
+
+仓库会通过 `npm run check-dsl-types` 检查 `models/s100/behavior.js`。类型检查用于发现 API 名称和参数错误，不能替代 GraalJS 运行时测试。
 
 脚本运行在受限 GraalJS 环境中：
 
@@ -578,7 +639,9 @@ log(message)
 - 不允许创建线程或进程。
 - 只应该通过上面的 API 与 MineRails 交互。
 
-### 10.2 调用 behavior
+### 11.2 生命周期与调用 behavior
+
+当前只有 `onReverse(trainId)` 会在列车换向事件后自动调用。`onStation(...)` 只是推荐的自定义方法名，时刻表尚未自动调用它；目前需要调试命令或其他代码显式调用。
 
 调试命令：
 
@@ -605,7 +668,7 @@ log(message)
 | `12.5` | number |
 | 其他 | string |
 
-### 10.3 推荐职责划分
+### 11.3 推荐职责划分
 
 推荐分层：
 

@@ -51,6 +51,7 @@ class PartRegistryAnimationTest {
                 "type" to "item_display",
                 "item" to mapOf(
                     "type" to "IRON_NUGGET",
+                    "item-model" to "art1st/tc/s100/door_b",
                     "animations" to listOf(
                         mapOf(
                             "name" to "door_left_open",
@@ -80,7 +81,10 @@ class PartRegistryAnimationTest {
                 "config-version" to 1,
                 "name" to "door_light",
                 "type" to "item_display",
-                "item" to mapOf("type" to "IRON_NUGGET"),
+                "item" to mapOf(
+                    "type" to "IRON_NUGGET",
+                    "item-model" to "art1st/tc/s100/door_light"
+                ),
                 "animations" to listOf(
                     mapOf(
                         "name" to "door_light_warn",
@@ -165,6 +169,7 @@ class PartRegistryAnimationTest {
                 "rotation" to mapOf("y" to 90.0),
                 "item" to mapOf(
                     "type" to "IRON_NUGGET",
+                    "item-model" to "art1st/tc/s100/door_marker",
                     "scale" to mapOf("z" to 1.5)
                 )
             ),

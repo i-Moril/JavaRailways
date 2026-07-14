@@ -1,3 +1,4 @@
+config-version: 1
 actions:
   door-left-open:
     display-name: "左侧开门"
@@ -87,10 +88,10 @@ actions:
     requires-control: false
     animations:
       - name: front_end_light
-        scene: off
+        scene: "off"
         at: 0.0
       - name: rear_end_light
-        scene: off
+        scene: "off"
         at: 0.0
   cabin-lights-on:
     display-name: "开启车内灯"
@@ -98,7 +99,7 @@ actions:
     requires-control: false
     animations:
       - name: cabin_lights
-        scene: on
+        scene: "on"
         at: 0.0
   cabin-lights-off:
     display-name: "关闭车内灯"
@@ -106,5 +107,5 @@ actions:
     requires-control: false
     animations:
       - name: cabin_lights
-        scene: off
+        scene: "off"
         at: 0.0

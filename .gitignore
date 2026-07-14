@@ -109,5 +109,11 @@ gradle-app.setting
 .classpath
 
 .*/
+!.vscode/
+.vscode/*
+!.vscode/settings.json
 .worktree/
 .codeabs/
+
+tmp/*
+!tmp/template.yml

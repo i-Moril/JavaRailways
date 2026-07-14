@@ -50,26 +50,57 @@ class PackageLoader(
     }
 
     private fun loadManifest(file: File): PackageManifest {
-        val map = loadYamlMap(file, "package manifest ${file.path}")
-        val version = map.requireInt("config-version", "package manifest ${file.path}")
-        val typeStr = map["type"] as? String
-            ?: throw IllegalArgumentException("Package manifest ${file.path} is missing required field 'type'")
+        val subject = "package manifest ${file.path}"
+        val map = loadYamlMap(file, subject)
+        map.requireOnlyKeys(
+            setOf("config-version", "name", "type", "display-name", "composition", "rail-config"),
+            subject
+        )
+        val version = map.requireInt("config-version", subject)
+        require(version == PackageManifest.CONFIG_VERSION) {
+            "Unsupported package manifest config-version: $version (expected ${PackageManifest.CONFIG_VERSION})"
+        }
+        val typeStr = map.requireString("type", subject)
+        require(typeStr == typeStr.lowercase()) { "$subject.type must be lowercase" }
         val type = try {
             PackageType.valueOf(typeStr.uppercase())
         } catch (e: IllegalArgumentException) {
             throw IllegalArgumentException("Unsupported package type '$typeStr' in ${file.path}", e)
         }
+        val displayName = map["display-name"]?.let {
+            it as? String ?: throw IllegalArgumentException("$subject.display-name must be a string")
+        }
+        val composition = map.optionalList("composition", subject)?.mapIndexed { index, entry ->
+            val value = entry as? String
+                ?: throw IllegalArgumentException("$subject.composition[$index] must be a string")
+            require(value.isNotBlank()) { "$subject.composition[$index] must not be blank" }
+            value
+        }
+        val railConfigFile = map["rail-config"]?.let {
+            it as? String ?: throw IllegalArgumentException("$subject.rail-config must be a string")
+        }
+        when (type) {
+            PackageType.TRAIN -> {
+                require(composition != null) { "$subject must declare composition for a train package" }
+                require(railConfigFile == null) { "$subject.rail-config is only valid for rail packages" }
+            }
+            PackageType.RAIL -> {
+                require(railConfigFile != null) { "$subject must declare rail-config for a rail package" }
+                require(composition == null) { "$subject.composition is only valid for train packages" }
+            }
+        }
+
+        val packageName = map.requireString("name", subject)
+        require(packageName.isNotBlank()) { "$subject.name must not be blank" }
+        require(railConfigFile == null || railConfigFile.isNotBlank()) { "$subject.rail-config must not be blank" }
 
         return PackageManifest(
-            name = map.requireString("name", "package manifest ${file.path}"),
+            name = packageName,
             type = type,
             version = version,
-            displayName = map["display-name"] as? String,
-            composition = map.optionalList("composition", "package manifest ${file.path}")?.mapIndexed { index, entry ->
-                entry as? String
-                    ?: throw IllegalArgumentException("package manifest ${file.path}.composition[$index] must be a string")
-            },
-            railConfigFile = map["rail-config"] as? String
+            displayName = displayName,
+            composition = composition,
+            railConfigFile = railConfigFile
         )
     }
 

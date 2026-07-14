@@ -4,18 +4,42 @@ import work.art1st.mineRails.core.api.physics.WorldElement
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.mineRails.core.api.util.plugin.Extendable
-import work.art1st.mineRails.core.api.util.plugin.Extension
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 
+/**
+ * Ordered set of rigid cars moving along connected rails.
+ *
+ * Position and speed are published physics state. A platform renderer may commit the corresponding
+ * visible entities later on its main thread.
+ */
 interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExtension> {
+    /** Stable runtime and persistence ID. */
     val id: String
+
+    /** Cars from head to tail in the current operating direction. */
     val cars: List<Car>
+
+    /** Published speed in metres per second; non-negative. */
     val speed: Double
+
+    /** Whether physics has marked the train as derailed. */
     val isDerailed: Boolean
+
+    /** Number of cars. */
     val length: Int
+
+    /** Published location at the current head end. */
     val headLocation: RailLocation
+
+    /** Published location at the current tail end. */
     val tailLocation: RailLocation
+
+    /** Move along the selected rail path by [deltaS] metres. Called by the owning physics worker. */
     fun moveTrainForward(deltaS: Double)
+
+    /** Swap the operating head and tail. Structural effects are implementation-defined. */
     fun reverse()
+
+    /** Enter a derailed state with a diagnostic [reason]. */
     fun derail(reason: String)
 }

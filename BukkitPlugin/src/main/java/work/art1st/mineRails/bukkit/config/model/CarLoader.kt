@@ -48,14 +48,21 @@ class CarLoader(
     }
 
     private fun loadCarFile(file: File, namespace: String): CarDefinition {
-        val map = loadYamlMap(file, "car definition ${file.path}")
+        val subject = "car definition ${file.path}"
+        val map = loadYamlMap(file, subject)
+        map.requireOnlyKeys(
+            setOf(
+                "config-version", "name", "length", "floor-height", "connector-length-a",
+                "connector-length-b", "control", "body-parts", "bogies"
+            ),
+            subject
+        )
 
-        val version = (map["config-version"] as? Number)?.toInt()
-            ?: throw IllegalArgumentException("Missing config-version")
+        val version = map.requireInt("config-version", subject)
         require(version == PartRegistry.CONFIG_VERSION) { "Unsupported config-version: $version" }
 
-        val simpleName = map["name"] as? String
-            ?: throw IllegalArgumentException("Missing 'name'")
+        val simpleName = map.requireString("name", subject)
+        require(simpleName.isNotBlank()) { "$subject.name must not be blank" }
         val qualifiedName = if (namespace.isEmpty()) simpleName else "$namespace/$simpleName"
 
         val length = map.requireDouble("length", "car definition ${file.path}")
@@ -87,13 +94,15 @@ class CarLoader(
     private fun parseBogies(list: List<*>?, namespace: String): List<BogieDefinition> {
         if (list == null) return emptyList()
         return list.mapIndexed { index, entry ->
-            val entryMap = (entry as? Map<*, *>)?.toStringKeyMap("bogies[$index]")
-                ?: throw IllegalArgumentException("bogies[$index] must be a map")
+            val subject = "bogies[$index]"
+            val entryMap = (entry as? Map<*, *>)?.toStringKeyMap(subject)
+                ?: throw IllegalArgumentException("$subject must be a map")
+            entryMap.requireOnlyKeys(setOf("offset", "parts", "wheel-parts", "wheel-diameter"), subject)
             BogieDefinition(
                 offset = PartRegistry.parseVec3(entryMap.optionalMap("offset", "bogies[$index]")),
                 parts = PartRegistry.parsePartList(entryMap.optionalList("parts", "bogies[$index]"), namespace),
                 wheelParts = PartRegistry.parsePartList(entryMap.optionalList("wheel-parts", "bogies[$index]"), namespace),
-                wheelDiameter = (entryMap["wheel-diameter"] as? Number)?.toDouble() ?: 1.0
+                wheelDiameter = entryMap.optionalDoubleValue("wheel-diameter", subject) ?: 1.0
             )
         }
     }

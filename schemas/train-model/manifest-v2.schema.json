@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "manifest-v2.schema.json",
+  "title": "MineRails package manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config-version", "name", "type"],
+  "properties": {
+    "config-version": {"const": 2},
+    "name": {"type": "string", "minLength": 1},
+    "type": {"type": "string", "enum": ["train", "rail"]},
+    "display-name": {"type": "string"},
+    "composition": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "rail-config": {"type": "string", "minLength": 1}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "type": {"const": "train"},
+        "composition": {"type": "array"},
+        "rail-config": false
+      },
+      "required": ["type", "composition"]
+    },
+    {
+      "properties": {
+        "type": {"const": "rail"},
+        "composition": false,
+        "rail-config": {"type": "string"}
+      },
+      "required": ["type", "rail-config"]
+    }
+  ]
+}

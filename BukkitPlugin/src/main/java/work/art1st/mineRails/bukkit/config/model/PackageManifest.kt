@@ -20,7 +20,7 @@ data class PackageManifest(
     /** Package type: TRAIN or RAIL. */
     val type: PackageType,
     /** Manifest format version. */
-    val version: Int = 1,
+    val version: Int = CONFIG_VERSION,
     /** Human-readable display name. */
     val displayName: String? = null,
     /**
@@ -33,4 +33,8 @@ data class PackageManifest(
      * relative to the package root. e.g. "rail_model.yml"
      */
     val railConfigFile: String? = null
-)
+) {
+    companion object {
+        const val CONFIG_VERSION = 2
+    }
+}

@@ -10,6 +10,16 @@ import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.util.CommitBuffer
 import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * Base class for a controller evaluated by the owning world's physics Coordinator.
+ *
+ * [tick] receives elapsed milliseconds. Implementations should derive movement commands without
+ * accessing Bukkit APIs or blocking the physics worker. Controller state becomes externally visible
+ * only after the complete physics epoch is published.
+ *
+ * @param train controlled train; retained through a weak reference
+ * @param world world that owns the train
+ */
 abstract class TrainController(
     train: Train,
     world: World
@@ -21,6 +31,7 @@ abstract class TrainController(
     private val speedBuffer = CommitBuffer(0.0)
     private var speedDirty: Boolean = false
 
+    /** Published speed in metres per second. The setter is available to controller subclasses. */
     var speed: Double
         get() = speedBuffer.get()
         protected set(value) {
@@ -42,6 +53,7 @@ abstract class TrainController(
         pendingCommand = command
     }
 
+    /** Queue a direction reversal for the next physics tick; pairs of pending requests cancel out. */
     open fun reverse() {
         pendingReverseRequests.incrementAndGet()
     }

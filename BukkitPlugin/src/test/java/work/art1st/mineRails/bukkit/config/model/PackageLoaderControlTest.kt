@@ -16,7 +16,7 @@ class PackageLoaderControlTest {
         val packageDir = File(tempDir, "emu").apply { mkdirs() }
         File(packageDir, "manifest.yml").writeText(
             """
-            config-version: 1
+            config-version: 2
             name: emu
             type: train
             composition: [motor]
@@ -92,7 +92,7 @@ class PackageLoaderControlTest {
         val packageDir = File(tempDir, "standard-rail").apply { mkdirs() }
         File(packageDir, "manifest.yml").writeText(
             """
-            config-version: 1
+            config-version: 2
             name: standard-rail
             type: rail
             rail-config: rail_model.yml
@@ -121,7 +121,7 @@ class PackageLoaderControlTest {
         val packageDir = File(tempDir, "emu-invalid").apply { mkdirs() }
         File(packageDir, "manifest.yml").writeText(
             """
-            config-version: 1
+            config-version: 2
             name: emu-invalid
             type: train
             composition: [motor]
@@ -169,7 +169,7 @@ class PackageLoaderControlTest {
         val packageDir = File(tempDir, "wrong-type").apply { mkdirs() }
         File(packageDir, "manifest.yml").writeText(
             """
-            config-version: 1
+            config-version: 2
             name: wrong-type
             type: rail
             rail-config: rail_model.yml

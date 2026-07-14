@@ -19,6 +19,6 @@ animations:
         item-model: "art1st/tc/s100/head_light"
         brightness: {block: 15, sky: 0}
       - at: 0.2
-        scene: off
+        scene: "off"
         item-type: AIR
         brightness: {block: 0, sky: 0}

@@ -1,0 +1,26 @@
+{
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "yaml.schemas": {
+        "./schemas/train-model/manifest-v2.schema.json": [
+            "models/*/manifest.yml",
+            "models/*/manifest.yaml"
+        ],
+        "./schemas/train-model/control-v1.schema.json": [
+            "models/*/control.yml",
+            "models/*/control.yaml"
+        ],
+        "./schemas/train-model/actions-v1.schema.json": [
+            "models/*/actions.yml",
+            "models/*/actions.yaml"
+        ],
+        "./schemas/train-model/car-v1.schema.json": [
+            "models/*/cars/**/*.yml",
+            "models/*/cars/**/*.yaml"
+        ],
+        "./schemas/train-model/part-v1.schema.json": [
+            "models/*/parts/**/*.yml",
+            "models/*/parts/**/*.yaml"
+        ]
+    }
+}

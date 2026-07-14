@@ -1,0 +1,10 @@
+site: build
+output_subdir: pagefind
+exclude_selectors:
+  - ".navbar"
+  - ".theme-doc-sidebar-container"
+  - ".table-of-contents"
+  - ".pagination-nav"
+  - "footer"
+force_language: zh
+include_characters: "._-@"

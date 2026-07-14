@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "car-v1.schema.json",
+  "title": "MineRails car definition v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "config-version",
+    "name",
+    "length",
+    "floor-height",
+    "connector-length-a",
+    "connector-length-b",
+    "control",
+    "body-parts",
+    "bogies"
+  ],
+  "properties": {
+    "config-version": {"const": 1},
+    "name": {"type": "string", "minLength": 1},
+    "length": {"type": "number"},
+    "floor-height": {"type": "number"},
+    "connector-length-a": {"type": "number"},
+    "connector-length-b": {"type": "number"},
+    "control": {"$ref": "#/$defs/carControl"},
+    "body-parts": {
+      "type": "array",
+      "items": {"$ref": "model-common.schema.json#/$defs/partReference"}
+    },
+    "bogies": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/bogie"}
+    }
+  },
+  "$defs": {
+    "speedForcePoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["speed", "force"],
+      "properties": {
+        "speed": {"type": "number"},
+        "force": {"type": "number"}
+      }
+    },
+    "resistance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["a", "b", "c"],
+      "properties": {
+        "a": {"type": "number"},
+        "b": {"type": "number"},
+        "c": {"type": "number"}
+      }
+    },
+    "motor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "max-force", "max-power", "adhesion-mass-ratio"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "max-force": {"type": "number"},
+        "max-power": {"type": "number"},
+        "adhesion-mass-ratio": {"type": "number"},
+        "force-curve": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/speedForcePoint"}
+        }
+      }
+    },
+    "brake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max-force", "regenerative-force", "adhesion-mass-ratio"],
+      "properties": {
+        "max-force": {"type": "number"},
+        "regenerative-force": {"type": "number"},
+        "adhesion-mass-ratio": {"type": "number"}
+      }
+    },
+    "carControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mass", "rotating-mass-factor", "motor", "brake"],
+      "properties": {
+        "mass": {"type": "number"},
+        "rotating-mass-factor": {"type": "number"},
+        "motor": {"$ref": "#/$defs/motor"},
+        "brake": {"$ref": "#/$defs/brake"},
+        "resistance": {"$ref": "#/$defs/resistance"}
+      }
+    },
+    "bogie": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "offset": {"$ref": "model-common.schema.json#/$defs/vector"},
+        "parts": {
+          "type": "array",
+          "items": {"$ref": "model-common.schema.json#/$defs/partReference"}
+        },
+        "wheel-parts": {
+          "type": "array",
+          "items": {"$ref": "model-common.schema.json#/$defs/partReference"}
+        },
+        "wheel-diameter": {"type": "number", "default": 1.0}
+      }
+    }
+  }
+}

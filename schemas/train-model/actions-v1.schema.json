@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "actions-v1.schema.json",
+  "title": "MineRails train actions v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config-version", "actions"],
+  "properties": {
+    "config-version": {"const": 1},
+    "actions": {
+      "type": "object",
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"$ref": "#/$defs/action"}
+    }
+  },
+  "$defs": {
+    "animation": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "scene": {"type": "string"},
+            "at": {"type": "number", "default": 0.0}
+          }
+        }
+      ]
+    },
+    "sound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "volume": {"type": "number", "default": 1.0},
+        "pitch": {"type": "number", "default": 1.0},
+        "at": {"type": "number", "default": 0.0}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "display-name": {"type": "string"},
+        "executable": {"type": "boolean", "default": false},
+        "requires-control": {"type": "boolean", "default": false},
+        "animations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/animation"}
+        },
+        "sounds": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/sound"}
+        }
+      }
+    }
+  }
+}

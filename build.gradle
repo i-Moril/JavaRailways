@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'org.jetbrains.kotlin.jvm'
+    id 'org.jetbrains.dokka'
 }
 
 group = 'work.art1st'
@@ -21,6 +22,24 @@ dependencies {
     compileOnly("org.jetbrains:annotations:26.0.2")
     compileOnly(platform("io.insert-koin:koin-bom:4.1.1"))
     compileOnly("io.insert-koin:koin-core:4.1.1")
+    dokka(project(":Core"))
+    dokka(project(":Basic"))
+}
+
+dokka {
+    dokkaPublications {
+        html {
+            moduleName.set("MineRails API (Experimental)")
+            moduleVersion.set(project.version.toString())
+            outputDirectory.set(layout.buildDirectory.dir("dokka/html"))
+            failOnWarning.set(false)
+        }
+    }
+}
+
+tasks.register('apiJavadocJars') {
+    description = 'Builds Dokka Javadoc jars for the public Core and Basic API modules.'
+    dependsOn(':Core:dokkaJavadocJar', ':Basic:dokkaJavadocJar')
 }
 
 def targetJavaVersion = 17

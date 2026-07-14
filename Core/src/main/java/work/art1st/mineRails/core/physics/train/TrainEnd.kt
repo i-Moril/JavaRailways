@@ -1,6 +1,8 @@
 package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.api.physics.rail.RailObject
+import work.art1st.mineRails.core.api.physics.rail.RailObjectLifecycleState
+import work.art1st.mineRails.core.api.physics.rail.RailObjectRef
 import work.art1st.mineRails.core.api.physics.rail.Reversible
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
@@ -21,6 +23,15 @@ open class TrainEnd(
     init {
         location.rail.addTrainEnd(this)
     }
+
+    override val ref: RailObjectRef = RailObjectRef(
+        namespace = "core",
+        id = "train-end/${train.id}/${type.name.lowercase()}"
+    )
+
+    @Volatile
+    final override var lifecycleState: RailObjectLifecycleState = RailObjectLifecycleState.ACTIVE
+        private set
 
     private val trainRef = WeakReference(train)
 
@@ -58,6 +69,8 @@ open class TrainEnd(
 
     @MainThread
     override fun destroy() {
+        if (lifecycleState == RailObjectLifecycleState.REMOVED) return
+        lifecycleState = RailObjectLifecycleState.REMOVED
         location.rail.removeTrainEnd(this)
     }
 

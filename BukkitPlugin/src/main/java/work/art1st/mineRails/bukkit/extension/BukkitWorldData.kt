@@ -7,7 +7,9 @@ import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 
 class BukkitWorldData (
     val renderChunkManager: RenderChunkManager,
-    val bukkitWorld: org.bukkit.World
+    val bukkitWorld: org.bukkit.World,
+    /** Captured on construction so worker diagnostics never call Bukkit World methods. */
+    val worldId: java.util.UUID = bukkitWorld.uid
 )
 
 @OptIn(ExtensionData::class)

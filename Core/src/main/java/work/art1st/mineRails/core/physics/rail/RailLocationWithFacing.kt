@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.physics.rail.RailObject
+import work.art1st.mineRails.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.mineRails.core.control.signal.Signal
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.api.physics.curve.Curve
@@ -129,12 +130,14 @@ data class RailLocationWithFacing internal constructor(
         for (segment in rails) {
             val railView = segment.railView
             for (s in railView.staticRailObjects) {
+                if (s.lifecycleState != RailObjectLifecycleState.ACTIVE) continue
                 val objectArc = s.location.arcLengthIn(railView.viewDirection)
                 if (segment.startArcLength < objectArc && objectArc <= segment.endArcLength) {
                     list.add(s)
                 }
             }
             for (s in railView.dynamicRailObjects) {
+                if (s.lifecycleState != RailObjectLifecycleState.ACTIVE) continue
                 val objectArc = s.location.arcLengthIn(railView.viewDirection)
                 if (segment.startArcLength < objectArc && objectArc <= segment.endArcLength) {
                     list.add(s)
@@ -150,6 +153,7 @@ data class RailLocationWithFacing internal constructor(
         for (segment in rails) {
             val railView = segment.railView
             for (s in railView.staticRailObjects) {
+                if (s.lifecycleState != RailObjectLifecycleState.ACTIVE) continue
                 val objectArc = s.location.arcLengthIn(railView.viewDirection)
                 if (segment.startArcLength < objectArc && objectArc <= segment.endArcLength) {
                     list.add(s)
@@ -165,6 +169,7 @@ data class RailLocationWithFacing internal constructor(
         for (segment in rails) {
             val railView = segment.railView
             for (s in railView.dynamicRailObjects) {
+                if (s.lifecycleState != RailObjectLifecycleState.ACTIVE) continue
                 val objectArc = s.location.arcLengthIn(railView.viewDirection)
                 if (segment.startArcLength < objectArc && objectArc <= segment.endArcLength) {
                     list.add(s)

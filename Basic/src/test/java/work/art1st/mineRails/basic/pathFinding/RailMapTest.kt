@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import work.art1st.mineRails.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.physics.train.createTestWorld
 
@@ -52,12 +53,14 @@ class RailMapTest {
         val rail = createStraightRailFromSegments(world, segments)
         val map = RailMap()
 
-        map.addDestination(rail.viewAB, RailDestination(rail.viewAB, "station"))
+        val station = RailDestination(rail.viewAB, "station")
+        map.addDestination(rail.viewAB, station)
         map.addDestination(rail.viewAB, RailDestination(rail.viewAB, "depot"))
         map.removeDestination(rail.viewAB, "station")
 
         assertFalse(map.hasDestination("station"))
         assertTrue(map.hasDestination("depot"))
+        assertEquals(RailObjectLifecycleState.REMOVED, station.lifecycleState)
     }
 
     @Test

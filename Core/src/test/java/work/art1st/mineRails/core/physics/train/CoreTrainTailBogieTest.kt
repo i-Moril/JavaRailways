@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.mineRails.core.util.ThreadGuard
+import work.art1st.mineRails.core.util.ThreadGuardPlatformBridge
 
 class CoreTrainTailBogieTest {
     @Test
@@ -23,7 +25,7 @@ class CoreTrainTailBogieTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
         val train = createTrainWithConfig("t-tail-reversed", rail, world, listOf(10.0, 10.0), isLoop = false)
 
-        train.reverse()
+        train.reverseOnMainThread()
 
         assertSame(train.cars.first().bogieA, train.tailBogie)
     }
@@ -37,7 +39,7 @@ class CoreTrainTailBogieTest {
         train.setLocation(RailLocationWithFacing(rail.viewAB, 150.0))
         train.commit()
         val directionsBeforeReverse = train.cars.map { org.joml.Vector3d(it.direction) }
-        train.reverse()
+        train.reverseOnMainThread()
         train.moveTrainForward(5.0)
         train.commit()
 
@@ -48,6 +50,18 @@ class CoreTrainTailBogieTest {
         assertEquals(10.0, d12, 0.5, "car 1/2 spacing")
         train.cars.forEachIndexed { index, car ->
             assertEquals(1.0, directionsBeforeReverse[index].dot(car.direction), 1e-9, "car $index visual direction should not flip")
+        }
+    }
+
+    private fun CoreTrain.reverseOnMainThread() {
+        val owner = Thread.currentThread()
+        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+            override fun isMainThread(): Boolean = Thread.currentThread() === owner
+        })
+        try {
+            reverse()
+        } finally {
+            ThreadGuard.clearPlatformBridge()
         }
     }
 }

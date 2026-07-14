@@ -2,7 +2,8 @@ package work.art1st.mineRails.core.physics.train
 
 import work.art1st.mineRails.core.api.control.TrainController
 import work.art1st.mineRails.core.api.event.DerailEvent
-import work.art1st.mineRails.core.api.event.processor.EventManager
+import work.art1st.mineRails.core.api.event.processor.MainRailEventBus
+import work.art1st.mineRails.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.mineRails.core.api.event.PassSignalEvent
 import work.art1st.mineRails.core.api.event.TrainSwitchDirectionEvent
 import work.art1st.mineRails.core.physics.CoreWorld
@@ -25,6 +26,7 @@ import work.art1st.mineRails.core.physics.rail.RailSegment
 import work.art1st.mineRails.core.physics.rail.SweptRailSpan
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.configLib.persistence.PersistentBy
+import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
@@ -126,7 +128,7 @@ open class CoreTrain @MainThread internal constructor(
             // PassSignal detection
             val signals = head.location.peekSignals(deltaS)
             if (signals.isNotEmpty()) {
-                signals.forEach { EventManager.fireAsync(PassSignalEvent(this, it)) }
+                signals.forEach { PhysicsRailEventBus.publish(PassSignalEvent(this, it)) }
             }
 
             val previousLocations = currentRailLocations()
@@ -167,15 +169,17 @@ open class CoreTrain @MainThread internal constructor(
             tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
     }
 
+    @MainThread
     override fun reverse() {
+        ThreadGuard.ensureMainThread("CoreTrain.reverse")
         reverseInternal()
-        EventManager.fire(TrainSwitchDirectionEvent(this))
+        MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
     }
 
     internal fun reverseFromPhysics() {
         reverseInternal()
         world.tickManager.scheduleMainThreadPostTickTask {
-            EventManager.fire(TrainSwitchDirectionEvent(this))
+            MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
         }
     }
 
@@ -327,7 +331,7 @@ open class CoreTrain @MainThread internal constructor(
     override fun derail(reason: String) {
         if (_isDerailed.compareAndSet(false, true)) {
             removeController()
-            EventManager.fireAsync(DerailEvent(this, reason))
+            PhysicsRailEventBus.publish(DerailEvent(this, reason))
         }
     }
 

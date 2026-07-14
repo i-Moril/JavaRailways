@@ -3,6 +3,7 @@ package work.art1st.mineRails.core.api.physics.train
 import work.art1st.mineRails.core.api.physics.WorldElement
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.util.Destroyable
+import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 
@@ -38,6 +39,7 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     fun moveTrainForward(deltaS: Double)
 
     /** Swap the operating head and tail. Structural effects are implementation-defined. */
+    @MainThread
     fun reverse()
 
     /** Enter a derailed state with a diagnostic [reason]. */

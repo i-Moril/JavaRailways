@@ -15,7 +15,7 @@ class TrainDebugEventListener : EventListener {
         if (!TrainDebugLog.enabled) return
         val train = event.train
         val coreTrain = train as? CoreTrain
-        val bukkitWorld = train.world.bukkitWorldDataOrNull?.bukkitWorld?.uid
+        val bukkitWorld = train.world.bukkitWorldDataOrNull?.worldId
         train.cars.forEachIndexed { index, car ->
             TrainDebugLog.logRow(listOf(
                 System.currentTimeMillis(), "derail", bukkitWorld, train.id, index, car.hashCode(),

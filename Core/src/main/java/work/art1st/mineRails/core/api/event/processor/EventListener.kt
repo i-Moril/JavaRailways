@@ -1,6 +1,6 @@
 package work.art1st.mineRails.core.api.event.processor
 
-/** Marks a member function as an [EventManager] handler. */
+/** Marks a member function as a typed MineRails event-bus handler. */
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.RUNTIME)
 annotation class HandlesEvent(
@@ -18,9 +18,9 @@ enum class Priority(val value: Int) {
 }
 
 /**
- * Marker for an object registered with [EventManager.register].
+ * Marker for an object registered with [MainRailEventBus] or [PhysicsRailEventBus].
  *
- * Handler functions must have exactly one event parameter and be annotated with [HandlesEvent].
- * Registration must be paired with [EventManager.unregister] when the owning plugin is disabled.
+ * Handler functions must have exactly one event parameter from the selected bus and be annotated
+ * with [HandlesEvent]. Retain and close the returned [EventRegistration] when the owner stops.
  */
 interface EventListener

@@ -7,5 +7,4 @@ import work.art1st.mineRails.core.api.util.annotation.AsyncEventApi
 class DerailEvent(
     override val train: Train,
     val msg: String
-) : TrainEvent {
-}
+) : PhysicsTrainEvent

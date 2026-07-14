@@ -3,7 +3,7 @@ package work.art1st.mineRails.core.physics.tick
 import work.art1st.mineRails.core.api.control.TrainController
 import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.CollisionResolution
-import work.art1st.mineRails.core.api.event.processor.EventManager
+import work.art1st.mineRails.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.mineRails.core.api.util.annotation.AsyncEventApi
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.train.CoreTrain
@@ -218,7 +218,7 @@ class PhysicsCoordinator(
                 trainBId = pair.secondTrainId,
                 relativeSpeed = relativeSpeed(train, other)
             )
-            EventManager.fireAsync(event)
+            PhysicsRailEventBus.publish(event)
             pendingCollisionDecisions[pair] = PendingCollisionDecision(runningEpoch, pair, event.resolution)
         }
         return true

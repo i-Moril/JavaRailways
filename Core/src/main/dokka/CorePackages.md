@@ -4,7 +4,7 @@
 
 # Package work.art1st.mineRails.core.api.physics.rail
 
-轨道、方向视图、位置与 metadata。弧长单位为米，并以 Rail 的 AB 曲线作为持久化基准。
+轨道、方向视图、位置、运营对象稳定引用与不可变快照。弧长单位为米，并以 Rail 的 AB 曲线作为持久化基准。
 
 # Package work.art1st.mineRails.core.api.physics.train
 
@@ -20,7 +20,7 @@ Core 事件 payload。事件对象不等同于 Bukkit Event，派发线程取决
 
 # Package work.art1st.mineRails.core.api.event.processor
 
-全局轻量事件总线。注册和注销必须与扩展插件生命周期配对。
+按主线程和 physics worker 分离的同步事件总线。注册返回的 token 必须与扩展插件生命周期配对关闭。
 
 # Package work.art1st.mineRails.core.api.util.plugin
 

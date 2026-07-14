@@ -12,6 +12,7 @@ import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTestWorld
 import work.art1st.mineRails.core.physics.train.createTrainWithConfig
+import work.art1st.mineRails.core.util.AsyncTickTestSupport
 
 class SpeedSafetyMonitorTest {
     @Test
@@ -36,7 +37,7 @@ class SpeedSafetyMonitorTest {
             SpeedSafetyMonitor.Config(true, 0.0, 1)
         )
 
-        monitor.tick(50.0)
+        AsyncTickTestSupport.run { monitor.tick(50.0) }
 
         assertFalse(train.isDerailed)
     }
@@ -67,9 +68,9 @@ class SpeedSafetyMonitorTest {
             )
         )
 
-        monitor.tick(50.0)
+        AsyncTickTestSupport.run { monitor.tick(50.0) }
         assertFalse(train.isDerailed)
-        monitor.tick(50.0)
+        AsyncTickTestSupport.run { monitor.tick(50.0) }
         assertTrue(train.isDerailed)
     }
 

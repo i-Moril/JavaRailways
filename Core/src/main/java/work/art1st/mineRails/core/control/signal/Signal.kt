@@ -12,11 +12,15 @@ import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.rail.RailLocationWithoutFacing
 import work.art1st.mineRails.core.api.physics.rail.RailObject
+import work.art1st.mineRails.core.api.physics.rail.RailObjectLifecycleState
+import work.art1st.mineRails.core.api.physics.rail.RailObjectRef
 
 @Serializable(with = Signal.SignalSerializer::class)
 abstract class Signal(
+    final override val ref: RailObjectRef,
     override val location: RailLocationWithoutFacing
 ) : Renderable, RailObject {
+    abstract override val lifecycleState: RailObjectLifecycleState
     override val position: Vector3dc
         get() = location.position
     override val direction: Vector3dc

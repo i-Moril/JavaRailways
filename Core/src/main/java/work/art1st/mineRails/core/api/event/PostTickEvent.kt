@@ -1,4 +1,4 @@
 package work.art1st.mineRails.core.api.event
 
-class PostTickEvent {
-}
+/** Main-thread notification emitted after one server tick's commits complete. */
+class PostTickEvent : MainThreadRailEvent

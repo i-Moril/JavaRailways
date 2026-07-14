@@ -16,7 +16,9 @@ import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.mineRails.bukkit.tool.RailObjectWand
 import work.art1st.mineRails.bukkit.tool.RailWand
 import work.art1st.mineRails.basic.BasicPlugin
-import work.art1st.mineRails.core.api.event.processor.EventManager
+import work.art1st.mineRails.core.api.event.processor.EventRegistration
+import work.art1st.mineRails.core.api.event.processor.MainRailEventBus
+import work.art1st.mineRails.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.mineRails.core.api.util.plugin.Plugin
 import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
@@ -59,6 +61,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** Extra CSV rows for train debug events such as derailment. */
     lateinit var trainDebugEventListener: TrainDebugEventListener
 
+    private var trainReverseEventRegistration: EventRegistration? = null
+    private var trainDebugEventRegistration: EventRegistration? = null
+
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var railObjectWand: RailObjectWand
 
@@ -77,9 +82,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         trainHandleInputListener = TrainHandleInputListener(trainControlManager)
         trainHandleInputListener.start(this)
         trainReverseBehaviorListener = TrainReverseBehaviorListener()
-        EventManager.register(trainReverseBehaviorListener)
+        trainReverseEventRegistration = MainRailEventBus.register(trainReverseBehaviorListener)
         trainDebugEventListener = TrainDebugEventListener()
-        EventManager.register(trainDebugEventListener)
+        trainDebugEventRegistration = PhysicsRailEventBus.register(trainDebugEventListener)
 
         // 加载全局配置
         mineRailsConfig = MineRailsConfig.load(this)
@@ -132,8 +137,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         worlds.forEach { worldManager.unregisterRailWorld(it) }
         runCatching { trainHandleInputListener.stop() }
         runCatching { trainControlManager.stop() }
-        runCatching { EventManager.unregister(trainReverseBehaviorListener) }
-        runCatching { EventManager.unregister(trainDebugEventListener) }
+        runCatching { trainReverseEventRegistration?.close() }
+        trainReverseEventRegistration = null
+        runCatching { trainDebugEventRegistration?.close() }
+        trainDebugEventRegistration = null
         runCatching { TrainDebugLog.close() }
         ThreadGuard.clearPlatformBridge()
     }

@@ -50,10 +50,15 @@ TickEnd 只捕获一次当时的 physics ticket，并等待该 ticket。它不�
 
 ## 事件线程
 
-- `EventManager.fire()` 在调用线程同步派发，没有自动切换到 Bukkit 主线程。
-- `EventManager.fireAsync()` 同样同步调用监听器，但调用线程是物理 worker，并逐个隔离监听器异常。
-- 标记为 `@AsyncEventApi` 的事件要求监听器显式 opt-in 且保证线程安全。
-- worker 监听器不得直接操作 Bukkit 实体、世界、玩家或 Dialog；需要通过明确的主线程提交边界转交。
+MineRails 事件按线程归属分成两套同步总线：
+
+- `MainRailEventBus` 只接受 `MainThreadRailEvent`，发布时通过 `ThreadGuard` 断言平台主线程；
+- `PhysicsRailEventBus` 只接受 `PhysicsRailEvent`，发布时断言 MineRails async Tick worker；
+- 两者都在调用线程立即执行监听器，不会自动调度，并逐个隔离监听器异常；
+- 注册会返回可关闭的 `EventRegistration`，插件和服务必须在停止时关闭；
+- 原 `EventManager` 仅保留为兼容 facade，新代码不再使用。
+
+标记为 `@AsyncEventApi` 的物理事件要求监听器显式 opt-in 且保证线程安全。worker 监听器不得直接操作 Bukkit 实体、世界、玩家或 Dialog；需要通过明确的主线程提交边界转交。跨线程 payload 应使用 `TrainSnapshot`、`RailObjectSnapshot` 等不持有 live World/Rail/Train 的不可变值。
 
 ## 代码约定
 

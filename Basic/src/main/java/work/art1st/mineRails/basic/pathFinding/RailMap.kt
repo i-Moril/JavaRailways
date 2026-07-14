@@ -4,6 +4,7 @@ import net.jcip.annotations.NotThreadSafe
 import work.art1st.mineRails.basic.BasicPlugin
 import work.art1st.mineRails.basic.BasicWorldData
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.mineRails.core.api.physics.rail.RailView
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import java.util.WeakHashMap
@@ -36,14 +37,26 @@ class RailMap {
      * 添加目的地，将其挂载到 [RailView] 上。
      */
     fun addDestination(railView: RailView, destination: RailDestination) {
-        destinations.getOrPut(railView) { CopyOnWriteArraySet() }.add(destination)
+        require(destination.railView === railView) { "destination belongs to a different RailView" }
+        require(destination.lifecycleState == RailObjectLifecycleState.ACTIVE) {
+            "cannot register removed destination ${destination.ref}"
+        }
+        val objects = destinations.getOrPut(railView) { CopyOnWriteArraySet() }
+        require(objects.none { it.ref == destination.ref }) {
+            "duplicate RailObjectRef on RailView: ${destination.ref}"
+        }
+        objects.add(destination)
     }
 
     /**
      * 从 [railView] 上移除标签为 [label] 的目的地。
      */
     fun removeDestination(railView: RailView, label: String) {
-        destinations[railView]?.removeIf { it.label == label }
+        destinations[railView]?.removeIf { destination ->
+            (destination.label == label).also { removed ->
+                if (removed) destination.markRemoved()
+            }
+        }
     }
 }
 

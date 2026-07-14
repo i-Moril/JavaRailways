@@ -6,8 +6,19 @@ slug: /architecture/automatic-train-operation
 # 自动驾驶与运营协同设计
 
 :::warning 方案状态：Proposed
-本文记录 Basic 模块自动驾驶（ATO）的目标设计，供接口评审和后续实现使用。文中的类型名和方法签名是契约草案，不表示当前源码已经提供这些 API；当前实现状态仍以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
+本文记录 Basic 模块自动驾驶（ATO）的目标设计，供接口评审和后续实现使用。除下方明确列出的 Phase A 基础外，文中的类型名和方法签名仍是契约草案；当前实现状态以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
 :::
+
+## 当前实施状态
+
+Phase A 已于 2026-07-14 落地以下基础契约：
+
+- `MainThreadRailEvent` / `PhysicsRailEvent` 与两套带线程断言的同步事件总线；
+- world 内稳定的 `RailObjectRef` 和 ACTIVE/REMOVED 生命周期；
+- 不持有 live World/Rail/Train 的 Train、RailObject、Route、Perception 快照；
+- 带严格单调 revision、拒绝旧命令的 `RevisionedCommandQueue`。
+
+感知引擎、约束、规划器、Mission 和车站状态机仍属于后续 Phase。
 
 ## 1. 背景
 
@@ -187,6 +198,7 @@ RailObject 表示经路上的可定位对象，不直接调用列车动作。目
 ```kotlin
 interface RailObject {
     val ref: RailObjectRef
+    val lifecycleState: RailObjectLifecycleState
     val location: RailLocation
 }
 

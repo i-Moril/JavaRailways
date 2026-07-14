@@ -16,7 +16,7 @@ class CollisionEvent(
     val trainAId: String,
     val trainBId: String,
     val relativeSpeed: Double
-) : Event {
+) : PhysicsRailEvent {
     private val requestedResolution = AtomicReference(CollisionResolution.DERAIL)
 
     val resolution: CollisionResolution

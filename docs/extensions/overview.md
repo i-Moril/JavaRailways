@@ -23,16 +23,21 @@ MineRails 的目标是允许扩展插件读取铁路世界、监听事件并为 
 
 `PluginRegistry` 在创建带扩展槽位的宿主之前注册 MineRails 内部插件，并为每个插件分配整数 identifier。`Extendable` 使用该 identifier 保存扩展数据。扩展数据若需要进入 train/car 快照，必须实现可序列化约定并提供稳定的扩展 ID。
 
-事件通过全局 `EventManager` 注册：
+事件按线程归属注册到不同总线，并通过 registration token 管理生命周期：
 
 ```kotlin
 class MyListener : EventListener {
     @HandlesEvent
-    fun onEvent(event: TrainEvent) {
-        // 先确认该事件的调用线程，再访问平台 API。
+    fun onEvent(event: TrainSwitchDirectionEvent) {
+        // MainThreadRailEvent：允许在这里转交平台操作。
     }
 }
+
+val registration = MainRailEventBus.register(MyListener())
+// 插件 disable 时：registration.close()
 ```
+
+物理事件必须注册到 `PhysicsRailEventBus`。它会在 MineRails worker 上同步回调，监听器必须线程安全、非阻塞，并且不能访问 Bukkit API。原 `EventManager` 只保留为兼容 facade。
 
 这段代码只展示事件模型，不是当前可复制的外部插件完整配置。
 

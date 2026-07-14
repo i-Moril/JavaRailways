@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.mineRails.core.api.control.TrainController
 import work.art1st.mineRails.core.api.event.CollisionEvent
 import work.art1st.mineRails.core.api.event.processor.EventListener
-import work.art1st.mineRails.core.api.event.processor.EventManager
+import work.art1st.mineRails.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.mineRails.core.api.event.processor.HandlesEvent
 import work.art1st.mineRails.core.api.util.annotation.AsyncEventApi
 import work.art1st.mineRails.core.api.util.tick.TickManager
@@ -98,7 +98,7 @@ class PhysicsCoordinatorTest {
         val stationary = createTrainWithConfig("B", rail, world, listOf(10.0))
         moving.setController(ConstantSpeedController(moving, world))
         val listener = CollisionCounter()
-        EventManager.register(listener)
+        val registration = PhysicsRailEventBus.register(listener)
         coordinator.start()
         assertEquals("B", world.querySweptCollision(moving).collidingTrainId)
         try {
@@ -110,7 +110,7 @@ class PhysicsCoordinatorTest {
             assertTrue(stationary.isDerailed)
             assertEquals(1, listener.count.get())
         } finally {
-            EventManager.unregister(listener)
+            registration.close()
             coordinator.close()
         }
     }

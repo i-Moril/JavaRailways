@@ -20,7 +20,7 @@ Phase A 已于 2026-07-14 落地以下基础契约：
 
 Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand → TrainActuator`、SimpleATO、前车跟随、目标与线路末端停车、可选单一信号 Provider，以及按 World 隔离的 ATO Stall。Stall 会自动写出结构化诊断，并通过 `/mr ato status|dump|reset` 由管理员处理；reset 不恢复列车位置。
 
-Phase C1 的经路基础已经完成弧长加权 Dijkstra，以及 `PlannedRoute`、`RouteSection`、`TurnoutRequirement` 和保守分配触发距离值模型。Mission、运行时 Section 分配和 Confirmed Route Window 尚未实现。
+Phase C1 已完成弧长加权 Dijkstra、`PlannedRoute`/`RouteSection` 经路模型，以及不可变 Mission 的解析、失败结果、严格 revision 和 physics Tick 边界激活契约。TimetableDispatcher 执行、运行时 Section 分配、Mission 停车约束和 Confirmed Route Window 尚未实现。
 
 ## 1. 背景
 
@@ -136,7 +136,7 @@ Mission、主线程通知和停站状态机属于路线图中的 Phase C，不�
 
 ### 5.1 `AbstractATO`
 
-`AbstractATO` 固定执行规划、移动前验证、Actuator 和 World Stall 边界。当前公开只读 `train` 与 `world`；Mission 和 ATO 状态尚未加入该类。
+`AbstractATO` 固定执行规划、移动前验证、Actuator 和 World Stall 边界，并公开只读 `train` 与 `world`。Mission 不进入通用基类；当前由 SimpleATO 提供解析、revisioned queue 和 Tick 边界激活。ATO 生命周期状态尚未实现。
 
 当前契约：
 
@@ -159,7 +159,8 @@ abstract class AbstractATO(
 - 外部线程通过 revisioned command queue 提交 SimpleATO 命令；
 - 未处理异常和移动前道岔矛盾进入所属 World 的 ATO Stall；
 - 第三方信号逻辑使用 `AtoProvider`，不能覆盖完整 Tick 流程；
-- Mission 提交和 controller 生命周期状态属于后续 Phase C/D。
+- SimpleATO Mission 在主线程解析并通过独立 revisioned queue 提交；
+- controller 生命周期状态属于后续 Phase D。
 
 ### 5.2 每 Tick 流程
 
@@ -388,32 +389,33 @@ interface AtoProvider {
 
 ### 9.1 不使用 `Sequence<RailObject>`
 
-Mission 必须在提交时完成复制和验证，不能把惰性 Sequence 跨线程交给 ATO。
-
-概念模型：
+Mission 在主线程提交时完成防御性复制、WayPoint 解析和 PlannedRoute 编译，不能把惰性 Sequence 或 live RailObject 跨线程交给 ATO。当前契约为：
 
 ```kotlin
+data class AtoMissionRequest(
+    val id: String,
+    val revision: Long,
+    val origin: WayPointRef,
+    val points: List<AtoMissionPoint>
+)
+
+sealed interface AtoMissionPoint {
+    data class Via(val target: WayPointRef) : AtoMissionPoint
+    data class Stop(
+        val target: WayPointRef,
+        val offsetMetersBefore: Double
+    ) : AtoMissionPoint
+}
+
 data class AtoMission(
     val id: String,
     val revision: Long,
-    val points: List<MissionPoint>
+    val origin: WayPointRef,
+    val legs: List<AtoMissionLeg>
 )
-
-sealed interface MissionPoint {
-    data class Via(val target: OperationalPointRef) : MissionPoint
-    data class Stop(val call: StationCall) : MissionPoint
-    data class Reverse(val target: OperationalPointRef) : MissionPoint
-    data object Terminate : MissionPoint
-}
 ```
 
-Mission point 使用稳定引用，不持有可销毁的内部 RailObject 实例。提交结果应能区分：
-
-- accepted；
-- stale revision；
-- target unresolved；
-- route unavailable；
-- unsupported mission feature。
+Resolver 失败区分 target unresolved 和 route unavailable；`SimpleATO.submitMission` 另行区分 accepted 与 stale revision。所有已接受命令在 physics Tick 边界只激活最新 revision。Reverse、Terminate 和 StationCall point 尚未实现。
 
 ### 9.2 `StationCall`
 

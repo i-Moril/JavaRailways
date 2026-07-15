@@ -26,16 +26,18 @@ slug: /architecture/ato-roadmap
 - 当前默认把一个 ExpandedRoute leg 作为单一 Section；调用方提供保护点距离后可切分为连续 Section。
 - 分配触发距离使用 service braking distance、设置/确认时间、reaction time 和安全余量的保守公式。
 
-### C1.2 Mission 契约
+### C1.2 Mission 契约（已完成）
 
-- 增加不可变 `AtoMission`、稳定 Mission point 引用和严格单调 revision。
-- 提交结果至少区分 `Accepted`、`StaleRevision`、`TargetUnresolved` 和 `RouteUnavailable`。
-- 在 physics Tick 边界原子替换 Mission，并一次性替换属于旧 Mission 的约束。
-- 第一版只支持 `TrainSelector.TrainId`、`GoTo`、`GoVia` 和 WayPoint 停车。
+- 已增加不可变 `AtoMissionRequest`、`AtoMission`、稳定 `WayPointRef`、Via/Stop point 和连续 PlannedRoute leg。
+- `AtoMissionResolver` 在主线程完成目标解析和 Route 编译，失败结果区分 `TargetUnresolved` 与 `RouteUnavailable`。
+- `SimpleATO.submitMission` 使用严格单调 revision，返回 `Accepted` 或 `StaleRevision`。
+- 多个已接受 Mission 在 physics Tick 边界只激活最新 revision，并一次性清理旧 Mission owner 的约束。
+- Mission 当前只完成提交和激活契约，尚不生成运行时停车或 movement-authority 约束。
 
 ### C1.3 最小 Dispatcher
 
 - 将当前只保存初始化快照的 `TimetableDispatcher` 扩展为明确的 service 运行状态存储。
+- 第一版只选择 `TrainSelector.TrainId`，把 `GoTo`/`GoVia` 编译为 Via/Stop Mission point。
 - 从时刻表生成 Planned Route，并根据列车已发布的 head/tail 位置动态触发 Route Section 分配。
 - 时刻表时间只决定冲突列车的优先级；实际位置决定何时尝试分配。
 - 原子锁定一个 Section 的全部道岔，把变更排入 physics epoch 边界，然后发布 Confirmed Route Window。

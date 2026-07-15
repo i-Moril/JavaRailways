@@ -6,10 +6,15 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.basic.BasicWorldData
+import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.ato.AtoSafetyProfile
 import work.art1st.mineRails.basic.api.ato.AtoWorldCoordinator
 import work.art1st.mineRails.basic.api.ato.KinematicTrainActuator
 import work.art1st.mineRails.basic.api.ato.constraint.AtoConstraint
+import work.art1st.mineRails.basic.api.ato.mission.AtoMissionPoint
+import work.art1st.mineRails.basic.api.ato.mission.AtoMissionRequest
+import work.art1st.mineRails.basic.api.ato.mission.AtoMissionSubmissionResult
+import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintKey
 import work.art1st.mineRails.basic.api.ato.constraint.CurrentSpeedLimitConstraint
 import work.art1st.mineRails.basic.api.ato.provider.AtoProvider
@@ -49,6 +54,78 @@ class SimpleATOTest {
         assertEquals(1.0, fixture.train.speed, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
         assertEquals(fixture.train.id, fixture.data.dispatcher.initialTrain(fixture.train.id)?.trainId)
+    }
+
+    @Test
+    fun `mission revisions replace atomically at a physics tick boundary`() {
+        val fixture = fixture("mission-revision")
+        val rail = fixture.train.head.location.rail
+        val originArc = fixture.train.head.location.arcLength
+        fixture.data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        fixture.data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 20.0))
+        fun request(revision: Long) = AtoMissionRequest(
+            id = "service-1",
+            revision = revision,
+            origin = WayPointRef("A"),
+            points = listOf(AtoMissionPoint.Stop(WayPointRef("B")))
+        )
+
+        assertTrue(fixture.ato.submitMission(request(1L)) is AtoMissionSubmissionResult.Accepted)
+        assertTrue(fixture.ato.submitMission(request(2L)) is AtoMissionSubmissionResult.Accepted)
+        assertTrue(fixture.ato.submitMission(request(1L)) is AtoMissionSubmissionResult.StaleRevision)
+        assertEquals(null, fixture.ato.currentMission)
+
+        tickAndPublish(fixture.ato, 50.0)
+
+        assertEquals(2L, fixture.ato.currentMission?.revision)
+        assertFalse(fixture.coordinator.isStalled)
+    }
+
+    @Test
+    fun `unresolved mission is rejected without changing active mission`() {
+        val fixture = fixture("mission-unresolved")
+        val result = fixture.ato.submitMission(
+            AtoMissionRequest(
+                id = "service-1",
+                revision = 1L,
+                origin = WayPointRef("missing-origin"),
+                points = listOf(AtoMissionPoint.Stop(WayPointRef("missing-target")))
+            )
+        )
+
+        assertEquals(
+            AtoMissionSubmissionResult.TargetUnresolved(WayPointRef("missing-origin")),
+            result
+        )
+        assertEquals(null, fixture.ato.currentMission)
+        assertFalse(fixture.coordinator.isStalled)
+    }
+
+    @Test
+    fun `unavailable mission route is rejected before activation`() {
+        val fixture = fixture("mission-unavailable")
+        val currentRail = fixture.train.head.location.rail
+        val disconnected = createStraightRailFromSegments(
+            fixture.world,
+            PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
+        )
+        fixture.data.wayPoints.add(
+            WayPoint("A", "A", currentRail.id, fixture.train.head.location.arcLength)
+        )
+        fixture.data.wayPoints.add(WayPoint("B", "B", disconnected.id, 20.0))
+
+        val result = fixture.ato.submitMission(
+            AtoMissionRequest(
+                id = "service-1",
+                revision = 1L,
+                origin = WayPointRef("A"),
+                points = listOf(AtoMissionPoint.Stop(WayPointRef("B")))
+            )
+        )
+
+        assertTrue(result is AtoMissionSubmissionResult.RouteUnavailable)
+        assertEquals(null, fixture.ato.currentMission)
+        assertFalse(fixture.coordinator.isStalled)
     }
 
     @Test

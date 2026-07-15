@@ -6,6 +6,7 @@ import work.art1st.mineRails.basic.api.ato.AtoSafetyProfile
 import work.art1st.mineRails.basic.api.ato.ControlDemand
 import work.art1st.mineRails.basic.api.ato.MinimumConstraintPlanner
 import work.art1st.mineRails.basic.api.ato.TrainActuator
+import work.art1st.mineRails.basic.api.ato.command.CommandOfferResult
 import work.art1st.mineRails.basic.api.ato.command.RevisionedCommandQueue
 import work.art1st.mineRails.basic.api.ato.constraint.AtoConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintKey
@@ -16,6 +17,11 @@ import work.art1st.mineRails.basic.api.ato.constraint.CurrentSpeedLimitConstrain
 import work.art1st.mineRails.basic.api.ato.constraint.FollowConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.RouteSpeedLimitConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.StopConstraint
+import work.art1st.mineRails.basic.api.ato.mission.AtoMission
+import work.art1st.mineRails.basic.api.ato.mission.AtoMissionRequest
+import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolutionResult
+import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolver
+import work.art1st.mineRails.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.mineRails.basic.api.ato.provider.AtoProvider
 import work.art1st.mineRails.basic.api.ato.provider.AtoProviderBoundary
 import work.art1st.mineRails.basic.api.ato.provider.AtoProviderContext
@@ -33,6 +39,7 @@ import work.art1st.mineRails.core.api.physics.rail.RailObjectRef
 import work.art1st.mineRails.core.api.physics.rail.RailObjectSnapshot
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainSnapshot
+import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.rail.RailSegment
 import work.art1st.mineRails.core.physics.train.TrainEnd
@@ -70,6 +77,8 @@ class SimpleATO(
 
     private val worldData = world.basicWorldData
     private val commands = RevisionedCommandQueue<Command>()
+    private val missionCommands = RevisionedCommandQueue<AtoMission>()
+    private val missionResolver = AtoMissionResolver(world)
     private val constraintManager = ConstraintManager()
     private val speedLimits = LinkedHashMap<String, Double>()
     private val stopTargets = LinkedHashMap<String, StopTarget>()
@@ -80,8 +89,37 @@ class SimpleATO(
     private var previousRouteKey: List<Pair<java.util.UUID, work.art1st.mineRails.core.api.physics.rail.ViewDirection>> = emptyList()
     private var perceptionEpoch = 0L
 
+    @Volatile
+    var currentMission: AtoMission? = null
+        private set
+
     init {
         atoCoordinator.initialTrain(train.id)?.let(worldData.dispatcher::recordInitialTrain)
+    }
+
+    /** Resolve and queue a Mission from the main thread; activation occurs at a physics Tick boundary. */
+    @MainThread
+    fun submitMission(request: AtoMissionRequest): AtoMissionSubmissionResult {
+        val latestRevision = missionCommands.latestAcceptedRevision
+        if (request.revision <= latestRevision) {
+            return AtoMissionSubmissionResult.StaleRevision(request.revision, latestRevision)
+        }
+        val mission = when (val result = missionResolver.resolve(request)) {
+            is AtoMissionResolutionResult.Success -> result.mission
+            is AtoMissionResolutionResult.TargetUnresolved -> {
+                return AtoMissionSubmissionResult.TargetUnresolved(result.target)
+            }
+            is AtoMissionResolutionResult.RouteUnavailable -> {
+                return AtoMissionSubmissionResult.RouteUnavailable(result.from, result.to, result.reason)
+            }
+        }
+        return when (missionCommands.offer(mission.revision, mission)) {
+            CommandOfferResult.ACCEPTED -> AtoMissionSubmissionResult.Accepted(mission)
+            CommandOfferResult.STALE -> AtoMissionSubmissionResult.StaleRevision(
+                mission.revision,
+                missionCommands.latestAcceptedRevision
+            )
+        }
     }
 
     fun setSpeedLimit(key: String, speedLimitMetersPerSecond: Double): Long {
@@ -120,6 +158,10 @@ class SimpleATO(
                 }
                 is Command.SetProvider -> switchProvider(command.providerId)
             }
+        }
+        missionCommands.drain().lastOrNull()?.command?.let { mission ->
+            constraintManager.remove(MISSION_OWNER)
+            currentMission = mission
         }
     }
 
@@ -377,5 +419,6 @@ class SimpleATO(
         val FOLLOW_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:following")
         val EXTERNAL_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:simple-api")
         val PROVIDER_OWNER = ConstraintOwner(ConstraintOwnerType.SIGNALLING, "basic:active-provider")
+        val MISSION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:mission")
     }
 }

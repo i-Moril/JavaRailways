@@ -18,6 +18,10 @@ ATO Planner、控制需求、车辆 Actuator、固定安全参数和按 World �
 
 SimpleATO 使用的 owner-scoped 速度、停车、跟车和移动授权约束。
 
+# Package work.art1st.mineRails.basic.api.ato.mission
+
+从稳定 WayPoint 引用解析、按 revision 提交并在 physics Tick 边界激活的不可变 ATO Mission 契约。
+
 # Package work.art1st.mineRails.basic.api.ato.provider
 
 可选单一信号 Provider、Provider Boundary RailObject 和 world-local registry。

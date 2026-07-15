@@ -93,7 +93,21 @@ class SimpleATOTest {
 
         assertEquals(2L, fixture.ato.currentMission?.revision)
         assertEquals(listOf(window), fixture.ato.currentConfirmedRouteWindows)
+        assertEquals(0.0, fixture.train.speed, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
+
+        fixture.ato.setMovementAuthority(
+            second.mission.revision,
+            fixture.ato.terminalMovementAuthorityLimitMeters(plannedRoute.expandedRoute.totalLength)
+        )
+        tickAndPublish(fixture.ato, 1_000.0)
+        assertEquals(1.0, fixture.train.speed, 1.0e-9)
+
+        assertTrue(fixture.ato.submitMission(request(3L)) is AtoMissionSubmissionResult.Accepted)
+        tickAndPublish(fixture.ato, 50.0)
+        assertEquals(3L, fixture.ato.currentMission?.revision)
+        assertEquals(listOf(window), fixture.ato.currentConfirmedRouteWindows)
+        assertTrue(fixture.train.speed < 1.0)
 
         fixture.ato.releaseRouteWindow(window.key)
         tickAndPublish(fixture.ato, 50.0)

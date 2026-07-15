@@ -26,10 +26,19 @@ abstract class AbstractATO(
     protected var latestRouteSnapshot: RouteSnapshot? = null
     protected var latestPerceptionSnapshot: PerceptionSnapshot? = null
 
+    @Volatile
+    var currentTrainSnapshot: TrainSnapshot
+        private set
+
+    @Volatile
+    var lifetimeTravelDistanceMeters: Double = 0.0
+        private set
+
     private var atoTick: Long = 0L
 
     init {
-        atoCoordinator.recordInitialTrain(captureTrainSnapshot(0L))
+        currentTrainSnapshot = captureTrainSnapshot(0L)
+        atoCoordinator.recordInitialTrain(currentTrainSnapshot)
     }
 
     final override fun tick(deltaT: Double) {
@@ -52,6 +61,8 @@ abstract class AbstractATO(
             train.moveTrainForward(step.distanceMeters)
             speed = step.speedMetersPerSecond
             lastTravelDistanceMeters = step.distanceMeters
+            lifetimeTravelDistanceMeters += step.distanceMeters
+            currentTrainSnapshot = captureTrainSnapshot(atoTick, step.speedMetersPerSecond)
         } catch (failure: Exception) {
             atoCoordinator.stall(createStallReport(failure))
             freeze()
@@ -72,6 +83,9 @@ abstract class AbstractATO(
         val frozen = actuator.freeze()
         speed = frozen.speedMetersPerSecond
         lastTravelDistanceMeters = 0.0
+        currentTrainSnapshot = runCatching {
+            captureTrainSnapshot(atoTick, frozen.speedMetersPerSecond)
+        }.getOrDefault(currentTrainSnapshot)
     }
 
     private fun createStallReport(failure: Exception): AtoStallReport = AtoStallReport(
@@ -82,16 +96,21 @@ abstract class AbstractATO(
         message = failure.message,
         stackTrace = failure.stackTraceToString(),
         initialTrain = atoCoordinator.initialTrain(train.id),
-        currentTrain = runCatching { captureTrainSnapshot(atoTick) }.getOrNull(),
+        currentTrain = runCatching { captureTrainSnapshot(atoTick, activeSpeed) }.getOrNull(),
         route = latestRouteSnapshot,
         perception = latestPerceptionSnapshot,
         activeProviderId = activeProviderId(),
         constraints = constraintSnapshot()
     )
 
-    private fun captureTrainSnapshot(revision: Long): TrainSnapshot {
+    private fun captureTrainSnapshot(
+        revision: Long,
+        speedMetersPerSecond: Double = train.speed
+    ): TrainSnapshot {
         val facing = (train.headLocation as? RailLocationWithFacing)?.facing
             ?: error("ATO requires a facing-aware train head location")
-        return TrainSnapshot.capture(train, revision, facing)
+        return TrainSnapshot.capture(train, revision, facing).copy(
+            speedMetersPerSecond = speedMetersPerSecond
+        )
     }
 }

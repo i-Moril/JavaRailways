@@ -6,7 +6,7 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前首版 JS 时刻表 DSL。C1 实验运行时现在可以执行显式 `TrainId` service 的第一组 `GoTo`/`GoVia`，但尚不支持 WayPointPool 自动选车、周期循环、停站 dwell 或后续动作推进；进度见 [ATO 路线图](architecture/ato-roadmap.md)。
+本文档描述当前首版 JS 时刻表 DSL。C1 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia` 和 `Stop` dwell；尚不支持 WayPointPool 自动选车、周期循环、Station 或车门操作。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
@@ -52,7 +52,9 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable stop <id> [service]
 ```
 
-只有使用字符串 `trainId` selector、并在第一个运行动作前通过 `check()` 指定初始 WayPoint 的 service 可以启动。当前只执行第一组 `goto`。
+只有使用字符串 `trainId` selector、并在第一个运行动作前通过 `check()` 指定初始 WayPoint 的 service 可以启动。后续 `goto` 会在前一 Mission 停稳以及可选 `stop` dwell 完成后继续。
+
+`stop` 命令请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。C1 中 `at(tick)` 的时间只参与冲突优先级，不直接作为道岔切换时刻或发车等待条件。
 
 如果省略加载命令的 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
 
@@ -202,7 +204,7 @@ t.at(2000).stop(100)
 规则：
 
 - `ticks` 必须是大于 0 的整数。
-- 当前阶段只记录停站/停留动作，不驱动车辆。
+- 运行时会在前一 Mission 停稳后按 Dispatcher Tick 计时；它不是 Station berth 或车门操作。
 
 ### `t.check(wayPointId)`
 
@@ -361,11 +363,10 @@ function main(timetable) {
 
 ## 当前限制
 
-Phase 5 只实现“脚本加载 + 内部模型生成 + dry-run 验证”。当前还不会：
+当前 loader 和 C1 Dispatcher 仍不会：
 
-- 自动选择真实列车。
-- 自动控制列车运行。
-- 检查同一时刻线路占用冲突。
+- 从 WayPointPool 或 `AnyTrain` 自动选择真实列车。
+- 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。
 - 执行周期循环。
 - 处理速度限制、方向限制、会让/越行等运营规则。
 - 持久化已加载时刻表或运行状态；重启后需要重新加载。

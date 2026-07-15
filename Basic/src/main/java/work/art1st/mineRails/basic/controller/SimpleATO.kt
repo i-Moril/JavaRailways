@@ -14,7 +14,7 @@ import work.art1st.mineRails.basic.api.ato.constraint.ConstraintManager
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintOwner
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintOwnerType
 import work.art1st.mineRails.basic.api.ato.constraint.CurrentSpeedLimitConstraint
-import work.art1st.mineRails.basic.api.ato.constraint.DepartureHoldConstraint
+import work.art1st.mineRails.basic.api.ato.constraint.MovementAuthorityConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.FollowConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.RouteSpeedLimitConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.StopConstraint
@@ -35,6 +35,7 @@ import work.art1st.mineRails.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.mineRails.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.ConfirmedRouteWindow
+import work.art1st.mineRails.basic.route.RouteAllocationTiming
 import work.art1st.mineRails.basic.route.RouteSectionAllocationKey
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailObject
@@ -62,6 +63,7 @@ class SimpleATO(
         data class SetProvider(val providerId: String?) : Command
         data class ConfirmRouteWindow(val window: ConfirmedRouteWindow) : Command
         data class ReleaseRouteWindow(val key: RouteSectionAllocationKey) : Command
+        data class SetMovementAuthority(val missionRevision: Long, val limitDistanceMeters: Double) : Command
     }
 
     private data class StopTarget(val ref: RailObjectRef, val offsetMeters: Double)
@@ -96,6 +98,8 @@ class SimpleATO(
     private var previousRouteKey: List<Pair<java.util.UUID, work.art1st.mineRails.core.api.physics.rail.ViewDirection>> = emptyList()
     private var perceptionEpoch = 0L
     private var missionProgressMeters = 0.0
+    private var movementAuthorityRevision = -1L
+    private var movementAuthorityLimitMeters = 0.0
 
     @Volatile
     var currentMission: AtoMission? = null
@@ -142,6 +146,34 @@ class SimpleATO(
     fun releaseRouteWindow(key: RouteSectionAllocationKey): Long =
         commands.enqueue(Command.ReleaseRouteWindow(key)).revision
 
+    @MainThread
+    fun setMovementAuthority(missionRevision: Long, limitDistanceMeters: Double): Long {
+        require(missionRevision >= 0L)
+        require(limitDistanceMeters.isFinite() && limitDistanceMeters >= 0.0)
+        return commands.enqueue(
+            Command.SetMovementAuthority(missionRevision, limitDistanceMeters)
+        ).revision
+    }
+
+    fun routeAllocationTriggerDistanceMeters(
+        approachSpeedMetersPerSecond: Double,
+        timing: RouteAllocationTiming
+    ): Double = timing.triggerDistanceMeters(
+        approachSpeedMetersPerSecond,
+        safetyProfile.serviceDecelerationMetersPerSecondSquared
+    )
+
+    fun isStopped(speedMetersPerSecond: Double): Boolean =
+        speedMetersPerSecond <= safetyProfile.stoppedSpeedThresholdMetersPerSecond
+
+    val missionStopToleranceMeters: Double
+        get() = safetyProfile.stopToleranceMeters
+
+    fun terminalMovementAuthorityLimitMeters(routeEndDistanceMeters: Double): Double {
+        require(routeEndDistanceMeters.isFinite() && routeEndDistanceMeters >= 0.0)
+        return routeEndDistanceMeters + safetyProfile.safetyDistanceMeters
+    }
+
     fun setSpeedLimit(key: String, speedLimitMetersPerSecond: Double): Long {
         require(key.isNotBlank())
         require(speedLimitMetersPerSecond >= 0.0 && speedLimitMetersPerSecond.isFinite())
@@ -170,9 +202,9 @@ class SimpleATO(
     override fun processPendingCommands() {
         missionCommands.drain().lastOrNull()?.command?.let { mission ->
             constraintManager.remove(MISSION_OWNER)
-            confirmedRouteWindows.clear()
-            publishConfirmedRouteWindows()
             missionProgressMeters = 0.0
+            movementAuthorityRevision = mission.revision
+            movementAuthorityLimitMeters = 0.0
             currentMission = mission
         }
         commands.drain().forEach { envelope ->
@@ -197,6 +229,18 @@ class SimpleATO(
                 is Command.ReleaseRouteWindow -> {
                     confirmedRouteWindows.remove(command.key)
                     publishConfirmedRouteWindows()
+                }
+                is Command.SetMovementAuthority -> {
+                    val activeRevision = currentMission?.revision ?: -1L
+                    when {
+                        command.missionRevision == activeRevision -> {
+                            movementAuthorityRevision = command.missionRevision
+                            movementAuthorityLimitMeters = command.limitDistanceMeters
+                        }
+                        command.missionRevision > activeRevision -> error(
+                            "movement authority revision ${command.missionRevision} is newer than active Mission $activeRevision"
+                        )
+                    }
                 }
             }
         }
@@ -327,16 +371,17 @@ class SimpleATO(
             constraintManager.remove(MISSION_OWNER)
             return
         }
-        if (confirmedRouteWindows.isEmpty()) {
-            constraintManager.replace(
-                MISSION_OWNER,
-                listOf(DepartureHoldConstraint(ConstraintKey("mission", "route-unconfirmed")))
-            )
-            return
-        }
-
         var targetDistance = 0.0
         val constraints = buildList {
+            val authorityLimit = movementAuthorityLimitMeters.takeIf {
+                movementAuthorityRevision == mission.revision
+            } ?: 0.0
+            add(
+                MovementAuthorityConstraint(
+                    ConstraintKey("mission", "authority/${mission.revision}"),
+                    (authorityLimit - missionProgressMeters).coerceAtLeast(0.0)
+                )
+            )
             mission.legs.forEach { leg ->
                 targetDistance += leg.plannedRoute.expandedRoute.totalLength
                 val point = leg.point

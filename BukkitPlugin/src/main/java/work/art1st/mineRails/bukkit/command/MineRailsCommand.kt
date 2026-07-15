@@ -266,7 +266,8 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     runs.forEach { run ->
                         sender.sendMessage(
                             "${run.id}: state=${run.state} train=${run.trainId} " +
-                                "revision=${run.missionRevision} confirmed=${run.confirmedSectionCount}" +
+                                "revision=${run.missionRevision} confirmed=${run.confirmedSectionCount} " +
+                                "head=${run.headProgressMeters ?: "-"} tail=${run.tailProgressMeters ?: "-"}" +
                                 run.message?.let { " message=$it" }.orEmpty()
                         )
                     }
@@ -290,7 +291,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 if (ids.isEmpty()) sender.sendMessage("没有匹配的 service")
                 ids.forEach { id ->
                     if (world.basicWorldData.dispatcher.stopService(world, id)) {
-                        sender.sendMessage("已停止 $id")
+                        sender.sendMessage("已请求受控停车 $id；经路将在车尾通过释放点后释放")
                     } else {
                         sender.sendMessage("service 不存在: $id")
                     }

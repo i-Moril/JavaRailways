@@ -6,7 +6,7 @@ slug: /architecture/automatic-train-operation
 # 自动驾驶与运营协同设计
 
 :::warning 实施状态
-Phase A/B 已实现；Mission、车站、车门操作和插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
+Phase A/B 和 C1 Mission 垂直切片已实现；Station、车门操作和插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
 :::
 
 ## 当前实施状态
@@ -20,7 +20,7 @@ Phase A 已于 2026-07-14 落地以下基础契约：
 
 Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand → TrainActuator`、SimpleATO、前车跟随、目标与线路末端停车、可选单一信号 Provider，以及按 World 隔离的 ATO Stall。Stall 会自动写出结构化诊断，并通过 `/mr ato status|dump|reset` 由管理员处理；reset 不恢复列车位置。
 
-Phase C1 已完成弧长加权 Dijkstra、经路/Mission 契约、原子 `RouteSectionAllocator`，并落地显式列车的最小 TimetableDispatcher：首段 route hold、Confirmed Route Window 发布、SimpleATO 道岔验证、Mission 终点停车和 Bukkit start/status/stop 命令。按 head/tail 进度逐段分配、自动释放、时刻表优先级和后续动作推进仍未实现。
+Phase C1 已完成弧长加权 Dijkstra、经路/Mission 契约和原子 `RouteSectionAllocator`。显式列车 TimetableDispatcher 会从已发布的 head/tail 快照计算 route progress，按动态触发距离和时刻表优先级分配 Section，以 movement authority 保护未确认入口，只在车尾越过 release point 后释放，并可推进 dwell 和后续 Mission。SimpleATO 负责停车曲线和 Confirmed Route Window 验证；Bukkit 提供 start/status/stop 命令。
 
 ## 1. 背景
 
@@ -32,7 +32,7 @@ Basic 模块计划提供基础自动驾驶能力，负责驾驶列车，并允�
 - `RailLocationWithFacing` 可以沿当前有效经路查询信号和 `TrainEnd`；
 - `CoreRail` 保存当前轨道上的信号和列车端部；
 - `SweptOccupancyIndex` 提供按轨道弧长分桶的碰撞占用快照；
-- Basic 已有 WayPoint、RoutePlanner、Timetable 数据模型和 SimpleATO，但 Dispatcher 尚未执行时刻表或下发 Mission；
+- Basic 已有 WayPoint、RoutePlanner、Timetable 数据模型、SimpleATO 和按 World 隔离的 TimetableDispatcher；
 - Bukkit 层已经支持列车动作和 `behavior.js`，但这些操作属于平台主线程能力。
 
 仍需处理的模型边界包括：Core 的轨道对象查询主要覆盖 Signal 与 TrainEnd，Basic 的 WayPoint 和 Provider Boundary 使用各自的 world-local store，道岔也不是 RailObject。因此不会把现有 `peekRailObjects()` 定义为公开 ATO 扩展协议。

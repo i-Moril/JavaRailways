@@ -61,7 +61,7 @@ object RailWorldFactory {
         coreWorld.registerExtensionData(
             BasicPlugin.INSTANCE,
             BasicWorldData(
-                dispatcher = TimetableDispatcher(TimetableAtoFactory { train, world ->
+                dispatcher = TimetableDispatcher(atoFactory = TimetableAtoFactory { train, world ->
                     val profile = AtoSafetyProfile()
                     val packageName = train.rendererOrNull?.modelPackageName()
                     val maximumSpeed = plugin.modelManager.getTrainControl(packageName).maxSpeed

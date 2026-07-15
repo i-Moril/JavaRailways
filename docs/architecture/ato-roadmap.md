@@ -12,10 +12,11 @@ slug: /architecture/ato-roadmap
 - Phase A：线程归属事件总线、RailObject 稳定引用和生命周期、不可变快照、revisioned command queue。
 - Phase B：owner-scoped 约束、固定减速度 Planner/Actuator、SimpleATO、线路限速、目标与线路末端停车、前车跟随、单一可选 Provider、道岔移动前校验。
 - Phase B 运维：World-local Stall、结构化 Stall dump、`/mr ato status|dump|reset`；不自动恢复列车位置。
+- Phase C1：加权 Planned Route、不可变 Mission、动态 Route Section 分配、movement authority、车尾释放、时刻表冲突优先级和显式列车 service 执行。
 
-## 下一阶段：Phase C1 Mission 垂直切片
+## 已完成：Phase C1 Mission 垂直切片
 
-目标是让一个已加载时刻表能够选择一列明确的列车，提交一段不可变 Mission，并让 SimpleATO 停在指定 WayPoint。此阶段不包含车站、车门或插件 ATO Registry。
+已加载时刻表现在可以选择一列明确的列车，提交不可变 Mission，并让 SimpleATO 停在指定 WayPoint。此阶段不包含车站、车门或插件 ATO Registry。
 
 ### C1.1 经路值模型（已完成）
 
@@ -32,29 +33,22 @@ slug: /architecture/ato-roadmap
 - `AtoMissionResolver` 在主线程完成目标解析和 Route 编译，失败结果区分 `TargetUnresolved` 与 `RouteUnavailable`。
 - `SimpleATO.submitMission` 使用严格单调 revision，返回 `Accepted` 或 `StaleRevision`。
 - 多个已接受 Mission 在 physics Tick 边界只激活最新 revision，并一次性清理旧 Mission owner 的约束。
-- Mission 当前只完成提交和激活契约，尚不生成运行时停车或 movement-authority 约束。
+- Mission Stop point 生成运行时停车约束；Dispatcher 发布按 Mission revision 隔离的 movement authority。
 
-### C1.3 最小 Dispatcher（进行中）
-
-已完成：
+### C1.3 Dispatcher（已完成）
 
 - `RouteSectionAllocator` 无抢占地原子检查全部道岔资源、应用实际分支并返回 Confirmed Route Window；冲突不会部分改变其他道岔。
-- `TimetableDispatcher` 已建立 WAITING_MISSION、WAITING_ROUTE、RUNNING、STOPPED、FAILED 状态和显式列车占用。
-- 第一版只执行 `TrainSelector.TrainId`，要求 `Check` 给出初始 WayPoint，并把第一组 `GoTo`/`GoVia` 编译成 Via/Stop Mission point。
-- Dispatcher 创建或复用 SimpleATO；未确认首个 Section 时由 Mission `DepartureHoldConstraint` 保持，确认后才允许起步。
-- Confirmed Route Window 通过 command queue 在 physics Tick 边界发布；SimpleATO 持续验证其中的实际道岔。
-- Mission 最终 Stop point 已生成固定减速度停车曲线。
+- `TimetableDispatcher` 已建立等待、运行、停留、受控停车、完成和失败状态，并保持显式列车占用。
+- 第一版只执行 `TrainSelector.TrainId`，要求 `Check` 给出初始 WayPoint；`GoTo`/`GoVia` 编译成 Via/Stop Mission point，完成后继续处理后续动作。
+- Dispatcher 创建或复用 SimpleATO；未确认 Section 时 movement authority 终止于入口保护点，确认后才延伸。
+- Dispatcher 使用 physics 发布的 head/tail `TrainSnapshot` 投影 Mission route progress，按制动距离、设置时间、reaction time 和安全余量动态触发后续 Section。
+- 同 Tick 冲突申请按时刻表动作 Tick 和稳定 service id 排序；时间只决定优先级，不直接触发道岔。
+- Confirmed Route Window 通过 command queue 在 physics Tick 边界发布；SimpleATO 持续验证仍占用的实际道岔。
+- 只有车尾完全越过 release point 才释放 Section；stop/failure 只执行受控停车，不越权释放。
+- 一个运行完成后可执行 dwell 和后续 `GoTo`/`GoVia` Mission，并报告 `COMPLETED`。
 - Bukkit 每次 physics 发布后驱动 Dispatcher，并提供 `/mr timetable start|status|stop <id> [service]`。
 
-剩余工作：
-
-- 根据列车已发布的 head/tail route progress 和触发距离逐段分配，而不是启动后立即分配首个 Section。
-- 使用时刻表时间为冲突列车排序；当前按调用顺序确定优先级。
-- 列车尾部完全越过 release point 后自动释放 Section 和相关资源；当前由 stop/failure 显式释放。
-- 完成一个 Stop 后推进后续时刻表动作，并报告 service completed。
-- 把 movement authority 扩展到后续未确认 Section 的入口保护点，而不只使用首段 route hold。
-
-### C1 验收
+### C1 验收（已完成）
 
 - 旧 revision 被拒绝且不影响当前 Mission。
 - 不存在的 WayPoint 和不可达 Route 在列车移动前失败。
@@ -65,9 +59,9 @@ slug: /architecture/ato-roadmap
 - 列车尾部越过 release point 后释放 Section；车头刚通过时不得提前释放。
 - 一个 World 的 Mission 失败不影响其他 World。
 
-## Phase C2 Station 与停站状态
+## 下一阶段：Phase C2 Station 与停站状态
 
-C1 完成后再引入 `Station`、`StationBerth` 和 `StationCall`：
+引入 `Station`、`StationBerth` 和 `StationCall`:
 
 - 第一版以列车头部作为停车对齐参考点；其他编组参考点等出现实际需求后再扩展。
 - physics 侧报告 `APPROACHING`、`BERTHED`、`DEPARTED` 的不可变通知。

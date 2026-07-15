@@ -130,7 +130,7 @@ SimpleATO : AbstractATO : TrainController
   └─ optional per-train AtoProvider
 ```
 
-Mission、主线程通知和停站状态机属于路线图中的 Phase C，不应被误认为当前已经存在。信号插件通过 Provider 组合接入，不继承 SimpleATO。
+Mission 和主线程 TimetableDispatcher 已在 Phase C1 落地；StationCall 通知与停站状态机属于 Phase C2，车门操作属于 Phase C3。信号插件通过 Provider 组合接入，不继承 SimpleATO。
 
 ## 5. ATO 控制器契约
 
@@ -236,6 +236,8 @@ Station
 - 语义开门侧；
 - 可容纳长度等站台约束。
 
+C2 已确认把列车头部作为长期停车对齐参考点。停车偏移表示头部应停在 berth 标记之前的距离；不引入编组中心、指定车厢或驾驶室参考点。Station 是运营聚合体，StationBerth 是被动 RailObject，两者都不直接操作列车、约束、车门或道岔。第一版 StationCall 显式指定 berth，不自动选台。
+
 ### 6.3 Observation
 
 感知结果必须携带经路距离，而不是只返回无序对象列表：
@@ -337,7 +339,7 @@ SimpleATO 每 Tick 原子替换线路、线路末端、跟车和活动 Provider 
 
 Phase B 的 `stopAt(key, RailObjectRef, offsetMetersBefore)` 在每 Tick 感知中解析剩余经路距离；offset 正值表示提前停车，参考点为列车头部。目标一旦被观察后发生 PASS 或 EXIT，会触发所属 World 的 ATO Stall，而不是静默解除停车约束。
 
-Mission 引入后还需要把 WayPoint/StationCall 解析成带 route revision 的稳定停车目标，并明确编组对齐参考点。该扩展属于 Phase C，不改变现有 `RailObjectRef` 便利入口。
+WayPoint Mission 已在 C1 解析成带 route revision 的稳定停车目标。C2 将以相同边界解析 StationCall；StationBerth 停车参考点固定为列车头部，不改变现有 `RailObjectRef` 便利入口。
 
 ### 7.5 跟车约束
 
@@ -415,24 +417,24 @@ data class AtoMission(
 )
 ```
 
-Resolver 失败区分 target unresolved 和 route unavailable；`SimpleATO.submitMission` 另行区分 accepted 与 stale revision。所有已接受命令在 physics Tick 边界只激活最新 revision。Reverse、Terminate 和 StationCall point 尚未实现。
+Resolver 失败区分 target unresolved 和 route unavailable；`SimpleATO.submitMission` 另行区分 accepted 与 stale revision。所有已接受命令在 physics Tick 边界只激活最新 revision。Reverse、Terminate 和 StationCall point 尚未实现；StationCall 是 C2 的下一项工作。
 
 ### 9.2 `StationCall`
 
-一次停站任务建议包含：
+C2 第一版的一次停站任务包含：
 
 ```text
 callId
+missionRevision
 stationId
-berthId
+berthId                  # 必须显式指定
 plannedArrival
 plannedDeparture / minimumDwell
-optional stopping offset
-optional door side override
-skip / request-stop policy
+optional stopping offset # 相对列车头部
+optional door side override metadata
 ```
 
-Station 可以提供默认 dwell policy，但“本次列车停多久”的最终结果由时刻表、车站默认值、晚点策略和列车能力共同解析为 `DwellPlan`。
+Station 可以提供默认 dwell policy，但“本次列车停多久”的最终结果由时刻表显式值、车站默认值和计划发车时间解析为不可变 `DwellPlan`。自动选台、request-stop、skip 和能力驱动的车门策略不进入 C2。
 
 ### 9.3 调度器与 ATO 的边界
 
@@ -478,7 +480,15 @@ Route 必须保持锁定，直到 TrainSnapshot 的 tail 完全越过 release po
 
 ## 10. 车站动作与发车状态机
 
-Station/RailObject 不直接执行开门。建议主线程运营状态机：
+C2 先实现不含车门操作的主线程状态机：
+
+```text
+APPROACHING → BERTHED → DWELLING → READY_TO_DEPART → DEPARTING → DEPARTED
+```
+
+`BERTHED` 后建立 DepartureHold；只有 dwell/计划发车条件满足且下一段经路已确认时才解除。berth 所有权在车尾越过 release boundary 后释放，不能由 stop、failure 或车头先行离开强制释放。详细证据要求见 [Phase C2 Station 待验证项目](./station-validation-checklist.md)。
+
+Station/RailObject 不直接执行开门。C3 再引入以下主线程运营状态机：
 
 ```mermaid
 stateDiagram-v2
@@ -630,7 +640,7 @@ CREATED -> ATTACHED -> ACTIVE -> SUSPENDED -> DETACHED -> CLOSED
 
 ## 15. 实施顺序
 
-Phase A/B 已完成，不再作为待办重复维护。剩余工作拆成可独立验收的 Mission、车站、操作网关、插件生命周期和性能阶段，统一记录在 [ATO 路线图](./ato-roadmap.md)。在 Mission 垂直切片跑通前，不提前实现完整车门状态机或复杂制动模型。
+Phase A/B 和 C1 Mission 垂直切片已完成。剩余工作拆成可独立验收的 Station、操作网关、插件生命周期和性能阶段，统一记录在 [ATO 路线图](./ato-roadmap.md)。C2 不混入完整车门状态机或复杂制动模型。
 
 ## 16. 验收场景
 
@@ -657,4 +667,4 @@ Phase A/B 已完成，不再作为待办重复维护。剩余工作拆成可独�
 
 ## 17. 未完成计划
 
-未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。当前最先实施的是只支持显式列车和 WayPoint 停车的 Mission 垂直切片；Station、车门操作、插件 Registry 和性能索引不得混入同一个提交。
+未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。当前最先实施的是 [Phase C2 Station 待验证项目](./station-validation-checklist.md)；车门操作、插件 Registry 和性能索引不得混入 C2 提交。

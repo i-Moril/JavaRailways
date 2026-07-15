@@ -61,13 +61,33 @@ slug: /architecture/ato-roadmap
 
 ## 下一阶段：Phase C2 Station 与停站状态
 
-引入 `Station`、`StationBerth` 和 `StationCall`:
+完整验收项单独维护在 [Phase C2 Station 待验证项目](./station-validation-checklist.md)。实现分为四个可独立验收的切片：
 
-- 第一版以列车头部作为停车对齐参考点；其他编组参考点等出现实际需求后再扩展。
-- physics 侧报告 `APPROACHING`、`BERTHED`、`DEPARTED` 的不可变通知。
-- `BERTHED` 必须同时满足位置容差和停止速度阈值，并且一次停站只报告一次。
-- 停站后由 `DepartureHoldConstraint` 保持，不由 Station RailObject 直接操作列车。
-- 暂不执行开关门，只验证停准、停留计时和发车授权。
+### C2.1 Station 值模型
+
+- 引入 World-local `Station`、被动 `StationBerth`、稳定引用、`StationCall` 和 `DwellPlan`。
+- `Station` 是运营聚合体，不强制拥有单一 RailLocation；一个 Station 可以包含多个 berth。
+- StationCall 第一版必须显式指定 berth，不自动选台或改发。
+- berth 保存接近方向、头部停车偏移与容差、可用长度、默认 dwell 和语义开门侧。
+
+### C2.2 停站感知
+
+- 第一版以及可预见的后续版本统一以**列车头部**作为停车对齐参考点。
+- physics 侧发布 `APPROACHING`、`BERTHED`、`DEPARTED` 的不可变、revisioned 通知。
+- `BERTHED` 必须同时满足头部位置容差和停止速度阈值，并且一次 StationCall 只报告一次。
+- 通知不持有 live World/Rail/Train，由 Dispatcher 在完整 physics epoch 后消费。
+
+### C2.3 停留与发车授权
+
+- Dispatcher 执行 `APPROACHING → BERTHED → DWELLING → READY_TO_DEPART → DEPARTING → DEPARTED`。
+- `BERTHED` 后由 `DepartureHoldConstraint` 保持；dwell 与计划发车条件满足且下一段经路确认后才解除。
+- 同一 berth 无抢占地分配给一个活动 StationCall，并在列车尾部越过 release boundary 后释放。
+- Station 和 StationBerth 保持被动，不直接操作列车、约束、车门或道岔。
+
+### C2.4 Bukkit 与 DSL 接入
+
+- 为显式 station/berth call 增加 JS DSL、TypeScript 类型、严格 loader 校验和状态诊断。
+- 暂不执行开关门、模型 action 或 `behavior.js`；这些属于 Phase C3。
 
 ## Phase C3 主线程操作网关
 
@@ -99,7 +119,7 @@ slug: /architecture/ato-roadmap
 - 全局 topology revision；
 - ATO 自动故障恢复或自动移动列车复位；
 - 在 RailObject 内直接执行列车、车门或道岔行为；
-- 在 C1 中同时实现 Station、车门和第三方 ATO Registry。
+- 在 C2 中同时实现车门操作、自动选台和第三方 ATO Registry。
 
 ## 已确认决策
 
@@ -108,9 +128,10 @@ slug: /architecture/ato-roadmap
 - 时刻表时间用于冲突优先级，不直接决定安全相关的切换时刻。
 - 未确认 Section 通过移动授权在保护点前停车；只有已确认分支被破坏才进入 World-local Stall。
 - 第一版逻辑保留在 TimetableDispatcher 内部；未来可迁移到独立 RouteManager/Interlocking，而不改变 SimpleATO 边界。
+- C2 的 StationBerth 停车参考点长期固定为列车头部，不提前引入编组中心、指定车厢或驾驶室参考点。
+- C2 的 StationCall 显式指定 berth；Station/RailObject 保持被动，车门操作留到 C3。
 
 ## 后续阶段开工前需要确认
 
-1. C2 第一版是否固定使用列车头部对齐 StationBerth。
-2. C3 operation ticket 的超时是否直接进入人工处理状态。
-3. 人工接管结束后默认取消车次，还是允许重新规划并恢复 Mission。
+1. C3 operation ticket 的超时是否直接进入人工处理状态。
+2. 人工接管结束后默认取消车次，还是允许重新规划并恢复 Mission。

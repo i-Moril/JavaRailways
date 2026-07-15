@@ -70,7 +70,7 @@ slug: /architecture/ato-roadmap
 - StationCall 第一版必须显式指定 berth，不自动选台或改发。
 - berth 保存接近方向、头部停车偏移与容差、可用长度、默认 dwell 和语义开门侧。
 
-### C2.2 停站感知
+### C2.2 停站感知（已完成）
 
 - 第一版以及可预见的后续版本统一以**列车头部**作为停车对齐参考点。
 - physics 侧发布 `APPROACHING`、`BERTHED`、`DEPARTED` 的不可变、revisioned 通知。

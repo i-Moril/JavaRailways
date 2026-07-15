@@ -27,29 +27,35 @@ slug: /architecture/station-validation-checklist
 
 ## C2-R：StationCall 解析
 
-- [ ] **C2-R01** Station 或 berth 不存在时，在列车移动前返回结构化失败。
-- [ ] **C2-R02** berth 方向与列车计划接近方向不符时拒绝 Mission，不静默反向或改发其他 berth。
-- [ ] **C2-R03** 到 berth 的 Planned Route 不可达时拒绝 Mission，且不改变当前有效 Mission。
-- [ ] **C2-R04** 停车目标按“berth 位置减去停车偏移”解析，参考点始终为列车头部。
-- [ ] **C2-R05** 配置可用长度时，使用同一 Planned Route 上的 head/tail 距离验证列车可容纳性。
-- [ ] **C2-R06** StationCall 和 Route revision 乱序到达时拒绝旧任务。
+- [x] **C2-R01** Station 或 berth 不存在时，在列车移动前返回结构化失败。
+- [x] **C2-R02** berth 方向与列车计划接近方向不符时拒绝 Mission，不静默反向或改发其他 berth。
+- [x] **C2-R03** 到 berth 的 Planned Route 不可达时拒绝 Mission，且不改变当前有效 Mission。
+- [x] **C2-R04** 停车目标按“berth 位置减去停车偏移”解析，参考点始终为列车头部。
+- [x] **C2-R05** 配置可用长度时，使用列车物理总长度验证列车可容纳性，不以 carCount 代替长度。
+- [x] **C2-R06** StationCall 和 Route revision 乱序到达时拒绝旧任务。
+
+证据：`StationCallResolverTest` 覆盖缺失引用、方向限制、不可达路线、停车偏移、列车长度和移除状态；`StationCallRuntimeTest` 覆盖 stale/mismatched revision。
 
 ## C2-N：physics 通知与线程边界
 
-- [ ] **C2-N01** `APPROACHING`、`BERTHED`、`DEPARTED` 通知只包含不可变 ID、revision、epoch、速度和位置误差，不持有 live World/Rail/Train。
-- [ ] **C2-N02** physics worker 只发布通知；TimetableDispatcher 在完整 physics epoch 发布后消费。
-- [ ] **C2-N03** 同一个 call 的状态严格单调，旧 revision 或旧 epoch 通知不会回退状态。
-- [ ] **C2-N04** 当前 StationCall 的 berth 首次进入有效 route perception 时只报告一次 `APPROACHING`。
-- [ ] **C2-N05** 每个 StationCall 最多报告一次 `BERTHED` 和一次 `DEPARTED`。
+- [x] **C2-N01** `APPROACHING`、`BERTHED`、`DEPARTED` 通知只包含不可变 ID、revision、epoch、速度和位置误差，不持有 live World/Rail/Train。
+- [x] **C2-N02** physics worker 只发布通知；TimetableDispatcher 在完整 physics epoch 发布后消费。
+- [x] **C2-N03** 同一个 call 的状态严格单调，旧 revision 或旧 epoch 通知不会回退状态。
+- [x] **C2-N04** 当前 StationCall 的 berth 首次进入有效 route perception 时只报告一次 `APPROACHING`。
+- [x] **C2-N05** 每个 StationCall 最多报告一次 `BERTHED` 和一次 `DEPARTED`。
+
+证据：`StationCallRuntimeTest` 从 physics Tick 产生并在主线程边界 drain 通知，验证 revision/epoch 单调和每种通知只出现一次。
 
 ## C2-B：停准与保持
 
-- [ ] **C2-B01** 位置在容差内但速度高于 stopped threshold 时不得报告 `BERTHED`。
-- [ ] **C2-B02** 速度为零但列车头部位置误差超限时不得报告 `BERTHED`。
-- [ ] **C2-B03** 只有“头部位置误差在容差内”且“速度低于阈值”同时满足时报告 `BERTHED`。
-- [ ] **C2-B04** `BERTHED` 生效时在 physics Tick 边界建立 `DepartureHoldConstraint`，不存在一 Tick 的无保持窗口。
-- [ ] **C2-B05** dwell 期间其他较宽松的 movement authority 不得覆盖 DepartureHold。
-- [ ] **C2-B06** 已激活并观察到的 berth 被移除时触发所属 World 的 ATO Stall；尚未激活的引用缺失只导致 Mission 解析失败。
+- [x] **C2-B01** 位置在容差内但速度高于 stopped threshold 时不得报告 `BERTHED`。
+- [x] **C2-B02** 速度为零但列车头部位置误差超限时不得报告 `BERTHED`。
+- [x] **C2-B03** 只有“头部位置误差在容差内”且“速度低于阈值”同时满足时报告 `BERTHED`。
+- [x] **C2-B04** `BERTHED` 生效时在 physics Tick 边界建立 `DepartureHoldConstraint`，不存在一 Tick 的无保持窗口。
+- [x] **C2-B05** dwell 期间其他较宽松的 movement authority 不得覆盖 DepartureHold。
+- [x] **C2-B06** 已激活并观察到的 berth 被移除时触发所属 World 的 ATO Stall；尚未激活的引用缺失只导致 Mission 解析失败。
+
+证据：`StationBerthDetector` 的纯函数测试覆盖位置/速度联合判定；`StationCallRuntimeTest` 覆盖停准、DepartureHold 优先于宽松 movement authority，以及移除目标只 Stall 所属 World。
 
 ## C2-D：dwell 与发车
 
@@ -57,7 +63,7 @@ slug: /architecture/station-validation-checklist
 - [ ] **C2-D02** 存在计划发车 Tick 时，发车授权不得早于 minimum dwell 和计划发车时间两者的较晚值。
 - [ ] **C2-D03** dwell 完成但下一 Route Section 未确认时继续保持停车，不触发 Stall。
 - [ ] **C2-D04** dwell 完成且下一段经路确认后，在同一 route-state 更新中解除 DepartureHold 并延伸 movement authority。
-- [ ] **C2-D05** 列车获得发车授权并由头部离开 berth 容差区后只报告一次 `DEPARTED`。
+- [x] **C2-D05** 列车获得发车授权并由头部离开 berth 容差区后只报告一次 `DEPARTED`。
 - [ ] **C2-D06** Phase C2 全流程不调用车门、模型 action 或 `behavior.js`。
 
 ## C2-O：berth 所有权与释放

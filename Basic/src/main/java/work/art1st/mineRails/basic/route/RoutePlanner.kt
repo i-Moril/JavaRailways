@@ -82,11 +82,21 @@ class RoutePlanner(private val world: World) {
      * 路径点本身不带方向。这里会尝试方向限制允许的 RailView 组合，
      * 并选择可达路线中总长度最短的一条。
      */
-    fun buildRoute(from: WayPoint, to: WayPoint): RouteBuildResult {
+    fun buildRoute(
+        from: WayPoint,
+        to: WayPoint,
+        requiredGoalDirection: ViewDirection? = null
+    ): RouteBuildResult {
         val startCandidates = resolveViews(from)
         if (startCandidates.isEmpty()) return RouteBuildResult.Failure("起点轨道不存在: ${from.railId}")
-        val goalCandidates = resolveViews(to)
-        if (goalCandidates.isEmpty()) return RouteBuildResult.Failure("终点轨道不存在: ${to.railId}")
+        val goalCandidates = resolveViews(to).filter { candidate ->
+            requiredGoalDirection == null || candidate.viewDirection == requiredGoalDirection
+        }
+        if (goalCandidates.isEmpty()) {
+            return RouteBuildResult.Failure(
+                "终点轨道或要求方向不存在: ${to.railId}/${requiredGoalDirection ?: "any"}"
+            )
+        }
 
         val routes = startCandidates.flatMap { start ->
             goalCandidates.mapNotNull { goal -> buildRouteForViews(from, to, start, goal) }

@@ -14,6 +14,7 @@ import work.art1st.mineRails.basic.api.ato.constraint.ConstraintManager
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintOwner
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintOwnerType
 import work.art1st.mineRails.basic.api.ato.constraint.CurrentSpeedLimitConstraint
+import work.art1st.mineRails.basic.api.ato.constraint.DepartureHoldConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.MovementAuthorityConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.FollowConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.RouteSpeedLimitConstraint
@@ -33,6 +34,15 @@ import work.art1st.mineRails.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.mineRails.basic.api.ato.snapshot.RailObservationSnapshot
 import work.art1st.mineRails.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.mineRails.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.mineRails.basic.api.station.ResolvedStationCall
+import work.art1st.mineRails.basic.api.station.StationBerthDetector
+import work.art1st.mineRails.basic.api.station.StationCallNotification
+import work.art1st.mineRails.basic.api.station.StationCallNotificationType
+import work.art1st.mineRails.basic.api.station.StationCallRequest
+import work.art1st.mineRails.basic.api.station.StationCallResolutionFailure
+import work.art1st.mineRails.basic.api.station.StationCallResolutionResult
+import work.art1st.mineRails.basic.api.station.StationCallResolver
+import work.art1st.mineRails.basic.api.station.StationCallSubmissionResult
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.ConfirmedRouteWindow
 import work.art1st.mineRails.basic.route.RouteAllocationTiming
@@ -48,6 +58,7 @@ import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.rail.RailSegment
 import work.art1st.mineRails.core.physics.train.TrainEnd
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /** Basic ATO with line-speed, fixed-stop, following, and one optional signalling provider. */
 class SimpleATO(
@@ -64,7 +75,16 @@ class SimpleATO(
         data class ConfirmRouteWindow(val window: ConfirmedRouteWindow) : Command
         data class ReleaseRouteWindow(val key: RouteSectionAllocationKey) : Command
         data class SetMovementAuthority(val missionRevision: Long, val limitDistanceMeters: Double) : Command
+        data class GrantStationDeparture(val callId: String, val missionRevision: Long) : Command
     }
+
+    private data class ActiveStationCall(
+        val resolved: ResolvedStationCall,
+        var approachingReported: Boolean = false,
+        var berthed: Boolean = false,
+        var departureGranted: Boolean = false,
+        var departed: Boolean = false
+    )
 
     private data class StopTarget(val ref: RailObjectRef, val offsetMeters: Double)
 
@@ -86,7 +106,10 @@ class SimpleATO(
     private val worldData = world.basicWorldData
     private val commands = RevisionedCommandQueue<Command>()
     private val missionCommands = RevisionedCommandQueue<AtoMission>()
+    private val stationCallCommands = RevisionedCommandQueue<ResolvedStationCall>()
     private val missionResolver = AtoMissionResolver(world)
+    private val stationCallResolver = StationCallResolver(world)
+    private val stationNotifications = ConcurrentLinkedQueue<StationCallNotification>()
     private val constraintManager = ConstraintManager()
     private val speedLimits = LinkedHashMap<String, Double>()
     private val stopTargets = LinkedHashMap<String, StopTarget>()
@@ -100,6 +123,7 @@ class SimpleATO(
     private var missionProgressMeters = 0.0
     private var movementAuthorityRevision = -1L
     private var movementAuthorityLimitMeters = 0.0
+    private var activeStationCall: ActiveStationCall? = null
 
     @Volatile
     var currentMission: AtoMission? = null
@@ -107,6 +131,10 @@ class SimpleATO(
 
     @Volatile
     var currentConfirmedRouteWindows: List<ConfirmedRouteWindow> = emptyList()
+        private set
+
+    @Volatile
+    var currentStationCall: ResolvedStationCall? = null
         private set
 
     init {
@@ -135,6 +163,55 @@ class SimpleATO(
                 mission.revision,
                 missionCommands.latestAcceptedRevision
             )
+        }
+    }
+
+    /** Resolve and queue one StationCall; activation occurs at a physics Tick boundary. */
+    @MainThread
+    fun submitStationCall(request: StationCallRequest): StationCallSubmissionResult {
+        val revision = request.call.missionRevision
+        val latestMissionRevision = missionCommands.latestAcceptedRevision
+        if (latestMissionRevision > 0L && revision != latestMissionRevision) {
+            return StationCallSubmissionResult.ResolutionFailure(
+                StationCallResolutionFailure.MISSION_REVISION_MISMATCH,
+                "StationCall revision $revision does not match latest Mission $latestMissionRevision"
+            )
+        }
+        val latestRevision = stationCallCommands.latestAcceptedRevision
+        if (revision <= latestRevision) {
+            return StationCallSubmissionResult.StaleRevision(revision, latestRevision)
+        }
+        val resolved = when (val result = stationCallResolver.resolve(
+            request,
+            trainLengthMeters = train.cars.sumOf { it.length }
+        )) {
+            is StationCallResolutionResult.Success -> result.resolved
+            is StationCallResolutionResult.Failure -> return StationCallSubmissionResult.ResolutionFailure(
+                result.reason,
+                result.message
+            )
+        }
+        return when (stationCallCommands.offer(revision, resolved)) {
+            CommandOfferResult.ACCEPTED -> StationCallSubmissionResult.Accepted(resolved)
+            CommandOfferResult.STALE -> StationCallSubmissionResult.StaleRevision(
+                revision,
+                stationCallCommands.latestAcceptedRevision
+            )
+        }
+    }
+
+    @MainThread
+    fun grantStationDeparture(callId: String, missionRevision: Long): Long {
+        require(callId.isNotBlank())
+        require(missionRevision >= 0L)
+        return commands.enqueue(Command.GrantStationDeparture(callId, missionRevision)).revision
+    }
+
+    @MainThread
+    fun drainStationCallNotifications(): List<StationCallNotification> = buildList {
+        while (true) {
+            val notification = stationNotifications.poll() ?: break
+            add(notification)
         }
     }
 
@@ -207,6 +284,15 @@ class SimpleATO(
             movementAuthorityLimitMeters = 0.0
             currentMission = mission
         }
+        stationCallCommands.drain().lastOrNull()?.command?.let { resolved ->
+            check(currentMission == null || currentMission?.revision == resolved.call.missionRevision) {
+                "StationCall revision ${resolved.call.missionRevision} does not match active Mission " +
+                    "${currentMission?.revision}"
+            }
+            constraintManager.remove(STATION_OWNER)
+            activeStationCall = ActiveStationCall(resolved)
+            currentStationCall = resolved
+        }
         commands.drain().forEach { envelope ->
             when (val command = envelope.command) {
                 is Command.SetSpeedLimit -> speedLimits[command.key] = command.speed
@@ -242,6 +328,23 @@ class SimpleATO(
                         )
                     }
                 }
+                is Command.GrantStationDeparture -> {
+                    val active = activeStationCall
+                    val activeRevision = active?.resolved?.call?.missionRevision ?: -1L
+                    when {
+                        command.missionRevision < activeRevision -> Unit
+                        command.missionRevision > activeRevision -> error(
+                            "departure grant revision ${command.missionRevision} is newer than active StationCall $activeRevision"
+                        )
+                        else -> {
+                            check(active != null && active.resolved.call.callId == command.callId) {
+                                "departure grant does not match the active StationCall"
+                            }
+                            check(active.berthed) { "departure cannot be granted before BERTHED" }
+                            active.departureGranted = true
+                        }
+                    }
+                }
             }
         }
     }
@@ -257,6 +360,7 @@ class SimpleATO(
         processProviderBoundaries(scan)
         updateBuiltInConstraints(scan)
         updateMissionConstraints()
+        updateStationCallConstraints(scan)
         updateProviderConstraints(scan)
 
         return MinimumConstraintPlanner.plan(
@@ -397,6 +501,112 @@ class SimpleATO(
             }
         }
         constraintManager.replace(MISSION_OWNER, constraints)
+    }
+
+    private fun updateStationCallConstraints(scan: ScanResult) {
+        val active = activeStationCall
+        if (active == null || active.departed) {
+            constraintManager.remove(STATION_OWNER)
+            return
+        }
+        val resolved = active.resolved
+        check(currentMission == null || currentMission?.revision == resolved.call.missionRevision) {
+            "active StationCall revision does not match the active Mission"
+        }
+        val berth = worldData.stations.berth(resolved.berthRef)
+        check(berth != null && berth.lifecycleState == RailObjectLifecycleState.ACTIVE &&
+            worldData.railObjects.get(berth.ref) === berth
+        ) {
+            "active StationBerth disappeared: ${resolved.berthRef}"
+        }
+        val observation = scan.perception.observations
+            .firstOrNull { it.subject.ref == berth.ref }
+        if (observation == null) {
+            constraintManager.remove(STATION_OWNER)
+            return
+        }
+        berth.approachDirection?.let { requiredDirection ->
+            check(observation.subject.position.facing == requiredDirection) {
+                "StationBerth ${resolved.berthRef} approached from the wrong direction"
+            }
+        }
+        val positionError = observation.routeDistanceMeters - resolved.stoppingOffsetMetersBefore
+        when (observation.transition) {
+            ObservationTransition.ENTER,
+            ObservationTransition.UPDATE -> {
+                if (!active.approachingReported) {
+                    active.approachingReported = true
+                    reportStationCall(active, StationCallNotificationType.APPROACHING, positionError)
+                }
+                check(active.berthed || positionError >= -resolved.positionToleranceMeters) {
+                    "train passed StationBerth stopping position before BERTHED: ${resolved.berthRef}"
+                }
+                if (!active.berthed && StationBerthDetector.isBerthed(
+                        headPositionErrorMeters = positionError,
+                        speedMetersPerSecond = activeSpeed,
+                        positionToleranceMeters = resolved.positionToleranceMeters,
+                        stoppedSpeedThresholdMetersPerSecond =
+                            safetyProfile.stoppedSpeedThresholdMetersPerSecond
+                    )
+                ) {
+                    active.berthed = true
+                    reportStationCall(active, StationCallNotificationType.BERTHED, positionError)
+                }
+                val constraints = when {
+                    active.berthed && !active.departureGranted -> listOf(
+                        DepartureHoldConstraint(
+                            ConstraintKey("station", "departure-hold/${resolved.call.callId}")
+                        )
+                    )
+                    active.departureGranted -> emptyList()
+                    else -> listOf(
+                        StopConstraint(
+                            ConstraintKey("station", "stop/${resolved.call.callId}"),
+                            positionError.coerceAtLeast(0.0)
+                        )
+                    )
+                }
+                constraintManager.replace(STATION_OWNER, constraints)
+            }
+            ObservationTransition.PASS -> {
+                check(active.berthed && active.departureGranted) {
+                    "StationBerth passed without BERTHED departure authority: ${resolved.berthRef}"
+                }
+                active.departed = true
+                reportStationCall(
+                    active,
+                    StationCallNotificationType.DEPARTED,
+                    -(lastTravelDistanceMeters - observation.routeDistanceMeters).coerceAtLeast(0.0)
+                )
+                constraintManager.remove(STATION_OWNER)
+                activeStationCall = null
+                currentStationCall = null
+            }
+            ObservationTransition.EXIT -> error(
+                "observed StationBerth left the active route: ${resolved.berthRef}"
+            )
+        }
+    }
+
+    private fun reportStationCall(
+        active: ActiveStationCall,
+        type: StationCallNotificationType,
+        positionErrorMeters: Double
+    ) {
+        val resolved = active.resolved
+        stationNotifications.add(
+            StationCallNotification(
+                type = type,
+                callId = resolved.call.callId,
+                missionRevision = resolved.call.missionRevision,
+                trainId = train.id,
+                stationId = resolved.call.stationId,
+                berthRef = resolved.berthRef,
+                physicsEpoch = perceptionEpoch,
+                speedMetersPerSecond = activeSpeed,
+                headPositionErrorMeters = positionErrorMeters
+            )
+        )
     }
 
     private fun updateProviderConstraints(scan: ScanResult) {
@@ -556,5 +766,6 @@ class SimpleATO(
         val EXTERNAL_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:simple-api")
         val PROVIDER_OWNER = ConstraintOwner(ConstraintOwnerType.SIGNALLING, "basic:active-provider")
         val MISSION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:mission")
+        val STATION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:station-call")
     }
 }

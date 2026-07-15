@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
+import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.debug.AbnormalTrainMarker
 import work.art1st.mineRails.bukkit.debug.MineRailsServerTickMetrics
@@ -178,6 +179,12 @@ class WorldManager(
                 phaseBreakdown["world:${world.name}:train_render_commit"] = renderCommitNanos
                 computeNanos += renderCommitNanos
             }
+
+            val timetableDispatcherNanos = measureNanoTime {
+                railWorld.basicWorldData.dispatcher.tick(railWorld)
+            }
+            phaseBreakdown["world:${world.name}:timetable_dispatcher"] = timetableDispatcherNanos
+            computeNanos += timetableDispatcherNanos
 
             railWorld.tickManager.postTick()
             railWorld.tickManager.latestMainThreadTickMetrics()?.let { metrics ->

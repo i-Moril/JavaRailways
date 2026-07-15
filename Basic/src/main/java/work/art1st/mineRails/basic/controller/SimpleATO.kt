@@ -14,10 +14,12 @@ import work.art1st.mineRails.basic.api.ato.constraint.ConstraintManager
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintOwner
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintOwnerType
 import work.art1st.mineRails.basic.api.ato.constraint.CurrentSpeedLimitConstraint
+import work.art1st.mineRails.basic.api.ato.constraint.DepartureHoldConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.FollowConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.RouteSpeedLimitConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.StopConstraint
 import work.art1st.mineRails.basic.api.ato.mission.AtoMission
+import work.art1st.mineRails.basic.api.ato.mission.AtoMissionPoint
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionRequest
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolutionResult
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolver
@@ -32,6 +34,8 @@ import work.art1st.mineRails.basic.api.ato.snapshot.RailObservationSnapshot
 import work.art1st.mineRails.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.mineRails.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
+import work.art1st.mineRails.basic.route.ConfirmedRouteWindow
+import work.art1st.mineRails.basic.route.RouteSectionAllocationKey
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailObject
 import work.art1st.mineRails.core.api.physics.rail.RailObjectLifecycleState
@@ -56,6 +60,8 @@ class SimpleATO(
         data class StopAt(val key: String, val target: RailObjectRef, val offsetMeters: Double) : Command
         data class Remove(val key: String) : Command
         data class SetProvider(val providerId: String?) : Command
+        data class ConfirmRouteWindow(val window: ConfirmedRouteWindow) : Command
+        data class ReleaseRouteWindow(val key: RouteSectionAllocationKey) : Command
     }
 
     private data class StopTarget(val ref: RailObjectRef, val offsetMeters: Double)
@@ -85,12 +91,18 @@ class SimpleATO(
     private var previousObserved: Map<RailObjectRef, Observed> = emptyMap()
     private var currentSegments: List<RailSegment> = emptyList()
     private var activeProvider: AtoProvider? = null
+    private val confirmedRouteWindows = LinkedHashMap<RouteSectionAllocationKey, ConfirmedRouteWindow>()
     private var routeRevision = 0L
     private var previousRouteKey: List<Pair<java.util.UUID, work.art1st.mineRails.core.api.physics.rail.ViewDirection>> = emptyList()
     private var perceptionEpoch = 0L
+    private var missionProgressMeters = 0.0
 
     @Volatile
     var currentMission: AtoMission? = null
+        private set
+
+    @Volatile
+    var currentConfirmedRouteWindows: List<ConfirmedRouteWindow> = emptyList()
         private set
 
     init {
@@ -122,6 +134,14 @@ class SimpleATO(
         }
     }
 
+    @MainThread
+    fun confirmRouteWindow(window: ConfirmedRouteWindow): Long =
+        commands.enqueue(Command.ConfirmRouteWindow(window)).revision
+
+    @MainThread
+    fun releaseRouteWindow(key: RouteSectionAllocationKey): Long =
+        commands.enqueue(Command.ReleaseRouteWindow(key)).revision
+
     fun setSpeedLimit(key: String, speedLimitMetersPerSecond: Double): Long {
         require(key.isNotBlank())
         require(speedLimitMetersPerSecond >= 0.0 && speedLimitMetersPerSecond.isFinite())
@@ -148,6 +168,13 @@ class SimpleATO(
     }
 
     override fun processPendingCommands() {
+        missionCommands.drain().lastOrNull()?.command?.let { mission ->
+            constraintManager.remove(MISSION_OWNER)
+            confirmedRouteWindows.clear()
+            publishConfirmedRouteWindows()
+            missionProgressMeters = 0.0
+            currentMission = mission
+        }
         commands.drain().forEach { envelope ->
             when (val command = envelope.command) {
                 is Command.SetSpeedLimit -> speedLimits[command.key] = command.speed
@@ -157,16 +184,27 @@ class SimpleATO(
                     stopTargets.remove(command.key)
                 }
                 is Command.SetProvider -> switchProvider(command.providerId)
+                is Command.ConfirmRouteWindow -> {
+                    check(currentMission?.legs?.any { leg ->
+                        leg.plannedRoute.routeId == command.window.key.routeId &&
+                            leg.plannedRoute.revision == command.window.key.routeRevision
+                    } == true) {
+                        "confirmed RouteSection does not belong to the active Mission: ${command.window.key}"
+                    }
+                    confirmedRouteWindows[command.window.key] = command.window
+                    publishConfirmedRouteWindows()
+                }
+                is Command.ReleaseRouteWindow -> {
+                    confirmedRouteWindows.remove(command.key)
+                    publishConfirmedRouteWindows()
+                }
             }
-        }
-        missionCommands.drain().lastOrNull()?.command?.let { mission ->
-            constraintManager.remove(MISSION_OWNER)
-            currentMission = mission
         }
     }
 
     override fun plan(deltaTimeSeconds: Double): ControlDemand {
         perceptionEpoch++
+        missionProgressMeters += lastTravelDistanceMeters
         val scan = scanRouteAndObjects()
         latestRouteSnapshot = scan.route
         latestPerceptionSnapshot = scan.perception
@@ -174,6 +212,7 @@ class SimpleATO(
 
         processProviderBoundaries(scan)
         updateBuiltInConstraints(scan)
+        updateMissionConstraints()
         updateProviderConstraints(scan)
 
         return MinimumConstraintPlanner.plan(
@@ -190,6 +229,19 @@ class SimpleATO(
         currentSegments.zipWithNext().forEach { (current, next) ->
             check(current.railView.activeRail === next.railView) {
                 "turnout changed while ATO was planning at rail ${current.railView.rail.id}"
+            }
+        }
+        confirmedRouteWindows.values.forEach { window ->
+            window.section.turnoutRequirements.forEach { requirement ->
+                val from = world.getRail(requirement.from.railId)?.getView(requirement.from.direction)
+                    ?: error("confirmed turnout no longer exists: ${requirement.from}")
+                val selected = world.getRail(requirement.selectedNext.railId)
+                    ?.getView(requirement.selectedNext.direction)
+                    ?: error("confirmed branch no longer exists: ${requirement.selectedNext}")
+                check(from.nextActiveRail === selected) {
+                    "confirmed turnout mismatch at ${requirement.from}: " +
+                        "expected ${requirement.selectedNext}, actual ${from.nextActiveRail?.rail?.id}"
+                }
             }
         }
     }
@@ -267,6 +319,39 @@ class SimpleATO(
             }
         }
         constraintManager.replace(EXTERNAL_OWNER, external)
+    }
+
+    private fun updateMissionConstraints() {
+        val mission = currentMission
+        if (mission == null) {
+            constraintManager.remove(MISSION_OWNER)
+            return
+        }
+        if (confirmedRouteWindows.isEmpty()) {
+            constraintManager.replace(
+                MISSION_OWNER,
+                listOf(DepartureHoldConstraint(ConstraintKey("mission", "route-unconfirmed")))
+            )
+            return
+        }
+
+        var targetDistance = 0.0
+        val constraints = buildList {
+            mission.legs.forEach { leg ->
+                targetDistance += leg.plannedRoute.expandedRoute.totalLength
+                val point = leg.point
+                if (point is AtoMissionPoint.Stop) {
+                    add(
+                        StopConstraint(
+                            ConstraintKey("mission", "stop/${mission.revision}/${leg.index}"),
+                            (targetDistance - missionProgressMeters - point.offsetMetersBefore)
+                                .coerceAtLeast(0.0)
+                        )
+                    )
+                }
+            }
+        }
+        constraintManager.replace(MISSION_OWNER, constraints)
     }
 
     private fun updateProviderConstraints(scan: ScanResult) {
@@ -408,6 +493,12 @@ class SimpleATO(
             distanceToSegment += segment.totalArcLength
         }
         return result
+    }
+
+    private fun publishConfirmedRouteWindows() {
+        currentConfirmedRouteWindows = java.util.Collections.unmodifiableList(
+            ArrayList(confirmedRouteWindows.values)
+        )
     }
 
     private fun brakingDistance(speed: Double, deceleration: Double): Double =

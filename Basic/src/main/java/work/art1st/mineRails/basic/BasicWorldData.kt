@@ -5,8 +5,8 @@ import work.art1st.mineRails.basic.api.ato.provider.AtoProviderRegistry
 import work.art1st.mineRails.basic.api.ato.provider.RailObjectStore
 import work.art1st.mineRails.basic.pathFinding.RailMap
 import work.art1st.mineRails.basic.timetable.Timetable
+import work.art1st.mineRails.basic.timetable.TimetableDispatcher
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
-import work.art1st.mineRails.core.api.physics.train.TrainSnapshot
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -97,16 +97,4 @@ class TimetableStore {
     operator fun get(id: String): Timetable? = timetables[id]
 
     fun all(): List<Timetable> = timetables.values.sortedBy { it.id }
-}
-
-class TimetableDispatcher {
-    private val initialTrains = ConcurrentHashMap<String, TrainSnapshot>()
-
-    fun recordInitialTrain(snapshot: TrainSnapshot) {
-        initialTrains[snapshot.trainId] = snapshot
-    }
-
-    fun initialTrain(trainId: String): TrainSnapshot? = initialTrains[trainId]
-
-    fun initialTrains(): Map<String, TrainSnapshot> = initialTrains.toMap()
 }

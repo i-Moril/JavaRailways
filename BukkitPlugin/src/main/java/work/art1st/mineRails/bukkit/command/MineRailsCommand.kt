@@ -10,6 +10,8 @@ import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
 import work.art1st.mineRails.basic.timetable.TimetableDumper
+import work.art1st.mineRails.basic.timetable.TimetableServiceRunId
+import work.art1st.mineRails.basic.timetable.TimetableServiceStartResult
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoadResult
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoader
 import work.art1st.mineRails.bukkit.BukkitPlugin
@@ -58,6 +60,9 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         if (args[0].equals("ato", ignoreCase = true)) {
             if (args.size == 2) return listOf("status", "dump", "reset")
             if (args.size == 3) return BukkitPlugin.INSTANCE.worldManager.railWorlds.keys.map { it.name }
+        }
+        if (args[0].equals("timetable", ignoreCase = true) || args[0].equals("tt", ignoreCase = true)) {
+            if (args.size == 2) return listOf("load", "dump", "list", "start", "status", "stop")
         }
         return emptyList()
     }
@@ -219,7 +224,79 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     timetables.forEach { sender.sendMessage("${it.id}: services=${it.services.size}, period=${it.periodTicks ?: "none"}") }
                 }
             }
-            else -> sender.sendMessage("用法: /mr timetable <load|dump|list>")
+            "start" -> {
+                val timetableId = args.getOrNull(1)
+                val requestedService = args.getOrNull(2)
+                if (timetableId == null) {
+                    sender.sendMessage("用法: /mr timetable start <id> [service]")
+                    return true
+                }
+                val timetable = world.basicWorldData.timetables[timetableId]
+                if (timetable == null) {
+                    sender.sendMessage("时刻表不存在: $timetableId")
+                    return true
+                }
+                (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
+                val serviceIds = requestedService?.let(::listOf) ?: timetable.services.map { it.id }
+                serviceIds.forEach { serviceId ->
+                    when (val result = world.basicWorldData.dispatcher.startService(world, timetableId, serviceId)) {
+                        is TimetableServiceStartResult.Started -> sender.sendMessage(
+                            "已启动 ${result.run.id}: train=${result.run.trainId} revision=${result.run.missionRevision}"
+                        )
+                        is TimetableServiceStartResult.Failure -> sender.sendMessage(
+                            "启动 $timetableId/$serviceId 失败: ${result.reason}"
+                        )
+                    }
+                }
+            }
+            "status" -> {
+                val timetableId = args.getOrNull(1)
+                val requestedService = args.getOrNull(2)
+                if (timetableId == null) {
+                    sender.sendMessage("用法: /mr timetable status <id> [service]")
+                    return true
+                }
+                val runs = world.basicWorldData.dispatcher.statuses().filter {
+                    it.id.timetableId == timetableId &&
+                        (requestedService == null || it.id.serviceId == requestedService)
+                }
+                if (runs.isEmpty()) {
+                    sender.sendMessage("没有匹配的运行中或历史 service")
+                } else {
+                    runs.forEach { run ->
+                        sender.sendMessage(
+                            "${run.id}: state=${run.state} train=${run.trainId} " +
+                                "revision=${run.missionRevision} confirmed=${run.confirmedSectionCount}" +
+                                run.message?.let { " message=$it" }.orEmpty()
+                        )
+                    }
+                }
+            }
+            "stop" -> {
+                val timetableId = args.getOrNull(1)
+                val requestedService = args.getOrNull(2)
+                if (timetableId == null) {
+                    sender.sendMessage("用法: /mr timetable stop <id> [service]")
+                    return true
+                }
+                (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
+                val ids = if (requestedService != null) {
+                    listOf(TimetableServiceRunId(timetableId, requestedService))
+                } else {
+                    world.basicWorldData.dispatcher.statuses()
+                        .filter { it.id.timetableId == timetableId }
+                        .map { it.id }
+                }
+                if (ids.isEmpty()) sender.sendMessage("没有匹配的 service")
+                ids.forEach { id ->
+                    if (world.basicWorldData.dispatcher.stopService(world, id)) {
+                        sender.sendMessage("已停止 $id")
+                    } else {
+                        sender.sendMessage("service 不存在: $id")
+                    }
+                }
+            }
+            else -> sender.sendMessage("用法: /mr timetable <load|dump|list|start|status|stop>")
         }
         return true
     }
@@ -386,6 +463,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
+        sender.sendMessage("/mr timetable start|status|stop <id> [service] - 管理显式列车 service")
         sender.sendMessage("/mr ato status [world] - 查看 World-local ATO 状态")
         sender.sendMessage("/mr ato dump <world> - 写出最近一次 ATO Stall 报告")
         sender.sendMessage("/mr ato reset <world> - 手动解除 ATO Stall（不恢复列车位置）")

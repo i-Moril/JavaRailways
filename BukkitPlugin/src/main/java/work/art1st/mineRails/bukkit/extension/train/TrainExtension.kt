@@ -135,6 +135,8 @@ class TrainExtension : CoreTrainExtension {
         }
     }
 
+    fun modelPackageName(): String? = resolvePackageName()
+
     private fun resolvePackageName(): String? {
         val modelManager = BukkitPlugin.INSTANCE.modelManager
         val firstModelName = self.cars.firstOrNull()?.carRendererOrNull?.carModelName ?: return null

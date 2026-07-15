@@ -23,6 +23,9 @@ import work.art1st.mineRails.basic.api.ato.provider.AtoProviderContext
 import work.art1st.mineRails.basic.api.ato.provider.ProviderBoundaryAction
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.mineRails.basic.rail.RailAutoConnector
+import work.art1st.mineRails.basic.route.ConfirmedRouteWindow
+import work.art1st.mineRails.basic.route.RouteSectionAllocationKey
+import work.art1st.mineRails.basic.route.RouteSectionOwner
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.rail.RailObject
@@ -71,14 +74,30 @@ class SimpleATOTest {
         )
 
         assertTrue(fixture.ato.submitMission(request(1L)) is AtoMissionSubmissionResult.Accepted)
-        assertTrue(fixture.ato.submitMission(request(2L)) is AtoMissionSubmissionResult.Accepted)
+        val second = fixture.ato.submitMission(request(2L)) as AtoMissionSubmissionResult.Accepted
         assertTrue(fixture.ato.submitMission(request(1L)) is AtoMissionSubmissionResult.StaleRevision)
+        val plannedRoute = second.mission.legs.single().plannedRoute
+        val window = ConfirmedRouteWindow(
+            RouteSectionAllocationKey(
+                RouteSectionOwner("service-1", fixture.train.id),
+                plannedRoute.routeId,
+                plannedRoute.revision,
+                sectionIndex = 0
+            ),
+            plannedRoute.sections.single()
+        )
+        fixture.ato.confirmRouteWindow(window)
         assertEquals(null, fixture.ato.currentMission)
 
         tickAndPublish(fixture.ato, 50.0)
 
         assertEquals(2L, fixture.ato.currentMission?.revision)
+        assertEquals(listOf(window), fixture.ato.currentConfirmedRouteWindows)
         assertFalse(fixture.coordinator.isStalled)
+
+        fixture.ato.releaseRouteWindow(window.key)
+        tickAndPublish(fixture.ato, 50.0)
+        assertTrue(fixture.ato.currentConfirmedRouteWindows.isEmpty())
     }
 
     @Test

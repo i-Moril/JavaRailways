@@ -6,7 +6,7 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前首版 JS 时刻表 DSL。它只实现脚本加载、内部模型生成和 dry-run，尚不会调度或驾驶真实列车；执行能力属于 [ATO 路线图](architecture/ato-roadmap.md) 的 Mission 垂直切片。
+本文档描述当前首版 JS 时刻表 DSL。C1 实验运行时现在可以执行显式 `TrainId` service 的第一组 `GoTo`/`GoVia`，但尚不支持 WayPointPool 自动选车、周期循环、停站 dwell 或后续动作推进；进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
@@ -44,7 +44,17 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable dump <id>
 ```
 
-如果省略 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
+实验性启动和状态管理：
+
+```text
+/mr timetable start <id> [service]
+/mr timetable status <id> [service]
+/mr timetable stop <id> [service]
+```
+
+只有使用字符串 `trainId` selector、并在第一个运行动作前通过 `check()` 指定初始 WayPoint 的 service 可以启动。当前只执行第一组 `goto`。
+
+如果省略加载命令的 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
 
 ## 入口函数
 

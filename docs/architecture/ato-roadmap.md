@@ -34,22 +34,25 @@ slug: /architecture/ato-roadmap
 - 多个已接受 Mission 在 physics Tick 边界只激活最新 revision，并一次性清理旧 Mission owner 的约束。
 - Mission 当前只完成提交和激活契约，尚不生成运行时停车或 movement-authority 约束。
 
-### C1.3 最小 Dispatcher
+### C1.3 最小 Dispatcher（进行中）
 
-已完成底层 `RouteSectionAllocator`：按调用顺序无抢占地原子检查全部道岔资源、应用实际分支、返回 Confirmed Route Window，并支持幂等确认和车尾通过后的显式释放。冲突不会部分改变 Section 中的其他道岔。
+已完成：
+
+- `RouteSectionAllocator` 无抢占地原子检查全部道岔资源、应用实际分支并返回 Confirmed Route Window；冲突不会部分改变其他道岔。
+- `TimetableDispatcher` 已建立 WAITING_MISSION、WAITING_ROUTE、RUNNING、STOPPED、FAILED 状态和显式列车占用。
+- 第一版只执行 `TrainSelector.TrainId`，要求 `Check` 给出初始 WayPoint，并把第一组 `GoTo`/`GoVia` 编译成 Via/Stop Mission point。
+- Dispatcher 创建或复用 SimpleATO；未确认首个 Section 时由 Mission `DepartureHoldConstraint` 保持，确认后才允许起步。
+- Confirmed Route Window 通过 command queue 在 physics Tick 边界发布；SimpleATO 持续验证其中的实际道岔。
+- Mission 最终 Stop point 已生成固定减速度停车曲线。
+- Bukkit 每次 physics 发布后驱动 Dispatcher，并提供 `/mr timetable start|status|stop <id> [service]`。
 
 剩余工作：
 
-- 将当前只保存初始化快照的 `TimetableDispatcher` 扩展为明确的 service 运行状态存储。
-- 第一版只选择 `TrainSelector.TrainId`，把 `GoTo`/`GoVia` 编译为 Via/Stop Mission point。
-- 从时刻表生成 Planned Route，并根据列车已发布的 head/tail 位置动态触发 Route Section 分配。
-- 时刻表时间只决定冲突列车的优先级；实际位置决定何时尝试分配。
-- 原子锁定一个 Section 的全部道岔，把变更排入 physics epoch 边界，然后发布 Confirmed Route Window。
-- 分配失败或仍在等待时，把 movement authority 保持在入口保护点；未确认 Section 不触发 Stall。
-- 列车尾部完全越过 release point 后释放 Section 和相关资源。
-- 增加 `/mr timetable start <id>`、`status <id>` 和 `stop <id>`。
-- Dispatcher 不直接设置速度；SimpleATO 不发送道岔申请，只验证 Confirmed Route Window。
-- 实际创建并挂载 SimpleATO，使 ATO 不再只存在于单元测试。
+- 根据列车已发布的 head/tail route progress 和触发距离逐段分配，而不是启动后立即分配首个 Section。
+- 使用时刻表时间为冲突列车排序；当前按调用顺序确定优先级。
+- 列车尾部完全越过 release point 后自动释放 Section 和相关资源；当前由 stop/failure 显式释放。
+- 完成一个 Stop 后推进后续时刻表动作，并报告 service completed。
+- 把 movement authority 扩展到后续未确认 Section 的入口保护点，而不只使用首段 route hold。
 
 ### C1 验收
 

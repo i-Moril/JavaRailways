@@ -36,6 +36,10 @@ slug: /architecture/ato-roadmap
 
 ### C1.3 最小 Dispatcher
 
+已完成底层 `RouteSectionAllocator`：按调用顺序无抢占地原子检查全部道岔资源、应用实际分支、返回 Confirmed Route Window，并支持幂等确认和车尾通过后的显式释放。冲突不会部分改变 Section 中的其他道岔。
+
+剩余工作：
+
 - 将当前只保存初始化快照的 `TimetableDispatcher` 扩展为明确的 service 运行状态存储。
 - 第一版只选择 `TrainSelector.TrainId`，把 `GoTo`/`GoVia` 编译为 Via/Stop Mission point。
 - 从时刻表生成 Planned Route，并根据列车已发布的 head/tail 位置动态触发 Route Section 分配。

@@ -20,7 +20,7 @@ Phase A 已于 2026-07-14 落地以下基础契约：
 
 Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand → TrainActuator`、SimpleATO、前车跟随、目标与线路末端停车、可选单一信号 Provider，以及按 World 隔离的 ATO Stall。Stall 会自动写出结构化诊断，并通过 `/mr ato status|dump|reset` 由管理员处理；reset 不恢复列车位置。
 
-Phase C1 已完成弧长加权 Dijkstra、`PlannedRoute`/`RouteSection` 经路模型，以及不可变 Mission 的解析、失败结果、严格 revision 和 physics Tick 边界激活契约。TimetableDispatcher 执行、运行时 Section 分配、Mission 停车约束和 Confirmed Route Window 尚未实现。
+Phase C1 已完成弧长加权 Dijkstra、`PlannedRoute`/`RouteSection` 经路模型、不可变 Mission 契约，以及无抢占的原子 `RouteSectionAllocator`。TimetableDispatcher service 执行、按列车位置触发分配、Mission 停车约束和向 SimpleATO 发布 Confirmed Route Window 尚未实现。
 
 ## 1. 背景
 

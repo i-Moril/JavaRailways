@@ -17,11 +17,13 @@ slug: /architecture/station-validation-checklist
 
 ## C2-M：模型与 World 隔离
 
-- [ ] **C2-M01** `StationId`、`StationBerthRef`、`StationCall` 和 `DwellPlan` 拒绝空 ID、负数时间、非有限距离等非法输入。
-- [ ] **C2-M02** `Station` 不持有 live Train；`StationBerth` 使用稳定 RailObject ref 和明确的 World-local 身份。
-- [ ] **C2-M03** Station/Berth 集合在构造时防御性复制，对外只暴露不可变视图。
-- [ ] **C2-M04** 不同 World 可以使用相同 station/berth ID，注册、查询、移除和运行状态互不影响。
-- [ ] **C2-M05** berth 的允许方向、停车偏移、位置容差、可用长度、默认 dwell 和语义开门侧均有显式单位与校验。
+- [x] **C2-M01** `StationId`、`StationBerthRef`、`StationCall` 和 `DwellPlan` 拒绝空 ID、负数时间、非有限距离等非法输入。
+- [x] **C2-M02** `Station` 不持有 live Train；`StationBerth` 使用稳定 RailObject ref 和明确的 World-local 身份。
+- [x] **C2-M03** Station/Berth 集合在构造时防御性复制，对外只暴露不可变视图。
+- [x] **C2-M04** 不同 World 可以使用相同 station/berth ID，注册、查询、移除和运行状态互不影响。
+- [x] **C2-M05** berth 的允许方向、停车偏移、位置容差、可用长度、默认 dwell 和语义开门侧均有显式单位与校验。
+
+证据：`StationModelTest` 覆盖非法值、集合防御性复制、DwellPlan、RailObject 注册/移除和两个独立 World 使用相同 ID。
 
 ## C2-R：StationCall 解析
 

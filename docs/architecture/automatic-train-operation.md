@@ -6,7 +6,7 @@ slug: /architecture/automatic-train-operation
 # 自动驾驶与运营协同设计
 
 :::warning 实施状态
-Phase A/B 和 C1 Mission 垂直切片已实现；Station、车门操作和插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
+Phase A/B、C1 Mission 垂直切片和 C2.1 Station 值模型已实现；StationCall 执行、车门操作和插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
 :::
 
 ## 当前实施状态
@@ -21,6 +21,8 @@ Phase A 已于 2026-07-14 落地以下基础契约：
 Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand → TrainActuator`、SimpleATO、前车跟随、目标与线路末端停车、可选单一信号 Provider，以及按 World 隔离的 ATO Stall。Stall 会自动写出结构化诊断，并通过 `/mr ato status|dump|reset` 由管理员处理；reset 不恢复列车位置。
 
 Phase C1 已完成弧长加权 Dijkstra、经路/Mission 契约和原子 `RouteSectionAllocator`。显式列车 TimetableDispatcher 会从已发布的 head/tail 快照计算 route progress，按动态触发距离和时刻表优先级分配 Section，以 movement authority 保护未确认入口，只在车尾越过 release point 后释放，并可推进 dwell 和后续 Mission。SimpleATO 负责停车曲线和 Confirmed Route Window 验证；Bukkit 提供 start/status/stop 命令。
+
+Phase C2.1 已增加 World-local StationStore、Station 聚合、被动 StationBerth RailObject、StationCall 和 DwellPlan 值。它们尚未接入 Mission 执行和停站状态通知。
 
 ## 1. 背景
 

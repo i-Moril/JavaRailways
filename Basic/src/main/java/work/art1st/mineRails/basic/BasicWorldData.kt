@@ -3,6 +3,7 @@ package work.art1st.mineRails.basic
 import work.art1st.mineRails.basic.api.ato.AtoWorldCoordinator
 import work.art1st.mineRails.basic.api.ato.provider.AtoProviderRegistry
 import work.art1st.mineRails.basic.api.ato.provider.RailObjectStore
+import work.art1st.mineRails.basic.api.station.StationStore
 import work.art1st.mineRails.basic.pathFinding.RailMap
 import work.art1st.mineRails.basic.timetable.Timetable
 import work.art1st.mineRails.basic.timetable.TimetableDispatcher
@@ -23,8 +24,15 @@ data class BasicWorldData(
     val dispatcher: TimetableDispatcher = TimetableDispatcher(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
-    val railObjects: RailObjectStore = RailObjectStore()
+    val railObjects: RailObjectStore = RailObjectStore(),
+    val stations: StationStore = StationStore(railObjects)
 ) {
+    init {
+        require(stations.usesRailObjectStore(railObjects)) {
+            "StationStore must use this BasicWorldData RailObjectStore"
+        }
+    }
+
     /** 兼容早期 Phase2 命名；后续代码应使用 wayPoints。 */
     val stopPoints: WayPointStore
         get() = wayPoints

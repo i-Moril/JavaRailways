@@ -63,7 +63,7 @@ slug: /architecture/ato-roadmap
 
 完整验收项单独维护在 [Phase C2 Station 待验证项目](./station-validation-checklist.md)。实现分为四个可独立验收的切片：
 
-### C2.1 Station 值模型
+### C2.1 Station 值模型（已完成）
 
 - 引入 World-local `Station`、被动 `StationBerth`、稳定引用、`StationCall` 和 `DwellPlan`。
 - `Station` 是运营聚合体，不强制拥有单一 RailLocation；一个 Station 可以包含多个 berth。

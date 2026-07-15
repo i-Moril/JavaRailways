@@ -5,7 +5,9 @@ import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailView
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
+import java.util.Collections
 import java.util.LinkedList
+import java.util.PriorityQueue
 import java.util.UUID
 
 /** 持久化友好的 RailView 引用。 */
@@ -24,18 +26,43 @@ data class RouteSegment(
     val startArcLength: Double,
     val endArcLength: Double
 ) {
+    init {
+        require(startArcLength.isFinite() && startArcLength >= 0.0)
+        require(endArcLength.isFinite() && endArcLength >= startArcLength)
+    }
+
     val length: Double
         get() = endArcLength - startArcLength
 }
 
-/** 从一个路径点到另一个路径点的展开经路。 */
-data class ExpandedRoute(
+/** 从一个路径点到另一个路径点的不可变展开经路。 */
+@ConsistentCopyVisibility
+data class ExpandedRoute private constructor(
     val fromWayPointId: String,
     val toWayPointId: String,
     val segments: List<RouteSegment>
 ) {
+    constructor(
+        fromWayPointId: String,
+        toWayPointId: String,
+        segments: Collection<RouteSegment>
+    ) : this(fromWayPointId, toWayPointId, immutableCopy(segments))
+
+    init {
+        require(fromWayPointId.isNotBlank() && toWayPointId.isNotBlank())
+        require(segments.isNotEmpty()) { "ExpandedRoute must contain at least one segment" }
+        require(segments.sumOf(RouteSegment::length).let { it.isFinite() && it > 0.0 }) {
+            "ExpandedRoute total length must be finite and positive"
+        }
+    }
+
     val totalLength: Double
-        get() = segments.sumOf { it.length }
+        get() = segments.sumOf(RouteSegment::length)
+
+    private companion object {
+        fun immutableCopy(source: Collection<RouteSegment>): List<RouteSegment> =
+            Collections.unmodifiableList(ArrayList(source))
+    }
 }
 
 sealed class RouteBuildResult {
@@ -108,19 +135,37 @@ class RoutePlanner(private val world: World) {
     ): List<RailView>? {
         if (start == goal && goalArcLength >= startArcLength) return listOf(start)
 
-        val pending: ArrayDeque<RailView> = ArrayDeque()
-        val predecessor = HashMap<RailView, RailView?>()
-        pending.addLast(start)
-        predecessor[start] = null
+        val initial = SearchState(start, departedStart = false)
+        val distances = HashMap<SearchState, Double>()
+        val predecessor = HashMap<SearchState, SearchState?>()
+        var sequence = 0L
+        val pending = PriorityQueue<QueueEntry>(compareBy(QueueEntry::distance, QueueEntry::sequence))
+        distances[initial] = 0.0
+        predecessor[initial] = null
+        pending += QueueEntry(initial, 0.0, sequence++)
 
         while (pending.isNotEmpty()) {
-            val current = pending.removeFirst()
-            for (next in current.nextRails) {
+            val entry = pending.remove()
+            val bestKnown = distances[entry.state] ?: continue
+            if (entry.distance > bestKnown) continue
+            val current = entry.state
+            if (current.departedStart && current.view == goal) {
+                return rebuildPath(predecessor, current)
+            }
+
+            val traversalLength = if (current.departedStart) {
+                current.view.curve.totalArcLength
+            } else {
+                current.view.curve.totalArcLength - startArcLength
+            }
+            for (next in current.view.nextRails) {
                 if (!allowsDirection(next)) continue
-                if (predecessor.containsKey(next)) continue
-                predecessor[next] = current
-                if (next == goal) return rebuildPath(predecessor, next)
-                pending.addLast(next)
+                val nextState = SearchState(next, departedStart = true)
+                val candidate = bestKnown + traversalLength
+                if (candidate >= (distances[nextState] ?: Double.POSITIVE_INFINITY)) continue
+                distances[nextState] = candidate
+                predecessor[nextState] = current
+                pending += QueueEntry(nextState, candidate, sequence++)
             }
         }
         return null
@@ -129,15 +174,26 @@ class RoutePlanner(private val world: World) {
     private fun allowsDirection(view: RailView): Boolean =
         view.rail.metadata.allowedDirection?.let { it == view.viewDirection } ?: true
 
-    private fun rebuildPath(predecessor: Map<RailView, RailView?>, goal: RailView): List<RailView> {
+    private fun rebuildPath(
+        predecessor: Map<SearchState, SearchState?>,
+        goal: SearchState
+    ): List<RailView> {
         val path = LinkedList<RailView>()
-        var node: RailView? = goal
+        var node: SearchState? = goal
         while (node != null) {
-            path.addFirst(node)
+            path.addFirst(node.view)
             node = predecessor[node]
         }
         return path
     }
+
+    private data class SearchState(val view: RailView, val departedStart: Boolean)
+
+    private data class QueueEntry(
+        val state: SearchState,
+        val distance: Double,
+        val sequence: Long
+    )
 
     private fun buildSegments(
         path: List<RailView>,

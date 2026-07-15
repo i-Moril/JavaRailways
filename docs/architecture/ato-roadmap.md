@@ -17,18 +17,14 @@ slug: /architecture/ato-roadmap
 
 目标是让一个已加载时刻表能够选择一列明确的列车，提交一段不可变 Mission，并让 SimpleATO 停在指定 WayPoint。此阶段不包含车站、车门或插件 ATO Registry。
 
-### C1.1 经路与动态分配前置
+### C1.1 经路值模型（已完成）
 
-- 将 `RoutePlanner` 的“最短路线”实现改为按弧长加权的 Dijkstra；当前 BFS 只保证 RailView 数量较少。
-- 为环路、不同长度分支、方向限制和不可达目标增加测试。
-- Dispatcher 从时刻表生成完整 `Planned Route`，并按保护点将连续道岔需求编译成需要原子分配的 `Route Section`。
-- Dispatcher 根据列车已发布的 head/tail 位置和保守制动距离动态触发 Section 分配，不在时刻表中硬编码每个道岔的切换 Tick。
-- 触发距离至少覆盖 service braking distance、道岔设置/确认期间的行驶距离、reaction distance 和安全余量。
-- 时刻表时间只决定冲突列车的优先级；实际位置决定何时尝试分配。
-- 分配成功后发布 `Confirmed Route Window` 并扩展移动授权；分配失败或仍在等待时，移动授权停在道岔前保护点。
-- SimpleATO 只验证 Confirmed Route Window 内的实际道岔，不申请、不分配、不操作道岔，也不静默改道。
-- 已确认 Route 在运行中发生实际分支矛盾时触发 World-local ATO Stall；未确认 Route 尚未就绪是正常停车条件，不触发 Stall。
-- 列车尾部完全越过 Section release point 后，Dispatcher 才释放道岔和相关资源。
+- `RoutePlanner` 已改为按弧长加权的 Dijkstra，而不是按 RailView 数量选择路线。
+- 已覆盖不同长度分支、环路、方向限制和不可达目标。
+- 已增加不可变 `PlannedRoute`、`RouteSection`、`TurnoutRequirement` 和 `RouteAllocationTiming`。
+- `PlannedRouteCompiler` 会重新解析稳定 RailView 引用、验证相邻段拓扑，并把连续道岔选择编译到原子 Section。
+- 当前默认把一个 ExpandedRoute leg 作为单一 Section；调用方提供保护点距离后可切分为连续 Section。
+- 分配触发距离使用 service braking distance、设置/确认时间、reaction time 和安全余量的保守公式。
 
 ### C1.2 Mission 契约
 
@@ -40,8 +36,13 @@ slug: /architecture/ato-roadmap
 ### C1.3 最小 Dispatcher
 
 - 将当前只保存初始化快照的 `TimetableDispatcher` 扩展为明确的 service 运行状态存储。
+- 从时刻表生成 Planned Route，并根据列车已发布的 head/tail 位置动态触发 Route Section 分配。
+- 时刻表时间只决定冲突列车的优先级；实际位置决定何时尝试分配。
+- 原子锁定一个 Section 的全部道岔，把变更排入 physics epoch 边界，然后发布 Confirmed Route Window。
+- 分配失败或仍在等待时，把 movement authority 保持在入口保护点；未确认 Section 不触发 Stall。
+- 列车尾部完全越过 release point 后释放 Section 和相关资源。
 - 增加 `/mr timetable start <id>`、`status <id>` 和 `stop <id>`。
-- Dispatcher 不直接设置速度；它维护 Planned/Confirmed Route、原子分配 Route Section，并把道岔变更排入 physics epoch 边界。
+- Dispatcher 不直接设置速度；SimpleATO 不发送道岔申请，只验证 Confirmed Route Window。
 - 实际创建并挂载 SimpleATO，使 ATO 不再只存在于单元测试。
 
 ### C1 验收

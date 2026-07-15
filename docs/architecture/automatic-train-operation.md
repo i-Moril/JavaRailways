@@ -20,6 +20,8 @@ Phase A 已于 2026-07-14 落地以下基础契约：
 
 Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand → TrainActuator`、SimpleATO、前车跟随、目标与线路末端停车、可选单一信号 Provider，以及按 World 隔离的 ATO Stall。Stall 会自动写出结构化诊断，并通过 `/mr ato status|dump|reset` 由管理员处理；reset 不恢复列车位置。
 
+Phase C1 的经路基础已经完成弧长加权 Dijkstra，以及 `PlannedRoute`、`RouteSection`、`TurnoutRequirement` 和保守分配触发距离值模型。Mission、运行时 Section 分配和 Confirmed Route Window 尚未实现。
+
 ## 1. 背景
 
 Basic 模块计划提供基础自动驾驶能力，负责驾驶列车，并允许第三方插件接入不同的信号系统、移动授权算法和运营规则。时刻表调度器需要为列车选择 ATO 算法、下达运行任务，并在列车停站后协调开关门和定时发车。

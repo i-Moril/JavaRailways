@@ -25,11 +25,15 @@ data class AtoStallReport(
     val route: RouteSnapshot?,
     val perception: PerceptionSnapshot?,
     val activeProviderId: String?,
-    val constraints: Map<ConstraintOwner, List<AtoConstraint>>
+    val constraints: Map<ConstraintOwner, List<AtoConstraint>>,
+    val occurredAtEpochMillis: Long = System.currentTimeMillis()
 ) {
+    init {
+        require(occurredAtEpochMillis >= 0L)
+    }
     fun format(): String = buildString {
         appendLine("[MineRails] ATO world stalled")
-        appendLine("world=$worldId train=$trainId tick=$tick")
+        appendLine("world=$worldId train=$trainId tick=$tick occurredAtEpochMillis=$occurredAtEpochMillis")
         appendLine("error=$errorType: ${message.orEmpty()}")
         appendLine("provider=${activeProviderId ?: "<none>"}")
         appendLine("initialTrain=$initialTrain")

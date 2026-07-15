@@ -30,7 +30,7 @@ Core 不应依赖 Bukkit。物理计算由每个世界自己的 `PhysicsCoordina
 
 Basic 在 Core 之上实现基础铁路系统，包括曲线生成、轨道连接、寻路、速度安全和时刻表内部模型。每个 Core `World` 通过扩展数据挂载一个 `BasicWorldData`。
 
-自动驾驶、信号扩展、停站动作和时刻表调度的目标边界见 [自动驾驶与运营协同设计](automatic-train-operation.md)。该页面目前是 Proposed 方案，不表示功能已经落地。
+自动驾驶、信号扩展、停站动作和时刻表调度的边界见 [自动驾驶与运营协同设计](automatic-train-operation.md)。Phase A/B 已实现，剩余工作按 [ATO 实施路线图](ato-roadmap.md) 分阶段推进。
 
 ### BukkitPlugin
 

@@ -2,6 +2,7 @@ package work.art1st.mineRails.bukkit.logic
 
 import org.bukkit.World as BukkitWorld
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
 import work.art1st.mineRails.bukkit.extension.BukkitWorldData
 import work.art1st.mineRails.bukkit.render.chunk.RenderChunkManager
 import work.art1st.mineRails.core.api.physics.World
@@ -48,11 +49,24 @@ object RailWorldFactory {
             BukkitPlugin.INSTANCE,
             BukkitWorldData(renderChunkManager, bukkitWorld)
         )
+        val plugin = BukkitPlugin.INSTANCE
+        val atoLogger = plugin.logger
+        val pluginDataFolder = plugin.dataFolder
         coreWorld.registerExtensionData(
             BasicPlugin.INSTANCE,
             BasicWorldData(
                 atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
-                    BukkitPlugin.INSTANCE.logger.severe(report.format())
+                    atoLogger.severe(report.format())
+                    runCatching { AtoStallDiagnostics.write(pluginDataFolder, report) }
+                        .onSuccess { file ->
+                            atoLogger.warning("ATO Stall diagnostics written to ${file.absolutePath}")
+                        }
+                        .onFailure { error ->
+                            atoLogger.severe(
+                                "Failed to write ATO Stall diagnostics: " +
+                                    "${error::class.simpleName}: ${error.message.orEmpty()}"
+                            )
+                        }
                 }
             )
         )

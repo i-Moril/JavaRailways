@@ -206,10 +206,15 @@ class SimpleATO(
                 add(CurrentSpeedLimitConstraint(ConstraintKey("external", key), limit))
             }
             stopTargets.forEach { (key, target) ->
-                val passed = scan.perception.observations.any {
-                    it.subject.ref == target.ref && it.transition == ObservationTransition.PASS
+                val transition = scan.perception.observations
+                    .firstOrNull { it.subject.ref == target.ref }
+                    ?.transition
+                check(transition != ObservationTransition.PASS) {
+                    "ATO passed stop target ${target.ref}"
                 }
-                check(!passed) { "ATO passed stop target ${target.ref}" }
+                check(transition != ObservationTransition.EXIT) {
+                    "observed stop target ${target.ref} disappeared from the active route"
+                }
                 val observed = scan.currentObservedByRef[target.ref] ?: return@forEach
                 add(
                     StopConstraint(

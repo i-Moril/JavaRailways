@@ -5,8 +5,8 @@ slug: /architecture/automatic-train-operation
 
 # 自动驾驶与运营协同设计
 
-:::warning 方案状态：Proposed
-本文记录 Basic 模块自动驾驶（ATO）的目标设计，供接口评审和后续实现使用。除下方明确列出的 Phase A 基础外，文中的类型名和方法签名仍是契约草案；当前实现状态以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
+:::warning 实施状态
+Phase A/B 已实现；Mission、车站、车门操作和插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
 :::
 
 ## 当前实施状态
@@ -18,7 +18,7 @@ Phase A 已于 2026-07-14 落地以下基础契约：
 - 不持有 live World/Rail/Train 的 Train、RailObject、Route、Perception 快照；
 - 带严格单调 revision、拒绝旧命令的 `RevisionedCommandQueue`。
 
-Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand → TrainActuator`、SimpleATO、前车跟随、目标停车、可选单一信号 Provider，以及按 World 隔离的 ATO Stall。Mission 和车站状态机仍属于后续 Phase。
+Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand → TrainActuator`、SimpleATO、前车跟随、目标与线路末端停车、可选单一信号 Provider，以及按 World 隔离的 ATO Stall。Stall 会自动写出结构化诊断，并通过 `/mr ato status|dump|reset` 由管理员处理；reset 不恢复列车位置。
 
 ## 1. 背景
 
@@ -30,10 +30,10 @@ Basic 模块计划提供基础自动驾驶能力，负责驾驶列车，并允�
 - `RailLocationWithFacing` 可以沿当前有效经路查询信号和 `TrainEnd`；
 - `CoreRail` 保存当前轨道上的信号和列车端部；
 - `SweptOccupancyIndex` 提供按轨道弧长分桶的碰撞占用快照；
-- Basic 已有 WayPoint、RoutePlanner、Timetable 数据模型，但 Dispatcher 和 ATO 尚未实现；
+- Basic 已有 WayPoint、RoutePlanner、Timetable 数据模型和 SimpleATO，但 Dispatcher 尚未执行时刻表或下发 Mission；
 - Bukkit 层已经支持列车动作和 `behavior.js`，但这些操作属于平台主线程能力。
 
-现有对象模型仍有明显限制：`RailObject` 只有位置，没有稳定 ID 和生命周期；通用 RailObject 查询实际上只覆盖 Signal 与 TrainEnd；道岔不是 RailObject；时刻表 WayPoint 存在独立索引中。因此，本方案不会把现有 `peekRailObjects()` 直接定义为公开 ATO 扩展协议。
+仍需处理的模型边界包括：Core 的轨道对象查询主要覆盖 Signal 与 TrainEnd，Basic 的 WayPoint 和 Provider Boundary 使用各自的 world-local store，道岔也不是 RailObject。因此不会把现有 `peekRailObjects()` 定义为公开 ATO 扩展协议。
 
 ## 2. 目标与非目标
 
@@ -117,51 +117,47 @@ flowchart TB
     Operations --> Mission
 ```
 
-建议将完整自动控制器实现为一个组合对象：
+Phase B 当前组合为：
 
 ```text
-AutomaticTrainController
-  ├─ PerceptionEngine
+SimpleATO : AbstractATO : TrainController
+  ├─ route/perception scan
   ├─ ConstraintManager
   ├─ AtoPlanner
   ├─ TrainActuator
-  └─ AtoStateMachine
+  └─ optional per-train AtoProvider
 ```
 
-它可以继承 Core 的 `TrainController` 以接入现有物理调度，但不要求所有信号插件继承它。
+Mission、主线程通知和停站状态机属于路线图中的 Phase C，不应被误认为当前已经存在。信号插件通过 Provider 组合接入，不继承 SimpleATO。
 
 ## 5. ATO 控制器契约
 
 ### 5.1 `AbstractATO`
 
-`AbstractATO` 是框架控制器，不只是一个允许插件任意覆盖的空基类。建议公开只读列车、状态和命令入口；完整 Tick 流程由框架控制。
+`AbstractATO` 固定执行规划、移动前验证、Actuator 和 World Stall 边界。当前公开只读 `train` 与 `world`；Mission 和 ATO 状态尚未加入该类。
 
-概念草案：
+当前契约：
 
 ```kotlin
-abstract class AbstractATO : TrainController {
-    val controlledTrain: Train
-    val state: AtoState
-
-    fun submitMission(mission: AtoMission): MissionRevision
-    fun submit(command: AtoCommand)
-
+abstract class AbstractATO(
+    train: Train,
+    val world: World,
+    actuator: TrainActuator,
+    safetyProfile: AtoSafetyProfile,
+    coordinator: AtoWorldCoordinator
+) : TrainController(train, world) {
     final override fun tick(deltaTMillis: Double)
-
-    protected abstract fun plan(context: PlanningContext): ControlDemand
+    protected open fun processPendingCommands()
+    protected abstract fun plan(deltaTimeSeconds: Double): ControlDemand
+    protected open fun validateBeforeMovement()
 }
 ```
 
-契约要求：
-
-- `controlledTrain` 是只读引用；
-- `tick()` 只由 `PhysicsCoordinator` 调用；
-- 外部线程不得直接调用 `tick()`；
-- 外部调用通过命令队列或原子快照进入物理线程；
-- 子类不能绕过核心感知、约束清理和安全边界；
-- controller detach、人工接管和列车销毁必须触发生命周期回调。
-
-若最终需要让第三方算法完全控制规划，可将 `AtoPlanner` 作为独立接口注入，而不是开放整个 `tick()`。
+- `tick()` 只由 `PhysicsCoordinator` 在 physics worker 调用；
+- 外部线程通过 revisioned command queue 提交 SimpleATO 命令；
+- 未处理异常和移动前道岔矛盾进入所属 World 的 ATO Stall；
+- 第三方信号逻辑使用 `AtoProvider`，不能覆盖完整 Tick 流程；
+- Mission 提交和 controller 生命周期状态属于后续 Phase C/D。
 
 ### 5.2 每 Tick 流程
 
@@ -208,13 +204,13 @@ data class RailObjectRef(
 )
 ```
 
-实际 API 还应说明：
+当前语义：
 
-- ref 在 world 内还是全局唯一；
-- location 是实时视图还是已发布快照；
-- 对象销毁后引用如何解析；
-- 对象是否持久化；
-- 对象 revision 如何变化。
+- ref 在单个 World 内唯一，跨 World 使用时必须同时携带 world ID；
+- live RailObject 的 location 是实时视图，规划器只能消费 `RailObjectSnapshot`；
+- 对象 owner 在移除时负责标记 REMOVED，并从所属 store/index 解除注册；
+- 是否持久化由具体对象类型决定；
+- snapshot revision 由发布者提供。
 
 不建议通过固定 `enum RailObjectKind` 封闭全部对象类型。信号、站台停车标等可以使用能力接口和 provider 注册扩展。
 
@@ -242,20 +238,21 @@ Station
 感知结果必须携带经路距离，而不是只返回无序对象列表：
 
 ```kotlin
-data class RailObservation<T : RailObject>(
-    val subject: RailObjectRef,
-    val snapshot: T,
+enum class ObservationTransition { ENTER, UPDATE, EXIT, PASS }
+
+data class RailObservationSnapshot(
+    val subject: RailObjectSnapshot,
+    val transition: ObservationTransition,
     val routeDistanceMeters: Double,
-    val relativeSpeedMetersPerSecond: Double?,
-    val revision: Long
+    val relativeSpeedMetersPerSecond: Double?
 )
 
-enum class ObservationTransition {
-    ENTER,
-    UPDATE,
-    EXIT,
-    PASS
-}
+data class PerceptionSnapshot(
+    val epoch: Long,
+    val train: TrainSnapshot,
+    val route: RouteSnapshot,
+    val observations: List<RailObservationSnapshot>
+)
 ```
 
 实现不应要求插件持有 `TrainEnd` 等内部对象。前车使用稳定的 `trainId`，必要时附加端部类型和只读运动快照。
@@ -292,32 +289,26 @@ previous - current       => EXIT
 
 ### 7.1 不把所有限制建模为全局 speed limit
 
-基础约束建议至少包含：
+当前约束接口和内建类型为：
 
 ```kotlin
 sealed interface AtoConstraint {
-    val id: ConstraintId
-    val owner: ConstraintOwner
+    val key: ConstraintKey
+    fun permittedSpeedMetersPerSecond(
+        currentSpeedMetersPerSecond: Double,
+        profile: AtoSafetyProfile
+    ): Double
 }
 
-// 立即生效的当前最高速度
-CurrentSpeedLimit
-
-// 经路某位置或区间上的速度限制
-RouteSpeedLimit
-
-// 在固定经路位置停车
+CurrentSpeedLimitConstraint
+RouteSpeedLimitConstraint
 StopConstraint
-
-// 与动态列车保持间隔
 FollowConstraint
-
-// 信号或移动闭塞给出的运行授权终点/速度曲线
 MovementAuthorityConstraint
-
-// 到站后禁止发车，等待调度器授权
 DepartureHoldConstraint
 ```
+
+Owner 由 `ConstraintManager` 的 owner-scoped 集合管理，不重复存入每个约束对象。
 
 所有速度字段使用 `MetersPerSecond` 语义，距离使用米，时间明确使用毫秒、秒或 simulation tick，不能依靠方法名猜测单位。
 
@@ -333,69 +324,29 @@ finalPermittedSpeed = min(constraint.permittedSpeed(context))
 
 线路前方降速同理。只读取列车当前轨道的限速，会导致列车进入低速区后才开始制动，因此 `RouteSpeedLimit` 必须参与前视速度曲线。
 
-### 7.3 Key、Handle 与所有权
+### 7.3 Key 与所有权
 
-公开 API 不直接使用无命名空间的 `String key`。可选方案：
+当前使用 `ConstraintKey(namespace, value)` 和 `ConstraintOwner(type, id)`。`ConstraintManager.replace(owner, constraints)` 原子替换一个 owner 的完整集合；调用者不能通过该入口删除其他 owner 的约束。
 
-```kotlin
-data class ConstraintId(
-    val namespace: String,
-    val localId: String,
-    val subjectId: String? = null
-)
-```
-
-或由添加方法返回不透明 `ConstraintHandle`。约束只能由其 owner 更新或移除。
-
-动态 provider 推荐使用原子替换：
-
-```kotlin
-constraintSink.replace(owner, currentConstraints)
-```
-
-本轮未再次提交的 owner 旧约束被移除。这样前车离开、信号对象消失和插件卸载不会依赖每条业务路径手工调用 `removeSpeedLimit()`。
+SimpleATO 每 Tick 原子替换线路、线路末端、跟车和活动 Provider 的约束。Provider 切换时旧 Provider 集合先整体移除；插件卸载与活动实例迁移尚未实现，属于 Phase D。
 
 ### 7.4 停车目标
 
-`stopAt(RailObject, offset)` 只能作为便利方法，其内部必须先解析为经路停车目标：
+Phase B 的 `stopAt(key, RailObjectRef, offsetMetersBefore)` 在每 Tick 感知中解析剩余经路距离；offset 正值表示提前停车，参考点为列车头部。目标一旦被观察后发生 PASS 或 EXIT，会触发所属 World 的 ATO Stall，而不是静默解除停车约束。
 
-```kotlin
-data class StopTarget(
-    val routePosition: RoutePosition,
-    val offsetMetersBefore: Double,
-    val referencePoint: TrainReferencePoint,
-    val approachDirection: ViewDirection?,
-    val toleranceMeters: Double
-)
-```
-
-需要明确：
-
-- offset 正值是否表示沿行进方向提前停车；
-- 对齐车头、列车中心还是指定车门中心；
-- 目标是否仍位于当前 mission route；
-- route revision 变化后如何重新解析；
-- 目标位于列车后方时返回何种失败。
+Mission 引入后还需要把 WayPoint/StationCall 解析成带 route revision 的稳定停车目标，并明确编组对齐参考点。该扩展属于 Phase C，不改变现有 `RailObjectRef` 便利入口。
 
 ### 7.5 跟车约束
 
-跟车不复用固定停车约束。`FollowConstraint` 至少包含：
+跟车不复用固定停车约束。当前 `FollowConstraint` 保存 route gap 和前车沿当前经路方向的速度；目标引用与 observation revision 由约束 key 和 PerceptionSnapshot 携带。安全间隔、反应时间和 service deceleration 来自 `AtoSafetyProfile`。
 
-- target train ID；
-- 当前 route gap；
-- 目标已发布速度；
-- 最小安全间隔；
-- 反应时间；
-- service/emergency braking profile；
-- observation revision。
-
-允许速度可从相对运动和保守制动模型计算；第一版可以采用简化公式，但模型必须可替换且参数必须显式。
+当前允许速度使用显式安全参数和 O(1) 固定减速度公式。坡度、jerk 或公开 `BrakeModel` SPI 暂不实施。
 
 ## 8. 插件扩展协议
 
-### 8.1 `RailObjectRule`
+### 8.1 `RailObjectRule`（Phase D 计划）
 
-对象规则把观察结果转换为约束，不直接移动列车，也不直接调用 Bukkit：
+对象规则未来可把观察结果转换为约束，不直接移动列车，也不直接调用 Bukkit：
 
 ```kotlin
 interface RailObjectRule<T : RailObject> {
@@ -426,11 +377,10 @@ interface AtoProvider {
 
 ### 8.3 Provider 并发约束
 
-- provider 的 `evaluate()` 在物理 worker 上调用，必须非阻塞且线程安全；
-- 同一个 provider 实例可能同时服务不同列车，除非注册契约明确为 per-train；
-- provider 不得访问 Bukkit API；
-- provider 需要主线程状态时，必须提前发布不可变快照；
-- provider 异常必须被隔离、记录并按声明的 fail-safe 策略处理。
+- registry 保存 factory，SimpleATO 为每列车创建独立 Provider 实例；
+- Provider 在 physics worker 上运行，必须非阻塞且不得访问 Bukkit API；
+- Provider 需要主线程状态时，必须提前发布不可变快照；
+- Provider 异常会被记录，并使所属 World 的全部 ATO 进入 Stall。
 
 ## 9. Mission 与时刻表
 
@@ -484,23 +434,43 @@ Station 可以提供默认 dwell policy，但“本次列车停多久”的最�
 
 Timetable Dispatcher 负责：
 
-- 选择列车；
-- 选择 ATO 类型；
-- 构建和替换 Mission；
-- 计算停站计划；
-- 接收列车已停稳状态；
-- 协调开关门和发车时刻；
-- 发出 departure authority。
+- 选择列车和 ATO 类型；
+- 构建、替换 Mission 和完整 Planned Route；
+- 将连续道岔需求编译成原子 Route Section；
+- 根据列车已发布位置动态分配、确认和释放 Section；
+- 发布 Confirmed Route Window 与 movement/departure authority；
+- 计算停站计划并协调开关门和发车时刻；
+- 接收列车已停稳和已离开 Section 的状态。
 
 ATO 负责：
 
-- 沿已确认 route 运行；
-- 满足所有速度和移动授权约束；
-- 准确停车；
+- 服从 movement authority，在未确认 Section 的保护点前停车；
+- 只验证 Confirmed Route Window 内的实际道岔分支；
+- 不申请、不分配、不操作道岔，也不静默改道；
+- 满足所有速度约束并准确停车；
 - 停站期间保持 `DepartureHoldConstraint`；
 - 报告 APPROACHING、BERTHED、DEPARTED 等状态。
 
 调度器不按 Tick 直接设置列车速度，ATO 也不自行决定时刻表发车时间。
+
+### 9.4 从时刻表推导道岔分配时机
+
+时刻表只描述服务时间和 WayPoint 序列，不为每个道岔编写固定切换 Tick。Dispatcher 先将 WayPoint 之间的 Planned Route 展开为道岔需求，再按保护点划分 Route Section。一个 Section 内的全部道岔和冲突资源必须原子分配，避免部分占用和死锁。
+
+实际分配由列车位置触发。保守触发距离至少为：
+
+```text
+Dtrigger = v² / (2a)
+         + v × Tswitch
+         + v × Treaction
+         + Dmargin
+```
+
+其中 `v` 为接近线路允许速度，`a` 为 service deceleration，`Tswitch` 包含排队、设置和跨 physics epoch 确认时间。时刻表计划时间仅用于多个候选列车之间的优先级，不能作为安全相关切换的唯一事实来源。
+
+Section 未确认时，movement authority 终止于入口保护点，SimpleATO 按正常停车曲线运行；这不是 Stall。分配成功后，Dispatcher 在 physics epoch 边界应用道岔状态并发布 Confirmed Route Window，SimpleATO 才验证并通过。已经确认的分支随后发生矛盾才触发 World-local ATO Stall。
+
+Route 必须保持锁定，直到 TrainSnapshot 的 tail 完全越过 release point。第一版可把分配逻辑保留在 TimetableDispatcher 内部，未来再迁移到独立 RouteManager 或 Interlocking。
 
 ## 10. 车站动作与发车状态机
 
@@ -536,9 +506,9 @@ sealed interface TrainOperation {
 
 Bukkit 适配层将语义操作翻译为模型包 action 或 `behavior.js` 调用。关门未完成、动作失败或列车不支持该能力时，Dispatcher 必须执行显式策略，不能默认解除发车保持。
 
-## 11. ATO Registry
+## 11. ATO Registry（Phase D 计划）
 
-Registry 保存可创建的算法类型，而不是正在运行的 ATO 实例。
+未来 Registry 保存可创建的算法类型，而不是正在运行的 ATO 实例。
 
 ```kotlin
 data class AtoTypeId(val namespace: String, val value: String)
@@ -615,7 +585,7 @@ PhysicsRailEvent
 
 ### 13.1 Route 一致性
 
-SimpleATO 保存本轮实际选择的 RailView 序列，并在移动前直接比较相邻道岔的当前选择。Route revision 只区分 ATO 提交的新旧路线，不作为世界拓扑真值。若规划期间道岔选择发生变化，当前 World 的 ATO 子系统进入 Stall。
+Planned Route 表达时刻表期望的完整经路，Confirmed Route Window 只表达 Dispatcher 已原子分配并确认的当前 Section。SimpleATO 对未确认 Section 服从入口保护点的 movement authority，不把“尚未就绪”视为故障；它只在 Confirmed Route Window 内比较实际 RailView 分支。若已确认分支不符，或规划与移动之间发生变化，当前 World 的 ATO 子系统进入 Stall。Route/Mission revision 只拒绝新旧任务乱序，不作为世界拓扑真值。
 
 ### 13.2 异常处理
 
@@ -654,46 +624,13 @@ CREATED -> ATTACHED -> ACTIVE -> SUSPENDED -> DETACHED -> CLOSED
 
 安全相关动态扫描保持每 physics epoch 执行。只有静态候选发现和低优先级运营提示可以降低频率或事件驱动。
 
-## 15. 推荐实施顺序
+## 15. 实施顺序
 
-### Phase A：线程和标识基础
-
-- 建立 Main/Physics 事件类型和独立发布入口；
-- 为运营 RailObject 引入稳定引用和生命周期；
-- 定义不可变 Train、Route、Perception 快照；
-- 为跨线程命令建立队列和 revision。
-
-### Phase B：约束与基础 ATO
-
-- 实现 ConstraintManager 和 owner 原子替换；
-- 实现 CurrentSpeedLimit、RouteSpeedLimit、Stop、Follow、DepartureHold；
-- 实现固定 Tick pipeline 和基础制动模型；
-- 为约束过期、目标离开和 route revision 编写测试。
-
-### Phase C：Mission 与车站
-
-- 用不可变 AtoMission 接入现有 RoutePlanner；
-- 建立 Station、StationBerth 和 StationCall；
-- 实现停准判断和主线程停站状态机；
-- 通过 TrainOperationGateway 接入 Bukkit action/behavior。
-
-### Phase D：插件与 Registry
-
-- 建立 AtoRegistry、RailObjectRule Registry，并完善 AtoProvider 插件生命周期；
-- 提供 Java/Kotlin 示例扩展；
-- 接入时刻表的 `atoTypeId`；
-- 定义插件卸载和人工接管策略。
-
-### Phase E：索引和性能
-
-- 增加 ordered static object index；
-- 扩展 occupancy nearest-ahead query；
-- 增加分阶段耗时指标和负载测试；
-- 根据真实 profiler 结果优化缓存与分配。
+Phase A/B 已完成，不再作为待办重复维护。剩余工作拆成可独立验收的 Mission、车站、操作网关、插件生命周期和性能阶段，统一记录在 [ATO 路线图](./ato-roadmap.md)。在 Mission 垂直切片跑通前，不提前实现完整车门状态机或复杂制动模型。
 
 ## 16. 验收场景
 
-实现前应先把以下场景转成测试契约：
+以下列表同时覆盖已实现基础和后续阶段；各阶段实际待办与验收归属见 [ATO 路线图](./ato-roadmap.md)：
 
 1. 前车驶出前视范围后，下一 epoch 产生 EXIT，跟车约束自动移除；
 2. 前车销毁、连接或转入其他岔路后，不保留悬挂约束；
@@ -702,25 +639,18 @@ CREATED -> ATTACHED -> ACTIVE -> SUSPENDED -> DETACHED -> CLOSED
 5. `StopConstraint` 从远处生成制动曲线，而不是立即把全局限速设为 0；
 6. 线路前方降速时，在进入限速区前完成减速；
 7. Mission revision 乱序到达时拒绝旧任务；
-8. 道岔变化使 route revision 失效时进入保守状态；
-9. 同一 provider 更新约束是原子的，不出现一 Tick 的无限制窗口；
-10. Provider 抛出异常时当前 World 的全部 ATO Stall，其他 World 和非 ATO controller 继续运行；
-11. 列车停稳后只触发一次 BERTHED，不重复开门；
-12. 未确认关门完成时不解除 DepartureHold；
-13. 人工接管时 ATO 停止输出，调度器收到状态变化；
-14. physics listener 尝试调用 Bukkit 时被线程守卫拒绝；
-15. 多个 ATO 和 provider 注册使用命名空间 ID，不发生 key 冲突。
+8. Route Section 中的全部道岔要么原子分配成功，要么一个都不占用；
+9. Section 未确认时列车在保护点前停车，不触发 Stall；
+10. 车头通过但车尾尚未离开时不得释放 Section；
+11. Confirmed Route Window 内实际分支错误或在规划期间变化时，当前 World 的 ATO 进入 Stall；
+12. 同一 Provider 更新约束是原子的，不出现一 Tick 的无限制窗口；
+13. Provider 抛出异常时当前 World 的全部 ATO Stall，其他 World 和非 ATO controller 继续运行；
+14. 列车停稳后只触发一次 BERTHED，不重复开门；
+15. 未确认关门完成时不解除 DepartureHold；
+16. 人工接管时 ATO 停止输出，调度器收到状态变化；
+17. physics listener 尝试调用 Bukkit 时被线程守卫拒绝；
+18. 多个 ATO 和 Provider 注册使用命名空间 ID，不发生 key 冲突。
 
-## 17. 尚待评审的问题
+## 17. 未完成计划
 
-以下内容在实现前需要形成明确决策：
-
-- 后续是否需要预计算的坡度/jerk 制动曲线；当前只使用 O(1) 固定减速度公式；
-- Mission 引入后 route 的所有者是 Dispatcher 还是独立 RouteManager；
-- StationBerth 的列车参考点如何表达不同编组的车门对齐；
-- 关门动作是否必须返回可确认完成的 ticket，超时策略是什么；
-- safety、operational、advisory 三类约束的权限和优先级；
-- ATO options 和 Mission 的持久化版本格式；
-- 人工接管结束后是恢复原 Mission、重新规划还是取消车次。
-
-这些问题解决前，可以实现内部原型，但不应把相应接口声明为稳定扩展 API。
+未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。当前最先实施的是只支持显式列车和 WayPoint 停车的 Mission 垂直切片；Station、车门操作、插件 Registry 和性能索引不得混入同一个提交。

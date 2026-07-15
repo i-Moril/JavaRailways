@@ -1,5 +1,6 @@
 package work.art1st.mineRails.basic.controller
 
+import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -16,9 +17,13 @@ import work.art1st.mineRails.basic.api.ato.provider.AtoProviderBoundary
 import work.art1st.mineRails.basic.api.ato.provider.AtoProviderContext
 import work.art1st.mineRails.basic.api.ato.provider.ProviderBoundaryAction
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.mineRails.basic.rail.RailAutoConnector
+import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.rail.RailObject
 import work.art1st.mineRails.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.mineRails.core.api.physics.rail.RailObjectRef
+import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
@@ -44,6 +49,18 @@ class SimpleATOTest {
         assertEquals(1.0, fixture.train.speed, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
         assertEquals(fixture.train.id, fixture.data.dispatcher.initialTrain(fixture.train.id)?.trainId)
+    }
+
+    @Test
+    fun `configured rail limit overrides actuator maximum speed`() {
+        val fixture = fixture("rail-limit")
+        val rail = fixture.train.head.location.rail
+        rail.metadata = rail.metadata.copy(speedLimitMetersPerSecond = 0.0)
+
+        tickAndPublish(fixture.ato, 1_000.0)
+
+        assertEquals(0.0, fixture.train.speed, 1.0e-9)
+        assertFalse(fixture.coordinator.isStalled)
     }
 
     @Test
@@ -86,6 +103,42 @@ class SimpleATOTest {
     }
 
     @Test
+    fun `observed stop target disappearance stalls its world`() {
+        val fixture = fixture("lost-stop-target")
+        val head = fixture.train.head.location
+        val target = object : RailObject {
+            override val ref = RailObjectRef("test", "lost-stop-target")
+            override val lifecycleState = RailObjectLifecycleState.ACTIVE
+            override val location = RailLocationWithFacing(head.railView, head.arcLength + 20.0)
+        }
+        fixture.data.railObjects.register(target)
+        fixture.ato.stopAt("station", target)
+        tickAndPublish(fixture.ato, 50.0)
+
+        fixture.data.railObjects.unregister(target.ref)
+        tickAndPublish(fixture.ato, 50.0)
+
+        assertTrue(fixture.coordinator.isStalled)
+        assertTrue(fixture.coordinator.lastStall?.message?.contains("disappeared") == true)
+        assertEquals(0.0, fixture.train.speed, 1.0e-9)
+    }
+
+    @Test
+    fun `route end is treated as a stop target`() {
+        val fixture = fixture("route-end", railLengthMeters = 30.0)
+
+        repeat(600) { tickAndPublish(fixture.ato, 50.0) }
+
+        assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(
+            fixture.train.head.location.rail.curve.totalArcLength,
+            fixture.train.head.location.arcLength,
+            0.4
+        )
+        assertFalse(fixture.coordinator.isStalled)
+    }
+
+    @Test
     fun `unknown provider stalls all ATO in its world only`() {
         val fixture = fixture("provider-failure")
         val otherWorld = AtoWorldCoordinator("other", reportSink = {})
@@ -119,6 +172,84 @@ class SimpleATOTest {
     }
 
     @Test
+    fun `passing provider deactivation boundary removes its constraints`() {
+        val fixture = fixture("provider-deactivation")
+        fixture.data.atoProviders.register("slow-provider") {
+            object : AtoProvider {
+                override val id = "slow-provider"
+                override fun constraints(context: AtoProviderContext): Collection<AtoConstraint> = listOf(
+                    CurrentSpeedLimitConstraint(ConstraintKey("test", "provider-slow"), 2.0)
+                )
+            }
+        }
+        val head = fixture.train.head.location
+        fixture.data.railObjects.register(
+            AtoProviderBoundary(
+                ref = RailObjectRef("test", "provider-deactivation"),
+                location = RailLocationWithFacing(head.railView, head.arcLength + 0.5),
+                providerId = "slow-provider",
+                action = ProviderBoundaryAction.DEACTIVATE,
+                direction = head.facing
+            )
+        )
+        fixture.ato.setProvider("slow-provider")
+
+        repeat(3) { tickAndPublish(fixture.ato, 1_000.0) }
+
+        assertEquals(3.0, fixture.train.speed, 1.0e-9)
+        assertFalse(fixture.coordinator.isStalled)
+    }
+
+    @Test
+    fun `turnout change during planning stalls the world`() {
+        val world = createTestWorld()
+        val approach = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val straight = CoreRail(
+            world,
+            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val branch = CoreRail(
+            world,
+            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        RailAutoConnector.connectIfAllowed(approach, straight)
+        RailAutoConnector.connectIfAllowed(approach, branch)
+        approach.viewAB.selectNextRail(straight.viewAB)
+
+        val train = createTrainWithConfig("turnout-change", approach, world, listOf(10.0))
+        val coordinator = AtoWorldCoordinator("turnout-world", reportSink = {})
+        val data = BasicWorldData(atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        data.atoProviders.register("switch-during-plan") {
+            object : AtoProvider {
+                override val id = "switch-during-plan"
+                override fun constraints(context: AtoProviderContext): Collection<AtoConstraint> {
+                    approach.viewAB.selectNextRail(branch.viewAB)
+                    return emptyList()
+                }
+            }
+        }
+        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
+        train.setController(ato)
+        ato.setProvider("switch-during-plan")
+
+        tickAndPublish(ato, 50.0)
+
+        assertTrue(coordinator.isStalled)
+        assertTrue(coordinator.lastStall?.message?.contains("turnout changed") == true)
+        assertEquals(0.0, train.speed, 1.0e-9)
+    }
+
+    @Test
     fun `passing provider boundary activates its constraints`() {
         val fixture = fixture("provider-boundary")
         fixture.data.atoProviders.register("stop-provider") {
@@ -148,11 +279,11 @@ class SimpleATOTest {
         assertFalse(fixture.coordinator.isStalled)
     }
 
-    private fun fixture(id: String): Fixture {
+    private fun fixture(id: String, railLengthMeters: Double = 500.0): Fixture {
         val world = createTestWorld()
         val rail = createStraightRailFromSegments(
             world,
-            PrimeCurveGenerator.buildStraight(500.0, segmentCount = 1)
+            PrimeCurveGenerator.buildStraight(railLengthMeters, segmentCount = 1)
         )
         val train = createTrainWithConfig(id, rail, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("world-$id", reportSink = {})
@@ -171,6 +302,16 @@ class SimpleATOTest {
     private fun tickAndPublish(ato: SimpleATO, deltaMillis: Double) {
         AsyncTickTestSupport.run { ato.tick(deltaMillis) }
         ato.commit()
+    }
+
+    private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
+        val tangent = Vector3d(to).sub(from).normalize()
+        val normal = Vector3d(0.0, 1.0, 0.0)
+        val length = from.distance(to)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(from), Vector3d(tangent), Vector3d(normal), 0.0, Curve.SegmentType.LINE_START),
+            Curve.RawPoint(Vector3d(to), Vector3d(tangent), Vector3d(normal), length, Curve.SegmentType.LINE_END)
+        ))
     }
 
     private data class Fixture(

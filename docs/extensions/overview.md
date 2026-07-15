@@ -45,6 +45,8 @@ val registration = MainRailEventBus.register(MyListener())
 
 Basic 的 `AtoProvider` 可在 SimpleATO 的内建线路限速、停车和跟车约束之上提供额外信号约束。Provider factory 注册在所属 World 的 registry；方向感知的 `AtoProviderBoundary` RailObject 被列车 PASS 后，SimpleATO 在下一物理 Tick 原子切换活动 Provider。Provider 在物理 worker 上同步运行，必须非阻塞且不能访问 Bukkit API；抛出异常会 Stall 当前 World 的全部 ATO，而不会自动恢复。
 
+Provider 或 ATO 异常会 Stall 所属 World 的全部 ATO，并在 `plugins/MineRails/debug/ato-stall-*.json` 写出结构化诊断。管理员通过 `/mr ato status|dump|reset` 检查和解除 Stall；reset 不会自动恢复列车位置。
+
 当前还没有稳定的 Bukkit facade，因此不要把直接访问 `BasicWorldData` 的代码视为发布后的最终 API。
 
 ## 在正式发布 SDK 前仍需完成

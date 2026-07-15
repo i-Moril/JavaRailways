@@ -6,7 +6,7 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前 Phase 5 首版 JS 时刻表 DSL。它只实现脚本加载、内部模型生成和 dry-run，尚不会调度或驾驶真实列车。
+本文档描述当前首版 JS 时刻表 DSL。它只实现脚本加载、内部模型生成和 dry-run，尚不会调度或驾驶真实列车；执行能力属于 [ATO 路线图](architecture/ato-roadmap.md) 的 Mission 垂直切片。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。

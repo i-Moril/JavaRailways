@@ -1,5 +1,8 @@
 package work.art1st.mineRails.basic.api.ato
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -9,6 +12,7 @@ import work.art1st.mineRails.basic.api.ato.constraint.ConstraintManager
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintOwner
 import work.art1st.mineRails.basic.api.ato.constraint.ConstraintOwnerType
 import work.art1st.mineRails.basic.api.ato.constraint.CurrentSpeedLimitConstraint
+import work.art1st.mineRails.basic.api.ato.constraint.RouteSpeedLimitConstraint
 import work.art1st.mineRails.basic.api.ato.constraint.StopConstraint
 import kotlin.math.sqrt
 
@@ -26,6 +30,21 @@ class PhaseBConstraintTest {
         )
         assertEquals(0.0, constraint.copy(remainingDistanceMeters = 0.0)
             .permittedSpeedMetersPerSecond(10.0, profile))
+    }
+
+    @Test
+    fun `route speed constraint creates a braking curve before the lower limit`() {
+        val constraint = RouteSpeedLimitConstraint(
+            ConstraintKey("test", "route-speed"),
+            distanceToStartMeters = 50.0,
+            maximumSpeedMetersPerSecond = 5.0
+        )
+
+        assertEquals(
+            sqrt(125.0),
+            constraint.permittedSpeedMetersPerSecond(10.0, profile),
+            1.0e-9
+        )
     }
 
     @Test
@@ -78,5 +97,35 @@ class PhaseBConstraintTest {
         assertTrue(first.stall(report))
         assertTrue(first.isStalled)
         assertFalse(second.isStalled)
+
+        first.reset()
+        assertFalse(first.isStalled)
+        assertEquals(null, first.lastStall)
+    }
+
+    @Test
+    fun `stall report JSON contains machine-readable failure details`() {
+        val report = AtoStallReport(
+            worldId = "world-id",
+            trainId = "T1",
+            tick = 7L,
+            errorType = "test.Failure",
+            message = "broken",
+            stackTrace = "stack",
+            initialTrain = null,
+            currentTrain = null,
+            route = null,
+            perception = null,
+            activeProviderId = "test:provider",
+            constraints = emptyMap(),
+            occurredAtEpochMillis = 123L
+        )
+
+        val root = Json.parseToJsonElement(AtoStallReportJson.encode(report)).jsonObject
+
+        assertEquals(1, root.getValue("schemaVersion").jsonPrimitive.content.toInt())
+        assertEquals("world-id", root.getValue("worldId").jsonPrimitive.content)
+        assertEquals("broken", root.getValue("error").jsonObject.getValue("message").jsonPrimitive.content)
+        assertEquals(123L, root.getValue("occurredAtEpochMillis").jsonPrimitive.content.toLong())
     }
 }

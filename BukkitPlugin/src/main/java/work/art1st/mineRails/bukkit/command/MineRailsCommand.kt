@@ -13,6 +13,7 @@ import work.art1st.mineRails.basic.timetable.TimetableDumper
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoadResult
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoader
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
 import work.art1st.mineRails.core.physics.CoreWorld
 import java.io.File
 
@@ -35,6 +36,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
             "route" -> return handleRoute(sender, args.drop(1))
             "timetable", "tt" -> return handleTimetable(sender, args.drop(1))
+            "ato" -> return handleAto(sender, args.drop(1))
             "perf", "performance" -> return handlePerf(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
             "redo" -> return handleRedo(sender)
@@ -51,7 +53,11 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         args: Array<out String>
     ): List<String> {
         if (args.size == 1) {
-            return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "stop", "perf", "undo", "redo", "help")
+            return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "ato", "stop", "perf", "undo", "redo", "help")
+        }
+        if (args[0].equals("ato", ignoreCase = true)) {
+            if (args.size == 2) return listOf("status", "dump", "reset")
+            if (args.size == 3) return BukkitPlugin.INSTANCE.worldManager.railWorlds.keys.map { it.name }
         }
         return emptyList()
     }
@@ -226,6 +232,88 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         return if (inTimetableDir.exists()) inTimetableDir else File(BukkitPlugin.INSTANCE.dataFolder, path)
     }
 
+    private fun handleAto(sender: CommandSender, args: List<String>): Boolean {
+        if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
+            sender.sendMessage("没有权限管理 ATO")
+            return true
+        }
+        val plugin = BukkitPlugin.INSTANCE
+        when (args.firstOrNull()?.lowercase()) {
+            "status" -> {
+                val requestedWorld = args.getOrNull(1)
+                val worlds = if (requestedWorld == null) {
+                    plugin.worldManager.railWorlds.entries.toList()
+                } else {
+                    listOfNotNull(resolveRailWorld(requestedWorld))
+                }
+                if (worlds.isEmpty()) {
+                    sender.sendMessage("没有匹配的 MineRails 世界${requestedWorld?.let { ": $it" }.orEmpty()}")
+                    return true
+                }
+                worlds.forEach { (bukkitWorld, railWorld) ->
+                    val coordinator = railWorld.basicWorldData.atoCoordinator
+                    val stall = coordinator.lastStall
+                    sender.sendMessage("ATO ${bukkitWorld.name}: ${coordinator.state}")
+                    if (stall != null) {
+                        sender.sendMessage(
+                            "  train=${stall.trainId} tick=${stall.tick} " +
+                                "error=${stall.errorType}: ${stall.message.orEmpty()}"
+                        )
+                    }
+                }
+            }
+            "dump" -> {
+                val requestedWorld = args.getOrNull(1)
+                if (requestedWorld == null) {
+                    sender.sendMessage("用法: /mr ato dump <world>")
+                    return true
+                }
+                val selection = resolveRailWorld(requestedWorld)
+                if (selection == null) {
+                    sender.sendMessage("MineRails 世界不存在: $requestedWorld")
+                    return true
+                }
+                val report = selection.value.basicWorldData.atoCoordinator.lastStall
+                if (report == null) {
+                    sender.sendMessage("世界 ${selection.key.name} 没有 ATO Stall 报告")
+                    return true
+                }
+                runCatching { AtoStallDiagnostics.write(plugin.dataFolder, report) }
+                    .onSuccess { sender.sendMessage("ATO Stall 报告已写入: ${it.absolutePath}") }
+                    .onFailure { sender.sendMessage("写入 ATO Stall 报告失败: ${it.message.orEmpty()}") }
+            }
+            "reset" -> {
+                val requestedWorld = args.getOrNull(1)
+                if (requestedWorld == null) {
+                    sender.sendMessage("用法: /mr ato reset <world>")
+                    return true
+                }
+                val selection = resolveRailWorld(requestedWorld)
+                if (selection == null) {
+                    sender.sendMessage("MineRails 世界不存在: $requestedWorld")
+                    return true
+                }
+                val coordinator = selection.value.basicWorldData.atoCoordinator
+                if (!coordinator.isStalled) {
+                    sender.sendMessage("世界 ${selection.key.name} 的 ATO 已处于 RUNNING")
+                    return true
+                }
+                (selection.value as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
+                coordinator.reset()
+                sender.sendMessage("已解除世界 ${selection.key.name} 的 ATO Stall；列车位置不会自动恢复")
+            }
+            else -> sender.sendMessage("用法: /mr ato <status [world]|dump <world>|reset <world>>")
+        }
+        return true
+    }
+
+    private fun resolveRailWorld(requestedWorld: String): Map.Entry<org.bukkit.World, work.art1st.mineRails.core.api.physics.World>? {
+        return BukkitPlugin.INSTANCE.worldManager.railWorlds.entries.firstOrNull { (bukkitWorld, _) ->
+            bukkitWorld.name.equals(requestedWorld, ignoreCase = true) ||
+                bukkitWorld.uid.toString().equals(requestedWorld, ignoreCase = true)
+        }
+    }
+
     private fun handlePerf(sender: CommandSender, args: List<String>): Boolean {
         val plugin = BukkitPlugin.INSTANCE
         val requestedWorld = args.firstOrNull()?.let(Bukkit::getWorld)
@@ -298,6 +386,9 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
+        sender.sendMessage("/mr ato status [world] - 查看 World-local ATO 状态")
+        sender.sendMessage("/mr ato dump <world> - 写出最近一次 ATO Stall 报告")
+        sender.sendMessage("/mr ato reset <world> - 手动解除 ATO Stall（不恢复列车位置）")
         sender.sendMessage("/mr perf [world] - 查看 Tick、物理和渲染耗时")
         sender.sendMessage("/mr undo - 撤销操作")
         sender.sendMessage("/mr redo - 重做操作")

@@ -11,6 +11,7 @@ const sidebars: SidebarsConfig = {
         'architecture/overview',
         'architecture/modules',
         'architecture/automatic-train-operation',
+        'architecture/ato-roadmap',
         'architecture/threading-model',
         'architecture/persistence',
         'performance_assessment',

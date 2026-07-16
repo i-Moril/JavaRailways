@@ -22,6 +22,7 @@ import work.art1st.mineRails.basic.api.depot.StablingPointRef
 import work.art1st.mineRails.basic.api.destination.DestinationRole
 import work.art1st.mineRails.basic.api.destination.OperationalDestination
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
+import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.basic.controller.SimpleATO
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.mineRails.core.api.physics.curve.Curve
@@ -630,6 +631,172 @@ class TimetableDispatcherTest {
 
         assertEquals(TimetableServiceRunState.WAITING_MISSION, late.run.state)
         assertEquals(10L, late.run.lastLatenessTicks)
+    }
+
+    @Test
+    fun `manual routed driver keeps dispatcher route assistance without automatic speed`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-manual-routed", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("P", "P", rail.id, originArc + 30.0))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 60.0))
+        data.timetables.add(
+            Timetable(
+                "tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        TrainSelector.TrainId(train.id),
+                        listOf(
+                            TimetableStep.Check("A"),
+                            TimetableStep.At(0L, TimetableAction.GoVia(listOf("P", "B")))
+                        )
+                    )
+                )
+            )
+        )
+        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
+        val transfer = dispatcher.enterManualRoutedControl(world, train.id, "driver")
+        assertTrue(transfer is TimetableControlTransferResult.ManualRouted)
+        val manual = ManualController(train, world, maxSpeed = 8.0)
+        train.setController(manual)
+        assertTrue(dispatcher.bindManualRoutedController(train.id, "driver", manual))
+        manual.setThrottle(0.75)
+        val targetArc = originArc + 60.0
+
+        dispatcher.tick(world)
+        assertEquals(
+            TimetableControlMode.MANUAL_ROUTED,
+            dispatcher.status(TimetableServiceRunId("tt", "s1"))?.controlMode
+        )
+        for (ignored in 0 until 2_000) {
+            if (train.head.location.arcLength >= targetArc - 12.0) manual.setThrottle(-1.0)
+            AsyncTickTestSupport.run { manual.tick(50.0) }
+            manual.commit()
+            dispatcher.tick(world)
+            if (dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state ==
+                TimetableServiceRunState.COMPLETED
+            ) break
+        }
+
+        if (dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state !=
+            TimetableServiceRunState.COMPLETED
+        ) {
+            train.setLocation(rail.viewAB.getRailLocationAt(targetArc))
+            train.commit()
+            dispatcher.tick(world)
+        }
+        val completed = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
+        assertEquals(TimetableServiceRunState.COMPLETED, completed.state)
+        assertEquals(TimetableControlMode.MANUAL_ROUTED, completed.controlMode)
+        assertTrue(completed.confirmedSectionCount > 0)
+        assertTrue(!data.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `manual routed crossing of an unconfirmed protection point stalls the world`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val coordinator = AtoWorldCoordinator("dispatcher-manual-violation", reportSink = {})
+        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
+        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        dispatcher.startService(world, "tt", "s1")
+        dispatcher.enterManualRoutedControl(world, train.id, "driver")
+        val manual = ManualController(train, world, maxSpeed = 10.0)
+        train.setController(manual)
+        assertTrue(dispatcher.bindManualRoutedController(train.id, "driver", manual))
+        manual.setThrottle(1.0)
+
+        repeat(2) {
+            AsyncTickTestSupport.run { manual.tick(1_000.0) }
+            manual.commit()
+        }
+        dispatcher.tick(world)
+
+        assertTrue(coordinator.isStalled)
+        assertEquals("ManualRoutedSafetyViolation", coordinator.lastStall?.errorType)
+        assertTrue(coordinator.lastStall?.message?.contains("unconfirmed protection") == true)
+    }
+
+    @Test
+    fun `full manual requests no new route and release still requires replan`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-full-manual", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("P", "P", rail.id, originArc + 25.0))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
+        data.timetables.add(
+            Timetable(
+                "tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        TrainSelector.TrainId(train.id),
+                        listOf(
+                            TimetableStep.Check("A"),
+                            TimetableStep.At(0L, TimetableAction.GoVia(listOf("P", "B")))
+                        )
+                    )
+                )
+            )
+        )
+        dispatcher.startService(world, "tt", "s1")
+        dispatcher.enterManualRoutedControl(world, train.id, "driver")
+        val manual = ManualController(train, world, maxSpeed = 5.0)
+        train.setController(manual)
+        assertTrue(dispatcher.bindManualRoutedController(train.id, "driver", manual))
+        dispatcher.tick(world)
+        assertEquals(1, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        val suspended = dispatcher.switchToFullManual(train.id, "driver")
+        assertTrue(suspended is TimetableControlTransferResult.Suspended)
+        manual.setThrottle(1.0)
+
+        repeat(200) {
+            AsyncTickTestSupport.run { manual.tick(50.0) }
+            manual.commit()
+            dispatcher.tick(world)
+        }
+
+        val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
+        assertEquals(TimetableControlMode.FULL_MANUAL, status.controlMode)
+        assertEquals(TimetableServiceRunState.SUSPENDED, status.state)
+        assertEquals(0, status.confirmedSectionCount)
+        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver"))
+        assertEquals(
+            TimetableServiceRunState.REPLAN_REQUIRED,
+            dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
+        )
     }
 
     @Test

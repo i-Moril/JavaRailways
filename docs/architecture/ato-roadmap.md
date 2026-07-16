@@ -145,11 +145,11 @@ slug: /architecture/ato-roadmap
 - reset 只在 Stall 中执行，并在 Bukkit 层等待当前 physics ticket；列车、Destination、停车位全匹配、RouteSection 和 StationBerth ledger 在任何修改前完成全量预检。
 - 成功后停止相关 run/controller、取消 operation ticket、重建位置与资源/occupancy，并输出结构化报告；World 继续保持 Stall，等待管理员另行 ATO reset。
 
-### T5 人工被动进路
+### T5 人工被动进路（已完成）
 
-- timetable 列车取得钥匙后默认进入 `MANUAL_ROUTED`：司机控制速度，Dispatcher 只负责 timetable 经路申请和车尾释放。
-- 钥匙 UI 可关闭进路辅助，进入 `FULL_MANUAL/SUSPENDED`，不再申请新 Section。
-- 被动模式越过未确认保护点、偏离 PlannedRoute 或破坏 confirmed turnout 时 Stall。
+- timetable 列车取得钥匙后默认进入 `MANUAL_ROUTED`：司机控制速度，Dispatcher 继续 timetable 经路申请和车尾释放，但不自动执行 door/dwell/departure grant。
+- 钥匙 UI 可关闭进路辅助，进入 `FULL_MANUAL/SUSPENDED`，不再申请新 Section；旧资源仍按车尾释放。
+- 被动模式越过未确认保护点、偏离 PlannedRoute、破坏 confirmed turnout、脱轨或 controller 身份矛盾时 World-local Stall；释放 session 后必须显式 replan。
 
 ### T6 Stall 统一与端到端验收
 

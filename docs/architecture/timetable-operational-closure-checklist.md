@@ -54,13 +54,15 @@ T4 证据：`DepotStoreTest` 覆盖确定性全匹配、plan revalidation 和失
 
 ## T5 人工驾驶模式
 
-- [ ] **T5-01** timetable 列车取得钥匙后默认进入 `MANUAL_ROUTED`，ATO 不再输出速度。
-- [ ] **T5-02** MANUAL_ROUTED 继续执行 timetable GoTo/GoVia 的 Section 申请、确认和车尾释放。
-- [ ] **T5-03** MANUAL_ROUTED 不自动执行车门、dwell hold 或 departure grant。
-- [ ] **T5-04** 越过未确认保护点、偏离 PlannedRoute 或破坏 confirmed turnout 时 World Stall。
-- [ ] **T5-05** 钥匙 UI 可关闭时刻表进路辅助并进入 `FULL_MANUAL/SUSPENDED`。
-- [ ] **T5-06** FULL_MANUAL 不申请新 Section，旧资源仍只按车尾释放。
-- [ ] **T5-07** 释放人工 session 后只能从明确 Destination/WayPoint 显式 replan。
+- [x] **T5-01** timetable 列车取得钥匙后默认进入 `MANUAL_ROUTED`，ATO 不再输出速度。
+- [x] **T5-02** MANUAL_ROUTED 继续执行 timetable GoTo/GoVia 的 Section 申请、确认和车尾释放。
+- [x] **T5-03** MANUAL_ROUTED 不自动执行车门、dwell hold 或 departure grant。
+- [x] **T5-04** 越过未确认保护点、偏离 PlannedRoute 或破坏 confirmed turnout 时 World Stall。
+- [x] **T5-05** 钥匙 UI 可关闭时刻表进路辅助并进入 `FULL_MANUAL/SUSPENDED`。
+- [x] **T5-06** FULL_MANUAL 不申请新 Section，旧资源仍只按车尾释放。
+- [x] **T5-07** 释放人工 session 后只能从明确 Destination/WayPoint 显式 replan。
+
+T5 证据：`TimetableDispatcherTest` 覆盖 MANUAL_ROUTED 的人工速度、跨 GoVia Section 申请、未确认保护点越界 Stall，以及 FULL_MANUAL 不申请新 Section但继续车尾释放；Bukkit `TrainControlManager` 默认请求 MANUAL_ROUTED，钥匙 Dialog 显示模式并提供显式关闭进路辅助按钮。MANUAL_ROUTED 会取消活动 operation/StationCall 自动流程并跳过后续自动 door、dwell hold 和 departure grant；释放 session 统一进入 `REPLAN_REQUIRED`。
 
 ## T6 Stall 统一
 

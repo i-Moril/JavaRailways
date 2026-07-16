@@ -1,5 +1,6 @@
 package work.art1st.mineRails.bukkit.control
 
+import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
 import work.art1st.mineRails.bukkit.config.model.TrainControlConfig
 import work.art1st.mineRails.core.api.control.TrainController
@@ -121,6 +122,7 @@ class RealisticManualController(
     }
 
     override fun tick(deltaT: Double) {
+        if (controlledTrain.world.basicWorldData.atoCoordinator.isStalled) emergencyBrake()
         val deltaSeconds = deltaT.coerceAtLeast(0.0) * 0.001
         val currentDirection = directionRef.get()
         val currentHandle = if (currentDirection == TrainDriveDirection.NEUTRAL && controlConfig.tractionNotchScales.containsKey(handleRef.get())) {

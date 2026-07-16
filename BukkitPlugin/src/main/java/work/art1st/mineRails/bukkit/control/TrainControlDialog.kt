@@ -11,6 +11,8 @@ import net.kyori.adventure.text.event.ClickCallback
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
+import work.art1st.mineRails.basic.timetable.TimetableControlMode
+import work.art1st.mineRails.basic.timetable.TimetableControlTransferResult
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.train.carRendererOrNull
 import work.art1st.mineRails.bukkit.extension.train.renderer
@@ -39,6 +41,13 @@ class TrainControlDialog(
         bodies.add(DialogBody.plainMessage(Component.text("列车: ${train.id}", NamedTextColor.GRAY)))
         bodies.add(DialogBody.plainMessage(Component.text("控制者: $ownerName", NamedTextColor.GRAY)))
         bodies.add(DialogBody.plainMessage(Component.text("速度: ${"%.1f".format(speedKmh)} km/h", NamedTextColor.GRAY)))
+        manager.sessionFor(train)?.let { session ->
+            bodies.add(
+                DialogBody.plainMessage(
+                    Component.text("时刻表模式: ${session.timetableMode}", NamedTextColor.GRAY)
+                )
+            )
+        }
         if (controller != null) {
             bodies.add(DialogBody.plainMessage(Component.text("方向: ${controller.direction.label}  挡位: ${controller.handle}", NamedTextColor.GRAY)))
         }
@@ -50,8 +59,23 @@ class TrainControlDialog(
         if (ownedByPlayer) {
             buttons.add(actionButton("释放控制权", NamedTextColor.YELLOW) { p ->
                 manager.releaseManualControl(p)
-                p.sendActionBar(Component.text("已释放列车控制权", NamedTextColor.YELLOW))
+                p.sendActionBar(Component.text("已释放列车控制权；需要显式 replan", NamedTextColor.YELLOW))
             })
+            if (manager.sessionFor(train)?.timetableMode == TimetableControlMode.MANUAL_ROUTED) {
+                buttons.add(actionButton("关闭时刻表进路辅助", NamedTextColor.RED) { p ->
+                    when (val result = manager.switchToFullManual(p)) {
+                        is TimetableControlTransferResult.Suspended -> p.sendActionBar(
+                            Component.text("已进入 FULL_MANUAL，不再申请新进路", NamedTextColor.YELLOW)
+                        )
+                        is TimetableControlTransferResult.Failure -> p.sendActionBar(
+                            Component.text(result.reason, NamedTextColor.RED)
+                        )
+                        else -> p.sendActionBar(
+                            Component.text("列车没有可切换的时刻表进路辅助", NamedTextColor.YELLOW)
+                        )
+                    }
+                })
+            }
         } else {
             buttons.add(actionButton("获取控制权", NamedTextColor.GREEN) { p ->
                 when (val result = manager.acquireManualControl(p, train)) {

@@ -42,6 +42,7 @@ import work.art1st.mineRails.basic.route.RouteSectionAllocationKey
 import work.art1st.mineRails.basic.route.RouteSectionAllocationResult
 import work.art1st.mineRails.basic.route.RouteSectionAllocator
 import work.art1st.mineRails.basic.route.RouteSectionOwner
+import work.art1st.mineRails.core.api.control.TrainController
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
@@ -63,6 +64,12 @@ data class TimetableServiceRunId(val timetableId: String, val serviceId: String)
     }
 
     override fun toString(): String = "$timetableId/$serviceId"
+}
+
+enum class TimetableControlMode {
+    AUTOMATIC,
+    MANUAL_ROUTED,
+    FULL_MANUAL
 }
 
 enum class TimetableServiceRunState {
@@ -107,6 +114,7 @@ data class TimetableServiceRunSnapshot(
     val operationTicketId: String? = null,
     val operationTicketState: TrainOperationTicketState? = null,
     val controlTransferOwner: String? = null,
+    val controlMode: TimetableControlMode = TimetableControlMode.AUTOMATIC,
     val message: String? = null
 )
 
@@ -139,6 +147,7 @@ sealed interface TimetableStationCallScheduleResult {
 }
 
 sealed interface TimetableControlTransferResult {
+    data class ManualRouted(val run: TimetableServiceRunSnapshot) : TimetableControlTransferResult
     data class Suspended(val run: TimetableServiceRunSnapshot) : TimetableControlTransferResult
     data object NotAssigned : TimetableControlTransferResult
     data class Failure(val reason: String) : TimetableControlTransferResult
@@ -539,6 +548,82 @@ class TimetableDispatcher(
         }
     }
 
+    /** Transfer speed control while retaining Dispatcher route assistance and tail release. */
+    @MainThread
+    fun enterManualRoutedControl(
+        world: World,
+        trainId: String,
+        transferOwner: String
+    ): TimetableControlTransferResult {
+        require(trainId.isNotBlank())
+        require(transferOwner.isNotBlank() && transferOwner == transferOwner.trim())
+        allocator(world)
+        val run = runs.values.firstOrNull { it.train.id == trainId && !it.state.isTerminal() }
+            ?: return TimetableControlTransferResult.NotAssigned
+        if (run.controlTransferOwner != null && run.controlTransferOwner != transferOwner) {
+            return TimetableControlTransferResult.Failure(
+                "service ${run.id} is already controlled by ${run.controlTransferOwner}"
+            )
+        }
+        if (run.controlMode == TimetableControlMode.MANUAL_ROUTED &&
+            run.controlTransferOwner == transferOwner
+        ) {
+            return TimetableControlTransferResult.ManualRouted(run.snapshot())
+        }
+        if (run.controlMode == TimetableControlMode.FULL_MANUAL ||
+            run.state == TimetableServiceRunState.REPLAN_REQUIRED
+        ) {
+            return TimetableControlTransferResult.Failure(
+                "service ${run.id} is suspended and requires explicit replan"
+            )
+        }
+        cancelPendingOperation(run)
+        cancelStationCallForControlTransfer(run)
+        if (run.train.controller === run.ato) run.train.setController(null)
+        run.controlTransferOwner = transferOwner
+        run.controlMode = TimetableControlMode.MANUAL_ROUTED
+        run.message = "MANUAL_ROUTED by $transferOwner; Dispatcher route assistance remains active"
+        return TimetableControlTransferResult.ManualRouted(run.snapshot())
+    }
+
+    /** Bind the exact platform manual controller after MANUAL_ROUTED transfer installation. */
+    @MainThread
+    fun bindManualRoutedController(
+        trainId: String,
+        transferOwner: String,
+        controller: TrainController
+    ): Boolean {
+        val run = runs.values.firstOrNull {
+            it.train.id == trainId && it.controlMode == TimetableControlMode.MANUAL_ROUTED
+        } ?: return false
+        if (run.controlTransferOwner != transferOwner || run.train.controller !== controller) {
+            return false
+        }
+        run.manualController = controller
+        return true
+    }
+
+    /** Disable new timetable route requests while retaining tail-based release of old resources. */
+    @MainThread
+    fun switchToFullManual(trainId: String, transferOwner: String): TimetableControlTransferResult {
+        val run = runs.values.firstOrNull { it.train.id == trainId && !it.state.isTerminal() }
+            ?: return TimetableControlTransferResult.NotAssigned
+        if (run.controlTransferOwner != transferOwner ||
+            run.controlMode != TimetableControlMode.MANUAL_ROUTED
+        ) {
+            return TimetableControlTransferResult.Failure(
+                "service ${run.id} is not MANUAL_ROUTED by $transferOwner"
+            )
+        }
+        cancelPendingOperation(run)
+        cancelStationCallForControlTransfer(run)
+        run.controlMode = TimetableControlMode.FULL_MANUAL
+        run.manualController = null
+        run.state = TimetableServiceRunState.SUSPENDED
+        run.message = "FULL_MANUAL by $transferOwner; no new RouteSection will be requested"
+        return TimetableControlTransferResult.Suspended(run.snapshot())
+    }
+
     /**
      * Detach the active ATO before a platform controller takes manual control.
      * Confirmed route and berth resources remain owned until published tail progress releases them.
@@ -570,6 +655,8 @@ class TimetableDispatcher(
         cancelStationCallForControlTransfer(run)
         if (run.train.controller === run.ato) run.train.setController(null)
         run.controlTransferOwner = transferOwner
+        run.controlMode = TimetableControlMode.FULL_MANUAL
+        run.manualController = null
         run.state = TimetableServiceRunState.SUSPENDED
         run.message = "manual control transferred to $transferOwner; resources remain tail-released"
         return TimetableControlTransferResult.Suspended(run.snapshot())
@@ -579,10 +666,13 @@ class TimetableDispatcher(
     @MainThread
     fun releaseControlTransfer(trainId: String, transferOwner: String): Boolean {
         val run = runs.values.firstOrNull {
-            it.train.id == trainId && it.state == TimetableServiceRunState.SUSPENDED
+            it.train.id == trainId && it.controlTransferOwner == transferOwner &&
+                it.controlMode != TimetableControlMode.AUTOMATIC
         } ?: return false
         if (run.controlTransferOwner != transferOwner) return false
         run.controlTransferOwner = null
+        run.controlMode = TimetableControlMode.FULL_MANUAL
+        run.manualController = null
         run.state = TimetableServiceRunState.REPLAN_REQUIRED
         run.message = "manual control released; explicit replan from a stopped WayPoint is required"
         return true
@@ -650,6 +740,8 @@ class TimetableDispatcher(
             run.runtimes.clear()
             run.pendingStationCallSpec = null
             run.train.setController(replacementAto)
+            run.controlMode = TimetableControlMode.AUTOMATIC
+            run.manualController = null
             run.currentWayPointId = target.id
             run.state = TimetableServiceRunState.WAITING_MISSION
             run.message = "replan origin is the interrupted destination; advancing service"
@@ -683,6 +775,8 @@ class TimetableDispatcher(
         run.runtimes += runtime
         run.currentRuntime = runtime
         run.missionRevision = accepted.mission.revision
+        run.controlMode = TimetableControlMode.AUTOMATIC
+        run.manualController = null
         run.state = TimetableServiceRunState.WAITING_MISSION
         run.message = "replanned from $originWayPointId to ${target.id}"
         run.train.setController(replacementAto)
@@ -699,22 +793,22 @@ class TimetableDispatcher(
 
         runs.values.toList().forEach { run ->
             run.lastObservedDispatcherTick = dispatcherTick
-            val controlTransferred = run.state == TimetableServiceRunState.SUSPENDED ||
+            val manualRouted = run.controlMode == TimetableControlMode.MANUAL_ROUTED
+            val fullManual = run.controlMode == TimetableControlMode.FULL_MANUAL ||
+                run.state == TimetableServiceRunState.SUSPENDED ||
                 run.state == TimetableServiceRunState.REPLAN_REQUIRED
+            val controlTransferred = manualRouted || fullManual
             val snapshot = if (controlTransferred) {
                 capturePublishedTrainSnapshot(run)
             } else {
                 run.ato.currentTrainSnapshot
             }
             if (!controlTransferred) processStationNotifications(run)
-            if (controlTransferred) {
-                run.currentRuntime.layout.project(
-                    snapshot.head,
-                    run.currentRuntime.headProgressMeters
-                )?.let { run.currentRuntime.headProgressMeters = it }
-            }
             updateTailProgress(run, snapshot)
             updateStationTailProgress(run, snapshot)
+            if (manualRouted && !validateManualConfirmedTurnouts(world, run, snapshot)) {
+                return@forEach
+            }
             releaseDepotDeparture(world, run)
             releasePassedSections(run, sectionAllocator)
             releasePassedBerth(run)
@@ -724,10 +818,18 @@ class TimetableDispatcher(
                 return@forEach
             }
             if (run.train.isDerailed) {
-                fail(run, "train derailed")
+                if (manualRouted) {
+                    stallManualRouted(world, run, snapshot, "MANUAL_ROUTED train derailed")
+                } else {
+                    fail(run, "train derailed")
+                }
                 return@forEach
             }
-            if (controlTransferred) return@forEach
+            if (fullManual) return@forEach
+            if (manualRouted) {
+                processManualRouted(world, run, snapshot, candidates)
+                return@forEach
+            }
             if (run.train.controller !== run.ato) {
                 fail(run, "train controller was replaced")
                 return@forEach
@@ -1381,6 +1483,165 @@ class TimetableDispatcher(
         }
     }
 
+    private fun processManualRouted(
+        world: World,
+        run: ActiveRun,
+        snapshot: TrainSnapshot,
+        candidates: MutableList<AllocationCandidate>,
+        sectionAllocator: RouteSectionAllocator = allocator(world)
+    ) {
+        if (run.controlTransferOwner == null || run.manualController == null ||
+            run.train.controller !== run.manualController
+        ) {
+            stallManualRouted(world, run, snapshot, "MANUAL_ROUTED controller identity mismatch")
+            return
+        }
+        val runtime = run.currentRuntime
+        val headProgress = runtime.layout.project(snapshot.head, runtime.headProgressMeters)
+        if (headProgress == null) {
+            stallManualRouted(world, run, snapshot, "MANUAL_ROUTED train head left PlannedRoute")
+            return
+        }
+        runtime.headProgressMeters = headProgress
+        runtime.tailProgressMeters = runtime.layout.project(snapshot.tail, runtime.tailProgressMeters)
+            ?: runtime.tailProgressMeters
+        if (run.state == TimetableServiceRunState.WAITING_TIMETABLE_TIME) {
+            val scheduledTick = run.waitingUntilTimetableTick
+                ?: error("WAITING_TIMETABLE_TIME run has no scheduled Tick: ${run.id}")
+            if (timetableElapsedTicks(run) < scheduledTick) {
+                enforceManualProtection(world, run, runtime, snapshot)
+                return
+            }
+            run.waitingUntilTimetableTick = null
+            run.state = TimetableServiceRunState.WAITING_MISSION
+            run.message = null
+            if (run.waitingStepPending) {
+                run.waitingStepPending = false
+                advanceService(world, run)
+                return
+            }
+            recordScheduledAction(run, scheduledTick)
+        }
+
+        releasePassedSections(run, sectionAllocator)
+        if (missionCompleted(run, runtime, snapshot) &&
+            (run.stationCall == null || run.stationCall?.cancelledForControlTransfer == true)
+        ) {
+            if (runtime === run.storageRuntime &&
+                !tryCompleteStorage(world, run, runtime, sectionAllocator)
+            ) return
+            run.currentWayPointId = runtime.targetWayPointId
+            advanceService(world, run)
+            return
+        }
+
+        val nextSection = runtime.sections.firstOrNull { it.status == SectionStatus.PENDING }
+        if (nextSection == null) {
+            setRouteState(run, TimetableServiceRunState.RUNNING, "MANUAL_ROUTED")
+            return
+        }
+        if (headProgress > nextSection.routeSection.entryDistanceMeters +
+            MANUAL_PROTECTION_TOLERANCE_METERS
+        ) {
+            stallManualRouted(
+                world,
+                run,
+                snapshot,
+                "MANUAL_ROUTED crossed unconfirmed protection point for section " +
+                    nextSection.routeSection.ordinal
+            )
+            return
+        }
+        val previousReady = runtime.sections
+            .take(nextSection.routeSection.ordinal)
+            .all { it.status == SectionStatus.CONFIRMED || it.status == SectionStatus.RELEASED }
+        if (!previousReady) {
+            setRouteState(run, TimetableServiceRunState.WAITING_ROUTE, "MANUAL_ROUTED")
+            return
+        }
+        val triggerDistance = run.ato.routeAllocationTriggerDistanceMeters(
+            snapshot.speedMetersPerSecond,
+            allocationTiming
+        )
+        if (nextSection.routeSection.entryDistanceMeters - headProgress <= triggerDistance) {
+            candidates += AllocationCandidate(run, runtime, nextSection)
+            setRouteState(run, TimetableServiceRunState.WAITING_ROUTE, "MANUAL_ROUTED")
+        } else {
+            setRouteState(run, TimetableServiceRunState.RUNNING, "MANUAL_ROUTED")
+        }
+    }
+
+    private fun validateManualConfirmedTurnouts(
+        world: World,
+        run: ActiveRun,
+        snapshot: TrainSnapshot
+    ): Boolean {
+        for (allocation in run.allocations.values) {
+            for (requirement in allocation.section.routeSection.section.turnoutRequirements) {
+                val from = world.getRail(requirement.from.railId)
+                    ?.getView(requirement.from.direction)
+                val selected = world.getRail(requirement.selectedNext.railId)
+                    ?.getView(requirement.selectedNext.direction)
+                if (from == null || selected == null || from.nextActiveRail !== selected) {
+                    stallManualRouted(
+                        world,
+                        run,
+                        snapshot,
+                        "MANUAL_ROUTED confirmed turnout mismatch at ${requirement.from}"
+                    )
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    private fun enforceManualProtection(
+        world: World,
+        run: ActiveRun,
+        runtime: MissionRuntime,
+        snapshot: TrainSnapshot
+    ) {
+        val pending = runtime.sections.firstOrNull { it.status == SectionStatus.PENDING } ?: return
+        if (runtime.headProgressMeters > pending.routeSection.entryDistanceMeters +
+            MANUAL_PROTECTION_TOLERANCE_METERS
+        ) {
+            stallManualRouted(
+                world,
+                run,
+                snapshot,
+                "MANUAL_ROUTED moved before timetable authority became eligible"
+            )
+        }
+    }
+
+    private fun stallManualRouted(
+        world: World,
+        run: ActiveRun,
+        snapshot: TrainSnapshot,
+        reason: String
+    ) {
+        val failure = IllegalStateException(reason)
+        world.basicWorldData.atoCoordinator.stall(
+            AtoStallReport(
+                worldId = world.basicWorldData.atoCoordinator.worldId,
+                trainId = run.train.id,
+                tick = dispatcherTick,
+                errorType = "ManualRoutedSafetyViolation",
+                message = reason,
+                stackTrace = failure.stackTraceToString(),
+                initialTrain = initialTrain(run.train.id),
+                currentTrain = snapshot,
+                route = null,
+                perception = null,
+                activeProviderId = null,
+                constraints = emptyMap()
+            )
+        )
+        run.state = TimetableServiceRunState.FAILED
+        run.message = reason
+    }
+
     private fun allocate(candidate: AllocationCandidate, allocator: RouteSectionAllocator) {
         val run = candidate.run
         val runtime = candidate.runtime
@@ -1393,8 +1654,10 @@ class TimetableDispatcher(
             is RouteSectionAllocationResult.Confirmed -> {
                 section.status = SectionStatus.CONFIRMED
                 run.allocations[result.window.key] = AllocatedSection(runtime, section)
-                run.ato.confirmRouteWindow(result.window)
-                publishMovementAuthority(run, runtime)
+                if (run.controlMode == TimetableControlMode.AUTOMATIC) {
+                    run.ato.confirmRouteWindow(result.window)
+                    publishMovementAuthority(run, runtime)
+                }
                 setRouteState(run, TimetableServiceRunState.RUNNING, null)
             }
             is RouteSectionAllocationResult.Conflict -> {
@@ -1404,7 +1667,19 @@ class TimetableDispatcher(
                     "route conflict at ${result.resource}, held by ${result.heldBy.owner}"
                 )
             }
-            is RouteSectionAllocationResult.Invalid -> fail(run, result.reason)
+            is RouteSectionAllocationResult.Invalid -> {
+                if (run.controlMode == TimetableControlMode.MANUAL_ROUTED) {
+                    val world = requireNotNull(allocatorWorld)
+                    stallManualRouted(
+                        world,
+                        run,
+                        capturePublishedTrainSnapshot(run),
+                        "MANUAL_ROUTED route allocation invalid: ${result.reason}"
+                    )
+                } else {
+                    fail(run, result.reason)
+                }
+            }
         }
     }
 
@@ -1587,7 +1862,7 @@ class TimetableDispatcher(
                             movementStep,
                             run.nextStepIndex + 1
                         )
-                        val submission = submitMission(world, run.ato, run.id, plan)
+                        val submission = submitMissionForRun(world, run, plan)
                         val accepted = submission.accepted
                         if (accepted == null) {
                             check(world.basicWorldData.depots.cancelStorage(reservation)) {
@@ -1618,6 +1893,12 @@ class TimetableDispatcher(
                         return
                     }
                     is TimetableAction.Stop -> {
+                        if (run.controlMode == TimetableControlMode.MANUAL_ROUTED) {
+                            recordScheduledAction(run, step.tick)
+                            run.nextStepIndex++
+                            run.message = "MANUAL_ROUTED skipped automatic dwell hold"
+                            continue
+                        }
                         if (timetableElapsedTicks(run) < step.tick) {
                             waitForTimetableTick(run, step.tick, pendingStep = true)
                             return
@@ -1630,6 +1911,12 @@ class TimetableDispatcher(
                         return
                     }
                     is TimetableAction.CallStation -> {
+                        if (run.controlMode == TimetableControlMode.MANUAL_ROUTED) {
+                            run.pendingStationCallSpec = null
+                            run.nextStepIndex++
+                            run.message = "MANUAL_ROUTED skipped automatic station operation"
+                            continue
+                        }
                         run.pendingStationCallSpec = StationCallSpec(
                             action = action,
                             plannedArrivalTick = step.tick,
@@ -1655,7 +1942,7 @@ class TimetableDispatcher(
                         if (plan.stationCallSpec == null) {
                             recordScheduledAction(run, plan.actionTick)
                         }
-                        val submission = submitMission(world, run.ato, run.id, plan)
+                        val submission = submitMissionForRun(world, run, plan)
                         val accepted = submission.accepted
                         if (accepted == null) {
                             fail(run, submission.failure!!)
@@ -1876,6 +2163,42 @@ class TimetableDispatcher(
         )
     }
 
+    private fun submitMissionForRun(
+        world: World,
+        run: ActiveRun,
+        plan: MovementPlan
+    ): MissionSubmission {
+        if (run.controlMode == TimetableControlMode.AUTOMATIC) {
+            return submitMission(world, run.ato, run.id, plan)
+        }
+        val revision = nextMissionRevision()
+        val request = AtoMissionRequest(
+            id = run.instanceId,
+            revision = revision,
+            origin = plan.origin,
+            points = plan.points
+        )
+        val resolved = when (val result = AtoMissionResolver(world).resolve(request)) {
+            is AtoMissionResolutionResult.Success -> result.mission
+            is AtoMissionResolutionResult.TargetUnresolved -> return MissionSubmission(
+                null,
+                "mission target not found: ${result.target.id}"
+            )
+            is AtoMissionResolutionResult.RouteUnavailable -> return MissionSubmission(
+                null,
+                "route unavailable ${result.from.id} -> ${result.to.id}: ${result.reason}"
+            )
+        }
+        val layout = MissionRouteLayout(world, resolved)
+        if (layout.project(capturePublishedTrainSnapshot(run).head) == null) {
+            return MissionSubmission(
+                null,
+                "manual train ${run.train.id} is not facing route from ${plan.origin.id}"
+            )
+        }
+        return MissionSubmission(PreparedMission(resolved, layout), null)
+    }
+
     private fun submitMission(
         world: World,
         ato: SimpleATO,
@@ -1983,6 +2306,7 @@ class TimetableDispatcher(
         const val DEPOT_DEPARTURE_RELEASE_EPSILON_METERS = 1.0e-6
         const val DEFAULT_OPERATION_TIMEOUT_TICKS = 100L
         const val REPLAN_STOPPED_SPEED_METERS_PER_SECOND = 0.05
+        const val MANUAL_PROTECTION_TOLERANCE_METERS = 0.5
     }
 
     private data class TimetableServiceRunKey(
@@ -2117,6 +2441,8 @@ class TimetableDispatcher(
         var stationCall: DispatcherStationCall? = null,
         var pendingStationCallSpec: StationCallSpec? = null,
         var controlTransferOwner: String? = null,
+        var controlMode: TimetableControlMode = TimetableControlMode.AUTOMATIC,
+        var manualController: TrainController? = null,
         val depotAllocation: DepotTrainAllocation? = null,
         val depotDepartureRuntime: MissionRuntime? = null,
         var depotDepartureReleased: Boolean = depotAllocation == null,
@@ -2164,6 +2490,7 @@ class TimetableDispatcher(
                 operationTicketId = operation?.ticketId ?: stationCall?.operationTicketId,
                 operationTicketState = operation?.state,
                 controlTransferOwner = controlTransferOwner,
+                controlMode = controlMode,
                 message = message
             )
         }

@@ -480,7 +480,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 } else {
                     runs.forEach { run ->
                         sender.sendMessage(
-                            "${run.id}: state=${run.state} train=${run.trainId} " +
+                            "${run.id}: state=${run.state} mode=${run.controlMode} train=${run.trainId} " +
                                 "revision=${run.missionRevision} confirmed=${run.confirmedSectionCount} " +
                                 "cycle=${run.cycleIndex} elapsed=${run.timetableElapsedTicks} " +
                                 "scheduled=${run.scheduledActionTick ?: "-"} late=${run.lastLatenessTicks} " +

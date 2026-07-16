@@ -12,6 +12,7 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.scheduler.BukkitTask
 import org.joml.Vector3d
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
+import work.art1st.mineRails.basic.timetable.TimetableControlMode
 import work.art1st.mineRails.basic.timetable.TimetableControlTransferResult
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
@@ -38,7 +39,8 @@ class TrainControlManager(
         val trainId: String,
         val playerId: UUID,
         val controller: RealisticManualController,
-        val controlEnd: DriverControlEnd?
+        val controlEnd: DriverControlEnd?,
+        var timetableMode: TimetableControlMode
     )
 
     private val sessionsByPlayer: MutableMap<UUID, ManualControlSession> = mutableMapOf()
@@ -101,15 +103,18 @@ class TrainControlManager(
         }
         val transferOwner = player.uniqueId.toString()
         val transferSpeedMetersPerSecond = coreTrain.speed
-        when (val suspension = coreTrain.world.basicWorldData.dispatcher.suspendForControlTransfer(
-            coreTrain.world,
-            coreTrain.id,
-            transferOwner
-        )) {
+        val timetableMode = when (val transfer =
+            coreTrain.world.basicWorldData.dispatcher.enterManualRoutedControl(
+                coreTrain.world,
+                coreTrain.id,
+                transferOwner
+            )
+        ) {
             is TimetableControlTransferResult.Failure ->
-                return AcquireResult.ConfigError(suspension.reason)
-            TimetableControlTransferResult.NotAssigned,
-            is TimetableControlTransferResult.Suspended -> Unit
+                return AcquireResult.ConfigError(transfer.reason)
+            is TimetableControlTransferResult.ManualRouted -> TimetableControlMode.MANUAL_ROUTED
+            TimetableControlTransferResult.NotAssigned -> TimetableControlMode.FULL_MANUAL
+            is TimetableControlTransferResult.Suspended -> TimetableControlMode.FULL_MANUAL
         }
         alignTrainHeadToDriverSeat(coreTrain, driverSeat.controlEnd)
         val controller = existingManualController ?: resolvedControl!!.let { (controlConfig, carControls) ->
@@ -124,14 +129,35 @@ class TrainControlManager(
         controller.markCurrentPhysicalDirectionAsForward()
         controller.setDirection(TrainDriveDirection.NEUTRAL)
         controller.coast()
-        return AcquireResult.Acquired(registerManualControl(player, coreTrain, controller, driverSeat.controlEnd))
+        if (timetableMode == TimetableControlMode.MANUAL_ROUTED &&
+            !coreTrain.world.basicWorldData.dispatcher.bindManualRoutedController(
+                coreTrain.id,
+                transferOwner,
+                controller
+            )
+        ) {
+            coreTrain.world.basicWorldData.dispatcher.switchToFullManual(coreTrain.id, transferOwner)
+            controller.emergencyBrake()
+            if (coreTrain.controller === controller) coreTrain.setController(null)
+            return AcquireResult.ConfigError("MANUAL_ROUTED controller 身份绑定失败")
+        }
+        return AcquireResult.Acquired(
+            registerManualControl(
+                player,
+                coreTrain,
+                controller,
+                driverSeat.controlEnd,
+                timetableMode
+            )
+        )
     }
 
     fun registerManualControl(
         player: Player,
         train: Train,
         controller: RealisticManualController,
-        controlEnd: DriverControlEnd?
+        controlEnd: DriverControlEnd?,
+        timetableMode: TimetableControlMode = TimetableControlMode.FULL_MANUAL
     ): ManualControlSession {
         releaseManualControl(player.uniqueId)
         val previousForTrain = sessionsByTrain.remove(train.id)
@@ -142,11 +168,26 @@ class TrainControlManager(
             trainId = train.id,
             playerId = player.uniqueId,
             controller = controller,
-            controlEnd = controlEnd
+            controlEnd = controlEnd,
+            timetableMode = timetableMode
         )
         sessionsByPlayer[player.uniqueId] = session
         sessionsByTrain[train.id] = session
         return session
+    }
+
+    fun switchToFullManual(player: Player): TimetableControlTransferResult {
+        val session = sessionsByPlayer[player.uniqueId]
+            ?: return TimetableControlTransferResult.NotAssigned
+        val train = session.controller.controlledTrain
+        val result = train.world.basicWorldData.dispatcher.switchToFullManual(
+            train.id,
+            player.uniqueId.toString()
+        )
+        if (result is TimetableControlTransferResult.Suspended) {
+            session.timetableMode = TimetableControlMode.FULL_MANUAL
+        }
+        return result
     }
 
     fun releaseManualControl(player: Player): ManualControlSession? = releaseManualControl(player.uniqueId)

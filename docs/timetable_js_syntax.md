@@ -70,6 +70,8 @@ World Stall 后可执行显式确认的 Depot Reset：
 
 命令会先等待当前 physics ticket，再全量预检列车、directed StablingPoint、容量和 Dispatcher ledger。任何 preflight 失败都不会移动列车或修改 occupancy。成功会停止相关 run/controller、取消 operation ticket、重建位置和资源账本，并在 `plugins/MineRails/debug/` 写入结构化报告。Reset 完成后 World **仍保持 Stall**；管理员检查后必须另行执行 `/mr ato reset <world>`。
 
+取得 timetable 列车钥匙控制权时默认进入 `MANUAL_ROUTED`：司机手柄是唯一速度来源，Dispatcher 仍申请计划 RouteSection 并按车尾释放，但不会自动开关门、执行 dwell hold 或授予发车。钥匙 Dialog 可通过“关闭时刻表进路辅助”进入 `FULL_MANUAL/SUSPENDED`；此后不申请新 Section。任一人工模式释放后均进入 `REPLAN_REQUIRED`，不会自动恢复 ATO。
+
 如果省略加载命令的 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
 
 ## 入口函数

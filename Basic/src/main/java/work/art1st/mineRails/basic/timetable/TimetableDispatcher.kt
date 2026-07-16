@@ -7,6 +7,14 @@ import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolutionResult
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolver
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
+import work.art1st.mineRails.basic.api.operation.RejectingTrainOperationGateway
+import work.art1st.mineRails.basic.api.operation.TrainOperation
+import work.art1st.mineRails.basic.api.operation.TrainOperationExecutionResult
+import work.art1st.mineRails.basic.api.operation.TrainOperationGateway
+import work.art1st.mineRails.basic.api.operation.TrainOperationRequest
+import work.art1st.mineRails.basic.api.operation.TrainOperationTicket
+import work.art1st.mineRails.basic.api.operation.TrainOperationTicketState
+import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.DwellPlanResolver
 import work.art1st.mineRails.basic.api.station.ResolvedStationCall
 import work.art1st.mineRails.basic.api.station.StationBerthAllocationKey
@@ -59,10 +67,13 @@ enum class TimetableServiceRunState {
     WAITING_BERTH,
     APPROACHING,
     BERTHED,
+    DOORS_OPENING,
     DWELLING,
+    DOORS_CLOSING,
     READY_TO_DEPART,
     DEPARTING,
     DEPARTED,
+    MANUAL_INTERVENTION,
     STOPPING,
     STOPPED,
     COMPLETED,
@@ -80,6 +91,8 @@ data class TimetableServiceRunSnapshot(
     val stationCallId: String? = null,
     val berthRef: StationBerthRef? = null,
     val berthHeld: Boolean = false,
+    val operationTicketId: String? = null,
+    val operationTicketState: TrainOperationTicketState? = null,
     val message: String? = null
 )
 
@@ -100,8 +113,13 @@ class TimetableDispatcher(
         reactionTimeSeconds = 0.25,
         safetyMarginMeters = 2.0
     ),
+    private val operationGateway: TrainOperationGateway = RejectingTrainOperationGateway,
+    private val operationTimeoutTicks: Long = DEFAULT_OPERATION_TIMEOUT_TICKS,
     private val atoFactory: TimetableAtoFactory? = null
 ) {
+    init {
+        require(operationTimeoutTicks > 0L)
+    }
     private val initialTrains = ConcurrentHashMap<String, TrainSnapshot>()
     private val missionRevision = AtomicLong(0L)
     private val runs = LinkedHashMap<TimetableServiceRunId, ActiveRun>()
@@ -360,23 +378,43 @@ class TimetableDispatcher(
                 tryAllocateStationCall(run)
                 return@forEach
             }
+            if (stationCall != null &&
+                (run.state == TimetableServiceRunState.DOORS_OPENING ||
+                    run.state == TimetableServiceRunState.DOORS_CLOSING)
+            ) {
+                if (processStationOperation(run, stationCall)) return@forEach
+            }
+            if (run.state == TimetableServiceRunState.MANUAL_INTERVENTION) return@forEach
             if (run.state == TimetableServiceRunState.BERTHED &&
                 stationCall != null && dispatcherTick > stationCall.stateEnteredDispatcherTick
             ) {
-                run.state = TimetableServiceRunState.DWELLING
-                run.message = "dwelling at ${stationCall.resolved.berthRef}"
+                if (stationCall.resolved.doorSide == DoorSide.NONE) {
+                    enterStationDwelling(run, stationCall)
+                } else {
+                    beginStationOperation(
+                        run,
+                        stationCall,
+                        TrainOperation.OpenDoors(stationCall.resolved.doorSide),
+                        TimetableServiceRunState.DOORS_OPENING
+                    )
+                }
+                return@forEach
             }
             if (run.state == TimetableServiceRunState.DWELLING &&
                 stationCall != null && !stationCall.departed
             ) {
                 if (dispatcherTick >= stationCall.earliestDepartureDispatcherTick) {
-                    if (hasAuthorityBeyondStation(run, stationCall)) {
-                        run.state = TimetableServiceRunState.READY_TO_DEPART
-                        run.message = "ready to depart ${stationCall.resolved.berthRef}"
-                        stationCall.stateEnteredDispatcherTick = dispatcherTick
-                        return@forEach
+                    if (stationCall.resolved.doorSide == DoorSide.NONE) {
+                        enterReadyToDepart(run, stationCall)
+                    } else {
+                        beginStationOperation(
+                            run,
+                            stationCall,
+                            TrainOperation.CloseDoors(stationCall.resolved.doorSide),
+                            TimetableServiceRunState.DOORS_CLOSING
+                        )
                     }
-                    run.message = "dwell complete; waiting for route beyond ${stationCall.resolved.berthRef}"
+                    return@forEach
                 }
             } else if (run.state == TimetableServiceRunState.DWELLING) {
                 if (run.dwellTicksRemaining > 0L) run.dwellTicksRemaining--
@@ -393,6 +431,8 @@ class TimetableDispatcher(
                     stationCall.stateEnteredDispatcherTick = dispatcherTick
                     run.state = TimetableServiceRunState.DEPARTING
                     run.message = "departing ${stationCall.resolved.berthRef}"
+                } else {
+                    run.message = "doors secured; waiting for route beyond ${stationCall.resolved.berthRef}"
                 }
             }
             if (run.state == TimetableServiceRunState.DEPARTED && stationCall != null &&
@@ -471,6 +511,7 @@ class TimetableDispatcher(
         allocator(world)
         val run = runs[id] ?: return false
         if (run.canBeReplaced() || run.state == TimetableServiceRunState.STOPPED) return true
+        cancelPendingOperation(run)
         run.ato.setSpeedLimit(stopKey(run.id), 0.0)
         run.state = TimetableServiceRunState.STOPPING
         run.message = "operator stop requested; route remains held until the tail clears"
@@ -526,6 +567,172 @@ class TimetableDispatcher(
         }
     }
 
+    private fun beginStationOperation(
+        run: ActiveRun,
+        stationCall: DispatcherStationCall,
+        operation: TrainOperation,
+        state: TimetableServiceRunState
+    ) {
+        val phase = when (operation) {
+            is TrainOperation.OpenDoors -> "open-doors"
+            is TrainOperation.CloseDoors -> "close-doors"
+            is TrainOperation.SetCabLights -> "cab-lights"
+            is TrainOperation.Announce -> "announce"
+        }
+        stationCall.operationTicket?.let { previous ->
+            val pending = runCatching {
+                previous.snapshot().state == TrainOperationTicketState.PENDING
+            }.getOrDefault(true)
+            if (pending) runCatching { previous.cancel() }
+        }
+        stationCall.operationTicket = null
+        stationCall.operationTicketId = null
+        stationCall.operationStartedDispatcherTick = Long.MAX_VALUE
+        val call = stationCall.resolved.call
+        val request = TrainOperationRequest(
+            requestId = "${call.callId}:$phase:${call.missionRevision}",
+            serviceRunId = run.id.toString(),
+            stationCallId = call.callId,
+            trainId = run.train.id,
+            missionRevision = call.missionRevision,
+            operation = operation
+        )
+        val result = try {
+            operationGateway.execute(request)
+        } catch (failure: Exception) {
+            enterManualIntervention(
+                run,
+                stationCall,
+                "$phase gateway exception: ${failure.message ?: failure::class.java.simpleName}"
+            )
+            return
+        }
+        when (result) {
+            is TrainOperationExecutionResult.Accepted -> {
+                if (result.ticket.request != request) {
+                    runCatching { result.ticket.cancel() }
+                    enterManualIntervention(run, stationCall, "$phase returned a ticket for another request")
+                    return
+                }
+                val initialSnapshot = runCatching { result.ticket.snapshot() }.getOrElse { failure ->
+                    runCatching { result.ticket.cancel() }
+                    enterManualIntervention(
+                        run,
+                        stationCall,
+                        "$phase ticket exception: ${failure.message ?: failure::class.java.simpleName}"
+                    )
+                    return
+                }
+                if (initialSnapshot.requestId != request.requestId) {
+                    runCatching { result.ticket.cancel() }
+                    enterManualIntervention(run, stationCall, "$phase ticket request identity mismatch")
+                    return
+                }
+                stationCall.operationTicket = result.ticket
+                stationCall.operationTicketId = initialSnapshot.ticketId
+                stationCall.operationStartedDispatcherTick = dispatcherTick
+                stationCall.stateEnteredDispatcherTick = dispatcherTick
+                run.state = state
+                run.message = "$phase requested for ${stationCall.resolved.berthRef}"
+            }
+            is TrainOperationExecutionResult.Rejected -> enterManualIntervention(
+                run,
+                stationCall,
+                "$phase rejected: ${result.reason}"
+            )
+        }
+    }
+
+    /** Returns true when this Tick produced a state transition and later phases must wait. */
+    private fun processStationOperation(
+        run: ActiveRun,
+        stationCall: DispatcherStationCall
+    ): Boolean {
+        val ticket = stationCall.operationTicket
+        if (ticket == null) {
+            enterManualIntervention(run, stationCall, "active door operation has no ticket")
+            return true
+        }
+        val snapshot = try {
+            ticket.snapshot()
+        } catch (failure: Exception) {
+            runCatching { ticket.cancel() }
+            enterManualIntervention(
+                run,
+                stationCall,
+                "operation ticket exception: ${failure.message ?: failure::class.java.simpleName}"
+            )
+            return true
+        }
+        if (snapshot.requestId != ticket.request.requestId ||
+            snapshot.ticketId != stationCall.operationTicketId
+        ) {
+            runCatching { ticket.cancel() }
+            enterManualIntervention(run, stationCall, "operation ticket identity changed")
+            return true
+        }
+        when (snapshot.state) {
+            TrainOperationTicketState.PENDING -> {
+                if (dispatcherTick - stationCall.operationStartedDispatcherTick >= operationTimeoutTicks) {
+                    runCatching { ticket.cancel() }
+                    enterManualIntervention(
+                        run,
+                        stationCall,
+                        "operation ${snapshot.ticketId} timed out after $operationTimeoutTicks ticks"
+                    )
+                    return true
+                }
+                return false
+            }
+            TrainOperationTicketState.SUCCEEDED -> {
+                when (run.state) {
+                    TimetableServiceRunState.DOORS_OPENING -> enterStationDwelling(run, stationCall)
+                    TimetableServiceRunState.DOORS_CLOSING -> enterReadyToDepart(run, stationCall)
+                    else -> enterManualIntervention(
+                        run,
+                        stationCall,
+                        "operation ${snapshot.ticketId} completed in invalid state ${run.state}"
+                    )
+                }
+                return true
+            }
+            TrainOperationTicketState.FAILED,
+            TrainOperationTicketState.CANCELLED -> {
+                enterManualIntervention(
+                    run,
+                    stationCall,
+                    "operation ${snapshot.ticketId} ${snapshot.state.name.lowercase()}" +
+                        snapshot.message?.let { ": $it" }.orEmpty()
+                )
+                return true
+            }
+        }
+    }
+
+    private fun enterStationDwelling(run: ActiveRun, stationCall: DispatcherStationCall) {
+        stationCall.earliestDepartureDispatcherTick =
+            stationCall.resolved.call.dwellPlan.earliestDepartureTick(dispatcherTick)
+        stationCall.stateEnteredDispatcherTick = dispatcherTick
+        run.state = TimetableServiceRunState.DWELLING
+        run.message = "dwelling at ${stationCall.resolved.berthRef}"
+    }
+
+    private fun enterReadyToDepart(run: ActiveRun, stationCall: DispatcherStationCall) {
+        stationCall.stateEnteredDispatcherTick = dispatcherTick
+        run.state = TimetableServiceRunState.READY_TO_DEPART
+        run.message = "ready to depart ${stationCall.resolved.berthRef}"
+    }
+
+    private fun enterManualIntervention(
+        run: ActiveRun,
+        stationCall: DispatcherStationCall,
+        reason: String
+    ) {
+        stationCall.stateEnteredDispatcherTick = dispatcherTick
+        run.state = TimetableServiceRunState.MANUAL_INTERVENTION
+        run.message = "$reason; DepartureHold remains applied"
+    }
+
     private fun processStationNotifications(run: ActiveRun) {
         run.ato.drainStationCallNotifications().forEach { notification ->
             val stationCall = run.stationCall ?: return@forEach
@@ -556,8 +763,6 @@ class TimetableDispatcher(
                     if (!stationCall.approaching || stationCall.berthed) return@forEach
                     stationCall.berthed = true
                     stationCall.stateEnteredDispatcherTick = dispatcherTick
-                    stationCall.earliestDepartureDispatcherTick =
-                        stationCall.resolved.call.dwellPlan.earliestDepartureTick(dispatcherTick)
                     run.state = TimetableServiceRunState.BERTHED
                     run.message = "berthed at ${notification.berthRef}"
                 }
@@ -793,9 +998,17 @@ class TimetableDispatcher(
     }
 
     private fun fail(run: ActiveRun, reason: String) {
+        cancelPendingOperation(run)
         run.ato.setSpeedLimit(stopKey(run.id), 0.0)
         run.state = TimetableServiceRunState.FAILED
         run.message = reason
+    }
+
+    private fun cancelPendingOperation(run: ActiveRun) {
+        val ticket = run.stationCall?.operationTicket ?: return
+        val pending = runCatching { ticket.snapshot().state == TrainOperationTicketState.PENDING }
+            .getOrDefault(true)
+        if (pending) runCatching { ticket.cancel() }
     }
 
     private fun finishControllerIfReleased(run: ActiveRun, snapshot: TrainSnapshot) {
@@ -955,6 +1168,7 @@ class TimetableDispatcher(
         const val ORIGIN_TOLERANCE_METERS = 1.0
         const val POSITION_TOLERANCE_METERS = 0.5
         const val RELEASE_EPSILON_METERS = 1.0e-6
+        const val DEFAULT_OPERATION_TIMEOUT_TICKS = 100L
     }
 
     private data class StationCallSpec(
@@ -1030,6 +1244,9 @@ class TimetableDispatcher(
         var departed: Boolean = false,
         var stateEnteredDispatcherTick: Long = 0L,
         var earliestDepartureDispatcherTick: Long = Long.MAX_VALUE,
+        var operationTicket: TrainOperationTicket? = null,
+        var operationTicketId: String? = null,
+        var operationStartedDispatcherTick: Long = Long.MAX_VALUE,
         var lastNotificationEpoch: Long = -1L,
         var tailMissionProgressMeters: Double? = null
     )
@@ -1059,19 +1276,26 @@ class TimetableDispatcher(
                 stationCall?.allocationKey == null &&
                 ato.isStopped(ato.currentTrainSnapshot.speedMetersPerSecond)
 
-        fun snapshot(): TimetableServiceRunSnapshot = TimetableServiceRunSnapshot(
-            id = id,
-            trainId = train.id,
-            missionRevision = missionRevision,
-            state = state,
-            confirmedSectionCount = allocations.size,
-            headProgressMeters = currentRuntime.headProgressMeters,
-            tailProgressMeters = currentRuntime.tailProgressMeters,
-            stationCallId = stationCall?.resolved?.call?.callId,
-            berthRef = stationCall?.resolved?.berthRef,
-            berthHeld = stationCall?.allocationKey != null,
-            message = message
-        )
+        fun snapshot(): TimetableServiceRunSnapshot {
+            val operation = stationCall?.operationTicket?.let { ticket ->
+                runCatching { ticket.snapshot() }.getOrNull()
+            }
+            return TimetableServiceRunSnapshot(
+                id = id,
+                trainId = train.id,
+                missionRevision = missionRevision,
+                state = state,
+                confirmedSectionCount = allocations.size,
+                headProgressMeters = currentRuntime.headProgressMeters,
+                tailProgressMeters = currentRuntime.tailProgressMeters,
+                stationCallId = stationCall?.resolved?.call?.callId,
+                berthRef = stationCall?.resolved?.berthRef,
+                berthHeld = stationCall?.allocationKey != null,
+                operationTicketId = operation?.ticketId ?: stationCall?.operationTicketId,
+                operationTicketState = operation?.state,
+                message = message
+            )
+        }
     }
 }
 
@@ -1084,7 +1308,10 @@ private fun TimetableServiceRunState.isStationOperationalState(): Boolean =
     this == TimetableServiceRunState.WAITING_BERTH ||
         this == TimetableServiceRunState.APPROACHING ||
         this == TimetableServiceRunState.BERTHED ||
+        this == TimetableServiceRunState.DOORS_OPENING ||
         this == TimetableServiceRunState.DWELLING ||
+        this == TimetableServiceRunState.DOORS_CLOSING ||
         this == TimetableServiceRunState.READY_TO_DEPART ||
         this == TimetableServiceRunState.DEPARTING ||
-        this == TimetableServiceRunState.DEPARTED
+        this == TimetableServiceRunState.DEPARTED ||
+        this == TimetableServiceRunState.MANUAL_INTERVENTION

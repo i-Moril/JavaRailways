@@ -11,6 +11,14 @@ import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.ato.AtoSafetyProfile
 import work.art1st.mineRails.basic.api.ato.AtoWorldCoordinator
 import work.art1st.mineRails.basic.api.ato.KinematicTrainActuator
+import work.art1st.mineRails.basic.api.operation.TrainOperation
+import work.art1st.mineRails.basic.api.operation.TrainOperationExecutionResult
+import work.art1st.mineRails.basic.api.operation.TrainOperationGateway
+import work.art1st.mineRails.basic.api.operation.TrainOperationRequest
+import work.art1st.mineRails.basic.api.operation.TrainOperationTicket
+import work.art1st.mineRails.basic.api.operation.TrainOperationTicketSnapshot
+import work.art1st.mineRails.basic.api.operation.TrainOperationTicketState
+import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.DwellPlan
 import work.art1st.mineRails.basic.api.station.Station
 import work.art1st.mineRails.basic.api.station.StationBerth
@@ -137,6 +145,122 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `door tickets gate station dwell and departure hold release`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.LEFT,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        val observed = linkedSetOf<TimetableServiceRunState>()
+        var openingCompleted = false
+        var closingCompleted = false
+
+        for (tick in 0 until 2_000) {
+            fixture.tick()
+            val status = fixture.dispatcher.status(id)!!
+            observed += status.state
+            if (status.state == TimetableServiceRunState.DOORS_OPENING && !openingCompleted) {
+                assertTrue(gateway.requests.single().operation is TrainOperation.OpenDoors)
+                assertEquals(TrainOperationTicketState.PENDING, status.operationTicketState)
+                gateway.tickets.single().succeed()
+                openingCompleted = true
+            }
+            if (status.state == TimetableServiceRunState.DOORS_CLOSING && !closingCompleted) {
+                assertEquals(2, gateway.requests.size)
+                assertTrue(gateway.requests.last().operation is TrainOperation.CloseDoors)
+                assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+                gateway.tickets.last().succeed()
+                closingCompleted = true
+            }
+            if (status.state == TimetableServiceRunState.COMPLETED) break
+        }
+
+        assertTrue(openingCompleted)
+        assertTrue(closingCompleted)
+        assertTrue(TimetableServiceRunState.DOORS_OPENING in observed)
+        assertTrue(TimetableServiceRunState.DWELLING in observed)
+        assertTrue(TimetableServiceRunState.DOORS_CLOSING in observed)
+        assertTrue(TimetableServiceRunState.READY_TO_DEPART in observed)
+        assertTrue(TimetableServiceRunState.DEPARTING in observed)
+        assertEquals(2, gateway.requests.size)
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `door operation timeout requires manual intervention and keeps departure hold`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.RIGHT,
+            operationGateway = gateway,
+            operationTimeoutTicks = 3L
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state ==
+                TimetableServiceRunState.MANUAL_INTERVENTION
+            ) break
+        }
+
+        val status = fixture.dispatcher.status(id)!!
+        assertEquals(TimetableServiceRunState.MANUAL_INTERVENTION, status.state)
+        assertEquals(TrainOperationTicketState.CANCELLED, status.operationTicketState)
+        assertTrue(status.berthHeld)
+        assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertTrue(status.message!!.contains("timed out"))
+        repeat(20) { fixture.tick() }
+        assertEquals(TimetableServiceRunState.MANUAL_INTERVENTION, fixture.dispatcher.status(id)?.state)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `failed close ticket never grants departure`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.BOTH,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        var closeFailed = false
+
+        for (tick in 0 until 1_500) {
+            fixture.tick()
+            when (fixture.dispatcher.status(id)?.state) {
+                TimetableServiceRunState.DOORS_OPENING ->
+                    if (gateway.tickets.single().snapshot().state ==
+                        TrainOperationTicketState.PENDING
+                    ) gateway.tickets.single().succeed()
+                TimetableServiceRunState.DOORS_CLOSING -> if (!closeFailed) {
+                    gateway.tickets.last().fail("door obstruction")
+                    closeFailed = true
+                }
+                TimetableServiceRunState.MANUAL_INTERVENTION -> break
+                else -> Unit
+            }
+        }
+
+        val status = fixture.dispatcher.status(id)!!
+        assertTrue(closeFailed)
+        assertEquals(TimetableServiceRunState.MANUAL_INTERVENTION, status.state)
+        assertEquals(TrainOperationTicketState.FAILED, status.operationTicketState)
+        assertFalse(status.state == TimetableServiceRunState.DEPARTING)
+        assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertTrue(status.berthHeld)
+    }
+
+    @Test
     fun `berth ownership survives mission replacement until the old tail clears`() {
         val fixture = fixture(
             releaseDistanceMetersAfter = 55.0,
@@ -243,21 +367,21 @@ class TimetableStationCallDispatcherTest {
         tick(blockingAto)
 
         val observed = linkedSetOf<TimetableServiceRunState>()
-        var dwellWaitTicks = 0
+        var readyWaitTicks = 0
         for (tick in 0 until 1_000) {
             tick(mainAto)
             dispatcher.tick(world)
             val state = dispatcher.status(mainId)!!.state
             observed += state
-            if (state == TimetableServiceRunState.DWELLING) dwellWaitTicks++
-            if (dwellWaitTicks >= 20) break
+            if (state == TimetableServiceRunState.READY_TO_DEPART) readyWaitTicks++
+            if (readyWaitTicks >= 20) break
         }
 
         assertTrue(TimetableServiceRunState.BERTHED in observed)
         assertTrue(TimetableServiceRunState.DWELLING in observed)
-        assertFalse(TimetableServiceRunState.READY_TO_DEPART in observed)
+        assertTrue(TimetableServiceRunState.READY_TO_DEPART in observed)
         assertFalse(TimetableServiceRunState.DEPARTING in observed)
-        assertEquals(TimetableServiceRunState.DWELLING, dispatcher.status(mainId)?.state)
+        assertEquals(TimetableServiceRunState.READY_TO_DEPART, dispatcher.status(mainId)?.state)
         assertEquals(0.0, mainTrain.speed, profile.stoppedSpeedThresholdMetersPerSecond)
         assertTrue(dispatcher.status(mainId)?.berthHeld == true)
         assertTrue(dispatcher.status(blockerId)?.confirmedSectionCount == 1)
@@ -377,12 +501,21 @@ class TimetableStationCallDispatcherTest {
         releaseDistanceMetersAfter: Double = 5.0,
         firstTargetOffsetMeters: Double = 100.0,
         nextTargetOffsetMeters: Double? = null,
-        includeStationAction: Boolean = false
+        includeStationAction: Boolean = false,
+        doorSide: DoorSide = DoorSide.NONE,
+        operationGateway: TrainOperationGateway = TrainOperationGateway {
+            TrainOperationExecutionResult.Rejected("not configured in this fixture")
+        },
+        operationTimeoutTicks: Long = 100L
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
-        val dispatcher = TimetableDispatcher { train, owningWorld ->
-            SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
-        }
+        val dispatcher = TimetableDispatcher(
+            operationGateway = operationGateway,
+            operationTimeoutTicks = operationTimeoutTicks,
+            atoFactory = TimetableAtoFactory { train, owningWorld ->
+                SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
+            }
+        )
         val data = BasicWorldData(
             dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("station-dispatcher", reportSink = {})
@@ -440,7 +573,8 @@ class TimetableStationCallDispatcherTest {
             positionToleranceMeters = 0.15,
             usableLengthMeters = 100.0,
             defaultDwellTicks = 5L,
-            releaseDistanceMetersAfter = releaseDistanceMetersAfter
+            releaseDistanceMetersAfter = releaseDistanceMetersAfter,
+            doorSide = doorSide
         )
         val station = Station(stationId, "Central", listOf(berthRef))
         data.stations.register(station, listOf(berth))
@@ -463,6 +597,51 @@ class TimetableStationCallDispatcherTest {
                 Curve.RawPoint(to, tangent, normal, length, Curve.SegmentType.LINE_END)
             )
         )
+    }
+
+    private class ControllableOperationGateway : TrainOperationGateway {
+        val requests = ArrayList<TrainOperationRequest>()
+        val tickets = ArrayList<ControllableOperationTicket>()
+
+        override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult {
+            requests += request
+            val ticket = ControllableOperationTicket(request)
+            tickets += ticket
+            return TrainOperationExecutionResult.Accepted(ticket)
+        }
+    }
+
+    private class ControllableOperationTicket(
+        override val request: TrainOperationRequest
+    ) : TrainOperationTicket {
+        private var state = TrainOperationTicketState.PENDING
+        private var failure: String? = null
+
+        fun succeed() {
+            if (state == TrainOperationTicketState.PENDING) {
+                state = TrainOperationTicketState.SUCCEEDED
+            }
+        }
+
+        fun fail(reason: String) {
+            if (state == TrainOperationTicketState.PENDING) {
+                state = TrainOperationTicketState.FAILED
+                failure = reason
+            }
+        }
+
+        override fun snapshot(): TrainOperationTicketSnapshot = TrainOperationTicketSnapshot(
+            ticketId = "test:${request.requestId}",
+            requestId = request.requestId,
+            state = state,
+            message = failure
+        )
+
+        override fun cancel() {
+            if (state == TrainOperationTicketState.PENDING) {
+                state = TrainOperationTicketState.CANCELLED
+            }
+        }
     }
 
     private inner class Fixture(

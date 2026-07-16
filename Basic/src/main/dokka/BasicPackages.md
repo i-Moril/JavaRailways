@@ -29,3 +29,7 @@ SimpleATO 使用的 owner-scoped 速度、停车、跟车和移动授权约束�
 # Package work.art1st.mineRails.basic.api.station
 
 Phase C2 的 Station 聚合、被动 StationBerth RailObject、StationCall/DwellPlan、主线程解析和不可变停站通知。
+
+# Package work.art1st.mineRails.basic.api.operation
+
+Phase C3 的平台无关语义列车操作、稳定 request、可确认 ticket 和主线程 Gateway 边界。

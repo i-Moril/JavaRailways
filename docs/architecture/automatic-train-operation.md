@@ -6,7 +6,7 @@ slug: /architecture/automatic-train-operation
 # 自动驾驶与运营协同设计
 
 :::warning 实施状态
-Phase A/B、C1 Mission 垂直切片和 Phase C2 Station 已实现；车门操作和插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
+Phase A/B、C1 Mission、Phase C2 Station 和 Phase C3 车门操作网关已实现；插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
 :::
 
 ## 当前实施状态
@@ -23,6 +23,8 @@ Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand →
 Phase C1 已完成弧长加权 Dijkstra、经路/Mission 契约和原子 `RouteSectionAllocator`。显式列车 TimetableDispatcher 会从已发布的 head/tail 快照计算 route progress，按动态触发距离和时刻表优先级分配 Section，以 movement authority 保护未确认入口，只在车尾越过 release point 后释放，并可推进 dwell 和后续 Mission。SimpleATO 负责停车曲线和 Confirmed Route Window 验证；Bukkit 提供 start/status/stop 命令。
 
 Phase C2.1 已增加 World-local StationStore、Station 聚合、被动 StationBerth RailObject、StationCall 和 DwellPlan 值。C2.2 已增加显式 berth/方向/长度解析、head-aligned Stop 与 DepartureHold，以及 physics 到主线程的 revisioned `APPROACHING`、`BERTHED`、`DEPARTED` 通知。C2.3 已接入 Dispatcher dwell/计划发车状态、后续经路确认、无抢占 berth 所有权和跨 Mission 车尾释放。C2.4 已增加严格 JS/TypeScript StationCall DSL，并把 call 与后续 goto Mission 自动配对。
+
+Phase C3 已增加主线程 `TrainOperationGateway`、稳定 operation request、可轮询/取消 ticket、开关门状态和 Bukkit 模型适配。开门确认后开始 minimum dwell；关门确认和后续经路授权都满足后才解除 DepartureHold。操作失败或 100 Dispatcher Tick 超时进入 `MANUAL_INTERVENTION`，不自动发车或触发 ATO Stall。
 
 ## 1. 背景
 
@@ -419,7 +421,7 @@ data class AtoMission(
 )
 ```
 
-Resolver 失败区分 target unresolved 和 route unavailable；`SimpleATO.submitMission` 另行区分 accepted 与 stale revision。所有已接受命令在 physics Tick 边界只激活最新 revision。Reverse、Terminate 和 StationCall point 尚未实现；StationCall 是 C2 的下一项工作。
+Resolver 失败区分 target unresolved 和 route unavailable；`SimpleATO.submitMission` 另行区分 accepted 与 stale revision。所有已接受命令在 physics Tick 边界只激活最新 revision。Reverse 和 Terminate point 尚未实现；StationCall 由独立的 C2 request/runtime 与 Mission revision 配对。
 
 ### 9.2 `StationCall`
 
@@ -482,15 +484,7 @@ Route 必须保持锁定，直到 TrainSnapshot 的 tail 完全越过 release po
 
 ## 10. 车站动作与发车状态机
 
-C2 先实现不含车门操作的主线程状态机：
-
-```text
-APPROACHING → BERTHED → DWELLING → READY_TO_DEPART → DEPARTING → DEPARTED
-```
-
-`BERTHED` 后建立 DepartureHold；只有 dwell/计划发车条件满足且下一段经路已确认时才解除。berth 所有权在车尾越过 release boundary 后释放，不能由 stop、failure 或车头先行离开强制释放。详细证据要求见 [Phase C2 Station 待验证项目](./station-validation-checklist.md)。
-
-Station/RailObject 不直接执行开门。C3 再引入以下主线程运营状态机：
+C2 建立了不含车门操作的停站、dwell、发车保持和车尾释放基础。Phase C3 已在该基础上实现以下主线程运营状态机：
 
 ```mermaid
 stateDiagram-v2
@@ -500,6 +494,8 @@ stateDiagram-v2
     DOORS_OPENING --> DWELLING: action confirmed
     DWELLING --> DOORS_CLOSING: departure time reached
     DOORS_CLOSING --> READY_TO_DEPART: action confirmed
+    DOORS_OPENING --> MANUAL_INTERVENTION: rejected / failed / timeout
+    DOORS_CLOSING --> MANUAL_INTERVENTION: rejected / failed / timeout
     READY_TO_DEPART --> DEPARTING: grant departure authority
     DEPARTING --> DEPARTED: train leaves berth
     DEPARTED --> [*]
@@ -508,8 +504,8 @@ stateDiagram-v2
 平台相关操作通过语义网关执行：
 
 ```kotlin
-interface TrainOperationGateway {
-    fun execute(trainId: String, operation: TrainOperation): OperationTicket
+fun interface TrainOperationGateway {
+    fun execute(request: TrainOperationRequest): TrainOperationExecutionResult
 }
 
 sealed interface TrainOperation {
@@ -520,7 +516,7 @@ sealed interface TrainOperation {
 }
 ```
 
-Bukkit 适配层将语义操作翻译为模型包 action 或 `behavior.js` 调用。关门未完成、动作失败或列车不支持该能力时，Dispatcher 必须执行显式策略，不能默认解除发车保持。
+Bukkit 适配层将语义操作翻译为模型包 action 或 `behavior.js` 的 `door(side, scene)` 调用。ticket 在模型声明的所有延迟效果到达最晚启动时刻后确认；这是模型执行确认，不是独立车门传感器反馈。关门未完成、动作失败或列车不支持该能力时，Dispatcher 进入 `MANUAL_INTERVENTION`，保留 DepartureHold、berth 和经路，不默认解除发车保持，也不自动重试。完整证据见 [Phase C3 TrainOperationGateway 验收清单](./train-operation-validation-checklist.md)。
 
 ## 11. ATO Registry（Phase D 计划）
 
@@ -669,4 +665,4 @@ Phase A/B 和 C1 Mission 垂直切片已完成。剩余工作拆成可独立验�
 
 ## 17. 未完成计划
 
-未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。当前最先实施的是 [Phase C2 Station 待验证项目](./station-validation-checklist.md)；车门操作、插件 Registry 和性能索引不得混入 C2 提交。
+未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。Phase C2/C3 证据分别保存在 [Station 清单](./station-validation-checklist.md) 和 [TrainOperationGateway 清单](./train-operation-validation-checklist.md)；当前下一阶段是插件与控制权生命周期，性能索引仍需等待 profiler 证据。

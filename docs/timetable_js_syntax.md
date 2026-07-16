@@ -6,7 +6,7 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前首版 JS 时刻表 DSL。C1/C2 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell 和显式 Station/Berth call；尚不支持 WayPointPool 自动选车、周期循环或车门操作。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
+本文档描述当前首版 JS 时刻表 DSL。C1/C2/C3 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell、显式 Station/Berth call 和可确认车门操作；尚不支持 WayPointPool 自动选车或周期循环。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
@@ -226,7 +226,7 @@ t.at(1500).goto("next-waypoint")
 - call 后必须直接配对一个 `goto`，并且 berth 必须位于该 Mission 经路前缀上。
 - `minimumDwellTicks`、`plannedDepartureTick` 和 `stoppingOffsetMetersBefore` 不能为负。
 - `plannedDepartureTick` 不能早于 call 的 `at(tick)`。
-- `doorSide` 只接受 `none`、`left`、`right`、`both`，在 C2 中只作为元数据，不执行车门操作。
+- `doorSide` 只接受 `none`、`left`、`right`、`both`。C3 会通过平台 operation gateway 执行开关门；`none` 保持无车门路径。
 - 未知 options 会导致 loader 严格失败。
 - 列车头部是固定停车对齐参考点；berth 所有权在车尾越过 release boundary 后释放。
 
@@ -387,7 +387,7 @@ function main(timetable) {
 
 ## 当前限制
 
-当前 loader 和 C2 Dispatcher 仍不会：
+当前 loader 和 C3 Dispatcher 仍不会：
 
 - 从 WayPointPool 或 `AnyTrain` 自动选择真实列车。
 - 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。

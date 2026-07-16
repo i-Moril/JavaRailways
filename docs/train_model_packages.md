@@ -641,7 +641,7 @@ defineAction("door-left-open", {
 
 ### 11.2 生命周期与调用 behavior
 
-当前只有 `onReverse(trainId)` 会在列车换向事件后自动调用。`onStation(...)` 只是推荐的自定义方法名，时刻表尚未自动调用它；目前需要调试命令或其他代码显式调用。
+`onReverse(trainId)` 会在列车换向事件后自动调用。带有效开门侧的 StationCall 会由 Phase C3 `TrainOperationGateway` 自动调用 `door(side, scene)`：开门时 `scene="open"`，关门时 `scene="closed"`。Gateway 会跟踪脚本调用的 `action(...)`，等所有声明的延迟效果到达最晚启动时刻后确认 operation ticket；任一 action 缺失或脚本失败都会让车次进入人工处理状态，并保持发车约束。`onStation(...)` 仍只是可通过调试命令或其他代码显式调用的自定义兼容方法。
 
 调试命令：
 

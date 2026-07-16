@@ -13,6 +13,8 @@ slug: /architecture/ato-roadmap
 - Phase B：owner-scoped 约束、固定减速度 Planner/Actuator、SimpleATO、线路限速、目标与线路末端停车、前车跟随、单一可选 Provider、道岔移动前校验。
 - Phase B 运维：World-local Stall、结构化 Stall dump、`/mr ato status|dump|reset`；不自动恢复列车位置。
 - Phase C1：加权 Planned Route、不可变 Mission、动态 Route Section 分配、movement authority、车尾释放、时刻表冲突优先级和显式列车 service 执行。
+- Phase C2：显式 Station/Berth call、停准通知、dwell、发车授权、berth 所有权和严格 JS/TypeScript DSL。
+- Phase C3：主线程 `TrainOperationGateway`、可确认车门 ticket、开关门状态机、超时人工处理和 Bukkit 模型适配。
 
 ## 已完成：Phase C1 Mission 垂直切片
 
@@ -89,14 +91,16 @@ slug: /architecture/ato-roadmap
 - 为显式 station/berth call 增加 JS DSL、TypeScript 类型、严格 loader 校验和状态诊断。
 - 暂不执行开关门、模型 action 或 `behavior.js`；这些属于 Phase C3。
 
-## 下一阶段：Phase C3 主线程操作网关
+## 已完成：Phase C3 主线程操作网关
 
-- 定义 `TrainOperationGateway`、语义操作和可确认的 operation ticket。
-- Bukkit 层将开关门等操作映射到模型 action 或 `behavior.js`。
-- 关门确认成功前不得解除 DepartureHold；失败或超时进入明确的人工处理状态。
-- 增加完整的 `BERTHED → DWELLING → READY_TO_DEPART → DEPARTED` 状态机测试。
+完整验收项见 [Phase C3 TrainOperationGateway 验收清单](./train-operation-validation-checklist.md)。
 
-## Phase D 插件与控制权生命周期
+- 已定义平台无关 `TrainOperationGateway`、语义操作、稳定 request 和可确认 operation ticket。
+- Bukkit 层把开关门映射到模型 `behavior.js` 的 `door(side, scene)` 或模型 action，并等待声明的延迟效果到达最晚启动时刻。
+- Dispatcher 已执行 `BERTHED → DOORS_OPENING → DWELLING → DOORS_CLOSING → READY_TO_DEPART`；关门确认和后续经路授权同时满足后才解除 DepartureHold。
+- rejected、failed、cancelled、异常或 100 Tick 超时进入 `MANUAL_INTERVENTION`，保留 DepartureHold 和资源，不触发 ATO Stall，也不自动重试。
+
+## 下一阶段：Phase D 插件与控制权生命周期
 
 - 建立带命名空间 ID 和可关闭 registration 的 ATO/RailObjectRule Registry。
 - 时刻表持久化 `atoTypeId` 和版本化 options，不持久化 JVM 类名。
@@ -133,5 +137,4 @@ slug: /architecture/ato-roadmap
 
 ## 后续阶段开工前需要确认
 
-1. C3 operation ticket 的超时是否直接进入人工处理状态。
-2. 人工接管结束后默认取消车次，还是允许重新规划并恢复 Mission。
+1. 人工接管结束后默认取消车次，还是允许重新规划并恢复 Mission。

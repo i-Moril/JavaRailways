@@ -1,12 +1,14 @@
 package work.art1st.mineRails.bukkit.extension.train
 
 import org.bukkit.Location
+import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorBindings
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorRuntime
 import work.art1st.mineRails.bukkit.config.model.TrainActionAnimationConfig
+import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
 import work.art1st.mineRails.bukkit.config.model.TrainBehaviorScript
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.core.api.physics.train.Train
@@ -17,6 +19,7 @@ import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.api.util.tick.TickingObject
 import work.art1st.mineRails.core.util.ThreadGuard
+import kotlin.math.max
 
 @OptIn(ExtensionData::class)
 val Train.rendererOrNull: TrainExtension?
@@ -29,10 +32,16 @@ val Train.renderer: TrainExtension
     get() = rendererOrNull
         ?: throw IllegalStateException("Train renderer 未注册到列车 ${this.id} 上")
 
+sealed interface TrainModelOperationResult {
+    data class Accepted(val completionDelaySeconds: Double) : TrainModelOperationResult
+    data class Rejected(val reason: String) : TrainModelOperationResult
+}
+
 class TrainExtension : CoreTrainExtension {
     lateinit var self: Train
     private var behaviorRuntime: TrainBehaviorRuntime? = null
     private var behaviorScript: TrainBehaviorScript? = null
+    private var actionExecutionTracker: ActionExecutionTracker? = null
     override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
     }
@@ -47,9 +56,15 @@ class TrainExtension : CoreTrainExtension {
 
     fun applyAction(name: String): Boolean {
         val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val action = modelManager.getTrainAction(resolvePackageName(), name) ?: return false
+        val action = modelManager.getTrainAction(resolvePackageName(), name)
+        if (action == null) {
+            actionExecutionTracker?.record(applied = false, completionDelaySeconds = 0.0)
+            return false
+        }
         var applied = false
+        var completionDelaySeconds = 0.0
         for (animation in action.animations) {
+            completionDelaySeconds = max(completionDelaySeconds, animation.at)
             if (animation.at > 0.0) {
                 scheduleDelayed(animation.at) { applyActionAnimation(animation) }
                 applied = true
@@ -58,6 +73,7 @@ class TrainExtension : CoreTrainExtension {
             }
         }
         for (sound in action.sounds) {
+            completionDelaySeconds = max(completionDelaySeconds, sound.at)
             if (sound.at > 0.0) {
                 scheduleDelayed(sound.at) { playSound(sound.key, sound.volume, sound.pitch) }
             } else {
@@ -65,7 +81,79 @@ class TrainExtension : CoreTrainExtension {
             }
             applied = true
         }
+        actionExecutionTracker?.record(applied, completionDelaySeconds)
         return applied
+    }
+
+    /**
+     * Executes the model's semantic door behavior and confirms only after all declared delayed
+     * action effects have reached their latest configured start time.
+     */
+    fun executeDoorOperation(
+        side: DoorSide,
+        opening: Boolean,
+        onComplete: () -> Unit
+    ): TrainModelOperationResult {
+        ThreadGuard.ensureMainThread("TrainExtension.executeDoorOperation")
+        if (side == DoorSide.NONE) return TrainModelOperationResult.Rejected("door side is NONE")
+        if (actionExecutionTracker != null) {
+            return TrainModelOperationResult.Rejected("another tracked train action is executing")
+        }
+        val tracker = ActionExecutionTracker()
+        actionExecutionTracker = tracker
+        val behaviorResult: TrainBehaviorCallResult?
+        try {
+            val modelManager = BukkitPlugin.INSTANCE.modelManager
+            val packageName = resolvePackageName()
+                ?: return TrainModelOperationResult.Rejected("train model package is unavailable")
+            val behavior = modelManager.getTrainBehavior(packageName)
+            behaviorResult = if (behavior != null) {
+                val runtime = ensureBehaviorRuntime(behavior)
+                    ?: return TrainModelOperationResult.Rejected("train behavior script failed to load")
+                runtime.call(
+                    "door",
+                    listOf(
+                        side.name.lowercase(),
+                        if (opening) "open" else "closed"
+                    )
+                )
+            } else {
+                val suffix = if (opening) "open" else "close"
+                val semanticSides = if (side == DoorSide.BOTH) {
+                    listOf("left", "right")
+                } else {
+                    listOf(side.name.lowercase())
+                }
+                val operatingFromTail = BukkitPlugin.INSTANCE.trainControlManager
+                    .operatingControlEndFor(self) == DriverControlEnd.TAIL
+                val physicalSides = semanticSides.map { semanticSide ->
+                    if (!operatingFromTail) semanticSide
+                    else if (semanticSide == "left") "right" else "left"
+                }
+                val applied = physicalSides.all { applyAction("door-$it-$suffix") }
+                if (applied) TrainBehaviorCallResult.Success("model-actions", true)
+                else TrainBehaviorCallResult.Failure("door model action is unavailable")
+            }
+        } finally {
+            actionExecutionTracker = null
+        }
+        if (behaviorResult is TrainBehaviorCallResult.Failure) {
+            return TrainModelOperationResult.Rejected(behaviorResult.message)
+        }
+        if (behaviorResult !is TrainBehaviorCallResult.Success || behaviorResult.returnValue == false) {
+            return TrainModelOperationResult.Rejected("door behavior rejected the operation")
+        }
+        if (tracker.callCount == 0 || tracker.failedCount > 0) {
+            return TrainModelOperationResult.Rejected(
+                "door behavior did not apply every requested model action"
+            )
+        }
+        if (tracker.completionDelaySeconds > 0.0) {
+            scheduleDelayed(tracker.completionDelaySeconds, onComplete)
+        } else {
+            onComplete()
+        }
+        return TrainModelOperationResult.Accepted(tracker.completionDelaySeconds)
     }
 
     private fun applyActionAnimation(animation: TrainActionAnimationConfig): Boolean {
@@ -149,6 +237,24 @@ class TrainExtension : CoreTrainExtension {
         val position = self.headLocation.position
         val location = Location(bukkitWorld, position.x(), position.y(), position.z())
         bukkitWorld.playSound(location, key, volume.toFloat(), pitch.toFloat())
+    }
+
+    private class ActionExecutionTracker {
+        var callCount: Int = 0
+            private set
+        var failedCount: Int = 0
+            private set
+        var completionDelaySeconds: Double = 0.0
+            private set
+
+        fun record(applied: Boolean, completionDelaySeconds: Double) {
+            callCount++
+            if (!applied) failedCount++
+            this.completionDelaySeconds = max(
+                this.completionDelaySeconds,
+                completionDelaySeconds.coerceAtLeast(0.0)
+            )
+        }
     }
 
     private inner class DelayedActionEffect(

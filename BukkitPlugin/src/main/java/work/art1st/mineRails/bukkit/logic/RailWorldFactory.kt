@@ -19,6 +19,7 @@ import work.art1st.mineRails.basic.safety.SpeedSafetyMonitor
 import work.art1st.mineRails.basic.timetable.TimetableAtoFactory
 import work.art1st.mineRails.basic.timetable.TimetableDispatcher
 import work.art1st.mineRails.bukkit.extension.train.rendererOrNull
+import work.art1st.mineRails.bukkit.operation.BukkitTrainOperationGateway
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.util.annotation.Heavy
@@ -61,17 +62,20 @@ object RailWorldFactory {
         coreWorld.registerExtensionData(
             BasicPlugin.INSTANCE,
             BasicWorldData(
-                dispatcher = TimetableDispatcher(atoFactory = TimetableAtoFactory { train, world ->
-                    val profile = AtoSafetyProfile()
-                    val packageName = train.rendererOrNull?.modelPackageName()
-                    val maximumSpeed = plugin.modelManager.getTrainControl(packageName).maxSpeed
-                    SimpleATO(
-                        train,
-                        world,
-                        KinematicTrainActuator(maximumSpeed, profile),
-                        profile
-                    )
-                }),
+                dispatcher = TimetableDispatcher(
+                    operationGateway = BukkitTrainOperationGateway(coreWorld),
+                    atoFactory = TimetableAtoFactory { train, world ->
+                        val profile = AtoSafetyProfile()
+                        val packageName = train.rendererOrNull?.modelPackageName()
+                        val maximumSpeed = plugin.modelManager.getTrainControl(packageName).maxSpeed
+                        SimpleATO(
+                            train,
+                            world,
+                            KinematicTrainActuator(maximumSpeed, profile),
+                            profile
+                        )
+                    }
+                ),
                 atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
                     atoLogger.severe(report.format())
                     runCatching { AtoStallDiagnostics.write(pluginDataFolder, report) }

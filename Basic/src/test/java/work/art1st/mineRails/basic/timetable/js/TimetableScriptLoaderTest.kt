@@ -1,5 +1,6 @@
 package work.art1st.mineRails.basic.timetable.js
 
+import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
@@ -20,6 +21,10 @@ import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.timetable.TimetableAction
 import work.art1st.mineRails.basic.timetable.TimetableStep
 import work.art1st.mineRails.basic.timetable.TrainSelector
+import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
+import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTestWorld
@@ -78,18 +83,21 @@ class TimetableScriptLoaderTest {
     fun `loads strict depot selector options`() {
         val world = createTestWorld().also(worlds::add)
         TestBasicWorldDataRegistry.getOrCreate(world)
-        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
+        val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
+        val returnRail = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
+        CoreRail.connect(rail, returnRail)
+        CoreRail.connect(returnRail, rail)
         OperationalDestinationService(world).register(
             OperationalDestination(
                 "north-one",
                 "North one",
                 rail.id,
-                0.0,
+                10.0,
                 work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB,
                 DestinationRole.DepotStablingPointRole("north", "one")
             )
         )
-        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 50.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", "B", returnRail.id, 50.0))
         val script = File(tempDir, "depot.js")
         script.writeText(
             """
@@ -104,6 +112,7 @@ class TimetableScriptLoaderTest {
                   capabilities: ["doors"]
                 })
                 t.at(100).goto("B")
+                t.at(200).storeAtDepot("north", { stablingPoints: ["one"] })
               })
             }
             """.trimIndent()
@@ -121,6 +130,10 @@ class TimetableScriptLoaderTest {
         assertEquals(8, action.selector.maximumCars)
         assertEquals(16.5, action.selector.minimumSpeedMetersPerSecond)
         assertEquals(setOf("doors"), action.selector.requiredCapabilities)
+        assertEquals(
+            TimetableAction.StoreAtDepot(DepotId("north"), setOf("one")),
+            ((result.timetable.services.single().steps.last()) as TimetableStep.At).action
+        )
     }
 
     @Test
@@ -240,6 +253,23 @@ class TimetableScriptLoaderTest {
 
         assertTrue(result is TimetableScriptLoadResult.Failure)
         assertTrue((result as TimetableScriptLoadResult.Failure).message.contains("setPeriodDays"))
+    }
+
+    private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail = CoreRail(
+        world,
+        straightCurve(from, to),
+        mutableListOf(),
+        mutableListOf()
+    )
+
+    private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
+        val tangent = Vector3d(to).sub(from).normalize()
+        val normal = Vector3d(0.0, 1.0, 0.0)
+        val length = from.distance(to)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(from, tangent, normal, 0.0, Curve.SegmentType.LINE_START),
+            Curve.RawPoint(to, tangent, normal, length, Curve.SegmentType.LINE_END)
+        ))
     }
 
     @Test

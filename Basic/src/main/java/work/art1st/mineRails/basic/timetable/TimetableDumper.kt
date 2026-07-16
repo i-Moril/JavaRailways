@@ -64,6 +64,13 @@ object TimetableDumper {
                     JsonArray(selector.requiredCapabilities.sorted().map(::JsonPrimitive))
             )
         )
+        is TimetableAction.StoreAtDepot -> JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("storeAtDepot"),
+                "depotId" to JsonPrimitive(depotId.value),
+                "stablingPoints" to JsonArray(stablingPointIds.sorted().map(::JsonPrimitive))
+            )
+        )
         is TimetableAction.GoTo -> JsonObject(
             mapOf("type" to JsonPrimitive("goto"), "wayPointId" to JsonPrimitive(wayPointId))
         )

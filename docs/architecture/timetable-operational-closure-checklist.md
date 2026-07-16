@@ -36,11 +36,11 @@ slug: /architecture/timetable-operational-closure-checklist
 - [x] **T3-03** `takeFromDepot` 严格匹配 tags、编组、速度和 capabilities。
 - [x] **T3-04** 候选列车按稳定 ID 排序后使用 timetable/cycle/service seed 可复现随机分配。
 - [x] **T3-05** 没有匹配 AVAILABLE 列车时触发所属 World Stall，不放宽筛选或跨 Depot 取车。
-- [ ] **T3-06** `storeAtDepot` 原子选择筛选后的空闲兼容停车点。
-- [ ] **T3-07** 列车停稳、整列进入边界且旧资源车尾释放后才变为 AVAILABLE。
-- [ ] **T3-08** 无兼容存车位时 World Stall，不部分提交 occupancy。
+- [x] **T3-06** `storeAtDepot` 原子选择筛选后的空闲兼容停车点。
+- [x] **T3-07** 列车停稳、整列进入边界且旧资源车尾释放后才变为 AVAILABLE。
+- [x] **T3-08** 无兼容存车位时 World Stall，不部分提交 occupancy。
 
-T3 证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛选、原子 reservation/cancel 和稳定 seed；`TimetableScriptLoaderTest` 覆盖严格 `takeFromDepot` options；`TimetableDispatcherTest` 覆盖动态绑定、从实际 directed StablingPoint 创建 Mission，以及无匹配列车的 World-local Stall。Depot Destination 会同步注册 StablingPoint，管理员可用 `/mr depot assign|list` 预解析并登记现有列车。`storeAtDepot` 与车尾离库释放尚未完成。
+T3 证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛选、原子 reservation/cancel、离库释放、存车 handoff 和稳定 seed；`TimetableScriptLoaderTest` 覆盖严格 Depot options；`TimetableDispatcherTest` 覆盖动态绑定、从实际 directed StablingPoint 创建 Mission、完整取存车闭环，以及无匹配列车的 World-local Stall。旧 RouteSection/StationBerth 必须先自然车尾释放；最终 storage RouteSection 在存车期间保持确认，并转交给同车下一次离库 run，仍只在车尾越过原 release boundary 后释放。Depot Destination 会同步注册 StablingPoint，管理员可用 `/mr depot assign|list` 预解析并登记现有列车。
 
 ## T4 管理员 Reset
 

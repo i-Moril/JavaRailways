@@ -1,5 +1,6 @@
 package work.art1st.mineRails.basic.timetable
 
+import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
@@ -57,6 +58,14 @@ sealed class TimetableStep {
 sealed class TimetableAction {
     /** Select and reserve one compatible AVAILABLE train from its home Depot. */
     data class TakeFromDepot(val selector: DepotTrainSelector) : TimetableAction()
+    data class StoreAtDepot(
+        val depotId: DepotId,
+        val stablingPointIds: Set<String> = emptySet()
+    ) : TimetableAction() {
+        init {
+            stablingPointIds.forEach { require(it.isNotBlank() && it == it.trim()) }
+        }
+    }
     data class GoTo(val wayPointId: String) : TimetableAction()
     data class GoVia(val wayPointIds: List<String>) : TimetableAction()
     data class Stop(val ticks: Long) : TimetableAction()
@@ -125,6 +134,7 @@ class TimetableValidator(private val world: World) {
         var pendingStationCall: Pair<Int, TimetableAction.CallStation>? = null
         var dynamicOriginCandidates: List<String>? = null
         var takeFromDepotCount = 0
+        var takeFromDepotId: DepotId? = null
 
         service.steps.forEachIndexed { index, step ->
             when (step) {
@@ -151,6 +161,7 @@ class TimetableValidator(private val world: World) {
                     when (step.action) {
                         is TimetableAction.TakeFromDepot -> {
                             takeFromDepotCount++
+                            takeFromDepotId = step.action.selector.depotId
                             if (takeFromDepotCount > 1) {
                                 errors.add("$prefix step#$index 只能声明一次 takeFromDepot")
                             }
@@ -165,6 +176,19 @@ class TimetableValidator(private val world: World) {
                             }
                             if (pendingStationCall != null) {
                                 errors.add("$prefix step#$index station call 后不得 takeFromDepot")
+                            }
+                        }
+                        is TimetableAction.StoreAtDepot -> {
+                            if (takeFromDepotCount != 1 || takeFromDepotId != step.action.depotId) {
+                                errors.add(
+                                    "$prefix step#$index storeAtDepot 必须返回 takeFromDepot 的 home Depot"
+                                )
+                            }
+                            if (index != service.steps.lastIndex) {
+                                errors.add("$prefix step#$index storeAtDepot 必须是 service 的最后一步")
+                            }
+                            if (pendingStationCall != null) {
+                                errors.add("$prefix step#$index station call 后必须先 goto，不能直接存车")
                             }
                         }
                         is TimetableAction.CallStation -> {
@@ -306,6 +330,39 @@ class TimetableValidator(private val world: World) {
                                     point.point.destinationId
                             )
                         }
+                    }
+                    points.first().point.destinationId.takeIf(::wayPointExists)
+                }
+            }
+            is TimetableAction.StoreAtDepot -> {
+                val allPoints = world.basicWorldData.depots.stablingPoints(action.depotId)
+                val points = allPoints.filter {
+                    action.stablingPointIds.isEmpty() ||
+                        it.point.ref.pointId in action.stablingPointIds
+                }
+                if (allPoints.isEmpty()) {
+                    errors.add("$prefix step#$stepIndex Depot 不存在或没有 StablingPoint: ${action.depotId}")
+                    currentWayPointId
+                } else if (points.isEmpty()) {
+                    errors.add(
+                        "$prefix step#$stepIndex 没有匹配的 StablingPoint: " +
+                            action.stablingPointIds.sorted()
+                    )
+                    currentWayPointId
+                } else {
+                    val known = allPoints.map { it.point.ref.pointId }.toSet()
+                    (action.stablingPointIds - known).forEach { missing ->
+                        errors.add("$prefix step#$stepIndex StablingPoint 不存在: ${action.depotId}/$missing")
+                    }
+                    points.forEach { point ->
+                        validateGoTo(
+                            prefix,
+                            stepIndex,
+                            currentWayPointId,
+                            point.point.destinationId,
+                            errors,
+                            routes
+                        )
                     }
                     points.first().point.destinationId.takeIf(::wayPointExists)
                 }

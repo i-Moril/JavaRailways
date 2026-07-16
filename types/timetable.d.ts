@@ -43,11 +43,21 @@ interface MineRailsDepotSelectorOptions {
   capabilities?: readonly string[];
 }
 
+interface MineRailsDepotStorageOptions {
+  /** Optional strict allow-list of StablingPoint IDs in the home Depot. */
+  stablingPoints?: readonly string[];
+}
+
 interface MineRailsTimedActionBuilder {
   /** Atomically reserve one compatible AVAILABLE train from its home Depot. */
   takeFromDepot(
     depotId: string,
     options?: MineRailsDepotSelectorOptions,
+  ): MineRailsServiceBuilderLike;
+  /** Reserve a compatible empty point and finish the service inside the home Depot. */
+  storeAtDepot(
+    depotId: string,
+    options?: MineRailsDepotStorageOptions,
   ): MineRailsServiceBuilderLike;
   goto(wayPointId: string | readonly string[]): MineRailsServiceBuilderLike;
   stop(ticks: number): MineRailsServiceBuilderLike;

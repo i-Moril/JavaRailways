@@ -9,6 +9,8 @@ import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolver
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
 import work.art1st.mineRails.basic.api.depot.DepotTrainAllocation
+import work.art1st.mineRails.basic.api.depot.DepotStorageReservation
+import work.art1st.mineRails.basic.api.depot.DepotStorageReservationResult
 import work.art1st.mineRails.basic.api.depot.DepotTrainAllocationResult
 import work.art1st.mineRails.basic.api.operation.RejectingTrainOperationGateway
 import work.art1st.mineRails.basic.api.operation.TrainOperation
@@ -77,6 +79,7 @@ enum class TimetableServiceRunState {
     READY_TO_DEPART,
     DEPARTING,
     DEPARTED,
+    STORING,
     MANUAL_INTERVENTION,
     SUSPENDED,
     REPLAN_REQUIRED,
@@ -189,7 +192,7 @@ class TimetableDispatcher(
             return TimetableEpochStartResult.Failure(validation.errors.joinToString("; "))
         }
         val blocking = runs.values.firstOrNull {
-            it.id.timetableId == timetableId && !it.canBeReplaced()
+            it.id.timetableId == timetableId && !it.canBeReplaced() && !it.isStoredTerminal()
         }
         if (blocking != null) {
             return TimetableEpochStartResult.Failure(
@@ -221,7 +224,7 @@ class TimetableDispatcher(
             )
         }
         val runId = TimetableServiceRunId(timetableId, serviceId)
-        runs[runId]?.takeUnless(ActiveRun::canBeReplaced)?.let {
+        runs[runId]?.takeUnless { it.canBeReplaced() || it.isStoredTerminal() }?.let {
             return TimetableServiceStartResult.Failure("service is already active or still holds route: $runId")
         }
 
@@ -257,7 +260,10 @@ class TimetableDispatcher(
             selected.depotAllocation?.let { world.basicWorldData.depots.cancelReservation(it) }
             return TimetableServiceStartResult.Failure(reason)
         }
-        if (runs.values.any { it.train.id == trainId && !it.canBeReplaced() }) {
+        if (runs.values.any {
+                it.train.id == trainId && !it.canBeReplaced() && !it.isStoredTerminal()
+            }
+        ) {
             return startupFailure("train is already assigned to a service: $trainId")
         }
         val train = world.getTrain(trainId) as? CoreTrain
@@ -266,10 +272,19 @@ class TimetableDispatcher(
 
         val existingController = train.controller
         if (existingController != null && existingController !is SimpleATO) {
-            return startupFailure("train already has another controller: $trainId")
+            val reason = "train already has another controller: $trainId"
+            if (runs.values.any { it.train.id == trainId && it.isStoredTerminal() }) {
+                stallDepotAllocation(world, runId, "$reason while a stored route remains tail-held")
+            }
+            return startupFailure(reason)
         }
         val replaceableTrainRuns = runs.values.filter {
-            it.train.id == trainId && it.canBeReplaced()
+            it.train.id == trainId && (it.canBeReplaced() || it.isStoredTerminal())
+        }
+        if (replaceableTrainRuns.any(ActiveRun::isStoredTerminal) && existingController == null) {
+            val reason = "stored train $trainId lost the ATO that owns its tail-held route"
+            stallDepotAllocation(world, runId, reason)
+            return startupFailure(reason)
         }
         if (existingController is SimpleATO) {
             replaceableTrainRuns.forEach {
@@ -339,8 +354,16 @@ class TimetableDispatcher(
             cycleIndex = cycleIndex,
             cycleStartDispatcherTick = cycleStartDispatcherTick,
             lastObservedDispatcherTick = dispatcherTick,
-            depotAllocation = selected.depotAllocation
+            depotAllocation = selected.depotAllocation,
+            depotDepartureRuntime = runtime.takeIf { selected.depotAllocation != null }
         )
+        replaceableTrainRuns.filter(ActiveRun::isStoredTerminal).forEach { previous ->
+            check(previous.stationCall?.allocationKey == null) {
+                "stored run still owns a StationBerth: ${previous.id}"
+            }
+            run.runtimes += previous.runtimes
+            run.allocations.putAll(previous.allocations)
+        }
         run.runtimes += runtime
         replaceableTrainRuns.forEach { runs.remove(it.id) }
         runs[runId] = run
@@ -650,6 +673,7 @@ class TimetableDispatcher(
             }
             updateTailProgress(run, snapshot)
             updateStationTailProgress(run, snapshot)
+            releaseDepotDeparture(world, run)
             releasePassedSections(run, sectionAllocator)
             releasePassedBerth(run)
 
@@ -783,6 +807,11 @@ class TimetableDispatcher(
             if (missionCompleted(run, runtime, snapshot) &&
                 (run.stationCall == null || run.stationCall?.departed == true)
             ) {
+                if (runtime === run.storageRuntime) {
+                    if (!tryCompleteStorage(world, run, runtime, sectionAllocator)) {
+                        return@forEach
+                    }
+                }
                 run.currentWayPointId = runtime.targetWayPointId
                 advanceService(world, run)
                 return@forEach
@@ -831,7 +860,9 @@ class TimetableDispatcher(
     fun stopService(world: World, id: TimetableServiceRunId): Boolean {
         allocator(world)
         val run = runs[id] ?: return false
-        if (run.canBeReplaced() || run.state == TimetableServiceRunState.STOPPED) return true
+        if (run.canBeReplaced() || run.state == TimetableServiceRunState.STOPPED ||
+            run.isStoredTerminal()
+        ) return true
         cancelPendingOperation(run)
         run.ato.setSpeedLimit(stopKey(run.id), 0.0)
         run.state = TimetableServiceRunState.STOPPING
@@ -1239,6 +1270,62 @@ class TimetableDispatcher(
         }
     }
 
+    private fun releaseDepotDeparture(world: World, run: ActiveRun) {
+        val allocation = run.depotAllocation ?: return
+        if (run.depotDepartureReleased) return
+        val runtime = run.depotDepartureRuntime ?: error("Depot departure has no Mission runtime")
+        val tailProgress = runtime.tailProgressMeters ?: return
+        if (tailProgress < DEPOT_DEPARTURE_RELEASE_EPSILON_METERS) return
+        check(world.basicWorldData.depots.releaseDeparture(allocation)) {
+            "Depot departure occupancy disappeared before tail release: $allocation"
+        }
+        run.depotDepartureReleased = true
+    }
+
+    private fun tryCompleteStorage(
+        world: World,
+        run: ActiveRun,
+        runtime: MissionRuntime,
+        allocator: RouteSectionAllocator
+    ): Boolean {
+        val reservation = run.storageReservation
+            ?: error("storage Mission has no StablingPoint reservation: ${run.id}")
+        val point = world.basicWorldData.depots.stablingPoint(reservation.stablingPointRef)
+            ?: error("reserved StablingPoint disappeared: ${reservation.stablingPointRef}")
+        val trainLength = run.train.cars.sumOf { it.length }
+        val protectedLength = point.point.usableLengthMeters ?: trainLength
+        val storageEntryProgress = (runtime.layout.totalLengthMeters - protectedLength)
+            .coerceAtLeast(0.0)
+        val tailProgress = runtime.tailProgressMeters ?: return false
+        if (tailProgress + POSITION_TOLERANCE_METERS < storageEntryProgress) {
+            run.state = TimetableServiceRunState.STORING
+            run.message = "waiting for full train envelope inside ${reservation.stablingPointRef}"
+            return false
+        }
+        if (run.stationCall?.allocationKey != null) {
+            run.state = TimetableServiceRunState.STORING
+            run.message = "waiting for old StationBerth tail release before storage"
+            return false
+        }
+        if (run.allocations.values.any { it.runtime !== runtime }) {
+            run.state = TimetableServiceRunState.STORING
+            run.message = "waiting for old RouteSection tail release before storage"
+            return false
+        }
+        val storageKeys = run.allocations.filterValues { it.runtime === runtime }.keys
+        val confirmedKeys = allocator.confirmedWindows().map { it.key }.toSet()
+        check(storageKeys.all { it in confirmedKeys }) {
+            "storage RouteSection allocation disappeared before occupancy handoff"
+        }
+        check(world.basicWorldData.depots.completeStorage(reservation)) {
+            "StablingPoint reservation changed before storage completion: $reservation"
+        }
+        run.storageReservation = null
+        run.storageCompleted = true
+        run.message = "stored at ${reservation.stablingPointRef}; terminal route remains tail-held"
+        return true
+    }
+
     private fun releasePassedSections(run: ActiveRun, allocator: RouteSectionAllocator) {
         val iterator = run.allocations.entries.iterator()
         while (iterator.hasNext()) {
@@ -1279,6 +1366,81 @@ class TimetableDispatcher(
                     run.nextStepIndex++
                 }
                 is TimetableStep.At -> when (val action = step.action) {
+                    is TimetableAction.StoreAtDepot -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        recordScheduledAction(run, step.tick)
+                        val allocation = run.depotAllocation
+                        if (allocation == null || !run.depotDepartureReleased) {
+                            fail(run, "storeAtDepot requires a tail-released takeFromDepot assignment")
+                            return
+                        }
+                        val reservation = when (val result = world.basicWorldData.depots.reserveStorage(
+                            trainId = run.train.id,
+                            depotId = action.depotId,
+                            requestedPointIds = action.stablingPointIds,
+                            assignmentId = allocation.assignmentId,
+                            stableSeed = "${run.id.timetableId}|${run.cycleIndex}|" +
+                                "${run.id.serviceId}|store|${run.nextStepIndex}"
+                        )) {
+                            is DepotStorageReservationResult.Reserved -> result.reservation
+                            is DepotStorageReservationResult.NoCompatiblePoint -> {
+                                val reason = "no compatible empty StablingPoint in ${result.depotId}; " +
+                                    "requested=${result.requestedPointIds.sorted()}"
+                                stallDepotAllocation(world, run.id, reason)
+                                fail(run, reason)
+                                return
+                            }
+                            is DepotStorageReservationResult.RollingStockUnavailable -> {
+                                val reason = "RollingStock ${result.trainId} cannot be stored: ${result.reason}"
+                                stallDepotAllocation(world, run.id, reason)
+                                fail(run, reason)
+                                return
+                            }
+                        }
+                        val point = world.basicWorldData.depots
+                            .stablingPoint(reservation.stablingPointRef)
+                        val target = point?.point?.destinationId
+                        if (target == null) {
+                            world.basicWorldData.depots.cancelStorage(reservation)
+                            fail(run, "reserved StablingPoint disappeared: ${reservation.stablingPointRef}")
+                            return
+                        }
+                        val movementStep = TimetableStep.At(step.tick, TimetableAction.GoTo(target))
+                        val plan = movement(
+                            run.id,
+                            WayPointRef(run.currentWayPointId),
+                            movementStep,
+                            run.nextStepIndex + 1
+                        )
+                        val submission = submitMission(world, run.ato, run.id, plan)
+                        val accepted = submission.accepted
+                        if (accepted == null) {
+                            check(world.basicWorldData.depots.cancelStorage(reservation)) {
+                                "failed storage Mission lost its reservation: $reservation"
+                            }
+                            fail(run, submission.failure!!)
+                            return
+                        }
+                        val runtime = MissionRuntime(
+                            mission = accepted.mission,
+                            layout = accepted.layout,
+                            priorityTick = plan.priorityTick,
+                            targetWayPointId = plan.target.id,
+                            lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
+                        )
+                        run.runtimes += runtime
+                        run.currentRuntime = runtime
+                        run.missionRevision = accepted.mission.revision
+                        run.nextStepIndex = plan.nextStepIndex
+                        run.storageReservation = reservation
+                        run.storageRuntime = runtime
+                        run.state = TimetableServiceRunState.STORING
+                        run.message = "storing at ${reservation.stablingPointRef}"
+                        return
+                    }
                     is TimetableAction.TakeFromDepot -> {
                         fail(run, "takeFromDepot is only valid as the first service step")
                         return
@@ -1480,6 +1642,7 @@ class TimetableDispatcher(
                 is TimetableStep.Check -> origin = WayPointRef(step.wayPointId)
                 is TimetableStep.At -> when (val action = step.action) {
                     is TimetableAction.TakeFromDepot -> Unit
+                    is TimetableAction.StoreAtDepot -> return null
                     is TimetableAction.CallStation -> {
                         if (stationCallSpec != null) return null
                         stationCallSpec = StationCallSpec(
@@ -1518,6 +1681,7 @@ class TimetableDispatcher(
                 else AtoMissionPoint.Via(target)
             }
             is TimetableAction.TakeFromDepot,
+            is TimetableAction.StoreAtDepot,
             is TimetableAction.Stop,
             is TimetableAction.CallStation -> error("action is not a movement action")
         }
@@ -1637,6 +1801,7 @@ class TimetableDispatcher(
         const val ORIGIN_TOLERANCE_METERS = 1.0
         const val POSITION_TOLERANCE_METERS = 0.5
         const val RELEASE_EPSILON_METERS = 1.0e-6
+        const val DEPOT_DEPARTURE_RELEASE_EPSILON_METERS = 1.0e-6
         const val DEFAULT_OPERATION_TIMEOUT_TICKS = 100L
         const val REPLAN_STOPPED_SPEED_METERS_PER_SECOND = 0.05
     }
@@ -1760,6 +1925,11 @@ class TimetableDispatcher(
         var pendingStationCallSpec: StationCallSpec? = null,
         var controlTransferOwner: String? = null,
         val depotAllocation: DepotTrainAllocation? = null,
+        val depotDepartureRuntime: MissionRuntime? = null,
+        var depotDepartureReleased: Boolean = depotAllocation == null,
+        var storageReservation: DepotStorageReservation? = null,
+        var storageRuntime: MissionRuntime? = null,
+        var storageCompleted: Boolean = false,
         val runtimes: MutableList<MissionRuntime> = ArrayList(),
         val allocations: MutableMap<RouteSectionAllocationKey, AllocatedSection> = LinkedHashMap()
     ) {
@@ -1767,7 +1937,12 @@ class TimetableDispatcher(
 
         fun canBeReplaced(): Boolean =
             state.isTerminal() && allocations.isEmpty() &&
-                stationCall?.allocationKey == null &&
+                stationCall?.allocationKey == null && storageReservation == null &&
+                ato.isStopped(ato.currentTrainSnapshot.speedMetersPerSecond)
+
+        fun isStoredTerminal(): Boolean =
+            state == TimetableServiceRunState.COMPLETED && storageCompleted &&
+                storageReservation == null && stationCall?.allocationKey == null &&
                 ato.isStopped(ato.currentTrainSnapshot.speedMetersPerSecond)
 
         fun snapshot(): TimetableServiceRunSnapshot {

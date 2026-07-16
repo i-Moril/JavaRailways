@@ -142,6 +142,28 @@ class TimedActionBuilder(
         return ServiceBuilderLike
     }
 
+    fun storeAtDepot(depotId: String): ServiceBuilderLike =
+        storeAtDepot(depotId, null)
+
+    fun storeAtDepot(depotId: String, options: Value?): ServiceBuilderLike {
+        val context = "service($serviceId).at($tick).storeAtDepot"
+        if (depotId.isBlank()) throw TimetableDslException("$context: depotId 不能为空")
+        if (options != null && !options.isNull && !options.hasMembers()) {
+            throw TimetableDslException("$context: options 必须是对象")
+        }
+        val members = options?.takeUnless(Value::isNull)?.memberKeys.orEmpty()
+        val unknown = members - STORE_AT_DEPOT_OPTIONS
+        if (unknown.isNotEmpty()) {
+            throw TimetableDslException("$context: 未知 options: ${unknown.sorted().joinToString()}")
+        }
+        val pointIds = options.optionalStringSet("stablingPoints", context)
+        val action = runCatching {
+            TimetableAction.StoreAtDepot(DepotId(depotId), pointIds)
+        }.getOrElse { throw TimetableDslException("$context: ${it.message}") }
+        addAction(action)
+        return ServiceBuilderLike
+    }
+
     fun goto(target: Value): ServiceBuilderLike {
         val action = when {
             target.isString -> TimetableAction.GoTo(target.asString())
@@ -213,6 +235,7 @@ class TimedActionBuilder(
             "minimumSpeedMetersPerSecond",
             "capabilities"
         )
+        val STORE_AT_DEPOT_OPTIONS = setOf("stablingPoints")
         val STATION_CALL_OPTIONS = setOf(
             "minimumDwellTicks",
             "plannedDepartureTick",

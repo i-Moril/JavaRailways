@@ -25,6 +25,7 @@ class DepotStoreTest {
 
         assertEquals(a.allocation.trainId, b.allocation.trainId)
         assertTrue(first.confirmInService(a.allocation))
+        assertTrue(first.releaseDeparture(a.allocation))
         assertEquals(
             RollingStockState.IN_SERVICE,
             first.rollingStock(a.allocation.trainId)?.state
@@ -47,6 +48,56 @@ class DepotStoreTest {
 
         assertTrue(result is DepotTrainAllocationResult.NoMatchingTrain)
         assertEquals(2, (result as DepotTrainAllocationResult.NoMatchingTrain).availableTrainCount)
+    }
+
+    @Test
+    fun `storage reservation atomically restores occupancy and availability`() {
+        val store = storeWithRollingStock()
+        val selector = DepotTrainSelector(DepotId("north"), requiredTags = setOf("metro"))
+        val allocated = store.allocate(selector, "tt:0:S1", "take-seed") as
+            DepotTrainAllocationResult.Allocated
+        assertTrue(store.confirmInService(allocated.allocation))
+        assertTrue(store.releaseDeparture(allocated.allocation))
+
+        val storage = store.reserveStorage(
+            trainId = allocated.allocation.trainId,
+            depotId = DepotId("north"),
+            requestedPointIds = setOf("one", "two"),
+            assignmentId = allocated.allocation.assignmentId,
+            stableSeed = "store-seed"
+        ) as DepotStorageReservationResult.Reserved
+
+        assertTrue(store.completeStorage(storage.reservation))
+        val rolling = store.rollingStock(allocated.allocation.trainId)!!
+        val point = store.stablingPoint(storage.reservation.stablingPointRef)!!
+        assertEquals(RollingStockState.AVAILABLE, rolling.state)
+        assertEquals(null, rolling.assignmentId)
+        assertEquals(allocated.allocation.trainId, point.occupantTrainId)
+        assertEquals(null, point.reservedByAssignmentId)
+    }
+
+    @Test
+    fun `storage selection fails without partial reservation`() {
+        val store = storeWithRollingStock()
+        val selector = DepotTrainSelector(DepotId("north"), requiredTags = setOf("metro"))
+        val allocated = store.allocate(selector, "tt:0:S1", "take-seed") as
+            DepotTrainAllocationResult.Allocated
+        assertTrue(store.confirmInService(allocated.allocation))
+        assertTrue(store.releaseDeparture(allocated.allocation))
+
+        val result = store.reserveStorage(
+            trainId = allocated.allocation.trainId,
+            depotId = DepotId("north"),
+            requestedPointIds = setOf("missing"),
+            assignmentId = allocated.allocation.assignmentId,
+            stableSeed = "store-seed"
+        )
+
+        assertTrue(result is DepotStorageReservationResult.NoCompatiblePoint)
+        assertTrue(store.stablingPoints(DepotId("north")).all {
+            it.reservedByAssignmentId == null
+        })
+        assertEquals(RollingStockState.IN_SERVICE, store.rollingStock(allocated.allocation.trainId)?.state)
     }
 
     @Test

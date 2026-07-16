@@ -135,6 +135,22 @@ sealed interface DepotTrainAllocationResult {
     data class AssignmentConflict(val assignmentId: String) : DepotTrainAllocationResult
 }
 
+data class DepotStorageReservation(
+    val assignmentId: String,
+    val trainId: String,
+    val stablingPointRef: StablingPointRef
+)
+
+sealed interface DepotStorageReservationResult {
+    data class Reserved(val reservation: DepotStorageReservation) : DepotStorageReservationResult
+    data class NoCompatiblePoint(
+        val depotId: DepotId,
+        val requestedPointIds: Set<String>
+    ) : DepotStorageReservationResult
+    data class RollingStockUnavailable(val trainId: String, val reason: String) :
+        DepotStorageReservationResult
+}
+
 /** Main-thread owner of Depot configuration, occupancy, rolling stock, and atomic assignments. */
 class DepotStore {
     private data class PointRuntime(
@@ -155,6 +171,7 @@ class DepotStore {
     private val points = LinkedHashMap<StablingPointRef, PointRuntime>()
     private val rollingStock = LinkedHashMap<String, RollingRuntime>()
     private val assignments = LinkedHashMap<String, DepotTrainAllocation>()
+    private val storageReservations = LinkedHashMap<String, DepotStorageReservation>()
 
     @MainThread
     fun addStablingPoint(
@@ -261,6 +278,118 @@ class DepotStore {
         DepotTrainAllocationResult.Allocated(allocation)
     }
 
+    /** Release the occupied departure point only after the train tail has entered its outbound route. */
+    @MainThread
+    fun releaseDeparture(allocation: DepotTrainAllocation): Boolean = synchronized(lock) {
+        if (assignments[allocation.assignmentId] != allocation) return@synchronized false
+        val runtime = rollingStock[allocation.trainId] ?: return@synchronized false
+        if (runtime.state != RollingStockState.IN_SERVICE ||
+            runtime.assignmentId != allocation.assignmentId ||
+            runtime.stablingPointRef != allocation.stablingPointRef
+        ) return@synchronized false
+        val point = points[allocation.stablingPointRef] ?: return@synchronized false
+        if (point.occupantTrainId != allocation.trainId ||
+            point.reservedByAssignmentId != allocation.assignmentId
+        ) return@synchronized false
+        point.occupantTrainId = null
+        point.reservedByAssignmentId = null
+        runtime.stablingPointRef = null
+        true
+    }
+
+    @MainThread
+    fun reserveStorage(
+        trainId: String,
+        depotId: DepotId,
+        requestedPointIds: Set<String>,
+        assignmentId: String,
+        stableSeed: String
+    ): DepotStorageReservationResult = synchronized(lock) {
+        val runtime = rollingStock[trainId]
+            ?: return@synchronized DepotStorageReservationResult.RollingStockUnavailable(
+                trainId,
+                "RollingStock is not registered"
+            )
+        if (runtime.homeAssignmentMismatch(depotId, assignmentId)) {
+            return@synchronized DepotStorageReservationResult.RollingStockUnavailable(
+                trainId,
+                "RollingStock is not IN_SERVICE for assignment $assignmentId in its home Depot"
+            )
+        }
+        storageReservations[assignmentId]?.let { existing ->
+            return@synchronized if (existing.trainId == trainId &&
+                existing.stablingPointRef.depotId == depotId &&
+                (requestedPointIds.isEmpty() || existing.stablingPointRef.pointId in requestedPointIds)
+            ) {
+                DepotStorageReservationResult.Reserved(existing)
+            } else {
+                DepotStorageReservationResult.RollingStockUnavailable(
+                    trainId,
+                    "assignment already has another storage reservation"
+                )
+            }
+        }
+        val candidates = points.values.asSequence()
+            .filter { it.point.ref.depotId == depotId }
+            .filter { requestedPointIds.isEmpty() || it.point.ref.pointId in requestedPointIds }
+            .filter { it.occupantTrainId == null && it.reservedByAssignmentId == null }
+            .filter { pointAccepts(it.point, runtime.record) }
+            .sortedBy { it.point.ref.pointId }
+            .toList()
+        if (candidates.isEmpty()) {
+            return@synchronized DepotStorageReservationResult.NoCompatiblePoint(
+                depotId,
+                requestedPointIds.toSet()
+            )
+        }
+        val selected = candidates[stableSelectionIndex(stableSeed, candidates.size)]
+        val reservation = DepotStorageReservation(assignmentId, trainId, selected.point.ref)
+        selected.reservedByAssignmentId = assignmentId
+        storageReservations[assignmentId] = reservation
+        DepotStorageReservationResult.Reserved(reservation)
+    }
+
+    @MainThread
+    fun cancelStorage(reservation: DepotStorageReservation): Boolean = synchronized(lock) {
+        if (storageReservations.remove(reservation.assignmentId) != reservation) {
+            return@synchronized false
+        }
+        points[reservation.stablingPointRef]?.let { point ->
+            if (point.reservedByAssignmentId == reservation.assignmentId &&
+                point.occupantTrainId == null
+            ) {
+                point.reservedByAssignmentId = null
+            }
+        }
+        true
+    }
+
+    /** Atomic reservation-to-occupancy handoff after Dispatcher verifies the full train envelope. */
+    @MainThread
+    fun completeStorage(reservation: DepotStorageReservation): Boolean = synchronized(lock) {
+        if (storageReservations[reservation.assignmentId] != reservation) return@synchronized false
+        val allocation = assignments[reservation.assignmentId] ?: return@synchronized false
+        if (allocation.trainId != reservation.trainId) return@synchronized false
+        val runtime = rollingStock[reservation.trainId] ?: return@synchronized false
+        if (runtime.state != RollingStockState.IN_SERVICE ||
+            runtime.assignmentId != reservation.assignmentId ||
+            runtime.stablingPointRef != null
+        ) return@synchronized false
+        val point = points[reservation.stablingPointRef] ?: return@synchronized false
+        if (point.occupantTrainId != null ||
+            point.reservedByAssignmentId != reservation.assignmentId ||
+            !pointAccepts(point.point, runtime.record)
+        ) return@synchronized false
+        point.occupantTrainId = reservation.trainId
+        point.reservedByAssignmentId = null
+        runtime.state = RollingStockState.AVAILABLE
+        runtime.stablingPointRef = reservation.stablingPointRef
+        runtime.assignmentId = null
+        storageReservations.remove(reservation.assignmentId)
+        assignments.remove(reservation.assignmentId)
+        true
+    }
+
     @MainThread
     fun confirmInService(allocation: DepotTrainAllocation): Boolean = synchronized(lock) {
         if (assignments[allocation.assignmentId] != allocation) return@synchronized false
@@ -306,6 +435,13 @@ class DepotStore {
     fun allRollingStock(): List<RollingStockSnapshot> = synchronized(lock) {
         rollingStock.values.sortedBy { it.record.trainId }.map { it.snapshot() }
     }
+
+    private fun RollingRuntime.homeAssignmentMismatch(
+        depotId: DepotId,
+        expectedAssignmentId: String
+    ): Boolean = record.homeDepotId != depotId ||
+        state != RollingStockState.IN_SERVICE ||
+        assignmentId != expectedAssignmentId
 
     private fun RollingRuntime.snapshot(): RollingStockSnapshot = RollingStockSnapshot(
         record,

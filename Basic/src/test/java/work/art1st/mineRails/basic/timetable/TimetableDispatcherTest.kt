@@ -181,6 +181,143 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `storeAtDepot releases departure occupancy and completes availability handoff`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-store", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
+        val returnRail = rail(world, Vector3d(140.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
+        CoreRail.connect(rail, returnRail)
+        CoreRail.connect(returnRail, rail)
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        val destinations = OperationalDestinationService(world)
+        destinations.register(
+            OperationalDestination(
+                "north-out",
+                "North outbound",
+                rail.id,
+                originArc,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(
+                    "north",
+                    "out",
+                    usableLengthMeters = 20.0
+                )
+            )
+        )
+        destinations.register(
+            OperationalDestination(
+                "north-in",
+                "North inbound",
+                rail.id,
+                originArc + 100.0,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(
+                    "north",
+                    "in",
+                    usableLengthMeters = 20.0
+                )
+            )
+        )
+        data.wayPoints.add(WayPoint("B", "B", returnRail.id, 50.0))
+        val depotId = DepotId("north")
+        data.depots.registerRollingStock(
+            RollingStockRecord(
+                train.id,
+                depotId,
+                "test/s100",
+                setOf("metro"),
+                1,
+                10.0,
+                20.0,
+                setOf("doors")
+            ),
+            StablingPointRef(depotId, "out")
+        )
+        data.timetables.add(
+            Timetable(
+                "tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.TakeFromDepot(DepotTrainSelector(depotId))
+                            ),
+                            TimetableStep.At(0L, TimetableAction.GoTo("B")),
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.StoreAtDepot(depotId, setOf("in"))
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val start = dispatcher.startService(world, "tt", "s1")
+        assertTrue(start is TimetableServiceStartResult.Started, start.toString())
+        val ato = train.controller as SimpleATO
+        repeat(8_000) {
+            tickAndPublish(ato)
+            dispatcher.tick(world)
+        }
+
+        val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
+        assertEquals(TimetableServiceRunState.COMPLETED, status.state)
+        assertTrue(status.confirmedSectionCount > 0)
+        assertEquals(originArc + 100.0, train.head.location.arcLength, 0.6)
+        val rolling = data.depots.rollingStock(train.id)!!
+        assertEquals(RollingStockState.AVAILABLE, rolling.state)
+        assertEquals(StablingPointRef(depotId, "in"), rolling.stablingPointRef)
+        assertEquals(null, data.depots.stablingPoint(StablingPointRef(depotId, "out"))?.occupantTrainId)
+        assertEquals(train.id, data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
+        assertTrue(!data.atoCoordinator.isStalled)
+
+        data.wayPoints.add(WayPoint("C", "C", rail.id, originArc + 115.0))
+        data.timetables.add(
+            Timetable(
+                "tt-depart-again",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.TakeFromDepot(
+                                    DepotTrainSelector(depotId, requiredTags = setOf("metro"))
+                                )
+                            ),
+                            TimetableStep.At(0L, TimetableAction.GoTo("C"))
+                        )
+                    )
+                )
+            )
+        )
+        val departure = dispatcher.startService(world, "tt-depart-again", "s1")
+        assertTrue(departure is TimetableServiceStartResult.Started, departure.toString())
+        val departureAto = train.controller as SimpleATO
+        repeat(2_000) {
+            tickAndPublish(departureAto)
+            dispatcher.tick(world)
+        }
+        val departureStatus = dispatcher.status(
+            TimetableServiceRunId("tt-depart-again", "s1")
+        )!!
+        assertEquals(TimetableServiceRunState.COMPLETED, departureStatus.state)
+        assertEquals(1, departureStatus.confirmedSectionCount)
+        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
+        assertEquals(null, data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
+        assertTrue(!data.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `takeFromDepot miss stalls only its world`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()

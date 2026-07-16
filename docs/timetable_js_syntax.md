@@ -6,11 +6,11 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前 JS 时刻表 DSL。C1/C2/C3/T1/T3 运行时可以执行显式 `TrainId` 或 `takeFromDepot` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell、显式 Station/Berth call、可确认车门操作，以及共同 epoch 下的 not-before 计划时间；尚不支持 `storeAtDepot` 或自动创建下一 cycle。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
+本文档描述当前 JS 时刻表 DSL。C1/C2/C3/T1/T3 运行时可以执行显式 `TrainId` 或 Depot 动态配车 service 的连续 `GoTo`/`GoVia`、`takeFromDepot`/`storeAtDepot`、普通 `Stop` dwell、显式 Station/Berth call、可确认车门操作，以及共同 epoch 下的 not-before 计划时间；尚不支持自动创建下一 cycle。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
 :::info 已确认但尚未全部实现的语义
-[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定整张运营闭环。`setPeriodDays(days)`、管理员 start 的共同 epoch、`at(tick)` not-before、lateness 和 Depot 动态取车已落地；Depot 存车与自动下一 cycle 仍以 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
+[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定整张运营闭环。`setPeriodDays(days)`、管理员 start 的共同 epoch、`at(tick)` not-before、lateness 和 Depot 动态取存车已落地；自动下一 cycle 仍以 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
@@ -194,6 +194,25 @@ timetable.service("001", function(t) {
 - 被选列车必须仍停在其 directed StablingPoint；
 - 无匹配 `AVAILABLE` 列车会触发当前 World 的 ATO Stall；
 - 未知 option、非法范围、缺失 Depot/StablingPoint 会导致 loader 失败。
+
+### `t.at(tick).storeAtDepot(depotId, options?)`
+
+为运行中的动态配车 service 原子保留一个兼容空闲停车点，并以其 directed Destination 创建最终 Mission：
+
+```js
+t.at(22000).storeAtDepot("north", {
+  stablingPoints: ["north-1", "north-2"]
+})
+```
+
+规则：
+
+- 必须是 service 最后一步，并返回该 service `takeFromDepot` 的 home Depot；
+- `stablingPoints` 是可选的严格 StablingPoint ID allow-list；省略时使用 home Depot 全部停车点；
+- 停车点必须未占用、未保留，长度和 allowed tags 必须兼容；
+- 无兼容空闲停车点会触发当前 World 的 ATO Stall，且不会部分修改 occupancy；
+- 只有列车停准、完整车身进入停车边界、旧 StationBerth/RouteSection 已由车尾释放后，才会原子地从 reservation 转为 occupancy 和 `AVAILABLE`；
+- 最终 storage RouteSection 不会提前释放；它在存车期间保持确认，并在下一次离库时继续由车尾越过原 release boundary 后释放。
 
 列车和 home depot 目前由管理员在列车停止并准确位于 directed StablingPoint 后登记：
 

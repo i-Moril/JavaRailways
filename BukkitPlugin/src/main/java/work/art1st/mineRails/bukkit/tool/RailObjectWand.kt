@@ -148,7 +148,9 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 ConfigItemImpl(editKeys.berthId),
                 ConfigItemImpl(editKeys.doorSide),
                 ConfigItemImpl(editKeys.depotId),
-                ConfigItemImpl(editKeys.stablingPointId)
+                ConfigItemImpl(editKeys.stablingPointId),
+                ConfigItemImpl(editKeys.stablingUsableLength),
+                ConfigItemImpl(editKeys.stablingAllowedTags)
             )
         ))
     }
@@ -206,6 +208,22 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             "railObject.waypoint.stablingPointId",
             "Stabling Point ID",
             7
+        )
+        val stablingUsableLength = ConfigKey.build<Double>(
+            "railObject.waypoint.stablingUsableLength"
+        ) {
+            label = "停车点有效长度"
+            description = "0 表示暂不限制；正数单位为米"
+            defaultValue(0.0)
+            valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(0.0, 1000.0, 1.0, "m")
+            group = "railObject.waypoint.edit"
+            order = 8
+        }
+        val stablingAllowedTags = stringKey(
+            "railObject.waypoint.stablingAllowedTags",
+            "允许车型 Tags（逗号分隔）",
+            9
         )
 
         companion object {
@@ -580,6 +598,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val depotRole = role as? DestinationRole.DepotStablingPointRole
         session.setValue(editKeys.depotId, depotRole?.depotId.orEmpty())
         session.setValue(editKeys.stablingPointId, depotRole?.stablingPointId.orEmpty())
+        session.setValue(editKeys.stablingUsableLength, depotRole?.usableLengthMeters ?: 0.0)
+        session.setValue(editKeys.stablingAllowedTags, depotRole?.allowedTags?.sorted()?.joinToString(",").orEmpty())
         dialogRenderer.showConfigDialog(player, "railObject.waypoint.edit") { p ->
             applyWayPointDialog(p)
         }
@@ -609,7 +629,15 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 DestinationRoleType.DEPOT_STABLING_POINT ->
                     DestinationRole.DepotStablingPointRole(
                         depotId = session.getValue(editKeys.depotId).orEmpty().trim(),
-                        stablingPointId = session.getValue(editKeys.stablingPointId).orEmpty().trim()
+                        stablingPointId = session.getValue(editKeys.stablingPointId).orEmpty().trim(),
+                        usableLengthMeters = session.getValue(editKeys.stablingUsableLength)
+                            ?.takeIf { it > 0.0 },
+                        allowedTags = session.getValue(editKeys.stablingAllowedTags)
+                            .orEmpty()
+                            .split(',')
+                            .map(String::trim)
+                            .filter(String::isNotEmpty)
+                            .toSet()
                     )
             }
         } catch (failure: Exception) {

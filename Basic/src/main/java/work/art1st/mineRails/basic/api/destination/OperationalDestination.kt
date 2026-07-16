@@ -1,6 +1,9 @@
 package work.art1st.mineRails.basic.api.destination
 
 import work.art1st.mineRails.basic.WayPoint
+import work.art1st.mineRails.basic.api.depot.DepotId
+import work.art1st.mineRails.basic.api.depot.DepotStablingPoint
+import work.art1st.mineRails.basic.api.depot.StablingPointRef
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.StationBerth
 import work.art1st.mineRails.basic.api.station.StationBerthRef
@@ -57,14 +60,23 @@ sealed interface DestinationRole {
 
     data class DepotStablingPointRole(
         val depotId: String,
-        val stablingPointId: String
+        val stablingPointId: String,
+        val depotDisplayName: String = depotId,
+        val usableLengthMeters: Double? = null,
+        val allowedTags: Set<String> = emptySet()
     ) : DestinationRole {
         override val type: DestinationRoleType = DestinationRoleType.DEPOT_STABLING_POINT
 
         init {
             requireStableId("depotId", depotId)
             requireStableId("stablingPointId", stablingPointId)
+            require(depotDisplayName.isNotBlank() && depotDisplayName == depotDisplayName.trim())
+            require(usableLengthMeters == null || usableLengthMeters.isFinite() && usableLengthMeters > 0.0)
+            allowedTags.forEach { requireStableId("allowedTag", it) }
         }
+
+        val pointRef: StablingPointRef
+            get() = StablingPointRef(DepotId(depotId), stablingPointId)
     }
 
     companion object {
@@ -153,13 +165,27 @@ class OperationalDestinationService(private val world: World) {
             "Destination arc exceeds rail length: ${destination.arcLengthInAbMeters} > $railLength"
         }
         val stationRole = destination.role as? DestinationRole.StationBerthRole
+        val depotRole = destination.role as? DestinationRole.DepotStablingPointRole
         if (stationRole != null) registerStationBerth(destination, stationRole, railLength)
+        if (depotRole != null) {
+            data.depots.addStablingPoint(
+                depotId = depotRole.pointRef.depotId,
+                depotDisplayName = depotRole.depotDisplayName,
+                point = DepotStablingPoint(
+                    ref = depotRole.pointRef,
+                    destinationId = destination.id,
+                    usableLengthMeters = depotRole.usableLengthMeters,
+                    allowedTags = depotRole.allowedTags
+                )
+            )
+        }
         try {
             data.wayPoints.add(destination.toWayPoint())
             data.destinations.add(destination)
         } catch (failure: Exception) {
             data.wayPoints.remove(destination.id)
             if (stationRole != null) data.stations.removeBerth(stationRole.berthRef)
+            if (depotRole != null) data.depots.removeStablingPoint(depotRole.pointRef)
             throw failure
         }
     }
@@ -187,9 +213,15 @@ class OperationalDestinationService(private val world: World) {
 
     @MainThread
     fun remove(id: String): OperationalDestination? {
-        val destination = data.destinations.remove(id) ?: return null
+        val destination = data.destinations[id] ?: return null
+        (destination.role as? DestinationRole.DepotStablingPointRole)?.let { role ->
+            data.depots.removeStablingPoint(role.pointRef)
+        }
         (destination.role as? DestinationRole.StationBerthRole)?.let { role ->
             data.stations.removeBerth(role.berthRef)
+        }
+        check(data.destinations.remove(id) == destination) {
+            "Destination changed during main-thread removal: $id"
         }
         data.wayPoints.remove(id)
         return destination

@@ -31,14 +31,16 @@ slug: /architecture/timetable-operational-closure-checklist
 
 ## T3 Depot 与动态配车
 
-- [ ] **T3-01** 每列车有唯一 home depot 和预解析 RollingStockRecord。
-- [ ] **T3-02** StablingPoint occupancy/reservation 与 service train assignment 主线程原子更新。
+- [x] **T3-01** 每列车有唯一 home depot 和预解析 RollingStockRecord。
+- [x] **T3-02** StablingPoint occupancy/reservation 与 service train assignment 主线程原子更新。
 - [ ] **T3-03** `takeFromDepot` 严格匹配 tags、编组、速度和 capabilities。
-- [ ] **T3-04** 候选列车按稳定 ID 排序后使用 timetable/cycle/service seed 可复现随机分配。
+- [x] **T3-04** 候选列车按稳定 ID 排序后使用 timetable/cycle/service seed 可复现随机分配。
 - [ ] **T3-05** 没有匹配 AVAILABLE 列车时触发所属 World Stall，不放宽筛选或跨 Depot 取车。
 - [ ] **T3-06** `storeAtDepot` 原子选择筛选后的空闲兼容停车点。
 - [ ] **T3-07** 列车停稳、整列进入边界且旧资源车尾释放后才变为 AVAILABLE。
 - [ ] **T3-08** 无兼容存车位时 World Stall，不部分提交 occupancy。
+
+T3 基础证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛选、原子 reservation/cancel 和稳定 seed；Depot Destination 会同步注册 StablingPoint，管理员可用 `/mr depot assign|list` 预解析并登记现有列车。`takeFromDepot`/`storeAtDepot` Dispatcher 闭环和 Stall 尚未完成。
 
 ## T4 管理员 Reset
 

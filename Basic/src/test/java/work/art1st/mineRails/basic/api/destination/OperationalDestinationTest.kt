@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.pathFinding.RailDestination
@@ -107,6 +108,39 @@ class OperationalDestinationTest {
 
         assertEquals(listOf(secondRole.berthRef), world.basicWorldData.stations[stationId]?.berthRefs)
         assertNull(world.basicWorldData.stations.berth(firstRole.berthRef))
+    }
+
+    @Test
+    fun `depot destination registers one passive stabling point`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val service = OperationalDestinationService(world)
+        val role = DestinationRole.DepotStablingPointRole(
+            depotId = "north",
+            stablingPointId = "one",
+            usableLengthMeters = 90.0,
+            allowedTags = setOf("metro")
+        )
+
+        service.register(
+            OperationalDestination(
+                "north-one",
+                "North one",
+                rail.id,
+                30.0,
+                ViewDirection.AB,
+                role
+            )
+        )
+
+        val point = world.basicWorldData.depots.stablingPoints(DepotId("north")).single()
+        assertEquals("north-one", point.point.destinationId)
+        assertEquals(90.0, point.point.usableLengthMeters)
+        assertEquals(setOf("metro"), point.point.allowedTags)
     }
 
     @Test

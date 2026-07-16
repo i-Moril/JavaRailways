@@ -6,6 +6,9 @@ import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
 import org.bukkit.command.TabCompleter
 import org.bukkit.entity.Player
+import work.art1st.mineRails.basic.api.depot.DepotId
+import work.art1st.mineRails.basic.api.depot.RollingStockRecord
+import work.art1st.mineRails.basic.api.depot.StablingPointRef
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.RouteBuildResult
@@ -19,7 +22,10 @@ import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoadResult
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoader
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
+import work.art1st.mineRails.bukkit.extension.train.rendererOrNull
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import java.io.File
 
 class MineRailsCommand : CommandExecutor, TabCompleter {
@@ -41,6 +47,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
             "route" -> return handleRoute(sender, args.drop(1))
             "timetable", "tt" -> return handleTimetable(sender, args.drop(1))
+            "depot" -> return handleDepot(sender, args.drop(1))
             "ato" -> return handleAto(sender, args.drop(1))
             "perf", "performance" -> return handlePerf(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
@@ -58,7 +65,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         args: Array<out String>
     ): List<String> {
         if (args.size == 1) {
-            return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "ato", "stop", "perf", "undo", "redo", "help")
+            return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "depot", "ato", "stop", "perf", "undo", "redo", "help")
         }
         if (args[0].equals("ato", ignoreCase = true)) {
             if (args.size == 2) return listOf("status", "dump", "reset")
@@ -189,6 +196,125 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         }
         return true
     }
+
+    private fun handleDepot(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) { sender.sendMessage("Player only"); return true }
+        if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
+            sender.sendMessage("没有权限管理车辆段")
+            return true
+        }
+        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] ?: run {
+            sender.sendMessage("错误: 无法获取 MineRails 世界")
+            return true
+        }
+        val store = world.basicWorldData.depots
+        when (args.firstOrNull()?.lowercase()) {
+            "assign" -> {
+                val trainId = args.getOrNull(1)
+                val depotValue = args.getOrNull(2)
+                val pointValue = args.getOrNull(3)
+                if (trainId == null || depotValue == null || pointValue == null) {
+                    sender.sendMessage(
+                        "用法: /mr depot assign <train> <depot> <point> [tagsCsv] [capabilitiesCsv]"
+                    )
+                    return true
+                }
+                val train = world.getTrain(trainId) ?: run {
+                    sender.sendMessage("列车不存在: $trainId")
+                    return true
+                }
+                if (train.speed > 0.05) {
+                    sender.sendMessage("列车必须停止后才能登记到车辆段")
+                    return true
+                }
+                val depotId = runCatching { DepotId(depotValue) }.getOrElse {
+                    sender.sendMessage("Depot ID 无效: ${it.message}")
+                    return true
+                }
+                val pointRef = runCatching { StablingPointRef(depotId, pointValue) }.getOrElse {
+                    sender.sendMessage("StablingPoint ID 无效: ${it.message}")
+                    return true
+                }
+                val point = store.stablingPoint(pointRef) ?: run {
+                    sender.sendMessage("车辆段停车点不存在: $pointRef")
+                    return true
+                }
+                val destination = world.basicWorldData.destinations[point.point.destinationId] ?: run {
+                    sender.sendMessage("停车点 Destination 不存在: ${point.point.destinationId}")
+                    return true
+                }
+                val location = train.headLocation as? RailLocationWithFacing
+                val arcInAb = location?.arcLengthIn(ViewDirection.AB)
+                if (location == null || location.rail.id != destination.railId ||
+                    location.facing != destination.approachDirection ||
+                    arcInAb == null || kotlin.math.abs(arcInAb - destination.arcLengthInAbMeters) > 1.0
+                ) {
+                    sender.sendMessage("列车不在 directed StablingPoint $pointRef")
+                    return true
+                }
+                val packageName = train.rendererOrNull?.modelPackageName() ?: run {
+                    sender.sendMessage("列车没有可解析的模型包")
+                    return true
+                }
+                val maximumSpeed = runCatching {
+                    BukkitPlugin.INSTANCE.modelManager.getTrainControl(packageName).maxSpeed
+                }.getOrElse {
+                    sender.sendMessage("列车控制配置无效: ${it.message}")
+                    return true
+                }
+                val explicitTags = parseCsv(args.getOrNull(4))
+                val explicitCapabilities = parseCsv(args.getOrNull(5))
+                val inferredCapabilities = train.rendererOrNull?.behaviorActions().orEmpty()
+                    .map { it.name }
+                    .filter { it.startsWith("door-") }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { setOf("doors") }
+                    .orEmpty()
+                val record = RollingStockRecord(
+                    trainId = train.id,
+                    homeDepotId = depotId,
+                    tags = explicitTags.ifEmpty { setOf(packageName) },
+                    carCount = train.cars.size,
+                    lengthMeters = train.cars.sumOf { it.length },
+                    maximumSpeedMetersPerSecond = maximumSpeed,
+                    capabilities = explicitCapabilities + inferredCapabilities
+                )
+                runCatching { store.registerRollingStock(record, pointRef) }
+                    .onSuccess {
+                        sender.sendMessage(
+                            "已登记列车 ${train.id}: depot=$depotId point=$pointRef " +
+                                "tags=${record.tags.sorted()} capabilities=${record.capabilities.sorted()}"
+                        )
+                    }
+                    .onFailure { sender.sendMessage("车辆段登记失败: ${it.message}") }
+            }
+            "list" -> {
+                val requestedDepot = args.getOrNull(1)?.let { value ->
+                    runCatching { DepotId(value) }.getOrNull()
+                }
+                val stock = store.allRollingStock().filter {
+                    requestedDepot == null || it.record.homeDepotId == requestedDepot
+                }
+                if (stock.isEmpty()) sender.sendMessage("没有匹配的车辆段列车")
+                stock.forEach {
+                    sender.sendMessage(
+                        "${it.record.trainId}: depot=${it.record.homeDepotId} " +
+                            "state=${it.state} point=${it.stablingPointRef ?: "-"} " +
+                            "tags=${it.record.tags.sorted()} capabilities=${it.record.capabilities.sorted()}"
+                    )
+                }
+            }
+            else -> sender.sendMessage("用法: /mr depot <assign|list>")
+        }
+        return true
+    }
+
+    private fun parseCsv(value: String?): Set<String> = value
+        ?.split(',')
+        ?.map(String::trim)
+        ?.filter(String::isNotEmpty)
+        ?.toSet()
+        .orEmpty()
 
     private fun handleTimetable(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
@@ -540,6 +666,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
+        sender.sendMessage("/mr depot assign|list ... - 登记和查看车辆段列车")
         sender.sendMessage("/mr timetable replan <id> <service> <current-waypoint> - 人工接管后显式重新规划")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/mr timetable start|status|stop <id> [service] - 管理显式列车 service")

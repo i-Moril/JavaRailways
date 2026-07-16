@@ -129,10 +129,11 @@ slug: /architecture/ato-roadmap
 - StationStore 支持原子追加/移除被动 berth；同一 Station 可聚合多个 directed Destination。
 - 现有 WayPoint 继续作为 Mission adapter，旧 WayPoint 首次通过 Dialog 保存时迁移到 DestinationStore。
 
-### T3 Depot 与动态配车
+### T3 Depot 与动态配车（基础已完成，Dispatcher 闭环进行中）
 
-- 建立 Depot、StablingPoint、RollingStockRecord、occupancy 和原子 reservation。
-- timetable 按 Depot、tags、编组、速度和 capabilities 取车，使用稳定 seed 随机分配。
+- 已建立 Depot、StablingPoint、RollingStockRecord、occupancy 和主线程原子 reservation。
+- 已实现按稳定 trainId 排序和 SHA-256 seed 的可复现候选选择，并提供 `/mr depot assign|list` 登记入口。
+- 待把 timetable `takeFromDepot` 接入 Dispatcher，按 Depot、tags、编组、速度和 capabilities 取车。
 - 没有匹配列车或兼容存车位时触发 World-local Stall。
 - 存车等待整列进入边界且旧资源车尾释放后才把列车标记为 AVAILABLE。
 

@@ -26,9 +26,13 @@ SimpleATO 使用的 owner-scoped 速度、停车、跟车和移动授权约束�
 
 可选单一信号 Provider、Provider Boundary RailObject 和 world-local registry。
 
+# Package work.art1st.mineRails.basic.api.depot
+
+Phase T3 的 Depot/StablingPoint、RollingStockRecord、occupancy/reservation 和确定性动态配车基础。
+
 # Package work.art1st.mineRails.basic.api.destination
 
-Phase T2 的 stable directed Destination、普通/StationBerth/DepotStablingPoint 角色和 legacy WayPoint 适配服务。
+Phase T2/T3 的 stable directed Destination、普通/StationBerth/DepotStablingPoint 角色和 legacy WayPoint 适配服务。
 
 # Package work.art1st.mineRails.basic.api.station
 

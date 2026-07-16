@@ -439,7 +439,7 @@ class TimetableDispatcherTest {
             dispatcher.tick(world)
         }
         assertEquals(1L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
-        assertTrue(!data.atoCoordinator.isStalled)
+        assertTrue(!data.atoCoordinator.isStalled, data.atoCoordinator.lastStall.toString())
     }
 
     @Test
@@ -631,6 +631,35 @@ class TimetableDispatcherTest {
 
         assertEquals(TimetableServiceRunState.WAITING_MISSION, late.run.state)
         assertEquals(10L, late.run.lastLatenessTicks)
+    }
+
+    @Test
+    fun `illegal controller replacement stalls the owning world`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val coordinator = AtoWorldCoordinator("dispatcher-controller-identity", reportSink = {})
+        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 40.0))
+        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        dispatcher.startService(world, "tt", "s1")
+
+        train.setController(ManualController(train, world))
+        dispatcher.tick(world)
+
+        assertTrue(coordinator.isStalled)
+        assertEquals("ControllerIdentityViolation", coordinator.lastStall?.errorType)
+        assertEquals(
+            TimetableServiceRunState.FAILED,
+            dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
+        )
     }
 
     @Test

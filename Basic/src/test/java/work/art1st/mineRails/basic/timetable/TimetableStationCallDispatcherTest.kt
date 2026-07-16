@@ -224,7 +224,7 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
-    fun `door operation timeout requires manual intervention and keeps departure hold`() {
+    fun `door operation timeout stalls world and keeps departure hold`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
             includeStationAction = true,
@@ -239,19 +239,20 @@ class TimetableStationCallDispatcherTest {
         for (tick in 0 until 1_000) {
             fixture.tick()
             if (fixture.dispatcher.status(id)?.state ==
-                TimetableServiceRunState.MANUAL_INTERVENTION
+                TimetableServiceRunState.FAILED
             ) break
         }
 
         val status = fixture.dispatcher.status(id)!!
-        assertEquals(TimetableServiceRunState.MANUAL_INTERVENTION, status.state)
+        assertEquals(TimetableServiceRunState.FAILED, status.state)
         assertEquals(TrainOperationTicketState.CANCELLED, status.operationTicketState)
         assertTrue(status.berthHeld)
         assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
         assertTrue(status.message!!.contains("timed out"))
         repeat(20) { fixture.tick() }
-        assertEquals(TimetableServiceRunState.MANUAL_INTERVENTION, fixture.dispatcher.status(id)?.state)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
+        assertTrue(fixture.data.atoCoordinator.isStalled)
+        assertEquals("TrainOperationFailure", fixture.data.atoCoordinator.lastStall?.errorType)
     }
 
     @Test
@@ -278,18 +279,51 @@ class TimetableStationCallDispatcherTest {
                     gateway.tickets.last().fail("door obstruction")
                     closeFailed = true
                 }
-                TimetableServiceRunState.MANUAL_INTERVENTION -> break
+                TimetableServiceRunState.FAILED -> break
                 else -> Unit
             }
         }
 
         val status = fixture.dispatcher.status(id)!!
         assertTrue(closeFailed)
-        assertEquals(TimetableServiceRunState.MANUAL_INTERVENTION, status.state)
+        assertEquals(TimetableServiceRunState.FAILED, status.state)
         assertEquals(TrainOperationTicketState.FAILED, status.operationTicketState)
         assertFalse(status.state == TimetableServiceRunState.DEPARTING)
         assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
         assertTrue(status.berthHeld)
+        assertTrue(fixture.data.atoCoordinator.isStalled)
+        assertEquals("TrainOperationFailure", fixture.data.atoCoordinator.lastStall?.errorType)
+    }
+
+    @Test
+    fun `unexpected door ticket cancellation stalls the world`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.LEFT,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state ==
+                TimetableServiceRunState.DOORS_OPENING
+            ) break
+        }
+        gateway.tickets.single().cancel()
+        assertEquals(
+            TrainOperationTicketState.CANCELLED,
+            gateway.tickets.single().snapshot().state
+        )
+
+        fixture.tick()
+
+        assertTrue(fixture.data.atoCoordinator.isStalled)
+        assertEquals("TrainOperationFailure", fixture.data.atoCoordinator.lastStall?.errorType)
+        assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
+        assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
     }
 
     @Test

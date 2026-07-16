@@ -7,7 +7,7 @@ slug: /architecture/train-operation-validation-checklist
 
 本清单固定车门操作、operation ticket 和发车保持的已实现边界。Phase C3 的操作协调只在平台主线程运行，不把 Bukkit 或可变列车模型对象带入 physics worker。
 
-> Phase C3 当前把 operation failure/timeout 留在 `MANUAL_INTERVENTION`。给定时刻表运营闭环已决定把 door/model 故障升级为 World-local Stall；该变更以 [T6 验收项](./timetable-operational-closure-checklist.md) 为准，完成前本清单仍描述当前行为。
+> Phase C3 最初把 operation failure/timeout 留在 `MANUAL_INTERVENTION`；T6 已将 door/model 故障统一升级为 World-local Stall。
 
 ## C3-A 操作契约
 
@@ -28,8 +28,8 @@ slug: /architecture/train-operation-validation-checklist
 
 ## C3-C 失败策略
 
-- [x] **C3-C01** rejected、failed、cancelled、ticket 身份错误或 Gateway 异常进入 `MANUAL_INTERVENTION`。
-- [x] **C3-C02** pending ticket 超时后取消并进入 `MANUAL_INTERVENTION`；默认超时为 100 Dispatcher Tick。
+- [x] **C3-C01** rejected、failed、cancelled、ticket 身份错误或 Gateway 异常进入 `TrainOperationFailure` World Stall。
+- [x] **C3-C02** pending ticket 超时后取消并进入 World Stall；默认超时为 100 Dispatcher Tick。
 - [x] **C3-C03** 人工处理状态保留 DepartureHold、berth 和已确认经路，不自动发车，也不触发 World-local ATO Stall。
 - [x] **C3-C04** 管理员仍可用 timetable stop 请求受控停车；Phase C3 不实现自动恢复或静默重试。
 
@@ -43,7 +43,7 @@ slug: /architecture/train-operation-validation-checklist
 
 ## 验收证据
 
-- `TimetableStationCallDispatcherTest` 覆盖开门、dwell、关门、经路授权、完整发车、超时和关门失败。
+- `TimetableStationCallDispatcherTest` 覆盖开门、dwell、关门、经路授权、完整发车，以及超时/关门失败的 World Stall。
 - `BukkitTrainOperationGatewayTest` 覆盖语义映射、异步确认、取消后迟到回调和拒绝路径。
 - 原有 C2 tests 持续覆盖 `DoorSide.NONE` 的无车门兼容状态机、berth 冲突和车尾释放。
 - 完整 Gradle test、文档构建、模型配置校验和 TypeScript 检查必须持续通过。

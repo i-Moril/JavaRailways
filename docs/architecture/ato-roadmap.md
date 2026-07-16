@@ -14,7 +14,7 @@ slug: /architecture/ato-roadmap
 - Phase B 运维：World-local Stall、结构化 Stall dump、`/mr ato status|dump|reset`；不自动恢复列车位置。
 - Phase C1：加权 Planned Route、不可变 Mission、动态 Route Section 分配、movement authority、车尾释放、时刻表冲突优先级和显式列车 service 执行。
 - Phase C2：显式 Station/Berth call、停准通知、dwell、发车授权、berth 所有权和严格 JS/TypeScript DSL。
-- Phase C3：主线程 `TrainOperationGateway`、可确认车门 ticket、开关门状态机、超时人工处理和 Bukkit 模型适配。
+- Phase C3/T6：主线程 `TrainOperationGateway`、可确认车门 ticket、开关门状态机、故障 World Stall 和 Bukkit 模型适配。
 
 ## 已完成：Phase C1 Mission 垂直切片
 
@@ -98,7 +98,7 @@ slug: /architecture/ato-roadmap
 - 已定义平台无关 `TrainOperationGateway`、语义操作、稳定 request 和可确认 operation ticket。
 - Bukkit 层把开关门映射到模型 `behavior.js` 的 `door(side, scene)` 或模型 action，并等待声明的延迟效果到达最晚启动时刻。
 - Dispatcher 已执行 `BERTHED → DOORS_OPENING → DWELLING → DOORS_CLOSING → READY_TO_DEPART`；关门确认和后续经路授权同时满足后才解除 DepartureHold。
-- rejected、failed、cancelled、异常或 100 Tick 超时进入 `MANUAL_INTERVENTION`，保留 DepartureHold 和资源，不触发 ATO Stall，也不自动重试。
+- rejected、failed、cancelled、异常或 100 Tick 超时现在进入 `TrainOperationFailure` World Stall，保留 DepartureHold 和资源，不自动重试。
 
 ## Phase D 插件与控制权生命周期
 
@@ -151,12 +151,12 @@ slug: /architecture/ato-roadmap
 - 钥匙 UI 可关闭进路辅助，进入 `FULL_MANUAL/SUSPENDED`，不再申请新 Section；旧资源仍按车尾释放。
 - 被动模式越过未确认保护点、偏离 PlannedRoute、破坏 confirmed turnout、脱轨或 controller 身份矛盾时 World-local Stall；释放 session 后必须显式 replan。
 
-### T6 Stall 统一与端到端验收
+### T6 Stall 统一（已完成）与端到端验收
 
-- door/model operation 失败、取消或超时改为 World-local Stall。
-- 活动基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 统一进入 Stall。
-- 保留正常 route/berth 冲突、晚点和 loader failure 的非 Stall 路径。
-- 覆盖多 cycle 动态取车、停站、存车、人工驾驶和 depot reset。
+- door/model operation 失败、取消或超时已改为 World-local Stall。
+- 活动基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 已统一进入稳定错误类别的 Stall。
+- 正常 route/berth 冲突、晚点、计划等待和 loader failure 保持非 Stall。
+- 下一步集中覆盖多 cycle 动态取车、停站、存车、人工驾驶和 depot reset 的 T7 端到端矩阵。
 
 ## 延期：Phase D2 插件 Registry
 
@@ -201,5 +201,5 @@ D2 不再是给定时刻表运营闭环的前置条件，在 Phase T 完成后�
 - 每列车只有一个 home depot；service 按能力从 Depot 确定性随机取车，不固定车辆编号。
 - Depot 没有匹配 AVAILABLE 列车或兼容存车位时 World-local Stall。
 - 人工接管默认 MANUAL_ROUTED，钥匙 UI 可关闭辅助进入 FULL_MANUAL。
-- door/model operation 失败属于模型故障，目标行为改为 World-local Stall。
+- door/model operation 失败属于模型故障，当前行为为 World-local Stall。
 - Station 由 directed Destination/Berth 表示；双向物理站台使用两个 Destination。

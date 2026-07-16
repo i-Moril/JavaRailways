@@ -66,10 +66,12 @@ T5 证据：`TimetableDispatcherTest` 覆盖 MANUAL_ROUTED 的人工速度、跨
 
 ## T6 Stall 统一
 
-- [ ] **T6-01** door behavior/action 缺失、失败、取消或超时进入 World Stall。
-- [ ] **T6-02** 活动基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 进入 World Stall。
-- [ ] **T6-03** 正常 route/berth 冲突、晚点、计划等待和 loader failure 不 Stall。
-- [ ] **T6-04** Stall 不自动恢复、换车、跳站或移动列车，并输出稳定 ID 诊断。
+- [x] **T6-01** door behavior/action 缺失、失败、取消或超时进入 World Stall。
+- [x] **T6-02** 活动基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 进入 World Stall。
+- [x] **T6-03** 正常 route/berth 冲突、晚点、计划等待和 loader failure 不 Stall。
+- [x] **T6-04** Stall 不自动恢复、换车、跳站或移动列车，并输出稳定 ID 诊断。
+
+T6 证据：`TimetableStationCallDispatcherTest` 覆盖 door ticket failure/timeout 进入 `TrainOperationFailure` World Stall、DepartureHold/berth 保持和不自动恢复；`TimetableDispatcherTest` 覆盖 controller identity 与 MANUAL_ROUTED 安全 Stall。Dispatcher 对脱轨、活动 route/rail 消失、非法 RouteSection、StationCall revision/ID、RouteSection/StationBerth/StablingPoint ledger 消失使用稳定错误类别；现有 route/berth conflict、时刻等待、lateness 和 loader failure 测试继续断言非 Stall。所有恢复仍要求管理员 Depot Reset/replan/ATO reset，不存在自动换车、跳站或移动列车路径。
 
 ## T7 端到端验收
 

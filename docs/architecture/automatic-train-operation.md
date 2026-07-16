@@ -24,11 +24,11 @@ Phase C1 已完成弧长加权 Dijkstra、经路/Mission 契约和原子 `RouteS
 
 Phase C2.1 已增加 World-local StationStore、Station 聚合、被动 StationBerth RailObject、StationCall 和 DwellPlan 值。C2.2 已增加显式 berth/方向/长度解析、head-aligned Stop 与 DepartureHold，以及 physics 到主线程的 revisioned `APPROACHING`、`BERTHED`、`DEPARTED` 通知。C2.3 已接入 Dispatcher dwell/计划发车状态、后续经路确认、无抢占 berth 所有权和跨 Mission 车尾释放。C2.4 已增加严格 JS/TypeScript StationCall DSL，并把 call 与后续 goto Mission 自动配对。
 
-Phase C3 已增加主线程 `TrainOperationGateway`、稳定 operation request、可轮询/取消 ticket、开关门状态和 Bukkit 模型适配。开门确认后开始 minimum dwell；关门确认和后续经路授权都满足后才解除 DepartureHold。操作失败或 100 Dispatcher Tick 超时进入 `MANUAL_INTERVENTION`，不自动发车或触发 ATO Stall。
+Phase C3 已增加主线程 `TrainOperationGateway`、稳定 operation request、可轮询/取消 ticket、开关门状态和 Bukkit 模型适配。开门确认后开始 minimum dwell；关门确认和后续经路授权都满足后才解除 DepartureHold。操作 rejected、failed、cancelled、身份错误、Gateway 异常或 100 Dispatcher Tick 超时进入 `TrainOperationFailure` World Stall，不自动发车、恢复或释放资源。
 
 Phase D1/T5 已把人工接管接入 Dispatcher：timetable 列车默认进入 `MANUAL_ROUTED`，解除旧 ATO 后由司机控制速度，而 Dispatcher 继续申请/释放计划 RouteSection；该模式不自动执行车门、dwell hold 或 departure grant。钥匙 UI 可显式关闭进路辅助并进入 `FULL_MANUAL/SUSPENDED`。驾驶权释放后统一进入 `REPLAN_REQUIRED`，管理员只能从明确 WayPoint/Destination 创建新 ATO/Mission revision。
 
-下一目标由 [给定时刻表运营闭环设计](./timetable-operation-design.md) 固定：T1 已实现 `setPeriodDays`、共同 cycle-zero epoch、not-before、lateness 和 period 边界自动下一 cycle；T2 已增加普通/StationBerth/DepotStablingPoint 角色、严格接近方向、Station 多 berth 聚合和 legacy WayPoint adapter；T3 已完成 Depot/StablingPoint、RollingStockRecord、确定性动态配车、离库车尾释放，以及 `takeFromDepot`/`storeAtDepot` 的 reservation-to-occupancy/AVAILABLE 闭环；无匹配列车或空闲兼容停车点会 World-local Stall。T4 已增加 Stall-only 原子 Depot Reset、全量 preflight 和结构化报告；T5 已完成 MANUAL_ROUTED/FULL_MANUAL、保护点/经路/道岔安全监测和显式 replan 边界。后续继续统一 World-local Stall：把现有 door failure 的 `MANUAL_INTERVENTION` 改为 Stall，并统一基础设施消失和资源身份矛盾。
+下一目标由 [给定时刻表运营闭环设计](./timetable-operation-design.md) 固定：T1 已实现 `setPeriodDays`、共同 cycle-zero epoch、not-before、lateness 和 period 边界自动下一 cycle；T2 已增加普通/StationBerth/DepotStablingPoint 角色、严格接近方向、Station 多 berth 聚合和 legacy WayPoint adapter；T3 已完成 Depot/StablingPoint、RollingStockRecord、确定性动态配车、离库车尾释放，以及 `takeFromDepot`/`storeAtDepot` 的 reservation-to-occupancy/AVAILABLE 闭环；无匹配列车或空闲兼容停车点会 World-local Stall。T4 已增加 Stall-only 原子 Depot Reset、全量 preflight 和结构化报告；T5 已完成 MANUAL_ROUTED/FULL_MANUAL、保护点/经路/道岔安全监测和显式 replan 边界。T6 已统一 World-local Stall：door failure、基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 使用稳定错误类别；正常冲突、晚点、计划等待和 loader failure 保持非 Stall。后续进入 T7 端到端验收。
 
 ## 1. 背景
 
@@ -498,8 +498,8 @@ stateDiagram-v2
     DOORS_OPENING --> DWELLING: action confirmed
     DWELLING --> DOORS_CLOSING: departure time reached
     DOORS_CLOSING --> READY_TO_DEPART: action confirmed
-    DOORS_OPENING --> MANUAL_INTERVENTION: rejected / failed / timeout
-    DOORS_CLOSING --> MANUAL_INTERVENTION: rejected / failed / timeout
+    DOORS_OPENING --> WORLD_STALL: rejected / failed / cancelled / timeout
+    DOORS_CLOSING --> WORLD_STALL: rejected / failed / cancelled / timeout
     READY_TO_DEPART --> DEPARTING: grant departure authority
     DEPARTING --> DEPARTED: train leaves berth
     DEPARTED --> [*]
@@ -520,7 +520,7 @@ sealed interface TrainOperation {
 }
 ```
 
-Bukkit 适配层将语义操作翻译为模型包 action 或 `behavior.js` 的 `door(side, scene)` 调用。ticket 在模型声明的所有延迟效果到达最晚启动时刻后确认；这是模型执行确认，不是独立车门传感器反馈。C3 当前在关门未完成、动作失败或列车不支持能力时进入 `MANUAL_INTERVENTION`；给定时刻表运营闭环已决定把这些模型故障升级为 World-local Stall，实施前不得把目标设计误写成当前行为。完整现有证据见 [Phase C3 TrainOperationGateway 验收清单](./train-operation-validation-checklist.md)。
+Bukkit 适配层将语义操作翻译为模型包 action 或 `behavior.js` 的 `door(side, scene)` 调用。ticket 在模型声明的所有延迟效果到达最晚启动时刻后确认；这是模型执行确认，不是独立车门传感器反馈。T6 已将关门未完成、动作失败、取消、超时或列车不支持能力统一为 World-local Stall，并保持 DepartureHold、berth 和已确认经路。完整证据见 [Phase C3 TrainOperationGateway 验收清单](./train-operation-validation-checklist.md)。
 
 ## 11. ATO Registry（Phase D 计划）
 

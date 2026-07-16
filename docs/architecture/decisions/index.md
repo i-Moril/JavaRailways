@@ -18,6 +18,7 @@ Architecture Decision Record（ADR）用于记录已经做出的、会长期影�
 
 - [ADR-0001：统一文档系统](0001-documentation-system.md)
 - [ADR-0002：列车模型配置采用严格契约](0002-strict-model-config.md)
+- [ADR-0003：给定时刻表运营范围](0003-given-timetable-operation-scope.md)
 
 ## 模板
 

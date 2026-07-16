@@ -30,7 +30,7 @@ Core 不应依赖 Bukkit。物理计算由每个世界自己的 `PhysicsCoordina
 
 Basic 在 Core 之上实现基础铁路系统，包括曲线生成、轨道连接、寻路、速度安全和时刻表内部模型。每个 Core `World` 通过扩展数据挂载一个 `BasicWorldData`。
 
-自动驾驶、信号扩展、停站动作和时刻表调度的边界见 [自动驾驶与运营协同设计](automatic-train-operation.md)。Phase A/B/C1/C2/C3/D1 已实现，下一阶段按 [ATO 实施路线图](ato-roadmap.md) 推进插件 Registry；[Phase C2 Station](station-validation-checklist.md)、[Phase C3 TrainOperationGateway](train-operation-validation-checklist.md) 与 [Phase D1 控制权转移](control-transfer-validation-checklist.md) 清单保留完整验收证据。
+自动驾驶、信号扩展、停站动作和时刻表调度的边界见 [自动驾驶与运营协同设计](automatic-train-operation.md)。Phase A/B/C1/C2/C3/D1 已实现。当前优先目标改为 [给定时刻表运营闭环](timetable-operation-design.md)，按 [验收清单](timetable-operational-closure-checklist.md) 推进共同周期、Destination、Depot、人工被动进路和统一 Stall；插件 Registry 延期。[Phase C2 Station](station-validation-checklist.md)、[Phase C3 TrainOperationGateway](train-operation-validation-checklist.md) 与 [Phase D1 控制权转移](control-transfer-validation-checklist.md) 清单保留已完成证据。
 
 ### BukkitPlugin
 

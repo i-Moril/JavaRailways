@@ -6,7 +6,7 @@ slug: /architecture/automatic-train-operation
 # 自动驾驶与运营协同设计
 
 :::warning 实施状态
-Phase A/B、C1 Mission、Phase C2 Station、Phase C3 车门操作网关和 Phase D1 人工接管/重新规划已实现；插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
+Phase A/B、C1 Mission、Phase C2 Station、Phase C3 车门操作网关和 Phase D1 人工接管/重新规划已实现；当前优先实施给定时刻表运营闭环，插件 Registry 延期。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
 :::
 
 ## 当前实施状态
@@ -27,6 +27,8 @@ Phase C2.1 已增加 World-local StationStore、Station 聚合、被动 StationB
 Phase C3 已增加主线程 `TrainOperationGateway`、稳定 operation request、可轮询/取消 ticket、开关门状态和 Bukkit 模型适配。开门确认后开始 minimum dwell；关门确认和后续经路授权都满足后才解除 DepartureHold。操作失败或 100 Dispatcher Tick 超时进入 `MANUAL_INTERVENTION`，不自动发车或触发 ATO Stall。
 
 Phase D1 已把人工接管接入 Dispatcher：接管前进入 `SUSPENDED` 并解除旧 ATO，驾驶权释放后进入 `REPLAN_REQUIRED`。旧 RouteSection 和 StationBerth 继续按车尾释放；管理员只能在列车停止、位于明确 WayPoint 且旧资源清空后创建新 ATO/Mission revision，重新规划到被中断 movement 的原目标。
+
+下一目标由 [给定时刻表运营闭环设计](./timetable-operation-design.md) 固定：共同周期 epoch、directed Destination、Depot 动态配车、MANUAL_ROUTED/FULL_MANUAL 和统一 World-local Stall。该目标会把现有 door failure 的 `MANUAL_INTERVENTION` 改为 Stall，并让人工接管默认先进入只负责进路的 MANUAL_ROUTED；在对应验收项完成前，当前源码行为仍以 C3/D1 描述为准。
 
 ## 1. 背景
 
@@ -518,7 +520,7 @@ sealed interface TrainOperation {
 }
 ```
 
-Bukkit 适配层将语义操作翻译为模型包 action 或 `behavior.js` 的 `door(side, scene)` 调用。ticket 在模型声明的所有延迟效果到达最晚启动时刻后确认；这是模型执行确认，不是独立车门传感器反馈。关门未完成、动作失败或列车不支持该能力时，Dispatcher 进入 `MANUAL_INTERVENTION`，保留 DepartureHold、berth 和经路，不默认解除发车保持，也不自动重试。完整证据见 [Phase C3 TrainOperationGateway 验收清单](./train-operation-validation-checklist.md)。
+Bukkit 适配层将语义操作翻译为模型包 action 或 `behavior.js` 的 `door(side, scene)` 调用。ticket 在模型声明的所有延迟效果到达最晚启动时刻后确认；这是模型执行确认，不是独立车门传感器反馈。C3 当前在关门未完成、动作失败或列车不支持能力时进入 `MANUAL_INTERVENTION`；给定时刻表运营闭环已决定把这些模型故障升级为 World-local Stall，实施前不得把目标设计误写成当前行为。完整现有证据见 [Phase C3 TrainOperationGateway 验收清单](./train-operation-validation-checklist.md)。
 
 ## 11. ATO Registry（Phase D 计划）
 
@@ -549,7 +551,7 @@ interface AtoFactory {
 - 时刻表验证阶段检查所需 ATO 和 provider 是否可用；
 - 缺失算法不能静默退回默认实现。
 
-人工驾驶接管不能只替换 `CoreTrain.controller`。当前 `TrainControlManager` 会先通知 World-local Dispatcher，使服务进入 `SUSPENDED` 并解除旧 ATO；驾驶权释放后进入 `REPLAN_REQUIRED`。系统不自动恢复旧 Mission，也不默认取消整条车次。管理员使用明确 WayPoint 触发 replan，目标固定为被中断 movement 的原目标，并生成新的 ATO 与 Mission revision。旧 RouteSection/StationBerth 在此期间继续按已发布车尾位置安全释放；资源未清空、列车未停止或不在指定 WayPoint 时 replan 失败。详细证据见 [Phase D1 控制权转移清单](./control-transfer-validation-checklist.md)。
+人工驾驶接管不能只替换 `CoreTrain.controller`。当前 D1 行为会先通知 World-local Dispatcher，使服务进入 `SUSPENDED` 并解除旧 ATO；驾驶权释放后进入 `REPLAN_REQUIRED`。系统不自动恢复旧 Mission，也不默认取消整条车次。管理员使用明确 WayPoint 触发 replan，目标固定为被中断 movement 的原目标，并生成新的 ATO 与 Mission revision。旧 RouteSection/StationBerth 在此期间继续按已发布车尾位置安全释放；资源未清空、列车未停止或不在指定 WayPoint 时 replan 失败。运营闭环目标将在其上增加默认 `MANUAL_ROUTED`：人工控制速度，Dispatcher 继续整条 timetable 的经路申请；钥匙 UI 关闭辅助后才进入 FULL_MANUAL/SUSPENDED。详细目标见 [运营闭环设计](./timetable-operation-design.md)，现有证据见 [Phase D1 控制权转移清单](./control-transfer-validation-checklist.md)。
 
 ## 12. 线程与事件模型
 
@@ -667,4 +669,4 @@ Phase A/B 和 C1 Mission 垂直切片已完成。剩余工作拆成可独立验�
 
 ## 17. 未完成计划
 
-未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。Phase C2/C3/D1 证据分别保存在 [Station 清单](./station-validation-checklist.md)、[TrainOperationGateway 清单](./train-operation-validation-checklist.md) 和 [控制权转移清单](./control-transfer-validation-checklist.md)；当前下一切片是插件 Registry，性能索引仍需等待 profiler 证据。
+未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。Phase C2/C3/D1 证据分别保存在 [Station 清单](./station-validation-checklist.md)、[TrainOperationGateway 清单](./train-operation-validation-checklist.md) 和 [控制权转移清单](./control-transfer-validation-checklist.md)；当前按 [运营闭环验收清单](./timetable-operational-closure-checklist.md) 推进 Phase T，插件 Registry 与性能索引延期。

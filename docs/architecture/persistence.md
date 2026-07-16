@@ -31,6 +31,15 @@ JSON 使用 `encodeDefaults = true` 和 `ignoreUnknownKeys = true`。读取损�
 
 `BasicWorldData` 本身目前没有随 `CoreWorld` 保存，因此 WayPoint、运行期 TimetableStore 和 Dispatcher 状态尚未形成长期持久化契约。
 
+[给定时刻表运营闭环](./timetable-operation-design.md) 要求后续为以下静态运营配置建立显式版本格式：
+
+- directed Destination 及其角色；
+- Station 聚合和 StationBerth 默认值；
+- Depot、StablingPoint 与每列车的 home depot/RollingStockRecord；
+- StablingPoint occupancy 的可重建标识。
+
+活动 timetable epoch、cycle run、operation ticket、RouteSection lock 和临时列车 assignment 第一版不跨重启恢复。服务器重启后从已保存的列车位置和静态运营配置重建 occupancy，由管理员重新 load/start timetable。Depot reset 报告单独写入运维目录，不作为下一次自动恢复指令。
+
 轨道显示 metadata 由 Bukkit 层的 `RailRenderMetaStore` 单独保存。列车模型快照在 `snapshot` 策略下另存到：
 
 ```text

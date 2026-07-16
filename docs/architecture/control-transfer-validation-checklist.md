@@ -7,6 +7,8 @@ slug: /architecture/control-transfer-validation-checklist
 
 人工接管结束后采用“**不恢复旧 Mission，管理员从明确 WayPoint 重新规划**”的策略。重新规划生成新的 ATO 与严格递增 Mission revision；系统不会根据旧位置自动猜测恢复路径。
 
+> 本清单记录已实现的 D1 基线。给定时刻表运营闭环将在接管入口前增加默认 `MANUAL_ROUTED`；只有钥匙 UI 关闭进路辅助后才进入本清单描述的 SUSPENDED/replan 流程。目标证据见 [运营闭环验收清单](./timetable-operational-closure-checklist.md)。
+
 ## D1-A 接管边界
 
 - [x] **D1-A01** Bukkit `TrainControlManager` 在替换活动 SimpleATO 前同步通知所属 World 的 Dispatcher。

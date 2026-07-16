@@ -5,7 +5,9 @@ slug: /architecture/train-operation-validation-checklist
 
 # Phase C3 TrainOperationGateway 验收清单
 
-本清单固定车门操作、operation ticket 和发车保持的验收边界。Phase C3 的操作协调只在平台主线程运行，不把 Bukkit 或可变列车模型对象带入 physics worker。
+本清单固定车门操作、operation ticket 和发车保持的已实现边界。Phase C3 的操作协调只在平台主线程运行，不把 Bukkit 或可变列车模型对象带入 physics worker。
+
+> Phase C3 当前把 operation failure/timeout 留在 `MANUAL_INTERVENTION`。给定时刻表运营闭环已决定把 door/model 故障升级为 World-local Stall；该变更以 [T6 验收项](./timetable-operational-closure-checklist.md) 为准，完成前本清单仍描述当前行为。
 
 ## C3-A 操作契约
 

@@ -62,6 +62,8 @@ MineRails 事件按线程归属分成两套同步总线：
 
 StationCall 通知在 physics 发布后由主线程 Dispatcher 消费。Phase C3 的 `TrainOperationGateway.execute()`、operation ticket 轮询/取消、`behavior.js` 和模型 action 全部只在主线程执行；operation request 只携带稳定 ID 和语义值，不会交给 physics worker。Phase D1 的 controller transfer、release 和 replan 同样只在主线程执行；`SUSPENDED` 状态只读取完整 physics epoch 后已发布的 CoreTrain head/tail 位置来释放旧资源。
 
+给定时刻表运营闭环继续由 World-local Dispatcher 在主线程拥有 timetable epoch/cycle、Depot occupancy、RollingStock reservation 和 MANUAL_ROUTED 状态。确定性随机选择只能读取预解析 RollingStockRecord。Depot reset 必须先等待捕获的 physics ticket，完成全量预检后才能一次提交列车位置和资源账本；physics worker 不参与 Depot 分配或 Bukkit 配置读取。
+
 ## 代码约定
 
 `@MainThread`、`@Heavy`、`@Concurrent` 等注解表达调用约束，但不是自动调度器。关键入口还会使用 `ThreadGuard` 做运行时检查。新增 API 时必须在 KDoc 中说明调用线程、阻塞行为和状态何时可见。

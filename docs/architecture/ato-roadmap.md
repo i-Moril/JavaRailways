@@ -111,12 +111,56 @@ slug: /architecture/ato-roadmap
 - 管理员必须在列车停止、人工 session 结束、旧资源清空后，从明确 WayPoint 执行 `/mr timetable replan`。
 - replan 创建新 ATO 和新 Mission revision，目标保持为被中断 movement 的原目标；不自动恢复旧 Mission。
 
-### 下一切片：D2 插件 Registry
+## 当前优先：Phase T 给定时刻表运营闭环
+
+完整设计和逐项证据分别见 [给定时刻表运营闭环设计](./timetable-operation-design.md) 与 [验收清单](./timetable-operational-closure-checklist.md)。
+
+### T1 周期时钟
+
+- 增加 `setPeriodDays(days)`，一个逻辑游戏日固定为 24000 Dispatcher Tick。
+- 管理员启动整张 timetable 时建立全部 service 共享的 epoch 和 cycle。
+- `at(tick)` 控制动作最早执行时刻；晚点立即执行，不跳过或 Stall。
+
+### T2 Destination 角色
+
+- 建立统一、directed 的运营 Destination，角色为普通目标、StationBerth 或 Depot StablingPoint。
+- 创建 Station Destination 时配置 Station/Berth ID 与相对接近方向的开门侧。
+- 为现有 WayPoint、RailDestination 和 StationBerth 保留明确迁移 adapter。
+
+### T3 Depot 与动态配车
+
+- 建立 Depot、StablingPoint、RollingStockRecord、occupancy 和原子 reservation。
+- timetable 按 Depot、tags、编组、速度和 capabilities 取车，使用稳定 seed 随机分配。
+- 没有匹配列车或兼容存车位时触发 World-local Stall。
+- 存车等待整列进入边界且旧资源车尾释放后才把列车标记为 AVAILABLE。
+
+### T4 管理员 Reset
+
+- 增加与 `/mr ato reset` 分离的 depot reset/reset-all 维护命令。
+- 先原子预检全部停车位；容量不足不修改任何状态。
+- 成功后重建位置和资源账本但继续保持 Stall，等待管理员检查。
+
+### T5 人工被动进路
+
+- timetable 列车取得钥匙后默认进入 `MANUAL_ROUTED`：司机控制速度，Dispatcher 只负责 timetable 经路申请和车尾释放。
+- 钥匙 UI 可关闭进路辅助，进入 `FULL_MANUAL/SUSPENDED`，不再申请新 Section。
+- 被动模式越过未确认保护点、偏离 PlannedRoute 或破坏 confirmed turnout 时 Stall。
+
+### T6 Stall 统一与端到端验收
+
+- door/model operation 失败、取消或超时改为 World-local Stall。
+- 活动基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 统一进入 Stall。
+- 保留正常 route/berth 冲突、晚点和 loader failure 的非 Stall 路径。
+- 覆盖多 cycle 动态取车、停站、存车、人工驾驶和 depot reset。
+
+## 延期：Phase D2 插件 Registry
 
 - 建立带命名空间 ID 和可关闭 registration 的 ATO/RailObjectRule Registry。
 - 时刻表持久化 `atoTypeId` 和版本化 options，不持久化 JVM 类名。
 - 定义 Provider/ATO 插件卸载策略。
 - 提供 Java/Kotlin 示例扩展后再讨论稳定 API。
+
+D2 不再是给定时刻表运营闭环的前置条件，在 Phase T 完成后再排期。
 
 ## Phase E 索引与性能
 
@@ -131,7 +175,7 @@ slug: /architecture/ato-roadmap
 
 - 坡度、jerk 或复杂 `BrakeModel` SPI；
 - 全局 topology revision；
-- ATO 自动故障恢复或自动移动列车复位；
+- ATO 自动故障恢复或无管理员确认的自动移动列车复位；
 - 在 RailObject 内直接执行列车、车门或道岔行为；
 - 在 C2 中同时实现车门操作、自动选台和第三方 ATO Registry。
 
@@ -139,7 +183,7 @@ slug: /architecture/ato-roadmap
 
 - C1 采用“Dispatcher 拥有 Planned Route 和道岔分配、SimpleATO 只验证 Confirmed Route Window”的边界。
 - SimpleATO 不发送道岔申请；Dispatcher 根据列车实时位置和制动距离主动触发 Route Section 分配。
-- 时刻表时间用于冲突优先级，不直接决定安全相关的切换时刻。
+- 经路切换始终由实时位置和制动距离触发；Phase T 增加共同 epoch 和 not-before 计划时间，但计划 Tick 仍不作为安全相关切换的唯一事实来源。
 - 未确认 Section 通过移动授权在保护点前停车；只有已确认分支被破坏才进入 World-local Stall。
 - 第一版逻辑保留在 TimetableDispatcher 内部；未来可迁移到独立 RouteManager/Interlocking，而不改变 SimpleATO 边界。
 - C2 的 StationBerth 停车参考点长期固定为列车头部，不提前引入编组中心、指定车厢或驾驶室参考点。
@@ -148,3 +192,9 @@ slug: /architecture/ato-roadmap
 ## 已确认的后续决策
 
 - 人工接管结束后不取消整条车次，也不复用旧 Mission；管理员从明确 WayPoint 重新规划到被中断 movement 的原目标。
+- timetable 周期以整数逻辑游戏日声明，全部 service 共用管理员 start 建立的 epoch；晚点动作立即执行。
+- 每列车只有一个 home depot；service 按能力从 Depot 确定性随机取车，不固定车辆编号。
+- Depot 没有匹配 AVAILABLE 列车或兼容存车位时 World-local Stall。
+- 人工接管默认 MANUAL_ROUTED，钥匙 UI 可关闭辅助进入 FULL_MANUAL。
+- door/model operation 失败属于模型故障，目标行为改为 World-local Stall。
+- Station 由 directed Destination/Berth 表示；双向物理站台使用两个 Destination。

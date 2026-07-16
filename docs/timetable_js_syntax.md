@@ -9,6 +9,10 @@ slug: /timetable/
 本文档描述当前首版 JS 时刻表 DSL。C1/C2/C3 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell、显式 Station/Berth call 和可确认车门操作；尚不支持 WayPointPool 自动选车或周期循环。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
+:::info 已确认但尚未全部实现的语义
+[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定 `setPeriodDays(days)`、整张 timetable 共同 epoch、`at(tick)` not-before、Depot 动态配车和多 cycle。以下页面仍以当前 loader/runtime 为主；新语义只有在 [验收清单](architecture/timetable-operational-closure-checklist.md) 对应项目勾选后才算可用。
+:::
+
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
 
 ## 文件位置与命令
@@ -102,7 +106,7 @@ function main(timetable) {
 
 ### `timetable.setPeriod(ticks)`
 
-设置周期，单位为 tick。
+当前兼容 API：设置周期，单位为 tick。运营闭环目标将增加并优先使用 `timetable.setPeriodDays(days)`，按一个逻辑游戏日 24000 Tick 换算；在 T1 完成前不要假设 period 会自动循环。
 
 ```js
 timetable.setPeriod(16000)
@@ -390,11 +394,15 @@ function main(timetable) {
 
 当前 loader 和 C3 Dispatcher 仍不会：
 
+- 建立整张 timetable 的共同 epoch、按 `at(tick)` 实际等待或自动创建下一 cycle。
+- 从 Depot 按车辆能力动态选择、取出或存入真实列车。
 - 从 WayPointPool 或 `AnyTrain` 自动选择真实列车。
 - 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。
 - 执行周期循环。
-- 处理速度限制、方向限制、会让/越行等运营规则。
-- 持久化已加载时刻表或运行状态；重启后需要重新加载。
+- 提供 Destination 的 Station/Depot 角色创建入口。
+- 提供 MANUAL_ROUTED 人工被动进路模式。
+- 处理会让、越行或晚点优化等高级运营规则。
+- 持久化已加载时刻表或活动 epoch；重启后需要重新加载并由管理员启动。
 - 限制脚本的 host access、执行时间、内存或死循环。
 
 这些会在后续 Phase 中继续实现。在沙箱完成前，“支持 JavaScript”不表示可以安全执行不可信脚本。

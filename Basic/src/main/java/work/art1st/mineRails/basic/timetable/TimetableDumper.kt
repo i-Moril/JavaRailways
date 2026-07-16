@@ -62,5 +62,17 @@ object TimetableDumper {
         is TimetableAction.Stop -> JsonObject(
             mapOf("type" to JsonPrimitive("stop"), "ticks" to JsonPrimitive(ticks))
         )
+        is TimetableAction.CallStation -> JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("callStation"),
+                "stationId" to JsonPrimitive(stationId),
+                "berthId" to JsonPrimitive(berthId),
+                "minimumDwellTicks" to (minimumDwellTicks?.let(::JsonPrimitive) ?: JsonNull),
+                "plannedDepartureTick" to (plannedDepartureTick?.let(::JsonPrimitive) ?: JsonNull),
+                "stoppingOffsetMetersBefore" to
+                    (stoppingOffsetMetersBefore?.let(::JsonPrimitive) ?: JsonNull),
+                "doorSideOverride" to (doorSideOverride?.name?.let(::JsonPrimitive) ?: JsonNull)
+            )
+        )
     }
 }

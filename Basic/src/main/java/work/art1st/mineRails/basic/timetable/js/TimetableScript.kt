@@ -4,6 +4,7 @@ import org.graalvm.polyglot.Context
 import org.graalvm.polyglot.PolyglotException
 import org.graalvm.polyglot.Source
 import org.graalvm.polyglot.Value
+import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.timetable.Timetable
 import work.art1st.mineRails.basic.timetable.TimetableAction
 import work.art1st.mineRails.basic.timetable.TimetableService
@@ -91,6 +92,62 @@ class TimedActionBuilder(
         addAction(TimetableAction.Stop(ticks))
         return ServiceBuilderLike
     }
+
+    fun call(stationId: String, berthId: String): ServiceBuilderLike =
+        call(stationId, berthId, null)
+
+    fun call(stationId: String, berthId: String, options: Value?): ServiceBuilderLike {
+        val context = "service($serviceId).at($tick).call"
+        if (stationId.isBlank() || berthId.isBlank()) {
+            throw TimetableDslException("$context: stationId 和 berthId 不能为空")
+        }
+        if (options != null && !options.isNull && !options.hasMembers()) {
+            throw TimetableDslException("$context: options 必须是对象")
+        }
+        val members = options?.takeUnless(Value::isNull)?.memberKeys.orEmpty()
+        val unknown = members - STATION_CALL_OPTIONS
+        if (unknown.isNotEmpty()) {
+            throw TimetableDslException("$context: 未知 options: ${unknown.sorted().joinToString()}")
+        }
+        val minimumDwellTicks = options.optionalLong("minimumDwellTicks", context)
+        val plannedDepartureTick = options.optionalLong("plannedDepartureTick", context)
+        val stoppingOffset = options.optionalDouble("stoppingOffsetMetersBefore", context)
+        if (minimumDwellTicks != null && minimumDwellTicks < 0L) {
+            throw TimetableDslException("$context: minimumDwellTicks 不能为负")
+        }
+        if (plannedDepartureTick != null && plannedDepartureTick < tick) {
+            throw TimetableDslException("$context: plannedDepartureTick 不能早于 call tick")
+        }
+        if (stoppingOffset != null && stoppingOffset < 0.0) {
+            throw TimetableDslException("$context: stoppingOffsetMetersBefore 不能为负")
+        }
+        val doorSide = options?.getMember("doorSide")?.takeUnless(Value::isNull)?.let { value ->
+            if (!value.isString) throw TimetableDslException("$context: doorSide 必须是字符串")
+            runCatching { DoorSide.valueOf(value.asString().uppercase()) }.getOrElse {
+                throw TimetableDslException("$context: doorSide 必须是 none/left/right/both")
+            }
+        }
+        addAction(
+            TimetableAction.CallStation(
+                stationId = stationId,
+                berthId = berthId,
+                minimumDwellTicks = minimumDwellTicks,
+                plannedDepartureTick = plannedDepartureTick,
+                stoppingOffsetMetersBefore = stoppingOffset,
+                doorSideOverride = doorSide
+            )
+        )
+        return ServiceBuilderLike
+    }
+
+    private companion object {
+        val STATION_CALL_OPTIONS = setOf(
+            "minimumDwellTicks",
+            "plannedDepartureTick",
+            "stoppingOffsetMetersBefore",
+            "doorSide"
+        )
+    }
 }
 
 /** 占位返回值，让 JS 链式调用时得到非 null 对象；后续如需要可扩展。 */
@@ -156,6 +213,22 @@ class TimetableScriptLoader(private val world: World) {
         val kind = if (e.isSyntaxError) "JS 语法错误" else "JS 执行错误"
         return "$kind at $prefix: ${e.message}"
     }
+}
+
+private fun Value?.optionalLong(name: String, context: String): Long? {
+    val value = this?.getMember(name) ?: return null
+    if (value.isNull) return null
+    if (!value.fitsInLong()) throw TimetableDslException("$context: $name 必须是整数")
+    return value.asLong()
+}
+
+private fun Value?.optionalDouble(name: String, context: String): Double? {
+    val value = this?.getMember(name) ?: return null
+    if (value.isNull) return null
+    if (!value.fitsInDouble()) throw TimetableDslException("$context: $name 必须是数字")
+    val result = value.asDouble()
+    if (!result.isFinite()) throw TimetableDslException("$context: $name 必须是有限数字")
+    return result
 }
 
 private fun Value.asStringList(context: String): List<String> {

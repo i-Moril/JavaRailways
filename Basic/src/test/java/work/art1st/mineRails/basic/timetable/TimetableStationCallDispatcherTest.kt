@@ -113,6 +113,30 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `timetable station action schedules the call with its following movement`() {
+        val fixture = fixture(includeStationAction = true)
+        val id = TimetableServiceRunId("tt", "service")
+
+        val started = fixture.dispatcher.startService(fixture.world, "tt", "service")
+            as TimetableServiceStartResult.Started
+
+        assertTrue(started.run.stationCallId != null)
+        assertTrue(started.run.berthHeld)
+        val observed = linkedSetOf<TimetableServiceRunState>()
+        for (tick in 0 until 2_000) {
+            fixture.tick()
+            val state = fixture.dispatcher.status(id)!!.state
+            observed += state
+            if (state == TimetableServiceRunState.COMPLETED) break
+        }
+        assertTrue(TimetableServiceRunState.BERTHED in observed)
+        assertTrue(TimetableServiceRunState.DWELLING in observed)
+        assertTrue(TimetableServiceRunState.DEPARTED in observed)
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `berth ownership survives mission replacement until the old tail clears`() {
         val fixture = fixture(
             releaseDistanceMetersAfter = 55.0,
@@ -352,7 +376,8 @@ class TimetableStationCallDispatcherTest {
     private fun fixture(
         releaseDistanceMetersAfter: Double = 5.0,
         firstTargetOffsetMeters: Double = 100.0,
-        nextTargetOffsetMeters: Double? = null
+        nextTargetOffsetMeters: Double? = null,
+        includeStationAction: Boolean = false
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher { train, owningWorld ->
@@ -385,7 +410,19 @@ class TimetableStationCallDispatcherTest {
                         trainSelector = TrainSelector.TrainId(train.id),
                         steps = buildList {
                             add(TimetableStep.Check("A"))
-                            add(TimetableStep.At(0L, TimetableAction.GoTo("C")))
+                            if (includeStationAction) {
+                                add(
+                                    TimetableStep.At(
+                                        0L,
+                                        TimetableAction.CallStation(
+                                            stationId = "central",
+                                            berthId = "one",
+                                            minimumDwellTicks = 5L
+                                        )
+                                    )
+                                )
+                            }
+                            add(TimetableStep.At(1L, TimetableAction.GoTo("C")))
                             if (nextTargetOffsetMeters != null) {
                                 add(TimetableStep.At(1L, TimetableAction.GoTo("D")))
                             }

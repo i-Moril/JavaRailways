@@ -82,11 +82,11 @@ slug: /architecture/station-validation-checklist
 
 - [x] **C2-I01** `TimetableDispatcher` 状态覆盖 `APPROACHING → BERTHED → DWELLING → READY_TO_DEPART → DEPARTING → DEPARTED`。
 - [x] **C2-I02** `/mr timetable status` 显示 call、station、berth、dwell 和 berth 所有权状态。
-- [ ] **C2-I03** JS DSL 和 TypeScript 类型支持显式 station/berth call，并由 loader 严格校验。
+- [x] **C2-I03** JS DSL 和 TypeScript 类型支持显式 station/berth call，并由 loader 严格校验。
 - [x] **C2-I04** 一个 World 的 StationCall 失败或 Stall 不影响其他 World、手动列车或 Core 物理。
 - [x] **C2-I05** 现有 WayPoint Mission、Route Section 分配、车尾释放和 C1 命令行为无回归。
 
-证据：Dispatcher 集成测试覆盖完整状态链；`/mr timetable status` 输出 call、berth 和 ownership，完整 Gradle 测试持续覆盖 C1 回归。C2-I03 留给 C2.4 DSL 接入。
+证据：Dispatcher 集成测试覆盖完整状态链；`/mr timetable status` 输出 call、berth 和 ownership；`TimetableScriptLoaderTest`、TypeScript 检查和自动 StationCall 调度测试覆盖 C2-I03；完整 Gradle 测试持续覆盖 C1 回归。
 
 ## 完成条件
 

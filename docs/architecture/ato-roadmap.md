@@ -59,7 +59,7 @@ slug: /architecture/ato-roadmap
 - 列车尾部越过 release point 后释放 Section；车头刚通过时不得提前释放。
 - 一个 World 的 Mission 失败不影响其他 World。
 
-## 下一阶段：Phase C2 Station 与停站状态
+## 已完成：Phase C2 Station 与停站状态
 
 完整验收项单独维护在 [Phase C2 Station 待验证项目](./station-validation-checklist.md)。实现分为四个可独立验收的切片：
 
@@ -84,12 +84,12 @@ slug: /architecture/ato-roadmap
 - 同一 berth 无抢占地分配给一个活动 StationCall，并在列车尾部越过 release boundary 后释放。
 - Station 和 StationBerth 保持被动，不直接操作列车、约束、车门或道岔。
 
-### C2.4 Bukkit 与 DSL 接入
+### C2.4 Bukkit 与 DSL 接入（已完成）
 
 - 为显式 station/berth call 增加 JS DSL、TypeScript 类型、严格 loader 校验和状态诊断。
 - 暂不执行开关门、模型 action 或 `behavior.js`；这些属于 Phase C3。
 
-## Phase C3 主线程操作网关
+## 下一阶段：Phase C3 主线程操作网关
 
 - 定义 `TrainOperationGateway`、语义操作和可确认的 operation ticket。
 - Bukkit 层将开关门等操作映射到模型 action 或 `behavior.js`。

@@ -7,6 +7,7 @@ import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolutionResult
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolver
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
+import work.art1st.mineRails.basic.api.station.DwellPlanResolver
 import work.art1st.mineRails.basic.api.station.ResolvedStationCall
 import work.art1st.mineRails.basic.api.station.StationBerthAllocationKey
 import work.art1st.mineRails.basic.api.station.StationBerthAllocationResult
@@ -132,6 +133,12 @@ class TimetableDispatcher(
             ?: return TimetableServiceStartResult.Failure("timetable not found: $timetableId")
         val service = timetable.services.firstOrNull { it.id == serviceId }
             ?: return TimetableServiceStartResult.Failure("service not found: $runId")
+        val validationErrors = TimetableValidator(world).validate(
+            timetable.copy(services = listOf(service))
+        ).errors
+        if (validationErrors.isNotEmpty()) {
+            return TimetableServiceStartResult.Failure(validationErrors.joinToString("; "))
+        }
         val trainId = (service.trainSelector as? TrainSelector.TrainId)?.trainId
             ?: return TimetableServiceStartResult.Failure(
                 "only TrainSelector.TrainId is executable in C1: $runId"
@@ -196,6 +203,9 @@ class TimetableDispatcher(
         run.runtimes += runtime
         replaceableTrainRuns.forEach { runs.remove(it.id) }
         runs[runId] = run
+        first.stationCallSpec?.let { spec ->
+            scheduleStationCallSpec(world, run, spec)?.let { reason -> fail(run, reason) }
+        }
         return TimetableServiceStartResult.Started(run.snapshot())
     }
 
@@ -270,6 +280,40 @@ class TimetableDispatcher(
             TimetableStationCallScheduleResult.Scheduled(run.snapshot())
         } else {
             TimetableStationCallScheduleResult.Failure(failure)
+        }
+    }
+
+    private fun scheduleStationCallSpec(
+        world: World,
+        run: ActiveRun,
+        spec: StationCallSpec
+    ): String? {
+        val berthRef = runCatching { spec.action.berthRef }.getOrElse {
+            return it.message ?: "invalid station berth"
+        }
+        val station = world.basicWorldData.stations[berthRef.stationId]
+            ?: return "station not found: ${berthRef.stationId}"
+        val berth = world.basicWorldData.stations.berth(berthRef)
+            ?: return "berth not found: $berthRef"
+        val dwellPlan = DwellPlanResolver.resolve(
+            station = station,
+            berth = berth,
+            minimumDwellTicksOverride = spec.action.minimumDwellTicks,
+            plannedDepartureTick = spec.action.plannedDepartureTick
+        )
+        val call = StationCall(
+            callId = "${run.id}/station/${spec.stepIndex}",
+            missionRevision = run.missionRevision,
+            stationId = berthRef.stationId,
+            berthRef = berthRef,
+            plannedArrivalTick = spec.plannedArrivalTick,
+            dwellPlan = dwellPlan,
+            stoppingOffsetMetersBeforeOverride = spec.action.stoppingOffsetMetersBefore,
+            doorSideOverride = spec.action.doorSideOverride
+        )
+        return when (val result = scheduleStationCall(world, run.id, call)) {
+            is TimetableStationCallScheduleResult.Scheduled -> null
+            is TimetableStationCallScheduleResult.Failure -> result.reason
         }
     }
 
@@ -699,13 +743,22 @@ class TimetableDispatcher(
                         run.message = "dwell ${action.ticks} ticks"
                         return
                     }
+                    is TimetableAction.CallStation -> {
+                        run.pendingStationCallSpec = StationCallSpec(
+                            action = action,
+                            plannedArrivalTick = step.tick,
+                            stepIndex = run.nextStepIndex
+                        )
+                        run.nextStepIndex++
+                    }
                     is TimetableAction.GoTo,
                     is TimetableAction.GoVia -> {
                         val plan = movement(
                             run.id,
                             WayPointRef(run.currentWayPointId),
                             step,
-                            run.nextStepIndex + 1
+                            run.nextStepIndex + 1,
+                            run.pendingStationCallSpec
                         )
                         val submission = submitMission(world, run.ato, run.id, plan)
                         val accepted = submission.accepted
@@ -726,6 +779,10 @@ class TimetableDispatcher(
                         run.nextStepIndex = plan.nextStepIndex
                         run.state = TimetableServiceRunState.WAITING_MISSION
                         run.message = null
+                        run.pendingStationCallSpec = null
+                        plan.stationCallSpec?.let { spec ->
+                            scheduleStationCallSpec(world, run, spec)?.let { reason -> fail(run, reason) }
+                        }
                         return
                     }
                 }
@@ -773,16 +830,22 @@ class TimetableDispatcher(
         service: TimetableService
     ): MovementPlan? {
         var origin: WayPointRef? = null
+        var stationCallSpec: StationCallSpec? = null
         service.steps.forEachIndexed { index, step ->
             when (step) {
                 is TimetableStep.Check -> origin = WayPointRef(step.wayPointId)
-                is TimetableStep.At -> when (step.action) {
+                is TimetableStep.At -> when (val action = step.action) {
+                    is TimetableAction.CallStation -> {
+                        if (stationCallSpec != null) return null
+                        stationCallSpec = StationCallSpec(action, step.tick, index)
+                    }
                     is TimetableAction.GoTo,
                     is TimetableAction.GoVia -> return movement(
                         runId,
                         origin ?: return null,
                         step,
-                        index + 1
+                        index + 1,
+                        stationCallSpec
                     )
                     is TimetableAction.Stop -> return null
                 }
@@ -795,7 +858,8 @@ class TimetableDispatcher(
         runId: TimetableServiceRunId,
         origin: WayPointRef,
         step: TimetableStep.At,
-        nextStepIndex: Int
+        nextStepIndex: Int,
+        stationCallSpec: StationCallSpec? = null
     ): MovementPlan {
         val points = when (val action = step.action) {
             is TimetableAction.GoTo -> listOf(AtoMissionPoint.Stop(WayPointRef(action.wayPointId)))
@@ -804,15 +868,17 @@ class TimetableDispatcher(
                 if (index == action.wayPointIds.lastIndex) AtoMissionPoint.Stop(target)
                 else AtoMissionPoint.Via(target)
             }
-            is TimetableAction.Stop -> error("Stop is not a movement action")
+            is TimetableAction.Stop,
+            is TimetableAction.CallStation -> error("action is not a movement action")
         }
         require(points.isNotEmpty()) { "movement action must contain a target: $runId" }
         return MovementPlan(
             origin = origin,
             points = points,
             target = points.last().target,
-            priorityTick = step.tick,
-            nextStepIndex = nextStepIndex
+            priorityTick = stationCallSpec?.plannedArrivalTick ?: step.tick,
+            nextStepIndex = nextStepIndex,
+            stationCallSpec = stationCallSpec
         )
     }
 
@@ -891,12 +957,19 @@ class TimetableDispatcher(
         const val RELEASE_EPSILON_METERS = 1.0e-6
     }
 
+    private data class StationCallSpec(
+        val action: TimetableAction.CallStation,
+        val plannedArrivalTick: Long,
+        val stepIndex: Int
+    )
+
     private data class MovementPlan(
         val origin: WayPointRef,
         val points: List<AtoMissionPoint>,
         val target: WayPointRef,
         val priorityTick: Long,
-        val nextStepIndex: Int
+        val nextStepIndex: Int,
+        val stationCallSpec: StationCallSpec?
     )
 
     private data class PreparedMission(
@@ -975,6 +1048,7 @@ class TimetableDispatcher(
         var dwellTicksRemaining: Long = 0L,
         var message: String? = null,
         var stationCall: DispatcherStationCall? = null,
+        var pendingStationCallSpec: StationCallSpec? = null,
         val runtimes: MutableList<MissionRuntime> = ArrayList(),
         val allocations: MutableMap<RouteSectionAllocationKey, AllocatedSection> = LinkedHashMap()
     ) {

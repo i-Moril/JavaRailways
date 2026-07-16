@@ -167,7 +167,9 @@ data class StationCall(
     val doorSideOverride: DoorSide? = null
 ) {
     init {
-        requireValidId("callId", callId)
+        require(callId.isNotBlank() && callId == callId.trim() &&
+            callId.none(Char::isISOControl)
+        ) { "callId must be stable non-blank text" }
         require(missionRevision >= 0L)
         require(berthRef.stationId == stationId)
         require(plannedArrivalTick == null || plannedArrivalTick >= 0L)

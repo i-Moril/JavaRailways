@@ -2,9 +2,15 @@ package work.art1st.mineRails.basic.timetable.js
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import work.art1st.mineRails.basic.WayPoint
+import work.art1st.mineRails.basic.api.station.DoorSide
+import work.art1st.mineRails.basic.api.station.Station
+import work.art1st.mineRails.basic.api.station.StationBerth
+import work.art1st.mineRails.basic.api.station.StationBerthRef
+import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.timetable.TimetableAction
@@ -13,15 +19,24 @@ import work.art1st.mineRails.basic.timetable.TrainSelector
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTestWorld
+import work.art1st.mineRails.core.physics.train.createTrainWithConfig
 import java.io.File
 
 class TimetableScriptLoaderTest {
+    private val worlds = mutableListOf<work.art1st.mineRails.core.physics.CoreWorld>()
+
     @TempDir
     lateinit var tempDir: File
 
+    @AfterEach
+    fun unregisterWorlds() {
+        worlds.forEach(TestBasicWorldDataRegistry::unregister)
+        worlds.clear()
+    }
+
     @Test
     fun `loads js timetable dsl`() {
-        val world = createTestWorld()
+        val world = createTestWorld().also(worlds::add)
         TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
         world.basicWorldData.wayPoints.add(WayPoint("depot1", "depot1", rail.id, 0.0))
@@ -55,8 +70,84 @@ class TimetableScriptLoaderTest {
     }
 
     @Test
+    fun `loads strict explicit station call options`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        world.basicWorldData.wayPoints.add(WayPoint("C", "C", rail.id, originArc + 80.0))
+        val stationId = StationId("central")
+        val berthRef = StationBerthRef(stationId, "one")
+        val berth = StationBerth(berthRef, train.head.location.forward(30.0)!!)
+        world.basicWorldData.stations.register(
+            Station(stationId, "Central", listOf(berthRef)),
+            listOf(berth)
+        )
+        val script = File(tempDir, "station.js")
+        script.writeText(
+            """
+            function main(timetable) {
+              timetable.service("station-service", "T1", function(t) {
+                t.check("A")
+                t.at(100).call("central", "one", {
+                  minimumDwellTicks: 40,
+                  plannedDepartureTick: 200,
+                  stoppingOffsetMetersBefore: 1.5,
+                  doorSide: "left"
+                })
+                t.at(300).goto("C")
+              })
+            }
+            """.trimIndent()
+        )
+
+        val result = TimetableScriptLoader(world).load(script)
+
+        assertTrue(result is TimetableScriptLoadResult.Success, result.toString())
+        val action = ((result as TimetableScriptLoadResult.Success)
+            .timetable.services.single().steps[1] as TimetableStep.At).action
+        assertEquals(
+            TimetableAction.CallStation(
+                stationId = "central",
+                berthId = "one",
+                minimumDwellTicks = 40L,
+                plannedDepartureTick = 200L,
+                stoppingOffsetMetersBefore = 1.5,
+                doorSideOverride = DoorSide.LEFT
+            ),
+            action
+        )
+    }
+
+    @Test
+    fun `rejects unknown station call options`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val script = File(tempDir, "bad-station.js")
+        script.writeText(
+            """
+            function main(timetable) {
+              timetable.service("bad", "T1", function(t) {
+                t.at(0).call("central", "one", { surprise: true })
+              })
+            }
+            """.trimIndent()
+        )
+
+        val result = TimetableScriptLoader(world).load(script)
+
+        assertTrue(result is TimetableScriptLoadResult.Failure)
+        assertTrue((result as TimetableScriptLoadResult.Failure).message.contains("未知 options"))
+    }
+
+    @Test
     fun `reports js syntax errors`() {
-        val world = createTestWorld()
+        val world = createTestWorld().also(worlds::add)
         TestBasicWorldDataRegistry.getOrCreate(world)
         val script = File(tempDir, "broken.js")
         script.writeText("function main(timetable) {")

@@ -6,7 +6,7 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前首版 JS 时刻表 DSL。C1 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia` 和 `Stop` dwell；尚不支持 WayPointPool 自动选车、周期循环、Station 或车门操作。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
+本文档描述当前首版 JS 时刻表 DSL。C1/C2 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell 和显式 Station/Berth call；尚不支持 WayPointPool 自动选车、周期循环或车门操作。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
@@ -54,7 +54,7 @@ plugins/MineRails/timetables/<name>.js
 
 只有使用字符串 `trainId` selector、并在第一个运行动作前通过 `check()` 指定初始 WayPoint 的 service 可以启动。后续 `goto` 会在前一 Mission 停稳以及可选 `stop` dwell 完成后继续。
 
-`stop` 命令请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。C1 中 `at(tick)` 的时间只参与冲突优先级，不直接作为道岔切换时刻或发车等待条件。
+`stop` 命令请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
 
 如果省略加载命令的 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
 
@@ -205,6 +205,30 @@ t.at(2000).stop(100)
 
 - `ticks` 必须是大于 0 的整数。
 - 运行时会在前一 Mission 停稳后按 Dispatcher Tick 计时；它不是 Station berth 或车门操作。
+
+### `t.at(tick).call(stationId, berthId, options?)`
+
+安排一次显式 StationBerth 停站：
+
+```js
+t.at(1000).call("central", "platform-1", {
+  minimumDwellTicks: 100,
+  plannedDepartureTick: 1400,
+  stoppingOffsetMetersBefore: 1.5,
+  doorSide: "left"
+})
+t.at(1500).goto("next-waypoint")
+```
+
+规则：
+
+- `stationId` 和 `berthId` 必须显式指定且已注册；C2 不自动选台。
+- call 后必须直接配对一个 `goto`，并且 berth 必须位于该 Mission 经路前缀上。
+- `minimumDwellTicks`、`plannedDepartureTick` 和 `stoppingOffsetMetersBefore` 不能为负。
+- `plannedDepartureTick` 不能早于 call 的 `at(tick)`。
+- `doorSide` 只接受 `none`、`left`、`right`、`both`，在 C2 中只作为元数据，不执行车门操作。
+- 未知 options 会导致 loader 严格失败。
+- 列车头部是固定停车对齐参考点；berth 所有权在车尾越过 release boundary 后释放。
 
 ### `t.check(wayPointId)`
 
@@ -363,7 +387,7 @@ function main(timetable) {
 
 ## 当前限制
 
-当前 loader 和 C1 Dispatcher 仍不会：
+当前 loader 和 C2 Dispatcher 仍不会：
 
 - 从 WayPointPool 或 `AnyTrain` 自动选择真实列车。
 - 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。

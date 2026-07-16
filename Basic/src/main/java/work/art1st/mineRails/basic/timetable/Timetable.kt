@@ -1,10 +1,21 @@
 package work.art1st.mineRails.basic.timetable
 
+import work.art1st.mineRails.basic.api.station.DoorSide
+import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
+import work.art1st.mineRails.basic.api.station.DwellPlan
+import work.art1st.mineRails.basic.api.station.StationBerthRef
+import work.art1st.mineRails.basic.api.station.StationCall
+import work.art1st.mineRails.basic.api.station.StationCallRequest
+import work.art1st.mineRails.basic.api.station.StationCallResolutionResult
+import work.art1st.mineRails.basic.api.station.StationCallResolver
+import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.ExpandedRoute
 import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
+import kotlin.math.abs
 
 /** 自动时刻表的内部 Kotlin 数据模型。JS loader 后续只负责生成这些数据。 */
 data class Timetable(
@@ -35,6 +46,25 @@ sealed class TimetableAction {
     data class GoTo(val wayPointId: String) : TimetableAction()
     data class GoVia(val wayPointIds: List<String>) : TimetableAction()
     data class Stop(val ticks: Long) : TimetableAction()
+    data class CallStation(
+        val stationId: String,
+        val berthId: String,
+        val minimumDwellTicks: Long? = null,
+        val plannedDepartureTick: Long? = null,
+        val stoppingOffsetMetersBefore: Double? = null,
+        val doorSideOverride: DoorSide? = null
+    ) : TimetableAction() {
+        init {
+            require(stationId.isNotBlank() && berthId.isNotBlank())
+            require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
+            require(plannedDepartureTick == null || plannedDepartureTick >= 0L)
+            require(stoppingOffsetMetersBefore == null ||
+                stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
+        }
+
+        val berthRef: StationBerthRef
+            get() = StationBerthRef(StationId(stationId), berthId)
+    }
 }
 
 data class TimetableValidationResult(
@@ -73,6 +103,7 @@ class TimetableValidator(private val world: World) {
 
         var currentWayPointId: String? = initialWayPoint(service.trainSelector, prefix, errors)
         var previousAtTick: Long? = null
+        var pendingStationCall: Pair<Int, TimetableAction.CallStation>? = null
 
         service.steps.forEachIndexed { index, step ->
             when (step) {
@@ -89,9 +120,47 @@ class TimetableValidator(private val world: World) {
                         if (step.tick < it) errors.add("$prefix step#$index tick 早于前一个 at: ${step.tick} < $it")
                     }
                     previousAtTick = step.tick
+                    when (step.action) {
+                        is TimetableAction.CallStation -> {
+                            if (step.action.plannedDepartureTick != null &&
+                                step.action.plannedDepartureTick < step.tick
+                            ) {
+                                errors.add(
+                                    "$prefix step#$index planned departure 早于 planned arrival"
+                                )
+                            }
+                            if (pendingStationCall != null) {
+                                errors.add(
+                                    "$prefix step#$index station call 前还有未配对 call: " +
+                                        "step#${pendingStationCall.first}"
+                                )
+                            }
+                            pendingStationCall = index to step.action
+                        }
+                        is TimetableAction.GoTo,
+                        is TimetableAction.GoVia -> {
+                            pendingStationCall?.let { (callIndex, call) ->
+                                validateStationCallPrefix(
+                                    prefix,
+                                    callIndex,
+                                    currentWayPointId,
+                                    call,
+                                    step.action,
+                                    errors
+                                )
+                            }
+                            pendingStationCall = null
+                        }
+                        is TimetableAction.Stop -> if (pendingStationCall != null) {
+                            errors.add("$prefix step#$index station call 后必须直接跟随 goto")
+                        }
+                    }
                     currentWayPointId = validateAction(prefix, index, currentWayPointId, step.action, errors, routes)
                 }
             }
+        }
+        pendingStationCall?.let { (index, _) ->
+            errors.add("$prefix step#$index station call 缺少后续 goto")
         }
     }
 
@@ -146,6 +215,96 @@ class TimetableValidator(private val world: World) {
                     cursor
                 }
             }
+            is TimetableAction.CallStation -> {
+                val stationId = runCatching { StationId(action.stationId) }.getOrNull()
+                val berthRef = runCatching { action.berthRef }.getOrNull()
+                val station = stationId?.let { world.basicWorldData.stations[it] }
+                when {
+                    stationId == null -> errors.add("$prefix step#$stepIndex station id 非法")
+                    station == null -> errors.add(
+                        "$prefix step#$stepIndex station 不存在: ${action.stationId}"
+                    )
+                    berthRef == null || berthRef !in station.berthRefs ||
+                        world.basicWorldData.stations.berth(berthRef) == null -> errors.add(
+                        "$prefix step#$stepIndex berth 不存在: ${action.stationId}/${action.berthId}"
+                    )
+                }
+                if (action.plannedDepartureTick != null &&
+                    action.plannedDepartureTick < 0L
+                ) errors.add("$prefix step#$stepIndex plannedDepartureTick 不能为负")
+                currentWayPointId
+            }
+        }
+    }
+
+    private fun validateStationCallPrefix(
+        prefix: String,
+        stepIndex: Int,
+        fromWayPointId: String?,
+        callAction: TimetableAction.CallStation,
+        movementAction: TimetableAction,
+        errors: MutableList<String>
+    ) {
+        val origin = fromWayPointId ?: return
+        val berthRef = runCatching { callAction.berthRef }.getOrNull() ?: return
+        val resolved = StationCallResolver(world).resolve(
+            StationCallRequest(
+                serviceRunId = "validation",
+                origin = WayPointRef(origin),
+                call = StationCall(
+                    callId = "validation-$stepIndex",
+                    missionRevision = 0L,
+                    stationId = berthRef.stationId,
+                    berthRef = berthRef,
+                    plannedArrivalTick = null,
+                    dwellPlan = DwellPlan(callAction.minimumDwellTicks ?: 0L),
+                    stoppingOffsetMetersBeforeOverride = callAction.stoppingOffsetMetersBefore,
+                    doorSideOverride = callAction.doorSideOverride
+                )
+            )
+        ) as? StationCallResolutionResult.Success ?: return
+        val berth = world.basicWorldData.stations.berth(berthRef) ?: return
+        val arrivalDirection = resolved.resolved.plannedRoute.expandedRoute
+            .segments.last().railViewRef.direction
+        val berthArcInView = when (arrivalDirection) {
+            ViewDirection.AB -> berth.location.arcLengthIn(ViewDirection.AB)
+            ViewDirection.BA -> berth.location.arcLengthIn(ViewDirection.BA)
+        }
+        val targets = when (movementAction) {
+            is TimetableAction.GoTo -> listOf(movementAction.wayPointId)
+            is TimetableAction.GoVia -> movementAction.wayPointIds
+            else -> return
+        }
+        var cursor = origin
+        var cumulative = 0.0
+        val candidates = ArrayList<Double>()
+        for (target in targets) {
+            val route = when (val result = routePlanner.buildRoute(cursor, target)) {
+                is RouteBuildResult.Success -> result.route
+                is RouteBuildResult.Failure -> return
+            }
+            var segmentStart = cumulative
+            route.segments.forEach { segment ->
+                if (segment.railViewRef.railId == berth.location.rail.id &&
+                    segment.railViewRef.direction == arrivalDirection &&
+                    berthArcInView >= segment.startArcLength - 1.0e-6 &&
+                    berthArcInView <= segment.endArcLength + 1.0e-6
+                ) {
+                    candidates += segmentStart +
+                        (berthArcInView.coerceIn(segment.startArcLength, segment.endArcLength) -
+                            segment.startArcLength)
+                }
+                segmentStart += segment.length
+            }
+            cumulative += route.totalLength
+            cursor = target
+        }
+        val stationDistance = resolved.resolved.plannedRoute.expandedRoute.totalLength
+        if (candidates.none { abs(it - stationDistance) <= 0.5 }) {
+            errors.add(
+                "$prefix step#$stepIndex berth $berthRef 不在后续 goto 的经路前缀上 " +
+                    "(stationDistance=$stationDistance, candidates=$candidates)"
+            )
         }
     }
 

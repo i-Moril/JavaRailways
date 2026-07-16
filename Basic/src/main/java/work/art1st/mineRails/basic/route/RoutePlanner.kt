@@ -79,22 +79,34 @@ class RoutePlanner(private val world: World) {
     }
 
     /**
-     * 路径点本身不带方向。这里会尝试方向限制允许的 RailView 组合，
-     * 并选择可达路线中总长度最短的一条。
+     * Legacy WayPoints try both allowed directions. Operational Destinations contribute their
+     * configured directed approach unless a synthetic caller supplies an explicit requirement.
      */
     fun buildRoute(
         from: WayPoint,
         to: WayPoint,
-        requiredGoalDirection: ViewDirection? = null
+        requiredGoalDirection: ViewDirection? = null,
+        requiredStartDirection: ViewDirection? = null
     ): RouteBuildResult {
-        val startCandidates = resolveViews(from)
-        if (startCandidates.isEmpty()) return RouteBuildResult.Failure("起点轨道不存在: ${from.railId}")
+        val destinationStore = world.basicWorldData.destinations
+        val effectiveStartDirection = requiredStartDirection
+            ?: destinationStore[from.id]?.approachDirection
+        val effectiveGoalDirection = requiredGoalDirection
+            ?: destinationStore[to.id]?.approachDirection
+        val startCandidates = resolveViews(from).filter { candidate ->
+            effectiveStartDirection == null || candidate.viewDirection == effectiveStartDirection
+        }
+        if (startCandidates.isEmpty()) {
+            return RouteBuildResult.Failure(
+                "起点轨道或要求方向不存在: ${from.railId}/${effectiveStartDirection ?: "any"}"
+            )
+        }
         val goalCandidates = resolveViews(to).filter { candidate ->
-            requiredGoalDirection == null || candidate.viewDirection == requiredGoalDirection
+            effectiveGoalDirection == null || candidate.viewDirection == effectiveGoalDirection
         }
         if (goalCandidates.isEmpty()) {
             return RouteBuildResult.Failure(
-                "终点轨道或要求方向不存在: ${to.railId}/${requiredGoalDirection ?: "any"}"
+                "终点轨道或要求方向不存在: ${to.railId}/${effectiveGoalDirection ?: "any"}"
             )
         }
 

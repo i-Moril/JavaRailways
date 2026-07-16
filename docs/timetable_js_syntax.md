@@ -404,7 +404,6 @@ function main(timetable) {
 - 从 WayPointPool 或 `AnyTrain` 自动选择真实列车。
 - 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。
 - 执行周期循环。
-- 提供 Destination 的 Station/Depot 角色创建入口。
 - 提供 MANUAL_ROUTED 人工被动进路模式。
 - 处理会让、越行或晚点优化等高级运营规则。
 - 持久化已加载时刻表或活动 epoch；重启后需要重新加载并由管理员启动。

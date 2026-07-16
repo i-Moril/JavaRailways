@@ -22,6 +22,12 @@ import org.bukkit.inventory.ItemStack
 import org.joml.Vector3d
 import work.art1st.mineRails.basic.DirectionRestrictionResolver
 import work.art1st.mineRails.basic.WayPoint
+import work.art1st.mineRails.basic.api.destination.DestinationRole
+import work.art1st.mineRails.basic.api.destination.DestinationRoleType
+import work.art1st.mineRails.basic.api.destination.OperationalDestination
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
+import work.art1st.mineRails.basic.api.station.DoorSide
+import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.api.ui.config.ConfigConstraints
 import work.art1st.mineRails.basic.api.ui.config.ConfigGroup
 import work.art1st.mineRails.basic.api.ui.config.ConfigItemImpl
@@ -34,6 +40,7 @@ import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
 import work.art1st.mineRails.bukkit.util.BukkitAsyncTasks
 import work.art1st.mineRails.bukkit.util.HeavyRailQueries
 import work.art1st.mineRails.bukkit.util.PlayerOperationGate
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import java.util.UUID
 
 enum class RailObjectWandMode(
@@ -132,20 +139,85 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         configUI.register(ConfigGroup(
             id = "railObject.waypoint.edit",
             label = "路径点设置",
-            description = "路径点是列车寻路和时刻表动作的基准点，不一定要求列车停车。",
-            items = mutableListOf(ConfigItemImpl(editKeys.name))
+            description = "Destination 是 directed 路由锚点，可选择普通、车站或车辆段角色。",
+            items = mutableListOf(
+                ConfigItemImpl(editKeys.name),
+                ConfigItemImpl(editKeys.role),
+                ConfigItemImpl(editKeys.approachDirection),
+                ConfigItemImpl(editKeys.stationId),
+                ConfigItemImpl(editKeys.berthId),
+                ConfigItemImpl(editKeys.doorSide),
+                ConfigItemImpl(editKeys.depotId),
+                ConfigItemImpl(editKeys.stablingPointId)
+            )
         ))
     }
 
     class WayPointEditKeys {
         val name = ConfigKey.build<String>("railObject.waypoint.name") {
-            label = "路径点名称"
+            label = "Destination ID"
             description = "用于 JS 时刻表和寻路动作引用的唯一名称"
-            defaultValue("waypoint")
+            defaultValue("destination")
             valueType = ConfigValueType.STRING
             constraints = ConfigConstraints.StringLength(1, 64)
             group = "railObject.waypoint.edit"
             order = 0
+        }
+        val role = ConfigKey.build<DestinationRoleType>("railObject.waypoint.role") {
+            label = "运营角色"
+            description = "普通目的地、车站停车位或车辆段停车点"
+            defaultValue(DestinationRoleType.REGULAR)
+            valueType = ConfigValueType.ENUM
+            constraints = ConfigConstraints.EnumOptions(
+                DestinationRoleType.entries,
+                DestinationRoleType.entries.associateWith { it.displayName }
+            )
+            group = "railObject.waypoint.edit"
+            order = 1
+        }
+        val approachDirection = ConfigKey.build<ViewDirection>("railObject.waypoint.direction") {
+            label = "接近方向"
+            description = "列车到达该 Destination 时的严格 RailView 方向"
+            defaultValue(ViewDirection.AB)
+            valueType = ConfigValueType.ENUM
+            constraints = ConfigConstraints.EnumOptions(
+                ViewDirection.entries,
+                ViewDirection.entries.associateWith { it.name }
+            )
+            group = "railObject.waypoint.edit"
+            order = 2
+        }
+        val stationId = stringKey("railObject.waypoint.stationId", "Station ID", 3)
+        val berthId = stringKey("railObject.waypoint.berthId", "Berth ID", 4)
+        val doorSide = ConfigKey.build<DoorSide>("railObject.waypoint.doorSide") {
+            label = "开门侧"
+            description = "相对接近方向；Station Berth 不允许 NONE"
+            defaultValue(DoorSide.LEFT)
+            valueType = ConfigValueType.ENUM
+            constraints = ConfigConstraints.EnumOptions(
+                DoorSide.entries,
+                DoorSide.entries.associateWith { it.name.lowercase() }
+            )
+            group = "railObject.waypoint.edit"
+            order = 5
+        }
+        val depotId = stringKey("railObject.waypoint.depotId", "Depot ID", 6)
+        val stablingPointId = stringKey(
+            "railObject.waypoint.stablingPointId",
+            "Stabling Point ID",
+            7
+        )
+
+        companion object {
+            private fun stringKey(id: String, text: String, itemOrder: Int) =
+                ConfigKey.build<String>(id) {
+                    label = text
+                    defaultValue("")
+                    valueType = ConfigValueType.STRING
+                    constraints = ConfigConstraints.StringLength(0, 64)
+                    group = "railObject.waypoint.edit"
+                    order = itemOrder
+                }
         }
     }
 
@@ -239,13 +311,26 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
                 val store = liveCoreWorld.basicWorldData.wayPoints
                 val id = store.nextId()
-                val wayPoint = WayPoint(
+                val destination = OperationalDestination(
                     id = id,
                     displayName = id,
                     railId = rail.id,
-                    arcLength = nearestRail.arcLength
+                    arcLengthInAbMeters = nearestRail.arcLength,
+                    approachDirection = ViewDirection.AB,
+                    role = DestinationRole.Regular
                 )
-                store.add(wayPoint)
+                try {
+                    OperationalDestinationService(liveCoreWorld).register(destination)
+                } catch (failure: Exception) {
+                    livePlayer.sendActionBar(
+                        Component.text(
+                            "Destination 创建失败: ${failure.message ?: failure::class.java.simpleName}",
+                            NamedTextColor.RED
+                        )
+                    )
+                    return@supply
+                }
+                val wayPoint = destination.toWayPoint()
                 spawnOrReplaceMarker(livePlayer, wayPoint)
 
                 livePlayer.sendMessage(
@@ -296,7 +381,11 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         }
 
         if (state.pendingDeleteWayPoint == wayPoint.id) {
-            coreWorld.basicWorldData.wayPoints.remove(wayPoint.id)
+            if (coreWorld.basicWorldData.destinations[wayPoint.id] != null) {
+                OperationalDestinationService(coreWorld).remove(wayPoint.id)
+            } else {
+                coreWorld.basicWorldData.wayPoints.remove(wayPoint.id)
+            }
             removeMarker(player.world.uid, wayPoint.id)
             state.pendingDeleteWayPoint = null
             player.sendMessage(Component.text("已删除路径点 ${wayPoint.id}", NamedTextColor.GREEN))
@@ -475,8 +564,22 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val coreWorld = getCoreWorld(player) ?: return
         val wayPoint = coreWorld.basicWorldData.wayPoints[wayPointId] ?: return
         editingWayPoint[player.uniqueId] = wayPointId
+        val destination = coreWorld.basicWorldData.destinations[wayPointId]
+        val role = destination?.role ?: DestinationRole.Regular
         val session = configUI.getPlayerSession(player.uniqueId)
         session.setValue(editKeys.name, wayPoint.id)
+        session.setValue(editKeys.role, role.type)
+        session.setValue(
+            editKeys.approachDirection,
+            destination?.approachDirection ?: ViewDirection.AB
+        )
+        val stationRole = role as? DestinationRole.StationBerthRole
+        session.setValue(editKeys.stationId, stationRole?.stationId?.value.orEmpty())
+        session.setValue(editKeys.berthId, stationRole?.berthId.orEmpty())
+        session.setValue(editKeys.doorSide, stationRole?.doorSide ?: DoorSide.LEFT)
+        val depotRole = role as? DestinationRole.DepotStablingPointRole
+        session.setValue(editKeys.depotId, depotRole?.depotId.orEmpty())
+        session.setValue(editKeys.stablingPointId, depotRole?.stablingPointId.orEmpty())
         dialogRenderer.showConfigDialog(player, "railObject.waypoint.edit") { p ->
             applyWayPointDialog(p)
         }
@@ -485,20 +588,70 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private fun applyWayPointDialog(player: Player) {
         val oldId = editingWayPoint.remove(player.uniqueId) ?: return
         val coreWorld = getCoreWorld(player) ?: return
-        val rawName = configUI.getPlayerSession(player.uniqueId).getValue(editKeys.name) ?: oldId
+        val session = configUI.getPlayerSession(player.uniqueId)
+        val rawName = session.getValue(editKeys.name) ?: oldId
         val newId = rawName.trim()
         if (newId.isBlank()) {
-            player.sendActionBar(Component.text("路径点名称不能为空", NamedTextColor.RED))
+            player.sendActionBar(Component.text("Destination ID 不能为空", NamedTextColor.RED))
             return
         }
-        val updated = try {
-            coreWorld.basicWorldData.wayPoints.rename(oldId, newId, newId)
-        } catch (e: Exception) {
-            player.sendActionBar(Component.text("路径点重命名失败: ${e.message}", NamedTextColor.RED))
+        val legacyWayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: return
+        val roleType = session.getValue(editKeys.role) ?: DestinationRoleType.REGULAR
+        val direction = session.getValue(editKeys.approachDirection) ?: ViewDirection.AB
+        val role = try {
+            when (roleType) {
+                DestinationRoleType.REGULAR -> DestinationRole.Regular
+                DestinationRoleType.STATION_BERTH -> DestinationRole.StationBerthRole(
+                    stationId = StationId(session.getValue(editKeys.stationId).orEmpty().trim()),
+                    berthId = session.getValue(editKeys.berthId).orEmpty().trim(),
+                    doorSide = session.getValue(editKeys.doorSide) ?: DoorSide.LEFT
+                )
+                DestinationRoleType.DEPOT_STABLING_POINT ->
+                    DestinationRole.DepotStablingPointRole(
+                        depotId = session.getValue(editKeys.depotId).orEmpty().trim(),
+                        stablingPointId = session.getValue(editKeys.stablingPointId).orEmpty().trim()
+                    )
+            }
+        } catch (failure: Exception) {
+            player.sendActionBar(
+                Component.text("Destination 配置无效: ${failure.message}", NamedTextColor.RED)
+            )
+            return
+        }
+        val updated = OperationalDestination(
+            id = newId,
+            displayName = newId,
+            railId = legacyWayPoint.railId,
+            arcLengthInAbMeters = legacyWayPoint.arcLength,
+            approachDirection = direction,
+            role = role
+        )
+        try {
+            val destinationService = OperationalDestinationService(coreWorld)
+            if (coreWorld.basicWorldData.destinations[oldId] != null) {
+                destinationService.replace(oldId, updated)
+            } else {
+                coreWorld.basicWorldData.wayPoints.remove(oldId)
+                try {
+                    destinationService.register(updated)
+                } catch (failure: Exception) {
+                    coreWorld.basicWorldData.wayPoints.add(legacyWayPoint)
+                    throw failure
+                }
+            }
+        } catch (failure: Exception) {
+            player.sendActionBar(
+                Component.text("Destination 保存失败: ${failure.message}", NamedTextColor.RED)
+            )
             return
         }
         renameMarker(oldId, updated.id, updated.displayName)
-        player.sendMessage(Component.text("路径点已保存: ${updated.id}", NamedTextColor.GREEN))
+        player.sendMessage(
+            Component.text(
+                "Destination 已保存: ${updated.id} role=${updated.role.type}",
+                NamedTextColor.GREEN
+            )
+        )
     }
 
     private fun spawnOrReplaceMarker(player: Player, wayPoint: WayPoint) {

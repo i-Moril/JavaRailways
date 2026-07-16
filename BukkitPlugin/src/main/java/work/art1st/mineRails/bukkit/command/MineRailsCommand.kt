@@ -6,6 +6,7 @@ import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
 import org.bukkit.command.TabCompleter
 import org.bukkit.entity.Player
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
@@ -100,7 +101,13 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 } else {
                     sender.sendMessage("=== 路径点列表 ===")
                     wayPoints.forEach { wayPoint ->
-                        sender.sendMessage("${wayPoint.id} (${wayPoint.displayName}) rail=${wayPoint.railId} s=${"%.2f".format(wayPoint.arcLength)}")
+                        val destination = world.basicWorldData.destinations[wayPoint.id]
+                        sender.sendMessage(
+                            "${wayPoint.id} (${wayPoint.displayName}) rail=${wayPoint.railId} " +
+                                "s=${"%.2f".format(wayPoint.arcLength)} " +
+                                "role=${destination?.role?.type ?: "LEGACY"} " +
+                                "direction=${destination?.approachDirection ?: "any"}"
+                        )
                     }
                 }
             }
@@ -117,6 +124,9 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                         sender.sendMessage("显示名: ${wayPoint.displayName}")
                         sender.sendMessage("轨道: ${wayPoint.railId}")
                         sender.sendMessage("弧长: ${"%.2f".format(wayPoint.arcLength)}")
+                        val destination = world.basicWorldData.destinations[wayPoint.id]
+                        sender.sendMessage("角色: ${destination?.role?.type ?: "LEGACY"}")
+                        sender.sendMessage("接近方向: ${destination?.approachDirection ?: "any"}")
                     }
                 }
             }
@@ -125,7 +135,11 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 if (id == null) {
                     sender.sendMessage("用法: /mr waypoint remove <id>")
                 } else {
-                    val removed = store.remove(id)
+                    val removed = if (world.basicWorldData.destinations[id] != null) {
+                        OperationalDestinationService(world).remove(id)?.toWayPoint()
+                    } else {
+                        store.remove(id)
+                    }
                     if (removed == null) {
                         sender.sendMessage("路径点不存在: $id")
                     } else {

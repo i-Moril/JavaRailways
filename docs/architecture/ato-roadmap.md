@@ -122,11 +122,12 @@ slug: /architecture/ato-roadmap
 - `at(tick)` 已控制动作最早执行时刻；晚点立即执行并报告 lateness，不跳过或 Stall。
 - 自动创建下一 cycle 仍等待 T3 Depot 动态 assignment，避免继续依赖固定 TrainId。
 
-### T2 Destination 角色
+### T2 Destination 角色（已完成）
 
-- 建立统一、directed 的运营 Destination，角色为普通目标、StationBerth 或 Depot StablingPoint。
-- 创建 Station Destination 时配置 Station/Berth ID 与相对接近方向的开门侧。
-- 为现有 WayPoint、RailDestination 和 StationBerth 保留明确迁移 adapter。
+- 已建立统一、directed 的运营 Destination，角色为普通目标、StationBerth 或 Depot StablingPoint。
+- RailObjectWand 创建/编辑 Destination 时可配置严格接近方向、Station/Berth ID、开门侧或 Depot/StablingPoint ID。
+- StationStore 支持原子追加/移除被动 berth；同一 Station 可聚合多个 directed Destination。
+- 现有 WayPoint 继续作为 Mission adapter，旧 WayPoint 首次通过 Dialog 保存时迁移到 DestinationStore。
 
 ### T3 Depot 与动态配车
 

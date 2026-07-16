@@ -222,6 +222,65 @@ class StationStore(private val railObjects: RailObjectStore) {
         stations[station.id] = station
     }
 
+    /** Atomically append one passive berth, creating the Station aggregate when necessary. */
+    @MainThread
+    fun addBerth(
+        stationId: StationId,
+        stationDisplayName: String,
+        berth: StationBerth,
+        stationDefaultDwellTicks: Long = 0L
+    ) = synchronized(lock) {
+        require(berth.berthRef.stationId == stationId)
+        check(berths[berth.berthRef] == null) {
+            "Station berth already registered: ${berth.berthRef}"
+        }
+        check(railObjects.get(berth.ref) == null) {
+            "RailObjectRef already registered: ${berth.ref}"
+        }
+        val current = stations[stationId]
+        val updated = if (current == null) {
+            Station(
+                stationId,
+                stationDisplayName,
+                listOf(berth.berthRef),
+                stationDefaultDwellTicks
+            )
+        } else {
+            Station(
+                current.id,
+                current.displayName,
+                current.berthRefs + berth.berthRef,
+                current.defaultDwellTicks
+            )
+        }
+        railObjects.register(berth)
+        berths[berth.berthRef] = berth
+        stations[stationId] = updated
+    }
+
+    /** Atomically remove one berth and remove an empty Station aggregate. */
+    @MainThread
+    fun removeBerth(ref: StationBerthRef): StationBerth? = synchronized(lock) {
+        val berth = berths.remove(ref) ?: return@synchronized null
+        berth.markRemoved()
+        railObjects.unregister(berth.ref)
+        val current = stations[ref.stationId]
+        if (current != null) {
+            val remaining = current.berthRefs.filterNot { it == ref }
+            if (remaining.isEmpty()) {
+                stations.remove(ref.stationId)
+            } else {
+                stations[ref.stationId] = Station(
+                    current.id,
+                    current.displayName,
+                    remaining,
+                    current.defaultDwellTicks
+                )
+            }
+        }
+        berth
+    }
+
     operator fun get(id: StationId): Station? = stations[id]
 
     fun berth(ref: StationBerthRef): StationBerth? = berths[ref]

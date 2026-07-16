@@ -6,7 +6,7 @@ slug: /architecture/automatic-train-operation
 # 自动驾驶与运营协同设计
 
 :::warning 实施状态
-Phase A/B、C1 Mission、Phase C2 Station、Phase C3 车门操作网关、Phase D1 人工接管/重新规划和 T1 cycle-zero 周期时钟已实现；当前继续实施给定时刻表运营闭环，插件 Registry 延期。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
+Phase A/B、C1 Mission、Phase C2 Station、Phase C3 车门操作网关、Phase D1 人工接管/重新规划、T1 cycle-zero 周期时钟和 T2 directed Destination 已实现；当前继续实施给定时刻表运营闭环，插件 Registry 延期。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
 :::
 
 ## 当前实施状态
@@ -28,7 +28,7 @@ Phase C3 已增加主线程 `TrainOperationGateway`、稳定 operation request�
 
 Phase D1 已把人工接管接入 Dispatcher：接管前进入 `SUSPENDED` 并解除旧 ATO，驾驶权释放后进入 `REPLAN_REQUIRED`。旧 RouteSection 和 StationBerth 继续按车尾释放；管理员只能在列车停止、位于明确 WayPoint 且旧资源清空后创建新 ATO/Mission revision，重新规划到被中断 movement 的原目标。
 
-下一目标由 [给定时刻表运营闭环设计](./timetable-operation-design.md) 固定：T1 已实现 `setPeriodDays`、共同 cycle-zero epoch、not-before 和 lateness；后续继续 directed Destination、Depot 动态配车/下一 cycle、MANUAL_ROUTED/FULL_MANUAL 和统一 World-local Stall。该目标会把现有 door failure 的 `MANUAL_INTERVENTION` 改为 Stall，并让人工接管默认先进入只负责进路的 MANUAL_ROUTED；在对应验收项完成前，当前源码行为仍以 C3/D1 描述为准。
+下一目标由 [给定时刻表运营闭环设计](./timetable-operation-design.md) 固定：T1 已实现 `setPeriodDays`、共同 cycle-zero epoch、not-before 和 lateness；T2 已增加普通/StationBerth/DepotStablingPoint 角色、严格接近方向、Station 多 berth 聚合和 legacy WayPoint adapter；后续继续 Depot 动态配车/下一 cycle、MANUAL_ROUTED/FULL_MANUAL 和统一 World-local Stall。该目标会把现有 door failure 的 `MANUAL_INTERVENTION` 改为 Stall，并让人工接管默认先进入只负责进路的 MANUAL_ROUTED；在对应验收项完成前，当前源码行为仍以 C3/D1 描述为准。
 
 ## 1. 背景
 

@@ -20,12 +20,14 @@ slug: /architecture/timetable-operational-closure-checklist
 
 ## T2 Destination 与 Station
 
-- [ ] **T2-01** 稳定 Destination 支持 `REGULAR`、`STATION_BERTH`、`DEPOT_STABLING_POINT` 角色。
-- [ ] **T2-02** Destination 保存 AB 弧长和接近方向，并可作为 Mission 路由目标。
-- [ ] **T2-03** 创建 Station Destination 时严格要求 Station/Berth ID 和开门侧，其余字段使用显式默认值。
-- [ ] **T2-04** 一个 Station 可聚合多个 directed berth；双向站台使用两个独立 Destination。
-- [ ] **T2-05** 旧 WayPoint/RailDestination 有明确 adapter 或迁移失败诊断。
-- [ ] **T2-06** Destination/Station/StablingPoint 保持被动，不直接操作列车、车门或道岔。
+- [x] **T2-01** 稳定 Destination 支持 `REGULAR`、`STATION_BERTH`、`DEPOT_STABLING_POINT` 角色。
+- [x] **T2-02** Destination 保存 AB 弧长和接近方向，并可作为 Mission 路由目标。
+- [x] **T2-03** 创建 Station Destination 时严格要求 Station/Berth ID 和开门侧，其余字段使用显式默认值。
+- [x] **T2-04** 一个 Station 可聚合多个 directed berth；双向站台使用两个独立 Destination。
+- [x] **T2-05** 旧 WayPoint/RailDestination 有明确 adapter 或迁移失败诊断。
+- [x] **T2-06** Destination/Station/StablingPoint 保持被动，不直接操作列车、车门或道岔。
+
+证据：`OperationalDestinationTest` 覆盖 directed Mission route、Station 多 berth 聚合、RailObject 注册/删除和 legacy WayPoint 同步替换；RailObjectWand 的 Destination Dialog 提供角色、方向、Station/Berth/door 和 Depot/StablingPoint 字段，旧 WayPoint 首次保存时迁移到新 store。
 
 ## T3 Depot 与动态配车
 

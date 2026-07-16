@@ -3,6 +3,7 @@ package work.art1st.mineRails.basic
 import work.art1st.mineRails.basic.api.ato.AtoWorldCoordinator
 import work.art1st.mineRails.basic.api.ato.provider.AtoProviderRegistry
 import work.art1st.mineRails.basic.api.ato.provider.RailObjectStore
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationStore
 import work.art1st.mineRails.basic.api.station.StationStore
 import work.art1st.mineRails.basic.pathFinding.RailMap
 import work.art1st.mineRails.basic.timetable.Timetable
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
+    val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val timetables: TimetableStore = TimetableStore(),
     val dispatcher: TimetableDispatcher = TimetableDispatcher(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),

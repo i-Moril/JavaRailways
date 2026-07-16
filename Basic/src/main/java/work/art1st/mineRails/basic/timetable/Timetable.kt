@@ -1,5 +1,6 @@
 package work.art1st.mineRails.basic.timetable
 
+import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
 import work.art1st.mineRails.basic.api.station.DwellPlan
@@ -54,6 +55,8 @@ sealed class TimetableStep {
 }
 
 sealed class TimetableAction {
+    /** Select and reserve one compatible AVAILABLE train from its home Depot. */
+    data class TakeFromDepot(val selector: DepotTrainSelector) : TimetableAction()
     data class GoTo(val wayPointId: String) : TimetableAction()
     data class GoVia(val wayPointIds: List<String>) : TimetableAction()
     data class Stop(val ticks: Long) : TimetableAction()
@@ -120,10 +123,16 @@ class TimetableValidator(private val world: World) {
         var currentWayPointId: String? = initialWayPoint(service.trainSelector, prefix, errors)
         var previousAtTick: Long? = null
         var pendingStationCall: Pair<Int, TimetableAction.CallStation>? = null
+        var dynamicOriginCandidates: List<String>? = null
+        var takeFromDepotCount = 0
 
         service.steps.forEachIndexed { index, step ->
             when (step) {
                 is TimetableStep.Check -> {
+                    if (takeFromDepotCount > 0) {
+                        errors.add("$prefix step#$index check 不得覆盖动态配车的 StablingPoint 起点")
+                    }
+                    dynamicOriginCandidates = null
                     if (!wayPointExists(step.wayPointId)) {
                         errors.add("$prefix step#$index check 路径点不存在: ${step.wayPointId}")
                     } else {
@@ -140,6 +149,24 @@ class TimetableValidator(private val world: World) {
                     }
                     previousAtTick = step.tick
                     when (step.action) {
+                        is TimetableAction.TakeFromDepot -> {
+                            takeFromDepotCount++
+                            if (takeFromDepotCount > 1) {
+                                errors.add("$prefix step#$index 只能声明一次 takeFromDepot")
+                            }
+                            if (index != 0) {
+                                errors.add("$prefix step#$index takeFromDepot 必须是 service 的第一步")
+                            }
+                            if (step.tick != 0L) {
+                                errors.add("$prefix step#$index takeFromDepot 当前必须声明为 at(0)")
+                            }
+                            if (service.trainSelector != TrainSelector.AnyTrain) {
+                                errors.add("$prefix step#$index takeFromDepot 不得与 trainSelector 同时使用")
+                            }
+                            if (pendingStationCall != null) {
+                                errors.add("$prefix step#$index station call 后不得 takeFromDepot")
+                            }
+                        }
                         is TimetableAction.CallStation -> {
                             if (step.action.plannedDepartureTick != null) {
                                 if (step.action.plannedDepartureTick < step.tick) {
@@ -172,14 +199,33 @@ class TimetableValidator(private val world: World) {
                                             "配对 goto tick ${step.tick}"
                                     )
                                 }
-                                validateStationCallPrefix(
-                                    prefix,
-                                    callIndex,
-                                    currentWayPointId,
-                                    call,
-                                    step.action,
-                                    errors
-                                )
+                                (dynamicOriginCandidates ?: listOfNotNull(currentWayPointId))
+                                    .forEach { origin ->
+                                        validateStationCallPrefix(
+                                            prefix,
+                                            callIndex,
+                                            origin,
+                                            call,
+                                            step.action,
+                                            errors
+                                        )
+                                    }
+                            }
+                            val firstTarget = when (val movement = step.action) {
+                                is TimetableAction.GoTo -> movement.wayPointId
+                                is TimetableAction.GoVia -> movement.wayPointIds.firstOrNull()
+                            }
+                            if (firstTarget != null) {
+                                dynamicOriginCandidates.orEmpty().drop(1).forEach { origin ->
+                                    validateGoTo(
+                                        prefix,
+                                        index,
+                                        origin,
+                                        firstTarget,
+                                        errors,
+                                        routes
+                                    )
+                                }
                             }
                             pendingStationCall = null
                         }
@@ -187,7 +233,25 @@ class TimetableValidator(private val world: World) {
                             errors.add("$prefix step#$index station call 后必须直接跟随 goto")
                         }
                     }
-                    currentWayPointId = validateAction(prefix, index, currentWayPointId, step.action, errors, routes)
+                    currentWayPointId = validateAction(
+                        prefix,
+                        index,
+                        currentWayPointId,
+                        step.action,
+                        errors,
+                        routes
+                    )
+                    when (val action = step.action) {
+                        is TimetableAction.TakeFromDepot -> {
+                            dynamicOriginCandidates = world.basicWorldData.depots
+                                .stablingPoints(action.selector.depotId)
+                                .map { it.point.destinationId }
+                                .filter(::wayPointExists)
+                        }
+                        is TimetableAction.GoTo,
+                        is TimetableAction.GoVia -> dynamicOriginCandidates = null
+                        else -> Unit
+                    }
                 }
             }
         }
@@ -226,6 +290,26 @@ class TimetableValidator(private val world: World) {
         routes: MutableList<ExpandedRoute>
     ): String? {
         return when (action) {
+            is TimetableAction.TakeFromDepot -> {
+                val points = world.basicWorldData.depots.stablingPoints(action.selector.depotId)
+                if (points.isEmpty()) {
+                    errors.add(
+                        "$prefix step#$stepIndex Depot 不存在或没有 StablingPoint: " +
+                            action.selector.depotId
+                    )
+                    currentWayPointId
+                } else {
+                    points.forEach { point ->
+                        if (!wayPointExists(point.point.destinationId)) {
+                            errors.add(
+                                "$prefix step#$stepIndex StablingPoint Destination 不存在: " +
+                                    point.point.destinationId
+                            )
+                        }
+                    }
+                    points.first().point.destinationId.takeIf(::wayPointExists)
+                }
+            }
             is TimetableAction.Stop -> {
                 if (action.ticks <= 0) errors.add("$prefix step#$stepIndex stop ticks 必须 > 0: ${action.ticks}")
                 currentWayPointId

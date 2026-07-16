@@ -53,6 +53,7 @@ data class DepotStablingPoint(
 data class RollingStockRecord(
     val trainId: String,
     val homeDepotId: DepotId,
+    val modelPackageId: String,
     val tags: Set<String>,
     val carCount: Int,
     val lengthMeters: Double,
@@ -61,6 +62,7 @@ data class RollingStockRecord(
 ) {
     init {
         requireStableId("trainId", trainId)
+        requireStableId("modelPackageId", modelPackageId)
         requireTags("tags", tags)
         require(carCount > 0)
         require(lengthMeters.isFinite() && lengthMeters > 0.0)

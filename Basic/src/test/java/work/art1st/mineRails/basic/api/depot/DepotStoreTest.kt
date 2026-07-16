@@ -81,6 +81,7 @@ class DepotStoreTest {
             RollingStockRecord(
                 trainId = "T1",
                 homeDepotId = depot,
+                modelPackageId = "test/s100",
                 tags = setOf("metro", "local"),
                 carCount = 6,
                 lengthMeters = 80.0,
@@ -93,6 +94,7 @@ class DepotStoreTest {
             RollingStockRecord(
                 trainId = "T2",
                 homeDepotId = depot,
+                modelPackageId = "test/s100",
                 tags = setOf("metro"),
                 carCount = 4,
                 lengthMeters = 60.0,

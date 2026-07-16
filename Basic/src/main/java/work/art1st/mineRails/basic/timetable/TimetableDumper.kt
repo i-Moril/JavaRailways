@@ -51,6 +51,19 @@ object TimetableDumper {
     }
 
     private fun TimetableAction.toJson(): JsonObject = when (this) {
+        is TimetableAction.TakeFromDepot -> JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("takeFromDepot"),
+                "depotId" to JsonPrimitive(selector.depotId.value),
+                "tags" to JsonArray(selector.requiredTags.sorted().map(::JsonPrimitive)),
+                "minimumCars" to (selector.minimumCars?.let(::JsonPrimitive) ?: JsonNull),
+                "maximumCars" to (selector.maximumCars?.let(::JsonPrimitive) ?: JsonNull),
+                "minimumSpeedMetersPerSecond" to
+                    (selector.minimumSpeedMetersPerSecond?.let(::JsonPrimitive) ?: JsonNull),
+                "capabilities" to
+                    JsonArray(selector.requiredCapabilities.sorted().map(::JsonPrimitive))
+            )
+        )
         is TimetableAction.GoTo -> JsonObject(
             mapOf("type" to JsonPrimitive("goto"), "wayPointId" to JsonPrimitive(wayPointId))
         )

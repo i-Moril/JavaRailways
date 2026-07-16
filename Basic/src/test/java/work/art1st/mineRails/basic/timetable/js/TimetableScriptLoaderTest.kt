@@ -6,6 +6,10 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import work.art1st.mineRails.basic.WayPoint
+import work.art1st.mineRails.basic.api.depot.DepotId
+import work.art1st.mineRails.basic.api.destination.DestinationRole
+import work.art1st.mineRails.basic.api.destination.OperationalDestination
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.Station
 import work.art1st.mineRails.basic.api.station.StationBerth
@@ -68,6 +72,77 @@ class TimetableScriptLoaderTest {
         assertEquals(3, success.timetable.services.single().steps.size)
         assertEquals(TimetableAction.GoTo("a0"), (success.timetable.services.single().steps[0] as TimetableStep.At).action)
         assertEquals(2, success.validation.routes.size)
+    }
+
+    @Test
+    fun `loads strict depot selector options`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
+        OperationalDestinationService(world).register(
+            OperationalDestination(
+                "north-one",
+                "North one",
+                rail.id,
+                0.0,
+                work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole("north", "one")
+            )
+        )
+        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 50.0))
+        val script = File(tempDir, "depot.js")
+        script.writeText(
+            """
+            function main(timetable) {
+              timetable.setPeriodDays(1)
+              timetable.service("001", function(t) {
+                t.at(0).takeFromDepot("north", {
+                  tags: ["metro"],
+                  minimumCars: 4,
+                  maximumCars: 8,
+                  minimumSpeedMetersPerSecond: 16.5,
+                  capabilities: ["doors"]
+                })
+                t.at(100).goto("B")
+              })
+            }
+            """.trimIndent()
+        )
+
+        val result = TimetableScriptLoader(world).load(script)
+
+        assertTrue(result is TimetableScriptLoadResult.Success, result.toString())
+        val action = (((result as TimetableScriptLoadResult.Success)
+            .timetable.services.single().steps.first()) as TimetableStep.At).action as
+            TimetableAction.TakeFromDepot
+        assertEquals(DepotId("north"), action.selector.depotId)
+        assertEquals(setOf("metro"), action.selector.requiredTags)
+        assertEquals(4, action.selector.minimumCars)
+        assertEquals(8, action.selector.maximumCars)
+        assertEquals(16.5, action.selector.minimumSpeedMetersPerSecond)
+        assertEquals(setOf("doors"), action.selector.requiredCapabilities)
+    }
+
+    @Test
+    fun `rejects unknown depot selector options`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val script = File(tempDir, "bad-depot.js")
+        script.writeText(
+            """
+            function main(timetable) {
+              timetable.setPeriodDays(1)
+              timetable.service("bad", function(t) {
+                t.at(0).takeFromDepot("north", { surprise: true })
+              })
+            }
+            """.trimIndent()
+        )
+
+        val result = TimetableScriptLoader(world).load(script)
+
+        assertTrue(result is TimetableScriptLoadResult.Failure)
+        assertTrue((result as TimetableScriptLoadResult.Failure).message.contains("未知 options"))
     }
 
     @Test

@@ -273,6 +273,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 val record = RollingStockRecord(
                     trainId = train.id,
                     homeDepotId = depotId,
+                    modelPackageId = packageName,
                     tags = explicitTags.ifEmpty { setOf(packageName) },
                     carCount = train.cars.size,
                     lengthMeters = train.cars.sumOf { it.length },
@@ -300,7 +301,8 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     sender.sendMessage(
                         "${it.record.trainId}: depot=${it.record.homeDepotId} " +
                             "state=${it.state} point=${it.stablingPointRef ?: "-"} " +
-                            "tags=${it.record.tags.sorted()} capabilities=${it.record.capabilities.sorted()}"
+                            "model=${it.record.modelPackageId} tags=${it.record.tags.sorted()} " +
+                            "capabilities=${it.record.capabilities.sorted()}"
                     )
                 }
             }

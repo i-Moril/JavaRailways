@@ -6,11 +6,11 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前 JS 时刻表 DSL。C1/C2/C3/T1 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell、显式 Station/Berth call、可确认车门操作，以及共同 epoch 下的 not-before 计划时间；尚不支持 Depot 动态配车或自动创建下一 cycle。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
+本文档描述当前 JS 时刻表 DSL。C1/C2/C3/T1/T3 运行时可以执行显式 `TrainId` 或 `takeFromDepot` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell、显式 Station/Berth call、可确认车门操作，以及共同 epoch 下的 not-before 计划时间；尚不支持 `storeAtDepot` 或自动创建下一 cycle。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
 :::info 已确认但尚未全部实现的语义
-[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定整张运营闭环。`setPeriodDays(days)`、管理员 start 的共同 epoch、`at(tick)` not-before 和 lateness 已落地；Depot 动态配车与自动下一 cycle 仍以 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
+[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定整张运营闭环。`setPeriodDays(days)`、管理员 start 的共同 epoch、`at(tick)` not-before、lateness 和 Depot 动态取车已落地；Depot 存车与自动下一 cycle 仍以 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
@@ -57,7 +57,7 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable replan <id> <service> <current-waypoint>
 ```
 
-只有使用字符串 `trainId` selector、并在第一个运行动作前通过 `check()` 指定初始 WayPoint 的 service 可以启动。后续 `goto` 会在前一 Mission 停稳以及可选 `stop` dwell 完成后继续。
+service 可以使用字符串 `trainId` selector，并在第一个运行动作前通过 `check()` 指定初始 WayPoint；也可以省略 selector，并把 `takeFromDepot` 作为第一步。后续 `goto` 会在前一 Mission 停稳以及可选 `stop` dwell 完成后继续。
 
 `stop` 命令请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
 
@@ -167,6 +167,40 @@ timetable.service("003", ["depot1", "depot2"], function(t) {})
 ## Service 内 API
 
 在 `service(..., function(t) { ... })` 中，`t` 是 service builder。
+
+### `t.at(tick).takeFromDepot(depotId, options?)`
+
+从 home depot 中原子选择并保留一列兼容的 `AVAILABLE` 列车。它必须是 service 的第一步，并且不能同时声明 `trainSelector`。
+
+```js
+timetable.service("001", function(t) {
+  t.at(0).takeFromDepot("north", {
+    tags: ["metro"],
+    minimumCars: 4,
+    maximumCars: 8,
+    minimumSpeedMetersPerSecond: 16.5,
+    capabilities: ["doors"]
+  })
+  t.at(1000).goto("central-1")
+})
+```
+
+规则：
+
+- 当前必须声明为 `t.at(0).takeFromDepot(...)`，并作为 service 的第一步；
+- `tags` 和 `capabilities` 是必须全部满足的字符串数组；
+- 编组上下界和最低速度均为严格筛选条件，不会退化选择不兼容车辆；
+- 候选先按稳定 train ID 排序，再使用 timetable/cycle/service 派生 seed 可复现选择；
+- 被选列车必须仍停在其 directed StablingPoint；
+- 无匹配 `AVAILABLE` 列车会触发当前 World 的 ATO Stall；
+- 未知 option、非法范围、缺失 Depot/StablingPoint 会导致 loader 失败。
+
+列车和 home depot 目前由管理员在列车停止并准确位于 directed StablingPoint 后登记：
+
+```text
+/mr depot assign <train> <depot> <point> [tagsCsv] [capabilitiesCsv]
+/mr depot list [depot]
+```
 
 ### `t.at(tick).goto(wayPointId)`
 

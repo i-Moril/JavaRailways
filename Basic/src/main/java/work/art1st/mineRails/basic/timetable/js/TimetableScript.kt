@@ -4,6 +4,8 @@ import org.graalvm.polyglot.Context
 import org.graalvm.polyglot.PolyglotException
 import org.graalvm.polyglot.Source
 import org.graalvm.polyglot.Value
+import work.art1st.mineRails.basic.api.depot.DepotId
+import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.timetable.Timetable
 import work.art1st.mineRails.basic.timetable.TimetableAction
@@ -98,6 +100,48 @@ class TimedActionBuilder(
     private val tick: Long,
     private val addAction: (TimetableAction) -> Unit
 ) {
+    fun takeFromDepot(depotId: String): ServiceBuilderLike =
+        takeFromDepot(depotId, null)
+
+    fun takeFromDepot(depotId: String, options: Value?): ServiceBuilderLike {
+        val context = "service($serviceId).at($tick).takeFromDepot"
+        if (depotId.isBlank()) throw TimetableDslException("$context: depotId 不能为空")
+        if (options != null && !options.isNull && !options.hasMembers()) {
+            throw TimetableDslException("$context: options 必须是对象")
+        }
+        val members = options?.takeUnless(Value::isNull)?.memberKeys.orEmpty()
+        val unknown = members - DEPOT_SELECTOR_OPTIONS
+        if (unknown.isNotEmpty()) {
+            throw TimetableDslException("$context: 未知 options: ${unknown.sorted().joinToString()}")
+        }
+        val minimumCarsLong = options.optionalLong("minimumCars", context)
+        val maximumCarsLong = options.optionalLong("maximumCars", context)
+        if (minimumCarsLong != null && minimumCarsLong !in 1..Int.MAX_VALUE.toLong()) {
+            throw TimetableDslException("$context: minimumCars 必须是正整数")
+        }
+        if (maximumCarsLong != null && maximumCarsLong !in 1..Int.MAX_VALUE.toLong()) {
+            throw TimetableDslException("$context: maximumCars 必须是正整数")
+        }
+        val selector = runCatching {
+            DepotTrainSelector(
+                depotId = DepotId(depotId),
+                requiredTags = options.optionalStringSet("tags", context),
+                minimumCars = minimumCarsLong?.toInt(),
+                maximumCars = maximumCarsLong?.toInt(),
+                minimumSpeedMetersPerSecond = options.optionalDouble(
+                    "minimumSpeedMetersPerSecond",
+                    context
+                ),
+                requiredCapabilities = options.optionalStringSet(
+                    "capabilities",
+                    context
+                )
+            )
+        }.getOrElse { throw TimetableDslException("$context: ${it.message}") }
+        addAction(TimetableAction.TakeFromDepot(selector))
+        return ServiceBuilderLike
+    }
+
     fun goto(target: Value): ServiceBuilderLike {
         val action = when {
             target.isString -> TimetableAction.GoTo(target.asString())
@@ -162,6 +206,13 @@ class TimedActionBuilder(
     }
 
     private companion object {
+        val DEPOT_SELECTOR_OPTIONS = setOf(
+            "tags",
+            "minimumCars",
+            "maximumCars",
+            "minimumSpeedMetersPerSecond",
+            "capabilities"
+        )
         val STATION_CALL_OPTIONS = setOf(
             "minimumDwellTicks",
             "plannedDepartureTick",
@@ -254,6 +305,15 @@ private fun Value?.optionalDouble(name: String, context: String): Double? {
     val result = value.asDouble()
     if (!result.isFinite()) throw TimetableDslException("$context: $name 必须是有限数字")
     return result
+}
+
+private fun Value?.optionalStringSet(name: String, context: String): Set<String> {
+    val value = this?.getMember(name) ?: return emptySet()
+    if (value.isNull) return emptySet()
+    if (!value.hasArrayElements()) {
+        throw TimetableDslException("$context: $name 必须是字符串数组")
+    }
+    return value.asStringList("$context.$name").toSet()
 }
 
 private fun Value.asStringList(context: String): List<String> {

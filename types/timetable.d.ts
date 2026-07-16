@@ -33,7 +33,22 @@ interface MineRailsStationCallOptions {
   doorSide?: MineRailsDoorSide;
 }
 
+interface MineRailsDepotSelectorOptions {
+  /** RollingStock tags which must all be present. */
+  tags?: readonly string[];
+  minimumCars?: number;
+  maximumCars?: number;
+  minimumSpeedMetersPerSecond?: number;
+  /** RollingStock capabilities which must all be present, e.g. doors. */
+  capabilities?: readonly string[];
+}
+
 interface MineRailsTimedActionBuilder {
+  /** Atomically reserve one compatible AVAILABLE train from its home Depot. */
+  takeFromDepot(
+    depotId: string,
+    options?: MineRailsDepotSelectorOptions,
+  ): MineRailsServiceBuilderLike;
   goto(wayPointId: string | readonly string[]): MineRailsServiceBuilderLike;
   stop(ticks: number): MineRailsServiceBuilderLike;
   call(

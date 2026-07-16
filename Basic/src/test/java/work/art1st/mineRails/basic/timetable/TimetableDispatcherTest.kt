@@ -14,11 +14,20 @@ import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.ato.AtoSafetyProfile
 import work.art1st.mineRails.basic.api.ato.AtoWorldCoordinator
 import work.art1st.mineRails.basic.api.ato.KinematicTrainActuator
+import work.art1st.mineRails.basic.api.depot.DepotId
+import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
+import work.art1st.mineRails.basic.api.depot.RollingStockRecord
+import work.art1st.mineRails.basic.api.depot.RollingStockState
+import work.art1st.mineRails.basic.api.depot.StablingPointRef
+import work.art1st.mineRails.basic.api.destination.DestinationRole
+import work.art1st.mineRails.basic.api.destination.OperationalDestination
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
 import work.art1st.mineRails.basic.controller.SimpleATO
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTestWorld
@@ -96,6 +105,130 @@ class TimetableDispatcherTest {
         )
         assertNotNull(train.controller)
         assertEquals(1, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+    }
+
+    @Test
+    fun `takeFromDepot deterministically assigns a compatible available train`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-depot", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        val depotId = DepotId("north")
+        OperationalDestinationService(world).register(
+            OperationalDestination(
+                id = "north-one",
+                displayName = "North one",
+                railId = rail.id,
+                arcLengthInAbMeters = originArc,
+                approachDirection = ViewDirection.AB,
+                role = DestinationRole.DepotStablingPointRole("north", "one")
+            )
+        )
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        data.depots.registerRollingStock(
+            RollingStockRecord(
+                trainId = train.id,
+                homeDepotId = depotId,
+                modelPackageId = "test/s100",
+                tags = setOf("metro"),
+                carCount = 1,
+                lengthMeters = 10.0,
+                maximumSpeedMetersPerSecond = 20.0,
+                capabilities = setOf("doors")
+            ),
+            StablingPointRef(depotId, "one")
+        )
+        data.timetables.add(
+            Timetable(
+                "tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.TakeFromDepot(
+                                    DepotTrainSelector(
+                                        depotId,
+                                        requiredTags = setOf("metro"),
+                                        requiredCapabilities = setOf("doors")
+                                    )
+                                )
+                            ),
+                            TimetableStep.At(0L, TimetableAction.GoTo("B"))
+                        )
+                    )
+                )
+            )
+        )
+
+        val started = dispatcher.startService(world, "tt", "s1") as
+            TimetableServiceStartResult.Started
+
+        assertEquals(train.id, started.run.trainId)
+        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
+        assertEquals("tt/s1@cycle-0", data.depots.rollingStock(train.id)?.assignmentId)
+        assertTrue(train.controller is SimpleATO)
+    }
+
+    @Test
+    fun `takeFromDepot miss stalls only its world`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val coordinator = AtoWorldCoordinator("dispatcher-depot-miss", reportSink = {})
+        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        OperationalDestinationService(world).register(
+            OperationalDestination(
+                "north-one",
+                "North one",
+                rail.id,
+                originArc,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole("north", "one")
+            )
+        )
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        data.timetables.add(
+            Timetable(
+                "tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.TakeFromDepot(
+                                    DepotTrainSelector(DepotId("north"), requiredTags = setOf("metro"))
+                                )
+                            ),
+                            TimetableStep.At(0L, TimetableAction.GoTo("B"))
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = dispatcher.startService(world, "tt", "s1")
+
+        assertTrue(result is TimetableServiceStartResult.Failure)
+        assertTrue(coordinator.isStalled)
+        assertEquals("DepotAllocationFailure", coordinator.lastStall?.errorType)
     }
 
     @Test

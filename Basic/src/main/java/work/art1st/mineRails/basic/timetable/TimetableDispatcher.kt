@@ -1,5 +1,6 @@
 package work.art1st.mineRails.basic.timetable
 
+import work.art1st.mineRails.basic.api.ato.AtoStallReport
 import work.art1st.mineRails.basic.api.ato.mission.AtoMission
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionPoint
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionRequest
@@ -7,6 +8,8 @@ import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolutionResult
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolver
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
+import work.art1st.mineRails.basic.api.depot.DepotTrainAllocation
+import work.art1st.mineRails.basic.api.depot.DepotTrainAllocationResult
 import work.art1st.mineRails.basic.api.operation.RejectingTrainOperationGateway
 import work.art1st.mineRails.basic.api.operation.TrainOperation
 import work.art1st.mineRails.basic.api.operation.TrainOperationExecutionResult
@@ -174,6 +177,11 @@ class TimetableDispatcher(
         timetableId: String
     ): TimetableEpochStartResult {
         allocator(world)
+        if (world.basicWorldData.atoCoordinator.isStalled) {
+            return TimetableEpochStartResult.Failure(
+                "world ATO is stalled; inspect and reset before starting a timetable"
+            )
+        }
         val timetable = world.basicWorldData.timetables[timetableId]
             ?: return TimetableEpochStartResult.Failure("timetable not found: $timetableId")
         val validation = TimetableValidator(world).validate(timetable)
@@ -207,6 +215,11 @@ class TimetableDispatcher(
         timetableId: String,
         serviceId: String
     ): TimetableServiceStartResult {
+        if (world.basicWorldData.atoCoordinator.isStalled) {
+            return TimetableServiceStartResult.Failure(
+                "world ATO is stalled; inspect and reset before starting a service"
+            )
+        }
         val runId = TimetableServiceRunId(timetableId, serviceId)
         runs[runId]?.takeUnless(ActiveRun::canBeReplaced)?.let {
             return TimetableServiceStartResult.Failure("service is already active or still holds route: $runId")
@@ -225,20 +238,35 @@ class TimetableDispatcher(
         if (validationErrors.isNotEmpty()) {
             return TimetableServiceStartResult.Failure(validationErrors.joinToString("; "))
         }
-        val trainId = (service.trainSelector as? TrainSelector.TrainId)?.trainId
+        val cycleIndex = ((dispatcherTick - clock.epochDispatcherTick).coerceAtLeast(0L) /
+            clock.periodTicks)
+        val cycleStartDispatcherTick = Math.addExact(
+            clock.epochDispatcherTick,
+            Math.multiplyExact(cycleIndex, clock.periodTicks)
+        )
+        val selected = selectTrainForService(world, timetable, cycleIndex, runId, service)
             ?: return TimetableServiceStartResult.Failure(
-                "only TrainSelector.TrainId is executable in C1: $runId"
+                if (world.basicWorldData.atoCoordinator.isStalled) {
+                    "world stalled because Depot allocation failed: $runId"
+                } else {
+                    "service requires TrainSelector.TrainId or a first takeFromDepot action: $runId"
+                }
             )
+        val trainId = selected.trainId
+        fun startupFailure(reason: String): TimetableServiceStartResult.Failure {
+            selected.depotAllocation?.let { world.basicWorldData.depots.cancelReservation(it) }
+            return TimetableServiceStartResult.Failure(reason)
+        }
         if (runs.values.any { it.train.id == trainId && !it.canBeReplaced() }) {
-            return TimetableServiceStartResult.Failure("train is already assigned to a service: $trainId")
+            return startupFailure("train is already assigned to a service: $trainId")
         }
         val train = world.getTrain(trainId) as? CoreTrain
-            ?: return TimetableServiceStartResult.Failure("train not found: $trainId")
-        if (train.isDerailed) return TimetableServiceStartResult.Failure("train is derailed: $trainId")
+            ?: return startupFailure("train not found: $trainId")
+        if (train.isDerailed) return startupFailure("train is derailed: $trainId")
 
         val existingController = train.controller
         if (existingController != null && existingController !is SimpleATO) {
-            return TimetableServiceStartResult.Failure("train already has another controller: $trainId")
+            return startupFailure("train already has another controller: $trainId")
         }
         val replaceableTrainRuns = runs.values.filter {
             it.train.id == trainId && it.canBeReplaced()
@@ -250,18 +278,40 @@ class TimetableDispatcher(
                 existingController.removeSpeedLimit(scheduleHoldKey(it.id))
             }
         }
-        val first = firstMovement(runId, service)
-            ?: return TimetableServiceStartResult.Failure(
-                "service requires an initial Check followed by GoTo/GoVia before any Stop: $runId"
+        val first = firstMovement(runId, service, selected.originWayPointId)
+            ?: return startupFailure(
+                "service requires an initial Check/takeFromDepot followed by GoTo/GoVia before any Stop: $runId"
             )
         val originFailure = validateAtWayPoint(world, train, first.origin.id)
-        if (originFailure != null) return TimetableServiceStartResult.Failure(originFailure)
+        if (originFailure != null) return startupFailure(originFailure)
 
-        val ato = existingController ?: atoFactory?.create(train, world)
-            ?: return TimetableServiceStartResult.Failure("timetable ATO factory is not configured")
-        val submission = submitMission(world, ato, runId, first)
+        val ato = existingController ?: run {
+            val factory = atoFactory
+                ?: return startupFailure("timetable ATO factory is not configured")
+            try {
+                factory.create(train, world)
+            } catch (failure: Exception) {
+                return startupFailure(
+                    "failed to create timetable ATO: " +
+                        (failure.message ?: failure::class.java.simpleName)
+                )
+            }
+        }
+        val submission = try {
+            submitMission(world, ato, runId, first)
+        } catch (failure: Exception) {
+            return startupFailure(
+                "failed to submit initial Mission: " +
+                    (failure.message ?: failure::class.java.simpleName)
+            )
+        }
         val accepted = submission.accepted
-            ?: return TimetableServiceStartResult.Failure(submission.failure!!)
+            ?: return startupFailure(submission.failure!!)
+        selected.depotAllocation?.let { allocation ->
+            check(world.basicWorldData.depots.confirmInService(allocation)) {
+                "Depot allocation disappeared before service confirmation: $allocation"
+            }
+        }
         val controllerOwned = existingController == null || replaceableTrainRuns.any {
             it.ato === ato && it.controllerOwned
         }
@@ -286,9 +336,10 @@ class TimetableDispatcher(
             currentWayPointId = first.origin.id,
             currentRuntime = runtime,
             state = TimetableServiceRunState.WAITING_MISSION,
-            cycleIndex = 0L,
-            cycleStartDispatcherTick = clock.epochDispatcherTick,
-            lastObservedDispatcherTick = dispatcherTick
+            cycleIndex = cycleIndex,
+            cycleStartDispatcherTick = cycleStartDispatcherTick,
+            lastObservedDispatcherTick = dispatcherTick,
+            depotAllocation = selected.depotAllocation
         )
         run.runtimes += runtime
         replaceableTrainRuns.forEach { runs.remove(it.id) }
@@ -1228,6 +1279,10 @@ class TimetableDispatcher(
                     run.nextStepIndex++
                 }
                 is TimetableStep.At -> when (val action = step.action) {
+                    is TimetableAction.TakeFromDepot -> {
+                        fail(run, "takeFromDepot is only valid as the first service step")
+                        return
+                    }
                     is TimetableAction.Stop -> {
                         if (timetableElapsedTicks(run) < step.tick) {
                             waitForTimetableTick(run, step.tick, pendingStep = true)
@@ -1339,16 +1394,92 @@ class TimetableDispatcher(
         return revision
     }
 
-    private fun firstMovement(
+    private fun selectTrainForService(
+        world: World,
+        timetable: Timetable,
+        cycleIndex: Long,
         runId: TimetableServiceRunId,
         service: TimetableService
+    ): SelectedServiceTrain? {
+        val take = service.steps.firstOrNull()
+            ?.let { it as? TimetableStep.At }
+            ?.action as? TimetableAction.TakeFromDepot
+        if (take == null) {
+            val trainId = (service.trainSelector as? TrainSelector.TrainId)?.trainId ?: return null
+            return SelectedServiceTrain(trainId, null, null)
+        }
+        val assignmentId = "${runId}@cycle-$cycleIndex"
+        return when (val result = world.basicWorldData.depots.allocate(
+            selector = take.selector,
+            assignmentId = assignmentId,
+            stableSeed = "${timetable.id}|$cycleIndex|${service.id}"
+        )) {
+            is DepotTrainAllocationResult.Allocated -> {
+                val point = world.basicWorldData.depots
+                    .stablingPoint(result.allocation.stablingPointRef)
+                    ?: error("allocated StablingPoint disappeared: ${result.allocation.stablingPointRef}")
+                SelectedServiceTrain(
+                    trainId = result.allocation.trainId,
+                    originWayPointId = point.point.destinationId,
+                    depotAllocation = result.allocation
+                )
+            }
+            is DepotTrainAllocationResult.NoMatchingTrain -> {
+                stallDepotAllocation(
+                    world,
+                    runId,
+                    "no compatible AVAILABLE train in Depot ${result.depotId}; " +
+                        "available=${result.availableTrainCount}, selector=${result.selector}"
+                )
+                null
+            }
+            is DepotTrainAllocationResult.AssignmentConflict -> {
+                stallDepotAllocation(
+                    world,
+                    runId,
+                    "Depot assignment identity conflict: ${result.assignmentId}"
+                )
+                null
+            }
+        }
+    }
+
+    private fun stallDepotAllocation(
+        world: World,
+        runId: TimetableServiceRunId,
+        reason: String
+    ) {
+        val failure = IllegalStateException(reason)
+        world.basicWorldData.atoCoordinator.stall(
+            AtoStallReport(
+                worldId = world.basicWorldData.atoCoordinator.worldId,
+                trainId = "<unassigned:$runId>",
+                tick = dispatcherTick,
+                errorType = "DepotAllocationFailure",
+                message = reason,
+                stackTrace = failure.stackTraceToString(),
+                initialTrain = null,
+                currentTrain = null,
+                route = null,
+                perception = null,
+                activeProviderId = null,
+                constraints = emptyMap()
+            )
+        )
+    }
+
+    private fun firstMovement(
+        runId: TimetableServiceRunId,
+        service: TimetableService,
+        originWayPointId: String? = null
     ): MovementPlan? {
-        var origin: WayPointRef? = null
+        var origin: WayPointRef? = originWayPointId?.let(::WayPointRef)
         var stationCallSpec: StationCallSpec? = null
         service.steps.forEachIndexed { index, step ->
             when (step) {
                 is TimetableStep.Check -> origin = WayPointRef(step.wayPointId)
                 is TimetableStep.At -> when (val action = step.action) {
+                    is TimetableAction.TakeFromDepot -> Unit
                     is TimetableAction.CallStation -> {
                         if (stationCallSpec != null) return null
                         stationCallSpec = StationCallSpec(
@@ -1386,6 +1517,7 @@ class TimetableDispatcher(
                 if (index == action.wayPointIds.lastIndex) AtoMissionPoint.Stop(target)
                 else AtoMissionPoint.Via(target)
             }
+            is TimetableAction.TakeFromDepot,
             is TimetableAction.Stop,
             is TimetableAction.CallStation -> error("action is not a movement action")
         }
@@ -1456,10 +1588,15 @@ class TimetableDispatcher(
         val wayPoint = world.basicWorldData.wayPoints[wayPointId]
             ?: return "waypoint not found: $wayPointId"
         val trainArc = train.headLocation.arcLengthIn(ViewDirection.AB)
+        val destination = world.basicWorldData.destinations[wayPointId]
+        val facingMismatch = destination != null &&
+            (train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
+                ?.facing != destination.approachDirection
         return if (train.headLocation.rail.id != wayPoint.railId ||
-            abs(trainArc - wayPoint.arcLength) > ORIGIN_TOLERANCE_METERS
+            abs(trainArc - wayPoint.arcLength) > ORIGIN_TOLERANCE_METERS ||
+            facingMismatch
         ) {
-            "train ${train.id} is not at waypoint $wayPointId"
+            "train ${train.id} is not at directed waypoint $wayPointId"
         } else {
             null
         }
@@ -1514,6 +1651,12 @@ class TimetableDispatcher(
         val plannedArrivalTick: Long,
         val stepIndex: Int,
         val pairedDepartureTick: Long = Long.MAX_VALUE
+    )
+
+    private data class SelectedServiceTrain(
+        val trainId: String,
+        val originWayPointId: String?,
+        val depotAllocation: DepotTrainAllocation?
     )
 
     private data class MovementPlan(
@@ -1616,6 +1759,7 @@ class TimetableDispatcher(
         var stationCall: DispatcherStationCall? = null,
         var pendingStationCallSpec: StationCallSpec? = null,
         var controlTransferOwner: String? = null,
+        val depotAllocation: DepotTrainAllocation? = null,
         val runtimes: MutableList<MissionRuntime> = ArrayList(),
         val allocations: MutableMap<RouteSectionAllocationKey, AllocatedSection> = LinkedHashMap()
     ) {

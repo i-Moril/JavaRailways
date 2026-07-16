@@ -133,7 +133,8 @@ slug: /architecture/ato-roadmap
 
 - 已建立 Depot、StablingPoint、RollingStockRecord、occupancy 和主线程原子 reservation。
 - 已实现按稳定 trainId 排序和 SHA-256 seed 的可复现候选选择，并提供 `/mr depot assign|list` 登记入口。
-- 待把 timetable `takeFromDepot` 接入 Dispatcher，按 Depot、tags、编组、速度和 capabilities 取车。
+- timetable `takeFromDepot` 已按 Depot、tags、编组、速度和 capabilities 严格取车，并在无匹配 AVAILABLE 列车时 World-local Stall。
+- 待实现离库车尾释放、`storeAtDepot` 兼容停车点选择和 AVAILABLE 完成条件。
 - 没有匹配列车或兼容存车位时触发 World-local Stall。
 - 存车等待整列进入边界且旧资源车尾释放后才把列车标记为 AVAILABLE。
 

@@ -11,6 +11,8 @@ import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import org.bukkit.scheduler.BukkitTask
 import org.joml.Vector3d
+import work.art1st.mineRails.basic.pathFinding.basicWorldData
+import work.art1st.mineRails.basic.timetable.TimetableControlTransferResult
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
 import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
@@ -87,14 +89,37 @@ class TrainControlManager(
         }
 
         releaseManualControl(player.uniqueId)
-        alignTrainHeadToDriverSeat(coreTrain, driverSeat.controlEnd)
-        val controller = coreTrain.controller as? RealisticManualController ?: run {
-            val (controlConfig, carControls) = try {
+        val existingManualController = coreTrain.controller as? RealisticManualController
+        val resolvedControl = if (existingManualController == null) {
+            try {
                 resolveControlProfile(coreTrain)
             } catch (e: IllegalArgumentException) {
                 return AcquireResult.ConfigError(e.message ?: "列车控制配置无效")
             }
-            RealisticManualController(coreTrain, coreTrain.world, controlConfig, carControls).also { coreTrain.setController(it) }
+        } else {
+            null
+        }
+        val transferOwner = player.uniqueId.toString()
+        val transferSpeedMetersPerSecond = coreTrain.speed
+        when (val suspension = coreTrain.world.basicWorldData.dispatcher.suspendForControlTransfer(
+            coreTrain.world,
+            coreTrain.id,
+            transferOwner
+        )) {
+            is TimetableControlTransferResult.Failure ->
+                return AcquireResult.ConfigError(suspension.reason)
+            TimetableControlTransferResult.NotAssigned,
+            is TimetableControlTransferResult.Suspended -> Unit
+        }
+        alignTrainHeadToDriverSeat(coreTrain, driverSeat.controlEnd)
+        val controller = existingManualController ?: resolvedControl!!.let { (controlConfig, carControls) ->
+            RealisticManualController(
+                coreTrain,
+                coreTrain.world,
+                controlConfig,
+                carControls,
+                initialSpeedMetersPerSecond = transferSpeedMetersPerSecond
+            ).also { coreTrain.setController(it) }
         }
         controller.markCurrentPhysicalDirectionAsForward()
         controller.setDirection(TrainDriveDirection.NEUTRAL)
@@ -129,19 +154,27 @@ class TrainControlManager(
     fun releaseManualControl(playerId: UUID): ManualControlSession? {
         val session = sessionsByPlayer.remove(playerId) ?: return null
         sessionsByTrain.remove(session.trainId)
-        session.controller.coast()
+        if (notifyControlTransferReleased(session)) {
+            session.controller.emergencyBrake()
+        } else {
+            session.controller.coast()
+        }
         return session
     }
 
     fun releaseTrain(train: Train): ManualControlSession? {
         val session = sessionsByTrain.remove(train.id) ?: return null
         sessionsByPlayer.remove(session.playerId)
+        notifyControlTransferReleased(session)
         stopController(session.controller)
         return session
     }
 
     fun clear() {
-        sessionsByPlayer.values.forEach { session -> stopController(session.controller) }
+        sessionsByPlayer.values.forEach { session ->
+            notifyControlTransferReleased(session)
+            stopController(session.controller)
+        }
         plugin.worldManager.railWorlds.values.forEach { railWorld ->
             railWorld.allTrains.forEach { train ->
                 ((train as? CoreTrain)?.controller as? RealisticManualController)?.let(::stopController)
@@ -149,6 +182,14 @@ class TrainControlManager(
         }
         sessionsByPlayer.clear()
         sessionsByTrain.clear()
+    }
+
+    private fun notifyControlTransferReleased(session: ManualControlSession): Boolean {
+        val train = session.controller.controlledTrain
+        return train.world.basicWorldData.dispatcher.releaseControlTransfer(
+            train.id,
+            session.playerId.toString()
+        )
     }
 
     private fun stopController(controller: RealisticManualController) {

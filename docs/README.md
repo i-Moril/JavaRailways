@@ -16,10 +16,11 @@ MineRails 是面向 Paper 的铁路模拟插件。当前文档首先覆盖工程
 ## 文档入口
 
 - [工程设计](architecture/overview.md)：模块边界、线程模型、物理 epoch 和持久化。
-- [自动驾驶与运营协同设计](architecture/automatic-train-operation.md)：已实现的 ATO Phase A/B/C1/C2/C3 契约与后续设计边界。
+- [自动驾驶与运营协同设计](architecture/automatic-train-operation.md)：已实现的 ATO Phase A/B/C1/C2/C3/D1 契约与后续设计边界。
 - [ATO 实施路线图](architecture/ato-roadmap.md)：插件生命周期和性能阶段的剩余计划。
 - [Phase C2 Station 待验证项目](architecture/station-validation-checklist.md)：Station 固定边界和逐项验收证据。
 - [Phase C3 TrainOperationGateway 验收清单](architecture/train-operation-validation-checklist.md)：车门 ticket、失败策略和 Bukkit 适配证据。
+- [Phase D1 控制权转移验收清单](architecture/control-transfer-validation-checklist.md)：人工接管、资源保留和显式重新规划证据。
 - [扩展插件开发](extensions/overview.md)：当前公开 API 状态、Dokka Reference 和使用限制。
 - [列车模型包](train_model_packages.md)：模型包 YAML、动作和 `behavior.js`。
 - [JS 时刻表](timetable_js_syntax.md)：时刻表 DSL、dry-run 和当前限制。

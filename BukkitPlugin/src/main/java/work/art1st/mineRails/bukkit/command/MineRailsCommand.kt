@@ -10,6 +10,7 @@ import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
 import work.art1st.mineRails.basic.timetable.TimetableDumper
+import work.art1st.mineRails.basic.timetable.TimetableReplanResult
 import work.art1st.mineRails.basic.timetable.TimetableServiceRunId
 import work.art1st.mineRails.basic.timetable.TimetableServiceStartResult
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoadResult
@@ -62,7 +63,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             if (args.size == 3) return BukkitPlugin.INSTANCE.worldManager.railWorlds.keys.map { it.name }
         }
         if (args[0].equals("timetable", ignoreCase = true) || args[0].equals("tt", ignoreCase = true)) {
-            if (args.size == 2) return listOf("load", "dump", "list", "start", "status", "stop")
+            if (args.size == 2) return listOf("load", "dump", "list", "start", "status", "stop", "replan")
         }
         return emptyList()
     }
@@ -270,10 +271,49 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                                 "head=${run.headProgressMeters ?: "-"} tail=${run.tailProgressMeters ?: "-"} " +
                                 "call=${run.stationCallId ?: "-"} berth=${run.berthRef ?: "-"} " +
                                 "berthHeld=${run.berthHeld} operation=${run.operationTicketId ?: "-"} " +
-                                "operationState=${run.operationTicketState ?: "-"}" +
+                                "operationState=${run.operationTicketState ?: "-"} " +
+                                "transferOwner=${run.controlTransferOwner ?: "-"}" +
                                 run.message?.let { " message=$it" }.orEmpty()
                         )
                     }
+                }
+            }
+            "replan" -> {
+                if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
+                    sender.sendMessage("没有权限重新规划车次")
+                    return true
+                }
+                val timetableId = args.getOrNull(1)
+                val serviceId = args.getOrNull(2)
+                val originWayPointId = args.getOrNull(3)
+                if (timetableId == null || serviceId == null || originWayPointId == null) {
+                    sender.sendMessage("用法: /mr timetable replan <id> <service> <current-waypoint>")
+                    return true
+                }
+                val id = TimetableServiceRunId(timetableId, serviceId)
+                val status = world.basicWorldData.dispatcher.status(id)
+                if (status == null) {
+                    sender.sendMessage("service 不存在: $id")
+                    return true
+                }
+                val train = world.getTrain(status.trainId)
+                if (train != null && BukkitPlugin.INSTANCE.trainControlManager.sessionFor(train) != null) {
+                    sender.sendMessage("列车仍由人工控制；请先释放驾驶权")
+                    return true
+                }
+                (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
+                when (val result = world.basicWorldData.dispatcher.replanService(
+                    world,
+                    id,
+                    originWayPointId
+                )) {
+                    is TimetableReplanResult.Resumed -> sender.sendMessage(
+                        "已从 $originWayPointId 重新规划 ${result.run.id}: " +
+                            "revision=${result.run.missionRevision} state=${result.run.state}"
+                    )
+                    is TimetableReplanResult.Failure -> sender.sendMessage(
+                        "重新规划 $id 失败: ${result.reason}"
+                    )
                 }
             }
             "stop" -> {
@@ -300,7 +340,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     }
                 }
             }
-            else -> sender.sendMessage("用法: /mr timetable <load|dump|list|start|status|stop>")
+            else -> sender.sendMessage("用法: /mr timetable <load|dump|list|start|status|stop|replan>")
         }
         return true
     }
@@ -466,6 +506,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
+        sender.sendMessage("/mr timetable replan <id> <service> <current-waypoint> - 人工接管后显式重新规划")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/mr timetable start|status|stop <id> [service] - 管理显式列车 service")
         sender.sendMessage("/mr ato status [world] - 查看 World-local ATO 状态")

@@ -100,12 +100,22 @@ slug: /architecture/ato-roadmap
 - Dispatcher 已执行 `BERTHED → DOORS_OPENING → DWELLING → DOORS_CLOSING → READY_TO_DEPART`；关门确认和后续经路授权同时满足后才解除 DepartureHold。
 - rejected、failed、cancelled、异常或 100 Tick 超时进入 `MANUAL_INTERVENTION`，保留 DepartureHold 和资源，不触发 ATO Stall，也不自动重试。
 
-## 下一阶段：Phase D 插件与控制权生命周期
+## Phase D 插件与控制权生命周期
+
+### D1 人工接管与重新规划（已完成）
+
+完整验收项见 [Phase D1 控制权转移与重新规划验收清单](./control-transfer-validation-checklist.md)。
+
+- `TrainControlManager` 在安装人工 controller 前让活动车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`。
+- 接管取消 pending operation ticket 和活动 StationCall 流程，但 RouteSection/StationBerth 仍只按原车尾 release boundary 释放。
+- 管理员必须在列车停止、人工 session 结束、旧资源清空后，从明确 WayPoint 执行 `/mr timetable replan`。
+- replan 创建新 ATO 和新 Mission revision，目标保持为被中断 movement 的原目标；不自动恢复旧 Mission。
+
+### 下一切片：D2 插件 Registry
 
 - 建立带命名空间 ID 和可关闭 registration 的 ATO/RailObjectRule Registry。
 - 时刻表持久化 `atoTypeId` 和版本化 options，不持久化 JVM 类名。
 - 定义 Provider/ATO 插件卸载策略。
-- 将人工驾驶接管接入 Dispatcher 状态，明确 `SUSPENDED`、`CANCELLED` 和恢复行为。
 - 提供 Java/Kotlin 示例扩展后再讨论稳定 API。
 
 ## Phase E 索引与性能
@@ -135,6 +145,6 @@ slug: /architecture/ato-roadmap
 - C2 的 StationBerth 停车参考点长期固定为列车头部，不提前引入编组中心、指定车厢或驾驶室参考点。
 - C2 的 StationCall 显式指定 berth；Station/RailObject 保持被动，车门操作留到 C3。
 
-## 后续阶段开工前需要确认
+## 已确认的后续决策
 
-1. 人工接管结束后默认取消车次，还是允许重新规划并恢复 Mission。
+- 人工接管结束后不取消整条车次，也不复用旧 Mission；管理员从明确 WayPoint 重新规划到被中断 movement 的原目标。

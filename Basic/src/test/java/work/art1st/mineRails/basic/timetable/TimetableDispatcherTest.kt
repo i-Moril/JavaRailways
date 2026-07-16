@@ -2,9 +2,12 @@ package work.art1st.mineRails.basic.timetable
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.basic.BasicWorldData
 import work.art1st.mineRails.basic.WayPoint
@@ -24,6 +27,8 @@ import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.util.AsyncTickTestSupport
 
 class TimetableDispatcherTest {
+    private val worlds = mutableListOf<CoreWorld>()
+
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
@@ -32,9 +37,15 @@ class TimetableDispatcherTest {
         stopToleranceMeters = 0.25
     )
 
+    @AfterEach
+    fun unregisterWorlds() {
+        worlds.forEach(TestBasicWorldDataRegistry::unregister)
+        worlds.clear()
+    }
+
     @Test
     fun `starts explicit train only after first section confirmation and keeps final route held`() {
-        val world = createTestWorld()
+        val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
             dispatcher = dispatcher,
@@ -88,8 +99,99 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `manual control transfer suspends ATO and requires explicit released replan`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-transfer", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        val id = TimetableServiceRunId("tt", "s1")
+        val started = dispatcher.startService(world, "tt", "s1") as
+            TimetableServiceStartResult.Started
+
+        val suspended = dispatcher.suspendForControlTransfer(world, train.id, "driver-1")
+
+        assertTrue(suspended is TimetableControlTransferResult.Suspended)
+        assertEquals(TimetableServiceRunState.SUSPENDED, dispatcher.status(id)?.state)
+        assertEquals("driver-1", dispatcher.status(id)?.controlTransferOwner)
+        assertNull(train.controller)
+        assertTrue(
+            dispatcher.replanService(world, id, "A") is TimetableReplanResult.Failure,
+            "active transfer must not be replanned"
+        )
+        assertFalse(dispatcher.releaseControlTransfer(train.id, "other-driver"))
+        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-1"))
+        assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, dispatcher.status(id)?.state)
+
+        val replanned = dispatcher.replanService(world, id, "A") as TimetableReplanResult.Resumed
+
+        assertTrue(replanned.run.missionRevision > started.run.missionRevision)
+        assertEquals(TimetableServiceRunState.WAITING_MISSION, replanned.run.state)
+        assertTrue(train.controller is SimpleATO)
+        val replacementAto = train.controller as SimpleATO
+        for (tick in 0 until 2_000) {
+            tickAndPublish(replacementAto)
+            dispatcher.tick(world)
+            if (dispatcher.status(id)?.state == TimetableServiceRunState.COMPLETED) break
+        }
+        assertEquals(TimetableServiceRunState.COMPLETED, dispatcher.status(id)?.state)
+        assertEquals(originArc + 30.0, train.head.location.arcLength, 0.4)
+    }
+
+    @Test
+    fun `suspension preserves confirmed route ownership`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-transfer-route", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        val id = TimetableServiceRunId("tt", "s1")
+        dispatcher.startService(world, "tt", "s1") as TimetableServiceStartResult.Started
+        tickAndPublish(train.controller as SimpleATO)
+        dispatcher.tick(world)
+        assertEquals(1, dispatcher.status(id)?.confirmedSectionCount)
+
+        dispatcher.suspendForControlTransfer(world, train.id, "driver-1")
+        dispatcher.tick(world)
+
+        assertEquals(TimetableServiceRunState.SUSPENDED, dispatcher.status(id)?.state)
+        assertEquals(1, dispatcher.status(id)?.confirmedSectionCount)
+        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-1"))
+        assertTrue(dispatcher.replanService(world, id, "A") is TimetableReplanResult.Failure)
+
+        train.setLocation(train.head.location.forward(40.0)!!)
+        train.commit()
+        dispatcher.tick(world)
+
+        assertEquals(0, dispatcher.status(id)?.confirmedSectionCount)
+        assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, dispatcher.status(id)?.state)
+    }
+
+    @Test
     fun `allocates the next leg by progress and releases only after the tail clears`() {
-        val world = createTestWorld()
+        val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
             dispatcher = dispatcher,
@@ -160,7 +262,7 @@ class TimetableDispatcherTest {
 
     @Test
     fun `advances through dwell and a later movement mission`() {
-        val world = createTestWorld()
+        val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
             dispatcher = dispatcher,
@@ -216,7 +318,7 @@ class TimetableDispatcherTest {
 
     @Test
     fun `unconfirmed later section stops at its protection point without stalling`() {
-        val world = createTestWorld()
+        val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
             dispatcher = dispatcher,
@@ -281,7 +383,7 @@ class TimetableDispatcherTest {
 
     @Test
     fun `conflicting services keep the later train held without partial turnout changes`() {
-        val world = createTestWorld()
+        val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
             dispatcher = dispatcher,
@@ -337,7 +439,7 @@ class TimetableDispatcherTest {
 
     @Test
     fun `timetable tick orders simultaneous route conflicts`() {
-        val world = createTestWorld()
+        val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
             dispatcher = dispatcher,

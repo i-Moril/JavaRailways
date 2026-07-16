@@ -50,11 +50,12 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable start <id> [service]
 /mr timetable status <id> [service]
 /mr timetable stop <id> [service]
+/mr timetable replan <id> <service> <current-waypoint>
 ```
 
 只有使用字符串 `trainId` selector、并在第一个运行动作前通过 `check()` 指定初始 WayPoint 的 service 可以启动。后续 `goto` 会在前一 Mission 停稳以及可选 `stop` dwell 完成后继续。
 
-`stop` 命令请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
+`stop` 命令请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
 
 如果省略加载命令的 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
 

@@ -625,7 +625,7 @@ object TrainCommand {
             return true
         }
 
-        val train = args.firstOrNull()?.let { coreWorld.getTrain(it) as? CoreTrain }
+        val train = args.firstOrNull()?.let { coreWorld.getTrain(it) }
             ?: findNearestTrain(sender, coreWorld)
             ?: run {
                 sender.sendMessage("错误: 附近没有列车")

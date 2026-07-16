@@ -60,7 +60,7 @@ MineRails 事件按线程归属分成两套同步总线：
 
 标记为 `@AsyncEventApi` 的物理事件要求监听器显式 opt-in 且保证线程安全。worker 监听器不得直接操作 Bukkit 实体、世界、玩家或 Dialog；需要通过明确的主线程提交边界转交。跨线程 payload 应使用 `TrainSnapshot`、`RailObjectSnapshot` 等不持有 live World/Rail/Train 的不可变值。
 
-StationCall 通知在 physics 发布后由主线程 Dispatcher 消费。Phase C3 的 `TrainOperationGateway.execute()`、operation ticket 轮询/取消、`behavior.js` 和模型 action 全部只在主线程执行；operation request 只携带稳定 ID 和语义值，不会交给 physics worker。
+StationCall 通知在 physics 发布后由主线程 Dispatcher 消费。Phase C3 的 `TrainOperationGateway.execute()`、operation ticket 轮询/取消、`behavior.js` 和模型 action 全部只在主线程执行；operation request 只携带稳定 ID 和语义值，不会交给 physics worker。Phase D1 的 controller transfer、release 和 replan 同样只在主线程执行；`SUSPENDED` 状态只读取完整 physics epoch 后已发布的 CoreTrain head/tail 位置来释放旧资源。
 
 ## 代码约定
 

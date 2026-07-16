@@ -3,6 +3,7 @@ package work.art1st.mineRails.basic.timetable
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -258,6 +259,44 @@ class TimetableStationCallDispatcherTest {
         assertFalse(status.state == TimetableServiceRunState.DEPARTING)
         assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
         assertTrue(status.berthHeld)
+    }
+
+    @Test
+    fun `manual transfer cancels door ticket but preserves berth ownership`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.LEFT,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state ==
+                TimetableServiceRunState.DOORS_OPENING
+            ) break
+        }
+        assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
+
+        val result = fixture.dispatcher.suspendForControlTransfer(
+            fixture.world,
+            fixture.train.id,
+            "driver-1"
+        )
+
+        assertTrue(result is TimetableControlTransferResult.Suspended)
+        assertEquals(TrainOperationTicketState.CANCELLED, gateway.tickets.single().snapshot().state)
+        assertEquals(TimetableServiceRunState.SUSPENDED, fixture.dispatcher.status(id)?.state)
+        assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
+        assertNull(fixture.train.controller)
+        assertTrue(fixture.dispatcher.releaseControlTransfer(fixture.train.id, "driver-1"))
+        assertTrue(
+            fixture.dispatcher.replanService(fixture.world, id, "A") is
+                TimetableReplanResult.Failure
+        )
+        assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
     }
 
     @Test

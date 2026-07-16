@@ -74,6 +74,8 @@ enum class TimetableServiceRunState {
     DEPARTING,
     DEPARTED,
     MANUAL_INTERVENTION,
+    SUSPENDED,
+    REPLAN_REQUIRED,
     STOPPING,
     STOPPED,
     COMPLETED,
@@ -93,6 +95,7 @@ data class TimetableServiceRunSnapshot(
     val berthHeld: Boolean = false,
     val operationTicketId: String? = null,
     val operationTicketState: TrainOperationTicketState? = null,
+    val controlTransferOwner: String? = null,
     val message: String? = null
 )
 
@@ -104,6 +107,17 @@ sealed interface TimetableServiceStartResult {
 sealed interface TimetableStationCallScheduleResult {
     data class Scheduled(val run: TimetableServiceRunSnapshot) : TimetableStationCallScheduleResult
     data class Failure(val reason: String) : TimetableStationCallScheduleResult
+}
+
+sealed interface TimetableControlTransferResult {
+    data class Suspended(val run: TimetableServiceRunSnapshot) : TimetableControlTransferResult
+    data object NotAssigned : TimetableControlTransferResult
+    data class Failure(val reason: String) : TimetableControlTransferResult
+}
+
+sealed interface TimetableReplanResult {
+    data class Resumed(val run: TimetableServiceRunSnapshot) : TimetableReplanResult
+    data class Failure(val reason: String) : TimetableReplanResult
 }
 
 /** Main-thread runtime for explicit-train timetable services. */
@@ -335,6 +349,154 @@ class TimetableDispatcher(
         }
     }
 
+    /**
+     * Detach the active ATO before a platform controller takes manual control.
+     * Confirmed route and berth resources remain owned until published tail progress releases them.
+     */
+    @MainThread
+    fun suspendForControlTransfer(
+        world: World,
+        trainId: String,
+        transferOwner: String
+    ): TimetableControlTransferResult {
+        require(trainId.isNotBlank())
+        require(transferOwner.isNotBlank() && transferOwner == transferOwner.trim())
+        allocator(world)
+        val run = runs.values.firstOrNull { it.train.id == trainId && !it.state.isTerminal() }
+            ?: return TimetableControlTransferResult.NotAssigned
+        if (run.state == TimetableServiceRunState.SUSPENDED &&
+            run.controlTransferOwner == transferOwner
+        ) {
+            return TimetableControlTransferResult.Suspended(run.snapshot())
+        }
+        if (run.state == TimetableServiceRunState.SUSPENDED ||
+            run.state == TimetableServiceRunState.REPLAN_REQUIRED
+        ) {
+            return TimetableControlTransferResult.Failure(
+                "service ${run.id} is already suspended by ${run.controlTransferOwner ?: "released transfer"}"
+            )
+        }
+        cancelPendingOperation(run)
+        cancelStationCallForControlTransfer(run)
+        if (run.train.controller === run.ato) run.train.setController(null)
+        run.controlTransferOwner = transferOwner
+        run.state = TimetableServiceRunState.SUSPENDED
+        run.message = "manual control transferred to $transferOwner; resources remain tail-released"
+        return TimetableControlTransferResult.Suspended(run.snapshot())
+    }
+
+    /** Mark manual control as released. Re-entry still requires an explicit replan command. */
+    @MainThread
+    fun releaseControlTransfer(trainId: String, transferOwner: String): Boolean {
+        val run = runs.values.firstOrNull {
+            it.train.id == trainId && it.state == TimetableServiceRunState.SUSPENDED
+        } ?: return false
+        if (run.controlTransferOwner != transferOwner) return false
+        run.controlTransferOwner = null
+        run.state = TimetableServiceRunState.REPLAN_REQUIRED
+        run.message = "manual control released; explicit replan from a stopped WayPoint is required"
+        return true
+    }
+
+    /**
+     * Replan the interrupted movement from an administrator-selected current WayPoint to its
+     * original destination. The transfer must be released and all old resources tail-released.
+     */
+    @MainThread
+    fun replanService(
+        world: World,
+        id: TimetableServiceRunId,
+        originWayPointId: String
+    ): TimetableReplanResult {
+        allocator(world)
+        val run = runs[id]
+            ?: return TimetableReplanResult.Failure("service run not found: $id")
+        if (world.basicWorldData.atoCoordinator.isStalled) {
+            return TimetableReplanResult.Failure("world ATO is stalled; inspect and reset before replanning")
+        }
+        if (run.state != TimetableServiceRunState.REPLAN_REQUIRED ||
+            run.controlTransferOwner != null
+        ) {
+            return TimetableReplanResult.Failure("service is not ready for replanning: $id (${run.state})")
+        }
+        if (run.allocations.isNotEmpty()) {
+            return TimetableReplanResult.Failure(
+                "old RouteSection resources are still held by the train tail"
+            )
+        }
+        if (run.stationCall?.allocationKey != null) {
+            return TimetableReplanResult.Failure(
+                "old StationBerth resource is still held by the train tail"
+            )
+        }
+        if (run.stationCall != null) {
+            return TimetableReplanResult.Failure("cancelled StationCall has not completed resource cleanup")
+        }
+        if (run.train.isDerailed) {
+            return TimetableReplanResult.Failure("train is derailed: ${run.train.id}")
+        }
+        if (run.train.speed > REPLAN_STOPPED_SPEED_METERS_PER_SECOND) {
+            return TimetableReplanResult.Failure(
+                "train must be stopped before replanning: speed=${run.train.speed}"
+            )
+        }
+        validateAtWayPoint(world, run.train, originWayPointId)?.let {
+            return TimetableReplanResult.Failure(it)
+        }
+        val factory = atoFactory
+            ?: return TimetableReplanResult.Failure("timetable ATO factory is not configured")
+        val replacementAto = try {
+            factory.create(run.train, world)
+        } catch (failure: Exception) {
+            return TimetableReplanResult.Failure(
+                "failed to create replacement ATO: ${failure.message ?: failure::class.java.simpleName}"
+            )
+        }
+        val target = WayPointRef(run.currentRuntime.targetWayPointId)
+        if (target.id == originWayPointId) {
+            run.ato = replacementAto
+            run.controllerOwned = true
+            run.runtimes.clear()
+            run.pendingStationCallSpec = null
+            run.train.setController(replacementAto)
+            run.currentWayPointId = target.id
+            run.state = TimetableServiceRunState.WAITING_MISSION
+            run.message = "replan origin is the interrupted destination; advancing service"
+            advanceService(world, run)
+            return TimetableReplanResult.Resumed(run.snapshot())
+        }
+        val plan = MovementPlan(
+            origin = WayPointRef(originWayPointId),
+            points = listOf(AtoMissionPoint.Stop(target)),
+            target = target,
+            priorityTick = run.currentRuntime.priorityTick,
+            nextStepIndex = run.nextStepIndex,
+            stationCallSpec = null
+        )
+        val submission = submitMission(world, replacementAto, run.id, plan)
+        val accepted = submission.accepted
+            ?: return TimetableReplanResult.Failure(submission.failure!!)
+        val runtime = MissionRuntime(
+            mission = accepted.mission,
+            layout = accepted.layout,
+            priorityTick = plan.priorityTick,
+            targetWayPointId = target.id,
+            lastOdometerMeters = replacementAto.lifetimeTravelDistanceMeters
+        )
+        run.ato = replacementAto
+        run.controllerOwned = true
+        run.runtimes.clear()
+        run.pendingStationCallSpec = null
+        run.currentWayPointId = originWayPointId
+        run.runtimes += runtime
+        run.currentRuntime = runtime
+        run.missionRevision = accepted.mission.revision
+        run.state = TimetableServiceRunState.WAITING_MISSION
+        run.message = "replanned from $originWayPointId to ${target.id}"
+        run.train.setController(replacementAto)
+        return TimetableReplanResult.Resumed(run.snapshot())
+    }
+
     /** Called on the main thread after the current physics epoch has published. */
     @MainThread
     fun tick(world: World) {
@@ -344,8 +506,20 @@ class TimetableDispatcher(
         val candidates = ArrayList<AllocationCandidate>()
 
         runs.values.toList().forEach { run ->
-            val snapshot = run.ato.currentTrainSnapshot
-            processStationNotifications(run)
+            val controlTransferred = run.state == TimetableServiceRunState.SUSPENDED ||
+                run.state == TimetableServiceRunState.REPLAN_REQUIRED
+            val snapshot = if (controlTransferred) {
+                capturePublishedTrainSnapshot(run)
+            } else {
+                run.ato.currentTrainSnapshot
+            }
+            if (!controlTransferred) processStationNotifications(run)
+            if (controlTransferred) {
+                run.currentRuntime.layout.project(
+                    snapshot.head,
+                    run.currentRuntime.headProgressMeters
+                )?.let { run.currentRuntime.headProgressMeters = it }
+            }
             updateTailProgress(run, snapshot)
             updateStationTailProgress(run, snapshot)
             releasePassedSections(run, sectionAllocator)
@@ -359,6 +533,7 @@ class TimetableDispatcher(
                 fail(run, "train derailed")
                 return@forEach
             }
+            if (controlTransferred) return@forEach
             if (run.train.controller !== run.ato) {
                 fail(run, "train controller was replaced")
                 return@forEach
@@ -564,6 +739,15 @@ class TimetableDispatcher(
                 run.message = "berth ${result.berthRef} held by ${result.heldBy.owner.serviceRunId}"
                 null
             }
+        }
+    }
+
+    private fun cancelStationCallForControlTransfer(run: ActiveRun) {
+        val stationCall = run.stationCall ?: return
+        stationCall.cancelledForControlTransfer = true
+        run.ato.removeSpeedLimit(stationPendingHoldKey(run.id))
+        if (stationCall.allocationKey == null) {
+            run.stationCall = null
         }
     }
 
@@ -777,6 +961,12 @@ class TimetableDispatcher(
         }
     }
 
+    private fun capturePublishedTrainSnapshot(run: ActiveRun): TrainSnapshot {
+        val facing = (run.train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
+            ?.facing ?: ViewDirection.AB
+        return TrainSnapshot.capture(run.train, dispatcherTick, facing)
+    }
+
     private fun updateStationTailProgress(run: ActiveRun, snapshot: TrainSnapshot) {
         val stationCall = run.stationCall ?: return
         val odometerDelta = (run.ato.lifetimeTravelDistanceMeters - stationCall.lastOdometerMeters)
@@ -805,7 +995,9 @@ class TimetableDispatcher(
         if (tailProgress + RELEASE_EPSILON_METERS < releaseDistance) return
         check(berthAllocator.release(key)) { "Station berth allocation disappeared: $key" }
         stationCall.allocationKey = null
-        if (stationCall.departed && run.state != TimetableServiceRunState.DEPARTED) {
+        if (stationCall.cancelledForControlTransfer ||
+            stationCall.departed && run.state != TimetableServiceRunState.DEPARTED
+        ) {
             run.stationCall = null
         }
     }
@@ -1169,6 +1361,7 @@ class TimetableDispatcher(
         const val POSITION_TOLERANCE_METERS = 0.5
         const val RELEASE_EPSILON_METERS = 1.0e-6
         const val DEFAULT_OPERATION_TIMEOUT_TICKS = 100L
+        const val REPLAN_STOPPED_SPEED_METERS_PER_SECOND = 0.05
     }
 
     private data class StationCallSpec(
@@ -1247,6 +1440,7 @@ class TimetableDispatcher(
         var operationTicket: TrainOperationTicket? = null,
         var operationTicketId: String? = null,
         var operationStartedDispatcherTick: Long = Long.MAX_VALUE,
+        var cancelledForControlTransfer: Boolean = false,
         var lastNotificationEpoch: Long = -1L,
         var tailMissionProgressMeters: Double? = null
     )
@@ -1255,8 +1449,8 @@ class TimetableDispatcher(
         val id: TimetableServiceRunId,
         val service: TimetableService,
         val train: CoreTrain,
-        val ato: SimpleATO,
-        val controllerOwned: Boolean,
+        var ato: SimpleATO,
+        var controllerOwned: Boolean,
         var missionRevision: Long,
         var nextStepIndex: Int,
         var currentWayPointId: String,
@@ -1266,6 +1460,7 @@ class TimetableDispatcher(
         var message: String? = null,
         var stationCall: DispatcherStationCall? = null,
         var pendingStationCallSpec: StationCallSpec? = null,
+        var controlTransferOwner: String? = null,
         val runtimes: MutableList<MissionRuntime> = ArrayList(),
         val allocations: MutableMap<RouteSectionAllocationKey, AllocatedSection> = LinkedHashMap()
     ) {
@@ -1293,6 +1488,7 @@ class TimetableDispatcher(
                 berthHeld = stationCall?.allocationKey != null,
                 operationTicketId = operation?.ticketId ?: stationCall?.operationTicketId,
                 operationTicketState = operation?.state,
+                controlTransferOwner = controlTransferOwner,
                 message = message
             )
         }

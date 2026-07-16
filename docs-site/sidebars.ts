@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
         'architecture/ato-roadmap',
         'architecture/station-validation-checklist',
         'architecture/train-operation-validation-checklist',
+        'architecture/control-transfer-validation-checklist',
         'architecture/threading-model',
         'architecture/persistence',
         'performance_assessment',

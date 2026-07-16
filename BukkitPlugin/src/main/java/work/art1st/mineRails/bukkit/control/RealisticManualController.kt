@@ -18,10 +18,15 @@ class RealisticManualController(
     train: Train,
     world: World,
     private val controlConfig: TrainControlConfig,
-    private val carControls: List<CarControlConfig>
+    private val carControls: List<CarControlConfig>,
+    initialSpeedMetersPerSecond: Double = train.speed
 ) : TrainController(train, world) {
+    init {
+        require(initialSpeedMetersPerSecond.isFinite() && initialSpeedMetersPerSecond >= 0.0)
+    }
+
     @Volatile
-    private var dynamicsState = TrainDynamics.State()
+    private var dynamicsState = TrainDynamics.State(speed = initialSpeedMetersPerSecond)
     @Volatile
     private var lastForces = TrainDynamics.StepResult(dynamicsState, 0.0, 0.0, 0.0, 0.0, 0.0)
     private val handleRef = AtomicReference(NEUTRAL_HANDLE)

@@ -6,7 +6,7 @@ slug: /architecture/automatic-train-operation
 # 自动驾驶与运营协同设计
 
 :::warning 实施状态
-Phase A/B、C1 Mission、Phase C2 Station 和 Phase C3 车门操作网关已实现；插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
+Phase A/B、C1 Mission、Phase C2 Station、Phase C3 车门操作网关和 Phase D1 人工接管/重新规划已实现；插件 Registry 仍是后续设计。未完成工作的顺序与边界见 [ATO 路线图](./ato-roadmap.md)。当前行为以源码、测试和 [API 状态](../extensions/api-status.md) 为准。
 :::
 
 ## 当前实施状态
@@ -25,6 +25,8 @@ Phase C1 已完成弧长加权 Dijkstra、经路/Mission 契约和原子 `RouteS
 Phase C2.1 已增加 World-local StationStore、Station 聚合、被动 StationBerth RailObject、StationCall 和 DwellPlan 值。C2.2 已增加显式 berth/方向/长度解析、head-aligned Stop 与 DepartureHold，以及 physics 到主线程的 revisioned `APPROACHING`、`BERTHED`、`DEPARTED` 通知。C2.3 已接入 Dispatcher dwell/计划发车状态、后续经路确认、无抢占 berth 所有权和跨 Mission 车尾释放。C2.4 已增加严格 JS/TypeScript StationCall DSL，并把 call 与后续 goto Mission 自动配对。
 
 Phase C3 已增加主线程 `TrainOperationGateway`、稳定 operation request、可轮询/取消 ticket、开关门状态和 Bukkit 模型适配。开门确认后开始 minimum dwell；关门确认和后续经路授权都满足后才解除 DepartureHold。操作失败或 100 Dispatcher Tick 超时进入 `MANUAL_INTERVENTION`，不自动发车或触发 ATO Stall。
+
+Phase D1 已把人工接管接入 Dispatcher：接管前进入 `SUSPENDED` 并解除旧 ATO，驾驶权释放后进入 `REPLAN_REQUIRED`。旧 RouteSection 和 StationBerth 继续按车尾释放；管理员只能在列车停止、位于明确 WayPoint 且旧资源清空后创建新 ATO/Mission revision，重新规划到被中断 movement 的原目标。
 
 ## 1. 背景
 
@@ -547,7 +549,7 @@ interface AtoFactory {
 - 时刻表验证阶段检查所需 ATO 和 provider 是否可用；
 - 缺失算法不能静默退回默认实现。
 
-人工驾驶接管不能只替换 `CoreTrain.controller`。控制权管理器需要通知 Dispatcher 和 ATO，使服务进入 SUSPENDED、TRANSFERRED 或 CANCELLED 状态，并定义恢复行为。
+人工驾驶接管不能只替换 `CoreTrain.controller`。当前 `TrainControlManager` 会先通知 World-local Dispatcher，使服务进入 `SUSPENDED` 并解除旧 ATO；驾驶权释放后进入 `REPLAN_REQUIRED`。系统不自动恢复旧 Mission，也不默认取消整条车次。管理员使用明确 WayPoint 触发 replan，目标固定为被中断 movement 的原目标，并生成新的 ATO 与 Mission revision。旧 RouteSection/StationBerth 在此期间继续按已发布车尾位置安全释放；资源未清空、列车未停止或不在指定 WayPoint 时 replan 失败。详细证据见 [Phase D1 控制权转移清单](./control-transfer-validation-checklist.md)。
 
 ## 12. 线程与事件模型
 
@@ -665,4 +667,4 @@ Phase A/B 和 C1 Mission 垂直切片已完成。剩余工作拆成可独立验�
 
 ## 17. 未完成计划
 
-未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。Phase C2/C3 证据分别保存在 [Station 清单](./station-validation-checklist.md) 和 [TrainOperationGateway 清单](./train-operation-validation-checklist.md)；当前下一阶段是插件与控制权生命周期，性能索引仍需等待 profiler 证据。
+未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。Phase C2/C3/D1 证据分别保存在 [Station 清单](./station-validation-checklist.md)、[TrainOperationGateway 清单](./train-operation-validation-checklist.md) 和 [控制权转移清单](./control-transfer-validation-checklist.md)；当前下一切片是插件 Registry，性能索引仍需等待 profiler 证据。

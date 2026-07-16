@@ -99,6 +99,77 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `shared timetable epoch prevents an early first departure and records lateness`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-clock", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        data.timetables.add(
+            Timetable(
+                id = "tt",
+                periodDays = 2L,
+                services = listOf(service("s1", train.id, "A", "B", tick = 5L))
+            )
+        )
+        val epoch = dispatcher.beginTimetable(world, "tt") as TimetableEpochStartResult.Started
+        assertEquals(48_000L, epoch.epoch.periodTicks)
+        val id = TimetableServiceRunId("tt", "s1")
+        val started = dispatcher.startService(world, "tt", "s1") as
+            TimetableServiceStartResult.Started
+        val ato = train.controller as SimpleATO
+        assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, started.run.state)
+
+        repeat(4) {
+            tickAndPublish(ato)
+            dispatcher.tick(world)
+            assertEquals(0.0, train.speed, 1.0e-9)
+            assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, dispatcher.status(id)?.state)
+        }
+        tickAndPublish(ato)
+        dispatcher.tick(world)
+        assertEquals(5L, dispatcher.status(id)?.timetableElapsedTicks)
+        assertEquals(0L, dispatcher.status(id)?.lastLatenessTicks)
+        tickAndPublish(ato)
+        assertTrue(train.speed > 0.0)
+
+        val lateWorld = createTestWorld().also(worlds::add)
+        val lateDispatcher = dispatcher()
+        val lateData = BasicWorldData(
+            dispatcher = lateDispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-late", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(lateWorld, lateData)
+        val lateRail = createStraightRailFromSegments(
+            lateWorld,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val lateTrain = createTrainWithConfig("T2", lateRail, lateWorld, listOf(10.0))
+        val lateOrigin = lateTrain.head.location.arcLength
+        lateData.wayPoints.add(WayPoint("A", "A", lateRail.id, lateOrigin))
+        lateData.wayPoints.add(WayPoint("B", "B", lateRail.id, lateOrigin + 30.0))
+        lateData.timetables.add(timetable("late", "s1", lateTrain.id, "A", "B"))
+        lateDispatcher.beginTimetable(lateWorld, "late")
+        repeat(10) { lateDispatcher.tick(lateWorld) }
+
+        val late = lateDispatcher.startService(lateWorld, "late", "s1") as
+            TimetableServiceStartResult.Started
+
+        assertEquals(TimetableServiceRunState.WAITING_MISSION, late.run.state)
+        assertEquals(10L, late.run.lastLatenessTicks)
+    }
+
+    @Test
     fun `manual control transfer suspends ATO and requires explicit released replan`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
@@ -469,6 +540,8 @@ class TimetableDispatcherTest {
             )
         )
 
+        dispatcher.beginTimetable(world, "tt")
+        repeat(100) { dispatcher.tick(world) }
         assertTrue(dispatcher.startService(world, "tt", "late") is TimetableServiceStartResult.Started)
         assertTrue(dispatcher.startService(world, "tt", "early") is TimetableServiceStartResult.Started)
         tickAndPublish(lateTrain.controller as SimpleATO)

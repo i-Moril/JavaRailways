@@ -62,6 +62,7 @@ data class TimetableServiceRunId(val timetableId: String, val serviceId: String)
 
 enum class TimetableServiceRunState {
     WAITING_MISSION,
+    WAITING_TIMETABLE_TIME,
     WAITING_ROUTE,
     RUNNING,
     WAITING_BERTH,
@@ -88,6 +89,10 @@ data class TimetableServiceRunSnapshot(
     val missionRevision: Long,
     val state: TimetableServiceRunState,
     val confirmedSectionCount: Int,
+    val cycleIndex: Long = 0L,
+    val timetableElapsedTicks: Long = 0L,
+    val scheduledActionTick: Long? = null,
+    val lastLatenessTicks: Long = 0L,
     val headProgressMeters: Double? = null,
     val tailProgressMeters: Double? = null,
     val stationCallId: String? = null,
@@ -102,6 +107,17 @@ data class TimetableServiceRunSnapshot(
 sealed interface TimetableServiceStartResult {
     data class Started(val run: TimetableServiceRunSnapshot) : TimetableServiceStartResult
     data class Failure(val reason: String) : TimetableServiceStartResult
+}
+
+data class TimetableEpochSnapshot(
+    val timetableId: String,
+    val epochDispatcherTick: Long,
+    val periodTicks: Long
+)
+
+sealed interface TimetableEpochStartResult {
+    data class Started(val epoch: TimetableEpochSnapshot) : TimetableEpochStartResult
+    data class Failure(val reason: String) : TimetableEpochStartResult
 }
 
 sealed interface TimetableStationCallScheduleResult {
@@ -137,6 +153,7 @@ class TimetableDispatcher(
     private val initialTrains = ConcurrentHashMap<String, TrainSnapshot>()
     private val missionRevision = AtomicLong(0L)
     private val runs = LinkedHashMap<TimetableServiceRunId, ActiveRun>()
+    private val timetableClocks = LinkedHashMap<String, TimetableClock>()
     private val berthAllocator = StationBerthAllocator()
     private var dispatcherTick = 0L
     private var allocatorWorld: World? = null
@@ -149,6 +166,40 @@ class TimetableDispatcher(
     fun initialTrain(trainId: String): TrainSnapshot? = initialTrains[trainId]
 
     fun initialTrains(): Map<String, TrainSnapshot> = initialTrains.toMap()
+
+    /** Establish one shared cycle-zero epoch before an administrator starts timetable services. */
+    @MainThread
+    fun beginTimetable(
+        world: World,
+        timetableId: String
+    ): TimetableEpochStartResult {
+        allocator(world)
+        val timetable = world.basicWorldData.timetables[timetableId]
+            ?: return TimetableEpochStartResult.Failure("timetable not found: $timetableId")
+        val validation = TimetableValidator(world).validate(timetable)
+        if (!validation.isSuccess) {
+            return TimetableEpochStartResult.Failure(validation.errors.joinToString("; "))
+        }
+        val blocking = runs.values.firstOrNull {
+            it.id.timetableId == timetableId && !it.canBeReplaced()
+        }
+        if (blocking != null) {
+            return TimetableEpochStartResult.Failure(
+                "timetable still has an active or resource-holding run: ${blocking.id}"
+            )
+        }
+        runs.entries.removeIf { (id, run) ->
+            id.timetableId == timetableId && run.canBeReplaced()
+        }
+        val clock = TimetableClock(
+            epochDispatcherTick = dispatcherTick,
+            periodTicks = timetable.periodTicks
+        )
+        timetableClocks[timetableId] = clock
+        return TimetableEpochStartResult.Started(
+            TimetableEpochSnapshot(timetableId, clock.epochDispatcherTick, clock.periodTicks)
+        )
+    }
 
     @MainThread
     fun startService(
@@ -163,6 +214,9 @@ class TimetableDispatcher(
 
         val timetable = world.basicWorldData.timetables[timetableId]
             ?: return TimetableServiceStartResult.Failure("timetable not found: $timetableId")
+        val clock = timetableClocks.getOrPut(timetableId) {
+            TimetableClock(dispatcherTick, timetable.periodTicks)
+        }
         val service = timetable.services.firstOrNull { it.id == serviceId }
             ?: return TimetableServiceStartResult.Failure("service not found: $runId")
         val validationErrors = TimetableValidator(world).validate(
@@ -193,6 +247,7 @@ class TimetableDispatcher(
             replaceableTrainRuns.forEach {
                 existingController.removeSpeedLimit(stopKey(it.id))
                 existingController.removeSpeedLimit(stationPendingHoldKey(it.id))
+                existingController.removeSpeedLimit(scheduleHoldKey(it.id))
             }
         }
         val first = firstMovement(runId, service)
@@ -230,13 +285,24 @@ class TimetableDispatcher(
             nextStepIndex = first.nextStepIndex,
             currentWayPointId = first.origin.id,
             currentRuntime = runtime,
-            state = TimetableServiceRunState.WAITING_MISSION
+            state = TimetableServiceRunState.WAITING_MISSION,
+            cycleIndex = 0L,
+            cycleStartDispatcherTick = clock.epochDispatcherTick,
+            lastObservedDispatcherTick = dispatcherTick
         )
         run.runtimes += runtime
         replaceableTrainRuns.forEach { runs.remove(it.id) }
         runs[runId] = run
         first.stationCallSpec?.let { spec ->
             scheduleStationCallSpec(world, run, spec)?.let { reason -> fail(run, reason) }
+        }
+        if (first.stationCallSpec == null) {
+            if (timetableElapsedTicks(run) < first.actionTick) {
+                waitForTimetableTick(run, first.actionTick, pendingStep = false)
+                run.ato.setSpeedLimit(scheduleHoldKey(run.id), 0.0)
+            } else {
+                recordScheduledAction(run, first.actionTick)
+            }
         }
         return TimetableServiceStartResult.Started(run.snapshot())
     }
@@ -298,6 +364,10 @@ class TimetableDispatcher(
                 "StationCall route is not the active Mission prefix for ${call.berthRef}"
             )
         }
+        if (run.waitingUntilTimetableTick != null && !run.waitingStepPending) {
+            run.waitingUntilTimetableTick = null
+            run.ato.removeSpeedLimit(scheduleHoldKey(run.id))
+        }
         run.ato.setSpeedLimit(stationPendingHoldKey(run.id), 0.0)
         run.stationCall = DispatcherStationCall(
             resolved = resolved,
@@ -327,24 +397,29 @@ class TimetableDispatcher(
             ?: return "station not found: ${berthRef.stationId}"
         val berth = world.basicWorldData.stations.berth(berthRef)
             ?: return "berth not found: $berthRef"
+        val plannedDepartureRelativeTick = spec.action.plannedDepartureTick
+            ?: spec.pairedDepartureTick
         val dwellPlan = DwellPlanResolver.resolve(
             station = station,
             berth = berth,
             minimumDwellTicksOverride = spec.action.minimumDwellTicks,
-            plannedDepartureTick = spec.action.plannedDepartureTick
+            plannedDepartureTick = absoluteTimetableTick(run, plannedDepartureRelativeTick)
         )
         val call = StationCall(
             callId = "${run.id}/station/${spec.stepIndex}",
             missionRevision = run.missionRevision,
             stationId = berthRef.stationId,
             berthRef = berthRef,
-            plannedArrivalTick = spec.plannedArrivalTick,
+            plannedArrivalTick = absoluteTimetableTick(run, spec.plannedArrivalTick),
             dwellPlan = dwellPlan,
             stoppingOffsetMetersBeforeOverride = spec.action.stoppingOffsetMetersBefore,
             doorSideOverride = spec.action.doorSideOverride
         )
         return when (val result = scheduleStationCall(world, run.id, call)) {
-            is TimetableStationCallScheduleResult.Scheduled -> null
+            is TimetableStationCallScheduleResult.Scheduled -> {
+                run.stationCall?.plannedDepartureTimetableTick = plannedDepartureRelativeTick
+                null
+            }
             is TimetableStationCallScheduleResult.Failure -> result.reason
         }
     }
@@ -470,6 +545,7 @@ class TimetableDispatcher(
             points = listOf(AtoMissionPoint.Stop(target)),
             target = target,
             priorityTick = run.currentRuntime.priorityTick,
+            actionTick = timetableElapsedTicks(run),
             nextStepIndex = run.nextStepIndex,
             stationCallSpec = null
         )
@@ -506,6 +582,7 @@ class TimetableDispatcher(
         val candidates = ArrayList<AllocationCandidate>()
 
         runs.values.toList().forEach { run ->
+            run.lastObservedDispatcherTick = dispatcherTick
             val controlTransferred = run.state == TimetableServiceRunState.SUSPENDED ||
                 run.state == TimetableServiceRunState.REPLAN_REQUIRED
             val snapshot = if (controlTransferred) {
@@ -537,6 +614,21 @@ class TimetableDispatcher(
             if (run.train.controller !== run.ato) {
                 fail(run, "train controller was replaced")
                 return@forEach
+            }
+            if (run.state == TimetableServiceRunState.WAITING_TIMETABLE_TIME) {
+                val scheduledTick = run.waitingUntilTimetableTick
+                    ?: error("WAITING_TIMETABLE_TIME run has no scheduled Tick: ${run.id}")
+                if (timetableElapsedTicks(run) < scheduledTick) return@forEach
+                run.waitingUntilTimetableTick = null
+                run.ato.removeSpeedLimit(scheduleHoldKey(run.id))
+                run.state = TimetableServiceRunState.WAITING_MISSION
+                run.message = null
+                if (run.waitingStepPending) {
+                    run.waitingStepPending = false
+                    advanceService(world, run)
+                    return@forEach
+                }
+                recordScheduledAction(run, scheduledTick)
             }
             if (run.state == TimetableServiceRunState.STOPPING) {
                 if (run.ato.isStopped(snapshot.speedMetersPerSecond)) {
@@ -598,6 +690,9 @@ class TimetableDispatcher(
             }
             if (run.state == TimetableServiceRunState.READY_TO_DEPART && stationCall != null) {
                 if (hasAuthorityBeyondStation(run, stationCall)) {
+                    stationCall.plannedDepartureTimetableTick?.let {
+                        recordScheduledAction(run, it)
+                    }
                     run.ato.grantStationDeparture(
                         stationCall.resolved.call.callId,
                         stationCall.resolved.call.missionRevision
@@ -1134,6 +1229,11 @@ class TimetableDispatcher(
                 }
                 is TimetableStep.At -> when (val action = step.action) {
                     is TimetableAction.Stop -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        recordScheduledAction(run, step.tick)
                         run.nextStepIndex++
                         run.dwellTicksRemaining = action.ticks
                         run.state = TimetableServiceRunState.DWELLING
@@ -1157,6 +1257,15 @@ class TimetableDispatcher(
                             run.nextStepIndex + 1,
                             run.pendingStationCallSpec
                         )
+                        if (plan.stationCallSpec == null &&
+                            timetableElapsedTicks(run) < plan.actionTick
+                        ) {
+                            waitForTimetableTick(run, plan.actionTick, pendingStep = true)
+                            return
+                        }
+                        if (plan.stationCallSpec == null) {
+                            recordScheduledAction(run, plan.actionTick)
+                        }
                         val submission = submitMission(world, run.ato, run.id, plan)
                         val accepted = submission.accepted
                         if (accepted == null) {
@@ -1242,7 +1351,11 @@ class TimetableDispatcher(
                 is TimetableStep.At -> when (val action = step.action) {
                     is TimetableAction.CallStation -> {
                         if (stationCallSpec != null) return null
-                        stationCallSpec = StationCallSpec(action, step.tick, index)
+                        stationCallSpec = StationCallSpec(
+                            action = action,
+                            plannedArrivalTick = step.tick,
+                            stepIndex = index
+                        )
                     }
                     is TimetableAction.GoTo,
                     is TimetableAction.GoVia -> return movement(
@@ -1282,8 +1395,9 @@ class TimetableDispatcher(
             points = points,
             target = points.last().target,
             priorityTick = stationCallSpec?.plannedArrivalTick ?: step.tick,
+            actionTick = step.tick,
             nextStepIndex = nextStepIndex,
-            stationCallSpec = stationCallSpec
+            stationCallSpec = stationCallSpec?.copy(pairedDepartureTick = step.tick)
         )
     }
 
@@ -1351,10 +1465,36 @@ class TimetableDispatcher(
         }
     }
 
+    private fun waitForTimetableTick(
+        run: ActiveRun,
+        scheduledTick: Long,
+        pendingStep: Boolean
+    ) {
+        run.waitingUntilTimetableTick = scheduledTick
+        run.waitingStepPending = pendingStep
+        run.state = TimetableServiceRunState.WAITING_TIMETABLE_TIME
+        run.message = "waiting for timetable tick $scheduledTick"
+    }
+
+    private fun recordScheduledAction(run: ActiveRun, scheduledTick: Long) {
+        val elapsed = timetableElapsedTicks(run)
+        run.lastScheduledActionTick = scheduledTick
+        run.lastLatenessTicks = (elapsed - scheduledTick).coerceAtLeast(0L)
+    }
+
+    private fun timetableElapsedTicks(run: ActiveRun): Long =
+        (dispatcherTick - run.cycleStartDispatcherTick).coerceAtLeast(0L)
+
+    private fun absoluteTimetableTick(run: ActiveRun, relativeTick: Long): Long =
+        Math.addExact(run.cycleStartDispatcherTick, relativeTick)
+
     private fun stopKey(id: TimetableServiceRunId): String = "dispatcher:stop/$id"
 
     private fun stationPendingHoldKey(id: TimetableServiceRunId): String =
         "dispatcher:station-pending/$id"
+
+    private fun scheduleHoldKey(id: TimetableServiceRunId): String =
+        "dispatcher:timetable-time/$id"
 
     private companion object {
         const val ORIGIN_TOLERANCE_METERS = 1.0
@@ -1364,10 +1504,16 @@ class TimetableDispatcher(
         const val REPLAN_STOPPED_SPEED_METERS_PER_SECOND = 0.05
     }
 
+    private data class TimetableClock(
+        val epochDispatcherTick: Long,
+        val periodTicks: Long
+    )
+
     private data class StationCallSpec(
         val action: TimetableAction.CallStation,
         val plannedArrivalTick: Long,
-        val stepIndex: Int
+        val stepIndex: Int,
+        val pairedDepartureTick: Long = Long.MAX_VALUE
     )
 
     private data class MovementPlan(
@@ -1375,6 +1521,7 @@ class TimetableDispatcher(
         val points: List<AtoMissionPoint>,
         val target: WayPointRef,
         val priorityTick: Long,
+        val actionTick: Long,
         val nextStepIndex: Int,
         val stationCallSpec: StationCallSpec?
     )
@@ -1440,6 +1587,7 @@ class TimetableDispatcher(
         var operationTicket: TrainOperationTicket? = null,
         var operationTicketId: String? = null,
         var operationStartedDispatcherTick: Long = Long.MAX_VALUE,
+        var plannedDepartureTimetableTick: Long? = null,
         var cancelledForControlTransfer: Boolean = false,
         var lastNotificationEpoch: Long = -1L,
         var tailMissionProgressMeters: Double? = null
@@ -1456,6 +1604,13 @@ class TimetableDispatcher(
         var currentWayPointId: String,
         var currentRuntime: MissionRuntime,
         var state: TimetableServiceRunState,
+        val cycleIndex: Long,
+        val cycleStartDispatcherTick: Long,
+        var lastObservedDispatcherTick: Long = cycleStartDispatcherTick,
+        var waitingUntilTimetableTick: Long? = null,
+        var waitingStepPending: Boolean = false,
+        var lastScheduledActionTick: Long? = null,
+        var lastLatenessTicks: Long = 0L,
         var dwellTicksRemaining: Long = 0L,
         var message: String? = null,
         var stationCall: DispatcherStationCall? = null,
@@ -1481,6 +1636,13 @@ class TimetableDispatcher(
                 missionRevision = missionRevision,
                 state = state,
                 confirmedSectionCount = allocations.size,
+                cycleIndex = cycleIndex,
+                timetableElapsedTicks =
+                    (lastObservedDispatcherTick - cycleStartDispatcherTick).coerceAtLeast(0L),
+                scheduledActionTick = waitingUntilTimetableTick
+                    ?: stationCall?.plannedDepartureTimetableTick
+                    ?: lastScheduledActionTick,
+                lastLatenessTicks = lastLatenessTicks,
                 headProgressMeters = currentRuntime.headProgressMeters,
                 tailProgressMeters = currentRuntime.tailProgressMeters,
                 stationCallId = stationCall?.resolved?.call?.callId,

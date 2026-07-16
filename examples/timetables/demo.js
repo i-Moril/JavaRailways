@@ -7,7 +7,7 @@ const inbound = ["b0", "a1", "a0", "depot1"]
 
 /** @param {MineRailsTimetableBuilder} timetable */
 function main(timetable) {
-  timetable.setPeriod(16000)
+  timetable.setPeriodDays(1)
 
   timetable.service("001", depot, function(t) {
     t.at(1000).goto(outbound)

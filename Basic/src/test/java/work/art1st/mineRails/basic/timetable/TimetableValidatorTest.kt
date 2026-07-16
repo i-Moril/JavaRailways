@@ -41,6 +41,33 @@ class TimetableValidatorTest {
     }
 
     @Test
+    fun `validator rejects actions outside the declared logical game days`() {
+        val world = createTestWorld()
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
+        world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 70.0))
+        val timetable = Timetable(
+            id = "boundary",
+            periodDays = 1L,
+            services = listOf(
+                TimetableService(
+                    id = "001",
+                    trainSelector = TrainSelector.WayPointPool(listOf("A")),
+                    steps = listOf(
+                        TimetableStep.At(24_000L, TimetableAction.GoTo("B"))
+                    )
+                )
+            )
+        )
+
+        val result = TimetableValidator(world).validate(timetable)
+
+        assertFalse(result.isSuccess)
+        assertTrue(result.errors.any { it.contains("超出周期") })
+    }
+
+    @Test
     fun `validator reports missing waypoint`() {
         val world = createTestWorld()
         TestBasicWorldDataRegistry.getOrCreate(world)

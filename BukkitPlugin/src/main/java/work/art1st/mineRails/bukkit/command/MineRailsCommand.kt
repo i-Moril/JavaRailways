@@ -10,6 +10,7 @@ import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
 import work.art1st.mineRails.basic.timetable.TimetableDumper
+import work.art1st.mineRails.basic.timetable.TimetableEpochStartResult
 import work.art1st.mineRails.basic.timetable.TimetableReplanResult
 import work.art1st.mineRails.basic.timetable.TimetableServiceRunId
 import work.art1st.mineRails.basic.timetable.TimetableServiceStartResult
@@ -222,7 +223,12 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     sender.sendMessage("当前没有已加载时刻表")
                 } else {
                     sender.sendMessage("=== 已加载时刻表 ===")
-                    timetables.forEach { sender.sendMessage("${it.id}: services=${it.services.size}, period=${it.periodTicks ?: "none"}") }
+                    timetables.forEach {
+                        sender.sendMessage(
+                            "${it.id}: services=${it.services.size}, periodDays=${it.periodDays}, " +
+                                "periodTicks=${it.periodTicks}"
+                        )
+                    }
                 }
             }
             "start" -> {
@@ -238,6 +244,18 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     return true
                 }
                 (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
+                if (requestedService == null) {
+                    when (val epoch = world.basicWorldData.dispatcher.beginTimetable(world, timetableId)) {
+                        is TimetableEpochStartResult.Started -> sender.sendMessage(
+                            "已建立 timetable epoch=${epoch.epoch.epochDispatcherTick} " +
+                                "period=${epoch.epoch.periodTicks} ticks"
+                        )
+                        is TimetableEpochStartResult.Failure -> {
+                            sender.sendMessage("启动 timetable $timetableId 失败: ${epoch.reason}")
+                            return true
+                        }
+                    }
+                }
                 val serviceIds = requestedService?.let(::listOf) ?: timetable.services.map { it.id }
                 serviceIds.forEach { serviceId ->
                     when (val result = world.basicWorldData.dispatcher.startService(world, timetableId, serviceId)) {
@@ -268,6 +286,8 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                         sender.sendMessage(
                             "${run.id}: state=${run.state} train=${run.trainId} " +
                                 "revision=${run.missionRevision} confirmed=${run.confirmedSectionCount} " +
+                                "cycle=${run.cycleIndex} elapsed=${run.timetableElapsedTicks} " +
+                                "scheduled=${run.scheduledActionTick ?: "-"} late=${run.lastLatenessTicks} " +
                                 "head=${run.headProgressMeters ?: "-"} tail=${run.tailProgressMeters ?: "-"} " +
                                 "call=${run.stationCallId ?: "-"} berth=${run.berthRef ?: "-"} " +
                                 "berthHeld=${run.berthHeld} operation=${run.operationTicketId ?: "-"} " +

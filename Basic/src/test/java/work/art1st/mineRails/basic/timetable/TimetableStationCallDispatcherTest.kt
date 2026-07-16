@@ -146,6 +146,37 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `paired movement tick is the station departure lower bound`() {
+        val fixture = fixture(
+            includeStationAction = true,
+            stationMovementTick = 300L
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        var berthed = false
+        var departedBeforePlan = false
+        for (tick in 0 until 1_500) {
+            fixture.tick()
+            val status = fixture.dispatcher.status(id)!!
+            if (status.state == TimetableServiceRunState.BERTHED ||
+                status.state == TimetableServiceRunState.DWELLING ||
+                status.state == TimetableServiceRunState.READY_TO_DEPART
+            ) berthed = true
+            if (status.timetableElapsedTicks < 300L &&
+                (status.state == TimetableServiceRunState.DEPARTING ||
+                    status.state == TimetableServiceRunState.DEPARTED)
+            ) departedBeforePlan = true
+            if (status.state == TimetableServiceRunState.DEPARTING) break
+        }
+
+        assertTrue(berthed)
+        assertFalse(departedBeforePlan)
+        assertTrue(fixture.dispatcher.status(id)!!.timetableElapsedTicks >= 300L)
+        assertEquals(300L, fixture.dispatcher.status(id)?.scheduledActionTick)
+    }
+
+    @Test
     fun `door tickets gate station dwell and departure hold release`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
@@ -545,7 +576,8 @@ class TimetableStationCallDispatcherTest {
         operationGateway: TrainOperationGateway = TrainOperationGateway {
             TrainOperationExecutionResult.Rejected("not configured in this fixture")
         },
-        operationTimeoutTicks: Long = 100L
+        operationTimeoutTicks: Long = 100L,
+        stationMovementTick: Long = 1L
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
@@ -594,7 +626,7 @@ class TimetableStationCallDispatcherTest {
                                     )
                                 )
                             }
-                            add(TimetableStep.At(1L, TimetableAction.GoTo("C")))
+                            add(TimetableStep.At(stationMovementTick, TimetableAction.GoTo("C")))
                             if (nextTargetOffsetMeters != null) {
                                 add(TimetableStep.At(1L, TimetableAction.GoTo("D")))
                             }

@@ -18,13 +18,29 @@ import java.io.File
 class TimetableDslException(message: String) : IllegalArgumentException(message)
 
 class TimetableBuilder(private val id: String) {
-    private var periodTicks: Long? = null
+    private var periodDays: Long? = null
     private val services = mutableListOf<TimetableService>()
 
-    fun setPeriod(ticks: Long): TimetableBuilder {
-        if (ticks <= 0) throw TimetableDslException("setPeriod(ticks): ticks 必须 > 0，实际为 $ticks")
-        periodTicks = ticks
+    fun setPeriodDays(days: Long): TimetableBuilder {
+        if (days <= 0L) {
+            throw TimetableDslException("setPeriodDays(days): days 必须 > 0，实际为 $days")
+        }
+        runCatching { Math.multiplyExact(days, Timetable.TICKS_PER_GAME_DAY) }.getOrElse {
+            throw TimetableDslException("setPeriodDays(days): 周期 Tick 溢出，实际为 $days days")
+        }
+        periodDays = days
         return this
+    }
+
+    /** Compatibility entry point; new scripts must declare whole logical game days. */
+    fun setPeriod(ticks: Long): TimetableBuilder {
+        if (ticks <= 0L || ticks % Timetable.TICKS_PER_GAME_DAY != 0L) {
+            throw TimetableDslException(
+                "setPeriod(ticks): ticks 必须是 ${Timetable.TICKS_PER_GAME_DAY} 的正整数倍；" +
+                    "请使用 setPeriodDays(days)"
+            )
+        }
+        return setPeriodDays(ticks / Timetable.TICKS_PER_GAME_DAY)
     }
 
     fun service(id: String, builder: Value): TimetableBuilder {
@@ -45,7 +61,12 @@ class TimetableBuilder(private val id: String) {
         return this
     }
 
-    fun build(): Timetable = Timetable(id = id, periodTicks = periodTicks, services = services.toList())
+    fun build(): Timetable = Timetable(
+        id = id,
+        periodDays = periodDays
+            ?: throw TimetableDslException("时刻表必须调用 setPeriodDays(days) 声明周期"),
+        services = services.toList()
+    )
 
     private fun parseTrainSelector(serviceId: String, selector: Value?): TrainSelector {
         if (selector == null || selector.isNull) return TrainSelector.AnyTrain
@@ -190,7 +211,11 @@ class TimetableScriptLoader(private val world: World) {
             return TimetableScriptLoadResult.Failure("加载失败: ${e.message ?: e::class.java.simpleName}")
         }
 
-        val timetable = builder.build()
+        val timetable = try {
+            builder.build()
+        } catch (e: TimetableDslException) {
+            return TimetableScriptLoadResult.Failure("DSL 错误: ${e.message}")
+        }
         val validation = TimetableValidator(world).validate(timetable)
         if (!validation.isSuccess) {
             return TimetableScriptLoadResult.Failure(

@@ -46,7 +46,7 @@ class TimetableScriptLoaderTest {
         script.writeText(
             """
             function main(timetable) {
-              timetable.setPeriod(16000)
+              timetable.setPeriodDays(1)
               timetable.service("001", ["depot1"], function(t) {
                 t.at(1000).goto("a0")
                 t.at(2000).stop(100)
@@ -61,7 +61,8 @@ class TimetableScriptLoaderTest {
         assertTrue(result is TimetableScriptLoadResult.Success, result.toString())
         val success = result as TimetableScriptLoadResult.Success
         assertEquals("demo", success.timetable.id)
-        assertEquals(16000, success.timetable.periodTicks)
+        assertEquals(1L, success.timetable.periodDays)
+        assertEquals(24_000L, success.timetable.periodTicks)
         assertEquals(1, success.timetable.services.size)
         assertEquals(TrainSelector.WayPointPool(listOf("depot1")), success.timetable.services.single().trainSelector)
         assertEquals(3, success.timetable.services.single().steps.size)
@@ -92,6 +93,7 @@ class TimetableScriptLoaderTest {
         script.writeText(
             """
             function main(timetable) {
+              timetable.setPeriodDays(1)
               timetable.service("station-service", "T1", function(t) {
                 t.check("A")
                 t.at(100).call("central", "one", {
@@ -100,7 +102,7 @@ class TimetableScriptLoaderTest {
                   stoppingOffsetMetersBefore: 1.5,
                   doorSide: "left"
                 })
-                t.at(300).goto("C")
+                t.at(200).goto("C")
               })
             }
             """.trimIndent()
@@ -132,6 +134,7 @@ class TimetableScriptLoaderTest {
         script.writeText(
             """
             function main(timetable) {
+              timetable.setPeriodDays(1)
               timetable.service("bad", "T1", function(t) {
                 t.at(0).call("central", "one", { surprise: true })
               })
@@ -143,6 +146,25 @@ class TimetableScriptLoaderTest {
 
         assertTrue(result is TimetableScriptLoadResult.Failure)
         assertTrue((result as TimetableScriptLoadResult.Failure).message.contains("未知 options"))
+    }
+
+    @Test
+    fun `rejects scripts without a declared period`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val script = File(tempDir, "missing-period.js")
+        script.writeText(
+            """
+            function main(timetable) {
+              timetable.service("empty", "T1", function(t) {})
+            }
+            """.trimIndent()
+        )
+
+        val result = TimetableScriptLoader(world).load(script)
+
+        assertTrue(result is TimetableScriptLoadResult.Failure)
+        assertTrue((result as TimetableScriptLoadResult.Failure).message.contains("setPeriodDays"))
     }
 
     @Test

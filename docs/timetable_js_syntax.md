@@ -6,11 +6,11 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前首版 JS 时刻表 DSL。C1/C2/C3 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell、显式 Station/Berth call 和可确认车门操作；尚不支持 WayPointPool 自动选车或周期循环。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
+本文档描述当前 JS 时刻表 DSL。C1/C2/C3/T1 运行时可以执行显式 `TrainId` service 的连续 `GoTo`/`GoVia`、普通 `Stop` dwell、显式 Station/Berth call、可确认车门操作，以及共同 epoch 下的 not-before 计划时间；尚不支持 Depot 动态配车或自动创建下一 cycle。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
 :::info 已确认但尚未全部实现的语义
-[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定 `setPeriodDays(days)`、整张 timetable 共同 epoch、`at(tick)` not-before、Depot 动态配车和多 cycle。以下页面仍以当前 loader/runtime 为主；新语义只有在 [验收清单](architecture/timetable-operational-closure-checklist.md) 对应项目勾选后才算可用。
+[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定整张运营闭环。`setPeriodDays(days)`、管理员 start 的共同 epoch、`at(tick)` not-before 和 lateness 已落地；Depot 动态配车与自动下一 cycle 仍以 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
@@ -83,7 +83,7 @@ function main(timetable) {
 
 ```js
 function main(timetable) {
-  timetable.setPeriod(16000)
+  timetable.setPeriodDays(1)
 
   timetable.service("001", ["depot1"], function(t) {
     t.at(1000).goto("a0")
@@ -95,7 +95,7 @@ function main(timetable) {
 
 含义：
 
-- 时刻表周期为 `16000` tick。
+- 时刻表周期为 `1` 个逻辑游戏日，即 `24000` Dispatcher Tick。
 - 定义车次/服务 `001`。
 - 初始候选位置为路径点池 `["depot1"]`。
 - 在 `1000` tick 前往 `a0`。
@@ -104,19 +104,24 @@ function main(timetable) {
 
 ## 顶层 API
 
-### `timetable.setPeriod(ticks)`
+### `timetable.setPeriodDays(days)`
 
-当前兼容 API：设置周期，单位为 tick。运营闭环目标将增加并优先使用 `timetable.setPeriodDays(days)`，按一个逻辑游戏日 24000 Tick 换算；在 T1 完成前不要假设 period 会自动循环。
+声明正整数逻辑游戏日周期。一个逻辑游戏日固定为 `24000` Dispatcher Tick，不受睡觉或 Bukkit `/time set` 影响。
 
 ```js
-timetable.setPeriod(16000)
+timetable.setPeriodDays(2)
 ```
 
 规则：
 
-- `ticks` 必须是大于 0 的整数。
-- `setPeriod` 当前可以省略，此时内部 `periodTicks` 为 `null`；其调度语义尚未定义。
-- 当前阶段只记录和验证，不实际循环调度。
+- `days` 必须是大于 0 的整数；
+- loader 严格检查 `days × 24000` 溢出；
+- 每个脚本必须显式调用；
+- 所有 `at(tick)` 和 planned departure 必须小于 `periodDays × 24000`；
+- 管理员启动整张 timetable 时建立全部 service 共享的 cycle-zero epoch；
+- 当前尚不会在周期结束后自动创建下一 cycle。
+
+`setPeriod(ticks)` 暂时作为兼容入口保留，但 ticks 必须是 `24000` 的正整数倍；新脚本应使用 `setPeriodDays`。
 
 ### `timetable.service(id, builder)`
 
@@ -165,7 +170,7 @@ timetable.service("003", ["depot1", "depot2"], function(t) {})
 
 ### `t.at(tick).goto(wayPointId)`
 
-在指定 tick 前往一个路径点。
+在当前 timetable cycle 的指定 tick 或之后前往一个路径点。若前序动作导致晚点，条件满足后立即执行并记录 lateness；不会跳过动作。
 
 ```js
 t.at(1000).goto("a0")
@@ -307,7 +312,7 @@ JavaScript 的 `number` 类型不能表达“必须是整数”，因此 tick �
 - 是否定义了 `function main(timetable)`。
 - DSL 参数类型是否正确。
 - timetable id 是否非空。
-- `periodTicks` 是否大于 0。
+- `periodDays` 是否为正整数且换算 Tick 不溢出。
 - service id 是否非空、是否重复。
 - `tick` 是否非负、是否倒退。
 - `stop(ticks)` 是否大于 0。
@@ -372,7 +377,7 @@ const outbound = ["a0", "a1", "b0"]
 const inbound = ["b0", "a1", "a0", "depot1"]
 
 function main(timetable) {
-  timetable.setPeriod(16000)
+  timetable.setPeriodDays(1)
 
   timetable.service("001", depot, function(t) {
     t.at(1000).goto(outbound)
@@ -394,7 +399,7 @@ function main(timetable) {
 
 当前 loader 和 C3 Dispatcher 仍不会：
 
-- 建立整张 timetable 的共同 epoch、按 `at(tick)` 实际等待或自动创建下一 cycle。
+- 在周期结束时自动创建下一 cycle。
 - 从 Depot 按车辆能力动态选择、取出或存入真实列车。
 - 从 WayPointPool 或 `AnyTrain` 自动选择真实列车。
 - 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。

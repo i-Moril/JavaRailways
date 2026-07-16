@@ -14,7 +14,8 @@ object TimetableDumper {
     private fun Timetable.toJson(): JsonObject = JsonObject(
         mapOf(
             "id" to JsonPrimitive(id),
-            "periodTicks" to (periodTicks?.let { JsonPrimitive(it) } ?: JsonNull),
+            "periodDays" to JsonPrimitive(periodDays),
+            "periodTicks" to JsonPrimitive(periodTicks),
             "services" to JsonArray(services.map { it.toJson() })
         )
     )

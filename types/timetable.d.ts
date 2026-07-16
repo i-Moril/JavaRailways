@@ -1,6 +1,9 @@
-/** Global type declarations for the MineRails C2 timetable DSL. */
+/** Global type declarations for the MineRails timetable DSL. */
 
 interface MineRailsTimetableBuilder {
+  /** Declare a positive whole number of 24,000-tick logical game days. */
+  setPeriodDays(days: number): MineRailsTimetableBuilder;
+  /** @deprecated Use setPeriodDays(); ticks must be a positive multiple of 24,000. */
   setPeriod(ticks: number): MineRailsTimetableBuilder;
   service(id: string, builder: MineRailsServiceBuilderCallback): MineRailsTimetableBuilder;
   service(
@@ -22,11 +25,11 @@ type MineRailsDoorSide = 'none' | 'left' | 'right' | 'both';
 interface MineRailsStationCallOptions {
   /** Minimum dwell after BERTHED, in Dispatcher ticks. */
   minimumDwellTicks?: number;
-  /** Absolute planned departure tick; must not be earlier than at(tick). */
+  /** Cycle-relative departure tick; must equal the paired goto tick when provided. */
   plannedDepartureTick?: number;
   /** Head-aligned stopping offset before the berth marker, in metres. */
   stoppingOffsetMetersBefore?: number;
-  /** Metadata only in Phase C2; no door action is executed. */
+  /** Semantic door side executed through the Phase C3 operation gateway. */
   doorSide?: MineRailsDoorSide;
 }
 

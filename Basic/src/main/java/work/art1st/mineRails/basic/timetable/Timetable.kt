@@ -20,9 +20,20 @@ import kotlin.math.abs
 /** 自动时刻表的内部 Kotlin 数据模型。JS loader 后续只负责生成这些数据。 */
 data class Timetable(
     val id: String,
-    val periodTicks: Long? = null,
+    val periodDays: Long = 1L,
     val services: List<TimetableService> = emptyList()
-)
+) {
+    init {
+        require(periodDays > 0L) { "Timetable periodDays must be positive" }
+    }
+
+    val periodTicks: Long
+        get() = Math.multiplyExact(periodDays, TICKS_PER_GAME_DAY)
+
+    companion object {
+        const val TICKS_PER_GAME_DAY = 24_000L
+    }
+}
 
 data class TimetableService(
     val id: String,
@@ -82,11 +93,15 @@ class TimetableValidator(private val world: World) {
         val routes = mutableListOf<ExpandedRoute>()
 
         if (timetable.id.isBlank()) errors.add("时刻表 id 不能为空")
-        timetable.periodTicks?.let { if (it <= 0) errors.add("时刻表周期必须 > 0: $it") }
+        if (timetable.periodDays <= 0L) errors.add("时刻表周期天数必须 > 0: ${timetable.periodDays}")
+        val periodTicks = runCatching { timetable.periodTicks }.getOrElse {
+            errors.add("时刻表周期 Tick 溢出: ${timetable.periodDays} days")
+            Long.MAX_VALUE
+        }
 
         val serviceIds = mutableSetOf<String>()
         for (service in timetable.services) {
-            validateService(timetable.id, service, errors, routes)
+            validateService(timetable.id, periodTicks, service, errors, routes)
             if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")
         }
         return TimetableValidationResult(errors, routes)
@@ -94,6 +109,7 @@ class TimetableValidator(private val world: World) {
 
     private fun validateService(
         timetableId: String,
+        periodTicks: Long,
         service: TimetableService,
         errors: MutableList<String>,
         routes: MutableList<ExpandedRoute>
@@ -116,18 +132,26 @@ class TimetableValidator(private val world: World) {
                 }
                 is TimetableStep.At -> {
                     if (step.tick < 0) errors.add("$prefix step#$index tick 不能为负: ${step.tick}")
+                    if (step.tick >= periodTicks) {
+                        errors.add("$prefix step#$index tick 超出周期: ${step.tick} >= $periodTicks")
+                    }
                     previousAtTick?.let {
                         if (step.tick < it) errors.add("$prefix step#$index tick 早于前一个 at: ${step.tick} < $it")
                     }
                     previousAtTick = step.tick
                     when (step.action) {
                         is TimetableAction.CallStation -> {
-                            if (step.action.plannedDepartureTick != null &&
-                                step.action.plannedDepartureTick < step.tick
-                            ) {
-                                errors.add(
-                                    "$prefix step#$index planned departure 早于 planned arrival"
-                                )
+                            if (step.action.plannedDepartureTick != null) {
+                                if (step.action.plannedDepartureTick < step.tick) {
+                                    errors.add(
+                                        "$prefix step#$index planned departure 早于 planned arrival"
+                                    )
+                                }
+                                if (step.action.plannedDepartureTick >= periodTicks) {
+                                    errors.add(
+                                        "$prefix step#$index plannedDepartureTick 超出周期"
+                                    )
+                                }
                             }
                             if (pendingStationCall != null) {
                                 errors.add(
@@ -140,6 +164,14 @@ class TimetableValidator(private val world: World) {
                         is TimetableAction.GoTo,
                         is TimetableAction.GoVia -> {
                             pendingStationCall?.let { (callIndex, call) ->
+                                if (call.plannedDepartureTick != null &&
+                                    call.plannedDepartureTick != step.tick
+                                ) {
+                                    errors.add(
+                                        "$prefix step#$callIndex plannedDepartureTick 必须等于 " +
+                                            "配对 goto tick ${step.tick}"
+                                    )
+                                }
                                 validateStationCallPrefix(
                                     prefix,
                                     callIndex,

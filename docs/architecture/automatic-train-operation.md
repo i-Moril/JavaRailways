@@ -28,7 +28,7 @@ Phase C3 已增加主线程 `TrainOperationGateway`、稳定 operation request�
 
 Phase D1/T5 已把人工接管接入 Dispatcher：timetable 列车默认进入 `MANUAL_ROUTED`，解除旧 ATO 后由司机控制速度，而 Dispatcher 继续申请/释放计划 RouteSection；该模式不自动执行车门、dwell hold 或 departure grant。钥匙 UI 可显式关闭进路辅助并进入 `FULL_MANUAL/SUSPENDED`。驾驶权释放后统一进入 `REPLAN_REQUIRED`，管理员只能从明确 WayPoint/Destination 创建新 ATO/Mission revision。
 
-下一目标由 [给定时刻表运营闭环设计](./timetable-operation-design.md) 固定：T1 已实现 `setPeriodDays`、共同 cycle-zero epoch、not-before、lateness 和 period 边界自动下一 cycle；T2 已增加普通/StationBerth/DepotStablingPoint 角色、严格接近方向、Station 多 berth 聚合和 legacy WayPoint adapter；T3 已完成 Depot/StablingPoint、RollingStockRecord、确定性动态配车、离库车尾释放，以及 `takeFromDepot`/`storeAtDepot` 的 reservation-to-occupancy/AVAILABLE 闭环；无匹配列车或空闲兼容停车点会 World-local Stall。T4 已增加 Stall-only 原子 Depot Reset、全量 preflight 和结构化报告；T5 已完成 MANUAL_ROUTED/FULL_MANUAL、保护点/经路/道岔安全监测和显式 replan 边界。T6 已统一 World-local Stall：door failure、基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 使用稳定错误类别；正常冲突、晚点、计划等待和 loader failure 保持非 Stall。后续进入 T7 端到端验收。
+下一目标由 [给定时刻表运营闭环设计](./timetable-operation-design.md) 固定：T1 已实现 `setPeriodDays`、共同 cycle-zero epoch、not-before、lateness 和 period 边界自动下一 cycle；T2 已增加普通/StationBerth/DepotStablingPoint 角色、严格接近方向、Station 多 berth 聚合和 legacy WayPoint adapter；T3 已完成 Depot/StablingPoint、RollingStockRecord、确定性动态配车、离库车尾释放，以及 `takeFromDepot`/`storeAtDepot` 的 reservation-to-occupancy/AVAILABLE 闭环；无匹配列车或空闲兼容停车点会 World-local Stall。T4 已增加 Stall-only 原子 Depot Reset、全量 preflight 和结构化报告；T5 已完成 MANUAL_ROUTED/FULL_MANUAL、保护点/经路/道岔安全监测和显式 replan 边界。T6 已统一 World-local Stall：door failure、基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 使用稳定错误类别；正常冲突、晚点、计划等待和 loader failure 保持非 Stall。T7 已补齐多 cycle Depot→Station→Depot 自动矩阵、故障/人工/Reset 证据，并提供测试服游戏内验收清单。
 
 ## 1. 背景
 

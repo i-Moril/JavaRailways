@@ -75,10 +75,14 @@ T6 证据：`TimetableStationCallDispatcherTest` 覆盖 door ticket failure/time
 
 ## T7 端到端验收
 
-- [ ] **T7-01** 两个以上 cycle 从 Depot 动态取车、运行、停站、存车并无车辆重复分配。
-- [ ] **T7-02** 相同 epoch/配置产生相同随机配车结果。
-- [ ] **T7-03** 晚点列车保持动作顺序和 minimum dwell，不提前发车。
-- [ ] **T7-04** MANUAL_ROUTED 可完成计划经路，FULL_MANUAL 不再申请新道岔。
-- [ ] **T7-05** 无车、无停车位、door failure 和保护点越界分别产生 World-local Stall 证据。
-- [ ] **T7-06** 原子 depot reset 后所有列车位置、occupancy、controller 和资源账本一致。
-- [ ] **T7-07** 完整 Gradle test、Dokka/Docusaurus、TypeScript 和模型配置检查通过。
+- [x] **T7-01** 两个以上 cycle 从 Depot 动态取车、运行、停站、存车并无车辆重复分配。
+- [x] **T7-02** 相同 epoch/配置产生相同随机配车结果。
+- [x] **T7-03** 晚点列车保持动作顺序和 minimum dwell，不提前发车。
+- [x] **T7-04** MANUAL_ROUTED 可完成计划经路，FULL_MANUAL 不再申请新道岔。
+- [x] **T7-05** 无车、无停车位、door failure 和保护点越界分别产生 World-local Stall 证据。
+- [x] **T7-06** 原子 depot reset 后所有列车位置、occupancy、controller 和资源账本一致。
+- [x] **T7-07** 完整 Gradle test、Dokka/Docusaurus、TypeScript 和模型配置检查通过。
+
+T7 自动证据矩阵：`TimetableDispatcherTest.period boundary automatically creates the next dynamic service cycle` 连续执行 cycle-0/cycle-1 的 Depot 取车、显式 StationCall/minimum dwell、存车、storage route 转交和再次配车，并在关闭 future cycles 后验证无重复分配；`DepotStoreTest` 验证稳定 seed；clock/StationCall tests 验证晚点和 dwell；MANUAL_ROUTED/FULL_MANUAL tests 验证人工模式；Depot 与 door/保护点测试覆盖各类 Stall；`DepotResetCoordinatorTest` 验证 reset 后位置、occupancy、controller 和 ledger。根项目 test 与 docs-site check 覆盖 Gradle、Bukkit、Dokka/Docusaurus、TypeScript 及模型配置。
+
+人工服务器验收步骤见 [游戏内时刻表运营验收清单](../in-game-timetable-validation.md)。

@@ -151,12 +151,12 @@ slug: /architecture/ato-roadmap
 - 钥匙 UI 可关闭进路辅助，进入 `FULL_MANUAL/SUSPENDED`，不再申请新 Section；旧资源仍按车尾释放。
 - 被动模式越过未确认保护点、偏离 PlannedRoute、破坏 confirmed turnout、脱轨或 controller 身份矛盾时 World-local Stall；释放 session 后必须显式 replan。
 
-### T6 Stall 统一（已完成）与端到端验收
+### T6/T7 Stall 统一与端到端验收（已完成）
 
 - door/model operation 失败、取消或超时已改为 World-local Stall。
 - 活动基础设施消失、资源身份矛盾、脱轨和非法 controller replacement 已统一进入稳定错误类别的 Stall。
 - 正常 route/berth 冲突、晚点、计划等待和 loader failure 保持非 Stall。
-- 下一步集中覆盖多 cycle 动态取车、停站、存车、人工驾驶和 depot reset 的 T7 端到端矩阵。
+- T7 自动矩阵已覆盖多 cycle 动态取车、显式停站/minimum dwell、存车、人工驾驶、故障 Stall 和 depot reset；测试服人工步骤见游戏内验收清单。
 
 ## 延期：Phase D2 插件 Registry
 

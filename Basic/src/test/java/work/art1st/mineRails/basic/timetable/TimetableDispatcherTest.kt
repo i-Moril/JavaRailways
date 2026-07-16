@@ -22,6 +22,11 @@ import work.art1st.mineRails.basic.api.depot.StablingPointRef
 import work.art1st.mineRails.basic.api.destination.DestinationRole
 import work.art1st.mineRails.basic.api.destination.OperationalDestination
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
+import work.art1st.mineRails.basic.api.station.DoorSide
+import work.art1st.mineRails.basic.api.station.Station
+import work.art1st.mineRails.basic.api.station.StationBerth
+import work.art1st.mineRails.basic.api.station.StationBerthRef
+import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.basic.controller.SimpleATO
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
@@ -319,6 +324,129 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `storeAtDepot without a compatible empty point stalls without partial occupancy`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val coordinator = AtoWorldCoordinator("dispatcher-store-capacity", reportSink = {})
+        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        val outboundRail = rail(
+            world,
+            Vector3d(0.0, 0.0, 0.0),
+            Vector3d(140.0, 0.0, 0.0)
+        )
+        val returnRail = rail(
+            world,
+            Vector3d(140.0, 0.0, 0.0),
+            Vector3d(0.0, 0.0, 0.0)
+        )
+        CoreRail.connect(outboundRail, returnRail)
+        CoreRail.connect(returnRail, outboundRail)
+        val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        val destinations = OperationalDestinationService(world)
+        destinations.register(
+            OperationalDestination(
+                "north-out",
+                "North out",
+                outboundRail.id,
+                originArc,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(
+                    "north",
+                    "out",
+                    usableLengthMeters = 20.0
+                )
+            )
+        )
+        destinations.register(
+            OperationalDestination(
+                "north-in",
+                "North in",
+                outboundRail.id,
+                originArc + 100.0,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(
+                    "north",
+                    "in",
+                    usableLengthMeters = 20.0
+                )
+            )
+        )
+        data.wayPoints.add(WayPoint("B", "B", returnRail.id, 50.0))
+        val depotId = DepotId("north")
+        data.depots.registerRollingStock(
+            RollingStockRecord(
+                train.id,
+                depotId,
+                "test/s100",
+                setOf("metro"),
+                1,
+                10.0,
+                20.0,
+                emptySet()
+            ),
+            StablingPointRef(depotId, "out")
+        )
+        data.depots.registerRollingStock(
+            RollingStockRecord(
+                "blocker",
+                depotId,
+                "test/blocker",
+                setOf("blocker"),
+                1,
+                10.0,
+                20.0,
+                emptySet()
+            ),
+            StablingPointRef(depotId, "in")
+        )
+        data.timetables.add(
+            Timetable(
+                "tt-store-capacity",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.TakeFromDepot(
+                                    DepotTrainSelector(depotId, requiredTags = setOf("metro"))
+                                )
+                            ),
+                            TimetableStep.At(0L, TimetableAction.GoTo("B")),
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.StoreAtDepot(depotId, setOf("in"))
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        dispatcher.startService(world, "tt-store-capacity", "s1")
+        val ato = train.controller as SimpleATO
+
+        for (ignored in 0 until 8_000) {
+            tickAndPublish(ato)
+            dispatcher.tick(world)
+            if (coordinator.isStalled) break
+        }
+
+        assertTrue(coordinator.isStalled)
+        assertEquals("DepotAllocationFailure", coordinator.lastStall?.errorType)
+        assertEquals(
+            "blocker",
+            data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId
+        )
+        assertEquals(
+            null,
+            data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.reservedByAssignmentId
+        )
+        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
+    }
+
+    @Test
     fun `period boundary automatically creates the next dynamic service cycle`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
@@ -371,6 +499,22 @@ class TimetableDispatcherTest {
             )
         )
         data.wayPoints.add(WayPoint("B", "B", returnRail.id, 50.0))
+        val stationId = StationId("central")
+        val berthRef = StationBerthRef(stationId, "one")
+        data.stations.register(
+            Station(stationId, "Central", listOf(berthRef), defaultDwellTicks = 3L),
+            listOf(
+                StationBerth(
+                    berthRef,
+                    returnRail.viewAB.getRailLocationAt(25.0),
+                    approachDirection = ViewDirection.AB,
+                    positionToleranceMeters = 0.6,
+                    usableLengthMeters = 20.0,
+                    defaultDwellTicks = 3L,
+                    doorSide = DoorSide.NONE
+                )
+            )
+        )
         val depotId = DepotId("north")
         data.depots.registerRollingStock(
             RollingStockRecord(
@@ -396,6 +540,15 @@ class TimetableDispatcherTest {
                                 0L,
                                 TimetableAction.TakeFromDepot(
                                     DepotTrainSelector(depotId, requiredTags = setOf("metro"))
+                                )
+                            ),
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.CallStation(
+                                    stationId = "central",
+                                    berthId = "one",
+                                    minimumDwellTicks = 3L,
+                                    plannedDepartureTick = 0L
                                 )
                             ),
                             TimetableStep.At(0L, TimetableAction.GoTo("B")),
@@ -439,6 +592,7 @@ class TimetableDispatcherTest {
             dispatcher.tick(world)
         }
         assertEquals(1L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
+        assertEquals(RollingStockState.AVAILABLE, data.depots.rollingStock(train.id)?.state)
         assertTrue(!data.atoCoordinator.isStalled, data.atoCoordinator.lastStall.toString())
     }
 

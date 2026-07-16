@@ -139,11 +139,11 @@ slug: /architecture/ato-roadmap
 - 没有匹配列车或兼容存车位时触发 World-local Stall。
 - 存车等待整列进入边界且旧资源车尾释放后才把列车标记为 AVAILABLE。
 
-### T4 管理员 Reset
+### T4 管理员 Reset（已完成）
 
-- 增加与 `/mr ato reset` 分离的 depot reset/reset-all 维护命令。
-- 先原子预检全部停车位；容量不足不修改任何状态。
-- 成功后重建位置和资源账本但继续保持 Stall，等待管理员检查。
+- 已增加与 `/mr ato reset` 分离的 `/mr depot reset <depot> confirm` 和 `reset-all confirm`。
+- reset 只在 Stall 中执行，并在 Bukkit 层等待当前 physics ticket；列车、Destination、停车位全匹配、RouteSection 和 StationBerth ledger 在任何修改前完成全量预检。
+- 成功后停止相关 run/controller、取消 operation ticket、重建位置与资源/occupancy，并输出结构化报告；World 继续保持 Stall，等待管理员另行 ATO reset。
 
 ### T5 人工被动进路
 

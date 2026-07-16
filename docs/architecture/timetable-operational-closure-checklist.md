@@ -44,11 +44,13 @@ T3 证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛
 
 ## T4 管理员 Reset
 
-- [ ] **T4-01** `/mr depot reset <depot> confirm` 和 `reset-all` 与 `/mr ato reset` 分离。
-- [ ] **T4-02** reset 只允许在 Stall 中执行，并先等待当前 physics ticket。
-- [ ] **T4-03** 全部列车到 StablingPoint 的分配先原子预检；容量不足不修改任何状态。
-- [ ] **T4-04** 提交阶段停止 run/controller、取消 ticket、重建资源账本和 occupancy，再移动列车。
-- [ ] **T4-05** reset 生成结构化报告且完成后保持 Stall，必须由管理员另行 ATO reset。
+- [x] **T4-01** `/mr depot reset <depot> confirm` 和 `reset-all` 与 `/mr ato reset` 分离。
+- [x] **T4-02** reset 只允许在 Stall 中执行，并先等待当前 physics ticket。
+- [x] **T4-03** 全部列车到 StablingPoint 的分配先原子预检；容量不足不修改任何状态。
+- [x] **T4-04** 提交阶段停止 run/controller、取消 ticket、重建资源账本和 occupancy，再移动列车。
+- [x] **T4-05** reset 生成结构化报告且完成后保持 Stall，必须由管理员另行 ATO reset。
+
+T4 证据：`DepotStoreTest` 覆盖确定性全匹配、plan revalidation 和失败不修改 ledger；`DepotResetCoordinatorTest` 覆盖 Stall-only、列车 envelope/Destination/Dispatcher 全量 preflight、强制资源清理、位置与 occupancy 重建、结构化 JSON，以及成功后继续保持 Stall。Bukkit 命令在调用事务前等待当前 physics ticket，并将成功或失败报告写入 `plugins/MineRails/debug/depot-reset-*.json`。
 
 ## T5 人工驾驶模式
 

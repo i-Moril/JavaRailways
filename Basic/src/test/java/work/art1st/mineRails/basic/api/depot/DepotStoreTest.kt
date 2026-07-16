@@ -101,6 +101,86 @@ class DepotStoreTest {
     }
 
     @Test
+    fun `reset planning finds a full deterministic matching and commits atomically`() {
+        val store = DepotStore()
+        val depot = DepotId("north")
+        store.addStablingPoint(
+            depot,
+            "North",
+            DepotStablingPoint(
+                StablingPointRef(depot, "one"),
+                "north-one",
+                100.0,
+                setOf("express")
+            )
+        )
+        store.addStablingPoint(
+            depot,
+            "North",
+            DepotStablingPoint(
+                StablingPointRef(depot, "two"),
+                "north-two",
+                100.0,
+                emptySet()
+            )
+        )
+        store.registerRollingStock(
+            RollingStockRecord(
+                "A-flexible",
+                depot,
+                "test/flexible",
+                setOf("express", "metro"),
+                4,
+                60.0,
+                20.0,
+                emptySet()
+            ),
+            StablingPointRef(depot, "one")
+        )
+        store.registerRollingStock(
+            RollingStockRecord(
+                "B-express",
+                depot,
+                "test/express",
+                setOf("express"),
+                4,
+                60.0,
+                20.0,
+                emptySet()
+            ),
+            StablingPointRef(depot, "two")
+        )
+
+        val plan = (store.planReset(setOf(depot)) as DepotResetPlanningResult.Planned).plan
+
+        assertEquals(
+            StablingPointRef(depot, "two"),
+            plan.assignments.single { it.trainId == "A-flexible" }.stablingPointRef
+        )
+        assertEquals(
+            StablingPointRef(depot, "one"),
+            plan.assignments.single { it.trainId == "B-express" }.stablingPointRef
+        )
+        assertTrue(store.applyReset(plan))
+        assertEquals("B-express", store.stablingPoint(StablingPointRef(depot, "one"))?.occupantTrainId)
+        assertEquals("A-flexible", store.stablingPoint(StablingPointRef(depot, "two"))?.occupantTrainId)
+    }
+
+    @Test
+    fun `failed reset preflight leaves every runtime untouched`() {
+        val store = storeWithRollingStock()
+        val depot = DepotId("north")
+        val beforeStock = store.allRollingStock()
+        val beforePoints = store.stablingPoints(depot)
+
+        val result = store.planReset(setOf(DepotId("missing")))
+
+        assertTrue(result is DepotResetPlanningResult.Failure)
+        assertEquals(beforeStock, store.allRollingStock())
+        assertEquals(beforePoints, store.stablingPoints(depot))
+    }
+
+    @Test
     fun `reservation cancellation restores the exact train and point`() {
         val store = storeWithRollingStock()
         val selector = DepotTrainSelector(DepotId("north"), requiredTags = setOf("metro"))

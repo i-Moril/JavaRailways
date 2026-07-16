@@ -28,7 +28,7 @@ SimpleATO 使用的 owner-scoped 速度、停车、跟车和移动授权约束�
 
 # Package work.art1st.mineRails.basic.api.depot
 
-Phase T3 的 Depot/StablingPoint、RollingStockRecord、occupancy/reservation 和确定性动态配车基础。
+Phase T3/T4 的 Depot/StablingPoint、RollingStockRecord、occupancy/reservation、确定性动态配车和 Stall-only 原子 Depot Reset。
 
 # Package work.art1st.mineRails.basic.api.destination
 

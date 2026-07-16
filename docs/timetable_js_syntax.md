@@ -61,6 +61,15 @@ service 可以使用字符串 `trainId` selector，并在第一个运行动作�
 
 `stop` 命令先禁用匹配 timetable/service 的后续自动 cycle，再对当前所有匹配 cycle run 请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。重新显式 start service 会重新启用该 service 的周期调度。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
 
+World Stall 后可执行显式确认的 Depot Reset：
+
+```text
+/mr depot reset <depot> confirm
+/mr depot reset-all confirm
+```
+
+命令会先等待当前 physics ticket，再全量预检列车、directed StablingPoint、容量和 Dispatcher ledger。任何 preflight 失败都不会移动列车或修改 occupancy。成功会停止相关 run/controller、取消 operation ticket、重建位置和资源账本，并在 `plugins/MineRails/debug/` 写入结构化报告。Reset 完成后 World **仍保持 Stall**；管理员检查后必须另行执行 `/mr ato reset <world>`。
+
 如果省略加载命令的 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
 
 ## 入口函数

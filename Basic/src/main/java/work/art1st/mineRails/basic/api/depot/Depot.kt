@@ -135,6 +135,28 @@ sealed interface DepotTrainAllocationResult {
     data class AssignmentConflict(val assignmentId: String) : DepotTrainAllocationResult
 }
 
+data class DepotResetAssignment(
+    val trainId: String,
+    val stablingPointRef: StablingPointRef,
+    val destinationId: String
+)
+
+data class DepotResetPlan(
+    val depotIds: Set<DepotId>,
+    val assignments: List<DepotResetAssignment>
+) {
+    init {
+        require(assignments.map { it.trainId }.distinct().size == assignments.size)
+        require(assignments.map { it.stablingPointRef }.distinct().size == assignments.size)
+        require(assignments.all { it.stablingPointRef.depotId in depotIds })
+    }
+}
+
+sealed interface DepotResetPlanningResult {
+    data class Planned(val plan: DepotResetPlan) : DepotResetPlanningResult
+    data class Failure(val reason: String) : DepotResetPlanningResult
+}
+
 data class DepotStorageReservation(
     val assignmentId: String,
     val trainId: String,
@@ -172,6 +194,102 @@ class DepotStore {
     private val rollingStock = LinkedHashMap<String, RollingRuntime>()
     private val assignments = LinkedHashMap<String, DepotTrainAllocation>()
     private val storageReservations = LinkedHashMap<String, DepotStorageReservation>()
+
+    /** Build a deterministic full matching without mutating occupancy or rolling-stock state. */
+    @MainThread
+    fun planReset(requestedDepotIds: Set<DepotId>? = null): DepotResetPlanningResult =
+        synchronized(lock) {
+            val depotIds = (requestedDepotIds ?: rollingStock.values
+                .map { it.record.homeDepotId }
+                .toSet()).toSet()
+            if (requestedDepotIds != null) {
+                requestedDepotIds.firstOrNull { it !in depots }?.let {
+                    return@synchronized DepotResetPlanningResult.Failure("Depot not found: $it")
+                }
+            }
+            val records = rollingStock.values
+                .filter { it.record.homeDepotId in depotIds }
+                .sortedBy { it.record.trainId }
+            val candidates = records.associate { runtime ->
+                runtime.record.trainId to points.values.asSequence()
+                    .filter { it.point.ref.depotId == runtime.record.homeDepotId }
+                    .filter { pointAccepts(it.point, runtime.record) }
+                    .map { it.point }
+                    .sortedBy { it.ref.pointId }
+                    .toList()
+            }
+            candidates.entries.firstOrNull { it.value.isEmpty() }?.let { (trainId, _) ->
+                return@synchronized DepotResetPlanningResult.Failure(
+                    "no compatible StablingPoint for RollingStock $trainId"
+                )
+            }
+            val pointOwners = LinkedHashMap<StablingPointRef, String>()
+            val recordsById = records.associateBy { it.record.trainId }
+
+            fun match(trainId: String, visited: MutableSet<StablingPointRef>): Boolean {
+                for (point in candidates.getValue(trainId)) {
+                    if (!visited.add(point.ref)) continue
+                    val currentOwner = pointOwners[point.ref]
+                    if (currentOwner == null || match(currentOwner, visited)) {
+                        pointOwners[point.ref] = trainId
+                        return true
+                    }
+                }
+                return false
+            }
+
+            records.forEach { runtime ->
+                if (!match(runtime.record.trainId, LinkedHashSet())) {
+                    return@synchronized DepotResetPlanningResult.Failure(
+                        "insufficient compatible StablingPoint capacity for Depot " +
+                            runtime.record.homeDepotId
+                    )
+                }
+            }
+            val pointByTrain = pointOwners.entries.associate { (point, trainId) -> trainId to point }
+            val assignments = records.map { runtime ->
+                val ref = requireNotNull(pointByTrain[runtime.record.trainId])
+                DepotResetAssignment(
+                    runtime.record.trainId,
+                    ref,
+                    points.getValue(ref).point.destinationId
+                )
+            }
+            check(assignments.size == recordsById.size)
+            DepotResetPlanningResult.Planned(DepotResetPlan(depotIds, assignments))
+        }
+
+    /** Verify the exact plan can still be committed; this method never mutates state. */
+    @MainThread
+    fun validateResetPlan(plan: DepotResetPlan): String? = synchronized(lock) {
+        validateResetPlanLocked(plan)
+    }
+
+    /** Rebuild selected Depot occupancy and rolling-stock lifecycle in one synchronized commit. */
+    @MainThread
+    fun applyReset(plan: DepotResetPlan): Boolean = synchronized(lock) {
+        if (validateResetPlanLocked(plan) != null) return@synchronized false
+        val trainIds = plan.assignments.mapTo(LinkedHashSet()) { it.trainId }
+        points.values.filter { it.point.ref.depotId in plan.depotIds }.forEach { point ->
+            point.occupantTrainId = null
+            point.reservedByAssignmentId = null
+        }
+        assignments.entries.removeIf { it.value.trainId in trainIds }
+        storageReservations.entries.removeIf { it.value.trainId in trainIds }
+        trainIds.forEach { trainId ->
+            val runtime = rollingStock.getValue(trainId)
+            runtime.state = RollingStockState.AVAILABLE
+            runtime.stablingPointRef = null
+            runtime.assignmentId = null
+        }
+        plan.assignments.forEach { assignment ->
+            val point = points.getValue(assignment.stablingPointRef)
+            point.occupantTrainId = assignment.trainId
+            val runtime = rollingStock.getValue(assignment.trainId)
+            runtime.stablingPointRef = assignment.stablingPointRef
+        }
+        true
+    }
 
     @MainThread
     fun addStablingPoint(
@@ -434,6 +552,35 @@ class DepotStore {
 
     fun allRollingStock(): List<RollingStockSnapshot> = synchronized(lock) {
         rollingStock.values.sortedBy { it.record.trainId }.map { it.snapshot() }
+    }
+
+    private fun validateResetPlanLocked(plan: DepotResetPlan): String? {
+        val expectedTrainIds = rollingStock.values.asSequence()
+            .filter { it.record.homeDepotId in plan.depotIds }
+            .map { it.record.trainId }
+            .toSet()
+        val assignedTrainIds = plan.assignments.map { it.trainId }.toSet()
+        if (assignedTrainIds != expectedTrainIds) {
+            return "Reset plan RollingStock set changed"
+        }
+        if (plan.assignments.map { it.stablingPointRef }.distinct().size != plan.assignments.size) {
+            return "Reset plan assigns one StablingPoint more than once"
+        }
+        for (assignment in plan.assignments) {
+            val runtime = rollingStock[assignment.trainId]
+                ?: return "RollingStock disappeared: ${assignment.trainId}"
+            val point = points[assignment.stablingPointRef]
+                ?: return "StablingPoint disappeared: ${assignment.stablingPointRef}"
+            if (runtime.record.homeDepotId != assignment.stablingPointRef.depotId ||
+                !pointAccepts(point.point, runtime.record)
+            ) {
+                return "RollingStock ${assignment.trainId} no longer fits ${assignment.stablingPointRef}"
+            }
+            if (point.point.destinationId != assignment.destinationId) {
+                return "StablingPoint Destination changed: ${assignment.stablingPointRef}"
+            }
+        }
+        return null
     }
 
     private fun RollingRuntime.homeAssignmentMismatch(

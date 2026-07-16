@@ -115,6 +115,13 @@ sealed interface TimetableServiceStartResult {
     data class Failure(val reason: String) : TimetableServiceStartResult
 }
 
+data class TimetableDepotResetSummary(
+    val removedRunCount: Int,
+    val releasedRouteSectionCount: Int,
+    val releasedBerthCount: Int,
+    val stoppedTimetableIds: Set<String>
+)
+
 data class TimetableEpochSnapshot(
     val timetableId: String,
     val epochDispatcherTick: Long,
@@ -973,6 +980,73 @@ class TimetableDispatcher(
         runs.values
             .filter { it.id == id && (cycleIndex == null || it.cycleIndex == cycleIndex) }
             .maxByOrNull { it.cycleStartDispatcherTick }
+
+    /** Preflight forced resource cleanup used only by an administrator-confirmed Depot Reset. */
+    @MainThread
+    fun validateDepotReset(world: World, trainIds: Set<String>): String? {
+        val sectionAllocator = allocator(world)
+        val selectedRuns = runs.values.filter { it.train.id in trainIds }
+        val confirmedKeys = sectionAllocator.confirmedWindows().map { it.key }.toSet()
+        val missingRoute = selectedRuns.asSequence()
+            .flatMap { it.allocations.keys.asSequence() }
+            .firstOrNull { it !in confirmedKeys }
+        if (missingRoute != null) return "RouteSection allocation disappeared: $missingRoute"
+        val berthKeys = berthAllocator.allocations().toSet()
+        val missingBerth = selectedRuns.mapNotNull { it.stationCall?.allocationKey }
+            .firstOrNull { it !in berthKeys }
+        if (missingBerth != null) return "StationBerth allocation disappeared: $missingBerth"
+        return null
+    }
+
+    /**
+     * Force-stop selected runs after every reset preflight and train relocation succeeded.
+     * The caller must keep the World Stall latched; this operation never resets ATO state.
+     */
+    @MainThread
+    fun applyDepotReset(world: World, trainIds: Set<String>): TimetableDepotResetSummary {
+        check(world.basicWorldData.atoCoordinator.isStalled) {
+            "Depot Reset is only legal while the World ATO is stalled"
+        }
+        validateDepotReset(world, trainIds)?.let { error(it) }
+        val sectionAllocator = allocator(world)
+        val selectedRuns = runs.values.filter { it.train.id in trainIds }
+        selectedRuns.forEach(::cancelPendingOperation)
+        val routeKeys = sectionAllocator.confirmedWindows()
+            .map { it.key }
+            .filter { it.owner.trainId in trainIds }
+        routeKeys.forEach { key ->
+            check(sectionAllocator.release(key)) { "RouteSection disappeared during reset: $key" }
+            selectedRuns.forEach { run ->
+                run.allocations.remove(key)?.let { allocation ->
+                    allocation.section.status = SectionStatus.RELEASED
+                    run.ato.releaseRouteWindow(key)
+                }
+            }
+        }
+        val berthKeys = berthAllocator.allocations()
+            .filter { it.owner.trainId in trainIds }
+        berthKeys.forEach { key ->
+            check(berthAllocator.release(key)) { "StationBerth disappeared during reset: $key" }
+            selectedRuns.forEach { run ->
+                if (run.stationCall?.allocationKey == key) run.stationCall?.allocationKey = null
+            }
+        }
+        selectedRuns.forEach { run ->
+            run.ato.removeSpeedLimit(stopKey(run))
+            run.ato.removeSpeedLimit(stationPendingHoldKey(run))
+            run.ato.removeSpeedLimit(scheduleHoldKey(run))
+            if (run.train.controller === run.ato) run.train.setController(null)
+        }
+        val stoppedTimetables = selectedRuns.mapTo(LinkedHashSet()) { it.id.timetableId }
+        stoppedTimetables.forEach(timetableClocks::remove)
+        runs.entries.removeIf { it.value.train.id in trainIds }
+        return TimetableDepotResetSummary(
+            removedRunCount = selectedRuns.size,
+            releasedRouteSectionCount = routeKeys.size,
+            releasedBerthCount = berthKeys.size,
+            stoppedTimetableIds = stoppedTimetables
+        )
+    }
 
     private fun tryAllocateStationCall(run: ActiveRun): String? {
         val stationCall = run.stationCall ?: return null

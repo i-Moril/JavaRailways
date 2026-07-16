@@ -7,6 +7,8 @@ import org.bukkit.command.CommandSender
 import org.bukkit.command.TabCompleter
 import org.bukkit.entity.Player
 import work.art1st.mineRails.basic.api.depot.DepotId
+import work.art1st.mineRails.basic.api.depot.DepotResetCoordinator
+import work.art1st.mineRails.basic.api.depot.DepotResetResult
 import work.art1st.mineRails.basic.api.depot.RollingStockRecord
 import work.art1st.mineRails.basic.api.depot.StablingPointRef
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
@@ -22,7 +24,9 @@ import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoadResult
 import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoader
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
+import work.art1st.mineRails.bukkit.debug.DepotResetDiagnostics
 import work.art1st.mineRails.bukkit.extension.train.rendererOrNull
+import work.art1st.mineRails.core.api.physics.World as RailWorld
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
@@ -289,6 +293,25 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     }
                     .onFailure { sender.sendMessage("车辆段登记失败: ${it.message}") }
             }
+            "reset" -> {
+                val depotValue = args.getOrNull(1)
+                if (depotValue == null || args.getOrNull(2) != "confirm") {
+                    sender.sendMessage("用法: /mr depot reset <depot> confirm")
+                    return true
+                }
+                val depotId = runCatching { DepotId(depotValue) }.getOrElse {
+                    sender.sendMessage("Depot ID 无效: ${it.message}")
+                    return true
+                }
+                runDepotReset(sender, world, setOf(depotId))
+            }
+            "reset-all" -> {
+                if (args.getOrNull(1) != "confirm") {
+                    sender.sendMessage("用法: /mr depot reset-all confirm")
+                    return true
+                }
+                runDepotReset(sender, world, null)
+            }
             "list" -> {
                 val requestedDepot = args.getOrNull(1)?.let { value ->
                     runCatching { DepotId(value) }.getOrNull()
@@ -306,9 +329,40 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     )
                 }
             }
-            else -> sender.sendMessage("用法: /mr depot <assign|list>")
+            else -> sender.sendMessage("用法: /mr depot <assign|list|reset|reset-all>")
         }
         return true
+    }
+
+    private fun runDepotReset(
+        sender: Player,
+        world: RailWorld,
+        depotIds: Set<DepotId>?
+    ) {
+        if (!world.basicWorldData.atoCoordinator.isStalled) {
+            sender.sendMessage("Depot Reset 只允许在当前 World 已 Stall 时执行")
+            return
+        }
+        (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
+        val result = DepotResetCoordinator(world).reset(depotIds)
+        val reportFile = runCatching {
+            DepotResetDiagnostics.write(BukkitPlugin.INSTANCE.dataFolder, result.report)
+        }.onFailure { failure ->
+            sender.sendMessage("Reset 报告写入失败: ${failure.message}")
+        }.getOrNull()
+        when (result) {
+            is DepotResetResult.Succeeded -> sender.sendMessage(
+                "Depot Reset 成功: trains=${result.report.assignments.size} " +
+                    "runs=${result.report.removedRunCount} " +
+                    "routes=${result.report.releasedRouteSectionCount} " +
+                    "berths=${result.report.releasedBerthCount}；World 仍保持 Stall"
+            )
+            is DepotResetResult.Failed -> sender.sendMessage(
+                "Depot Reset 失败: stage=${result.report.failureStage} " +
+                    "message=${result.report.message}"
+            )
+        }
+        if (reportFile != null) sender.sendMessage("报告: ${reportFile.absolutePath}")
     }
 
     private fun parseCsv(value: String?): Set<String> = value
@@ -685,6 +739,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
         sender.sendMessage("/mr depot assign|list ... - 登记和查看车辆段列车")
+        sender.sendMessage("/mr depot reset <depot> confirm | reset-all confirm - Stall 中原子重置")
         sender.sendMessage("/mr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/mr timetable start|status|stop <id> [service] - 管理显式列车 service")

@@ -318,6 +318,199 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `period boundary automatically creates the next dynamic service cycle`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-next-cycle", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val outboundRail = rail(
+            world,
+            Vector3d(0.0, 0.0, 0.0),
+            Vector3d(140.0, 0.0, 0.0)
+        )
+        val returnRail = rail(
+            world,
+            Vector3d(140.0, 0.0, 0.0),
+            Vector3d(0.0, 0.0, 0.0)
+        )
+        CoreRail.connect(outboundRail, returnRail)
+        CoreRail.connect(returnRail, outboundRail)
+        val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        val destinations = OperationalDestinationService(world)
+        destinations.register(
+            OperationalDestination(
+                "north-one",
+                "North one",
+                outboundRail.id,
+                originArc,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(
+                    "north",
+                    "one",
+                    usableLengthMeters = 20.0
+                )
+            )
+        )
+        destinations.register(
+            OperationalDestination(
+                "north-two",
+                "North two",
+                outboundRail.id,
+                originArc + 100.0,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(
+                    "north",
+                    "two",
+                    usableLengthMeters = 20.0
+                )
+            )
+        )
+        data.wayPoints.add(WayPoint("B", "B", returnRail.id, 50.0))
+        val depotId = DepotId("north")
+        data.depots.registerRollingStock(
+            RollingStockRecord(
+                train.id,
+                depotId,
+                "test/s100",
+                setOf("metro"),
+                1,
+                10.0,
+                20.0,
+                emptySet()
+            ),
+            StablingPointRef(depotId, "one")
+        )
+        data.timetables.add(
+            Timetable(
+                "tt-cycle",
+                services = listOf(
+                    TimetableService(
+                        "cyclic",
+                        steps = listOf(
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.TakeFromDepot(
+                                    DepotTrainSelector(depotId, requiredTags = setOf("metro"))
+                                )
+                            ),
+                            TimetableStep.At(0L, TimetableAction.GoTo("B")),
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.StoreAtDepot(depotId)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        assertTrue(dispatcher.beginTimetable(world, "tt-cycle") is TimetableEpochStartResult.Started)
+        assertTrue(
+            dispatcher.startService(world, "tt-cycle", "cyclic") is
+                TimetableServiceStartResult.Started
+        )
+        val ato = train.controller as SimpleATO
+        repeat(23_999) {
+            tickAndPublish(ato)
+            dispatcher.tick(world)
+        }
+        assertEquals(0L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
+        assertEquals(RollingStockState.AVAILABLE, data.depots.rollingStock(train.id)?.state)
+
+        tickAndPublish(ato)
+        dispatcher.tick(world)
+
+        val next = dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))!!
+        assertEquals(1L, next.cycleIndex)
+        assertEquals(0L, next.timetableElapsedTicks)
+        assertEquals(train.id, next.trainId)
+        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
+        assertEquals("tt-cycle/cyclic@cycle-1", data.depots.rollingStock(train.id)?.assignmentId)
+        assertTrue(!data.atoCoordinator.isStalled)
+
+        assertTrue(dispatcher.stopFutureCycles("tt-cycle"))
+        repeat(24_000) {
+            tickAndPublish(ato)
+            dispatcher.tick(world)
+        }
+        assertEquals(1L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
+        assertTrue(!data.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `next cycle never preempts a train still active in the previous cycle`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val coordinator = AtoWorldCoordinator("dispatcher-cycle-overlap", reportSink = {})
+        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        OperationalDestinationService(world).register(
+            OperationalDestination(
+                "north-one",
+                "North one",
+                rail.id,
+                originArc,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole("north", "one")
+            )
+        )
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
+        val depotId = DepotId("north")
+        data.depots.registerRollingStock(
+            RollingStockRecord(
+                train.id,
+                depotId,
+                "test/s100",
+                setOf("metro"),
+                1,
+                10.0,
+                20.0,
+                emptySet()
+            ),
+            StablingPointRef(depotId, "one")
+        )
+        data.timetables.add(
+            Timetable(
+                "tt-overlap",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(
+                                0L,
+                                TimetableAction.TakeFromDepot(DepotTrainSelector(depotId))
+                            ),
+                            TimetableStep.At(0L, TimetableAction.GoTo("B"))
+                        )
+                    )
+                )
+            )
+        )
+        dispatcher.beginTimetable(world, "tt-overlap")
+        assertTrue(
+            dispatcher.startService(world, "tt-overlap", "s1") is
+                TimetableServiceStartResult.Started
+        )
+
+        repeat(24_000) { dispatcher.tick(world) }
+
+        assertTrue(coordinator.isStalled)
+        assertEquals("DepotAllocationFailure", coordinator.lastStall?.errorType)
+        assertEquals(0L, dispatcher.status(TimetableServiceRunId("tt-overlap", "s1"))?.cycleIndex)
+        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
+    }
+
+    @Test
     fun `takeFromDepot miss stalls only its world`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()

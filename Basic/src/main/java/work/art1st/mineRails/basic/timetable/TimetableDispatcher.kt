@@ -158,7 +158,7 @@ class TimetableDispatcher(
     }
     private val initialTrains = ConcurrentHashMap<String, TrainSnapshot>()
     private val missionRevision = AtomicLong(0L)
-    private val runs = LinkedHashMap<TimetableServiceRunId, ActiveRun>()
+    private val runs = LinkedHashMap<TimetableServiceRunKey, ActiveRun>()
     private val timetableClocks = LinkedHashMap<String, TimetableClock>()
     private val berthAllocator = StationBerthAllocator()
     private var dispatcherTick = 0L
@@ -199,12 +199,13 @@ class TimetableDispatcher(
                 "timetable still has an active or resource-holding run: ${blocking.id}"
             )
         }
-        runs.entries.removeIf { (id, run) ->
-            id.timetableId == timetableId && run.canBeReplaced()
+        runs.entries.removeIf { (key, run) ->
+            key.id.timetableId == timetableId && run.canBeReplaced()
         }
         val clock = TimetableClock(
             epochDispatcherTick = dispatcherTick,
-            periodTicks = timetable.periodTicks
+            periodTicks = timetable.periodTicks,
+            nextCycleIndex = 1L
         )
         timetableClocks[timetableId] = clock
         return TimetableEpochStartResult.Started(
@@ -218,16 +219,33 @@ class TimetableDispatcher(
         timetableId: String,
         serviceId: String
     ): TimetableServiceStartResult {
+        timetableClocks[timetableId]?.disabledServiceIds?.remove(serviceId)
+        return startServiceForCycle(world, timetableId, serviceId, null)
+    }
+
+    /** Stop automatic recurrence without force-releasing any active run resources. */
+    @MainThread
+    fun stopFutureCycles(timetableId: String, serviceId: String? = null): Boolean {
+        val clock = timetableClocks[timetableId] ?: return false
+        return if (serviceId == null) {
+            timetableClocks.remove(timetableId) != null
+        } else {
+            clock.disabledServiceIds.add(serviceId)
+        }
+    }
+
+    private fun startServiceForCycle(
+        world: World,
+        timetableId: String,
+        serviceId: String,
+        requestedCycleIndex: Long?
+    ): TimetableServiceStartResult {
         if (world.basicWorldData.atoCoordinator.isStalled) {
             return TimetableServiceStartResult.Failure(
                 "world ATO is stalled; inspect and reset before starting a service"
             )
         }
         val runId = TimetableServiceRunId(timetableId, serviceId)
-        runs[runId]?.takeUnless { it.canBeReplaced() || it.isStoredTerminal() }?.let {
-            return TimetableServiceStartResult.Failure("service is already active or still holds route: $runId")
-        }
-
         val timetable = world.basicWorldData.timetables[timetableId]
             ?: return TimetableServiceStartResult.Failure("timetable not found: $timetableId")
         val clock = timetableClocks.getOrPut(timetableId) {
@@ -241,8 +259,19 @@ class TimetableDispatcher(
         if (validationErrors.isNotEmpty()) {
             return TimetableServiceStartResult.Failure(validationErrors.joinToString("; "))
         }
-        val cycleIndex = ((dispatcherTick - clock.epochDispatcherTick).coerceAtLeast(0L) /
+        val currentCycleIndex = ((dispatcherTick - clock.epochDispatcherTick).coerceAtLeast(0L) /
             clock.periodTicks)
+        val cycleIndex = requestedCycleIndex ?: currentCycleIndex
+        require(cycleIndex >= 0L)
+        if (cycleIndex > currentCycleIndex) {
+            return TimetableServiceStartResult.Failure(
+                "cycle $cycleIndex has not reached its start Tick"
+            )
+        }
+        val runKey = TimetableServiceRunKey(runId, clock.epochDispatcherTick, cycleIndex)
+        runs[runKey]?.let { existing ->
+            return TimetableServiceStartResult.Started(existing.snapshot())
+        }
         val cycleStartDispatcherTick = Math.addExact(
             clock.epochDispatcherTick,
             Math.multiplyExact(cycleIndex, clock.periodTicks)
@@ -257,7 +286,10 @@ class TimetableDispatcher(
             )
         val trainId = selected.trainId
         fun startupFailure(reason: String): TimetableServiceStartResult.Failure {
-            selected.depotAllocation?.let { world.basicWorldData.depots.cancelReservation(it) }
+            selected.depotAllocation?.let { allocation ->
+                world.basicWorldData.depots.cancelReservation(allocation)
+                stallDepotAllocation(world, runId, reason)
+            }
             return TimetableServiceStartResult.Failure(reason)
         }
         if (runs.values.any {
@@ -288,9 +320,9 @@ class TimetableDispatcher(
         }
         if (existingController is SimpleATO) {
             replaceableTrainRuns.forEach {
-                existingController.removeSpeedLimit(stopKey(it.id))
-                existingController.removeSpeedLimit(stationPendingHoldKey(it.id))
-                existingController.removeSpeedLimit(scheduleHoldKey(it.id))
+                existingController.removeSpeedLimit(stopKey(it))
+                existingController.removeSpeedLimit(stationPendingHoldKey(it))
+                existingController.removeSpeedLimit(scheduleHoldKey(it))
             }
         }
         val first = firstMovement(runId, service, selected.originWayPointId)
@@ -365,15 +397,17 @@ class TimetableDispatcher(
             run.allocations.putAll(previous.allocations)
         }
         run.runtimes += runtime
-        replaceableTrainRuns.forEach { runs.remove(it.id) }
-        runs[runId] = run
+        replaceableTrainRuns.forEach { previous ->
+            runs.entries.removeIf { it.value === previous }
+        }
+        runs[runKey] = run
         first.stationCallSpec?.let { spec ->
             scheduleStationCallSpec(world, run, spec)?.let { reason -> fail(run, reason) }
         }
         if (first.stationCallSpec == null) {
             if (timetableElapsedTicks(run) < first.actionTick) {
                 waitForTimetableTick(run, first.actionTick, pendingStep = false)
-                run.ato.setSpeedLimit(scheduleHoldKey(run.id), 0.0)
+                run.ato.setSpeedLimit(scheduleHoldKey(run), 0.0)
             } else {
                 recordScheduledAction(run, first.actionTick)
             }
@@ -388,7 +422,7 @@ class TimetableDispatcher(
         id: TimetableServiceRunId,
         call: StationCall
     ): TimetableStationCallScheduleResult {
-        val run = runs[id]
+        val run = findRun(id)
             ?: return TimetableStationCallScheduleResult.Failure("service run not found: $id")
         if (run.stationCall != null) {
             return TimetableStationCallScheduleResult.Failure("service already has an active StationCall: $id")
@@ -406,7 +440,7 @@ class TimetableDispatcher(
             )
         }
         val request = StationCallRequest(
-            serviceRunId = id.toString(),
+            serviceRunId = run.instanceId,
             origin = WayPointRef(run.currentWayPointId),
             call = call
         )
@@ -440,9 +474,9 @@ class TimetableDispatcher(
         }
         if (run.waitingUntilTimetableTick != null && !run.waitingStepPending) {
             run.waitingUntilTimetableTick = null
-            run.ato.removeSpeedLimit(scheduleHoldKey(run.id))
+            run.ato.removeSpeedLimit(scheduleHoldKey(run))
         }
-        run.ato.setSpeedLimit(stationPendingHoldKey(run.id), 0.0)
+        run.ato.setSpeedLimit(stationPendingHoldKey(run), 0.0)
         run.stationCall = DispatcherStationCall(
             resolved = resolved,
             missionRuntime = run.currentRuntime,
@@ -480,7 +514,7 @@ class TimetableDispatcher(
             plannedDepartureTick = absoluteTimetableTick(run, plannedDepartureRelativeTick)
         )
         val call = StationCall(
-            callId = "${run.id}/station/${spec.stepIndex}",
+            callId = "${run.instanceId}/station/${spec.stepIndex}",
             missionRevision = run.missionRevision,
             stationId = berthRef.stationId,
             berthRef = berthRef,
@@ -555,10 +589,11 @@ class TimetableDispatcher(
     fun replanService(
         world: World,
         id: TimetableServiceRunId,
-        originWayPointId: String
+        originWayPointId: String,
+        cycleIndex: Long? = null
     ): TimetableReplanResult {
         allocator(world)
-        val run = runs[id]
+        val run = findRun(id, cycleIndex)
             ?: return TimetableReplanResult.Failure("service run not found: $id")
         if (world.basicWorldData.atoCoordinator.isStalled) {
             return TimetableReplanResult.Failure("world ATO is stalled; inspect and reset before replanning")
@@ -695,7 +730,7 @@ class TimetableDispatcher(
                     ?: error("WAITING_TIMETABLE_TIME run has no scheduled Tick: ${run.id}")
                 if (timetableElapsedTicks(run) < scheduledTick) return@forEach
                 run.waitingUntilTimetableTick = null
-                run.ato.removeSpeedLimit(scheduleHoldKey(run.id))
+                run.ato.removeSpeedLimit(scheduleHoldKey(run))
                 run.state = TimetableServiceRunState.WAITING_MISSION
                 run.message = null
                 if (run.waitingStepPending) {
@@ -844,9 +879,10 @@ class TimetableDispatcher(
 
         candidates.sortedWith(
             compareBy<AllocationCandidate>(
-                { it.runtime.priorityTick },
+                { absoluteTimetableTick(it.run, it.runtime.priorityTick) },
                 { it.run.id.timetableId },
-                { it.run.id.serviceId }
+                { it.run.id.serviceId },
+                { it.run.cycleIndex }
             )
         ).forEach { candidate ->
             if (candidate.run.state.isTerminal() || candidate.section.status != SectionStatus.PENDING) {
@@ -854,34 +890,96 @@ class TimetableDispatcher(
             }
             allocate(candidate, sectionAllocator)
         }
+        startDueCycles(world)
+    }
+
+    private fun startDueCycles(world: World) {
+        for ((timetableId, clock) in timetableClocks.toList().sortedBy { it.first }) {
+            val elapsed = (dispatcherTick - clock.epochDispatcherTick).coerceAtLeast(0L)
+            val currentCycleIndex = elapsed / clock.periodTicks
+            while (clock.nextCycleIndex <= currentCycleIndex) {
+                val cycleIndex = clock.nextCycleIndex
+                val timetable = world.basicWorldData.timetables[timetableId]
+                if (timetable == null) {
+                    stallTimetableRuntime(
+                        world,
+                        TimetableServiceRunId(timetableId, "<cycle-$cycleIndex>"),
+                        "TimetableDisappeared",
+                        "active timetable disappeared before cycle $cycleIndex: $timetableId"
+                    )
+                    return
+                }
+                var complete = true
+                for (service in timetable.services) {
+                    if (service.id in clock.disabledServiceIds) continue
+                    val runId = TimetableServiceRunId(timetableId, service.id)
+                    val runKey = TimetableServiceRunKey(
+                        runId,
+                        clock.epochDispatcherTick,
+                        cycleIndex
+                    )
+                    if (runs.containsKey(runKey)) continue
+                    when (val result = startServiceForCycle(
+                        world,
+                        timetableId,
+                        service.id,
+                        cycleIndex
+                    )) {
+                        is TimetableServiceStartResult.Started -> Unit
+                        is TimetableServiceStartResult.Failure -> {
+                            clock.lastCycleStartFailure = result.reason
+                            complete = false
+                            if (world.basicWorldData.atoCoordinator.isStalled) return
+                        }
+                    }
+                }
+                if (!complete) return
+                clock.lastCycleStartFailure = null
+                clock.nextCycleIndex = Math.incrementExact(cycleIndex)
+            }
+        }
     }
 
     @MainThread
-    fun stopService(world: World, id: TimetableServiceRunId): Boolean {
+    fun stopService(
+        world: World,
+        id: TimetableServiceRunId,
+        cycleIndex: Long? = null
+    ): Boolean {
         allocator(world)
-        val run = runs[id] ?: return false
+        val run = findRun(id, cycleIndex) ?: return false
         if (run.canBeReplaced() || run.state == TimetableServiceRunState.STOPPED ||
             run.isStoredTerminal()
         ) return true
         cancelPendingOperation(run)
-        run.ato.setSpeedLimit(stopKey(run.id), 0.0)
+        run.ato.setSpeedLimit(stopKey(run), 0.0)
         run.state = TimetableServiceRunState.STOPPING
         run.message = "operator stop requested; route remains held until the tail clears"
         return true
     }
 
     @MainThread
-    fun status(id: TimetableServiceRunId): TimetableServiceRunSnapshot? = runs[id]?.snapshot()
+    fun status(
+        id: TimetableServiceRunId,
+        cycleIndex: Long? = null
+    ): TimetableServiceRunSnapshot? = findRun(id, cycleIndex)?.snapshot()
 
     @MainThread
-    fun statuses(): List<TimetableServiceRunSnapshot> = runs.values.map(ActiveRun::snapshot)
+    fun statuses(): List<TimetableServiceRunSnapshot> = runs.values
+        .sortedWith(compareBy({ it.id.timetableId }, { it.id.serviceId }, { it.cycleStartDispatcherTick }))
+        .map(ActiveRun::snapshot)
+
+    private fun findRun(id: TimetableServiceRunId, cycleIndex: Long? = null): ActiveRun? =
+        runs.values
+            .filter { it.id == id && (cycleIndex == null || it.cycleIndex == cycleIndex) }
+            .maxByOrNull { it.cycleStartDispatcherTick }
 
     private fun tryAllocateStationCall(run: ActiveRun): String? {
         val stationCall = run.stationCall ?: return null
         if (stationCall.submittedToAto) return null
         val call = stationCall.resolved.call
         val key = stationCall.allocationKey ?: StationBerthAllocationKey(
-            owner = StationBerthOwner(run.id.toString(), run.train.id, call.callId),
+            owner = StationBerthOwner(run.instanceId, run.train.id, call.callId),
             berthRef = call.berthRef,
             missionRevision = call.missionRevision
         )
@@ -892,7 +990,7 @@ class TimetableDispatcher(
                     is StationCallSubmissionResult.Accepted -> {
                         stationCall.resolved = submission.resolved
                         stationCall.submittedToAto = true
-                        run.ato.removeSpeedLimit(stationPendingHoldKey(run.id))
+                        run.ato.removeSpeedLimit(stationPendingHoldKey(run))
                         run.message = "StationCall ${call.callId} awaiting physics activation"
                         null
                     }
@@ -922,7 +1020,7 @@ class TimetableDispatcher(
     private fun cancelStationCallForControlTransfer(run: ActiveRun) {
         val stationCall = run.stationCall ?: return
         stationCall.cancelledForControlTransfer = true
-        run.ato.removeSpeedLimit(stationPendingHoldKey(run.id))
+        run.ato.removeSpeedLimit(stationPendingHoldKey(run))
         if (stationCall.allocationKey == null) {
             run.stationCall = null
         }
@@ -952,7 +1050,7 @@ class TimetableDispatcher(
         val call = stationCall.resolved.call
         val request = TrainOperationRequest(
             requestId = "${call.callId}:$phase:${call.missionRevision}",
-            serviceRunId = run.id.toString(),
+            serviceRunId = run.instanceId,
             stationCallId = call.callId,
             trainId = run.train.id,
             missionRevision = call.missionRevision,
@@ -1517,7 +1615,7 @@ class TimetableDispatcher(
 
     private fun fail(run: ActiveRun, reason: String) {
         cancelPendingOperation(run)
-        run.ato.setSpeedLimit(stopKey(run.id), 0.0)
+        run.ato.setSpeedLimit(stopKey(run), 0.0)
         run.state = TimetableServiceRunState.FAILED
         run.message = reason
     }
@@ -1590,7 +1688,7 @@ class TimetableDispatcher(
                 stallDepotAllocation(
                     world,
                     runId,
-                    "no compatible AVAILABLE train in Depot ${result.depotId}; " +
+                    "no compatible AVAILABLE train in Depot ${result.depotId} for cycle $cycleIndex; " +
                         "available=${result.availableTrainCount}, selector=${result.selector}"
                 )
                 null
@@ -1610,6 +1708,13 @@ class TimetableDispatcher(
         world: World,
         runId: TimetableServiceRunId,
         reason: String
+    ) = stallTimetableRuntime(world, runId, "DepotAllocationFailure", reason)
+
+    private fun stallTimetableRuntime(
+        world: World,
+        runId: TimetableServiceRunId,
+        errorType: String,
+        reason: String
     ) {
         val failure = IllegalStateException(reason)
         world.basicWorldData.atoCoordinator.stall(
@@ -1617,7 +1722,7 @@ class TimetableDispatcher(
                 worldId = world.basicWorldData.atoCoordinator.worldId,
                 trainId = "<unassigned:$runId>",
                 tick = dispatcherTick,
-                errorType = "DepotAllocationFailure",
+                errorType = errorType,
                 message = reason,
                 stackTrace = failure.stackTraceToString(),
                 initialTrain = null,
@@ -1789,13 +1894,13 @@ class TimetableDispatcher(
     private fun absoluteTimetableTick(run: ActiveRun, relativeTick: Long): Long =
         Math.addExact(run.cycleStartDispatcherTick, relativeTick)
 
-    private fun stopKey(id: TimetableServiceRunId): String = "dispatcher:stop/$id"
+    private fun stopKey(run: ActiveRun): String = "dispatcher:stop/${run.instanceId}"
 
-    private fun stationPendingHoldKey(id: TimetableServiceRunId): String =
-        "dispatcher:station-pending/$id"
+    private fun stationPendingHoldKey(run: ActiveRun): String =
+        "dispatcher:station-pending/${run.instanceId}"
 
-    private fun scheduleHoldKey(id: TimetableServiceRunId): String =
-        "dispatcher:timetable-time/$id"
+    private fun scheduleHoldKey(run: ActiveRun): String =
+        "dispatcher:timetable-time/${run.instanceId}"
 
     private companion object {
         const val ORIGIN_TOLERANCE_METERS = 1.0
@@ -1806,9 +1911,23 @@ class TimetableDispatcher(
         const val REPLAN_STOPPED_SPEED_METERS_PER_SECOND = 0.05
     }
 
+    private data class TimetableServiceRunKey(
+        val id: TimetableServiceRunId,
+        val epochDispatcherTick: Long,
+        val cycleIndex: Long
+    ) {
+        init {
+            require(epochDispatcherTick >= 0L)
+            require(cycleIndex >= 0L)
+        }
+    }
+
     private data class TimetableClock(
         val epochDispatcherTick: Long,
-        val periodTicks: Long
+        val periodTicks: Long,
+        var nextCycleIndex: Long = 1L,
+        var lastCycleStartFailure: String? = null,
+        val disabledServiceIds: MutableSet<String> = LinkedHashSet()
     )
 
     private data class StationCallSpec(
@@ -1933,7 +2052,8 @@ class TimetableDispatcher(
         val runtimes: MutableList<MissionRuntime> = ArrayList(),
         val allocations: MutableMap<RouteSectionAllocationKey, AllocatedSection> = LinkedHashMap()
     ) {
-        val owner = RouteSectionOwner(id.toString(), train.id)
+        val instanceId: String = "$id@cycle-$cycleIndex/start-$cycleStartDispatcherTick"
+        val owner = RouteSectionOwner(instanceId, train.id)
 
         fun canBeReplaced(): Boolean =
             state.isTerminal() && allocations.isEmpty() &&

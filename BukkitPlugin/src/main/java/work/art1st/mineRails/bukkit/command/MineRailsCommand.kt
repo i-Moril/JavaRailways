@@ -449,11 +449,18 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 val serviceId = args.getOrNull(2)
                 val originWayPointId = args.getOrNull(3)
                 if (timetableId == null || serviceId == null || originWayPointId == null) {
-                    sender.sendMessage("用法: /mr timetable replan <id> <service> <current-waypoint>")
+                    sender.sendMessage(
+                        "用法: /mr timetable replan <id> <service> <current-waypoint> [cycle]"
+                    )
+                    return true
+                }
+                val cycleIndex = args.getOrNull(4)?.toLongOrNull()
+                if (args.getOrNull(4) != null && (cycleIndex == null || cycleIndex < 0L)) {
+                    sender.sendMessage("cycle 必须是非负整数")
                     return true
                 }
                 val id = TimetableServiceRunId(timetableId, serviceId)
-                val status = world.basicWorldData.dispatcher.status(id)
+                val status = world.basicWorldData.dispatcher.status(id, cycleIndex)
                 if (status == null) {
                     sender.sendMessage("service 不存在: $id")
                     return true
@@ -467,7 +474,8 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 when (val result = world.basicWorldData.dispatcher.replanService(
                     world,
                     id,
-                    originWayPointId
+                    originWayPointId,
+                    cycleIndex
                 )) {
                     is TimetableReplanResult.Resumed -> sender.sendMessage(
                         "已从 $originWayPointId 重新规划 ${result.run.id}: " +
@@ -486,19 +494,27 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     return true
                 }
                 (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
-                val ids = if (requestedService != null) {
-                    listOf(TimetableServiceRunId(timetableId, requestedService))
-                } else {
-                    world.basicWorldData.dispatcher.statuses()
-                        .filter { it.id.timetableId == timetableId }
-                        .map { it.id }
+                world.basicWorldData.dispatcher.stopFutureCycles(timetableId, requestedService)
+                val targets = world.basicWorldData.dispatcher.statuses().filter {
+                    it.id.timetableId == timetableId &&
+                        (requestedService == null || it.id.serviceId == requestedService)
                 }
-                if (ids.isEmpty()) sender.sendMessage("没有匹配的 service")
-                ids.forEach { id ->
-                    if (world.basicWorldData.dispatcher.stopService(world, id)) {
-                        sender.sendMessage("已请求受控停车 $id；经路将在车尾通过释放点后释放")
+                if (targets.isEmpty()) sender.sendMessage("没有匹配的 service")
+                targets.forEach { target ->
+                    if (world.basicWorldData.dispatcher.stopService(
+                            world,
+                            target.id,
+                            target.cycleIndex
+                        )
+                    ) {
+                        sender.sendMessage(
+                            "已请求受控停车 ${target.id}@cycle-${target.cycleIndex}；" +
+                                "经路将在车尾通过释放点后释放"
+                        )
                     } else {
-                        sender.sendMessage("service 不存在: $id")
+                        sender.sendMessage(
+                            "service 不存在: ${target.id}@cycle-${target.cycleIndex}"
+                        )
                     }
                 }
             }
@@ -669,7 +685,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
         sender.sendMessage("/mr depot assign|list ... - 登记和查看车辆段列车")
-        sender.sendMessage("/mr timetable replan <id> <service> <current-waypoint> - 人工接管后显式重新规划")
+        sender.sendMessage("/mr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/mr timetable start|status|stop <id> [service] - 管理显式列车 service")
         sender.sendMessage("/mr ato status [world] - 查看 World-local ATO 状态")

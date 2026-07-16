@@ -115,12 +115,12 @@ slug: /architecture/ato-roadmap
 
 完整设计和逐项证据分别见 [给定时刻表运营闭环设计](./timetable-operation-design.md) 与 [验收清单](./timetable-operational-closure-checklist.md)。
 
-### T1 周期时钟（除自动下一 cycle 外已完成）
+### T1 周期时钟（已完成）
 
 - 已增加 `setPeriodDays(days)`，一个逻辑游戏日固定为 24000 Dispatcher Tick。
 - 管理员启动整张 timetable 时已建立全部 service 共享的 cycle-zero epoch。
 - `at(tick)` 已控制动作最早执行时刻；晚点立即执行并报告 lateness，不跳过或 Stall。
-- 自动创建下一 cycle 仍等待 T3 Depot 动态 assignment，避免继续依赖固定 TrainId。
+- period 边界会为全部 service 自动创建共享起点的下一 cycle；不同 cycle run 可并存，动态配车不会抢占前一 cycle 的列车或资源。
 
 ### T2 Destination 角色（已完成）
 

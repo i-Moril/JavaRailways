@@ -13,10 +13,10 @@ slug: /architecture/timetable-operational-closure-checklist
 - [x] **T1-02** 管理员启动整张 timetable 时原子建立全部 service 共享的 epoch。
 - [x] **T1-03** `at(tick)` 不早于当前 cycle 的计划 Tick；晚点动作立即执行并报告 lateness。
 - [x] **T1-04** StationCall 到达/发车 Tick 只有一个一致事实来源，早到保持、晚到执行完整 minimum dwell。
-- [ ] **T1-05** period 到达后创建下一 cycle run，不抢占前一 cycle 的列车或资源。
+- [x] **T1-05** period 到达后创建下一 cycle run，不抢占前一 cycle 的列车或资源。
 - [x] **T1-06** `/time set` 和睡眠跳时不改变 timetable 逻辑时间轴。
 
-证据：`TimetableScriptLoaderTest` 覆盖周期声明和缺失周期；`TimetableValidatorTest` 覆盖周期边界；`TimetableDispatcherTest` 覆盖共同 epoch、not-before 和 lateness；`TimetableStationCallDispatcherTest` 覆盖配对 movement Tick 的发车下界。时钟只读取 Dispatcher 单调 Tick，不访问 Bukkit daylight time。T1-05 与 Depot cycle assignment 一起实施。
+证据：`TimetableScriptLoaderTest` 覆盖周期声明和缺失周期；`TimetableValidatorTest` 覆盖周期边界；`TimetableDispatcherTest` 覆盖共同 epoch、not-before、lateness、周期边界自动创建 cycle，以及 storage route 转交后的 cycle-1 动态配车；`TimetableStationCallDispatcherTest` 覆盖配对 movement Tick 的发车下界。时钟只读取 Dispatcher 单调 Tick，不访问 Bukkit daylight time。
 
 ## T2 Destination 与 Station
 

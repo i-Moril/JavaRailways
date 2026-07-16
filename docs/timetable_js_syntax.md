@@ -6,11 +6,11 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档描述当前 JS 时刻表 DSL。C1/C2/C3/T1/T3 运行时可以执行显式 `TrainId` 或 Depot 动态配车 service 的连续 `GoTo`/`GoVia`、`takeFromDepot`/`storeAtDepot`、普通 `Stop` dwell、显式 Station/Berth call、可确认车门操作，以及共同 epoch 下的 not-before 计划时间；尚不支持自动创建下一 cycle。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
+本文档描述当前 JS 时刻表 DSL。C1/C2/C3/T1/T3 运行时可以执行显式 `TrainId` 或 Depot 动态配车 service 的连续 `GoTo`/`GoVia`、`takeFromDepot`/`storeAtDepot`、普通 `Stop` dwell、显式 Station/Berth call、可确认车门操作，以及共同 epoch 下的 not-before 计划时间和 period 边界自动下一 cycle。进度见 [ATO 路线图](architecture/ato-roadmap.md)。
 :::
 
 :::info 已确认但尚未全部实现的语义
-[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定整张运营闭环。`setPeriodDays(days)`、管理员 start 的共同 epoch、`at(tick)` not-before、lateness 和 Depot 动态取存车已落地；自动下一 cycle 仍以 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
+[给定时刻表运营闭环设计](architecture/timetable-operation-design.md) 已固定整张运营闭环。`setPeriodDays(days)`、管理员 start 的共同 epoch、`at(tick)` not-before、lateness、Depot 动态取存车和自动下一 cycle 已落地；其余闭环仍以 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
 :::
 
 JS 脚本只用于生成 MineRails 内部 `Timetable` 模型；加载后会先 dry-run 验证，通过后才写入当前世界的运行期时刻表 store。
@@ -54,12 +54,12 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable start <id> [service]
 /mr timetable status <id> [service]
 /mr timetable stop <id> [service]
-/mr timetable replan <id> <service> <current-waypoint>
+/mr timetable replan <id> <service> <current-waypoint> [cycle]
 ```
 
 service 可以使用字符串 `trainId` selector，并在第一个运行动作前通过 `check()` 指定初始 WayPoint；也可以省略 selector，并把 `takeFromDepot` 作为第一步。后续 `goto` 会在前一 Mission 停稳以及可选 `stop` dwell 完成后继续。
 
-`stop` 命令请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
+`stop` 命令先禁用匹配 timetable/service 的后续自动 cycle，再对当前所有匹配 cycle run 请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。重新显式 start service 会重新启用该 service 的周期调度。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
 
 如果省略加载命令的 `[id]`，时刻表 id 使用脚本文件名去掉 `.js` 的部分。当前命令要求由玩家执行，因为 loader 使用玩家所在的 Bukkit 世界完成路径验证。
 
@@ -119,7 +119,8 @@ timetable.setPeriodDays(2)
 - 每个脚本必须显式调用；
 - 所有 `at(tick)` 和 planned departure 必须小于 `periodDays × 24000`；
 - 管理员启动整张 timetable 时建立全部 service 共享的 cycle-zero epoch；
-- 当前尚不会在周期结束后自动创建下一 cycle。
+- period 边界为全部 service 自动创建使用同一 cycle 起点的下一 cycle run；
+- 前一 cycle 仍活动时不会被抢占，动态服务必须取得另一列兼容 AVAILABLE 列车，否则按 Depot 规则 Stall。
 
 `setPeriod(ticks)` 暂时作为兼容入口保留，但 ticks 必须是 `24000` 的正整数倍；新脚本应使用 `setPeriodDays`。
 
@@ -450,13 +451,10 @@ function main(timetable) {
 
 ## 当前限制
 
-当前 loader 和 C3 Dispatcher 仍不会：
+当前 loader 和 Dispatcher 仍不会：
 
-- 在周期结束时自动创建下一 cycle。
-- 从 Depot 按车辆能力动态选择、取出或存入真实列车。
-- 从 WayPointPool 或 `AnyTrain` 自动选择真实列车。
+- 从 legacy `WayPointPool` 自动选择真实列车；动态服务必须显式使用 `takeFromDepot`。
 - 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。
-- 执行周期循环。
 - 提供 MANUAL_ROUTED 人工被动进路模式。
 - 处理会让、越行或晚点优化等高级运营规则。
 - 持久化已加载时刻表或活动 epoch；重启后需要重新加载并由管理员启动。

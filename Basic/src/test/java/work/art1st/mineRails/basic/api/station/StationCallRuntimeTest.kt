@@ -87,10 +87,10 @@ class StationCallRuntimeTest {
         )
 
         val notifications = mutableListOf<StationCallNotification>()
-        repeat(2_000) {
+        for (tick in 0 until 2_000) {
             fixture.tick()
             notifications += fixture.ato.drainStationCallNotifications()
-            if (notifications.any { it.type == StationCallNotificationType.BERTHED }) return@repeat
+            if (notifications.any { it.type == StationCallNotificationType.BERTHED }) break
         }
 
         assertEquals(
@@ -111,10 +111,10 @@ class StationCallRuntimeTest {
         assertTrue(fixture.ato.drainStationCallNotifications().isEmpty())
 
         fixture.ato.grantStationDeparture("call-1", 1L)
-        repeat(2_000) {
+        for (tick in 0 until 2_000) {
             fixture.tick()
             notifications += fixture.ato.drainStationCallNotifications()
-            if (notifications.any { it.type == StationCallNotificationType.DEPARTED }) return@repeat
+            if (notifications.any { it.type == StationCallNotificationType.DEPARTED }) break
         }
 
         assertEquals(

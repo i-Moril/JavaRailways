@@ -77,7 +77,7 @@ slug: /architecture/ato-roadmap
 - `BERTHED` 必须同时满足头部位置容差和停止速度阈值，并且一次 StationCall 只报告一次。
 - 通知不持有 live World/Rail/Train，由 Dispatcher 在完整 physics epoch 后消费。
 
-### C2.3 停留与发车授权
+### C2.3 停留与发车授权（已完成）
 
 - Dispatcher 执行 `APPROACHING → BERTHED → DWELLING → READY_TO_DEPART → DEPARTING → DEPARTED`。
 - `BERTHED` 后由 `DepartureHoldConstraint` 保持；dwell 与计划发车条件满足且下一段经路确认后才解除。

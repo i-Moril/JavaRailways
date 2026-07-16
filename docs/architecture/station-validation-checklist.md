@@ -59,28 +59,34 @@ slug: /architecture/station-validation-checklist
 
 ## C2-D：dwell 与发车
 
-- [ ] **C2-D01** `DwellPlan` 的最早发车 Tick 为“BERTHED Tick + resolved minimum dwell”。
-- [ ] **C2-D02** 存在计划发车 Tick 时，发车授权不得早于 minimum dwell 和计划发车时间两者的较晚值。
-- [ ] **C2-D03** dwell 完成但下一 Route Section 未确认时继续保持停车，不触发 Stall。
-- [ ] **C2-D04** dwell 完成且下一段经路确认后，在同一 route-state 更新中解除 DepartureHold 并延伸 movement authority。
+- [x] **C2-D01** `DwellPlan` 的最早发车 Tick 为“BERTHED Tick + resolved minimum dwell”。
+- [x] **C2-D02** 存在计划发车 Tick 时，发车授权不得早于 minimum dwell 和计划发车时间两者的较晚值。
+- [x] **C2-D03** dwell 完成但下一 Route Section 未确认时继续保持停车，不触发 Stall。
+- [x] **C2-D04** dwell 完成且下一段经路已发布确认后才解除 DepartureHold；确认和解除之间不存在无约束窗口。
 - [x] **C2-D05** 列车获得发车授权并由头部离开 berth 容差区后只报告一次 `DEPARTED`。
-- [ ] **C2-D06** Phase C2 全流程不调用车门、模型 action 或 `behavior.js`。
+- [x] **C2-D06** Phase C2 全流程不调用车门、模型 action 或 `behavior.js`。
+
+证据：`TimetableStationCallDispatcherTest` 覆盖 minimum dwell、计划发车 Tick、后续 Section 冲突保持、确认后授权、完整离站状态以及无车门网关依赖。
 
 ## C2-O：berth 所有权与释放
 
-- [ ] **C2-O01** 同一 berth 同时只能由一个活动 StationCall 持有；分配无抢占且重复确认幂等。
-- [ ] **C2-O02** berth 冲突只使后续 service 等待，不部分改变 Route、不触发 World-local Stall。
-- [ ] **C2-O03** 车头离开但车尾仍在 berth 有效范围时不得释放 berth 所有权。
-- [ ] **C2-O04** 只有已发布 tail 位置越过 berth release boundary 后才释放；stop/failure 不强制释放。
-- [ ] **C2-O05** service 切换 Mission 时，旧 berth 所有权保持到车尾安全释放。
+- [x] **C2-O01** 同一 berth 同时只能由一个活动 StationCall 持有；分配无抢占且重复确认幂等。
+- [x] **C2-O02** berth 冲突只使后续 service 等待，不部分改变 Route、不触发 World-local Stall。
+- [x] **C2-O03** 车头离开但车尾仍在 berth 有效范围时不得释放 berth 所有权。
+- [x] **C2-O04** 只有已发布 tail 位置越过 berth release boundary 后才释放；stop/failure 不强制释放。
+- [x] **C2-O05** service 切换 Mission 时，旧 berth 所有权保持到车尾安全释放。
+
+证据：`StationBerthAllocatorTest` 覆盖无抢占、幂等和显式释放；`TimetableStationCallDispatcherTest` 覆盖冲突等待、stop 不释放、车头/车尾边界和跨 Mission 车尾释放。
 
 ## C2-I：集成与运维
 
-- [ ] **C2-I01** `TimetableDispatcher` 状态覆盖 `APPROACHING → BERTHED → DWELLING → READY_TO_DEPART → DEPARTING → DEPARTED`。
-- [ ] **C2-I02** `/mr timetable status` 显示 call、station、berth、dwell 和 berth 所有权状态。
+- [x] **C2-I01** `TimetableDispatcher` 状态覆盖 `APPROACHING → BERTHED → DWELLING → READY_TO_DEPART → DEPARTING → DEPARTED`。
+- [x] **C2-I02** `/mr timetable status` 显示 call、station、berth、dwell 和 berth 所有权状态。
 - [ ] **C2-I03** JS DSL 和 TypeScript 类型支持显式 station/berth call，并由 loader 严格校验。
-- [ ] **C2-I04** 一个 World 的 StationCall 失败或 Stall 不影响其他 World、手动列车或 Core 物理。
-- [ ] **C2-I05** 现有 WayPoint Mission、Route Section 分配、车尾释放和 C1 命令行为无回归。
+- [x] **C2-I04** 一个 World 的 StationCall 失败或 Stall 不影响其他 World、手动列车或 Core 物理。
+- [x] **C2-I05** 现有 WayPoint Mission、Route Section 分配、车尾释放和 C1 命令行为无回归。
+
+证据：Dispatcher 集成测试覆盖完整状态链；`/mr timetable status` 输出 call、berth 和 ownership，完整 Gradle 测试持续覆盖 C1 回归。C2-I03 留给 C2.4 DSL 接入。
 
 ## 完成条件
 

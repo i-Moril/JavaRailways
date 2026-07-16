@@ -122,6 +122,10 @@ object TestBasicWorldDataRegistry {
         world.registerExtensionData(plugin, data)
         registry[world] = data
     }
+
+    fun unregister(world: World) {
+        registry.remove(world)
+    }
 }
 
 /** 兼容旧测试：只注册 RailMap 时自动包装成 BasicWorldData。 */

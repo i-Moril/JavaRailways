@@ -7,6 +7,18 @@ import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolutionResult
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionResolver
 import work.art1st.mineRails.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.mineRails.basic.api.ato.mission.WayPointRef
+import work.art1st.mineRails.basic.api.station.ResolvedStationCall
+import work.art1st.mineRails.basic.api.station.StationBerthAllocationKey
+import work.art1st.mineRails.basic.api.station.StationBerthAllocationResult
+import work.art1st.mineRails.basic.api.station.StationBerthAllocator
+import work.art1st.mineRails.basic.api.station.StationBerthOwner
+import work.art1st.mineRails.basic.api.station.StationBerthRef
+import work.art1st.mineRails.basic.api.station.StationCall
+import work.art1st.mineRails.basic.api.station.StationCallNotificationType
+import work.art1st.mineRails.basic.api.station.StationCallRequest
+import work.art1st.mineRails.basic.api.station.StationCallResolutionResult
+import work.art1st.mineRails.basic.api.station.StationCallResolver
+import work.art1st.mineRails.basic.api.station.StationCallSubmissionResult
 import work.art1st.mineRails.basic.controller.SimpleATO
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.MissionRouteLayout
@@ -17,6 +29,7 @@ import work.art1st.mineRails.basic.route.RouteSectionAllocationResult
 import work.art1st.mineRails.basic.route.RouteSectionAllocator
 import work.art1st.mineRails.basic.route.RouteSectionOwner
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainSnapshot
@@ -42,7 +55,13 @@ enum class TimetableServiceRunState {
     WAITING_MISSION,
     WAITING_ROUTE,
     RUNNING,
+    WAITING_BERTH,
+    APPROACHING,
+    BERTHED,
     DWELLING,
+    READY_TO_DEPART,
+    DEPARTING,
+    DEPARTED,
     STOPPING,
     STOPPED,
     COMPLETED,
@@ -57,12 +76,20 @@ data class TimetableServiceRunSnapshot(
     val confirmedSectionCount: Int,
     val headProgressMeters: Double? = null,
     val tailProgressMeters: Double? = null,
+    val stationCallId: String? = null,
+    val berthRef: StationBerthRef? = null,
+    val berthHeld: Boolean = false,
     val message: String? = null
 )
 
 sealed interface TimetableServiceStartResult {
     data class Started(val run: TimetableServiceRunSnapshot) : TimetableServiceStartResult
     data class Failure(val reason: String) : TimetableServiceStartResult
+}
+
+sealed interface TimetableStationCallScheduleResult {
+    data class Scheduled(val run: TimetableServiceRunSnapshot) : TimetableStationCallScheduleResult
+    data class Failure(val reason: String) : TimetableStationCallScheduleResult
 }
 
 /** Main-thread runtime for explicit-train timetable services. */
@@ -77,6 +104,8 @@ class TimetableDispatcher(
     private val initialTrains = ConcurrentHashMap<String, TrainSnapshot>()
     private val missionRevision = AtomicLong(0L)
     private val runs = LinkedHashMap<TimetableServiceRunId, ActiveRun>()
+    private val berthAllocator = StationBerthAllocator()
+    private var dispatcherTick = 0L
     private var allocatorWorld: World? = null
     private var allocator: RouteSectionAllocator? = null
 
@@ -122,7 +151,10 @@ class TimetableDispatcher(
             it.train.id == trainId && it.canBeReplaced()
         }
         if (existingController is SimpleATO) {
-            replaceableTrainRuns.forEach { existingController.removeSpeedLimit(stopKey(it.id)) }
+            replaceableTrainRuns.forEach {
+                existingController.removeSpeedLimit(stopKey(it.id))
+                existingController.removeSpeedLimit(stationPendingHoldKey(it.id))
+            }
         }
         val first = firstMovement(runId, service)
             ?: return TimetableServiceStartResult.Failure(
@@ -167,17 +199,95 @@ class TimetableDispatcher(
         return TimetableServiceStartResult.Started(run.snapshot())
     }
 
+    /** Attach one explicit StationCall to the active Mission before the train departs its origin. */
+    @MainThread
+    fun scheduleStationCall(
+        world: World,
+        id: TimetableServiceRunId,
+        call: StationCall
+    ): TimetableStationCallScheduleResult {
+        val run = runs[id]
+            ?: return TimetableStationCallScheduleResult.Failure("service run not found: $id")
+        if (run.stationCall != null) {
+            return TimetableStationCallScheduleResult.Failure("service already has an active StationCall: $id")
+        }
+        if (call.missionRevision != run.missionRevision) {
+            return TimetableStationCallScheduleResult.Failure(
+                "StationCall revision ${call.missionRevision} does not match Mission ${run.missionRevision}"
+            )
+        }
+        if (run.currentRuntime.headProgressMeters > ORIGIN_TOLERANCE_METERS ||
+            !run.ato.isStopped(run.ato.currentTrainSnapshot.speedMetersPerSecond)
+        ) {
+            return TimetableStationCallScheduleResult.Failure(
+                "StationCall must be scheduled before the train departs its Mission origin"
+            )
+        }
+        val request = StationCallRequest(
+            serviceRunId = id.toString(),
+            origin = WayPointRef(run.currentWayPointId),
+            call = call
+        )
+        val resolved = when (val result = StationCallResolver(world).resolve(
+            request,
+            trainLengthMeters = run.train.cars.sumOf { it.length }
+        )) {
+            is StationCallResolutionResult.Success -> result.resolved
+            is StationCallResolutionResult.Failure -> {
+                return TimetableStationCallScheduleResult.Failure(result.message)
+            }
+        }
+        val berth = world.basicWorldData.stations.berth(call.berthRef)
+            ?: return TimetableStationCallScheduleResult.Failure("berth not found: ${call.berthRef}")
+        val arrivalDirection = resolved.plannedRoute.expandedRoute.segments.last().railViewRef.direction
+        val missionDistance = run.currentRuntime.layout.project(
+            RailPositionSnapshot(
+                railId = berth.location.rail.id,
+                facing = arrivalDirection,
+                arcLengthInAbMeters = berth.location.arcLengthIn(ViewDirection.AB)
+            )
+        ) ?: return TimetableStationCallScheduleResult.Failure(
+            "StationBerth ${call.berthRef} is not on the active Mission route"
+        )
+        if (abs(missionDistance - resolved.plannedRoute.expandedRoute.totalLength) >
+            POSITION_TOLERANCE_METERS
+        ) {
+            return TimetableStationCallScheduleResult.Failure(
+                "StationCall route is not the active Mission prefix for ${call.berthRef}"
+            )
+        }
+        run.ato.setSpeedLimit(stationPendingHoldKey(run.id), 0.0)
+        run.stationCall = DispatcherStationCall(
+            resolved = resolved,
+            missionRuntime = run.currentRuntime,
+            missionDistanceMeters = missionDistance,
+            lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
+        )
+        run.state = TimetableServiceRunState.WAITING_BERTH
+        run.message = "waiting for berth ${call.berthRef}"
+        val failure = tryAllocateStationCall(run)
+        return if (failure == null) {
+            TimetableStationCallScheduleResult.Scheduled(run.snapshot())
+        } else {
+            TimetableStationCallScheduleResult.Failure(failure)
+        }
+    }
+
     /** Called on the main thread after the current physics epoch has published. */
     @MainThread
     fun tick(world: World) {
+        dispatcherTick++
         if (world.basicWorldData.atoCoordinator.isStalled) return
         val sectionAllocator = allocator(world)
         val candidates = ArrayList<AllocationCandidate>()
 
         runs.values.toList().forEach { run ->
             val snapshot = run.ato.currentTrainSnapshot
+            processStationNotifications(run)
             updateTailProgress(run, snapshot)
+            updateStationTailProgress(run, snapshot)
             releasePassedSections(run, sectionAllocator)
+            releasePassedBerth(run)
 
             if (run.state.isTerminal()) {
                 finishControllerIfReleased(run, snapshot)
@@ -199,15 +309,59 @@ class TimetableDispatcher(
                 }
                 return@forEach
             }
-            if (run.state == TimetableServiceRunState.DWELLING) {
+            val stationCall = run.stationCall
+            if (run.state == TimetableServiceRunState.WAITING_BERTH &&
+                stationCall != null && !stationCall.submittedToAto
+            ) {
+                tryAllocateStationCall(run)
+                return@forEach
+            }
+            if (run.state == TimetableServiceRunState.BERTHED &&
+                stationCall != null && dispatcherTick > stationCall.stateEnteredDispatcherTick
+            ) {
+                run.state = TimetableServiceRunState.DWELLING
+                run.message = "dwelling at ${stationCall.resolved.berthRef}"
+            }
+            if (run.state == TimetableServiceRunState.DWELLING &&
+                stationCall != null && !stationCall.departed
+            ) {
+                if (dispatcherTick >= stationCall.earliestDepartureDispatcherTick) {
+                    if (hasAuthorityBeyondStation(run, stationCall)) {
+                        run.state = TimetableServiceRunState.READY_TO_DEPART
+                        run.message = "ready to depart ${stationCall.resolved.berthRef}"
+                        stationCall.stateEnteredDispatcherTick = dispatcherTick
+                        return@forEach
+                    }
+                    run.message = "dwell complete; waiting for route beyond ${stationCall.resolved.berthRef}"
+                }
+            } else if (run.state == TimetableServiceRunState.DWELLING) {
                 if (run.dwellTicksRemaining > 0L) run.dwellTicksRemaining--
                 if (run.dwellTicksRemaining == 0L) advanceService(world, run)
                 return@forEach
             }
+            if (run.state == TimetableServiceRunState.READY_TO_DEPART && stationCall != null) {
+                if (hasAuthorityBeyondStation(run, stationCall)) {
+                    run.ato.grantStationDeparture(
+                        stationCall.resolved.call.callId,
+                        stationCall.resolved.call.missionRevision
+                    )
+                    stationCall.departureGranted = true
+                    stationCall.stateEnteredDispatcherTick = dispatcherTick
+                    run.state = TimetableServiceRunState.DEPARTING
+                    run.message = "departing ${stationCall.resolved.berthRef}"
+                }
+            }
+            if (run.state == TimetableServiceRunState.DEPARTED && stationCall != null &&
+                dispatcherTick > stationCall.stateEnteredDispatcherTick
+            ) {
+                run.state = TimetableServiceRunState.RUNNING
+                run.message = null
+                if (stationCall.allocationKey == null) run.stationCall = null
+            }
 
             val mission = run.ato.currentMission
             if (mission?.revision != run.missionRevision) {
-                run.state = TimetableServiceRunState.WAITING_MISSION
+                setRouteState(run, TimetableServiceRunState.WAITING_MISSION, null)
                 return@forEach
             }
             val runtime = run.currentRuntime
@@ -221,7 +375,9 @@ class TimetableDispatcher(
                 ?: runtime.tailProgressMeters
 
             releasePassedSections(run, sectionAllocator)
-            if (missionCompleted(run, runtime, snapshot)) {
+            if (missionCompleted(run, runtime, snapshot) &&
+                (run.stationCall == null || run.stationCall?.departed == true)
+            ) {
                 run.currentWayPointId = runtime.targetWayPointId
                 advanceService(world, run)
                 return@forEach
@@ -229,15 +385,14 @@ class TimetableDispatcher(
 
             val nextSection = runtime.sections.firstOrNull { it.status == SectionStatus.PENDING }
             if (nextSection == null) {
-                run.state = TimetableServiceRunState.RUNNING
-                run.message = null
+                setRouteState(run, TimetableServiceRunState.RUNNING, null)
                 return@forEach
             }
             val previousReady = runtime.sections
                 .take(nextSection.routeSection.ordinal)
                 .all { it.status == SectionStatus.CONFIRMED || it.status == SectionStatus.RELEASED }
             if (!previousReady) {
-                run.state = TimetableServiceRunState.WAITING_ROUTE
+                setRouteState(run, TimetableServiceRunState.WAITING_ROUTE, null)
                 return@forEach
             }
             val triggerDistance = run.ato.routeAllocationTriggerDistanceMeters(
@@ -247,10 +402,9 @@ class TimetableDispatcher(
             val distanceToProtection = nextSection.routeSection.entryDistanceMeters - headProgress
             if (distanceToProtection <= triggerDistance) {
                 candidates += AllocationCandidate(run, runtime, nextSection)
-                run.state = TimetableServiceRunState.WAITING_ROUTE
+                setRouteState(run, TimetableServiceRunState.WAITING_ROUTE, null)
             } else {
-                run.state = TimetableServiceRunState.RUNNING
-                run.message = null
+                setRouteState(run, TimetableServiceRunState.RUNNING, null)
             }
         }
 
@@ -285,6 +439,158 @@ class TimetableDispatcher(
     @MainThread
     fun statuses(): List<TimetableServiceRunSnapshot> = runs.values.map(ActiveRun::snapshot)
 
+    private fun tryAllocateStationCall(run: ActiveRun): String? {
+        val stationCall = run.stationCall ?: return null
+        if (stationCall.submittedToAto) return null
+        val call = stationCall.resolved.call
+        val key = stationCall.allocationKey ?: StationBerthAllocationKey(
+            owner = StationBerthOwner(run.id.toString(), run.train.id, call.callId),
+            berthRef = call.berthRef,
+            missionRevision = call.missionRevision
+        )
+        return when (val result = berthAllocator.allocate(key)) {
+            is StationBerthAllocationResult.Confirmed -> {
+                stationCall.allocationKey = result.key
+                when (val submission = run.ato.submitStationCall(stationCall.resolved.request)) {
+                    is StationCallSubmissionResult.Accepted -> {
+                        stationCall.resolved = submission.resolved
+                        stationCall.submittedToAto = true
+                        run.ato.removeSpeedLimit(stationPendingHoldKey(run.id))
+                        run.message = "StationCall ${call.callId} awaiting physics activation"
+                        null
+                    }
+                    is StationCallSubmissionResult.StaleRevision -> {
+                        berthAllocator.release(result.key)
+                        stationCall.allocationKey = null
+                        val reason = "StationCall revision ${submission.submittedRevision} is stale"
+                        fail(run, reason)
+                        reason
+                    }
+                    is StationCallSubmissionResult.ResolutionFailure -> {
+                        berthAllocator.release(result.key)
+                        stationCall.allocationKey = null
+                        fail(run, submission.message)
+                        submission.message
+                    }
+                }
+            }
+            is StationBerthAllocationResult.Conflict -> {
+                run.state = TimetableServiceRunState.WAITING_BERTH
+                run.message = "berth ${result.berthRef} held by ${result.heldBy.owner.serviceRunId}"
+                null
+            }
+        }
+    }
+
+    private fun processStationNotifications(run: ActiveRun) {
+        run.ato.drainStationCallNotifications().forEach { notification ->
+            val stationCall = run.stationCall ?: return@forEach
+            val activeRevision = stationCall.resolved.call.missionRevision
+            when {
+                notification.missionRevision < activeRevision -> return@forEach
+                notification.missionRevision > activeRevision -> {
+                    fail(run, "StationCall notification revision is newer than active call")
+                    return@forEach
+                }
+            }
+            if (notification.callId != stationCall.resolved.call.callId) {
+                fail(run, "StationCall notification ID does not match active call")
+                return@forEach
+            }
+            if (notification.physicsEpoch < stationCall.lastNotificationEpoch) return@forEach
+            stationCall.lastNotificationEpoch = notification.physicsEpoch
+            when (notification.type) {
+                StationCallNotificationType.APPROACHING -> {
+                    if (!stationCall.approaching) {
+                        stationCall.approaching = true
+                        stationCall.stateEnteredDispatcherTick = dispatcherTick
+                        run.state = TimetableServiceRunState.APPROACHING
+                        run.message = "approaching ${notification.berthRef}"
+                    }
+                }
+                StationCallNotificationType.BERTHED -> {
+                    if (!stationCall.approaching || stationCall.berthed) return@forEach
+                    stationCall.berthed = true
+                    stationCall.stateEnteredDispatcherTick = dispatcherTick
+                    stationCall.earliestDepartureDispatcherTick =
+                        stationCall.resolved.call.dwellPlan.earliestDepartureTick(dispatcherTick)
+                    run.state = TimetableServiceRunState.BERTHED
+                    run.message = "berthed at ${notification.berthRef}"
+                }
+                StationCallNotificationType.DEPARTED -> {
+                    if (!stationCall.departureGranted || stationCall.departed) return@forEach
+                    stationCall.departed = true
+                    stationCall.stateEnteredDispatcherTick = dispatcherTick
+                    run.state = TimetableServiceRunState.DEPARTED
+                    run.message = "departed ${notification.berthRef}"
+                }
+            }
+        }
+    }
+
+    private fun updateStationTailProgress(run: ActiveRun, snapshot: TrainSnapshot) {
+        val stationCall = run.stationCall ?: return
+        val odometerDelta = (run.ato.lifetimeTravelDistanceMeters - stationCall.lastOdometerMeters)
+            .coerceAtLeast(0.0)
+        stationCall.lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
+        val projected = stationCall.missionRuntime.layout.project(
+            snapshot.tail,
+            stationCall.tailMissionProgressMeters
+        )
+        stationCall.tailMissionProgressMeters = when {
+            projected != null -> projected
+            stationCall.tailMissionProgressMeters != null &&
+                stationCall.tailMissionProgressMeters!! >=
+                stationCall.missionRuntime.layout.totalLengthMeters - POSITION_TOLERANCE_METERS ->
+                stationCall.tailMissionProgressMeters!! + odometerDelta
+            else -> stationCall.tailMissionProgressMeters
+        }
+    }
+
+    private fun releasePassedBerth(run: ActiveRun) {
+        val stationCall = run.stationCall ?: return
+        val key = stationCall.allocationKey ?: return
+        val tailProgress = stationCall.tailMissionProgressMeters ?: return
+        val releaseDistance = stationCall.missionDistanceMeters +
+            stationCall.resolved.releaseDistanceMetersAfter
+        if (tailProgress + RELEASE_EPSILON_METERS < releaseDistance) return
+        check(berthAllocator.release(key)) { "Station berth allocation disappeared: $key" }
+        stationCall.allocationKey = null
+        if (stationCall.departed && run.state != TimetableServiceRunState.DEPARTED) {
+            run.stationCall = null
+        }
+    }
+
+    private fun hasAuthorityBeyondStation(
+        run: ActiveRun,
+        stationCall: DispatcherStationCall
+    ): Boolean {
+        val tolerance = run.ato.missionStopToleranceMeters
+        if (stationCall.missionRuntime.publishedAuthorityMeters <=
+            stationCall.missionDistanceMeters + tolerance
+        ) return false
+        val nextSection = stationCall.missionRuntime.sections.firstOrNull { section ->
+            section.routeSection.entryDistanceMeters >= stationCall.missionDistanceMeters - tolerance &&
+                section.routeSection.releaseDistanceMeters > stationCall.missionDistanceMeters + tolerance
+        }
+        return nextSection == null ||
+            nextSection.status == SectionStatus.CONFIRMED ||
+            nextSection.status == SectionStatus.RELEASED
+    }
+
+    private fun setRouteState(
+        run: ActiveRun,
+        state: TimetableServiceRunState,
+        message: String?
+    ) {
+        if (!run.state.isStationOperationalState()) {
+            run.state = state
+            run.message = message
+        } else if (message != null) {
+            run.message = message
+        }
+    }
+
     private fun allocate(candidate: AllocationCandidate, allocator: RouteSectionAllocator) {
         val run = candidate.run
         val runtime = candidate.runtime
@@ -299,12 +605,14 @@ class TimetableDispatcher(
                 run.allocations[result.window.key] = AllocatedSection(runtime, section)
                 run.ato.confirmRouteWindow(result.window)
                 publishMovementAuthority(run, runtime)
-                run.state = TimetableServiceRunState.RUNNING
-                run.message = null
+                setRouteState(run, TimetableServiceRunState.RUNNING, null)
             }
             is RouteSectionAllocationResult.Conflict -> {
-                run.state = TimetableServiceRunState.WAITING_ROUTE
-                run.message = "route conflict at ${result.resource}, held by ${result.heldBy.owner}"
+                setRouteState(
+                    run,
+                    TimetableServiceRunState.WAITING_ROUTE,
+                    "route conflict at ${result.resource}, held by ${result.heldBy.owner}"
+                )
             }
             is RouteSectionAllocationResult.Invalid -> fail(run, result.reason)
         }
@@ -434,7 +742,9 @@ class TimetableDispatcher(
     }
 
     private fun finishControllerIfReleased(run: ActiveRun, snapshot: TrainSnapshot) {
-        if (run.allocations.isNotEmpty() || !run.ato.isStopped(snapshot.speedMetersPerSecond)) return
+        if (run.allocations.isNotEmpty() || run.stationCall?.allocationKey != null ||
+            !run.ato.isStopped(snapshot.speedMetersPerSecond)
+        ) return
         if (run.controllerOwned && run.train.controller === run.ato) {
             run.train.setController(null)
         }
@@ -572,6 +882,9 @@ class TimetableDispatcher(
 
     private fun stopKey(id: TimetableServiceRunId): String = "dispatcher:stop/$id"
 
+    private fun stationPendingHoldKey(id: TimetableServiceRunId): String =
+        "dispatcher:station-pending/$id"
+
     private companion object {
         const val ORIGIN_TOLERANCE_METERS = 1.0
         const val POSITION_TOLERANCE_METERS = 0.5
@@ -631,6 +944,23 @@ class TimetableDispatcher(
         val section: RuntimeSection
     )
 
+    private data class DispatcherStationCall(
+        var resolved: ResolvedStationCall,
+        val missionRuntime: MissionRuntime,
+        val missionDistanceMeters: Double,
+        var lastOdometerMeters: Double,
+        var allocationKey: StationBerthAllocationKey? = null,
+        var submittedToAto: Boolean = false,
+        var approaching: Boolean = false,
+        var berthed: Boolean = false,
+        var departureGranted: Boolean = false,
+        var departed: Boolean = false,
+        var stateEnteredDispatcherTick: Long = 0L,
+        var earliestDepartureDispatcherTick: Long = Long.MAX_VALUE,
+        var lastNotificationEpoch: Long = -1L,
+        var tailMissionProgressMeters: Double? = null
+    )
+
     private data class ActiveRun(
         val id: TimetableServiceRunId,
         val service: TimetableService,
@@ -644,6 +974,7 @@ class TimetableDispatcher(
         var state: TimetableServiceRunState,
         var dwellTicksRemaining: Long = 0L,
         var message: String? = null,
+        var stationCall: DispatcherStationCall? = null,
         val runtimes: MutableList<MissionRuntime> = ArrayList(),
         val allocations: MutableMap<RouteSectionAllocationKey, AllocatedSection> = LinkedHashMap()
     ) {
@@ -651,6 +982,7 @@ class TimetableDispatcher(
 
         fun canBeReplaced(): Boolean =
             state.isTerminal() && allocations.isEmpty() &&
+                stationCall?.allocationKey == null &&
                 ato.isStopped(ato.currentTrainSnapshot.speedMetersPerSecond)
 
         fun snapshot(): TimetableServiceRunSnapshot = TimetableServiceRunSnapshot(
@@ -661,6 +993,9 @@ class TimetableDispatcher(
             confirmedSectionCount = allocations.size,
             headProgressMeters = currentRuntime.headProgressMeters,
             tailProgressMeters = currentRuntime.tailProgressMeters,
+            stationCallId = stationCall?.resolved?.call?.callId,
+            berthRef = stationCall?.resolved?.berthRef,
+            berthHeld = stationCall?.allocationKey != null,
             message = message
         )
     }
@@ -670,3 +1005,12 @@ private fun TimetableServiceRunState.isTerminal(): Boolean =
     this == TimetableServiceRunState.STOPPED ||
         this == TimetableServiceRunState.COMPLETED ||
         this == TimetableServiceRunState.FAILED
+
+private fun TimetableServiceRunState.isStationOperationalState(): Boolean =
+    this == TimetableServiceRunState.WAITING_BERTH ||
+        this == TimetableServiceRunState.APPROACHING ||
+        this == TimetableServiceRunState.BERTHED ||
+        this == TimetableServiceRunState.DWELLING ||
+        this == TimetableServiceRunState.READY_TO_DEPART ||
+        this == TimetableServiceRunState.DEPARTING ||
+        this == TimetableServiceRunState.DEPARTED

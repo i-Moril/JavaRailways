@@ -267,7 +267,9 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                         sender.sendMessage(
                             "${run.id}: state=${run.state} train=${run.trainId} " +
                                 "revision=${run.missionRevision} confirmed=${run.confirmedSectionCount} " +
-                                "head=${run.headProgressMeters ?: "-"} tail=${run.tailProgressMeters ?: "-"}" +
+                                "head=${run.headProgressMeters ?: "-"} tail=${run.tailProgressMeters ?: "-"} " +
+                                "call=${run.stationCallId ?: "-"} berth=${run.berthRef ?: "-"} " +
+                                "berthHeld=${run.berthHeld}" +
                                 run.message?.let { " message=$it" }.orEmpty()
                         )
                     }

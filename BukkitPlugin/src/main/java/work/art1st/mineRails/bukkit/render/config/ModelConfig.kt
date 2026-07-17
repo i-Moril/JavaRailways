@@ -2,15 +2,26 @@
 
 package work.art1st.mineRails.bukkit.render.config
 
+import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
-import kotlinx.serialization.Contextual
-import org.bukkit.entity.ItemDisplay
+import org.bukkit.Location
+import org.bukkit.Material
+import org.bukkit.inventory.ItemStack
+import org.bukkit.util.Transformation
 import org.joml.Quaterniond
+import org.joml.Quaternionf
 import org.joml.Vector3d
+import org.joml.Vector3f
+import work.art1st.configLib.persistence.Loads
+import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.config.model.PartPlatformConfig
 import work.art1st.mineRails.bukkit.extension.bukkitLocation
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
-import work.art1st.mineRails.bukkit.config.model.PartPlatformConfig
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisual
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisualContent
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisualDescriptor
+import work.art1st.mineRails.bukkit.render.backend.displayViewRangeForDistance
 import work.art1st.mineRails.bukkit.render.model.AbstractModel
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
 import work.art1st.mineRails.bukkit.render.model.CompositeModel
@@ -18,10 +29,11 @@ import work.art1st.mineRails.bukkit.render.model.DisplayModel
 import work.art1st.mineRails.bukkit.render.model.LodDisplayModel
 import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
-import work.art1st.mineRails.bukkit.render.model.configureTrainDisplaySmoothing
-import work.art1st.mineRails.bukkit.render.model.configureTrainRootSmoothing
+import work.art1st.mineRails.bukkit.render.model.TRAIN_DISPLAY_INTERPOLATION_TICKS
+import work.art1st.mineRails.bukkit.render.model.TRAIN_DISPLAY_TELEPORT_TICKS
+import work.art1st.mineRails.bukkit.render.model.TRAIN_ROOT_INTERPOLATION_TICKS
+import work.art1st.mineRails.bukkit.render.model.TRAIN_ROOT_TELEPORT_TICKS
 import work.art1st.mineRails.core.api.render.Renderable
-import work.art1st.configLib.persistence.Loads
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 
 @Serializable
@@ -29,35 +41,38 @@ class CompositeModelConfigV1(
     val attachedModels: List<ModelConfigV1<*>>
 ) : Loads<CompositeModel, Renderable>, SerializableExtensionData() {
     override fun load(dependency: Renderable): CompositeModel {
-        val rootEntity = dependency.world.bukkitWorldData.bukkitWorld.spawn(
-            dependency.bukkitLocation,
-            ItemDisplay::class.java
+        val rootVisual = createItemVisual(
+            dependency = dependency,
+            location = dependency.bukkitLocation,
+            itemStack = ItemStack(Material.AIR),
+            interpolationDuration = TRAIN_ROOT_INTERPOLATION_TICKS,
+            teleportDuration = TRAIN_ROOT_TELEPORT_TICKS
         )
-        rootEntity.configureTrainRootSmoothing()
         return CompositeModel(
             world = dependency.world,
             models = attachedModels.map { it.load(dependency) },
-            rootEntity = rootEntity
+            rootVisual = rootVisual
         )
     }
 }
 
 @Serializable
-abstract class ModelConfigV1 <T : AbstractModel> (
+abstract class ModelConfigV1<T : AbstractModel>(
     val offset: Vector3d = Vector3d(),
     val rotation: Vector3d = Vector3d(),
     val attachedModels: Collection<ModelConfigV1<*>> = listOf()
 ) : Loads<T, Renderable> {
     val modelState
-        get() = ModelState(CompactTransform(
-                        position = offset,
-                        rotation = Quaterniond().rotateXYZ(
-                            Math.toRadians(rotation.x),
-                            Math.toRadians(rotation.y),
-                            Math.toRadians(rotation.z)
-                        )
-                    )
+        get() = ModelState(
+            CompactTransform(
+                position = offset,
+                rotation = Quaterniond().rotateXYZ(
+                    Math.toRadians(rotation.x),
+                    Math.toRadians(rotation.y),
+                    Math.toRadians(rotation.z)
                 )
+            )
+        )
 }
 
 @Serializable
@@ -66,22 +81,22 @@ class DisplayModelConfigV1(
     val animations: Map<String, AnimationConfig>
 ) : ModelConfigV1<@Contextual DisplayModel>() {
     override fun load(dependency: Renderable): DisplayModel {
-        val world = dependency.world
-        val bukkitWorld = world.bukkitWorldData.bukkitWorld
-        val bukkitEntity = bukkitWorld.spawn(
+        val itemStack = item.load(Unit)
+        val visual = createItemVisual(
+            dependency,
             dependency.bukkitLocation,
-            ItemDisplay::class.java
+            itemStack,
+            TRAIN_DISPLAY_INTERPOLATION_TICKS,
+            TRAIN_DISPLAY_TELEPORT_TICKS
         )
-        bukkitEntity.configureTrainDisplaySmoothing()
-        bukkitEntity.setItemStack(item.load(Unit))
-        val model = DisplayModel(
-            world = world,
+        return DisplayModel(
+            world = dependency.world,
             state = modelState,
             attachedModels = attachedModels.map { it.load(dependency) },
             animation = animations.mapValues { it.value.load(dependency) },
-            entity = bukkitEntity
+            visual = visual,
+            initialItemStack = itemStack
         )
-        return model
     }
 }
 
@@ -92,29 +107,28 @@ class LodDisplayModelConfigV1(
     val animations: Map<String, AnimationConfig>
 ) : ModelConfigV1<@Contextual LodDisplayModel>() {
     override fun load(dependency: Renderable): LodDisplayModel {
-        val world = dependency.world
-        val bukkitWorld = world.bukkitWorldData.bukkitWorld
-        val bukkitEntityLo = bukkitWorld.spawn(
+        val loVisual = createItemVisual(
+            dependency,
             dependency.bukkitLocation,
-            ItemDisplay::class.java
+            loItem.load(Unit),
+            TRAIN_DISPLAY_INTERPOLATION_TICKS,
+            TRAIN_DISPLAY_TELEPORT_TICKS
         )
-        val bukkitEntityHi = bukkitWorld.spawn(
+        val hiVisual = createItemVisual(
+            dependency,
             dependency.bukkitLocation,
-            ItemDisplay::class.java
+            hiItem.load(Unit),
+            TRAIN_DISPLAY_INTERPOLATION_TICKS,
+            TRAIN_DISPLAY_TELEPORT_TICKS
         )
-        bukkitEntityLo.configureTrainDisplaySmoothing()
-        bukkitEntityHi.configureTrainDisplaySmoothing()
-        bukkitEntityLo.setItemStack(loItem.load(Unit))
-        bukkitEntityHi.setItemStack(hiItem.load(Unit))
-        val model = LodDisplayModel(
-            world = world,
+        return LodDisplayModel(
+            world = dependency.world,
             state = modelState,
             attachedModels = attachedModels.map { it.load(dependency) },
             animation = animations.mapValues { it.value.load(dependency) },
-            loEntity = bukkitEntityLo,
-            hiEntity = bukkitEntityHi
+            loVisual = loVisual,
+            hiVisual = hiVisual
         )
-        return model
     }
 }
 
@@ -123,7 +137,7 @@ class PlatformModelConfigV1(
     val animations: Map<String, AnimationConfig>
 ) : ModelConfigV1<@Contextual PlatformModel>() {
     override fun load(dependency: Renderable): PlatformModel {
-        val model = PlatformModel(
+        return PlatformModel(
             world = dependency.world,
             state = modelState,
             attachedModels = attachedModels.map { it.load(dependency) },
@@ -131,6 +145,28 @@ class PlatformModelConfigV1(
             initialLocation = dependency.bukkitLocation,
             platformConfig = PartPlatformConfig()
         )
-        return model
     }
+}
+
+private fun createItemVisual(
+    dependency: Renderable,
+    location: Location,
+    itemStack: ItemStack,
+    interpolationDuration: Int,
+    teleportDuration: Int
+): DisplayVisual {
+    val world = dependency.world.bukkitWorldData.bukkitWorld
+    return BukkitPlugin.INSTANCE.displayRenderBackend.create(
+        world,
+        DisplayVisualDescriptor(
+            location = location,
+            content = DisplayVisualContent.Item(itemStack),
+            transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(1f), Quaternionf()),
+            viewRange = displayViewRangeForDistance(
+                BukkitPlugin.INSTANCE.mineRailsConfig.displayRenderer.playerDistance.maxBlocks
+            ),
+            interpolationDuration = interpolationDuration,
+            teleportDuration = teleportDuration
+        )
+    )
 }

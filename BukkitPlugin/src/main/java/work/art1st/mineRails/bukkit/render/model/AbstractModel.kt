@@ -1,5 +1,6 @@
 package work.art1st.mineRails.bukkit.render.model
 
+import org.bukkit.entity.Player
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.bukkit.render.AnimationDisplayState
@@ -141,6 +142,18 @@ abstract class AbstractModel(
             onAnimationCommit(animation)
             activeAnimation = null
         }
+    }
+
+    open fun showVisualsTo(player: Player) {
+        attachedModels.forEach { it.showVisualsTo(player) }
+    }
+
+    open fun hideVisualsFrom(player: Player) {
+        attachedModels.forEach { it.hideVisualsFrom(player) }
+    }
+
+    open fun refreshVisualsFor(player: Player) {
+        attachedModels.forEach { it.refreshVisualsFor(player) }
     }
 
     /**

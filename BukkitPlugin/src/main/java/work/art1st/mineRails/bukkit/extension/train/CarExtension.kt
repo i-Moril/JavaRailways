@@ -177,6 +177,12 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     override fun refreshFor(player: Player) {
         ThreadGuard.ensureMainThread("CarExtension.refreshFor")
+        bodyModel?.showTo(player)
+        bodyModel?.updatePlayerVisibility(player)
+        bogieModels.forEach { model ->
+            model.showTo(player)
+            model.updatePlayerVisibility(player)
+        }
         if (isWithinDetailDistance(player) && !detailStateCurrent) {
             forceNextModelUpdate = true
             updateModel()
@@ -186,6 +192,8 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun onAudienceRemoved(player: Player) {
+        bodyModel?.hideFrom(player)
+        bogieModels.forEach { it.hideFrom(player) }
         deactivateInteractiveModelsFor(player)
     }
 

@@ -1,34 +1,29 @@
 package work.art1st.mineRails.bukkit.render.model
 
-import io.papermc.paper.entity.TeleportFlag
 import org.bukkit.Bukkit
 import org.bukkit.Location
-import org.bukkit.entity.Display
-import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.joml.Quaterniond
 import org.joml.Vector3d
 import org.joml.Vector3dc
+import work.art1st.mineRails.bukkit.extension.bukkitWorldData
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisual
 import work.art1st.mineRails.core.api.physics.World
-import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.Destroyable
+import work.art1st.mineRails.core.api.util.annotation.MainThread
 import java.util.concurrent.Callable
 
 class CompositeModel internal constructor(
     private val world: World,
     private val models: List<AbstractModel>,
-    private val rootEntity: Entity
+    private val rootVisual: DisplayVisual
 ) : Destroyable {
     init {
         forEachModelRecursive {
-            when (it) {
-                is DisplayModel -> it.mountTo(rootEntity)
-                is LodDisplayModel -> it.mountTo(rootEntity)
-            }
+            if (it is DisplayModel) it.mountTo(rootVisual)
         }
     }
 
-    // P4: 缓存上一帧的完整旋转，用于 dirty flag 优化
     private var lastRotation: Quaterniond? = null
     private var destroyed: Boolean = false
 
@@ -46,7 +41,7 @@ class CompositeModel internal constructor(
 
     private fun destroyNow() {
         models.forEach { it.destroy() }
-        rootEntity.remove()
+        rootVisual.destroy()
     }
 
     fun prepareForUnload() {
@@ -58,7 +53,6 @@ class CompositeModel internal constructor(
     }
 
     fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d()) {
-        // root 只承担世界坐标锚点；完整姿态仍由 child display 的 transformation 表达。
         val rotatedTransform = CompactTransform(Vector3d(), rootTransform.rotation)
         val worldRoot = CompactTransform(rootTransform.position, Quaterniond())
 
@@ -71,15 +65,12 @@ class CompositeModel internal constructor(
 
     /** Move the shared root without traversing or recomputing the detailed child model tree. */
     fun updateRootPosition(position: Vector3dc) {
-        val location = Location(rootEntity.world, position.x(), position.y(), position.z())
+        val bukkitWorld = world.bukkitWorldData.bukkitWorld
+        val location = Location(bukkitWorld, position.x(), position.y(), position.z())
         if (Bukkit.isPrimaryThread()) {
-            (rootEntity as? Display)?.configureTrainRootSmoothing()
-            rootEntity.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
+            rootVisual.teleport(location)
         } else {
-            onMainThread {
-                (rootEntity as? Display)?.configureTrainRootSmoothing()
-                rootEntity.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
-            }
+            onMainThread { rootVisual.teleport(location) }
         }
     }
 
@@ -108,17 +99,24 @@ class CompositeModel internal constructor(
     }
 
     fun forEachModelRecursive(f: (AbstractModel) -> Unit) {
-        models.forEach {
-            it.forEachModelRecursive(f)
-        }
+        models.forEach { it.forEachModelRecursive(f) }
+    }
+
+    @MainThread
+    fun showTo(player: Player) {
+        // Spawn children before the root sends its passenger packet.
+        models.forEach { it.showVisualsTo(player) }
+        rootVisual.showTo(player)
+    }
+
+    @MainThread
+    fun hideFrom(player: Player) {
+        rootVisual.hideFrom(player)
+        models.forEach { it.hideVisualsFrom(player) }
     }
 
     @MainThread
     fun updatePlayerVisibility(player: Player) {
-        forEachModelRecursive {
-            if (it is LodDisplayModel) {
-                it.updatePlayerVisibility(player)
-            }
-        }
+        models.forEach { it.refreshVisualsFor(player) }
     }
 }

@@ -16,6 +16,7 @@ class RailModelSegment(
     fun sendTo(player: Player) {
         audienceTracker.update()
         model = modelLoader.load()
+        model?.showTo(player)
         model?.updatePlayerVisibility(player)
     }
 }

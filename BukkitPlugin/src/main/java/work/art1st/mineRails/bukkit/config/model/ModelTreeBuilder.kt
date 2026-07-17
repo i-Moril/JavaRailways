@@ -5,10 +5,13 @@ import io.papermc.paper.datacomponent.item.CustomModelData
 import net.kyori.adventure.key.Key
 import org.bukkit.Location
 import org.bukkit.Material
-import org.bukkit.entity.ItemDisplay
 import org.bukkit.inventory.ItemStack
+import org.bukkit.util.Transformation
 import org.joml.Quaterniond
+import org.joml.Quaternionf
 import org.joml.Vector3d
+import org.joml.Vector3f
+import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.model.AbstractModel
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
@@ -18,8 +21,14 @@ import work.art1st.mineRails.bukkit.render.model.InteractionModel
 import work.art1st.mineRails.bukkit.render.model.ModelState
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
 import work.art1st.mineRails.bukkit.render.model.SeatModel
-import work.art1st.mineRails.bukkit.render.model.configureTrainDisplaySmoothing
-import work.art1st.mineRails.bukkit.render.model.configureTrainRootSmoothing
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisual
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisualContent
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisualDescriptor
+import work.art1st.mineRails.bukkit.render.backend.displayViewRangeForDistance
+import work.art1st.mineRails.bukkit.render.model.TRAIN_DISPLAY_INTERPOLATION_TICKS
+import work.art1st.mineRails.bukkit.render.model.TRAIN_DISPLAY_TELEPORT_TICKS
+import work.art1st.mineRails.bukkit.render.model.TRAIN_ROOT_INTERPOLATION_TICKS
+import work.art1st.mineRails.bukkit.render.model.TRAIN_ROOT_TELEPORT_TICKS
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Car
 
@@ -68,18 +77,12 @@ class ModelTreeBuilder(
 
         val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace)
 
-        val rootEntity = bukkitWorld.spawn(rootLocation, ItemDisplay::class.java)
-        rootEntity.isPersistent = false
-        // C1 PoC: passenger displays depend on the root vehicle being tracked client-side.
-        // Keep the root entity visible-by-default so the client receives it; the root has no item,
-        // so this should not add an actual rendered mesh.
-        rootEntity.isVisibleByDefault = true
-        rootEntity.configureTrainRootSmoothing()
+        val rootVisual = createRootVisual(rootLocation)
 
         return CompositeModel(
             world = world,
             models = bodyModels,
-            rootEntity = rootEntity
+            rootVisual = rootVisual
         )
     }
 
@@ -97,18 +100,12 @@ class ModelTreeBuilder(
 
         val bogieModel = buildBogieGroup(bogieDef, namespace, includeLongitudinalOffset = false)
 
-        val rootEntity = bukkitWorld.spawn(rootLocation, ItemDisplay::class.java)
-        rootEntity.isPersistent = false
-        // C1 PoC: passenger displays depend on the root vehicle being tracked client-side.
-        // Keep the root entity visible-by-default so the client receives it; the root has no item,
-        // so this should not add an actual rendered mesh.
-        rootEntity.isVisibleByDefault = true
-        rootEntity.configureTrainRootSmoothing()
+        val rootVisual = createRootVisual(rootLocation)
 
         return CompositeModel(
             world = world,
             models = listOf(bogieModel),
-            rootEntity = rootEntity
+            rootVisual = rootVisual
         )
     }
 
@@ -213,8 +210,16 @@ class ModelTreeBuilder(
             PartType.ITEM_DISPLAY -> {
                 val itemConfig = def.item
                     ?: throw IllegalArgumentException("ITEM_DISPLAY part '${def.name}' missing item config")
-                val entity = spawnItemDisplay(spawnLoc, itemConfig)
-                DisplayModel(world = world, state = modelState, attachedModels = children, animation = animations, entity = entity)
+                val itemStack = buildItemStack(itemConfig)
+                val visual = createItemDisplayVisual(spawnLoc, itemStack)
+                DisplayModel(
+                    world = world,
+                    state = modelState,
+                    attachedModels = children,
+                    animation = animations,
+                    visual = visual,
+                    initialItemStack = itemStack
+                )
             }
             PartType.INTERACT -> {
                 InteractionModel(world = world, state = modelState, attachedModels = children, animation = animations, interactionConfig = def.interaction, initialLocation = spawnLoc)
@@ -240,10 +245,7 @@ class ModelTreeBuilder(
         }
     }
 
-    /**
-     * Spawn an ItemDisplay entity with the configured item and CustomModelData.
-     */
-    private fun spawnItemDisplay(location: Location, itemConfig: PartItemConfig): ItemDisplay {
+    private fun buildItemStack(itemConfig: PartItemConfig): ItemStack {
         val material = try {
             Material.valueOf(itemConfig.type.uppercase())
         } catch (e: Exception) {
@@ -263,14 +265,41 @@ class ModelTreeBuilder(
                 CustomModelData.customModelData().addFloat(itemConfig.customModelData.toFloat()).build())
         }
 
-        val entity = bukkitWorld.spawn(location, ItemDisplay::class.java)
-        entity.isPersistent = false
-        entity.configureTrainDisplaySmoothing()
-        entity.setItemStack(itemStack)
-        // Use NONE transform: model is rendered in its natural orientation,
-        // positioned solely by our Transformation rotation.
-        entity.setItemDisplayTransform(org.bukkit.entity.ItemDisplay.ItemDisplayTransform.NONE)
+        return itemStack
+    }
 
-        return entity
+    private fun createRootVisual(location: Location): DisplayVisual = createDisplayVisual(
+        location = location,
+        itemStack = ItemStack(Material.AIR),
+        interpolationDuration = TRAIN_ROOT_INTERPOLATION_TICKS,
+        teleportDuration = TRAIN_ROOT_TELEPORT_TICKS
+    )
+
+    private fun createItemDisplayVisual(location: Location, itemStack: ItemStack): DisplayVisual = createDisplayVisual(
+        location = location,
+        itemStack = itemStack,
+        interpolationDuration = TRAIN_DISPLAY_INTERPOLATION_TICKS,
+        teleportDuration = TRAIN_DISPLAY_TELEPORT_TICKS
+    )
+
+    private fun createDisplayVisual(
+        location: Location,
+        itemStack: ItemStack,
+        interpolationDuration: Int,
+        teleportDuration: Int
+    ): DisplayVisual {
+        return BukkitPlugin.INSTANCE.displayRenderBackend.create(
+            bukkitWorld,
+            DisplayVisualDescriptor(
+                location = location,
+                content = DisplayVisualContent.Item(itemStack),
+                transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(1f), Quaternionf()),
+                viewRange = displayViewRangeForDistance(
+                    BukkitPlugin.INSTANCE.mineRailsConfig.displayRenderer.playerDistance.maxBlocks
+                ),
+                interpolationDuration = interpolationDuration,
+                teleportDuration = teleportDuration
+            )
+        )
     }
 }

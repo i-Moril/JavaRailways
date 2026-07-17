@@ -1,99 +1,67 @@
 package work.art1st.mineRails.bukkit.render.model
 
-import org.bukkit.entity.Display
-import org.bukkit.entity.Entity
+import org.bukkit.Location
 import org.bukkit.entity.Player
+import org.joml.Quaternionf
 import org.joml.Vector3dc
-import work.art1st.mineRails.bukkit.BukkitPlugin
+import org.joml.Vector3f
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisual
 import work.art1st.mineRails.bukkit.render.chunk.railViewDistanceSettings
 import work.art1st.mineRails.core.api.physics.World
 
-/**
- * Note: Ensure entities are invisible by default. Will be managed by LodDisplayModel.
- *       Ensure the entities are mounted to the root entity.
- */
 class LodDisplayModel internal constructor(
     world: World,
     state: ModelState,
     attachedModels: Collection<AbstractModel>,
     animation: Map<String, Animation>,
-    private val loEntity: Display?,
-    private val hiEntity: Display?
+    private val loVisual: DisplayVisual?,
+    private val hiVisual: DisplayVisual?
 ) : AbstractModel(world, state, attachedModels, animation) {
-    private var mountedToRoot: Boolean = false
-
-    init {
-        loEntity?.isPersistent = false
-        loEntity?.configureTrainDisplaySmoothing()
-        hiEntity?.isPersistent = false
-        hiEntity?.configureTrainDisplaySmoothing()
-    }
-
-    fun mountTo(parent: Entity) {
-        val entities = listOfNotNull(loEntity, hiEntity)
-        if (entities.isEmpty()) {
-            mountedToRoot = false
-            return
-        }
-
-        val allMounted = entities.all { entity ->
-            if (entity.vehicle == parent) {
-                true
-            } else {
-                entity.vehicle?.removePassenger(entity)
-                parent.addPassenger(entity)
-            }
-        }
-
-        if (!allMounted) {
-            entities.forEach { entity ->
-                if (entity.vehicle == parent) parent.removePassenger(entity)
-            }
-        }
-        mountedToRoot = allMounted
-    }
-
-    override fun updateState(parentRelativeTransform: CompactTransform, rootTransform: CompactTransform, rootVelocity: Vector3dc, transformDirty: Boolean) {
+    override fun updateState(
+        parentRelativeTransform: CompactTransform,
+        rootTransform: CompactTransform,
+        rootVelocity: Vector3dc,
+        transformDirty: Boolean
+    ) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
-        val worldPos = state.worldTransform.position
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
-        val loc = org.bukkit.Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z())
-        loEntity?.let {
-            if (!mountedToRoot) {
-                it.teleport(loc)
-            }
-            if (transformDirty) {
-                it.configureTrainDisplaySmoothing()
-                it.transformation = org.bukkit.util.Transformation(
-                    if (mountedToRoot) state.rootRelativeTransform.position.get(org.joml.Vector3f()) else org.joml.Vector3f(0f, 0f, 0f),
-                    org.joml.Quaternionf(),
-                    state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
-                    state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
-                )
-            }
+        val worldPos = state.worldTransform.position
+        val location = Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z())
+        val transformation = if (transformDirty) {
+            org.bukkit.util.Transformation(
+                Vector3f(),
+                Quaternionf(),
+                state.rootRelativeTransform.scale.get(Vector3f()),
+                state.rootRelativeTransform.rotation.get(Quaternionf())
+            )
+        } else {
+            null
         }
-        hiEntity?.let {
-            if (!mountedToRoot) {
-                it.teleport(loc)
-            }
-            if (transformDirty) {
-                it.configureTrainDisplaySmoothing()
-                it.transformation = org.bukkit.util.Transformation(
-                    if (mountedToRoot) state.rootRelativeTransform.position.get(org.joml.Vector3f()) else org.joml.Vector3f(0f, 0f, 0f),
-                    org.joml.Quaternionf(),
-                    state.rootRelativeTransform.scale.get(org.joml.Vector3f()),
-                    state.rootRelativeTransform.rotation.get(org.joml.Quaternionf())
-                )
-            }
+
+        // LOD alternatives remain world-space visuals. A hidden packet entity is absent client-side,
+        // so mounting both alternatives would lose the passenger relation when the hidden LOD is spawned later.
+        listOfNotNull(loVisual, hiVisual).forEach { visual ->
+            visual.teleport(location)
+            if (transformation != null) visual.setTransformation(transformation)
         }
     }
 
-    override fun destroy() {
-        super.destroy()
-        loEntity?.remove()
-        hiEntity?.remove()
+    override fun showVisualsTo(player: Player) {
+        updatePlayerVisibility(player)
+        super.showVisualsTo(player)
+    }
+
+    override fun refreshVisualsFor(player: Player) {
+        updatePlayerVisibility(player)
+        super.refreshVisualsFor(player)
+    }
+
+    override fun hideVisualsFrom(player: Player) {
+        loVisual?.hideFrom(player)
+        hiVisual?.hideFrom(player)
+        super.hideVisualsFrom(player)
     }
 
     fun updatePlayerVisibility(player: Player) {
@@ -103,20 +71,17 @@ class LodDisplayModel internal constructor(
         val distanceSq = dx * dx + dy * dy + dz * dz
         val threshold = player.railViewDistanceSettings.lodThreshold
         if (distanceSq > threshold * threshold) {
-            loEntity?.let {
-                player.showEntity(BukkitPlugin.INSTANCE, it)
-            }
-            hiEntity?.let {
-                player.hideEntity(BukkitPlugin.INSTANCE, it)
-            }
+            loVisual?.showTo(player)
+            hiVisual?.hideFrom(player)
         } else {
-            hiEntity?.let {
-                player.showEntity(BukkitPlugin.INSTANCE, it)
-            }
-            loEntity?.let {
-                player.hideEntity(BukkitPlugin.INSTANCE, it)
-            }
+            hiVisual?.showTo(player)
+            loVisual?.hideFrom(player)
         }
     }
 
+    override fun destroy() {
+        super.destroy()
+        loVisual?.destroy()
+        hiVisual?.destroy()
+    }
 }

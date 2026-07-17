@@ -9,7 +9,7 @@
 - 同向端点且 chord 与 tangent 共线时：生成直线模板。
 - 同向端点但 chord 与 tangent 不共线时：直接失败，提示“需要 S 弯模板”。
 - 端点切线有夹角时：走当前五段式模板 `直线 + 缓和曲线 + 圆曲线 + 缓和曲线 + 直线`。
-- `StandardRailCurve` 内已有 superelevation 计算能力，但当前 `ConstraintSolver.generateCurve` 实际只使用 anchor roll 插值，没有把曲线半径/缓和曲线对应的外轨超高接入最终 `PrimeCurve` normal；游戏里看不到超高是符合现状的。
+- `ConstraintSolver.generateCurve` 已把 `StandardRailCurve` 的超高角叠加到最终 `PrimeCurve` normal；自动 Sine/Klein 模式在完整缓和曲线内平滑过渡。
 
 用户反馈的问题：
 
@@ -29,7 +29,7 @@
 
 2. **吸附拆分**
    - 位置吸附、角度吸附、模板吸附分离。
-   - 创建斜向直线时，应允许“只吸附位置，不吸附方向”或“直线模板强制用 chord 方向”。
+   - 创建直线时，右键点只定义垂直于起点切线的终点平面，不能直接改写直线方向。
 
 3. **超高作为可选轨道平面参数**
    - 普通曲线可启用超高。
@@ -67,13 +67,7 @@ data class RailCurveBuildOptions(
     val template: RailCurveTemplateType = RailCurveTemplateType.AUTO,
     val radius: Double = 0.0,
     val superelevation: SuperelevationOptions = SuperelevationOptions.Disabled,
-    val straightMode: StraightMode = StraightMode.USE_CHORD,
 )
-
-enum class StraightMode {
-    USE_CHORD,          // 强制端点 chord 为切线方向，用于斜向直线
-    REQUIRE_TANGENT,    // 要求 anchor tangent 与 chord 已对齐
-}
 ```
 
 `RailCurveFactory.build(from, to, radius)` 改为：
@@ -121,21 +115,18 @@ data class CurveTemplateMatch(
 
 1. 新增 RailWand 模板设置：`模板 = 自动 / 直线 / 普通曲线 / S弯 / 道岔`。
 2. 当模板为 `STRAIGHT`：
-   - 创建模式连续建线时，第二组锚点继承第一组锚点/既有轨道端点的 tangent；第二次点击只提供终点位置/终点横断面中心，不再用玩家当前朝向生成终点 tangent。
-   - 默认要求 straight 的 chord 与继承/已有 tangent 对齐，避免端点切线突变。
-   - 可保留“强制使用 chord 重设端点 yaw”的手动兜底开关，但默认关闭，连接既有轨道时不应使用。
-   - 生成结果必须是直线段。
-3. 将现有 `snapToAngle` 改名/拆分为：
-   - `snapPositionToBlock`
-   - `snapYawToAngle`
-   - `straightUsesChordDirection`
-4. 创建锚点时，不要因为 yaw 吸附把斜向 chord 强制转成 0/15/30/45 度以外的错误语义；直线模板中 chord 优先级最高。
+   - 创建模式连续建线时，右键点定义一个垂直于起点切线的平面；起点切线与该平面的交点才是终点。
+   - 第二组锚点复用第一组锚点/既有轨道端点的 tangent 表示；几何上 `T` 与 `-T` 必须得到同一切线斜率。
+   - 直线始终继承起点的三维切线斜率，不提供额外方向策略开关。
+   - 生成结果必须是三维直线段，起终点切线相同。
+3. 将现有 `snapToAngle` 拆分为位置吸附和 yaw 吸附；直线第二次右键不读取玩家 yaw。
+4. 直线模板必须验证终点位于起点切线上，不能为了经过右键点而改变切线。
 
 ### 验收
 
-- 创建模式中，第二次点击创建的终点锚点继承第一锚点方向，不再受玩家当前朝向影响。
-- 选择 `直线模板` 且终点位于第一锚点方向上时，稳定创建斜向直线。
-- 连接模式默认要求切线连续；如果 chord 与端点 tangent 不一致，不强行重设端点 tangent。
+- 创建模式中，第二次点击创建的终点位于起点切线上，并落在经过右键点的切线垂直平面内。
+- 终点锚点复用第一锚点的切线表示，不受玩家当前朝向影响。
+- 锚点使用 `T`、`-T` 或任意起终点符号组合时，生成的规范方向曲线完全一致。
 - 自动模式仍可根据 tangent/chord 判断；同向但横向错位会进入 S 弯模板。
 
 ---
@@ -188,13 +179,11 @@ data class CurveTemplateMatch(
 
 ## Phase 4：超高接入与禁用策略
 
-### 现状
-
-`StandardRailCurve` 已能计算超高，但当前生成 `PrimeCurve` 时没有使用 `StandardRailCurve` 的超高 normal，而是重新通过 `computeFrame + roll 插值` 生成 normal。因此游戏内看不到自动外轨超高。
+状态：五段式曲线已接入自动超高。自动 `SINE_KLEIN` 模式按 EN 13803 的 Sine/Klein 函数在完整缓和曲线内过渡，超高值、变化率和二阶变化率在直线/圆曲线接缝处连续；`LINEAR` 模式保留显式线性选项。当前仍未按工程规范限制最大超高变化率，过短缓和曲线需要后续增加参数校验。
 
 ### 目标
 
-把超高从“未使用的计算代码”变成可配置的曲线 normal 生成策略。
+保持超高可配置，并避免自动上限截断造成轨道平面扭转速率突变。
 
 ### 新增配置建议
 
@@ -215,7 +204,8 @@ sealed class SuperelevationOptions {
 
 ### 关键点
 
-S 弯存在曲率符号反转，超高也必须换向；需要在零曲率附近平滑过渡，不能简单线性插值。否则会出现轨道平面扭转突变。
+- 五段式自动超高必须遵守配置的过渡函数，达到上限时也要使用完整缓和曲线，不能提前硬截断。
+- S 弯存在曲率符号反转，超高也必须换向；需要在零曲率附近平滑过渡，不能简单线性插值。否则会出现轨道平面扭转突变。
 
 ### 验收
 
@@ -283,7 +273,6 @@ data class TurnoutOptions(
 
 1. RailWand 设置页新增：
    - 模板模式
-   - 直线方向策略
    - S 弯最小半径
    - 超高开关/设计速度/最大超高
    - 道岔参数页
@@ -406,7 +395,7 @@ data class RailMeasurePoint(
 
 优先解决“无法创建测试线路”的阻塞：
 
-1. **先做 Phase 1 + Phase 2**：显式模板 + 直线模板强制 chord，立即解决斜向直线被误判的问题。
+1. **先做 Phase 1 + Phase 2**：显式模板 + 右键终点平面投影，解决斜向直线被误判的问题。
 2. **再做 Phase 3 MVP**：S 弯可创建，使用 Hermite + 曲率检查。
 3. **再做 Phase 4**：把超高接入并默认关闭，避免影响道岔/S 弯。
 4. **最后做 Phase 5**：道岔模板独立设计。

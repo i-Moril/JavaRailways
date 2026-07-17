@@ -1,0 +1,96 @@
+package work.art1st.mineRails.bukkit.render.backend
+
+import io.papermc.paper.entity.TeleportFlag
+import org.bukkit.Location
+import org.bukkit.World
+import org.bukkit.entity.BlockDisplay
+import org.bukkit.entity.Display
+import org.bukkit.entity.ItemDisplay
+import org.bukkit.entity.Player
+import org.bukkit.inventory.ItemStack
+import org.bukkit.plugin.Plugin
+import org.bukkit.util.Transformation
+
+class NativeDisplayRenderBackend(
+    private val plugin: Plugin
+) : DisplayRenderBackend {
+    override fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual {
+        val entity = when (val content = descriptor.content) {
+            is DisplayVisualContent.Item -> world.spawn(
+                descriptor.location,
+                ItemDisplay::class.java
+            ) { display ->
+                configureCommon(display, descriptor)
+                display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.NONE
+                display.setItemStack(content.itemStack.clone())
+            }
+
+            is DisplayVisualContent.Block -> world.spawn(
+                descriptor.location,
+                BlockDisplay::class.java
+            ) { display ->
+                configureCommon(display, descriptor)
+                display.block = content.blockData.clone()
+            }
+        }
+        return NativeDisplayVisual(plugin, entity)
+    }
+
+    private fun configureCommon(display: Display, descriptor: DisplayVisualDescriptor) {
+        display.isPersistent = false
+        display.isVisibleByDefault = false
+        display.interpolationDelay = 0
+        display.interpolationDuration = descriptor.interpolationDuration
+        display.teleportDuration = descriptor.teleportDuration
+        display.viewRange = descriptor.viewRange
+        display.transformation = descriptor.transformation
+    }
+}
+
+private class NativeDisplayVisual(
+    private val plugin: Plugin,
+    private val entity: Display
+) : DisplayVisual {
+    private var destroyed = false
+
+    override fun showTo(player: Player) {
+        if (!destroyed) player.showEntity(plugin, entity)
+    }
+
+    override fun hideFrom(player: Player) {
+        if (!destroyed) player.hideEntity(plugin, entity)
+    }
+
+    override fun teleport(location: Location) {
+        if (!destroyed) entity.teleport(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
+    }
+
+    override fun setTransformation(transformation: Transformation) {
+        if (!destroyed) entity.transformation = transformation
+    }
+
+    override fun setItemStack(itemStack: ItemStack) {
+        if (!destroyed) (entity as? ItemDisplay)?.setItemStack(itemStack.clone())
+    }
+
+    override fun setBrightness(blockLight: Int, skyLight: Int) {
+        packDisplayBrightness(blockLight, skyLight)
+        if (!destroyed) entity.brightness = Display.Brightness(blockLight, skyLight)
+    }
+
+    override fun addPassenger(passenger: DisplayVisual): Boolean {
+        if (destroyed) return false
+        val nativePassenger = passenger as? NativeDisplayVisual
+            ?: throw IllegalArgumentException("Cannot mix native and packet display passengers")
+        if (nativePassenger.destroyed) return false
+        if (nativePassenger.entity.vehicle == entity) return true
+        nativePassenger.entity.vehicle?.removePassenger(nativePassenger.entity)
+        return entity.addPassenger(nativePassenger.entity)
+    }
+
+    override fun destroy() {
+        if (destroyed) return
+        destroyed = true
+        entity.remove()
+    }
+}

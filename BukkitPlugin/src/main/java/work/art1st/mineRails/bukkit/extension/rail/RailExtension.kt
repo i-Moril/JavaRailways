@@ -3,9 +3,6 @@ package work.art1st.mineRails.bukkit.extension.rail
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.block.data.BlockData
-import org.bukkit.entity.BlockDisplay
-import org.bukkit.entity.Display
-import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
@@ -30,6 +27,10 @@ import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.bukkit.extension.BukkitRenderable
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisual
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisualContent
+import work.art1st.mineRails.bukkit.render.backend.DisplayVisualDescriptor
+import work.art1st.mineRails.bukkit.render.backend.displayViewRangeForDistance
 import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 import kotlin.math.ceil
@@ -54,6 +55,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         ThreadGuard.ensureMainThread("RailExtension.sendTo")
         audience.add(player.uniqueId)
         buildModel()
+        displayVisuals.forEach { it.showTo(player) }
     }
 
     /** Unload static rail entities after the last nearby player leaves. */
@@ -61,6 +63,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     fun hideFrom(player: Player) {
         ThreadGuard.ensureMainThread("RailExtension.hideFrom")
         if (!audience.remove(player.uniqueId)) return
+        displayVisuals.forEach { it.hideFrom(player) }
         if (audience.isEmpty()) destroyModel()
     }
 
@@ -70,7 +73,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
      */
     @MainThread
     protected fun buildModel() {
-        if (displayEntities.isNotEmpty()) return
+        if (displayVisuals.isNotEmpty()) return
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val config = self.templateSnapshot?.toModelConfig() ?: BukkitPlugin.INSTANCE.railModelConfig
         val curve = self.rail.curve
@@ -85,20 +88,25 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         } else {
             computePointArcs(curve, segmentStart, segmentEnd, repeatLength)
         }
-        for (arc in pointArcs) {
-            val point = curve.getPointAt(arc)
-            for (element in config.elements) {
-                val entity = createDisplayEntity(bukkitWorld, point, element)
-                displayEntities.add(entity)
+        val created = mutableListOf<DisplayVisual>()
+        try {
+            for (arc in pointArcs) {
+                val point = curve.getPointAt(arc)
+                for (element in config.elements) {
+                    created += createDisplayVisual(bukkitWorld, point, element)
+                }
             }
-        }
 
-        if (displayEntities.isEmpty()) {
-            val point = curve.getPointAt(segmentStart)
-            for (element in config.elements) {
-                val entity = createDisplayEntity(bukkitWorld, point, element)
-                displayEntities.add(entity)
+            if (created.isEmpty()) {
+                val point = curve.getPointAt(segmentStart)
+                for (element in config.elements) {
+                    created += createDisplayVisual(bukkitWorld, point, element)
+                }
             }
+            displayVisuals += created
+        } catch (error: Throwable) {
+            created.forEach { it.destroy() }
+            throw error
         }
     }
 
@@ -137,71 +145,48 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
      * 主线程：销毁所有 ItemDisplay 实体。
      */
     protected fun destroyModel() {
-        for (entity in displayEntities) {
-            entity.remove()
-        }
-        displayEntities.clear()
+        displayVisuals.forEach { it.destroy() }
+        displayVisuals.clear()
     }
 
-    private val displayEntities = mutableListOf<Display>()
+    private val displayVisuals = mutableListOf<DisplayVisual>()
 
-    /**
-     * 在曲线指定点创建单个显示实体。
-     */
-    private fun createDisplayEntity(
+    /** Create one backend-specific display visual at the requested curve point. */
+    private fun createDisplayVisual(
         bukkitWorld: org.bukkit.World,
         point: Curve.Point,
         element: RailElementConfig
-    ): Display {
+    ): DisplayVisual {
         val worldPos = computeWorldPosition(point, element.offset)
-        val entity: Display = when (element.type) {
+        val rotation = computeCurveRotation(point).mul(computeElementRotation(element.rotation))
+        val transformation = Transformation(
+            Vector3f(0f, 0f, 0f),
+            rotation.get(Quaternionf()),
+            Vector3f(element.scale.x.toFloat(), element.scale.y.toFloat(), element.scale.z.toFloat()),
+            Quaternionf()
+        )
+        val content = when (element.type) {
             RailDisplayType.BLOCK -> {
-                val display = bukkitWorld.spawnEntity(
-                    Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z()),
-                    org.bukkit.entity.EntityType.BLOCK_DISPLAY
-                ) as BlockDisplay
                 val material = runCatching {
                     Material.valueOf((element.blockMaterial ?: "STONE").uppercase())
                 }.getOrElse { Material.STONE }
                 val data: BlockData = material.createBlockData()
-                display.block = data
-                display
+                DisplayVisualContent.Block(data)
             }
-            RailDisplayType.ITEM -> {
-                val display = bukkitWorld.spawnEntity(
-                    Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z()),
-                    org.bukkit.entity.EntityType.ITEM_DISPLAY
-                ) as ItemDisplay
-                display.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.NONE
-                display.setItemStack(element.item?.toItemStack() ?: ItemStack(Material.RAIL))
-                display
-            }
+
+            RailDisplayType.ITEM -> DisplayVisualContent.Item(
+                element.item?.toItemStack() ?: ItemStack(Material.RAIL)
+            )
         }
-        entity.isPersistent = false
-
-        updateDisplayEntity(entity, point, element)
-        return entity
-    }
-
-    /**
-     * 更新显示实体的变换（位置、朝向、缩放）。
-     */
-    private fun updateDisplayEntity(
-        entity: Display,
-        point: Curve.Point,
-        element: RailElementConfig
-    ) {
-        val worldPos = computeWorldPosition(point, element.offset)
-        val rotation = computeCurveRotation(point).mul(computeElementRotation(element.rotation))
-        // Display 实体的服务端位置必须与可视位置一致，否则玩家可能收不到该实体的追踪包。
-        entity.teleport(Location(entity.world, worldPos.x(), worldPos.y(), worldPos.z()))
-
-        entity.setTransformation(
-            Transformation(
-                Vector3f(0f, 0f, 0f),
-                rotation.get(Quaternionf()),
-                Vector3f(element.scale.x.toFloat(), element.scale.y.toFloat(), element.scale.z.toFloat()),
-                Quaternionf()
+        return BukkitPlugin.INSTANCE.displayRenderBackend.create(
+            bukkitWorld,
+            DisplayVisualDescriptor(
+                location = Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z()),
+                content = content,
+                transformation = transformation,
+                viewRange = displayViewRangeForDistance(
+                    BukkitPlugin.INSTANCE.mineRailsConfig.displayRenderer.playerDistance.maxBlocks
+                )
             )
         )
     }

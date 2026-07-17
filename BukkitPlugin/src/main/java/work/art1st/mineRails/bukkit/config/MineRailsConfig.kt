@@ -4,6 +4,45 @@ import org.bukkit.configuration.file.YamlConfiguration
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import java.io.File
 
+data class DisplayRendererConfig(
+    val backend: DisplayRendererBackend,
+    val playerDistance: PlayerDisplayDistanceConfig
+)
+
+data class PlayerDisplayDistanceConfig(
+    val default: PlayerDisplayDistanceDefault,
+    val maxBlocks: Double
+)
+
+enum class DisplayRendererBackend {
+    NATIVE,
+    ENTITYLIB;
+
+    companion object {
+        fun fromConfig(value: String): DisplayRendererBackend = when (value.trim().lowercase()) {
+            "native" -> NATIVE
+            "entitylib", "packet", "packet-entity" -> ENTITYLIB
+            else -> throw IllegalArgumentException(
+                "Unsupported display-renderer.backend '$value'. Expected one of: native, entitylib"
+            )
+        }
+    }
+}
+
+enum class PlayerDisplayDistanceDefault {
+    PLAYER_VIEW_DISTANCE;
+
+    companion object {
+        fun fromConfig(value: String): PlayerDisplayDistanceDefault = when (value.trim().lowercase()) {
+            "player-view-distance", "player_view_distance" -> PLAYER_VIEW_DISTANCE
+            else -> throw IllegalArgumentException(
+                "Unsupported display-renderer.player-distance.default '$value'. " +
+                    "Expected: player-view-distance"
+            )
+        }
+    }
+}
+
 data class MineRailsConfig(
     val trainModelUpdatePolicy: TrainModelUpdatePolicy,
     val trainKeyBindDistance: Double,
@@ -12,7 +51,8 @@ data class MineRailsConfig(
     val overspeedDerailEnabled: Boolean,
     val derailLateralAccelerationMetersPerSecondSquared: Double,
     val overspeedToleranceKmH: Double,
-    val overspeedGraceTicks: Int
+    val overspeedGraceTicks: Int,
+    val displayRenderer: DisplayRendererConfig
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
@@ -37,6 +77,19 @@ data class MineRailsConfig(
             require(overspeedToleranceKmH >= 0.0) { "overspeed-tolerance-kmh must be >= 0.0" }
             val overspeedGraceTicks = requireInt(yaml, "overspeed-grace-ticks")
             require(overspeedGraceTicks > 0) { "overspeed-grace-ticks must be > 0" }
+            val displayRendererBackend = DisplayRendererBackend.fromConfig(
+                requireString(yaml, "display-renderer.backend")
+            )
+            val playerDistanceDefault = PlayerDisplayDistanceDefault.fromConfig(
+                requireString(yaml, "display-renderer.player-distance.default")
+            )
+            val maxDisplayDistance = requireDouble(yaml, "display-renderer.player-distance.max-blocks")
+            require(maxDisplayDistance.isFinite() && maxDisplayDistance > 0.0) {
+                "display-renderer.player-distance.max-blocks must be finite and > 0"
+            }
+            require(maxDisplayDistance <= MAX_DISPLAY_DISTANCE_BLOCKS) {
+                "display-renderer.player-distance.max-blocks must be <= $MAX_DISPLAY_DISTANCE_BLOCKS"
+            }
             return MineRailsConfig(
                 trainModelUpdatePolicy = policy,
                 trainKeyBindDistance = bindDistance,
@@ -45,7 +98,14 @@ data class MineRailsConfig(
                 overspeedDerailEnabled = requireBoolean(yaml, "overspeed-derail-enabled"),
                 derailLateralAccelerationMetersPerSecondSquared = derailLateralAcceleration,
                 overspeedToleranceKmH = overspeedToleranceKmH,
-                overspeedGraceTicks = overspeedGraceTicks
+                overspeedGraceTicks = overspeedGraceTicks,
+                displayRenderer = DisplayRendererConfig(
+                    backend = displayRendererBackend,
+                    playerDistance = PlayerDisplayDistanceConfig(
+                        default = playerDistanceDefault,
+                        maxBlocks = maxDisplayDistance
+                    )
+                )
             )
         }
 
@@ -78,6 +138,8 @@ data class MineRailsConfig(
             return raw as? Boolean
                 ?: throw IllegalArgumentException("Config key '$path' must be a boolean")
         }
+
+        private const val MAX_DISPLAY_DISTANCE_BLOCKS = 4096.0
     }
 }
 

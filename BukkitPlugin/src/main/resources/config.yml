@@ -6,6 +6,17 @@
 # snapshot: 保存解析后的模型快照，后续不跟随包文件变更。
 train-model-update-policy: follow-package
 
+# MineRails 展示实体渲染后端。
+# native: 使用真实 Bukkit/Paper Display；保持兼容，但受原生实体追踪和区块发送距离限制。
+# entitylib: 实验性，轨道和列车视觉 Display 使用 EntityLib + PacketEvents；座位、交互和碰撞仍为 native。
+display-renderer:
+  backend: native
+  player-distance:
+    # 未单独设置时，使用玩家客户端设置的视距换算为方块。
+    default: player-view-distance
+    # MineRails 允许的最大展示半径。必须在 (0, 4096] 内。
+    max-blocks: 512.0
+
 # 玩家与绑定列车任意车厢中心的最大允许距离（米）。
 # 超过该距离后，列车钥匙会自动解绑。
 train-key-bind-distance: 20.0

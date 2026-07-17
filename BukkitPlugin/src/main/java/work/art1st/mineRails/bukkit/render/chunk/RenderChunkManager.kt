@@ -73,6 +73,7 @@ class RenderChunkManager(
     fun onPlayerQuit(event: PlayerQuitEvent) {
         ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerQuit")
         clearPlayer(event.player)
+        BukkitPlugin.INSTANCE.viewDistanceManager.clear(event.player.uniqueId)
     }
 
     @EventHandler

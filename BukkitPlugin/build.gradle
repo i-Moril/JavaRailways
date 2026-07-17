@@ -30,13 +30,14 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
-    compileOnly("com.github.retrooper:packetevents-spigot:2.11.1")
+    // Packet entity backend bootstrap: keep PacketEvents and EntityLib on the same shaded runtime classpath.
+    implementation("com.github.retrooper:packetevents-spigot:2.11.1")
     compileOnly("org.joml:joml:1.10.8")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.graalvm.polyglot:polyglot:24.2.2")
     implementation("org.graalvm.polyglot:js-community:24.2.2")
-    implementation("io.github.tofaa2:spigot:3.0.3-SNAPSHOT")
+    implementation("io.github.tofaa2:spigot:3.0.3-SNAPSHOT") // EntityLib; version pinning is tracked in the packet renderer plan.
     implementation("net.jcip:jcip-annotations:1.0")
     implementation(platform("io.insert-koin:koin-bom:4.1.1"))
     implementation("io.insert-koin:koin-core:4.1.1")
@@ -84,6 +85,10 @@ shadowJar {
     from(sourceSets.main.resources)
     mergeServiceFiles()
     relocate 'org.joml.Vector3dKt', 'work.art1st.mineRails.shadow.org.joml.Vector3dKt'
+    // PacketEvents is embedded: relocate both API and platform implementation to avoid server-plugin conflicts.
+    relocate 'com.github.retrooper.packetevents', 'work.art1st.mineRails.shadow.packetevents.api'
+    relocate 'io.github.retrooper.packetevents', 'work.art1st.mineRails.shadow.packetevents.impl'
+    relocate 'me.tofaa.entitylib', 'work.art1st.mineRails.shadow.entitylib'
     configurations = [project.configurations.runtimeClasspath, jomlShadow]
     dependencies {
         // GraalJS language selector artifacts are POM-only. They bring the real
@@ -142,6 +147,9 @@ bukkitPluginYaml {
     apiVersion = "1.21.11"
 
     authors.add("__ART1st__")
+
+    // Embedded PacketEvents must load after other protocol injectors when they are present.
+    softDepend.addAll("ProtocolLib", "ProtocolSupport", "ViaVersion", "ViaBackwards", "ViaRewind", "Geyser-Spigot")
 
     // 须在 plugin.yml 中声明，getCommand("minerails"/"mr") 才能拿到命令实例
     commands.register("minerails") {

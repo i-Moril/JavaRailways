@@ -3,6 +3,7 @@ package work.art1st.mineRails.bukkit
 import org.bukkit.plugin.java.JavaPlugin
 import work.art1st.mineRails.bukkit.behavior.TrainReverseBehaviorListener
 import work.art1st.mineRails.bukkit.command.MineRailsCommand
+import work.art1st.mineRails.bukkit.config.DisplayRendererBackend
 import work.art1st.mineRails.bukkit.config.MineRailsConfig
 import work.art1st.mineRails.bukkit.config.RailModelConfig
 import work.art1st.mineRails.bukkit.config.loadRailModelConfig
@@ -12,6 +13,9 @@ import work.art1st.mineRails.bukkit.control.TrainHandleInputListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugEventListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.logic.WorldManager
+import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackend
+import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackendFactory
+import work.art1st.mineRails.bukkit.render.backend.PacketEntityRuntime
 import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.mineRails.bukkit.tool.RailObjectWand
 import work.art1st.mineRails.bukkit.tool.RailWand
@@ -35,7 +39,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     lateinit var viewDistanceManager: ViewDistanceManager
+    lateinit var displayRenderBackend: DisplayRenderBackend
     lateinit var worldManager: WorldManager
+
+    private var packetEntityRuntime: PacketEntityRuntime? = null
 
     /** 全局插件配置，从 config.yml 加载 */
     lateinit var mineRailsConfig: MineRailsConfig
@@ -67,14 +74,24 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var railObjectWand: RailObjectWand
 
+    override fun onLoad() {
+        INSTANCE = this
+        mineRailsConfig = MineRailsConfig.load(this)
+        if (mineRailsConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB) {
+            packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }
+        }
+    }
+
     override fun onEnable() {
+        packetEntityRuntime?.enable()
+        displayRenderBackend = DisplayRenderBackendFactory.create(this)
         ensureMineRailsKoinStarted()
         BasicPlugin.INSTANCE = BasicPlugin(0)
         PluginRegistry.register(BasicPlugin.INSTANCE)
         PluginRegistry.register(this)
         INSTANCE = this
         ThreadGuard.installPlatformBridge(BukkitThreadGuardBridge)
-        viewDistanceManager = ViewDistanceManager()
+        viewDistanceManager = ViewDistanceManager(mineRailsConfig.displayRenderer.playerDistance.maxBlocks)
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
         trainControlManager = TrainControlManager(this)
@@ -86,12 +103,15 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         trainDebugEventListener = TrainDebugEventListener()
         trainDebugEventRegistration = PhysicsRailEventBus.register(trainDebugEventListener)
 
-        // 加载全局配置
-        mineRailsConfig = MineRailsConfig.load(this)
+        // 全局配置已在 onLoad 读取，使 packet backend 能在连接注入前完成 load。
         if (mineRailsConfig.trainDebugLog) {
             TrainDebugLog.enabled = true
         }
         logger.info("Train model update policy: ${mineRailsConfig.trainModelUpdatePolicy.name.lowercase().replace('_', '-')}")
+        logger.info("Display renderer backend: ${mineRailsConfig.displayRenderer.backend.name.lowercase()}")
+        if (mineRailsConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB) {
+            logger.warning("EntityLib display backend is experimental; interaction, seat and collision entities remain native")
+        }
         logger.info("Physics worker threads per world: ${mineRailsConfig.physicsWorkerThreads}")
         val availableProcessors = Runtime.getRuntime().availableProcessors()
         if (mineRailsConfig.physicsWorkerThreads >= availableProcessors) {
@@ -133,16 +153,24 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     override fun onDisable() {
-        val worlds = worldManager.railWorlds.keys.toList()
-        worlds.forEach { worldManager.unregisterRailWorld(it) }
-        runCatching { trainHandleInputListener.stop() }
-        runCatching { trainControlManager.stop() }
-        runCatching { trainReverseEventRegistration?.close() }
-        trainReverseEventRegistration = null
-        runCatching { trainDebugEventRegistration?.close() }
-        trainDebugEventRegistration = null
-        runCatching { TrainDebugLog.close() }
-        ThreadGuard.clearPlatformBridge()
+        try {
+            if (::worldManager.isInitialized) {
+                val worlds = worldManager.railWorlds.keys.toList()
+                worlds.forEach { worldManager.unregisterRailWorld(it) }
+            }
+            if (::trainHandleInputListener.isInitialized) runCatching { trainHandleInputListener.stop() }
+            if (::trainControlManager.isInitialized) runCatching { trainControlManager.stop() }
+            runCatching { trainReverseEventRegistration?.close() }
+            trainReverseEventRegistration = null
+            runCatching { trainDebugEventRegistration?.close() }
+            trainDebugEventRegistration = null
+            runCatching { TrainDebugLog.close() }
+        } finally {
+            runCatching { packetEntityRuntime?.close() }
+                .onFailure { logger.severe("Failed to close packet entity runtime: ${it.message}") }
+            packetEntityRuntime = null
+            ThreadGuard.clearPlatformBridge()
+        }
     }
 
     private fun loadRailModelConfigFromPlugin(): RailModelConfig {

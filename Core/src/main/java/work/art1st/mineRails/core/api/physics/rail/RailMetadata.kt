@@ -45,6 +45,21 @@ data class RailGeometryMetadata(
 }
 
 @Serializable
+data class RailSplitMetadata(
+    /** Identifies the split operation that produced the two current sibling segments. */
+    val operationId: String,
+    /** 0 is the segment before the split point in AB order; 1 is the segment after it. */
+    val segmentIndex: Int,
+    /** Previous lineage restored when these siblings are merged again. */
+    val parent: RailSplitMetadata? = null
+) {
+    init {
+        require(operationId.isNotBlank())
+        require(segmentIndex in 0..1)
+    }
+}
+
+@Serializable
 data class RailMetadata(
     /** Requested design speed before geometry-derived limits are applied. */
     val designSpeedMetersPerSecond: Double? = null,
@@ -54,7 +69,9 @@ data class RailMetadata(
     val derailSpeedMetersPerSecond: Double? = null,
     /** Null allows both directions; otherwise only the selected RailView direction is legal. */
     val allowedDirection: ViewDirection? = null,
-    val geometry: RailGeometryMetadata = RailGeometryMetadata()
+    val geometry: RailGeometryMetadata = RailGeometryMetadata(),
+    /** Non-null when this segment was created by RailWand split mode. */
+    val createdBySplit: RailSplitMetadata? = null
 ) {
     init {
         require(designSpeedMetersPerSecond == null || designSpeedMetersPerSecond > 0.0)

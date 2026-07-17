@@ -4,7 +4,6 @@ import org.joml.Vector3d
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.util.annotation.Heavy
-import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
 import java.util.stream.Stream
 
 /**
@@ -14,15 +13,15 @@ import java.util.stream.Stream
 class ReversedCurve(
     origCurve: PrimeCurve,
 ) : PrimeCurve {
-    private val origCurve: PrimeCurve by WeakReferenceWrapper(origCurve)
+    internal val originalCurve: PrimeCurve = origCurve
     override val totalArcLength: Double
-        get() = origCurve.totalArcLength
+        get() = originalCurve.totalArcLength
     override val reversed: PrimeCurve
-        get() = origCurve
+        get() = originalCurve
 
     override fun getPointAt(arcLength: Double): Curve.Point {
-        val revArc = reverseArcLength(arcLength, origCurve)
-        val p = origCurve.getPointAt(revArc)
+        val revArc = reverseArcLength(arcLength, originalCurve)
+        val p = originalCurve.getPointAt(revArc)
         return Curve.Point(
             position = p.position,
             tangent = Vector3d(p.tangent).negate(),
@@ -33,7 +32,18 @@ class ReversedCurve(
     }
 
     @Heavy
-    override fun stream(): Stream<Curve.Point> = origCurve.stream()
+    override fun stream(): Stream<Curve.Point> = originalCurve.stream()
 
-    override fun save(): PrimeCurve.SavedPrimeCurve = origCurve.save()
+    override fun splitAt(arcLength: Double): Pair<PrimeCurve, PrimeCurve> {
+        val (originalBefore, originalAfter) = originalCurve.splitAt(totalArcLength - arcLength)
+        return originalAfter.reversed to originalBefore.reversed
+    }
+
+    override fun concatenate(next: PrimeCurve): PrimeCurve {
+        val reversedNext = next as? ReversedCurve
+            ?: throw IllegalArgumentException("A reversed curve can only concatenate another reversed curve")
+        return reversedNext.originalCurve.concatenate(originalCurve).reversed
+    }
+
+    override fun save(): PrimeCurve.SavedPrimeCurve = originalCurve.save()
 }

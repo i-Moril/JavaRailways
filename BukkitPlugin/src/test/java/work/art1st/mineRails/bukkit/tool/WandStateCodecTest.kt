@@ -10,11 +10,13 @@ class WandStateCodecTest {
     @Test
     fun `rail wand state round trips all settings and selections`() {
         val state = WandPlayerState(
-            mode = WandMode.TURNOUT,
+            mode = WandMode.SPLIT,
             selectedAnchors = mutableListOf("A1", "A2"),
             selectedRails = mutableListOf(UUID.randomUUID()),
             pendingDeleteAnchor = "A3",
             pendingDeleteRail = UUID.randomUUID(),
+            pendingSplitRail = UUID.randomUUID(),
+            pendingSplitArcLength = 42.125,
             parallelCount = 4,
             parallelSpacing = 6.5,
             snapToAngle = false,

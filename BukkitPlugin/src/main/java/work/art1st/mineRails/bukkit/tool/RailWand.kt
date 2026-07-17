@@ -32,6 +32,7 @@ import work.art1st.mineRails.basic.curve.StandardTurnout
 import work.art1st.mineRails.basic.curve.StandardTurnoutFactory
 import work.art1st.mineRails.basic.curve.SuperelevationConfig
 import work.art1st.mineRails.basic.impl.config.ConfigUIRegistry
+import work.art1st.mineRails.basic.pathFinding.basicWorldDataOrNull
 import work.art1st.mineRails.basic.rail.RailAutoConnector
 import work.art1st.mineRails.basic.safety.RailSpeedCalculator
 import work.art1st.mineRails.basic.safety.RailSpeedLimits
@@ -53,6 +54,7 @@ import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
+import work.art1st.mineRails.core.physics.rail.RailTopologyEditor
 import work.art1st.mineRails.core.physics.rail.RailView
 import java.util.*
 import kotlin.math.*
@@ -85,6 +87,7 @@ enum class WandMode(override val displayName: String, override val description: 
     CONNECT("连接模式", "选择两端锚点后右键连接 | Shift+F 切换模式"),
     TURNOUT("道岔模式", "靠近锚点右键创建标准道岔侧线 | Shift+F 切换模式"),
     EDIT("编辑模式", "右键编辑锚点/轨道 | 左键选择 | Shift+F 切换模式"),
+    SPLIT("分割模式", "右键选择/确认分割 | 左键分割锚点合并 | Shift+F 切换模式"),
     DELETE("删除模式", "左键锚点/轨道进入待删除 | 再次左键确认 | Shift+F 切换模式"),
     DECORATE("装饰模式", "填充展示实体 | Shift+F 切换模式");
 }
@@ -166,6 +169,10 @@ data class WandPlayerState(
     var pendingDeleteAnchor: String? = null,
     /** 删除模式下：待删除的轨道 UUID（null = 无待删除） */
     var pendingDeleteRail: UUID? = null,
+    /** 分割模式第一次右键选中的轨道。 */
+    var pendingSplitRail: UUID? = null,
+    /** 分割点在轨道 AB 曲线上的弧长。 */
+    var pendingSplitArcLength: Double? = null,
     // 模式设置
     /** 并行轨道数量 */
     var parallelCount: Int = 1,
@@ -202,6 +209,8 @@ internal data class SavedRailWandStateV1(
     val selectedRails: List<String> = emptyList(),
     val pendingDeleteAnchor: String? = null,
     val pendingDeleteRail: String? = null,
+    val pendingSplitRail: String? = null,
+    val pendingSplitArcLength: Double? = null,
     val parallelCount: Int = 1,
     val parallelSpacing: Double = 4.5,
     val snapToAngle: Boolean = true,
@@ -227,6 +236,8 @@ internal object RailWandStateCodec {
             selectedRails = state.selectedRails.map(UUID::toString),
             pendingDeleteAnchor = state.pendingDeleteAnchor,
             pendingDeleteRail = state.pendingDeleteRail?.toString(),
+            pendingSplitRail = state.pendingSplitRail?.toString(),
+            pendingSplitArcLength = state.pendingSplitArcLength,
             parallelCount = state.parallelCount,
             parallelSpacing = state.parallelSpacing,
             snapToAngle = state.snapToAngle,
@@ -251,6 +262,8 @@ internal object RailWandStateCodec {
             selectedRails = saved.selectedRails.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }.toMutableList(),
             pendingDeleteAnchor = saved.pendingDeleteAnchor,
             pendingDeleteRail = saved.pendingDeleteRail?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+            pendingSplitRail = saved.pendingSplitRail?.let { runCatching { UUID.fromString(it) }.getOrNull() },
+            pendingSplitArcLength = saved.pendingSplitArcLength?.takeIf { it.isFinite() && it > 0.0 },
             parallelCount = saved.parallelCount.coerceIn(1, 10),
             parallelSpacing = saved.parallelSpacing.coerceIn(1.0, 20.0),
             snapToAngle = saved.snapToAngle,
@@ -323,10 +336,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     /** 每名玩家最近 10 次有效操作。 */
     private val actionHistories = mutableMapOf<UUID, WandActionHistory>()
 
+    private data class SplitPreviewTarget(
+        val worldId: UUID,
+        val railId: UUID,
+        val arcLength: Double,
+        val position: Vector3d
+    )
+
+    private val splitPreviewTargets = mutableMapOf<UUID, SplitPreviewTarget>()
+    private val splitPreviewRequests = mutableSetOf<UUID>()
+
     private val createMode = RailWandCreateMode(this)
     private val connectMode = RailWandConnectMode(this)
     private val turnoutMode = RailWandTurnoutMode(this)
     private val editMode = RailWandEditMode(this)
+    private val splitMode = RailWandSplitMode(this)
     private val deleteMode = RailWandDeleteMode(this)
     private val decorateMode = RailWandDecorateMode()
 
@@ -341,6 +365,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     override fun onAfterRegisterEvents() {
+        plugin.server.scheduler.runTaskTimer(plugin, Runnable { updateSplitPreviews() }, 1L, 4L)
         plugin.logger.info("RailWand initialized")
     }
 
@@ -674,6 +699,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     override fun onPlayerQuit(player: Player, state: WandPlayerState) {
         removeAllAnchorDisplays(player)
         actionHistories.remove(player.uniqueId)
+        splitPreviewTargets.remove(player.uniqueId)
+        splitPreviewRequests.remove(player.uniqueId)
         heavyOperationGate.clear(player.uniqueId)
         configUI.removePlayerSession(player.uniqueId)
     }
@@ -688,6 +715,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             WandMode.CONNECT -> connectMode.handle(player, state, event)
             WandMode.TURNOUT -> turnoutMode.handle(player, state, event)
             WandMode.EDIT -> editMode.handle(player, state, event)
+            WandMode.SPLIT -> splitMode.handle(player, state, event)
             WandMode.DELETE -> deleteMode.handle(player, state, event)
             WandMode.DECORATE -> decorateMode.handle(player, state, event)
         }
@@ -1675,6 +1703,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     internal fun editAnchor(player: Player, anchor: Anchor, state: WandPlayerState) {
+        if (parseSplitAnchorId(anchor.id) != null) {
+            player.sendActionBar(Component.text("分割锚点不能移动；请在分割模式左键尝试合并", NamedTextColor.YELLOW))
+            return
+        }
         // 将锚点当前值写入 session，然后打开 ConfigAPI Dialog
         val session = configUI.getPlayerSession(player.uniqueId)
         val yaw = AnchorGeometry.yawDegrees(anchor.tangent)
@@ -1746,12 +1778,309 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     // ═══════════════════════════════════════════
+    // 分割 / 合并模式
+    // ═══════════════════════════════════════════
+
+    private fun updateSplitPreviews() {
+        plugin.server.onlinePlayers.forEach { player ->
+            if (!isWandItem(player.inventory.itemInMainHand)) return@forEach
+            val state = getState(player)
+            if (state.mode != WandMode.SPLIT) {
+                splitPreviewTargets.remove(player.uniqueId)
+                return@forEach
+            }
+
+            val coreWorld = getCoreWorld(player) ?: return@forEach
+            val pendingRail = state.pendingSplitRail?.let(coreWorld::getRail)
+            val pendingArc = state.pendingSplitArcLength
+            if (pendingRail != null && pendingArc != null && pendingArc in 0.0..pendingRail.curve.totalArcLength) {
+                val point = pendingRail.curve.getPointAt(pendingArc)
+                spawnSplitParticle(player, point.position, Color.LIME, 1.25f)
+            }
+            requestSplitPreview(player)
+        }
+    }
+
+    private fun requestSplitPreview(player: Player) {
+        if (!splitPreviewRequests.add(player.uniqueId)) return
+        val coreWorld = getCoreWorld(player)
+        if (coreWorld == null) {
+            splitPreviewRequests.remove(player.uniqueId)
+            return
+        }
+        val eye = player.eyeLocation
+        val origin = Vector3d(eye.x, eye.y, eye.z)
+        val direction = Vector3d(eye.direction.x, eye.direction.y, eye.direction.z)
+        val worldId = player.world.uid
+        val candidates = coreWorld.getRailsAlongRay(origin, direction, 96.0, 1.5).toList()
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailWand.updateSplitPreview",
+            supplier = { HeavyRailQueries.findLookedAtRailPoint(candidates, origin, direction, 96.0, 1.5) },
+            onSuccess = { match ->
+                splitPreviewRequests.remove(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId || getState(livePlayer).mode != WandMode.SPLIT) return@supply
+                if (match == null || getCoreWorld(livePlayer)?.getRail(match.railId) == null) {
+                    splitPreviewTargets.remove(player.uniqueId)
+                    return@supply
+                }
+                val target = SplitPreviewTarget(worldId, match.railId, match.arcLength, Vector3d(match.position))
+                splitPreviewTargets[player.uniqueId] = target
+                spawnSplitParticle(livePlayer, target.position, Color.AQUA, 1.0f)
+            },
+            onFailure = { error ->
+                splitPreviewRequests.remove(player.uniqueId)
+                plugin.logger.warning(
+                    "RailWand split preview failed for ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
+                )
+            }
+        )
+    }
+
+    private fun spawnSplitParticle(player: Player, position: Vector3dc, color: Color, size: Float) {
+        player.spawnParticle(
+            Particle.DUST,
+            Location(player.world, position.x(), position.y(), position.z()),
+            1,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            Particle.DustOptions(color, size)
+        )
+    }
+
+    internal fun selectOrConfirmSplit(player: Player, state: WandPlayerState) {
+        if (state.pendingSplitRail != null && state.pendingSplitArcLength != null) {
+            confirmSplit(player, state)
+            return
+        }
+        val target = splitPreviewTargets[player.uniqueId]
+        if (target == null || target.worldId != player.world.uid) {
+            requestSplitPreview(player)
+            player.sendActionBar(Component.text("尚未指向可分割的轨道点", NamedTextColor.YELLOW))
+            return
+        }
+        val rail = getCoreWorld(player)?.getRail(target.railId)
+        if (rail == null || target.arcLength <= Curve.TOLERANCE ||
+            target.arcLength >= rail.curve.totalArcLength - Curve.TOLERANCE
+        ) {
+            player.sendActionBar(Component.text("分割点不能位于轨道端点", NamedTextColor.RED))
+            return
+        }
+        state.pendingSplitRail = target.railId
+        state.pendingSplitArcLength = target.arcLength
+        state.selectedRails.clear()
+        state.selectedRails.add(target.railId)
+        persistState(player, state)
+        player.sendActionBar(Component.text(
+            "已选择分割点 ${"%.3f".format(target.arcLength)}m；再次右键确认",
+            NamedTextColor.YELLOW
+        ))
+    }
+
+    private fun confirmSplit(player: Player, state: WandPlayerState) {
+        val railId = state.pendingSplitRail ?: return
+        val arcLength = state.pendingSplitArcLength ?: return
+        val coreWorld = getCoreWorld(player) ?: return
+        val rail = coreWorld.getRail(railId) ?: run {
+            clearPendingSplit(state)
+            player.sendActionBar(Component.text("待分割轨道已不存在", NamedTextColor.RED))
+            return
+        }
+        splitSafetyError(coreWorld, listOf(rail))?.let { error ->
+            player.sendActionBar(Component.text(error, NamedTextColor.RED))
+            return
+        }
+        if (arcLength <= Curve.TOLERANCE || arcLength >= rail.curve.totalArcLength - Curve.TOLERANCE) {
+            player.sendActionBar(Component.text("分割点过于接近轨道端点", NamedTextColor.RED))
+            return
+        }
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道分割")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+
+        val worldId = player.world.uid
+        val curveSnapshot = rail.curve
+        val metadataSnapshot = rail.metadata
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailWand.confirmSplit",
+            supplier = { curveSnapshot.splitAt(arcLength) },
+            onSuccess = { curves ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                val liveRail = liveWorld.getRail(railId)
+                if (liveRail == null || liveRail.curve !== curveSnapshot || liveRail.metadata != metadataSnapshot) {
+                    livePlayer.sendActionBar(Component.text("轨道已变化，请重新选择分割点", NamedTextColor.YELLOW))
+                    clearPendingSplit(getState(livePlayer))
+                    return@supply
+                }
+                splitSafetyError(liveWorld, listOf(liveRail))?.let { error ->
+                    livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
+                    return@supply
+                }
+
+                val renderMetas = RailRenderMetaStore.load(livePlayer.world)
+                val originalRenderMeta = renderMetas.firstOrNull { it.railId == railId }
+                try {
+                    val result = RailTopologyEditor.splitWithPreparedCurves(liveRail, curves.first, curves.second)
+                    RailVisualBootstrap.unregisterRail(railId)
+                    val beforeMeta = registerRailWithTemplate(result.before, originalRenderMeta?.templateSnapshot)
+                    val afterMeta = registerRailWithTemplate(result.after, originalRenderMeta?.templateSnapshot)
+                    RailRenderMetaStore.saveAll(
+                        livePlayer.world,
+                        renderMetas.filterNot { it.railId == railId } + beforeMeta + afterMeta
+                    )
+                    val liveState = getState(livePlayer)
+                    clearPendingSplit(liveState)
+                    liveState.selectedRails.clear()
+                    liveState.selectedRails.addAll(listOf(result.before.id, result.after.id))
+                    persistState(livePlayer, liveState)
+                    splitPreviewTargets.remove(livePlayer.uniqueId)
+                    refreshAnchorsForAllViewers()
+                    livePlayer.sendActionBar(Component.text("轨道已分割为两段", NamedTextColor.GREEN))
+                } catch (error: Throwable) {
+                    plugin.logger.warning("Rail split failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                    livePlayer.sendActionBar(Component.text("轨道分割失败: ${error.message ?: error::class.simpleName}", NamedTextColor.RED))
+                }
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("Rail curve split failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(Component.text("轨道曲线分割失败", NamedTextColor.RED))
+            }
+        )
+    }
+
+    internal fun mergeSplitAnchor(player: Player, anchor: Anchor) {
+        val operationId = parseSplitAnchorId(anchor.id) ?: run {
+            player.sendActionBar(Component.text("请左键由分割操作创建的锚点", NamedTextColor.YELLOW))
+            return
+        }
+        val coreWorld = getCoreWorld(player) ?: return
+        val pair = findSplitPair(coreWorld, operationId) ?: run {
+            player.sendActionBar(Component.text("分割锚点对应的轨道已变化", NamedTextColor.RED))
+            return
+        }
+        val (before, after) = pair
+        RailTopologyEditor.mergeEligibilityError(before, after)?.let { error ->
+            player.sendActionBar(Component.text(error, NamedTextColor.RED))
+            return
+        }
+        splitSafetyError(coreWorld, listOf(before, after))?.let { error ->
+            player.sendActionBar(Component.text(error, NamedTextColor.RED))
+            return
+        }
+        val renderMetas = RailRenderMetaStore.load(player.world)
+        val beforeRender = renderMetas.firstOrNull { it.railId == before.id }
+        val afterRender = renderMetas.firstOrNull { it.railId == after.id }
+        if (beforeRender?.templateSnapshot != afterRender?.templateSnapshot) {
+            player.sendActionBar(Component.text("两段轨道的渲染元数据不一致", NamedTextColor.RED))
+            return
+        }
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道合并")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+
+        val worldId = player.world.uid
+        val beforeCurve = before.curve
+        val afterCurve = after.curve
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            operation = "RailWand.mergeSplitAnchor",
+            supplier = { beforeCurve.concatenate(afterCurve) },
+            onSuccess = { mergedCurve ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                val livePair = findSplitPair(liveWorld, operationId)
+                if (livePair == null || livePair.first.curve !== beforeCurve || livePair.second.curve !== afterCurve) {
+                    livePlayer.sendActionBar(Component.text("分割轨道已变化，请重试", NamedTextColor.YELLOW))
+                    return@supply
+                }
+                RailTopologyEditor.mergeEligibilityError(livePair.first, livePair.second)?.let { error ->
+                    livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
+                    return@supply
+                }
+                splitSafetyError(liveWorld, livePair.toList())?.let { error ->
+                    livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
+                    return@supply
+                }
+
+                try {
+                    val merged = RailTopologyEditor.mergeWithPreparedCurve(livePair.first, livePair.second, mergedCurve)
+                    RailVisualBootstrap.unregisterRail(livePair.first.id)
+                    RailVisualBootstrap.unregisterRail(livePair.second.id)
+                    val mergedMeta = registerRailWithTemplate(merged, beforeRender?.templateSnapshot)
+                    RailRenderMetaStore.saveAll(
+                        livePlayer.world,
+                        renderMetas.filterNot { it.railId == livePair.first.id || it.railId == livePair.second.id } + mergedMeta
+                    )
+                    val liveState = getState(livePlayer)
+                    clearPendingSplit(liveState)
+                    liveState.selectedRails.clear()
+                    liveState.selectedRails.add(merged.id)
+                    persistState(livePlayer, liveState)
+                    refreshAnchorsForAllViewers()
+                    livePlayer.sendActionBar(Component.text("已重新合并分割轨道", NamedTextColor.GREEN))
+                } catch (error: Throwable) {
+                    plugin.logger.warning("Rail merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                    livePlayer.sendActionBar(Component.text("轨道合并失败: ${error.message ?: error::class.simpleName}", NamedTextColor.RED))
+                }
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("Rail curve merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(Component.text("轨道曲线合并失败", NamedTextColor.RED))
+            }
+        )
+    }
+
+    private fun splitSafetyError(coreWorld: CoreWorld, rails: List<CoreRail>): String? {
+        if (rails.any { it.trains.isNotEmpty() }) return "不能操作有列车占用的轨道"
+        if (rails.any { it.signals.isNotEmpty() }) return "不能操作包含信号机的轨道"
+        val railIds = rails.mapTo(hashSetOf()) { it.id }
+        val basicData = coreWorld.basicWorldDataOrNull ?: return null
+        if (basicData.wayPoints.all().any { it.railId in railIds }) return "不能操作包含路径点或运营目的地的轨道"
+        if (railIds.any { basicData.railObjects.objectsOnRail(it).isNotEmpty() }) return "不能操作包含运营对象的轨道"
+        return null
+    }
+
+    private fun registerRailWithTemplate(
+        rail: CoreRail,
+        templateSnapshot: work.art1st.mineRails.bukkit.extension.rail.RailTemplateSnapshot?
+    ): PersistedRailRenderMeta = if (templateSnapshot != null) {
+        RailVisualBootstrap.registerRailWithTemplate(rail, templateSnapshot)
+    } else {
+        RailVisualBootstrap.registerRail(rail)
+    }
+
+    private fun clearPendingSplit(state: WandPlayerState) {
+        state.pendingSplitRail = null
+        state.pendingSplitArcLength = null
+    }
+
+    // ═══════════════════════════════════════════
     // 删除模式
     // ═══════════════════════════════════════════
 
     internal fun deleteAnchor(player: Player, anchorId: String, state: WandPlayerState) {
-        if (isRailEndpointAnchorId(anchorId)) {
-            player.sendActionBar(Component.text("轨道端点锚点不能单独删除，请删除轨道", NamedTextColor.YELLOW))
+        if (isDerivedRailAnchorId(anchorId)) {
+            val message = if (parseSplitAnchorId(anchorId) != null) {
+                "分割锚点不能删除；请在分割模式左键尝试合并"
+            } else {
+                "轨道端点锚点不能单独删除，请删除轨道"
+            }
+            player.sendActionBar(Component.text(message, NamedTextColor.YELLOW))
             return
         }
         val anchor = getAnchor(player.world, anchorId) ?: run {
@@ -1880,26 +2209,36 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun getAnchor(world: World, id: String): Anchor? =
-        anchorsFor(world)[id] ?: getRailEndpointAnchor(world, id)
+        anchorsFor(world)[id] ?: getRailEndpointAnchor(world, id) ?: getSplitAnchor(world, id)
 
     private fun getAllAnchors(world: World): List<Anchor> =
-        anchorsFor(world).values.toList() + getRailEndpointAnchors(world)
+        anchorsFor(world).values.toList() + getRailEndpointAnchors(world) + getSplitAnchors(world)
 
     private fun updateAnchor(world: World, anchor: Anchor) {
-        if (!isRailEndpointAnchorId(anchor.id)) {
+        if (!isDerivedRailAnchorId(anchor.id)) {
             anchorsFor(world)[anchor.id] = anchor
         }
     }
 
     private fun removeAnchor(world: World, id: String) {
-        if (!isRailEndpointAnchorId(id)) {
+        if (!isDerivedRailAnchorId(id)) {
             anchorsFor(world).remove(id)
         }
     }
 
     private fun railEndpointAnchorId(railId: UUID, end: Char): String = "rail:$railId:$end"
 
+    private fun splitAnchorId(operationId: String): String = "split:$operationId"
+
+    private fun parseSplitAnchorId(id: String): String? = id
+        .takeIf { it.startsWith("split:") }
+        ?.removePrefix("split:")
+        ?.takeIf { it.isNotBlank() }
+
     private fun isRailEndpointAnchorId(id: String): Boolean = parseRailEndpointAnchorId(id) != null
+
+    private fun isDerivedRailAnchorId(id: String): Boolean =
+        isRailEndpointAnchorId(id) || parseSplitAnchorId(id) != null
 
     private fun parseRailEndpointAnchorId(id: String): Pair<UUID, Char>? {
         val parts = id.split(':')
@@ -1930,11 +2269,46 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return emptyList()
         return RailRenderMetaStore.load(world).flatMap { meta ->
             val rail = coreWorld.getRail(meta.railId) ?: return@flatMap emptyList()
+            val split = rail.metadata.createdBySplit
+            val hasSiblingPair = split != null && findSplitPair(coreWorld, split.operationId) != null
             listOfNotNull(
-                getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'A')),
+                getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'A'))
+                    .takeUnless { hasSiblingPair && split.segmentIndex == 1 },
                 getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'B'))
+                    .takeUnless { hasSiblingPair && split.segmentIndex == 0 }
             )
         }
+    }
+
+    private fun findSplitPair(coreWorld: CoreWorld, operationId: String): Pair<CoreRail, CoreRail>? {
+        val siblings = coreWorld.allRails.filter { it.metadata.createdBySplit?.operationId == operationId }
+        val before = siblings.singleOrNull { it.metadata.createdBySplit?.segmentIndex == 0 } ?: return null
+        val after = siblings.singleOrNull { it.metadata.createdBySplit?.segmentIndex == 1 } ?: return null
+        return before to after
+    }
+
+    private fun getSplitAnchor(world: World, id: String): Anchor? {
+        val operationId = parseSplitAnchorId(id) ?: return null
+        val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return null
+        val (before, after) = findSplitPair(coreWorld, operationId) ?: return null
+        val point = before.viewAB.endPoint
+        if (point.position.distance(after.viewAB.startPoint.position) > Curve.TOLERANCE) return null
+        return AnchorGeometry.withRoll(
+            Anchor(
+                id = id,
+                position = Vector3d(point.position),
+                tangent = Vector3d(point.tangent),
+                worldId = world.uid.toString()
+            ),
+            AnchorGeometry.rollDegreesFromNormal(point.tangent, point.normal)
+        )
+    }
+
+    private fun getSplitAnchors(world: World): List<Anchor> {
+        val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return emptyList()
+        return coreWorld.allRails.mapNotNull { it.metadata.createdBySplit?.operationId }
+            .distinct()
+            .mapNotNull { getSplitAnchor(world, splitAnchorId(it)) }
     }
 
     internal fun findNearestAnchor(player: Player, maxDistance: Double): Anchor? {
@@ -2296,6 +2670,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         state.selectedRails.clear()
         state.pendingDeleteAnchor = null
         state.pendingDeleteRail = null
+        state.pendingSplitRail = null
+        state.pendingSplitArcLength = null
     }
 
     internal fun persistPlayerState(player: Player, state: WandPlayerState) {

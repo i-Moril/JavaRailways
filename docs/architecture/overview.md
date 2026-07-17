@@ -39,6 +39,7 @@ BukkitPlugin 是 Paper 适配层，负责：
 - 插件生命周期和世界注册；
 - 玩家命令、Wand 和 Dialog；
 - Bukkit 实体渲染和分块可见性；
+- 管理员可选 Display 后端（EntityLib 覆盖轨道和列车视觉，见[展示实体渲染架构](rendering.md)）；
 - 列车模型包、动作和行为脚本；
 - 将 Core 世界快照写入插件数据目录。
 
@@ -57,6 +58,7 @@ flowchart LR
     CW --> BWD[BukkitWorldData]
     CW --> BasicWD[BasicWorldData]
     BWD --> RCM[RenderChunkManager]
+    RCM --> DR[Display Renderer\nnative / entitylib visual]
 ```
 
 `RailWorldFactory` 创建或恢复 `CoreWorld`，随后注册 Bukkit 和 Basic 的扩展数据、速度安全监控器以及轨道渲染信息，最后启动物理 Coordinator。

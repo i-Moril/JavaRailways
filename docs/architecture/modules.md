@@ -18,6 +18,8 @@ slug: /architecture/modules
 
 Paper 1.21.11 运行插件需要 Java 21。Core 和 Basic 保持 Java 17 字节码目标，但这不表示当前已经发布可独立消费的 Java 17 SDK。
 
+BukkitPlugin 通过 `implementation` 将 PacketEvents 和 EntityLib 纳入 runtime/shadow classpath，并重定位其 package。管理员选择 `entitylib` 时，插件在 `onLoad`/`onEnable` 初始化 embedded runtime；轨道和列车视觉使用 packet-only Display，座位、交互与碰撞实体仍使用 Bukkit/Paper 原生实体。迁移边界见[展示实体渲染架构](rendering.md)。
+
 ## 编译期依赖
 
 ```mermaid
@@ -28,6 +30,9 @@ flowchart LR
     Core --> BukkitPlugin
     Basic --> BukkitPlugin
     ConfigLib --> BukkitPlugin
+    PacketEvents --> BukkitPlugin
+    EntityLib --> BukkitPlugin
+    PacketEvents --> EntityLib
     Core -. compileOnly .-> BukkitPluginDev
     Basic -. compileOnly .-> BukkitPluginDev
     ConfigLib -. compileOnly .-> BukkitPluginDev

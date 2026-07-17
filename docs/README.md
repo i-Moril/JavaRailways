@@ -16,6 +16,7 @@ MineRails 是面向 Paper 的铁路模拟插件。当前文档首先覆盖工程
 ## 文档入口
 
 - [工程设计](architecture/overview.md)：模块边界、线程模型、物理 epoch 和持久化。
+- [展示实体渲染架构](architecture/rendering.md)：原生 Display 与实验性 EntityLib/PacketEvents 视觉后端。
 - [自动驾驶与运营协同设计](architecture/automatic-train-operation.md)：已实现的 ATO Phase A/B/C1/C2/C3/D1/T1-T7 契约与后续设计边界。
 - [ATO 实施路线图](architecture/ato-roadmap.md)：当前给定时刻表运营闭环、延期 Registry 和性能阶段计划。
 - [给定时刻表运营闭环设计](architecture/timetable-operation-design.md)：共同周期、Destination、Depot、人工被动进路和 Stall 策略。

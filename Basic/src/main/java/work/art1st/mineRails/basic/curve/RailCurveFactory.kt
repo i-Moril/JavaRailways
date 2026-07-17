@@ -19,17 +19,9 @@ enum class RailCurveTemplateType(val displayName: String) {
     S_CURVE("S弯")
 }
 
-enum class StraightMode {
-    /** 强制使用两端点 chord 作为直线方向；会重设端点 yaw，仅作为手动兜底选项。 */
-    USE_CHORD,
-    /** 要求锚点切线已经与 chord 对齐，避免轨道端点切线突变。 */
-    REQUIRE_TANGENT
-}
-
 data class RailCurveBuildOptions(
     val template: RailCurveTemplateType = RailCurveTemplateType.AUTO,
     val radius: Double = 0.0,
-    val straightMode: StraightMode = StraightMode.REQUIRE_TANGENT,
     val superelevation: SuperelevationConfig? = null
 )
 
@@ -103,7 +95,7 @@ object RailCurveFactory {
         }
 
         return when (match.template) {
-            RailCurveTemplateType.STRAIGHT -> buildStraight(prepared, options, match)
+            RailCurveTemplateType.STRAIGHT -> buildStraight(prepared, match)
             RailCurveTemplateType.FIVE_SEGMENT -> buildFiveSegment(prepared, options, match)
             RailCurveTemplateType.S_CURVE -> buildSCurve(prepared, options, match)
             RailCurveTemplateType.AUTO -> error("AUTO should be resolved before build")
@@ -147,8 +139,16 @@ object RailCurveFactory {
             match.first
         }
         val tolerance = maxOf(0.25, estimatedSpacing(offsets) * 0.1)
+        val preserveAnchorEndpointTangents = centerResult.selectedTemplate != RailCurveTemplateType.STRAIGHT
         val curves = offsets.mapIndexed { index, offset ->
-            offsetCurve(centerCurve, offset, fromAnchors[index], matchedEnds[index], tolerance)
+            offsetCurve(
+                centerCurve,
+                offset,
+                fromAnchors[index],
+                matchedEnds[index],
+                tolerance,
+                preserveAnchorEndpointTangents
+            )
                 ?: return RailParallelCurveBuildResult.failure(
                     "并行曲线端点偏离锚点过大: ${fromAnchors[index].id}→${matchedEnds[index].id}",
                     centerResult.selectedTemplate,
@@ -186,11 +186,19 @@ object RailCurveFactory {
 
     private fun centerAnchor(id: String, anchors: List<Anchor>): Anchor? {
         if (anchors.isEmpty()) return null
+        val referenceTangent = Vector3d(anchors.first().tangent)
+        if (referenceTangent.lengthSquared() < 1e-12) return null
+        referenceTangent.normalize()
+
         val position = Vector3d()
         val tangent = Vector3d()
         anchors.forEach { anchor ->
             position.add(anchor.position)
-            tangent.add(anchor.tangent)
+            val candidate = Vector3d(anchor.tangent)
+            if (candidate.lengthSquared() < 1e-12) return null
+            candidate.normalize()
+            if (candidate.dot(referenceTangent) < 0.0) candidate.negate()
+            tangent.add(candidate)
         }
         position.div(anchors.size.toDouble())
         if (tangent.lengthSquared() < 1e-12) return null
@@ -215,7 +223,8 @@ object RailCurveFactory {
         offset: Double,
         fromAnchor: Anchor,
         toAnchor: Anchor,
-        maxEndpointCorrection: Double
+        maxEndpointCorrection: Double,
+        preserveAnchorEndpointTangents: Boolean
     ): PrimeCurve? {
         val centerPoints = curve.stream().toList()
         val rawOffsetPositions = centerPoints.map { point ->
@@ -246,10 +255,14 @@ object RailCurveFactory {
         }
         val raw = offsetPositions.mapIndexed { index, position ->
             val source = centerPoints[index]
-            val tangent = when (index) {
-                0 -> endpointTangent(fromAnchor.tangent, source.tangent)
-                offsetPositions.lastIndex -> endpointTangent(toAnchor.tangent, source.tangent)
-                else -> tangentAt(offsetPositions, index) ?: Vector3d(source.tangent).normalize()
+            val tangent = if (preserveAnchorEndpointTangents) {
+                when (index) {
+                    0 -> endpointTangent(fromAnchor.tangent, source.tangent)
+                    offsetPositions.lastIndex -> endpointTangent(toAnchor.tangent, source.tangent)
+                    else -> tangentAt(offsetPositions, index) ?: Vector3d(source.tangent).normalize()
+                }
+            } else {
+                tangentAt(offsetPositions, index) ?: Vector3d(source.tangent).normalize()
             }
             val sourceTangent = Vector3d(source.tangent)
             if (sourceTangent.lengthSquared() > 1e-12 && tangent.dot(sourceTangent.normalize()) < 0.0) {
@@ -327,41 +340,46 @@ object RailCurveFactory {
 
     private fun buildStraight(
         prepared: PreparedAnchors,
-        options: RailCurveBuildOptions,
         match: CurveTemplateMatch
     ): RailCurveBuildResult {
-        val horizontalDistance = Vector3d(prepared.chord.x(), 0.0, prepared.chord.z()).length()
-        if (horizontalDistance < 1e-6) {
+        val length = prepared.chord.length()
+        if (length < 1e-6) {
             return RailCurveBuildResult.failure("端点距离过短", match.template, match.reason)
         }
-        val direction = Vector3d(prepared.chord.x(), 0.0, prepared.chord.z()).normalize()
-        val (fromTangent, toTangent) = when (options.straightMode) {
-            StraightMode.USE_CHORD -> {
-                val fromGrade = horizontalGrade(prepared.fromTan3d)
-                val toGrade = horizontalGrade(prepared.toTan3d)
-                Vector3d(direction.x(), fromGrade, direction.z()).normalize() to
-                    Vector3d(direction.x(), toGrade, direction.z()).normalize()
-            }
-            StraightMode.REQUIRE_TANGENT -> {
-                if (!isChordAlignedWithTangent(prepared.chord, prepared.fromTan2d) ||
-                    !isChordAlignedWithTangent(prepared.chord, prepared.toTan2d)
-                ) {
-                    return RailCurveBuildResult.failure("直线模板要求锚点切线与 chord 对齐", match.template, match.reason)
-                }
-                prepared.fromTan3d to prepared.toTan3d
-            }
+
+        // RailWand 用右键点定义垂直于起点切线的平面，终点应是该平面与
+        // 起点切线的交点。Factory 只验证这个约束，不能把任意 chord 当成新切线。
+        // 锚点的 T 与 -T 表示同一切线斜率；prepareAnchors 会统一到 chord 方向。
+        val tangent = Vector3d(prepared.fromTan3d).normalize()
+        val longitudinalDistance = prepared.chord.dot(tangent)
+        val lateralOffset = Vector3d(prepared.chord)
+            .sub(Vector3d(tangent).mul(longitudinalDistance))
+            .length()
+        if (lateralOffset > Curve.TOLERANCE) {
+            return RailCurveBuildResult.failure("直线终点不在起点切线上", match.template, match.reason)
+        }
+        val tangentDot = tangent.dot(Vector3d(prepared.toTan3d).normalize())
+        if (tangentDot < cos(Math.toRadians(0.01))) {
+            return RailCurveBuildResult.failure("直线起终点切线斜率必须相同", match.template, match.reason)
         }
         val curve = createStraightCurve(
             prepared.fromPos,
             prepared.toPos,
-            direction,
-            horizontalDistance,
-            fromTangent,
-            toTangent,
+            tangent,
+            length,
             prepared.fromRoll,
             prepared.toRoll
         )
-        if (!validateGeneratedCurve(curve, prepared.fromPos, prepared.toPos, fromTangent, toTangent, prepared.fromRoll, prepared.toRoll)) {
+        if (!validateGeneratedCurve(
+                curve,
+                prepared.fromPos,
+                prepared.toPos,
+                tangent,
+                tangent,
+                prepared.fromRoll,
+                prepared.toRoll
+            )
+        ) {
             return RailCurveBuildResult.failure("直线模板生成后端点位置/切线/roll 校验失败", match.template, match.reason)
         }
         return RailCurveBuildResult.success(curve, match.template, match.reason)
@@ -674,57 +692,39 @@ object RailCurveFactory {
     private fun createStraightCurve(
         from: Vector3dc,
         to: Vector3dc,
-        horizontalDirection: Vector3dc,
+        tangent: Vector3dc,
         length: Double,
-        fromTangent: Vector3dc,
-        toTangent: Vector3dc,
         fromRollDegrees: Double = 0.0,
         toRollDegrees: Double = 0.0
     ): PrimeCurve {
-        val dir = Vector3d(horizontalDirection).normalize()
-        val hLenA = sqrt(fromTangent.x() * fromTangent.x() + fromTangent.z() * fromTangent.z())
-        val hLenB = sqrt(toTangent.x() * toTangent.x() + toTangent.z() * toTangent.z())
-        val gA = if (hLenA > 1e-10) fromTangent.y() / hLenA else 0.0
-        val gB = if (hLenB > 1e-10) toTangent.y() / hLenB else 0.0
-        val dy = to.y() - from.y()
-        val u = dy - gA * length
-        val v = gB - gA
-        val c = if (length > 1e-6) (3.0 * u - v * length) / (length * length) else 0.0
-        val d = if (length > 1e-6) (v * length - 2.0 * u) / (length * length * length) else 0.0
-
-        fun heightAt(arc: Double): Double = from.y() + gA * arc + c * arc * arc + d * arc * arc * arc
-        fun gradeAt(arc: Double): Double = gA + 2.0 * c * arc + 3.0 * d * arc * arc
+        val direction = Vector3d(tangent).normalize()
         fun rollAt(arc: Double): Double {
-            val t = if (length > 1e-9) (arc / length).coerceIn(0.0, 1.0) else 0.0
-            return fromRollDegrees + (toRollDegrees - fromRollDegrees) * t
+            val ratio = if (length > 1e-9) (arc / length).coerceIn(0.0, 1.0) else 0.0
+            return fromRollDegrees + (toRollDegrees - fromRollDegrees) * ratio
         }
 
         val points = mutableListOf<Curve.RawPoint>()
         val step = 0.2
         var arc = 0.0
         while (arc < length - 1e-9) {
-            points.add(straightCurvePoint(from, dir, arc, heightAt(arc), gradeAt(arc), rollAt(arc)))
+            val position = Vector3d(from).fma(arc, direction)
+            points.add(straightCurvePoint(position, direction, arc, rollAt(arc)))
             arc += minOf(step, length - arc)
         }
-        points.add(straightCurvePoint(from, dir, length, to.y(), gB, toRollDegrees))
+        points.add(straightCurvePoint(Vector3d(to), direction, length, toRollDegrees))
         return PrimeCurve.fromPoints(points)
     }
 
     private fun straightCurvePoint(
-        from: Vector3dc,
-        horizontalDirection: Vector3dc,
+        position: Vector3dc,
+        tangent: Vector3dc,
         arc: Double,
-        y: Double,
-        grade: Double,
         rollDegrees: Double
     ): Curve.RawPoint {
-        val dir = Vector3d(horizontalDirection).normalize()
-        val position = Vector3d(from).fma(arc, dir)
-        position.y = y
-        val tangent = Vector3d(dir.x(), grade, dir.z()).normalize()
-        val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
-        val normal = applyRollToNormal(baseNormal, tangent, rollDegrees)
-        return Curve.RawPoint(position, tangent, normal, arc)
+        val direction = Vector3d(tangent).normalize()
+        val (_, baseNormal, _) = ConstraintSolver.computeFrame(direction)
+        val normal = applyRollToNormal(baseNormal, direction, rollDegrees)
+        return Curve.RawPoint(Vector3d(position), direction, normal, arc)
     }
 
     fun applyRollToNormal(baseNormal: Vector3dc, tangent: Vector3dc, rollDegrees: Double): Vector3d {

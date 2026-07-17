@@ -16,7 +16,6 @@ def update(path: Path, design_speed_kmh: float) -> int:
         "geometry": {
             "curveKind": "UNKNOWN",
             "curveRadiusMeters": None,
-            "straightUsesChordDirection": False,
             "automaticSuperelevation": False,
             "maxSuperelevationMeters": 0.15,
             "allowableCantDeficiencyMeters": 0.075,

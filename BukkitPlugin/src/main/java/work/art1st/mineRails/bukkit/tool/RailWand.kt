@@ -28,7 +28,6 @@ import work.art1st.mineRails.basic.curve.AnchorGeometry
 import work.art1st.mineRails.basic.curve.RailCurveBuildOptions
 import work.art1st.mineRails.basic.curve.RailCurveFactory
 import work.art1st.mineRails.basic.curve.RailCurveTemplateType
-import work.art1st.mineRails.basic.curve.StraightMode
 import work.art1st.mineRails.basic.curve.StandardTurnout
 import work.art1st.mineRails.basic.curve.StandardTurnoutFactory
 import work.art1st.mineRails.basic.curve.SuperelevationConfig
@@ -57,6 +56,25 @@ import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailView
 import java.util.*
 import kotlin.math.*
+
+/**
+ * 右键点确定一个垂直于起点切线的平面；直线终点是起点切线与该平面的交点。
+ */
+internal fun straightTerminalPosition(
+    startPosition: Vector3dc,
+    startTangent: Vector3dc,
+    planePoint: Vector3dc
+): Vector3d {
+    val tangent = Vector3d(startTangent)
+    if (tangent.lengthSquared() < 1.0e-12) return Vector3d(startPosition)
+    tangent.normalize()
+    val distance = Vector3d(planePoint).sub(startPosition).dot(tangent)
+    return Vector3d(startPosition).fma(distance, tangent)
+}
+
+/** 终点复用起点的切线表示；Factory 对 T/-T 做无向归一化。 */
+internal fun straightTerminalTangent(startTangent: Vector3dc): Vector3d =
+    Vector3d(startTangent)
 
 // ═══════════════════════════════════════════════════════════════
 // 工作模式
@@ -163,10 +181,8 @@ data class WandPlayerState(
     var autoDecorate: Boolean = true,
     /** 曲线半径 (m)。0 = 自动选择 */
     var curveRadius: Double = 0.0,
-    /** 曲线模板。AUTO 会按端点几何自动分类；STRAIGHT 可强制斜向直线。 */
+    /** 曲线模板。AUTO 会按端点几何自动分类；STRAIGHT 沿起点切线投影终点。 */
     var curveTemplate: RailCurveTemplateType = RailCurveTemplateType.AUTO,
-    /** 直线模板是否允许重设端点 yaw 为两锚点 chord；默认关闭以避免切线突变。 */
-    var straightUsesChordDirection: Boolean = false,
     /** 标准道岔号数，同时确定侧线半径和限速。 */
     var turnoutStandard: StandardTurnout = StandardTurnout.N9,
     /** 新建轨道的设计时速。 */
@@ -194,7 +210,6 @@ internal data class SavedRailWandStateV1(
     val autoDecorate: Boolean = true,
     val curveRadius: Double = 0.0,
     val curveTemplate: String = RailCurveTemplateType.AUTO.name,
-    val straightUsesChordDirection: Boolean = false,
     val turnoutStandard: String = StandardTurnout.N9.name,
     val designSpeedKmH: Double = 80.0,
     val allowableCantDeficiencyMm: Double = 75.0,
@@ -220,7 +235,6 @@ internal object RailWandStateCodec {
             autoDecorate = state.autoDecorate,
             curveRadius = state.curveRadius,
             curveTemplate = state.curveTemplate.name,
-            straightUsesChordDirection = state.straightUsesChordDirection,
             turnoutStandard = state.turnoutStandard.name,
             designSpeedKmH = state.designSpeedKmH,
             allowableCantDeficiencyMm = state.allowableCantDeficiencyMm,
@@ -245,7 +259,6 @@ internal object RailWandStateCodec {
             autoDecorate = saved.autoDecorate,
             curveRadius = saved.curveRadius.coerceAtLeast(0.0),
             curveTemplate = enumValueOrDefault(saved.curveTemplate, RailCurveTemplateType.AUTO),
-            straightUsesChordDirection = saved.straightUsesChordDirection,
             turnoutStandard = enumValueOrDefault(saved.turnoutStandard, StandardTurnout.N9),
             designSpeedKmH = saved.designSpeedKmH.coerceIn(5.0, 500.0),
             allowableCantDeficiencyMm = saved.allowableCantDeficiencyMm.coerceIn(0.0, 300.0),
@@ -398,7 +411,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
         val curveTemplate = ConfigKey.build<RailCurveTemplateType>("wand.curveTemplate") {
             label = "曲线模板"
-            description = "自动/直线/五段式/S弯。直线模板可避免斜向直线被误判。"
+            description = "自动/直线/五段式/S弯。直线终点由右键点所在的切线垂直平面确定。"
             defaultValue(RailCurveTemplateType.AUTO)
             valueType = ConfigValueType.ENUM
             constraints = ConfigConstraints.EnumOptions(
@@ -407,14 +420,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             )
             group = "wand.settings"
             order = 7
-        }
-        val straightUsesChordDirection = ConfigKey.build<Boolean>("wand.straightUsesChord") {
-            label = "直线重设为端点方向"
-            description = "直线模板下强制使用两锚点连线作为方向。默认关闭；连接既有轨道时应关闭以避免切线突变。"
-            defaultValue(false)
-            valueType = ConfigValueType.BOOLEAN
-            group = "wand.settings"
-            order = 8
         }
         val turnoutStandard = ConfigKey.build<StandardTurnout>("wand.turnoutStandard") {
             label = "标准道岔号数"
@@ -426,7 +431,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 StandardTurnout.entries.associateWith { it.displayName }
             )
             group = "wand.settings"
-            order = 9
+            order = 8
         }
         val designSpeedKmH = ConfigKey.build<Double>("wand.designSpeedKmH") {
             label = "设计时速"
@@ -435,7 +440,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(5.0, 500.0, 5.0, "km/h")
             group = "wand.settings"
-            order = 10
+            order = 9
         }
         val allowableCantDeficiencyMm = ConfigKey.build<Double>("wand.allowableCantDeficiencyMm") {
             label = "允许欠超高"
@@ -444,7 +449,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
             group = "wand.settings"
-            order = 11
+            order = 10
         }
         val automaticSuperelevation = ConfigKey.build<Boolean>("wand.automaticSuperelevation") {
             label = "自动外轨超高"
@@ -452,7 +457,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             defaultValue(true)
             valueType = ConfigValueType.BOOLEAN
             group = "wand.settings"
-            order = 12
+            order = 11
         }
         val maxSuperelevationMm = ConfigKey.build<Double>("wand.maxSuperelevationMm") {
             label = "最大外轨超高"
@@ -461,7 +466,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
             group = "wand.settings"
-            order = 13
+            order = 12
         }
     }
 
@@ -562,7 +567,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             items = mutableListOf(
                 ConfigItemImpl(wandKeys.curveRadius),
                 ConfigItemImpl(wandKeys.curveTemplate),
-                ConfigItemImpl(wandKeys.straightUsesChordDirection),
                 ConfigItemImpl(wandKeys.turnoutStandard),
                 ConfigItemImpl(wandKeys.designSpeedKmH),
                 ConfigItemImpl(wandKeys.allowableCantDeficiencyMm),
@@ -622,8 +626,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ?: (configUI.get(wandKeys.curveRadius) ?: 0.0)
         state.curveTemplate = session.getValue(wandKeys.curveTemplate)
             ?: (configUI.get(wandKeys.curveTemplate) ?: RailCurveTemplateType.AUTO)
-        state.straightUsesChordDirection = session.getValue(wandKeys.straightUsesChordDirection)
-            ?: (configUI.get(wandKeys.straightUsesChordDirection) ?: false)
         state.turnoutStandard = session.getValue(wandKeys.turnoutStandard)
             ?: (configUI.get(wandKeys.turnoutStandard) ?: StandardTurnout.N9)
         state.designSpeedKmH = session.getValue(wandKeys.designSpeedKmH)
@@ -649,7 +651,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(wandKeys.autoDecorate, state.autoDecorate)
         session.setValue(wandKeys.curveRadius, state.curveRadius)
         session.setValue(wandKeys.curveTemplate, state.curveTemplate)
-        session.setValue(wandKeys.straightUsesChordDirection, state.straightUsesChordDirection)
         session.setValue(wandKeys.turnoutStandard, state.turnoutStandard)
         session.setValue(wandKeys.designSpeedKmH, state.designSpeedKmH)
         session.setValue(wandKeys.allowableCantDeficiencyMm, state.allowableCantDeficiencyMm)
@@ -702,9 +703,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("请右键方块创建锚点", NamedTextColor.RED))
             return
         }
-        val inheritedTangents = getCreateModeInheritedTangents(player, state)
-        val placementTangent = getSnappedTangent(player, state)
-        val newAnchors = createParallelAnchorGroup(player, position, placementTangent, state, inheritedTangents)
+        val straightStarts = getCreateModeStraightStarts(player, state)
+        val newAnchors = if (straightStarts != null) {
+            createStraightTerminalAnchorGroup(player, position, straightStarts)
+        } else {
+            createParallelAnchorGroup(player, position, getSnappedTangent(player, state), state)
+        }
         val newAnchorIds = newAnchors.map { it.id }
 
         val undoActions = newAnchors.map { WandAction.CreateAnchor(player.world.uid, it.id) }
@@ -740,8 +744,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         player: Player,
         center: Vector3dc,
         placementTangent: Vector3dc,
-        state: WandPlayerState,
-        inheritedTangents: List<Vector3dc>? = null
+        state: WandPlayerState
     ): List<Anchor> {
         val count = state.parallelCount.coerceAtLeast(1)
         val right = perpendicularRight(placementTangent)
@@ -749,8 +752,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val offset = (index - (count - 1) / 2.0) * state.parallelSpacing
             val position = Vector3d(center).fma(offset, right)
             val anchorId = nextAnchorId()
-            val anchorTangent = inheritedTangents?.getOrNull(index) ?: placementTangent
-            Anchor(anchorId, position, Vector3d(anchorTangent), worldId = player.world.uid.toString()).also { anchor ->
+            Anchor(anchorId, position, Vector3d(placementTangent), worldId = player.world.uid.toString()).also { anchor ->
                 addAnchor(player.world, anchor)
                 spawnAnchorDisplay(player, anchor)
             }
@@ -758,19 +760,30 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     /**
-     * 创建模式连续建直线时，新终点锚点继承上一组锚点/轨道端点的切线。
-     * 这样斜向直线由第一个锚点方向决定，第二次点击只提供终点位置，不会因为玩家当前朝向造成端点切线突变。
-     * 非直线模板必须使用玩家当前朝向作为终点切线，否则会把五段式/S 弯错误压成同向约束。
+     * 直线的第二次右键只选择终点横断面：每条起点切线与经过右键点、
+     * 垂直于该切线的平面相交，得到对应终点；终点复用起点切线表示。
      */
-    private fun getCreateModeInheritedTangents(player: Player, state: WandPlayerState): List<Vector3dc>? {
-        if (state.curveTemplate != RailCurveTemplateType.STRAIGHT) {
-            return null
-        }
+    private fun getCreateModeStraightStarts(player: Player, state: WandPlayerState): List<Anchor>? {
+        if (state.curveTemplate != RailCurveTemplateType.STRAIGHT) return null
         val count = state.parallelCount.coerceAtLeast(1)
         if (state.selectedAnchors.size != count) return null
-        val anchors = state.selectedAnchors.mapNotNull { getAnchor(player.world, it) }
-        if (anchors.size != count) return null
-        return anchors.map { Vector3d(it.tangent) }
+        return state.selectedAnchors.map { getAnchor(player.world, it) ?: return null }
+    }
+
+    private fun createStraightTerminalAnchorGroup(
+        player: Player,
+        planePoint: Vector3dc,
+        starts: List<Anchor>
+    ): List<Anchor> = starts.map { start ->
+        val anchor = Anchor(
+            id = nextAnchorId(),
+            position = straightTerminalPosition(start.position, start.tangent, planePoint),
+            tangent = straightTerminalTangent(start.tangent),
+            worldId = player.world.uid.toString()
+        )
+        addAnchor(player.world, anchor)
+        spawnAnchorDisplay(player, anchor)
+        anchor
     }
 
     private fun perpendicularRight(tangent: Vector3dc): Vector3d {
@@ -788,7 +801,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val parallelSpacing: Double,
         val curveRadius: Double,
         val curveTemplate: RailCurveTemplateType,
-        val straightUsesChordDirection: Boolean,
         val designSpeedKmH: Double,
         val allowableCantDeficiencyMm: Double,
         val automaticSuperelevation: Boolean,
@@ -905,7 +917,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             parallelSpacing = state.parallelSpacing,
             curveRadius = state.curveRadius,
             curveTemplate = state.curveTemplate,
-            straightUsesChordDirection = state.straightUsesChordDirection,
             designSpeedKmH = state.designSpeedKmH,
             allowableCantDeficiencyMm = state.allowableCantDeficiencyMm,
             automaticSuperelevation = state.automaticSuperelevation,
@@ -1424,7 +1435,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return RailCurveBuildOptions(
             template = settings.curveTemplate,
             radius = settings.curveRadius,
-            straightMode = if (settings.straightUsesChordDirection) StraightMode.USE_CHORD else StraightMode.REQUIRE_TANGENT,
             superelevation = if (settings.automaticSuperelevation) {
                 SuperelevationConfig(
                     maxSuperelevation = settings.maxSuperelevationMm / 1000.0,
@@ -1449,7 +1459,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         geometry = RailGeometryMetadata(
             curveKind = RailCurveKind.valueOf(settings.curveTemplate.name),
             curveRadiusMeters = settings.curveRadius.takeIf { it > 0.0 },
-            straightUsesChordDirection = settings.straightUsesChordDirection,
             automaticSuperelevation = settings.automaticSuperelevation,
             maxSuperelevationMeters = settings.maxSuperelevationMm / 1000.0,
             allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
@@ -1545,7 +1554,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             parallelSpacing = parallel?.spacingMeters ?: 4.5,
             curveRadius = curveRadius,
             curveTemplate = template,
-            straightUsesChordDirection = geometry.straightUsesChordDirection,
             designSpeedKmH = designSpeedKmH,
             allowableCantDeficiencyMm = geometry.allowableCantDeficiencyMeters * 1000.0,
             automaticSuperelevation = geometry.automaticSuperelevation,

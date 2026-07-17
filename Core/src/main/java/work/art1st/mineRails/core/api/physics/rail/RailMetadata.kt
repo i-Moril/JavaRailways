@@ -32,7 +32,6 @@ data class RailGeometryMetadata(
     val curveKind: RailCurveKind = RailCurveKind.UNKNOWN,
     /** Null means automatic radius selection. */
     val curveRadiusMeters: Double? = null,
-    val straightUsesChordDirection: Boolean = false,
     val automaticSuperelevation: Boolean = false,
     val maxSuperelevationMeters: Double = 0.15,
     val allowableCantDeficiencyMeters: Double = 0.075,

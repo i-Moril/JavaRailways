@@ -44,9 +44,9 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
-    fun `straight template defaults to tangent continuity`() {
-        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
-        val to = Anchor("B", Vector3d(10.0, 0.0, 5.0), Vector3d(1.0, 0.0, 0.0))
+    fun `straight template rejects an endpoint outside the start tangent line`() {
+        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.5, 0.0).normalize())
+        val to = Anchor("B", Vector3d(10.0, 5.0, 5.0), Vector3d(1.0, 0.5, 0.0).normalize())
 
         val result = RailCurveFactory.build(
             from,
@@ -56,7 +56,27 @@ class RailCurveFactoryTemplateTest {
 
         assertFalse(result.isSuccess)
         assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
-        assertTrue(result.error!!.contains("切线"))
+        assertTrue(result.error!!.contains("起点切线"))
+    }
+
+    @Test
+    fun `straight template keeps the start tangent and grade at both endpoints`() {
+        val tangent = Vector3d(1.0, 0.5, 0.0).normalize()
+        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), tangent)
+        val to = Anchor("B", Vector3d(tangent).mul(20.0), Vector3d(tangent))
+
+        val result = RailCurveFactory.build(
+            from,
+            to,
+            RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        val curve = result.curve!!
+        assertEquals(20.0, curve.totalArcLength, 1.0e-8)
+        assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(tangent) > 1.0 - 1.0e-8)
+        assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(tangent) > 1.0 - 1.0e-8)
+        assertTangentContinuity(curve)
     }
 
     @Test
@@ -91,6 +111,72 @@ class RailCurveFactoryTemplateTest {
         val mid2 = result.curves[2].getPointAt(result.curves[2].totalArcLength * 0.5).position
         assertTrue(mid0.distance(mid1) > spacing * 0.8)
         assertTrue(mid1.distance(mid2) > spacing * 0.8)
+    }
+
+    @Test
+    fun `parallel straight curves keep the shared start tangent`() {
+        val spacing = 4.5
+        val centerStart = Vector3d(0.0, 0.0, 0.0)
+        val centerEnd = Vector3d(10.0, 5.0, 5.0)
+        val tangent = Vector3d(centerEnd).sub(centerStart).normalize()
+        val right = Vector3d(tangent.x, 0.0, tangent.z)
+            .normalize()
+            .cross(Vector3d(0.0, 1.0, 0.0))
+        val starts = listOf(
+            Anchor("A0", Vector3d(centerStart).fma(spacing / 2.0, right), Vector3d(tangent)),
+            Anchor("A1", Vector3d(centerStart).fma(-spacing / 2.0, right), Vector3d(tangent))
+        )
+        val ends = listOf(
+            Anchor("B0", Vector3d(centerEnd).fma(spacing / 2.0, right), Vector3d(tangent)),
+            Anchor("B1", Vector3d(centerEnd).fma(-spacing / 2.0, right), Vector3d(tangent))
+        )
+
+        val result = RailCurveFactory.buildParallel(
+            starts,
+            ends,
+            RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        result.curves!!.forEachIndexed { index, curve ->
+            val expectedTangent = Vector3d(ends[index].position).sub(starts[index].position).normalize()
+            assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
+            assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
+            assertTangentContinuity(curve)
+        }
+    }
+
+    @Test
+    fun `parallel straight curves build when anchor tangent signs are mixed`() {
+        val spacing = 4.5
+        val tangent = Vector3d(1.0, 0.2, 0.5).normalize()
+        val right = Vector3d(tangent.x, 0.0, tangent.z)
+            .normalize()
+            .cross(Vector3d(0.0, 1.0, 0.0))
+        val centerStart = Vector3d(2.0, 3.0, -4.0)
+        val centerEnd = Vector3d(centerStart).fma(30.0, tangent)
+        val starts = listOf(
+            Anchor("A0", Vector3d(centerStart).fma(spacing / 2.0, right), Vector3d(tangent)),
+            Anchor("A1", Vector3d(centerStart).fma(-spacing / 2.0, right), Vector3d(tangent).negate())
+        )
+        val ends = listOf(
+            Anchor("B0", Vector3d(centerEnd).fma(spacing / 2.0, right), Vector3d(tangent).negate()),
+            Anchor("B1", Vector3d(centerEnd).fma(-spacing / 2.0, right), Vector3d(tangent))
+        )
+
+        val result = RailCurveFactory.buildParallel(
+            starts,
+            ends,
+            RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        assertEquals(2, result.curves!!.size)
+        result.curves.forEachIndexed { index, curve ->
+            assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < Curve.TOLERANCE)
+            assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < Curve.TOLERANCE)
+            assertTangentContinuity(curve)
+        }
     }
 
     @Test
@@ -187,21 +273,37 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
-    fun `straight template can manually use chord direction`() {
-        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
-        val to = Anchor("B", Vector3d(10.0, 0.0, 5.0), Vector3d(1.0, 0.0, 0.0))
-
-        val result = RailCurveFactory.build(
-            from,
-            to,
-            RailCurveBuildOptions(
-                template = RailCurveTemplateType.STRAIGHT,
-                straightMode = StraightMode.USE_CHORD
+    fun `straight curve is identical for every endpoint tangent sign combination`() {
+        val tangent = Vector3d(1.0, 0.25, -0.5).normalize()
+        val fromPosition = Vector3d(2.0, 3.0, -4.0)
+        val toPosition = Vector3d(fromPosition).fma(20.0, tangent)
+        val curves = listOf(
+            1.0 to 1.0,
+            1.0 to -1.0,
+            -1.0 to 1.0,
+            -1.0 to -1.0
+        ).map { (fromSign, toSign) ->
+            val result = RailCurveFactory.build(
+                Anchor("A", fromPosition, Vector3d(tangent).mul(fromSign)),
+                Anchor("B", toPosition, Vector3d(tangent).mul(toSign)),
+                RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
             )
-        )
+            assertTrue(result.isSuccess, "signs=$fromSign/$toSign: ${result.error}")
+            result.curve!!
+        }
 
-        assertTrue(result.isSuccess, result.error)
-        assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
+        val reference = curves.first()
+        curves.drop(1).forEach { curve ->
+            assertEquals(reference.totalArcLength, curve.totalArcLength, 1.0e-9)
+            for (index in 0..10) {
+                val ratio = index / 10.0
+                val expected = reference.getPointAt(reference.totalArcLength * ratio)
+                val actual = curve.getPointAt(curve.totalArcLength * ratio)
+                assertTrue(expected.position.distance(actual.position) < 1.0e-9, "position differs at $ratio")
+                assertTrue(expected.tangent.distance(actual.tangent) < 1.0e-9, "tangent differs at $ratio")
+                assertTrue(expected.normal.distance(actual.normal) < 1.0e-9, "normal differs at $ratio")
+            }
+        }
     }
 
     @OptIn(Heavy::class)

@@ -23,7 +23,6 @@ class WandStateCodecTest {
             autoDecorate = false,
             curveRadius = 450.0,
             curveTemplate = RailCurveTemplateType.FIVE_SEGMENT,
-            straightUsesChordDirection = true,
             turnoutStandard = StandardTurnout.N18,
             designSpeedKmH = 160.0,
             allowableCantDeficiencyMm = 95.0,
@@ -39,7 +38,7 @@ class WandStateCodecTest {
     @Test
     fun `rail wand decoder clamps invalid persisted values`() {
         val restored = requireNotNull(RailWandStateCodec.decode(
-            """{"mode":"REMOVED","parallelCount":99,"parallelSpacing":-4.0,"designSpeedKmH":9999.0}"""
+            """{"mode":"REMOVED","parallelCount":99,"parallelSpacing":-4.0,"straightUsesChordDirection":true,"designSpeedKmH":9999.0}"""
         ))
 
         assertEquals(WandMode.CREATE, restored.mode)

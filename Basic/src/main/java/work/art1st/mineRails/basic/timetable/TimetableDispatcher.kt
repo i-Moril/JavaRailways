@@ -578,7 +578,9 @@ class TimetableDispatcher(
                 "service ${run.id} is suspended and requires explicit replan"
             )
         }
-        cancelPendingOperation(run)
+        cancelPendingOperation(run)?.let {
+            return TimetableControlTransferResult.Failure(it)
+        }
         cancelStationCallForControlTransfer(run)
         if (run.train.controller === run.ato) run.train.setController(null)
         run.controlTransferOwner = transferOwner
@@ -616,7 +618,9 @@ class TimetableDispatcher(
                 "service ${run.id} is not MANUAL_ROUTED by $transferOwner"
             )
         }
-        cancelPendingOperation(run)
+        cancelPendingOperation(run)?.let {
+            return TimetableControlTransferResult.Failure(it)
+        }
         cancelStationCallForControlTransfer(run)
         run.controlMode = TimetableControlMode.FULL_MANUAL
         run.manualController = null
@@ -652,7 +656,9 @@ class TimetableDispatcher(
                 "service ${run.id} is already suspended by ${run.controlTransferOwner ?: "released transfer"}"
             )
         }
-        cancelPendingOperation(run)
+        cancelPendingOperation(run)?.let {
+            return TimetableControlTransferResult.Failure(it)
+        }
         cancelStationCallForControlTransfer(run)
         if (run.train.controller === run.ato) run.train.setController(null)
         run.controlTransferOwner = transferOwner
@@ -788,11 +794,13 @@ class TimetableDispatcher(
     @MainThread
     fun tick(world: World) {
         dispatcherTick++
-        if (world.basicWorldData.atoCoordinator.isStalled) return
+        val coordinator = world.basicWorldData.atoCoordinator
+        if (coordinator.isStalled) return
         val sectionAllocator = allocator(world)
         val candidates = ArrayList<AllocationCandidate>()
 
         runs.values.toList().forEach { run ->
+            if (coordinator.isStalled) return
             run.lastObservedDispatcherTick = dispatcherTick
             val manualRouted = run.controlMode == TimetableControlMode.MANUAL_ROUTED
             val fullManual = run.controlMode == TimetableControlMode.FULL_MANUAL ||
@@ -804,15 +812,22 @@ class TimetableDispatcher(
             } else {
                 run.ato.currentTrainSnapshot
             }
-            if (!controlTransferred) processStationNotifications(run)
+            if (!controlTransferred) {
+                processStationNotifications(run)
+                if (coordinator.isStalled) return
+            }
             updateTailProgress(run, snapshot)
             updateStationTailProgress(run, snapshot)
             if (manualRouted && !validateManualConfirmedTurnouts(world, run, snapshot)) {
+                if (coordinator.isStalled) return
                 return@forEach
             }
             releaseDepotDeparture(world, run)
+            if (coordinator.isStalled) return
             releasePassedSections(run, sectionAllocator)
+            if (coordinator.isStalled) return
             releasePassedBerth(run)
+            if (coordinator.isStalled) return
 
             if (run.state.isTerminal()) {
                 finishControllerIfReleased(run, snapshot)
@@ -1008,6 +1023,7 @@ class TimetableDispatcher(
             }
         }
 
+        if (coordinator.isStalled) return
         candidates.sortedWith(
             compareBy<AllocationCandidate>(
                 { absoluteTimetableTick(it.run, it.runtime.priorityTick) },
@@ -1016,11 +1032,13 @@ class TimetableDispatcher(
                 { it.run.cycleIndex }
             )
         ).forEach { candidate ->
+            if (coordinator.isStalled) return
             if (candidate.run.state.isTerminal() || candidate.section.status != SectionStatus.PENDING) {
                 return@forEach
             }
             allocate(candidate, sectionAllocator)
         }
+        if (coordinator.isStalled) return
         startDueCycles(world)
     }
 
@@ -1082,7 +1100,10 @@ class TimetableDispatcher(
         if (run.canBeReplaced() || run.state == TimetableServiceRunState.STOPPED ||
             run.isStoredTerminal()
         ) return true
-        cancelPendingOperation(run)
+        cancelPendingOperation(run)?.let { reason ->
+            stallRun(world, run, "TrainOperationFailure", reason)
+            return false
+        }
         run.ato.setSpeedLimit(stopKey(run), 0.0)
         run.state = TimetableServiceRunState.STOPPING
         run.message = "operator stop requested; route remains held until the tail clears"
@@ -1134,7 +1155,9 @@ class TimetableDispatcher(
         validateDepotReset(world, trainIds)?.let { error(it) }
         val sectionAllocator = allocator(world)
         val selectedRuns = runs.values.filter { it.train.id in trainIds }
-        selectedRuns.forEach(::cancelPendingOperation)
+        selectedRuns.forEach { run ->
+            cancelPendingOperation(run)?.let(::error)
+        }
         val routeKeys = sectionAllocator.confirmedWindows()
             .map { it.key }
             .filter { it.owner.trainId in trainIds }
@@ -1250,11 +1273,9 @@ class TimetableDispatcher(
             is TrainOperation.SetCabLights -> "cab-lights"
             is TrainOperation.Announce -> "announce"
         }
-        stationCall.operationTicket?.let { previous ->
-            val pending = runCatching {
-                previous.snapshot().state == TrainOperationTicketState.PENDING
-            }.getOrDefault(true)
-            if (pending) runCatching { previous.cancel() }
+        cancelPendingOperation(run)?.let { reason ->
+            enterManualIntervention(run, stationCall, reason)
+            return
         }
         stationCall.operationTicket = null
         stationCall.operationTicketId = null
@@ -1281,22 +1302,42 @@ class TimetableDispatcher(
         when (result) {
             is TrainOperationExecutionResult.Accepted -> {
                 if (result.ticket.request != request) {
-                    runCatching { result.ticket.cancel() }
-                    enterManualIntervention(run, stationCall, "$phase returned a ticket for another request")
-                    return
-                }
-                val initialSnapshot = runCatching { result.ticket.snapshot() }.getOrElse { failure ->
-                    runCatching { result.ticket.cancel() }
                     enterManualIntervention(
                         run,
                         stationCall,
-                        "$phase ticket exception: ${failure.message ?: failure::class.java.simpleName}"
+                        withCancellationResult(
+                            "$phase returned a ticket for another request",
+                            result.ticket,
+                            request.requestId
+                        )
+                    )
+                    return
+                }
+                val initialSnapshot = try {
+                    result.ticket.snapshot()
+                } catch (failure: Exception) {
+                    enterManualIntervention(
+                        run,
+                        stationCall,
+                        withCancellationResult(
+                            "$phase ticket exception: " +
+                                (failure.message ?: failure::class.java.simpleName),
+                            result.ticket,
+                            request.requestId
+                        )
                     )
                     return
                 }
                 if (initialSnapshot.requestId != request.requestId) {
-                    runCatching { result.ticket.cancel() }
-                    enterManualIntervention(run, stationCall, "$phase ticket request identity mismatch")
+                    enterManualIntervention(
+                        run,
+                        stationCall,
+                        withCancellationResult(
+                            "$phase ticket request identity mismatch",
+                            result.ticket,
+                            initialSnapshot.ticketId
+                        )
+                    )
                     return
                 }
                 stationCall.operationTicket = result.ticket
@@ -1327,29 +1368,43 @@ class TimetableDispatcher(
         val snapshot = try {
             ticket.snapshot()
         } catch (failure: Exception) {
-            runCatching { ticket.cancel() }
             enterManualIntervention(
                 run,
                 stationCall,
-                "operation ticket exception: ${failure.message ?: failure::class.java.simpleName}"
+                withCancellationResult(
+                    "operation ticket exception: " +
+                        (failure.message ?: failure::class.java.simpleName),
+                    ticket,
+                    stationCall.operationTicketId ?: ticket.request.requestId
+                )
             )
             return true
         }
         if (snapshot.requestId != ticket.request.requestId ||
             snapshot.ticketId != stationCall.operationTicketId
         ) {
-            runCatching { ticket.cancel() }
-            enterManualIntervention(run, stationCall, "operation ticket identity changed")
+            enterManualIntervention(
+                run,
+                stationCall,
+                withCancellationResult(
+                    "operation ticket identity changed",
+                    ticket,
+                    snapshot.ticketId
+                )
+            )
             return true
         }
         when (snapshot.state) {
             TrainOperationTicketState.PENDING -> {
                 if (dispatcherTick - stationCall.operationStartedDispatcherTick >= operationTimeoutTicks) {
-                    runCatching { ticket.cancel() }
                     enterManualIntervention(
                         run,
                         stationCall,
-                        "operation ${snapshot.ticketId} timed out after $operationTimeoutTicks ticks"
+                        withCancellationResult(
+                            "operation ${snapshot.ticketId} timed out after $operationTimeoutTicks ticks",
+                            ticket,
+                            snapshot.ticketId
+                        )
                     )
                     return true
                 }
@@ -2153,11 +2208,42 @@ class TimetableDispatcher(
         run.message = "service completed; route remains held until the tail clears"
     }
 
-    private fun cancelPendingOperation(run: ActiveRun) {
-        val ticket = run.stationCall?.operationTicket ?: return
-        val pending = runCatching { ticket.snapshot().state == TrainOperationTicketState.PENDING }
-            .getOrDefault(true)
-        if (pending) runCatching { ticket.cancel() }
+    private fun cancelPendingOperation(run: ActiveRun): String? {
+        val ticket = run.stationCall?.operationTicket ?: return null
+        val before = try {
+            ticket.snapshot()
+        } catch (failure: Exception) {
+            return "operation ticket snapshot failed before cancellation: " +
+                (failure.message ?: failure::class.java.simpleName)
+        }
+        if (before.state != TrainOperationTicketState.PENDING) return null
+        return cancelTicketAndConfirm(ticket, before.ticketId)
+    }
+
+    private fun withCancellationResult(
+        reason: String,
+        ticket: TrainOperationTicket,
+        ticketId: String
+    ): String = cancelTicketAndConfirm(ticket, ticketId)?.let { "$reason; $it" } ?: reason
+
+    private fun cancelTicketAndConfirm(ticket: TrainOperationTicket, ticketId: String): String? {
+        try {
+            ticket.cancel()
+        } catch (failure: Exception) {
+            return "operation $ticketId cancellation failed: " +
+                (failure.message ?: failure::class.java.simpleName)
+        }
+        val after = try {
+            ticket.snapshot()
+        } catch (failure: Exception) {
+            return "operation $ticketId cancellation could not be confirmed: " +
+                (failure.message ?: failure::class.java.simpleName)
+        }
+        return if (after.state == TrainOperationTicketState.CANCELLED) {
+            null
+        } else {
+            "operation $ticketId remained ${after.state.name.lowercase()} after cancellation"
+        }
     }
 
     private fun finishControllerIfReleased(run: ActiveRun, snapshot: TrainSnapshot) {

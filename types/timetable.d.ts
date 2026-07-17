@@ -5,10 +5,12 @@ interface MineRailsTimetableBuilder {
   setPeriodDays(days: number): MineRailsTimetableBuilder;
   /** @deprecated Use setPeriodDays(); ticks must be a positive multiple of 24,000. */
   setPeriod(ticks: number): MineRailsTimetableBuilder;
+  /** Dynamic assignment; the first action must be takeFromDepot(). */
   service(id: string, builder: MineRailsServiceBuilderCallback): MineRailsTimetableBuilder;
+  /** Explicit assignment; call check() before the first movement. */
   service(
     id: string,
-    trainSelector: string | readonly string[] | null,
+    trainSelector: string | null,
     builder: MineRailsServiceBuilderCallback,
   ): MineRailsTimetableBuilder;
 }

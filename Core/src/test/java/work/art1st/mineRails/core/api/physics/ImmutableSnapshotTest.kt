@@ -27,12 +27,13 @@ class ImmutableSnapshotTest {
             override val location = RailLocationWithFacing(rail.viewAB, 10.0)
         }
 
-        val snapshot = RailObjectSnapshot.capture(live, ViewDirection.AB, revision = 3L)
+        val snapshot = RailObjectSnapshot.capture(live, ViewDirection.AB)
+        val repeated = RailObjectSnapshot.capture(live, ViewDirection.AB)
         live.lifecycleState = RailObjectLifecycleState.REMOVED
 
+        assertEquals(snapshot, repeated)
         assertEquals(RailObjectLifecycleState.ACTIVE, snapshot.lifecycleState)
         assertEquals(10.0, snapshot.position.arcLengthInAbMeters, 1.0e-9)
-        assertEquals(3L, snapshot.revision)
     }
 
     @Test

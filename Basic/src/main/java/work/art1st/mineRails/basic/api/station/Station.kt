@@ -213,8 +213,8 @@ class StationStore(private val railObjects: RailObjectStore) {
             }
         } catch (failure: Exception) {
             registered.forEach { berth ->
-                railObjects.unregister(berth.ref)
                 berth.markRemoved()
+                railObjects.unregister(berth.ref)
             }
             throw failure
         }

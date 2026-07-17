@@ -546,6 +546,27 @@ class DepotStore {
         }
     }
 
+    /** Stabling points that can hold at least one registered record matching [selector]. */
+    fun compatibleStablingPoints(selector: DepotTrainSelector): List<StablingPointSnapshot> =
+        synchronized(lock) {
+            val matchingRecords = rollingStock.values.asSequence()
+                .map { it.record }
+                .filter(selector::matches)
+                .toList()
+            points.values.asSequence()
+                .filter { it.point.ref.depotId == selector.depotId }
+                .filter { point -> matchingRecords.any { pointAccepts(point.point, it) } }
+                .sortedBy { it.point.ref.pointId }
+                .map {
+                    StablingPointSnapshot(
+                        it.point,
+                        it.occupantTrainId,
+                        it.reservedByAssignmentId
+                    )
+                }
+                .toList()
+        }
+
     fun rollingStock(trainId: String): RollingStockSnapshot? = synchronized(lock) {
         rollingStock[trainId]?.snapshot()
     }

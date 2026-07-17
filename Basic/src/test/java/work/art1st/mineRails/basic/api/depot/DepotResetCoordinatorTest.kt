@@ -139,6 +139,101 @@ class DepotResetCoordinatorTest {
     }
 
     @Test
+    fun `failed placement restores every train including the train that threw mid-move`() {
+        val world = createTestWorld().also(worlds::add)
+        val coordinator = AtoWorldCoordinator("reset-placement-rollback", reportSink = {})
+        val data = BasicWorldData(atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(140.0, segmentCount = 1)
+        )
+        val safeTrain = createTrainWithConfig("A-safe", rail, world, listOf(10.0))
+        val riskyTrain = createTrainWithConfig("B-risky", rail, world, listOf(10.0))
+        riskyTrain.setLocation(safeTrain.head.location.forward(30.0)!!)
+        riskyTrain.commit()
+        val depotId = DepotId("north")
+        OperationalDestinationService(world).register(
+            OperationalDestination(
+                "north-safe",
+                "North safe",
+                rail.id,
+                100.0,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(
+                    "north",
+                    "safe",
+                    usableLengthMeters = 20.0,
+                    allowedTags = setOf("safe")
+                )
+            )
+        )
+        OperationalDestinationService(world).register(
+            OperationalDestination(
+                "north-risky",
+                "North risky",
+                rail.id,
+                6.0,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole(
+                    "north",
+                    "risky",
+                    usableLengthMeters = 20.0,
+                    allowedTags = setOf("risky")
+                )
+            )
+        )
+        data.depots.registerRollingStock(
+            RollingStockRecord(
+                safeTrain.id,
+                depotId,
+                "test/safe",
+                setOf("safe"),
+                1,
+                1.0,
+                20.0,
+                emptySet()
+            ),
+            StablingPointRef(depotId, "safe")
+        )
+        data.depots.registerRollingStock(
+            RollingStockRecord(
+                riskyTrain.id,
+                depotId,
+                "test/risky",
+                setOf("risky"),
+                1,
+                1.0,
+                20.0,
+                emptySet()
+            ),
+            StablingPointRef(depotId, "risky")
+        )
+        val beforeSafeHead = safeTrain.head.location.arcLengthIn(ViewDirection.AB)
+        val beforeRiskyHead = riskyTrain.head.location.arcLengthIn(ViewDirection.AB)
+        val beforeRiskyBogies = riskyTrain.cars.flatMap { car -> car.bogies }
+            .map { it.location.arcLengthIn(ViewDirection.AB) }
+        val beforeStock = data.depots.allRollingStock()
+        val beforePoints = data.depots.stablingPoints(depotId)
+        coordinator.stall(report(coordinator.worldId, riskyTrain.id))
+
+        val result = DepotResetCoordinator(world).reset(setOf(depotId))
+        riskyTrain.commit()
+
+        assertTrue(result is DepotResetResult.Failed)
+        assertEquals("TRAIN_PLACEMENT", result.report.failureStage)
+        assertEquals(beforeSafeHead, safeTrain.head.location.arcLengthIn(ViewDirection.AB), 1.0e-9)
+        assertEquals(beforeRiskyHead, riskyTrain.head.location.arcLengthIn(ViewDirection.AB), 1.0e-9)
+        assertEquals(
+            beforeRiskyBogies,
+            riskyTrain.cars.flatMap { car -> car.bogies }
+                .map { it.location.arcLengthIn(ViewDirection.AB) }
+        )
+        assertEquals(beforeStock, data.depots.allRollingStock())
+        assertEquals(beforePoints, data.depots.stablingPoints(depotId))
+    }
+
+    @Test
     fun `failed train preflight changes neither train nor depot ledger`() {
         val world = createTestWorld().also(worlds::add)
         val coordinator = AtoWorldCoordinator("reset-preflight", reportSink = {})

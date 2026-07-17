@@ -1,7 +1,6 @@
 // @ts-check
 /// <reference path="../../types/timetable.d.ts" />
-// MineRails Phase 5 timetable DSL example.
-const depot = ["depot1", "depot2"]
+// MineRails timetable DSL example using explicit executable selectors.
 const outbound = ["a0", "a1", "b0"]
 const inbound = ["b0", "a1", "a0", "depot1"]
 
@@ -9,14 +8,16 @@ const inbound = ["b0", "a1", "a0", "depot1"]
 function main(timetable) {
   timetable.setPeriodDays(1)
 
-  timetable.service("001", depot, function(t) {
+  timetable.service("001", "train-001", function(t) {
+    t.check("depot1")
     t.at(1000).goto(outbound)
     t.check("b0")
     t.at(4000).stop(200)
     t.at(4500).goto(inbound)
   })
 
-  timetable.service("002", depot, function(t) {
+  timetable.service("002", "train-002", function(t) {
+    t.check("depot2")
     t.at(3000).goto(outbound)
     t.check("b0")
     t.at(6000).stop(200)

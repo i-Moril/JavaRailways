@@ -361,6 +361,10 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 "Depot Reset 失败: stage=${result.report.failureStage} " +
                     "message=${result.report.message}"
             )
+            is DepotResetResult.PartiallyCommitted -> sender.sendMessage(
+                "Depot Reset 部分提交: stage=${result.report.failureStage} " +
+                    "message=${result.report.message}；World 保持 Stall，请检查报告后重试 Reset"
+            )
         }
         if (reportFile != null) sender.sendMessage("报告: ${reportFile.absolutePath}")
     }

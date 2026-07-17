@@ -27,7 +27,6 @@ import work.art1st.mineRails.basic.api.destination.DestinationRoleType
 import work.art1st.mineRails.basic.api.destination.OperationalDestination
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
 import work.art1st.mineRails.basic.api.station.DoorSide
-import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.api.ui.config.ConfigConstraints
 import work.art1st.mineRails.basic.api.ui.config.ConfigGroup
 import work.art1st.mineRails.basic.api.ui.config.ConfigItemImpl
@@ -616,44 +615,37 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             return
         }
         val legacyWayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: return
-        val roleType = session.getValue(editKeys.role) ?: DestinationRoleType.REGULAR
-        val direction = session.getValue(editKeys.approachDirection) ?: ViewDirection.AB
-        val role = try {
-            when (roleType) {
-                DestinationRoleType.REGULAR -> DestinationRole.Regular
-                DestinationRoleType.STATION_BERTH -> DestinationRole.StationBerthRole(
-                    stationId = StationId(session.getValue(editKeys.stationId).orEmpty().trim()),
-                    berthId = session.getValue(editKeys.berthId).orEmpty().trim(),
-                    doorSide = session.getValue(editKeys.doorSide) ?: DoorSide.LEFT
+        val original = coreWorld.basicWorldData.destinations[oldId]
+        val updated = try {
+            applyRailObjectDestinationEdit(
+                legacyWayPoint,
+                original,
+                RailObjectDestinationEdit(
+                    id = newId,
+                    roleType = session.getValue(editKeys.role) ?: DestinationRoleType.REGULAR,
+                    approachDirection = session.getValue(editKeys.approachDirection)
+                        ?: ViewDirection.AB,
+                    stationId = session.getValue(editKeys.stationId).orEmpty(),
+                    berthId = session.getValue(editKeys.berthId).orEmpty(),
+                    doorSide = session.getValue(editKeys.doorSide) ?: DoorSide.LEFT,
+                    depotId = session.getValue(editKeys.depotId).orEmpty(),
+                    stablingPointId = session.getValue(editKeys.stablingPointId).orEmpty(),
+                    stablingUsableLengthMeters = session.getValue(editKeys.stablingUsableLength)
+                        ?.takeIf { it > 0.0 },
+                    stablingAllowedTags = session.getValue(editKeys.stablingAllowedTags)
+                        .orEmpty()
+                        .split(',')
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                        .toSet()
                 )
-                DestinationRoleType.DEPOT_STABLING_POINT ->
-                    DestinationRole.DepotStablingPointRole(
-                        depotId = session.getValue(editKeys.depotId).orEmpty().trim(),
-                        stablingPointId = session.getValue(editKeys.stablingPointId).orEmpty().trim(),
-                        usableLengthMeters = session.getValue(editKeys.stablingUsableLength)
-                            ?.takeIf { it > 0.0 },
-                        allowedTags = session.getValue(editKeys.stablingAllowedTags)
-                            .orEmpty()
-                            .split(',')
-                            .map(String::trim)
-                            .filter(String::isNotEmpty)
-                            .toSet()
-                    )
-            }
+            )
         } catch (failure: Exception) {
             player.sendActionBar(
                 Component.text("Destination 配置无效: ${failure.message}", NamedTextColor.RED)
             )
             return
         }
-        val updated = OperationalDestination(
-            id = newId,
-            displayName = newId,
-            railId = legacyWayPoint.railId,
-            arcLengthInAbMeters = legacyWayPoint.arcLength,
-            approachDirection = direction,
-            role = role
-        )
         try {
             val destinationService = OperationalDestinationService(coreWorld)
             if (coreWorld.basicWorldData.destinations[oldId] != null) {

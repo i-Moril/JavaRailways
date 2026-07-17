@@ -217,11 +217,11 @@ data class RailObjectRef(
 
 当前语义：
 
-- ref 在单个 World 内唯一，跨 World 使用时必须同时携带 world ID；
+- ref 在单个 World 内必须唯一，跨 World 使用时必须同时携带 world ID；`RailObjectStore` 拒绝重复注册，`RailMap` 拒绝同一 RailView 内重复，ATO 合并跨 view/index 感知时若发现同一 ref 指向不同 live 对象，会以身份矛盾触发 World-local Stall，绝不静默覆盖；
 - live RailObject 的 location 是实时视图，规划器只能消费 `RailObjectSnapshot`；
-- 对象 owner 在移除时负责标记 REMOVED，并从所属 store/index 解除注册；
+- 对象 owner 在移除时必须先发布 REMOVED，再从所属 store/index 解除注册；由 `RailObjectStore` 自身拥有的 provider boundary 由 store 完成该转换；
 - 是否持久化由具体对象类型决定；
-- snapshot revision 由发布者提供。
+- `RailObjectSnapshot` 不伪造独立 revision；同一批感知的一致性由外层 `PerceptionSnapshot.perceptionEpoch` 以及 train/route revision 表达。对应 Stall JSON 从 `schemaVersion: 2` 起不再输出 subject `revision`。
 
 不建议通过固定 `enum RailObjectKind` 封闭全部对象类型。信号、站台停车标等可以使用能力接口和 provider 注册扩展。
 

@@ -733,7 +733,7 @@ class SimpleATO(
                 val distance = distanceToSegment + (objectArc - segment.startArcLength).coerceAtLeast(0.0)
                 val observed = Observed(
                     railObject = railObject,
-                    snapshot = RailObjectSnapshot.capture(railObject, view.viewDirection, perceptionEpoch),
+                    snapshot = RailObjectSnapshot.capture(railObject, view.viewDirection),
                     distanceMeters = distance,
                     relativeSpeedMetersPerSecond = otherTrain?.let {
                         val speedAlongRoute = if (trainEnd.location.facing == view.viewDirection) it.speed else 0.0
@@ -741,6 +741,9 @@ class SimpleATO(
                     }
                 )
                 val existing = result[railObject.ref]
+                check(existing == null || existing.railObject === railObject) {
+                    "duplicate RailObjectRef ${railObject.ref} refers to distinct live objects"
+                }
                 if (existing == null || observed.distanceMeters < existing.distanceMeters) {
                     result[railObject.ref] = observed
                 }

@@ -21,6 +21,7 @@ import work.art1st.mineRails.basic.api.ato.provider.AtoProvider
 import work.art1st.mineRails.basic.api.ato.provider.AtoProviderBoundary
 import work.art1st.mineRails.basic.api.ato.provider.AtoProviderContext
 import work.art1st.mineRails.basic.api.ato.provider.ProviderBoundaryAction
+import work.art1st.mineRails.basic.pathFinding.RailDestination
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.mineRails.basic.rail.RailAutoConnector
 import work.art1st.mineRails.basic.route.ConfirmedRouteWindow
@@ -218,19 +219,51 @@ class SimpleATOTest {
         val head = fixture.train.head.location
         val target = object : RailObject {
             override val ref = RailObjectRef("test", "lost-stop-target")
-            override val lifecycleState = RailObjectLifecycleState.ACTIVE
+            override var lifecycleState = RailObjectLifecycleState.ACTIVE
             override val location = RailLocationWithFacing(head.railView, head.arcLength + 20.0)
         }
         fixture.data.railObjects.register(target)
         fixture.ato.stopAt("station", target)
         tickAndPublish(fixture.ato, 50.0)
 
+        target.lifecycleState = RailObjectLifecycleState.REMOVED
         fixture.data.railObjects.unregister(target.ref)
         tickAndPublish(fixture.ato, 50.0)
 
         assertTrue(fixture.coordinator.isStalled)
         assertTrue(fixture.coordinator.lastStall?.message?.contains("disappeared") == true)
         assertEquals(0.0, fixture.train.speed, 1.0e-9)
+    }
+
+    @Test
+    fun `distinct observed objects with the same world reference stall instead of shadowing`() {
+        val fixture = fixture("duplicate-rail-object-ref", railLengthMeters = 30.0)
+        val head = fixture.train.head.location
+        val nextRail = CoreRail(
+            fixture.world,
+            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(130.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        CoreRail.connect(head.rail, nextRail)
+        val ref = RailObjectRef("test", "duplicate")
+        fixture.data.railMap.addDestination(
+            nextRail.viewAB,
+            RailDestination(nextRail.viewAB, "legacy", ref)
+        )
+        fixture.data.railObjects.register(object : RailObject {
+            override val ref = ref
+            override val lifecycleState = RailObjectLifecycleState.ACTIVE
+            override val location = RailLocationWithFacing(nextRail.viewAB, 1.0)
+        })
+
+        tickAndPublish(fixture.ato, 50.0)
+
+        assertTrue(fixture.coordinator.isStalled)
+        assertTrue(
+            fixture.coordinator.lastStall?.message?.contains("duplicate RailObjectRef") == true,
+            fixture.coordinator.lastStall?.message
+        )
     }
 
     @Test

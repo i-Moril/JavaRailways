@@ -56,7 +56,8 @@ class TimetableScriptLoaderTest {
             """
             function main(timetable) {
               timetable.setPeriodDays(1)
-              timetable.service("001", ["depot1"], function(t) {
+              timetable.service("001", "T1", function(t) {
+                t.check("depot1")
                 t.at(1000).goto("a0")
                 t.at(2000).stop(100)
                 t.at(2200).goto("b0")
@@ -73,9 +74,10 @@ class TimetableScriptLoaderTest {
         assertEquals(1L, success.timetable.periodDays)
         assertEquals(24_000L, success.timetable.periodTicks)
         assertEquals(1, success.timetable.services.size)
-        assertEquals(TrainSelector.WayPointPool(listOf("depot1")), success.timetable.services.single().trainSelector)
-        assertEquals(3, success.timetable.services.single().steps.size)
-        assertEquals(TimetableAction.GoTo("a0"), (success.timetable.services.single().steps[0] as TimetableStep.At).action)
+        assertEquals(TrainSelector.TrainId("T1"), success.timetable.services.single().trainSelector)
+        assertEquals(4, success.timetable.services.single().steps.size)
+        assertEquals(TimetableStep.Check("depot1"), success.timetable.services.single().steps[0])
+        assertEquals(TimetableAction.GoTo("a0"), (success.timetable.services.single().steps[1] as TimetableStep.At).action)
         assertEquals(2, success.validation.routes.size)
     }
 

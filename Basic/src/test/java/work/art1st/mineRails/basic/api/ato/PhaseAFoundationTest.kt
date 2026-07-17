@@ -45,8 +45,7 @@ class PhaseAFoundationTest {
         val subject = RailObjectSnapshot(
             ref = RailObjectRef("test", "signal/1"),
             lifecycleState = RailObjectLifecycleState.ACTIVE,
-            position = RailPositionSnapshot(railId, ViewDirection.AB, 50.0),
-            revision = 2L
+            position = RailPositionSnapshot(railId, ViewDirection.AB, 50.0)
         )
         val mutableObservations = mutableListOf(
             RailObservationSnapshot(subject, ObservationTransition.ENTER, 30.0)
@@ -82,8 +81,7 @@ class PhaseAFoundationTest {
             RailObjectSnapshot(
                 RailObjectRef("test", id),
                 RailObjectLifecycleState.ACTIVE,
-                RailPositionSnapshot(railId, ViewDirection.AB, distance),
-                revision = 1L
+                RailPositionSnapshot(railId, ViewDirection.AB, distance)
             ),
             ObservationTransition.UPDATE,
             distance

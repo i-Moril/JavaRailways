@@ -123,7 +123,7 @@ class PhaseBConstraintTest {
 
         val root = Json.parseToJsonElement(AtoStallReportJson.encode(report)).jsonObject
 
-        assertEquals(1, root.getValue("schemaVersion").jsonPrimitive.content.toInt())
+        assertEquals(2, root.getValue("schemaVersion").jsonPrimitive.content.toInt())
         assertEquals("world-id", root.getValue("worldId").jsonPrimitive.content)
         assertEquals("broken", root.getValue("error").jsonObject.getValue("message").jsonPrimitive.content)
         assertEquals(123L, root.getValue("occurredAtEpochMillis").jsonPrimitive.content.toLong())

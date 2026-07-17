@@ -68,7 +68,7 @@ World Stall 后可执行显式确认的 Depot Reset：
 /mr depot reset-all confirm
 ```
 
-命令会先等待当前 physics ticket，再全量预检列车、directed StablingPoint、容量和 Dispatcher ledger。任何 preflight 失败都不会移动列车或修改 occupancy。成功会停止相关 run/controller、取消 operation ticket、重建位置和资源账本，并在 `plugins/MineRails/debug/` 写入结构化报告。Reset 完成后 World **仍保持 Stall**；管理员检查后必须另行执行 `/mr ato reset <world>`。
+命令会先等待当前 physics ticket，再全量预检列车、directed StablingPoint、容量和 Dispatcher ledger。任何 preflight 失败都不会移动列车或修改 occupancy。提交时先原子发布全部列车位置；定位失败会在修改 ledger 前恢复旧位置。随后停止相关 run/controller、取消 operation ticket并重建资源账本；ticket 必须通过 snapshot 确认为 `CANCELLED`，取消或快照异常不会被忽略。账本提交开始后的未预期异常会明确报告 `PARTIALLY_COMMITTED`，不会声称已完整回滚。报告写入 `plugins/MineRails/debug/`；Reset 结束后 World **仍保持 Stall**，管理员检查后必须另行执行 `/mr ato reset <world>`。
 
 取得 timetable 列车钥匙控制权时默认进入 `MANUAL_ROUTED`：司机手柄是唯一速度来源，Dispatcher 仍申请计划 RouteSection 并按车尾释放，但不会自动开关门、执行 dwell hold 或授予发车。钥匙 Dialog 可通过“关闭时刻表进路辅助”进入 `FULL_MANUAL/SUSPENDED`；此后不申请新 Section。任一人工模式释放后均进入 `REPLAN_REQUIRED`，不会自动恢复 ATO。
 
@@ -96,7 +96,8 @@ function main(timetable) {
 function main(timetable) {
   timetable.setPeriodDays(1)
 
-  timetable.service("001", ["depot1"], function(t) {
+  timetable.service("001", "train-001", function(t) {
+    t.check("depot1")
     t.at(1000).goto("a0")
     t.at(2000).stop(100)
     t.at(2200).goto("b0")
@@ -107,8 +108,8 @@ function main(timetable) {
 含义：
 
 - 时刻表周期为 `1` 个逻辑游戏日，即 `24000` Dispatcher Tick。
-- 定义车次/服务 `001`。
-- 初始候选位置为路径点池 `["depot1"]`。
+- 定义由 `train-001` 执行的车次/服务 `001`。
+- `check("depot1")` 声明并验证第一次移动的初始位置。
 - 在 `1000` tick 前往 `a0`。
 - 在 `2000` tick 停留 `100` tick。
 - 在 `2200` tick 前往 `b0`。
@@ -137,10 +138,11 @@ timetable.setPeriodDays(2)
 
 ### `timetable.service(id, builder)`
 
-定义一个 service，不指定初始列车/位置。
+定义动态配车 service。未指定列车时必须以 `t.at(0).takeFromDepot(...)` 开始。
 
 ```js
 timetable.service("001", function(t) {
+  t.at(0).takeFromDepot("north")
   t.at(1000).goto("a0")
 })
 ```
@@ -150,31 +152,20 @@ timetable.service("001", function(t) {
 定义一个 service，并指定列车选择器。
 
 ```js
-timetable.service("001", ["depot1"], function(t) {
+timetable.service("001", "train-001", function(t) {
+  t.check("depot1")
   t.at(1000).goto("a0")
 })
 ```
 
-`trainSelector` 当前支持三种形式：
+可执行的列车选择模型只有两种：
 
-| 写法 | 含义 |
+| 写法 | 约束 |
 |---|---|
-| 省略或 `null` | 任意列车，`AnyTrain` |
-| 字符串 | 指定列车 id，`TrainId` |
-| 字符串数组 | 路径点池，`WayPointPool` |
+| 省略或 `null` | 动态配车；第一步必须是 `takeFromDepot` |
+| 字符串 | 指定列车 id；第一次移动前必须有 `check()` |
 
-示例：
-
-```js
-// 任意列车
-timetable.service("001", function(t) {})
-
-// 指定列车 id
-timetable.service("002", "train-uuid-or-id", function(t) {})
-
-// 从路径点池选车；当前 validator 会把第一个路径点作为初始位置用于 dry-run
-timetable.service("003", ["depot1", "depot2"], function(t) {})
-```
+字符串数组会被旧版 parser 识别为 `WayPointPool`，但 Dispatcher 无法据此绑定真实列车，因此 validator 会明确拒绝；新脚本不得使用。
 
 ## Service 内 API
 
@@ -205,6 +196,7 @@ timetable.service("001", function(t) {
 - 候选先按稳定 train ID 排序，再使用 timetable/cycle/service 派生 seed 可复现选择；
 - 被选列车必须仍停在其 directed StablingPoint；
 - 无匹配 `AVAILABLE` 列车会触发当前 World 的 ATO Stall；
+- dry-run 只从满足 selector 的 RollingStock 及其兼容 StablingPoint 展开候选路线，不会因不兼容停车点产生伪失败；
 - 未知 option、非法范围、缺失 Depot/StablingPoint 会导致 loader 失败。
 
 ### `t.at(tick).storeAtDepot(depotId, options?)`
@@ -382,6 +374,8 @@ JavaScript 的 `number` 类型不能表达“必须是整数”，因此 tick �
 - `tick` 是否非负、是否倒退。
 - `stop(ticks)` 是否大于 0。
 - 引用的路径点是否存在。
+- selector 是否可执行：动态 service 必须先 `takeFromDepot`，显式列车第一次移动前必须 `check`，legacy `WayPointPool` 会被拒绝；
+- service 是否至少包含一次 `goto` / `goVia` movement；
 - 可确定起点时，`goto` / `goVia` 经路是否可达。
 
 验证失败时，加载不会写入新的时刻表，也不会影响已经加载的旧时刻表。
@@ -405,7 +399,8 @@ function main(timetable) {...}
 
 ```js
 function main(timetable) {
-  timetable.service("001", ["depot1"], function(t) {
+  timetable.service("001", "train-001", function(t) {
+    t.check("depot1")
     t.at(2000).goto("a0")
     t.at(1000).goto("b0")
   })
@@ -416,7 +411,8 @@ function main(timetable) {
 
 ```js
 function main(timetable) {
-  timetable.service("001", ["depot1"], function(t) {
+  timetable.service("001", "train-001", function(t) {
+    t.check("depot1")
     t.at(1000).goto("missing_waypoint")
   })
 }
@@ -426,7 +422,8 @@ function main(timetable) {
 
 ```js
 function main(timetable) {
-  timetable.service("001", ["depot1"], function(t) {
+  timetable.service("001", "train-001", function(t) {
+    t.check("depot1")
     t.at(1000).goto(123) // 错误：goto 只接受字符串或字符串数组
   })
 }
@@ -437,21 +434,22 @@ function main(timetable) {
 仓库中的可检查示例位于 `examples/timetables/demo.js`。下面展示同一类完整脚本：
 
 ```js
-const depot = ["depot1", "depot2"]
 const outbound = ["a0", "a1", "b0"]
 const inbound = ["b0", "a1", "a0", "depot1"]
 
 function main(timetable) {
   timetable.setPeriodDays(1)
 
-  timetable.service("001", depot, function(t) {
+  timetable.service("001", "train-001", function(t) {
+    t.check("depot1")
     t.at(1000).goto(outbound)
     t.check("b0")
     t.at(4000).stop(200)
     t.at(4500).goto(inbound)
   })
 
-  timetable.service("002", depot, function(t) {
+  timetable.service("002", "train-002", function(t) {
+    t.check("depot2")
     t.at(3000).goto(outbound)
     t.check("b0")
     t.at(6000).stop(200)
@@ -464,9 +462,8 @@ function main(timetable) {
 
 当前 loader 和 Dispatcher 仍不会：
 
-- 从 legacy `WayPointPool` 自动选择真实列车；动态服务必须显式使用 `takeFromDepot`。
+- 从 legacy `WayPointPool` 自动选择真实列车；validator 会拒绝该 selector，动态服务必须显式使用 `takeFromDepot`。
 - 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。
-- 提供 MANUAL_ROUTED 人工被动进路模式。
 - 处理会让、越行或晚点优化等高级运营规则。
 - 持久化已加载时刻表或活动 epoch；重启后需要重新加载并由管理员启动。
 - 限制脚本的 host access、执行时间、内存或死循环。

@@ -211,14 +211,13 @@ Reset 必须在主线程执行以下原子预检：
 
 预检成功后进入维护提交：
 
-- 停止 timetable runs 和 controllers；
-- 取消 operation tickets；
+- 先把全部列车放置并发布到预计算 StablingPoint；任一列车定位失败时，在修改资源账本前恢复全部旧位置；
+- 全部位置提交成功后停止 timetable runs 和 controllers，并取消 operation tickets；取消只有在后续 snapshot 明确为 `CANCELLED` 时才算成功，snapshot/cancel 异常会终止本次提交并报告 `PARTIALLY_COMMITTED`；
 - 关闭并重建 Dispatcher 的 route/berth/depot 资源账本；
-- 将列车放置到预计算 StablingPoint；
 - 重建 occupancy 与 AVAILABLE 状态；
 - 写出结构化 reset 报告。
 
-Reset 完成后 World **仍保持 Stall**。管理员检查列车和道岔后，显式执行 `/mr ato reset`，再启动新的 timetable epoch。这是唯一允许绕过正常车尾释放的维护边界。
+正常预检和列车定位失败不会留下部分状态。账本提交开始后的未预期内部异常无法安全伪装成回滚成功，必须报告 `PARTIALLY_COMMITTED` 并保持 Stall，等待管理员检查后再次执行 Reset。Reset 成功后 World 也**仍保持 Stall**；管理员检查列车和道岔后，显式执行 `/mr ato reset`，再启动新的 timetable epoch。这是唯一允许绕过正常车尾释放的维护边界。
 
 ## 6. 人工驾驶模式
 
@@ -246,7 +245,7 @@ manual controller 当前不消费 SimpleATO movement authority。因此第一版
 - 司机可离开计划经路，但不得改变仍被锁闭的 confirmed turnout；
 - 恢复 ATO 必须释放人工 session，并由管理员从明确 Destination/WayPoint 执行 replan。
 
-切换到 FULL_MANUAL 不强制释放资源。若司机选择的自由经路与仍持有的 Section 冲突，只能等待释放或执行维护 Reset。
+切换到 FULL_MANUAL 不强制释放资源。若司机选择的自由经路与仍持有的 Section 冲突，只能等待释放或执行维护 Reset。人工接管或模式切换前若有活动 operation ticket，Dispatcher 必须取消并通过 snapshot 确认 `CANCELLED`；任何异常都会拒绝控制权转移并保留原控制器和运行状态。
 
 ## 7. World-local Stall 矩阵
 

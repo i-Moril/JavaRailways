@@ -4,6 +4,7 @@ import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -256,6 +257,31 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `door operation timeout reports cancellation failure`() {
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.RIGHT,
+            operationGateway = ThrowingCancelOperationGateway(),
+            operationTimeoutTicks = 3L
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.FAILED) break
+        }
+
+        val status = fixture.dispatcher.status(id)!!
+        assertEquals(TimetableServiceRunState.FAILED, status.state)
+        assertTrue(status.message!!.contains("timed out"))
+        assertTrue(status.message!!.contains("cancellation failed"), status.message)
+        assertTrue(status.message!!.contains("cancel failed"), status.message)
+        assertTrue(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `failed close ticket never grants departure`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
@@ -362,6 +388,68 @@ class TimetableStationCallDispatcherTest {
                 TimetableReplanResult.Failure
         )
         assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
+    }
+
+    @Test
+    fun `manual transfer is rejected when a pending door operation cannot be cancelled`() {
+        val gateway = ThrowingCancelOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.LEFT,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state ==
+                TimetableServiceRunState.DOORS_OPENING
+            ) break
+        }
+        val ato = fixture.train.controller
+
+        val result = fixture.dispatcher.suspendForControlTransfer(
+            fixture.world,
+            fixture.train.id,
+            "driver-1"
+        )
+
+        assertTrue(result is TimetableControlTransferResult.Failure)
+        assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
+        assertSame(ato, fixture.train.controller)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `manual transfer is rejected when the operation ticket cannot be inspected`() {
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.LEFT,
+            operationGateway = ThrowingSnapshotOperationGateway()
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state ==
+                TimetableServiceRunState.DOORS_OPENING
+            ) break
+        }
+        val ato = fixture.train.controller
+
+        val result = fixture.dispatcher.suspendForControlTransfer(
+            fixture.world,
+            fixture.train.id,
+            "driver-1"
+        )
+
+        assertTrue(result is TimetableControlTransferResult.Failure)
+        assertTrue((result as TimetableControlTransferResult.Failure).reason.contains("snapshot"))
+        assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
+        assertSame(ato, fixture.train.controller)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
     }
 
     @Test
@@ -702,6 +790,44 @@ class TimetableStationCallDispatcherTest {
                 Curve.RawPoint(to, tangent, normal, length, Curve.SegmentType.LINE_END)
             )
         )
+    }
+
+    private class ThrowingCancelOperationGateway : TrainOperationGateway {
+        override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult =
+            TrainOperationExecutionResult.Accepted(object : TrainOperationTicket {
+                override val request: TrainOperationRequest = request
+
+                override fun snapshot(): TrainOperationTicketSnapshot =
+                    TrainOperationTicketSnapshot(
+                        ticketId = "throwing:${request.requestId}",
+                        requestId = request.requestId,
+                        state = TrainOperationTicketState.PENDING
+                    )
+
+                override fun cancel() {
+                    error("cancel failed")
+                }
+            })
+    }
+
+    private class ThrowingSnapshotOperationGateway : TrainOperationGateway {
+        override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult =
+            TrainOperationExecutionResult.Accepted(object : TrainOperationTicket {
+                override val request: TrainOperationRequest = request
+                private var snapshotCount = 0
+
+                override fun snapshot(): TrainOperationTicketSnapshot {
+                    snapshotCount++
+                    if (snapshotCount > 1) error("snapshot failed")
+                    return TrainOperationTicketSnapshot(
+                        ticketId = "throwing:${request.requestId}",
+                        requestId = request.requestId,
+                        state = TrainOperationTicketState.PENDING
+                    )
+                }
+
+                override fun cancel() = Unit
+            })
     }
 
     private class ControllableOperationGateway : TrainOperationGateway {

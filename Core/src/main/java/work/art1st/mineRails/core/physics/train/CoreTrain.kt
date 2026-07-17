@@ -146,13 +146,34 @@ open class CoreTrain @MainThread internal constructor(
 
     @Throws(PhysicsException::class)
     fun setLocation(headLocation: RailLocationWithFacing) {
-        clearDerailed()
-        // 正面面朝此location
-        if (isReversed) reverse()
+        val previousHeadLocation = head.location
         val previousLocations = currentRailLocations()
-        headBogie.updateLocation(headLocation.forward(-headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this))
+        val previousPendingSweptSpans = pendingSweptSpans
+        val wasDerailed = isDerailed
+        val wasReversed = isReversed
+        try {
+            clearDerailed()
+            // 正面面朝此location
+            if (isReversed) reverse()
+            applyHeadLocation(headLocation)
+            pendingSweptSpans = spansFromLocations(previousLocations + activeRailLocations())
+        } catch (failure: Exception) {
+            runCatching {
+                if (isReversed != wasReversed) reverseInternal()
+                applyHeadLocation(previousHeadLocation)
+                pendingSweptSpans = previousPendingSweptSpans
+            }.exceptionOrNull()?.let(failure::addSuppressed)
+            _isDerailed.set(wasDerailed)
+            throw failure
+        }
+    }
+
+    private fun applyHeadLocation(headLocation: RailLocationWithFacing) {
+        headBogie.updateLocation(
+            headLocation.forward(-headCar.headBogieToEndPointOffset)
+                ?: throw CannotMoveForwardException(this)
+        )
         updateAfterHeadBogie()
-        pendingSweptSpans = spansFromLocations(previousLocations + activeRailLocations())
     }
 
     private fun updateAfterHeadBogie() {

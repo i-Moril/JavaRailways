@@ -1322,6 +1322,51 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `world stall aborts remaining route allocations in the same dispatcher tick`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val coordinator = AtoWorldCoordinator("dispatcher-stall-boundary", reportSink = {})
+        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        val firstRail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val secondRail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val firstTrain = createTrainWithConfig("first", firstRail, world, listOf(10.0))
+        val secondTrain = createTrainWithConfig("second", secondRail, world, listOf(10.0))
+        data.wayPoints.add(WayPoint("F0", "F0", firstRail.id, firstTrain.head.location.arcLength))
+        data.wayPoints.add(WayPoint("F1", "F1", firstRail.id, 80.0))
+        data.wayPoints.add(WayPoint("S0", "S0", secondRail.id, secondTrain.head.location.arcLength))
+        data.wayPoints.add(WayPoint("S1", "S1", secondRail.id, 80.0))
+        data.timetables.add(
+            Timetable(
+                "tt-stall-boundary",
+                services = listOf(
+                    service("first", firstTrain.id, "F0", "F1"),
+                    service("second", secondTrain.id, "S0", "S1")
+                )
+            )
+        )
+        val firstId = TimetableServiceRunId("tt-stall-boundary", "first")
+        val secondId = TimetableServiceRunId("tt-stall-boundary", "second")
+        assertTrue(dispatcher.startService(world, firstId.timetableId, firstId.serviceId) is TimetableServiceStartResult.Started)
+        assertTrue(dispatcher.startService(world, secondId.timetableId, secondId.serviceId) is TimetableServiceStartResult.Started)
+        tickAndPublish(firstTrain.controller as SimpleATO)
+        tickAndPublish(secondTrain.controller as SimpleATO)
+        secondTrain.setController(null)
+
+        dispatcher.tick(world)
+
+        assertTrue(coordinator.isStalled)
+        assertEquals(TimetableServiceRunState.FAILED, dispatcher.status(secondId)?.state)
+        assertEquals(0, dispatcher.status(firstId)?.confirmedSectionCount)
+    }
+
+    @Test
     fun `timetable tick orders simultaneous route conflicts`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()

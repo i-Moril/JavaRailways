@@ -29,7 +29,7 @@ object AtoStallReportJson {
 
     private fun AtoStallReport.toJson(): JsonObject = JsonObject(
         mapOf(
-            "schemaVersion" to JsonPrimitive(1),
+            "schemaVersion" to JsonPrimitive(2),
             "occurredAtEpochMillis" to JsonPrimitive(occurredAtEpochMillis),
             "worldId" to JsonPrimitive(worldId),
             "trainId" to JsonPrimitive(trainId),
@@ -122,7 +122,6 @@ object AtoStallReportJson {
         mapOf(
             "ref" to JsonPrimitive(ref.toString()),
             "lifecycleState" to JsonPrimitive(lifecycleState.name),
-            "revision" to JsonPrimitive(revision),
             "position" to position.toJson()
         )
     )

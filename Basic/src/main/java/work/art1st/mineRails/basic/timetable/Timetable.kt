@@ -135,6 +135,8 @@ class TimetableValidator(private val world: World) {
         var dynamicOriginCandidates: List<String>? = null
         var takeFromDepotCount = 0
         var takeFromDepotId: DepotId? = null
+        var takeFromDepotSelector: DepotTrainSelector? = null
+        var hasMovement = false
 
         service.steps.forEachIndexed { index, step ->
             when (step) {
@@ -162,6 +164,7 @@ class TimetableValidator(private val world: World) {
                         is TimetableAction.TakeFromDepot -> {
                             takeFromDepotCount++
                             takeFromDepotId = step.action.selector.depotId
+                            takeFromDepotSelector = step.action.selector
                             if (takeFromDepotCount > 1) {
                                 errors.add("$prefix step#$index 只能声明一次 takeFromDepot")
                             }
@@ -214,6 +217,12 @@ class TimetableValidator(private val world: World) {
                         }
                         is TimetableAction.GoTo,
                         is TimetableAction.GoVia -> {
+                            hasMovement = true
+                            if (currentWayPointId == null && takeFromDepotCount == 0) {
+                                errors.add(
+                                    "$prefix step#$index movement 缺少初始 check 或 takeFromDepot"
+                                )
+                            }
                             pendingStationCall?.let { (callIndex, call) ->
                                 if (call.plannedDepartureTick != null &&
                                     call.plannedDepartureTick != step.tick
@@ -263,12 +272,13 @@ class TimetableValidator(private val world: World) {
                         currentWayPointId,
                         step.action,
                         errors,
-                        routes
+                        routes,
+                        takeFromDepotSelector
                     )
                     when (val action = step.action) {
                         is TimetableAction.TakeFromDepot -> {
                             dynamicOriginCandidates = world.basicWorldData.depots
-                                .stablingPoints(action.selector.depotId)
+                                .compatibleStablingPoints(action.selector)
                                 .map { it.point.destinationId }
                                 .filter(::wayPointExists)
                         }
@@ -281,6 +291,12 @@ class TimetableValidator(private val world: World) {
         }
         pendingStationCall?.let { (index, _) ->
             errors.add("$prefix step#$index station call 缺少后续 goto")
+        }
+        if (service.trainSelector == TrainSelector.AnyTrain && takeFromDepotCount == 0) {
+            errors.add("$prefix AnyTrain service 必须以 takeFromDepot 开始")
+        }
+        if (!hasMovement) {
+            errors.add("$prefix service 至少需要一个 GoTo 或 GoVia movement")
         }
     }
 
@@ -296,7 +312,9 @@ class TimetableValidator(private val world: World) {
                 null
             }
             is TrainSelector.WayPointPool -> {
-                if (selector.wayPointIds.isEmpty()) errors.add("$prefix 路径点车库列表不能为空")
+                errors.add(
+                    "$prefix WayPointPool 不能执行；请使用 TrainId + check 或 takeFromDepot"
+                )
                 selector.wayPointIds.forEach { id ->
                     if (!wayPointExists(id)) errors.add("$prefix 车库路径点不存在: $id")
                 }
@@ -311,11 +329,14 @@ class TimetableValidator(private val world: World) {
         currentWayPointId: String?,
         action: TimetableAction,
         errors: MutableList<String>,
-        routes: MutableList<ExpandedRoute>
+        routes: MutableList<ExpandedRoute>,
+        depotSelector: DepotTrainSelector?
     ): String? {
         return when (action) {
             is TimetableAction.TakeFromDepot -> {
                 val points = world.basicWorldData.depots.stablingPoints(action.selector.depotId)
+                val compatiblePoints = world.basicWorldData.depots
+                    .compatibleStablingPoints(action.selector)
                 if (points.isEmpty()) {
                     errors.add(
                         "$prefix step#$stepIndex Depot 不存在或没有 StablingPoint: " +
@@ -331,7 +352,8 @@ class TimetableValidator(private val world: World) {
                             )
                         }
                     }
-                    points.first().point.destinationId.takeIf(::wayPointExists)
+                    compatiblePoints.firstOrNull()?.point?.destinationId
+                        ?.takeIf(::wayPointExists)
                 }
             }
             is TimetableAction.StoreAtDepot -> {
@@ -339,6 +361,13 @@ class TimetableValidator(private val world: World) {
                 val points = allPoints.filter {
                     action.stablingPointIds.isEmpty() ||
                         it.point.ref.pointId in action.stablingPointIds
+                }
+                val routePoints = depotSelector?.let {
+                    world.basicWorldData.depots.compatibleStablingPoints(it)
+                }.orEmpty().filter {
+                    it.point.ref.depotId == action.depotId &&
+                        (action.stablingPointIds.isEmpty() ||
+                            it.point.ref.pointId in action.stablingPointIds)
                 }
                 if (allPoints.isEmpty()) {
                     errors.add("$prefix step#$stepIndex Depot 不存在或没有 StablingPoint: ${action.depotId}")
@@ -354,7 +383,7 @@ class TimetableValidator(private val world: World) {
                     (action.stablingPointIds - known).forEach { missing ->
                         errors.add("$prefix step#$stepIndex StablingPoint 不存在: ${action.depotId}/$missing")
                     }
-                    points.forEach { point ->
+                    routePoints.forEach { point ->
                         validateGoTo(
                             prefix,
                             stepIndex,
@@ -364,7 +393,8 @@ class TimetableValidator(private val world: World) {
                             routes
                         )
                     }
-                    points.first().point.destinationId.takeIf(::wayPointExists)
+                    routePoints.firstOrNull()?.point?.destinationId
+                        ?.takeIf(::wayPointExists) ?: currentWayPointId
                 }
             }
             is TimetableAction.Stop -> {
@@ -420,7 +450,7 @@ class TimetableValidator(private val world: World) {
     ) {
         val origin = fromWayPointId ?: return
         val berthRef = runCatching { callAction.berthRef }.getOrNull() ?: return
-        val resolved = StationCallResolver(world).resolve(
+        val resolved = when (val result = StationCallResolver(world).resolve(
             StationCallRequest(
                 serviceRunId = "validation",
                 origin = WayPointRef(origin),
@@ -435,7 +465,13 @@ class TimetableValidator(private val world: World) {
                     doorSideOverride = callAction.doorSideOverride
                 )
             )
-        ) as? StationCallResolutionResult.Success ?: return
+        )) {
+            is StationCallResolutionResult.Success -> result
+            is StationCallResolutionResult.Failure -> {
+                errors.add("$prefix step#$stepIndex station call 无法解析: ${result.message}")
+                return
+            }
+        }
         val berth = world.basicWorldData.stations.berth(berthRef) ?: return
         val arrivalDirection = resolved.resolved.plannedRoute.expandedRoute
             .segments.last().railViewRef.direction

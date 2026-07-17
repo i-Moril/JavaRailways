@@ -17,7 +17,8 @@ private const val RESET_POSITION_EPSILON_METERS = 1.0e-6
 
 enum class DepotResetStatus {
     SUCCEEDED,
-    FAILED
+    FAILED,
+    PARTIALLY_COMMITTED
 }
 
 data class DepotResetReport(
@@ -40,13 +41,17 @@ sealed interface DepotResetResult {
 
     data class Succeeded(override val report: DepotResetReport) : DepotResetResult
     data class Failed(override val report: DepotResetReport) : DepotResetResult
+    data class PartiallyCommitted(override val report: DepotResetReport) : DepotResetResult
 }
 
 /**
  * Administrator-only Depot Reset transaction.
  *
  * All configuration, train, route, berth, and placement checks run before the first mutation. A
- * failed preflight returns a report without moving a train or changing any resource ledger.
+ * failed preflight returns a report without moving a train or changing any resource ledger. Train
+ * relocation is committed and, on failure, rolled back before any Dispatcher or Depot ledger is
+ * changed. An unexpected failure after ledger commit starts is reported as partially committed and
+ * keeps the World Stall latched for another administrator reset.
  */
 class DepotResetCoordinator(private val world: World) {
     private data class PreparedPlacement(
@@ -216,28 +221,38 @@ class DepotResetCoordinator(private val world: World) {
             )
         }
 
-        val moved = ArrayList<PreparedPlacement>(prepared.size)
+        val relocated = ArrayList<PreparedPlacement>(prepared.size)
         try {
             prepared.forEach { placement ->
                 placement.train.setLocation(placement.target)
-                moved += placement
+                relocated += placement
             }
+            relocated.forEach { placement -> placement.train.commit() }
         } catch (failure: Exception) {
-            moved.asReversed().forEach { placement ->
-                runCatching { placement.train.setLocation(placement.previous) }
+            val rollbackFailures = rollbackPlacements(relocated)
+            if (rollbackFailures.isNotEmpty()) {
+                return partiallyCommitted(
+                    resetId,
+                    plan.depotIds,
+                    plan.assignments,
+                    "TRAIN_PLACEMENT_ROLLBACK",
+                    "placement failed and rollback was incomplete: " +
+                        (failure.message ?: failure::class.java.simpleName) +
+                        "; rollback=${rollbackFailures.joinToString()}"
+                )
             }
             return failed(
                 resetId,
                 plan.depotIds,
                 plan.assignments,
                 "TRAIN_PLACEMENT",
-                "placement failed and previous locations were restored: " +
+                "placement failed; all previous locations were restored: " +
                     (failure.message ?: failure::class.java.simpleName)
             )
         }
 
         val trainIds = plan.assignments.mapTo(LinkedHashSet()) { it.trainId }
-        val dispatcherSummary: TimetableDepotResetSummary
+        var dispatcherSummary: TimetableDepotResetSummary? = null
         try {
             dispatcherSummary = worldData.dispatcher.applyDepotReset(world, trainIds)
             check(worldData.depots.applyReset(plan)) {
@@ -245,19 +260,19 @@ class DepotResetCoordinator(private val world: World) {
             }
             prepared.forEach { placement ->
                 if (placement.train.controller != null) placement.train.setController(null)
-                placement.train.commit()
             }
         } catch (failure: Exception) {
-            // This path is an internal consistency failure after a complete preflight. Keep the
-            // World Stall latched and report it explicitly; never pretend that reset succeeded.
-            return failed(
+            return partiallyCommitted(
                 resetId,
                 plan.depotIds,
                 plan.assignments,
                 "COMMIT_INVARIANT",
-                failure.message ?: failure::class.java.simpleName
+                "reset commit started but did not finish: " +
+                    (failure.message ?: failure::class.java.simpleName),
+                dispatcherSummary
             )
         }
+        val committedSummary = requireNotNull(dispatcherSummary)
         return DepotResetResult.Succeeded(
             DepotResetReport(
                 resetId = resetId,
@@ -265,14 +280,51 @@ class DepotResetCoordinator(private val world: World) {
                 status = DepotResetStatus.SUCCEEDED,
                 depotIds = plan.depotIds,
                 assignments = plan.assignments,
-                removedRunCount = dispatcherSummary.removedRunCount,
-                releasedRouteSectionCount = dispatcherSummary.releasedRouteSectionCount,
-                releasedBerthCount = dispatcherSummary.releasedBerthCount,
-                stoppedTimetableIds = dispatcherSummary.stoppedTimetableIds,
+                removedRunCount = committedSummary.removedRunCount,
+                releasedRouteSectionCount = committedSummary.releasedRouteSectionCount,
+                releasedBerthCount = committedSummary.releasedBerthCount,
+                stoppedTimetableIds = committedSummary.stoppedTimetableIds,
                 message = "Depot Reset committed; World remains stalled"
             )
         )
     }
+
+    private fun rollbackPlacements(prepared: List<PreparedPlacement>): List<String> {
+        val failures = ArrayList<String>()
+        prepared.asReversed().forEach { placement ->
+            runCatching {
+                placement.train.setLocation(placement.previous)
+                placement.train.commit()
+            }.onFailure { failure ->
+                failures += "${placement.assignment.trainId}:" +
+                    (failure.message ?: failure::class.java.simpleName)
+            }
+        }
+        return failures
+    }
+
+    private fun partiallyCommitted(
+        resetId: String,
+        depotIds: Set<DepotId>,
+        assignments: List<DepotResetAssignment>,
+        stage: String,
+        message: String,
+        summary: TimetableDepotResetSummary? = null
+    ): DepotResetResult.PartiallyCommitted = DepotResetResult.PartiallyCommitted(
+        DepotResetReport(
+            resetId = resetId,
+            worldId = world.basicWorldData.atoCoordinator.worldId,
+            status = DepotResetStatus.PARTIALLY_COMMITTED,
+            depotIds = depotIds,
+            assignments = assignments,
+            removedRunCount = summary?.removedRunCount ?: 0,
+            releasedRouteSectionCount = summary?.releasedRouteSectionCount ?: 0,
+            releasedBerthCount = summary?.releasedBerthCount ?: 0,
+            stoppedTimetableIds = summary?.stoppedTimetableIds.orEmpty(),
+            failureStage = stage,
+            message = message
+        )
+    )
 
     private fun failed(
         resetId: String,

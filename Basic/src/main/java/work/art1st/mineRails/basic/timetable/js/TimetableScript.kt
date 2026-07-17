@@ -73,8 +73,13 @@ class TimetableBuilder(private val id: String) {
     private fun parseTrainSelector(serviceId: String, selector: Value?): TrainSelector {
         if (selector == null || selector.isNull) return TrainSelector.AnyTrain
         if (selector.isString) return TrainSelector.TrainId(selector.asString())
-        if (selector.hasArrayElements()) return TrainSelector.WayPointPool(selector.asStringList("service($serviceId) trainSelector"))
-        throw TimetableDslException("service($serviceId): trainSelector 只支持字符串 trainId、路径点数组或 null")
+        if (selector.hasArrayElements()) {
+            throw TimetableDslException(
+                "service($serviceId): 路径点数组 selector 已移除；" +
+                    "请使用字符串 trainId + check 或省略 selector + takeFromDepot"
+            )
+        }
+        throw TimetableDslException("service($serviceId): trainSelector 只支持字符串 trainId 或 null")
     }
 }
 

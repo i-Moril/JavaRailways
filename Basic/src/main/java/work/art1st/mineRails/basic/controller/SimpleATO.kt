@@ -137,10 +137,6 @@ class SimpleATO(
     var currentStationCall: ResolvedStationCall? = null
         private set
 
-    init {
-        atoCoordinator.initialTrain(train.id)?.let(worldData.dispatcher::recordInitialTrain)
-    }
-
     /** Resolve and queue a Mission from the main thread; activation occurs at a physics Tick boundary. */
     @MainThread
     fun submitMission(request: AtoMissionRequest): AtoMissionSubmissionResult {
@@ -674,6 +670,14 @@ class SimpleATO(
         )
 
         val current = collectObserved(segments)
+        current.forEach { (ref, observed) ->
+            val previous = previousObserved[ref] ?: return@forEach
+            check(previous.railObject === observed.railObject ||
+                previous.railObject.lifecycleState != RailObjectLifecycleState.ACTIVE
+            ) {
+                "duplicate RailObjectRef $ref refers to distinct live objects across perception epochs"
+            }
+        }
         val observations = ArrayList<RailObservationSnapshot>(current.size + previousObserved.size)
         current.values.forEach { observed ->
             observations += RailObservationSnapshot(

@@ -77,14 +77,18 @@ class TimetableValidatorTest {
                 steps = listOf(TimetableStep.At(0L, TimetableAction.GoTo("B")))
             ),
             TimetableService(
-                "legacy-pool",
-                TrainSelector.WayPointPool(listOf("A")),
-                listOf(TimetableStep.At(0L, TimetableAction.GoTo("B")))
-            ),
-            TimetableService(
                 "explicit-without-check",
                 TrainSelector.TrainId("T1"),
                 listOf(TimetableStep.At(0L, TimetableAction.GoTo("B")))
+            ),
+            TimetableService(
+                "stop-before-first-movement",
+                TrainSelector.TrainId("T2"),
+                listOf(
+                    TimetableStep.Check("A"),
+                    TimetableStep.At(0L, TimetableAction.Stop(20L)),
+                    TimetableStep.At(20L, TimetableAction.GoTo("B"))
+                )
             )
         )
 
@@ -92,8 +96,8 @@ class TimetableValidatorTest {
 
         assertFalse(result.isSuccess)
         assertTrue(result.errors.any { it.contains("takeFromDepot") })
-        assertTrue(result.errors.any { it.contains("WayPointPool") })
         assertTrue(result.errors.any { it.contains("初始", ignoreCase = true) })
+        assertTrue(result.errors.any { it.contains("首次 movement 前不得 stop") })
     }
 
     @Test
@@ -204,8 +208,9 @@ class TimetableValidatorTest {
             services = listOf(
                 TimetableService(
                     id = "001",
-                    trainSelector = TrainSelector.WayPointPool(listOf("A")),
+                    trainSelector = TrainSelector.TrainId("T1"),
                     steps = listOf(
+                        TimetableStep.Check("A"),
                         TimetableStep.At(24_000L, TimetableAction.GoTo("B"))
                     )
                 )

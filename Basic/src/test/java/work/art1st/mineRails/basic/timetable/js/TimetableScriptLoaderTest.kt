@@ -2,6 +2,7 @@ package work.art1st.mineRails.basic.timetable.js
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -79,6 +80,30 @@ class TimetableScriptLoaderTest {
         assertEquals(TimetableStep.Check("depot1"), success.timetable.services.single().steps[0])
         assertEquals(TimetableAction.GoTo("a0"), (success.timetable.services.single().steps[1] as TimetableStep.At).action)
         assertEquals(2, success.validation.routes.size)
+    }
+
+    @Test
+    fun `rejects legacy waypoint pool selectors at the DSL boundary`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val script = File(tempDir, "legacy-pool.js")
+        script.writeText(
+            """
+            function main(timetable) {
+              timetable.setPeriodDays(1)
+              timetable.service("001", ["depot1"], function(t) {
+                t.at(0).goto("a0")
+              })
+            }
+            """.trimIndent()
+        )
+
+        val result = TimetableScriptLoader(world).load(script)
+
+        assertTrue(result is TimetableScriptLoadResult.Failure)
+        val message = (result as TimetableScriptLoadResult.Failure).message
+        assertFalse(message.contains("时刻表验证失败"), message)
+        assertTrue(message.contains("路径点数组 selector 已移除"), message)
     }
 
     @Test

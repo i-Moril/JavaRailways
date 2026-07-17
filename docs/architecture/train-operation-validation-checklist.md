@@ -15,7 +15,7 @@ slug: /architecture/train-operation-validation-checklist
 - [x] **C3-A02** 每个 request 携带稳定 request、service、call、train 和 Mission revision 身份。
 - [x] **C3-A03** Gateway 显式返回 accepted ticket 或 rejected reason；ticket 只允许 `PENDING → SUCCEEDED|FAILED|CANCELLED`。
 - [x] **C3-A04** Dispatcher 只在主线程执行和轮询 Gateway；异常被转换为运营失败，不进入 physics worker。
-- [x] **C3-A05** stop/failure 会取消尚未完成的 ticket；取消后的迟到完成回调不能恢复成功。
+- [x] **C3-A05** stop/failure 会取消尚未完成的 ticket；取消前后必须保持 ticket/request 身份一致并确认 `CANCELLED`，取消后的迟到完成回调不能恢复成功。
 
 ## C3-B 停站状态机
 
@@ -30,7 +30,7 @@ slug: /architecture/train-operation-validation-checklist
 
 - [x] **C3-C01** rejected、failed、cancelled、ticket 身份错误或 Gateway 异常进入 `TrainOperationFailure` World Stall。
 - [x] **C3-C02** pending ticket 超时后取消并进入 World Stall；默认超时为 100 Dispatcher Tick。
-- [x] **C3-C03** 人工处理状态保留 DepartureHold、berth 和已确认经路，不自动发车，也不触发 World-local ATO Stall。
+- [x] **C3-C03** operation 故障保留 DepartureHold、berth 和已确认经路，不自动发车，并按 T6 进入 World-local ATO Stall；尚未处理的 `FAILED`/意外 `CANCELLED` 不能被人工接管或 stop 掩盖。
 - [x] **C3-C04** 管理员仍可用 timetable stop 请求受控停车；Phase C3 不实现自动恢复或静默重试。
 
 ## C3-D Bukkit 适配
@@ -39,11 +39,11 @@ slug: /architecture/train-operation-validation-checklist
 - [x] **C3-D02** adapter 把语义左右侧映射到模型 `behavior.js` 的 `door(side, scene)`；无 behavior 时回退到同名 door action。
 - [x] **C3-D03** `BOTH` 同时要求左右侧动作，任一缺失都拒绝 operation。
 - [x] **C3-D04** ticket 在所有声明的延迟 action 到达最晚启动时刻后才确认，而不是在刚排队时确认。
-- [x] **C3-D05** `/mr timetable status` 显示 operation ticket ID、状态和人工处理原因。
+- [x] **C3-D05** `/mr timetable status` 显示 operation ticket ID、状态、snapshot 错误和人工处理原因。
 
 ## 验收证据
 
-- `TimetableStationCallDispatcherTest` 覆盖开门、dwell、关门、经路授权、完整发车，以及超时/关门失败的 World Stall。
+- `TimetableStationCallDispatcherTest` 覆盖开门、dwell、关门、经路授权、完整发车、超时/关门失败的 World Stall，以及接管前终态故障、snapshot 异常和取消确认身份变化。
 - `BukkitTrainOperationGatewayTest` 覆盖语义映射、异步确认、取消后迟到回调和拒绝路径。
 - 原有 C2 tests 持续覆盖 `DoorSide.NONE` 的无车门兼容状态机、berth 冲突和车尾释放。
 - 完整 Gradle test、文档构建、模型配置校验和 TypeScript 检查必须持续通过。

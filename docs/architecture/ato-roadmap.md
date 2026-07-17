@@ -111,7 +111,7 @@ slug: /architecture/ato-roadmap
 - 管理员必须在列车停止、人工 session 结束、旧资源清空后，从明确 WayPoint 执行 `/mr timetable replan`。
 - replan 创建新 ATO 和新 Mission revision，目标保持为被中断 movement 的原目标；不自动恢复旧 Mission。
 
-## 当前优先：Phase T 给定时刻表运营闭环
+## 已完成：Phase T 给定时刻表运营闭环
 
 完整设计和逐项证据分别见 [给定时刻表运营闭环设计](./timetable-operation-design.md) 与 [验收清单](./timetable-operational-closure-checklist.md)。
 
@@ -165,7 +165,7 @@ slug: /architecture/ato-roadmap
 - 定义 Provider/ATO 插件卸载策略。
 - 提供 Java/Kotlin 示例扩展后再讨论稳定 API。
 
-D2 不再是给定时刻表运营闭环的前置条件，在 Phase T 完成后再排期。
+D2 不再是给定时刻表运营闭环的前置条件，后续按插件 API 稳定性需求单独排期。
 
 ## Phase E 索引与性能
 

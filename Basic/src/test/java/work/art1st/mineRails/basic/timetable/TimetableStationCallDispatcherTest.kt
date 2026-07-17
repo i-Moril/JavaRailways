@@ -422,6 +422,70 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `manual transfer cannot mask a failed door operation before the next tick`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.LEFT,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state ==
+                TimetableServiceRunState.DOORS_OPENING
+            ) break
+        }
+        gateway.tickets.single().fail("door failed before dispatcher poll")
+        val ato = fixture.train.controller
+
+        val transfer = fixture.dispatcher.suspendForControlTransfer(
+            fixture.world,
+            fixture.train.id,
+            "driver-1"
+        )
+
+        assertTrue(transfer is TimetableControlTransferResult.Failure)
+        assertTrue((transfer as TimetableControlTransferResult.Failure).reason.contains("failed"))
+        assertSame(ato, fixture.train.controller)
+        assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
+        fixture.tick()
+        assertTrue(fixture.data.atoCoordinator.isStalled)
+        assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
+    }
+
+    @Test
+    fun `manual transfer rejects cancellation confirmation with a changed ticket identity`() {
+        val gateway = IdentityChangingCancelOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.LEFT,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (gateway.ticket != null) break
+        }
+        val ato = fixture.train.controller
+
+        val transfer = fixture.dispatcher.suspendForControlTransfer(
+            fixture.world,
+            fixture.train.id,
+            "driver-1"
+        )
+
+        assertTrue(transfer is TimetableControlTransferResult.Failure)
+        assertTrue((transfer as TimetableControlTransferResult.Failure).reason.contains("identity"))
+        assertSame(ato, fixture.train.controller)
+        assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
+    }
+
+    @Test
     fun `manual transfer is rejected when the operation ticket cannot be inspected`() {
         val fixture = fixture(
             includeStationAction = true,
@@ -438,6 +502,8 @@ class TimetableStationCallDispatcherTest {
             ) break
         }
         val ato = fixture.train.controller
+        val status = fixture.dispatcher.status(id)!!
+        assertTrue(status.operationTicketError?.contains("snapshot failed") == true)
 
         val result = fixture.dispatcher.suspendForControlTransfer(
             fixture.world,
@@ -808,6 +874,37 @@ class TimetableStationCallDispatcherTest {
                     error("cancel failed")
                 }
             })
+    }
+
+    private class IdentityChangingCancelOperationGateway : TrainOperationGateway {
+        var ticket: TrainOperationTicket? = null
+            private set
+
+        override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult {
+            val created = object : TrainOperationTicket {
+                override val request: TrainOperationRequest = request
+                private var state = TrainOperationTicketState.PENDING
+                private var changedIdentity = false
+
+                override fun snapshot(): TrainOperationTicketSnapshot =
+                    TrainOperationTicketSnapshot(
+                        ticketId = if (changedIdentity) {
+                            "changed:${request.requestId}"
+                        } else {
+                            "stable:${request.requestId}"
+                        },
+                        requestId = request.requestId,
+                        state = state
+                    )
+
+                override fun cancel() {
+                    state = TrainOperationTicketState.CANCELLED
+                    changedIdentity = true
+                }
+            }
+            ticket = created
+            return TrainOperationExecutionResult.Accepted(created)
+        }
     }
 
     private class ThrowingSnapshotOperationGateway : TrainOperationGateway {

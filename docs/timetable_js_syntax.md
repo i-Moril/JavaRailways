@@ -59,7 +59,7 @@ plugins/MineRails/timetables/<name>.js
 
 service 可以使用字符串 `trainId` selector，并在第一个运行动作前通过 `check()` 指定初始 WayPoint；也可以省略 selector，并把 `takeFromDepot` 作为第一步。后续 `goto` 会在前一 Mission 停稳以及可选 `stop` dwell 完成后继续。
 
-`stop` 命令先禁用匹配 timetable/service 的后续自动 cycle，再对当前所有匹配 cycle run 请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。重新显式 start service 会重新启用该 service 的周期调度。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
+`stop` 命令先禁用匹配 timetable/service 的后续自动 cycle，再对当前所有匹配 cycle run 请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。重新显式 start service 会重新启用该 service 的周期调度。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。`status` 会显式输出 operation ticket 的 snapshot 错误，不再把异常显示成无 operation。一般 `at(tick)` 时间只参与冲突优先级，不直接作为道岔切换时刻；StationCall 可以通过 `plannedDepartureTick` 明确延长发车保持。
 
 World Stall 后可执行显式确认的 Depot Reset：
 
@@ -68,7 +68,7 @@ World Stall 后可执行显式确认的 Depot Reset：
 /mr depot reset-all confirm
 ```
 
-命令会先等待当前 physics ticket，再全量预检列车、directed StablingPoint、容量和 Dispatcher ledger。任何 preflight 失败都不会移动列车或修改 occupancy。提交时先原子发布全部列车位置；定位失败会在修改 ledger 前恢复旧位置。随后停止相关 run/controller、取消 operation ticket并重建资源账本；ticket 必须通过 snapshot 确认为 `CANCELLED`，取消或快照异常不会被忽略。账本提交开始后的未预期异常会明确报告 `PARTIALLY_COMMITTED`，不会声称已完整回滚。报告写入 `plugins/MineRails/debug/`；Reset 结束后 World **仍保持 Stall**，管理员检查后必须另行执行 `/mr ato reset <world>`。
+命令会先等待当前 physics ticket，再全量预检列车、directed StablingPoint、实际编组长度、容量和 Dispatcher ledger。任何 preflight 失败都不会移动列车或修改 occupancy。位置提交前会用实际车体计算跨 Rail 包络；定位或包络检查失败会在修改 ledger 前恢复旧位置、方向、脱轨标志和 swept occupancy。全部包络互斥后才发布位置，随后停止相关 run/controller、取消 operation ticket并重建资源账本；ticket 必须通过 snapshot 确认为 `CANCELLED`，取消或快照异常不会被忽略。账本提交开始后的未预期异常会明确报告 `PARTIALLY_COMMITTED`，不会声称已完整回滚。报告写入 `plugins/MineRails/debug/`；Reset 结束后 World **仍保持 Stall**，管理员检查后必须另行执行 `/mr ato reset <world>`。
 
 取得 timetable 列车钥匙控制权时默认进入 `MANUAL_ROUTED`：司机手柄是唯一速度来源，Dispatcher 仍申请计划 RouteSection 并按车尾释放，但不会自动开关门、执行 dwell hold 或授予发车。钥匙 Dialog 可通过“关闭时刻表进路辅助”进入 `FULL_MANUAL/SUSPENDED`；此后不申请新 Section。任一人工模式释放后均进入 `REPLAN_REQUIRED`，不会自动恢复 ATO。
 
@@ -165,7 +165,7 @@ timetable.service("001", "train-001", function(t) {
 | 省略或 `null` | 动态配车；第一步必须是 `takeFromDepot` |
 | 字符串 | 指定列车 id；第一次移动前必须有 `check()` |
 
-字符串数组会被旧版 parser 识别为 `WayPointPool`，但 Dispatcher 无法据此绑定真实列车，因此 validator 会明确拒绝；新脚本不得使用。
+字符串数组 selector 已移除，并会在 DSL 解析边界直接报错；请使用字符串 `trainId` + `check()` 或省略 selector + `takeFromDepot`。
 
 ## Service 内 API
 
@@ -374,8 +374,8 @@ JavaScript 的 `number` 类型不能表达“必须是整数”，因此 tick �
 - `tick` 是否非负、是否倒退。
 - `stop(ticks)` 是否大于 0。
 - 引用的路径点是否存在。
-- selector 是否可执行：动态 service 必须先 `takeFromDepot`，显式列车第一次移动前必须 `check`，legacy `WayPointPool` 会被拒绝；
-- service 是否至少包含一次 `goto` / `goVia` movement；
+- selector 是否可执行：动态 service 必须先 `takeFromDepot`，显式列车第一次移动前必须 `check`，路径点数组 selector 在 parser 中直接拒绝；
+- service 是否至少包含一次 `goto` / `goVia` movement，且首次 movement 前不得 `stop`；
 - 可确定起点时，`goto` / `goVia` 经路是否可达。
 
 验证失败时，加载不会写入新的时刻表，也不会影响已经加载的旧时刻表。
@@ -462,7 +462,6 @@ function main(timetable) {
 
 当前 loader 和 Dispatcher 仍不会：
 
-- 从 legacy `WayPointPool` 自动选择真实列车；validator 会拒绝该 selector，动态服务必须显式使用 `takeFromDepot`。
 - 根据整张时刻表预先计算线路容量或会让关系；运行时只处理已触发 Route Section 的原子冲突。
 - 处理会让、越行或晚点优化等高级运营规则。
 - 持久化已加载时刻表或活动 epoch；重启后需要重新加载并由管理员启动。

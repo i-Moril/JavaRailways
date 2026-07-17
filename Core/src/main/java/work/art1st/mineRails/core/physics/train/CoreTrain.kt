@@ -7,6 +7,7 @@ import work.art1st.mineRails.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.mineRails.core.api.event.PassSignalEvent
 import work.art1st.mineRails.core.api.event.TrainSwitchDirectionEvent
 import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainException
 import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardException
 import work.art1st.mineRails.core.api.physics.exception.PhysicsException
@@ -23,6 +24,7 @@ import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.rail.RailSegment
+import work.art1st.mineRails.core.physics.rail.RailView
 import work.art1st.mineRails.core.physics.rail.SweptRailSpan
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.configLib.persistence.PersistentBy
@@ -56,6 +58,15 @@ open class CoreTrain @MainThread internal constructor(
     internal var publishedSweptSpans: List<SweptRailSpan> = emptyList()
         private set
     private var pendingSweptSpans: List<SweptRailSpan>? = null
+
+    /** Opaque state used to roll back an administrator maintenance relocation. */
+    class PlacementSnapshot internal constructor(
+        internal val trainId: String,
+        internal val headLocation: RailLocationWithFacing,
+        internal val reversed: Boolean,
+        internal val derailed: Boolean,
+        internal val publishedSweptSpans: List<SweptRailSpan>
+    )
     override val isDerailed: Boolean
         get() = _isDerailed.get()
     @Volatile
@@ -151,12 +162,14 @@ open class CoreTrain @MainThread internal constructor(
         val previousPendingSweptSpans = pendingSweptSpans
         val wasDerailed = isDerailed
         val wasReversed = isReversed
+        val directionChanged = isReversed
         try {
             clearDerailed()
-            // 正面面朝此location
-            if (isReversed) reverse()
+            // 正面面朝此location；成功后才发布方向事件。
+            if (directionChanged) reverseInternal()
             applyHeadLocation(headLocation)
             pendingSweptSpans = spansFromLocations(previousLocations + activeRailLocations())
+            if (directionChanged) MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
         } catch (failure: Exception) {
             runCatching {
                 if (isReversed != wasReversed) reverseInternal()
@@ -165,6 +178,64 @@ open class CoreTrain @MainThread internal constructor(
             }.exceptionOrNull()?.let(failure::addSuppressed)
             _isDerailed.set(wasDerailed)
             throw failure
+        }
+    }
+
+    /** Capture a stable maintenance rollback point after the current physics epoch is published. */
+    @MainThread
+    fun capturePlacementSnapshot(): PlacementSnapshot {
+        check(pendingSweptSpans == null) {
+            "cannot capture placement while train physics state is pending: $id"
+        }
+        return PlacementSnapshot(
+            trainId = id,
+            headLocation = head.location,
+            reversed = isReversed,
+            derailed = isDerailed,
+            publishedSweptSpans = publishedSweptSpans.toList()
+        )
+    }
+
+    /** Restore a previously captured maintenance placement and publish it atomically. */
+    @MainThread
+    fun restorePlacementSnapshot(snapshot: PlacementSnapshot) {
+        require(snapshot.trainId == id) { "placement snapshot belongs to ${snapshot.trainId}, not $id" }
+        val directionChanged = isReversed != snapshot.reversed
+        if (directionChanged) reverseInternal()
+        applyHeadLocation(snapshot.headLocation)
+        _isDerailed.set(snapshot.derailed)
+        pendingSweptSpans = snapshot.publishedSweptSpans
+        commit()
+        if (directionChanged) MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
+    }
+
+    /** Publish a validated maintenance placement without retaining its teleport sweep. */
+    @MainThread
+    fun commitMaintenancePlacement() {
+        pendingSweptSpans = activePlacementEnvelope()
+        commit()
+    }
+
+    /** Exact rail intervals occupied by the currently active placement from tail to head. */
+    @MainThread
+    fun activePlacementEnvelope(): List<SweptRailSpan> {
+        val activeHead = head.activeLocation
+        var view = tail.activeLocation.railView
+        var startArc = tail.activeLocation.arcLength
+        val spans = ArrayList<SweptRailSpan>()
+        val visited = HashSet<Pair<java.util.UUID, ViewDirection>>()
+        while (true) {
+            val curveLength = view.curve.totalArcLength
+            if (view === activeHead.railView && activeHead.arcLength + Curve.TOLERANCE >= startArc) {
+                spans += spanFromViewRange(view, startArc, activeHead.arcLength)
+                return mergeSweptSpans(spans)
+            }
+            val key = view.rail.id to view.viewDirection
+            check(visited.add(key)) { "train placement loops before reaching its head: $id" }
+            spans += spanFromViewRange(view, startArc, curveLength)
+            view = view.activeRail
+                ?: error("train placement is disconnected between tail and head: $id")
+            startArc = 0.0
         }
     }
 
@@ -289,19 +360,29 @@ open class CoreTrain @MainThread internal constructor(
         }
     }
 
-    private fun spanFromSegment(segment: RailSegment): SweptRailSpan {
-        val curveLength = segment.railView.curve.totalArcLength
-        val startAB = if (segment.railView.viewDirection == ViewDirection.AB) {
-            segment.startArcLength
+    private fun spanFromSegment(segment: RailSegment): SweptRailSpan = spanFromViewRange(
+        segment.railView,
+        segment.startArcLength,
+        segment.endArcLength
+    )
+
+    private fun spanFromViewRange(
+        view: RailView,
+        startArcLength: Double,
+        endArcLength: Double
+    ): SweptRailSpan {
+        val curveLength = view.curve.totalArcLength
+        val startAB = if (view.viewDirection == ViewDirection.AB) {
+            startArcLength
         } else {
-            curveLength - segment.startArcLength
+            curveLength - startArcLength
         }
-        val endAB = if (segment.railView.viewDirection == ViewDirection.AB) {
-            segment.endArcLength
+        val endAB = if (view.viewDirection == ViewDirection.AB) {
+            endArcLength
         } else {
-            curveLength - segment.endArcLength
+            curveLength - endArcLength
         }
-        return SweptRailSpan(id, segment.railView.rail.id, minOf(startAB, endAB), maxOf(startAB, endAB))
+        return SweptRailSpan(id, view.rail.id, minOf(startAB, endAB), maxOf(startAB, endAB))
     }
 
     private fun mergeSweptSpans(spans: List<SweptRailSpan>): List<SweptRailSpan> =

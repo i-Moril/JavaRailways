@@ -205,19 +205,21 @@ Reset 必须在主线程执行以下原子预检：
 
 1. 目标 World 已进入 Stall；
 2. 枚举全部目标列车及其 home depot；
-3. 为每列车计算唯一、兼容且不重叠的 StablingPoint；
-4. 验证轨道、方向、长度、模型和停车空间；
+3. 为每列车计算唯一且兼容的 StablingPoint；
+4. 验证轨道、方向、RollingStock 记录与实际编组长度、模型和停车空间；
 5. 任一列车无位置时拒绝整个 reset，不修改任何对象。
 
 预检成功后进入维护提交：
 
-- 先把全部列车放置并发布到预计算 StablingPoint；任一列车定位失败时，在修改资源账本前恢复全部旧位置；
-- 全部位置提交成功后停止 timetable runs 和 controllers，并取消 operation tickets；取消只有在后续 snapshot 明确为 `CANCELLED` 时才算成功，snapshot/cancel 异常会终止本次提交并报告 `PARTIALLY_COMMITTED`；
+- 先捕获每列车的位置、方向、脱轨标志和已发布 swept state，再把列车放入预计算 StablingPoint 的未发布状态；
+- 根据实际车体在每段 Rail 上的完整包络检查跨 Rail 重叠；任一定位或包络检查失败时，在修改资源账本前恢复并发布所有旧列车状态；
+- 实际包络全部互不重叠后，才发布全部新列车位置；
+- 全部位置提交成功后停止 timetable runs 和 controllers，并取消 operation tickets；取消只有在前后 snapshot 的 ticket/request 身份一致且后续状态明确为 `CANCELLED` 时才算成功，已有 `FAILED`/意外 `CANCELLED` 或 snapshot/cancel 异常会终止本次提交并报告 `PARTIALLY_COMMITTED`；
 - 关闭并重建 Dispatcher 的 route/berth/depot 资源账本；
 - 重建 occupancy 与 AVAILABLE 状态；
 - 写出结构化 reset 报告。
 
-正常预检和列车定位失败不会留下部分状态。账本提交开始后的未预期内部异常无法安全伪装成回滚成功，必须报告 `PARTIALLY_COMMITTED` 并保持 Stall，等待管理员检查后再次执行 Reset。Reset 成功后 World 也**仍保持 Stall**；管理员检查列车和道岔后，显式执行 `/mr ato reset`，再启动新的 timetable epoch。这是唯一允许绕过正常车尾释放的维护边界。
+正常预检、列车定位和实际包络检查失败不会留下部分列车状态；回滚会恢复方向、脱轨标志和 swept occupancy，而不仅是车头坐标。账本提交开始后的未预期内部异常无法安全伪装成回滚成功，必须报告 `PARTIALLY_COMMITTED` 并保持 Stall，并记录异常发生前已经完成的 run removal、Section/Berth release 和 timetable stop 数量，等待管理员检查后再次执行 Reset。Reset 成功后 World 也**仍保持 Stall**；管理员检查列车和道岔后，显式执行 `/mr ato reset`，再启动新的 timetable epoch。这是唯一允许绕过正常车尾释放的维护边界。
 
 ## 6. 人工驾驶模式
 
@@ -245,7 +247,7 @@ manual controller 当前不消费 SimpleATO movement authority。因此第一版
 - 司机可离开计划经路，但不得改变仍被锁闭的 confirmed turnout；
 - 恢复 ATO 必须释放人工 session，并由管理员从明确 Destination/WayPoint 执行 replan。
 
-切换到 FULL_MANUAL 不强制释放资源。若司机选择的自由经路与仍持有的 Section 冲突，只能等待释放或执行维护 Reset。人工接管或模式切换前若有活动 operation ticket，Dispatcher 必须取消并通过 snapshot 确认 `CANCELLED`；任何异常都会拒绝控制权转移并保留原控制器和运行状态。
+切换到 FULL_MANUAL 不强制释放资源。若司机选择的自由经路与仍持有的 Section 冲突，只能等待释放或执行维护 Reset。人工接管或模式切换前若有活动 operation ticket，Dispatcher 必须确认 ticket/request 身份、拒绝尚未处理的 `FAILED`/意外 `CANCELLED`，并在取消后以同一身份 snapshot 确认 `CANCELLED`；任何异常都会拒绝控制权转移并保留原控制器和运行状态。
 
 ## 7. World-local Stall 矩阵
 

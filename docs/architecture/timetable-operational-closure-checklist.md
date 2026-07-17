@@ -47,10 +47,10 @@ T3 证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛
 - [x] **T4-01** `/mr depot reset <depot> confirm` 和 `reset-all` 与 `/mr ato reset` 分离。
 - [x] **T4-02** reset 只允许在 Stall 中执行，并先等待当前 physics ticket。
 - [x] **T4-03** 全部列车到 StablingPoint 的分配先原子预检；容量不足不修改任何状态。
-- [x] **T4-04** 提交阶段先原子发布全部列车位置；任一定位失败时在修改资源账本前恢复所有旧位置。定位全部成功后再停止 run/controller、取消 ticket 并重建资源账本和 occupancy。
-- [x] **T4-05** reset 生成结构化报告且完成后保持 Stall，必须由管理员另行 ATO reset；账本提交开始后的意外异常明确报告 `PARTIALLY_COMMITTED`，不得伪装成无副作用失败。
+- [x] **T4-04** 提交阶段先暂存全部列车位置并按实际车体生成跨 Rail 包络；任一定位失败或包络重叠时，在修改资源账本前恢复位置、方向、脱轨标志和 swept state。包络全部互斥后才发布位置，再停止 run/controller、取消 ticket 并重建资源账本和 occupancy。
+- [x] **T4-05** reset 生成结构化报告且完成后保持 Stall，必须由管理员另行 ATO reset；账本提交开始后的意外异常明确报告 `PARTIALLY_COMMITTED` 及异常前已完成的资源修改计数，不得伪装成无副作用失败。
 
-T4 证据：`DepotStoreTest` 覆盖确定性全匹配、plan revalidation 和失败不修改 ledger；`DepotResetCoordinatorTest` 覆盖 Stall-only、列车 envelope/Destination/Dispatcher 全量 preflight、强制资源清理、位置与 occupancy 重建、定位中途失败的完整回滚、结构化 JSON，以及成功后继续保持 Stall。Bukkit 命令在调用事务前等待当前 physics ticket，并将成功、失败或部分提交报告写入 `plugins/MineRails/debug/depot-reset-*.json`。
+T4 证据：`DepotStoreTest` 覆盖确定性全匹配、plan revalidation 和失败不修改 ledger；`DepotResetCoordinatorTest` 覆盖 Stall-only、Destination/Dispatcher 全量 preflight、实际车体跨 Rail 包络冲突、强制资源清理、位置与 occupancy 重建、定位中途失败时对反向/脱轨列车的完整状态回滚、结构化 JSON，以及成功后继续保持 Stall。Bukkit 命令在调用事务前等待当前 physics ticket，并将成功、失败或部分提交报告写入 `plugins/MineRails/debug/depot-reset-*.json`。
 
 ## T5 人工驾驶模式
 
@@ -62,7 +62,7 @@ T4 证据：`DepotStoreTest` 覆盖确定性全匹配、plan revalidation 和失
 - [x] **T5-06** FULL_MANUAL 不申请新 Section，旧资源仍只按车尾释放。
 - [x] **T5-07** 释放人工 session 后只能从明确 Destination/WayPoint 显式 replan。
 
-T5 证据：`TimetableDispatcherTest` 覆盖 MANUAL_ROUTED 的人工速度、跨 GoVia Section 申请、未确认保护点越界 Stall，以及 FULL_MANUAL 不申请新 Section但继续车尾释放；`TimetableStationCallDispatcherTest` 覆盖 operation ticket 取消失败时拒绝控制权转移并保持原运行状态。Bukkit `TrainControlManager` 默认请求 MANUAL_ROUTED，钥匙 Dialog 显示模式并提供显式关闭进路辅助按钮。MANUAL_ROUTED 只会在 ticket 取消并确认 `CANCELLED` 后终止活动 operation/StationCall 自动流程，并跳过后续自动 door、dwell hold 和 departure grant；释放 session 统一进入 `REPLAN_REQUIRED`。
+T5 证据：`TimetableDispatcherTest` 覆盖 MANUAL_ROUTED 的人工速度、跨 GoVia Section 申请、未确认保护点越界 Stall，以及 FULL_MANUAL 不申请新 Section但继续车尾释放；`TimetableStationCallDispatcherTest` 覆盖 operation ticket 取消失败、snapshot 失败、终态 `FAILED` 和取消确认身份变化时拒绝控制权转移并保持原运行状态。Bukkit `TrainControlManager` 默认请求 MANUAL_ROUTED，钥匙 Dialog 显示模式并提供显式关闭进路辅助按钮。MANUAL_ROUTED 只会在 ticket/request 身份一致且取消确认 `CANCELLED` 后终止活动 operation/StationCall 自动流程，并跳过后续自动 door、dwell hold 和 departure grant；释放 session 统一进入 `REPLAN_REQUIRED`。
 
 ## T6 Stall 统一
 

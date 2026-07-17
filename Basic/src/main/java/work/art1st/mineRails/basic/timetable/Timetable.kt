@@ -46,8 +46,6 @@ data class TimetableService(
 sealed class TrainSelector {
     data object AnyTrain : TrainSelector()
     data class TrainId(val trainId: String) : TrainSelector()
-    /** 从若干路径点附近选择一列车；第一版仅作为验证/调度提示。 */
-    data class WayPointPool(val wayPointIds: List<String>) : TrainSelector()
 }
 
 sealed class TimetableStep {
@@ -262,8 +260,13 @@ class TimetableValidator(private val world: World) {
                             }
                             pendingStationCall = null
                         }
-                        is TimetableAction.Stop -> if (pendingStationCall != null) {
-                            errors.add("$prefix step#$index station call 后必须直接跟随 goto")
+                        is TimetableAction.Stop -> {
+                            if (!hasMovement) {
+                                errors.add("$prefix step#$index 首次 movement 前不得 stop")
+                            }
+                            if (pendingStationCall != null) {
+                                errors.add("$prefix step#$index station call 后必须直接跟随 goto")
+                            }
                         }
                     }
                     currentWayPointId = validateAction(
@@ -310,15 +313,6 @@ class TimetableValidator(private val world: World) {
             is TrainSelector.TrainId -> {
                 if (selector.trainId.isBlank()) errors.add("$prefix trainId 不能为空")
                 null
-            }
-            is TrainSelector.WayPointPool -> {
-                errors.add(
-                    "$prefix WayPointPool 不能执行；请使用 TrainId + check 或 takeFromDepot"
-                )
-                selector.wayPointIds.forEach { id ->
-                    if (!wayPointExists(id)) errors.add("$prefix 车库路径点不存在: $id")
-                }
-                selector.wayPointIds.firstOrNull()
             }
         }
     }

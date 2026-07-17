@@ -217,7 +217,7 @@ data class RailObjectRef(
 
 当前语义：
 
-- ref 在单个 World 内必须唯一，跨 World 使用时必须同时携带 world ID；`RailObjectStore` 拒绝重复注册，`RailMap` 拒绝同一 RailView 内重复，ATO 合并跨 view/index 感知时若发现同一 ref 指向不同 live 对象，会以身份矛盾触发 World-local Stall，绝不静默覆盖；
+- ref 在单个 World 内必须唯一，跨 World 使用时必须同时携带 world ID；`RailObjectStore` 拒绝重复注册，`RailMap` 拒绝同一 RailView 内重复，ATO 在同一感知以及相邻 perception epoch 合并跨 view/index 对象时，若发现同一 ref 指向不同 live 对象，会以身份矛盾触发 World-local Stall，绝不静默覆盖；
 - live RailObject 的 location 是实时视图，规划器只能消费 `RailObjectSnapshot`；
 - 对象 owner 在移除时必须先发布 REMOVED，再从所属 store/index 解除注册；由 `RailObjectStore` 自身拥有的 provider boundary 由 store 完成该转换；
 - 是否持久化由具体对象类型决定；
@@ -551,7 +551,7 @@ interface AtoFactory {
 - 时刻表验证阶段检查所需 ATO 和 provider 是否可用；
 - 缺失算法不能静默退回默认实现。
 
-人工驾驶接管不能只替换 `CoreTrain.controller`。当前 D1 行为会先通知 World-local Dispatcher，使服务进入 `SUSPENDED` 并解除旧 ATO；驾驶权释放后进入 `REPLAN_REQUIRED`。系统不自动恢复旧 Mission，也不默认取消整条车次。管理员使用明确 WayPoint 触发 replan，目标固定为被中断 movement 的原目标，并生成新的 ATO 与 Mission revision。旧 RouteSection/StationBerth 在此期间继续按已发布车尾位置安全释放；资源未清空、列车未停止或不在指定 WayPoint 时 replan 失败。运营闭环目标将在其上增加默认 `MANUAL_ROUTED`：人工控制速度，Dispatcher 继续整条 timetable 的经路申请；钥匙 UI 关闭辅助后才进入 FULL_MANUAL/SUSPENDED。详细目标见 [运营闭环设计](./timetable-operation-design.md)，现有证据见 [Phase D1 控制权转移清单](./control-transfer-validation-checklist.md)。
+人工驾驶接管不能只替换 `CoreTrain.controller`。当前 D1/T5 行为会先通知 World-local Dispatcher；默认进入 `MANUAL_ROUTED`，由人工控制速度且 Dispatcher 继续整条 timetable 的经路申请，钥匙 UI 关闭辅助后才进入 `FULL_MANUAL/SUSPENDED`。驾驶权释放后进入 `REPLAN_REQUIRED`，系统不自动恢复旧 Mission，也不默认取消整条车次。管理员使用明确 WayPoint 触发 replan，目标固定为被中断 movement 的原目标，并生成新的 ATO 与 Mission revision。旧 RouteSection/StationBerth 在此期间继续按已发布车尾位置安全释放；资源未清空、列车未停止或不在指定 WayPoint 时 replan 失败。详细边界见 [运营闭环设计](./timetable-operation-design.md)，现有证据见 [Phase D1 控制权转移清单](./control-transfer-validation-checklist.md) 和 [运营闭环验收清单](./timetable-operational-closure-checklist.md)。
 
 ## 12. 线程与事件模型
 
@@ -669,4 +669,4 @@ Phase A/B 和 C1 Mission 垂直切片已完成。剩余工作拆成可独立验�
 
 ## 17. 未完成计划
 
-未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。Phase C2/C3/D1 证据分别保存在 [Station 清单](./station-validation-checklist.md)、[TrainOperationGateway 清单](./train-operation-validation-checklist.md) 和 [控制权转移清单](./control-transfer-validation-checklist.md)；当前按 [运营闭环验收清单](./timetable-operational-closure-checklist.md) 推进 Phase T，插件 Registry 与性能索引延期。
+未完成事项、阶段验收标准和开工前决策统一维护在 [ATO 路线图](./ato-roadmap.md)，避免本设计文档与任务列表重复并逐渐失真。Phase C2/C3/D1/T 的证据分别保存在 [Station 清单](./station-validation-checklist.md)、[TrainOperationGateway 清单](./train-operation-validation-checklist.md)、[控制权转移清单](./control-transfer-validation-checklist.md) 和 [运营闭环验收清单](./timetable-operational-closure-checklist.md)；Phase T 已完成，插件 Registry 与性能索引延期。

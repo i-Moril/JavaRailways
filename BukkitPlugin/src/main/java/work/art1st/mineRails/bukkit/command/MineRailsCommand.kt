@@ -492,6 +492,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                                 "call=${run.stationCallId ?: "-"} berth=${run.berthRef ?: "-"} " +
                                 "berthHeld=${run.berthHeld} operation=${run.operationTicketId ?: "-"} " +
                                 "operationState=${run.operationTicketState ?: "-"} " +
+                                "operationError=${run.operationTicketError ?: "-"} " +
                                 "transferOwner=${run.controlTransferOwner ?: "-"}" +
                                 run.message?.let { " message=$it" }.orEmpty()
                         )

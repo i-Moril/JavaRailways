@@ -33,12 +33,6 @@ object TimetableDumper {
         is TrainSelector.TrainId -> JsonObject(
             mapOf("type" to JsonPrimitive("trainId"), "trainId" to JsonPrimitive(trainId))
         )
-        is TrainSelector.WayPointPool -> JsonObject(
-            mapOf(
-                "type" to JsonPrimitive("wayPointPool"),
-                "wayPointIds" to JsonArray(wayPointIds.map { JsonPrimitive(it) })
-            )
-        )
     }
 
     private fun TimetableStep.toJson(): JsonObject = when (this) {

@@ -50,7 +50,6 @@ import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainSnapshot
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.physics.train.CoreTrain
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
@@ -113,6 +112,7 @@ data class TimetableServiceRunSnapshot(
     val berthHeld: Boolean = false,
     val operationTicketId: String? = null,
     val operationTicketState: TrainOperationTicketState? = null,
+    val operationTicketError: String? = null,
     val controlTransferOwner: String? = null,
     val controlMode: TimetableControlMode = TimetableControlMode.AUTOMATIC,
     val message: String? = null
@@ -129,6 +129,41 @@ data class TimetableDepotResetSummary(
     val releasedBerthCount: Int,
     val stoppedTimetableIds: Set<String>
 )
+
+internal class TimetableDepotResetProgress {
+    private var removedRunCount = 0
+    private var releasedRouteSectionCount = 0
+    private var releasedBerthCount = 0
+    private val stoppedTimetableIds = LinkedHashSet<String>()
+
+    fun recordRunRemoval() {
+        removedRunCount++
+    }
+
+    fun recordRouteRelease() {
+        releasedRouteSectionCount++
+    }
+
+    fun recordBerthRelease() {
+        releasedBerthCount++
+    }
+
+    fun recordStoppedTimetable(timetableId: String) {
+        stoppedTimetableIds += timetableId
+    }
+
+    fun snapshot(): TimetableDepotResetSummary = TimetableDepotResetSummary(
+        removedRunCount,
+        releasedRouteSectionCount,
+        releasedBerthCount,
+        stoppedTimetableIds.toSet()
+    )
+}
+
+internal class TimetableDepotResetApplyException(
+    val summary: TimetableDepotResetSummary,
+    cause: Exception
+) : IllegalStateException("Dispatcher Depot Reset partially applied: ${cause.message}", cause)
 
 data class TimetableEpochSnapshot(
     val timetableId: String,
@@ -172,7 +207,6 @@ class TimetableDispatcher(
     init {
         require(operationTimeoutTicks > 0L)
     }
-    private val initialTrains = ConcurrentHashMap<String, TrainSnapshot>()
     private val missionRevision = AtomicLong(0L)
     private val runs = LinkedHashMap<TimetableServiceRunKey, ActiveRun>()
     private val timetableClocks = LinkedHashMap<String, TimetableClock>()
@@ -180,14 +214,6 @@ class TimetableDispatcher(
     private var dispatcherTick = 0L
     private var allocatorWorld: World? = null
     private var allocator: RouteSectionAllocator? = null
-
-    fun recordInitialTrain(snapshot: TrainSnapshot) {
-        initialTrains[snapshot.trainId] = snapshot
-    }
-
-    fun initialTrain(trainId: String): TrainSnapshot? = initialTrains[trainId]
-
-    fun initialTrains(): Map<String, TrainSnapshot> = initialTrains.toMap()
 
     /** Establish one shared cycle-zero epoch before an administrator starts timetable services. */
     @MainThread
@@ -1155,44 +1181,53 @@ class TimetableDispatcher(
         validateDepotReset(world, trainIds)?.let { error(it) }
         val sectionAllocator = allocator(world)
         val selectedRuns = runs.values.filter { it.train.id in trainIds }
-        selectedRuns.forEach { run ->
-            cancelPendingOperation(run)?.let(::error)
-        }
-        val routeKeys = sectionAllocator.confirmedWindows()
-            .map { it.key }
-            .filter { it.owner.trainId in trainIds }
-        routeKeys.forEach { key ->
-            check(sectionAllocator.release(key)) { "RouteSection disappeared during reset: $key" }
+        val progress = TimetableDepotResetProgress()
+        try {
             selectedRuns.forEach { run ->
-                run.allocations.remove(key)?.let { allocation ->
-                    allocation.section.status = SectionStatus.RELEASED
-                    run.ato.releaseRouteWindow(key)
+                cancelPendingOperation(run)?.let(::error)
+            }
+            val routeKeys = sectionAllocator.confirmedWindows()
+                .map { it.key }
+                .filter { it.owner.trainId in trainIds }
+            routeKeys.forEach { key ->
+                check(sectionAllocator.release(key)) { "RouteSection disappeared during reset: $key" }
+                progress.recordRouteRelease()
+                selectedRuns.forEach { run ->
+                    run.allocations.remove(key)?.let { allocation ->
+                        allocation.section.status = SectionStatus.RELEASED
+                        run.ato.releaseRouteWindow(key)
+                    }
                 }
             }
-        }
-        val berthKeys = berthAllocator.allocations()
-            .filter { it.owner.trainId in trainIds }
-        berthKeys.forEach { key ->
-            check(berthAllocator.release(key)) { "StationBerth disappeared during reset: $key" }
-            selectedRuns.forEach { run ->
-                if (run.stationCall?.allocationKey == key) run.stationCall?.allocationKey = null
+            val berthKeys = berthAllocator.allocations()
+                .filter { it.owner.trainId in trainIds }
+            berthKeys.forEach { key ->
+                check(berthAllocator.release(key)) { "StationBerth disappeared during reset: $key" }
+                progress.recordBerthRelease()
+                selectedRuns.forEach { run ->
+                    if (run.stationCall?.allocationKey == key) run.stationCall?.allocationKey = null
+                }
             }
+            selectedRuns.forEach { run ->
+                run.ato.removeSpeedLimit(stopKey(run))
+                run.ato.removeSpeedLimit(stationPendingHoldKey(run))
+                run.ato.removeSpeedLimit(scheduleHoldKey(run))
+                if (run.train.controller === run.ato) run.train.setController(null)
+            }
+            val stoppedTimetables = selectedRuns.mapTo(LinkedHashSet()) { it.id.timetableId }
+            stoppedTimetables.forEach { timetableId ->
+                timetableClocks.remove(timetableId)
+                progress.recordStoppedTimetable(timetableId)
+            }
+            runs.entries.removeIf { (_, run) ->
+                (run.train.id in trainIds).also { removed ->
+                    if (removed) progress.recordRunRemoval()
+                }
+            }
+            return progress.snapshot()
+        } catch (failure: Exception) {
+            throw TimetableDepotResetApplyException(progress.snapshot(), failure)
         }
-        selectedRuns.forEach { run ->
-            run.ato.removeSpeedLimit(stopKey(run))
-            run.ato.removeSpeedLimit(stationPendingHoldKey(run))
-            run.ato.removeSpeedLimit(scheduleHoldKey(run))
-            if (run.train.controller === run.ato) run.train.setController(null)
-        }
-        val stoppedTimetables = selectedRuns.mapTo(LinkedHashSet()) { it.id.timetableId }
-        stoppedTimetables.forEach(timetableClocks::remove)
-        runs.entries.removeIf { it.value.train.id in trainIds }
-        return TimetableDepotResetSummary(
-            removedRunCount = selectedRuns.size,
-            releasedRouteSectionCount = routeKeys.size,
-            releasedBerthCount = berthKeys.size,
-            stoppedTimetableIds = stoppedTimetables
-        )
     }
 
     private fun tryAllocateStationCall(run: ActiveRun): String? {
@@ -1776,7 +1811,7 @@ class TimetableDispatcher(
                 errorType = errorType,
                 message = reason,
                 stackTrace = failure.stackTraceToString(),
-                initialTrain = initialTrain(run.train.id),
+                initialTrain = world.basicWorldData.atoCoordinator.initialTrain(run.train.id),
                 currentTrain = snapshot,
                 route = null,
                 perception = null,
@@ -2216,17 +2251,36 @@ class TimetableDispatcher(
             return "operation ticket snapshot failed before cancellation: " +
                 (failure.message ?: failure::class.java.simpleName)
         }
-        if (before.state != TrainOperationTicketState.PENDING) return null
-        return cancelTicketAndConfirm(ticket, before.ticketId)
+        val expectedTicketId = run.stationCall?.operationTicketId
+        if (before.requestId != ticket.request.requestId ||
+            expectedTicketId != null && before.ticketId != expectedTicketId
+        ) {
+            return "operation ticket identity changed before cancellation: " +
+                "expected=${expectedTicketId ?: before.ticketId}/${ticket.request.requestId}, " +
+                "actual=${before.ticketId}/${before.requestId}"
+        }
+        when (before.state) {
+            TrainOperationTicketState.PENDING -> Unit
+            TrainOperationTicketState.SUCCEEDED -> return null
+            TrainOperationTicketState.FAILED -> return "operation ${before.ticketId} failed before cancellation: " +
+                before.message.orEmpty()
+            TrainOperationTicketState.CANCELLED -> return "operation ${before.ticketId} was cancelled before Dispatcher confirmation"
+        }
+        return cancelTicketAndConfirm(ticket, before.ticketId, before.requestId)
     }
 
     private fun withCancellationResult(
         reason: String,
         ticket: TrainOperationTicket,
         ticketId: String
-    ): String = cancelTicketAndConfirm(ticket, ticketId)?.let { "$reason; $it" } ?: reason
+    ): String = cancelTicketAndConfirm(ticket, ticketId, ticket.request.requestId)
+        ?.let { "$reason; $it" } ?: reason
 
-    private fun cancelTicketAndConfirm(ticket: TrainOperationTicket, ticketId: String): String? {
+    private fun cancelTicketAndConfirm(
+        ticket: TrainOperationTicket,
+        ticketId: String,
+        requestId: String
+    ): String? {
         try {
             ticket.cancel()
         } catch (failure: Exception) {
@@ -2238,6 +2292,10 @@ class TimetableDispatcher(
         } catch (failure: Exception) {
             return "operation $ticketId cancellation could not be confirmed: " +
                 (failure.message ?: failure::class.java.simpleName)
+        }
+        if (after.ticketId != ticketId || after.requestId != requestId) {
+            return "operation ticket identity changed while confirming cancellation: " +
+                "expected=$ticketId/$requestId, actual=${after.ticketId}/${after.requestId}"
         }
         return if (after.state == TrainOperationTicketState.CANCELLED) {
             null
@@ -2732,8 +2790,15 @@ class TimetableDispatcher(
                 ato.isStopped(ato.currentTrainSnapshot.speedMetersPerSecond)
 
         fun snapshot(): TimetableServiceRunSnapshot {
+            var operationError: String? = null
             val operation = stationCall?.operationTicket?.let { ticket ->
-                runCatching { ticket.snapshot() }.getOrNull()
+                try {
+                    ticket.snapshot()
+                } catch (failure: Exception) {
+                    operationError = "operation ticket snapshot failed: " +
+                        (failure.message ?: failure::class.java.simpleName)
+                    null
+                }
             }
             return TimetableServiceRunSnapshot(
                 id = id,
@@ -2755,6 +2820,7 @@ class TimetableDispatcher(
                 berthHeld = stationCall?.allocationKey != null,
                 operationTicketId = operation?.ticketId ?: stationCall?.operationTicketId,
                 operationTicketState = operation?.state,
+                operationTicketError = operationError,
                 controlTransferOwner = controlTransferOwner,
                 controlMode = controlMode,
                 message = message

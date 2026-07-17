@@ -106,7 +106,7 @@ function main(timetable) {
 - [ ] StationBerth 冲突时列车进入 `WAITING_BERTH`，不抢占 berth 且 World 不 Stall。
 - [ ] 列车不早于 call/goto Tick 动作；晚点时立即继续，但不跳过动作。
 - [ ] BERTHED 后先开门，minimum dwell 完成后关门；关门确认且后续经路存在后才发车。
-- [ ] `status` 中 scheduled、late、head、tail、berthHeld 和 operation state 与现场一致。
+- [ ] `status` 中 scheduled、late、head、tail、berthHeld、operation state 与 snapshot error 均与现场一致。
 - [ ] 到 Depot 后整列进入停车边界，RollingStock 才恢复 `AVAILABLE`。
 - [ ] 最终 storage RouteSection 在存车期间仍保持确认；下一次离库后由车尾越过原 release boundary 才释放。
 
@@ -129,6 +129,7 @@ function main(timetable) {
 - [ ] 人工手柄是唯一速度来源；ATO 不再驱动速度。
 - [ ] Dispatcher 仍申请 timetable RouteSection、设置道岔并按车尾释放。
 - [ ] MANUAL_ROUTED 不自动开关门、不施加 dwell hold、不自动授予发车；司机自行执行平台动作。
+- [ ] 接管前若 door ticket 已 `FAILED`、意外 `CANCELLED` 或身份变化，接管被拒绝，原 controller/run 保持不变并由 Dispatcher 处理故障。
 
 2. 点击“关闭时刻表进路辅助”。
 
@@ -200,6 +201,8 @@ Stall 后不要先执行 ATO reset。先执行：
 - [ ] 非 Stall 状态命令被拒绝。
 - [ ] 缺少精确 `confirm` 时只显示用法，不执行。
 - [ ] capacity、train、Destination、envelope 或 ledger preflight 失败时，所有列车位置和 occupancy 保持不变。
+- [ ] 将两个 StablingPoint 放在相邻 Rail 且让实际车体跨接缝重叠时，Reset 以 `TRAIN_ENVELOPE` 拒绝，即使目标点位于不同 Rail。
+- [ ] 用反向或脱轨列车制造后续列车定位失败时，回滚后方向、脱轨标志和位置均与 Reset 前一致。
 - [ ] 成功后所有列车位于唯一兼容 directed StablingPoint。
 - [ ] RollingStock 为 `AVAILABLE`，occupancy、controller、RouteSection、StationBerth 和 timetable run 一致。
 - [ ] 生成 `plugins/MineRails/debug/depot-reset-*.json`，包含 assignment 与释放数量。

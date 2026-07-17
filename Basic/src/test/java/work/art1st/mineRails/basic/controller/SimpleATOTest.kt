@@ -57,7 +57,7 @@ class SimpleATOTest {
 
         assertEquals(1.0, fixture.train.speed, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
-        assertEquals(fixture.train.id, fixture.data.dispatcher.initialTrain(fixture.train.id)?.trainId)
+        assertEquals(fixture.train.id, fixture.coordinator.initialTrain(fixture.train.id)?.trainId)
     }
 
     @Test
@@ -264,6 +264,55 @@ class SimpleATOTest {
             fixture.coordinator.lastStall?.message?.contains("duplicate RailObjectRef") == true,
             fixture.coordinator.lastStall?.message
         )
+    }
+
+    @Test
+    fun `same reference switching to a different live object across ticks stalls`() {
+        val world = createTestWorld()
+        val approach = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val straight = CoreRail(
+            world,
+            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val branch = CoreRail(
+            world,
+            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        RailAutoConnector.connectIfAllowed(approach, straight)
+        RailAutoConnector.connectIfAllowed(approach, branch)
+        approach.viewAB.selectNextRail(straight.viewAB)
+        val train = createTrainWithConfig("cross-tick-duplicate", approach, world, listOf(10.0))
+        val coordinator = AtoWorldCoordinator("cross-tick-duplicate", reportSink = {})
+        val data = BasicWorldData(atoCoordinator = coordinator)
+        TestBasicWorldDataRegistry.register(world, data)
+        val ref = RailObjectRef("test", "cross-tick-duplicate")
+        data.railMap.addDestination(
+            straight.viewAB,
+            RailDestination(straight.viewAB, "straight", ref)
+        )
+        data.railObjects.register(object : RailObject {
+            override val ref = ref
+            override val lifecycleState = RailObjectLifecycleState.ACTIVE
+            override val location = RailLocationWithFacing(branch.viewAB, 1.0)
+        })
+        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
+        train.setController(ato)
+
+        tickAndPublish(ato, 50.0)
+        approach.viewAB.selectNextRail(branch.viewAB)
+        tickAndPublish(ato, 50.0)
+
+        assertTrue(coordinator.isStalled)
+        assertTrue(coordinator.lastStall?.message?.contains("duplicate RailObjectRef") == true)
     }
 
     @Test

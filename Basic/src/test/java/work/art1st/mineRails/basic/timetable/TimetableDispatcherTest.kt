@@ -42,6 +42,27 @@ import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.util.AsyncTickTestSupport
 
 class TimetableDispatcherTest {
+    @Test
+    fun `depot reset progress preserves completed mutation counts for partial reports`() {
+        val progress = TimetableDepotResetProgress()
+
+        progress.recordRouteRelease()
+        progress.recordRouteRelease()
+        progress.recordBerthRelease()
+        progress.recordRunRemoval()
+        progress.recordStoppedTimetable("tt-a")
+
+        assertEquals(
+            TimetableDepotResetSummary(
+                removedRunCount = 1,
+                releasedRouteSectionCount = 2,
+                releasedBerthCount = 1,
+                stoppedTimetableIds = setOf("tt-a")
+            ),
+            progress.snapshot()
+        )
+    }
+
     private val worlds = mutableListOf<CoreWorld>()
 
     private val profile = AtoSafetyProfile(

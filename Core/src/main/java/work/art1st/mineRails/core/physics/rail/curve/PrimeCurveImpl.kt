@@ -118,6 +118,139 @@ open class PrimeCurveImpl : PrimeCurve {
         }
     }
 
+    override fun splitAt(arcLength: Double): Pair<PrimeCurve, PrimeCurve> {
+        require(arcLength > 0.0 && arcLength < totalArcLength) {
+            "Split arc length must be inside (0, $totalArcLength): $arcLength"
+        }
+
+        val exactIndex = pointList.indexOfFirst { kotlin.math.abs(it.arcLength - arcLength) <= 1e-9 }
+        val leftPoints: List<InternalCurvePoint>
+        val rightPoints: List<InternalCurvePoint>
+        if (exactIndex >= 0) {
+            val source = pointList[exactIndex]
+            val leftType = if (
+                exactIndex > 0 &&
+                pointList[exactIndex - 1].segmentType == Curve.SegmentType.LINE_START &&
+                source.segmentType == Curve.SegmentType.LINE_END
+            ) Curve.SegmentType.LINE_END else Curve.SegmentType.DISCRETE
+            val rightType = if (
+                exactIndex < pointList.lastIndex &&
+                source.segmentType == Curve.SegmentType.LINE_START &&
+                pointList[exactIndex + 1].segmentType == Curve.SegmentType.LINE_END
+            ) Curve.SegmentType.LINE_START else Curve.SegmentType.DISCRETE
+            leftPoints = pointList.take(exactIndex) + source.copyPoint(arcLength = arcLength, segmentType = leftType)
+            rightPoints = listOf(source.copyPoint(arcLength = 0.0, segmentType = rightType)) +
+                pointList.drop(exactIndex + 1).map { it.copyPoint(arcLength = it.arcLength - arcLength) }
+        } else {
+            val loIndex = findSegmentStartIndex(arcLength)
+            val lo = pointList[loIndex]
+            val hi = pointList[loIndex + 1]
+            val insideLine = lo.segmentType == Curve.SegmentType.LINE_START &&
+                hi.segmentType == Curve.SegmentType.LINE_END
+            val splitPoint = getPointAt(arcLength)
+            val leftBoundary = InternalCurvePoint(
+                Vector3d(splitPoint.position),
+                Vector3d(splitPoint.tangent),
+                Vector3d(splitPoint.normal),
+                arcLength,
+                if (insideLine) Curve.SegmentType.LINE_END else Curve.SegmentType.DISCRETE
+            )
+            val rightBoundary = InternalCurvePoint(
+                Vector3d(splitPoint.position),
+                Vector3d(splitPoint.tangent),
+                Vector3d(splitPoint.normal),
+                0.0,
+                if (insideLine) Curve.SegmentType.LINE_START else Curve.SegmentType.DISCRETE
+            )
+            leftPoints = pointList.take(loIndex + 1) + leftBoundary
+            rightPoints = listOf(rightBoundary) +
+                pointList.drop(loIndex + 1).map { it.copyPoint(arcLength = it.arcLength - arcLength) }
+        }
+
+        return PrimeCurveImpl(leftPoints.map { it.toRawPoint() }) to
+            PrimeCurveImpl(rightPoints.map { it.toRawPoint() })
+    }
+
+    override fun concatenate(next: PrimeCurve): PrimeCurve {
+        val nextCurve = next as? PrimeCurveImpl
+            ?: throw IllegalArgumentException("Only canonical sampled PrimeCurve instances can be concatenated")
+        val leftEnd = pointList.last()
+        val rightStart = nextCurve.pointList.first()
+        require(leftEnd.position.distance(rightStart.position) <= Curve.TOLERANCE) {
+            "Curve endpoints do not coincide"
+        }
+        require(Vector3d(leftEnd.tangent).normalize().dot(Vector3d(rightStart.tangent).normalize()) >= 1.0 - 1e-6) {
+            "Curve endpoint tangents do not match"
+        }
+        require(Vector3d(leftEnd.normal).normalize().dot(Vector3d(rightStart.normal).normalize()) >= 1.0 - 1e-6) {
+            "Curve endpoint normals do not match"
+        }
+
+        val splitInsideLine = pointList.size >= 2 && nextCurve.pointList.size >= 2 &&
+            pointList[pointList.lastIndex - 1].segmentType == Curve.SegmentType.LINE_START &&
+            leftEnd.segmentType == Curve.SegmentType.LINE_END &&
+            rightStart.segmentType == Curve.SegmentType.LINE_START &&
+            nextCurve.pointList[1].segmentType == Curve.SegmentType.LINE_END
+        val elideDiscreteJunction = !splitInsideLine && canElideDiscreteJunction(nextCurve)
+        val joined = if (splitInsideLine || elideDiscreteJunction) {
+            pointList.dropLast(1) + nextCurve.pointList.drop(1).map {
+                it.copyPoint(arcLength = totalArcLength + it.arcLength)
+            }
+        } else {
+            val junctionType = when {
+                rightStart.segmentType == Curve.SegmentType.LINE_START -> Curve.SegmentType.LINE_START
+                leftEnd.segmentType == Curve.SegmentType.LINE_END -> Curve.SegmentType.LINE_END
+                else -> Curve.SegmentType.DISCRETE
+            }
+            pointList.dropLast(1) + leftEnd.copyPoint(segmentType = junctionType) +
+                nextCurve.pointList.drop(1).map { it.copyPoint(arcLength = totalArcLength + it.arcLength) }
+        }
+        return PrimeCurveImpl(joined.map { it.toRawPoint() })
+    }
+
+    private fun canElideDiscreteJunction(next: PrimeCurveImpl): Boolean {
+        if (pointList.size < 2 || next.pointList.size < 2) return false
+        val previous = pointList[pointList.lastIndex - 1]
+        val junction = pointList.last()
+        val nextPoint = next.pointList[1]
+        if (previous.segmentType != Curve.SegmentType.DISCRETE ||
+            junction.segmentType != Curve.SegmentType.DISCRETE ||
+            next.pointList.first().segmentType != Curve.SegmentType.DISCRETE ||
+            nextPoint.segmentType != Curve.SegmentType.DISCRETE
+        ) return false
+
+        val span = nextPoint.arcLength + (junction.arcLength - previous.arcLength)
+        if (span <= 1e-12) return false
+        val probe = PrimeCurveImpl(
+            listOf(
+                previous.copyPoint(arcLength = 0.0).toRawPoint(),
+                nextPoint.copyPoint(arcLength = span).toRawPoint()
+            )
+        ).getPointAt(junction.arcLength - previous.arcLength)
+        return probe.position.distance(junction.position) <= 1e-9 &&
+            probe.tangent.distance(junction.tangent) <= 1e-9 &&
+            probe.normal.distance(junction.normal) <= 1e-9
+    }
+
+    private fun InternalCurvePoint.copyPoint(
+        arcLength: Double = this.arcLength,
+        segmentType: Curve.SegmentType = this.segmentType
+    ): InternalCurvePoint = InternalCurvePoint(
+        Vector3d(position),
+        Vector3d(tangent),
+        Vector3d(normal),
+        arcLength,
+        segmentType
+    )
+
+    private fun InternalCurvePoint.toRawPoint(): Curve.RawPoint = Curve.RawPoint(
+        Vector3d(position),
+        Vector3d(tangent),
+        Vector3d(normal),
+        arcLength,
+        segmentType
+    )
+
     private fun findSegmentStartIndex(arcLength: Double): Int {
         var lo = 0
         var hi = pointList.lastIndex

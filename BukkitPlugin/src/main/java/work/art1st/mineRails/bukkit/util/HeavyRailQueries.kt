@@ -20,6 +20,13 @@ object HeavyRailQueries {
         val distance: Double
     )
 
+    data class LookedAtRailMatch(
+        val railId: UUID,
+        val arcLength: Double,
+        val position: Vector3d,
+        val distanceToRay: Double
+    )
+
     @OptIn(Heavy::class)
     fun findNearestRail(rails: Collection<CoreRail>, position: Vector3dc): NearestRailMatch? {
         ThreadGuard.ensureOffMainThread("HeavyRailQueries.findNearestRail")
@@ -57,33 +64,67 @@ object HeavyRailQueries {
         direction: Vector3dc,
         maxDistance: Double,
         hitRadius: Double
-    ): UUID? {
-        ThreadGuard.ensureOffMainThread("HeavyRailQueries.findLookedAtRail")
+    ): UUID? = findLookedAtRailPoint(candidates, origin, direction, maxDistance, hitRadius)?.railId
+
+    @OptIn(Heavy::class)
+    fun findLookedAtRailPoint(
+        candidates: Collection<CoreRail>,
+        origin: Vector3dc,
+        direction: Vector3dc,
+        maxDistance: Double,
+        hitRadius: Double
+    ): LookedAtRailMatch? {
+        ThreadGuard.ensureOffMainThread("HeavyRailQueries.findLookedAtRailPoint")
         val normalizedDirection = Vector3d(direction)
         if (normalizedDirection.lengthSquared() < 1e-12) return null
         normalizedDirection.normalize()
 
-        var bestRailId: UUID? = null
+        fun score(position: Vector3dc, enforceRadius: Boolean = true): Pair<Double, Double>? {
+            val toPoint = Vector3d(position).sub(origin)
+            val projection = toPoint.dot(normalizedDirection)
+            if (projection !in 0.0..maxDistance) return null
+            val closest = Vector3d(origin).fma(projection, normalizedDirection)
+            val distance = closest.distance(position)
+            if (enforceRadius && distance > hitRadius) return null
+            return (projection + distance * 8.0) to distance
+        }
+
+        var best: LookedAtRailMatch? = null
         var bestScore = Double.POSITIVE_INFINITY
         candidates.forEach { rail ->
+            var seedArc: Double? = null
+            var seedScore = Double.POSITIVE_INFINITY
             rail.curve.stream().use { stream ->
                 val iterator = stream.iterator()
                 while (iterator.hasNext()) {
                     val point = iterator.next()
-                    val toPoint = Vector3d(point.position).sub(origin)
-                    val projection = toPoint.dot(normalizedDirection)
-                    if (projection < 0.0 || projection > maxDistance) continue
-                    val closest = Vector3d(origin).fma(projection, normalizedDirection)
-                    val distance = closest.distance(point.position)
-                    if (distance > hitRadius) continue
-                    val score = projection + distance * 8.0
-                    if (score < bestScore) {
-                        bestScore = score
-                        bestRailId = rail.id
+                    val candidateScore = score(point.position)?.first ?: continue
+                    if (candidateScore < seedScore) {
+                        seedScore = candidateScore
+                        seedArc = point.arcLength
                     }
                 }
             }
+            val initialArc = seedArc ?: return@forEach
+            var low = (initialArc - 2.0).coerceAtLeast(0.0)
+            var high = (initialArc + 2.0).coerceAtMost(rail.curve.totalArcLength)
+            repeat(28) {
+                val first = low + (high - low) / 3.0
+                val second = high - (high - low) / 3.0
+                val firstScore = score(rail.curve.getPointAt(first).position, enforceRadius = false)?.first
+                    ?: Double.POSITIVE_INFINITY
+                val secondScore = score(rail.curve.getPointAt(second).position, enforceRadius = false)?.first
+                    ?: Double.POSITIVE_INFINITY
+                if (firstScore <= secondScore) high = second else low = first
+            }
+            val refinedArc = (low + high) / 2.0
+            val point = rail.curve.getPointAt(refinedArc)
+            val (refinedScore, distance) = score(point.position) ?: return@forEach
+            if (refinedScore < bestScore) {
+                bestScore = refinedScore
+                best = LookedAtRailMatch(rail.id, refinedArc, Vector3d(point.position), distance)
+            }
         }
-        return bestRailId
+        return best
     }
 }

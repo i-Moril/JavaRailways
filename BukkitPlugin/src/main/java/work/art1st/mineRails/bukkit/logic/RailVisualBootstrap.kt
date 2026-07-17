@@ -20,9 +20,14 @@ import kotlin.math.ceil
 object RailVisualBootstrap {
     private val railSegments: MutableMap<UUID, MutableList<RailArcVisualSegment>> = ConcurrentHashMap()
 
-    fun registerRail(rail: CoreRail, railType: String = "standard"): PersistedRailRenderMeta {
-        ThreadGuard.ensureMainThread("RailVisualBootstrap.registerRail")
-        val templateSnapshot = createTemplateSnapshot(railType)
+    fun registerRail(rail: CoreRail, railType: String = "standard"): PersistedRailRenderMeta =
+        registerRailWithTemplate(rail, createTemplateSnapshot(railType))
+
+    fun registerRailWithTemplate(
+        rail: CoreRail,
+        templateSnapshot: RailTemplateSnapshot
+    ): PersistedRailRenderMeta {
+        ThreadGuard.ensureMainThread("RailVisualBootstrap.registerRailWithTemplate")
         val segments = createSegments(rail, templateSnapshot)
         registerSegments(rail.id, segments)
         return PersistedRailRenderMeta(

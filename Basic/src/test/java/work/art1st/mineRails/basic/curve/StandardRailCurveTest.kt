@@ -207,6 +207,14 @@ class StandardRailCurveTest {
     @Nested
     inner class Superelevation {
         @Test
+        fun `默认使用 Sine Klein 超高过渡`() {
+            assertEquals(
+                SuperelevationConfig.SuperelevationTransition.SINE_KLEIN,
+                SuperelevationConfig().superelevationTransition
+            )
+        }
+
+        @Test
         fun `无超高配置时 superelevation 为 0`() {
             val curve = StandardRailCurve(30.0, 5.0, 10.0)
             assertEquals(0.0, curve.superelevation, 1e-9)
@@ -237,7 +245,7 @@ class StandardRailCurveTest {
         }
 
         @Test
-        fun `自动超高按局部曲率在缓和曲线中变化`() {
+        fun `自动 Sine Klein 超高在缓和曲线中平滑达到设计值`() {
             val curve = StandardRailCurve(
                 300.0,
                 10.0,
@@ -247,6 +255,84 @@ class StandardRailCurveTest {
 
             assertEquals(0.0678, curve.superelevationAt(5.0), 1.0e-4)
             assertEquals(0.1356, curve.superelevationAt(15.0), 1.0e-4)
+        }
+
+        @Test
+        fun `自动 Sine Klein 超高在缓和曲线边界的变化率趋近于零`() {
+            val curve = StandardRailCurve(
+                300.0,
+                10.0,
+                20.0,
+                SuperelevationConfig(
+                    autoCalculate = true,
+                    designSpeedKmH = 60.0,
+                    maxSuperelevation = 1.0,
+                    superelevationTransition = SuperelevationConfig.SuperelevationTransition.SINE_KLEIN
+                )
+            )
+            val delta = 0.01
+            val entryStartGradient = (curve.superelevationAt(delta) - curve.superelevationAt(0.0)) / delta
+            val entryEndGradient = (curve.superelevationAt(10.0) - curve.superelevationAt(10.0 - delta)) / delta
+            val exitStartGradient = (curve.superelevationAt(30.0 + delta) - curve.superelevationAt(30.0)) / delta
+            val exitEndGradient = (curve.superelevationAt(40.0) - curve.superelevationAt(40.0 - delta)) / delta
+
+            assertTrue(abs(entryStartGradient) < 1.0e-4, "入口起点超高变化率=$entryStartGradient")
+            assertTrue(abs(entryEndGradient) < 1.0e-4, "入口终点超高变化率=$entryEndGradient")
+            assertTrue(abs(exitStartGradient) < 1.0e-4, "出口起点超高变化率=$exitStartGradient")
+            assertTrue(abs(exitEndGradient) < 1.0e-4, "出口终点超高变化率=$exitEndGradient")
+        }
+
+        @Test
+        fun `受限自动超高仍使用完整缓和曲线平滑过渡`() {
+            val curve = StandardRailCurve(
+                30.0,
+                10.0,
+                20.0,
+                SuperelevationConfig(
+                    autoCalculate = true,
+                    designSpeedKmH = 80.0,
+                    maxSuperelevation = 0.15,
+                    superelevationTransition = SuperelevationConfig.SuperelevationTransition.SINE_KLEIN
+                )
+            )
+
+            val quarter = curve.superelevationAt(2.5)
+            val middle = curve.superelevationAt(5.0)
+            assertTrue(quarter in 0.0..0.05, "四分之一处不应提前达到上限: $quarter")
+            assertEquals(0.075, middle, 1.0e-9)
+            assertEquals(0.15, curve.superelevationAt(10.0), 1.0e-9)
+        }
+
+        @Test
+        fun `自动线性模式仍按缓和曲线长度线性过渡`() {
+            val curve = StandardRailCurve(
+                300.0,
+                10.0,
+                20.0,
+                SuperelevationConfig(
+                    autoCalculate = true,
+                    designSpeedKmH = 60.0,
+                    maxSuperelevation = 1.0,
+                    superelevationTransition = SuperelevationConfig.SuperelevationTransition.LINEAR
+                )
+            )
+
+            assertEquals(curve.superelevation * 0.25, curve.superelevationAt(2.5), 1.0e-9)
+            assertEquals(curve.superelevation * 0.75, curve.superelevationAt(7.5), 1.0e-9)
+        }
+
+        @Test
+        fun `无缓和曲线的纯圆弧全程保持设计超高`() {
+            val curve = StandardRailCurve(
+                300.0,
+                0.0,
+                20.0,
+                SuperelevationConfig(autoCalculate = true, designSpeedKmH = 60.0, maxSuperelevation = 1.0)
+            )
+
+            assertEquals(curve.superelevation, curve.superelevationAt(0.0), 1.0e-9)
+            assertEquals(curve.superelevation, curve.superelevationAt(10.0), 1.0e-9)
+            assertEquals(curve.superelevation, curve.superelevationAt(20.0), 1.0e-9)
         }
 
         @Test
@@ -279,19 +365,17 @@ class StandardRailCurveTest {
         }
 
         @Test
-        fun `缓和曲线段超高从 superelevation 余弦过渡`() {
+        fun `缓和曲线段超高按 Sine Klein 曲线过渡`() {
             val config = SuperelevationConfig(
                 autoCalculate = false,
                 maxSuperelevation = 0.10,
-                superelevationTransition = SuperelevationConfig.SuperelevationTransition.COSINE
+                superelevationTransition = SuperelevationConfig.SuperelevationTransition.SINE_KLEIN
             )
             val curve = StandardRailCurve(30.0, 5.0, 10.0, config)
-            val hAt2_5 = curve.superelevationAt(2.5)
-            // 余弦过渡：h = H * (t - sin(2πt)/(2π))，t=0.5
-            // = 0.10 * (0.5 - 0 / (2π)) = 0.05，恰好也是 0.05（与线性相同，中点相同）
-            // 但起点和终点过渡不同：余弦在端点处斜率为 0（更平滑）
-            assertEquals(0.05, hAt2_5, 1e-6)
-            assertTrue(hAt2_5 > 0.05 * 0.99, "余弦在中间过渡应比线性更平滑")
+            val quarterFraction = 0.25 - 1.0 / (2.0 * Math.PI)
+
+            assertEquals(0.10 * quarterFraction, curve.superelevationAt(1.25), 1e-9)
+            assertEquals(0.05, curve.superelevationAt(2.5), 1e-9)
         }
 
         @Test

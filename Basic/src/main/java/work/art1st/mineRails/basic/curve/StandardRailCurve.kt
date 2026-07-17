@@ -12,18 +12,18 @@ import kotlin.math.sqrt
  * 外轨超高配置
  *
  * @param maxSuperelevation 最大超高值（米），如 0.15 表示外轨最高高出 150mm
- * @param superelevationTransition 超高过渡方式。true = 余弦过渡（更平滑），false = 线性过渡
+ * @param superelevationTransition 超高过渡方式，默认为 EN 13803 的 Sine/Klein 正弦过渡
  * @param autoCalculate 自动计算超高值：h(mm) ≈ 11.3·v²(km/h)/R(m)。若速度 ≤ 0 则不使用超高
  */
 data class SuperelevationConfig(
     val maxSuperelevation: Double = 0.15,
-    val superelevationTransition: SuperelevationTransition = SuperelevationTransition.COSINE,
+    val superelevationTransition: SuperelevationTransition = SuperelevationTransition.SINE_KLEIN,
     val autoCalculate: Boolean = true,
     val designSpeedKmH: Double = 0.0
 ) {
     enum class SuperelevationTransition {
-        LINEAR,     // 线性过渡（简单）
-        COSINE      // 余弦过渡（更平滑，高速铁路常用）
+        LINEAR,      // 线性过渡
+        SINE_KLEIN   // EN 13803 Sine/Klein 过渡，形状系数 qN = 2
     }
 
     /**
@@ -109,44 +109,32 @@ class StandardRailCurve(
 
     /**
      * 计算弧长 s 处的超高值（米）。
-     * 在缓和曲线段从 0 线性或余弦过渡到 superelevation，在圆曲线段保持 superelevation。
+     * 在缓和曲线段从 0 线性或按 Sine/Klein 曲线过渡到 superelevation，在圆曲线段保持 superelevation。
      *
      * @param s 弧长
      * @return 超高值（米），出口回旋线段从 superelevation 渐变回 0
      */
     fun superelevationAt(s: Double): Double {
-        if (s < 0 || s > totalLength) return 0.0
-        if (superelevationConfig?.autoCalculate == true && superelevationConfig.designSpeedKmH > 0.0) {
-            val equilibriumMeters = 11.3 * superelevationConfig.designSpeedKmH *
-                superelevationConfig.designSpeedKmH * curvatureAt(s) / 1000.0
-            return minOf(equilibriumMeters, superelevationConfig.maxSuperelevation)
+        if (s < 0 || s > totalLength || superelevation <= 0.0) return 0.0
+        if (L == 0.0) return superelevation
+
+        fun transitionFraction(t: Double): Double {
+            val clamped = t.coerceIn(0.0, 1.0)
+            return when (superelevationConfig?.superelevationTransition) {
+                SuperelevationConfig.SuperelevationTransition.SINE_KLEIN ->
+                    // EN 13803 Sine/Klein: f(t) = t - sin(2πt)/(2π), qN = 2。
+                    clamped - sin(2.0 * Math.PI * clamped) / (2.0 * Math.PI)
+                else -> clamped
+            }
         }
-        if (superelevation <= 0 || L == 0.0) return 0.0
 
         return when {
-            // 入口回旋线（0 到 L）：超高从 0 过渡到 superelevation
-            s < L -> {
-                when (superelevationConfig?.superelevationTransition) {
-                    SuperelevationConfig.SuperelevationTransition.COSINE -> {
-                        val t = s / L  // 0 到 1
-                        superelevation * (t - sin(2.0 * Math.PI * t) / (2.0 * Math.PI))
-                    }
-                    else -> superelevation * s / L  // 线性
-                }
-            }
-            // 圆曲线（L 到 L+Lc）：保持 superelevation
+            // 入口回旋线：在完整 L 内按所选过渡曲线从 0 增长到设计超高。
+            s < L -> superelevation * transitionFraction(s / L)
+            // 圆曲线段保持设计超高。
             s <= L + Lc -> superelevation
-            // 出口回旋线（L+Lc 到 2L+Lc）：超高从 superelevation 过渡到 0
-            else -> {
-                val u = s - (L + Lc)  // 0 到 L
-                when (superelevationConfig?.superelevationTransition) {
-                    SuperelevationConfig.SuperelevationTransition.COSINE -> {
-                        val t = u / L  // 0 到 1
-                        superelevation * (1.0 - t + sin(2.0 * Math.PI * t) / (2.0 * Math.PI))
-                    }
-                    else -> superelevation * (1.0 - u / L)  // 线性
-                }
-            }
+            // 出口回旋线使用入口过渡的镜像，保证两端变化率一致。
+            else -> superelevation * (1.0 - transitionFraction((s - L - Lc) / L))
         }
     }
 
@@ -396,10 +384,10 @@ class StandardRailCurve(
  * 超高过渡方式
  */
 enum class SuperelevationTransition {
-    /** 线性过渡（简单） */
+    /** 线性过渡。 */
     LINEAR,
-    /** 余弦过渡（更平滑，高速铁路常用） */
-    COSINE
+    /** EN 13803 Sine/Klein 正弦过渡，形状系数 qN = 2。 */
+    SINE_KLEIN
 }
 
 object StandardRailCurveBuilder {

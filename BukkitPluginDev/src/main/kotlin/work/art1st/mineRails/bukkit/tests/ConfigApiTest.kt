@@ -104,12 +104,12 @@ class ConfigApiTest : BasicCommand {
 
         val transitionKey = ConfigKey.build<SuperelevationTransition>("rail.transition") {
             label = "超高过渡方式"
-            defaultValue(SuperelevationTransition.COSINE)
+            defaultValue(SuperelevationTransition.SINE_KLEIN)
             valueType = ConfigValueType.ENUM
             constraints = ConfigConstraints.EnumOptions(
-                options = listOf(SuperelevationTransition.COSINE, SuperelevationTransition.LINEAR),
+                options = listOf(SuperelevationTransition.SINE_KLEIN, SuperelevationTransition.LINEAR),
                 displayNames = mapOf(
-                    SuperelevationTransition.COSINE to "余弦过渡（平滑）",
+                    SuperelevationTransition.SINE_KLEIN to "Sine/Klein 过渡（平滑）",
                     SuperelevationTransition.LINEAR to "线性过渡（简单）"
                 )
             )
@@ -315,7 +315,7 @@ class ConfigApiTest : BasicCommand {
     // ═══════════════════════════════════════════
 
     enum class SuperelevationTransition {
-        COSINE,
+        SINE_KLEIN,
         LINEAR
     }
 }

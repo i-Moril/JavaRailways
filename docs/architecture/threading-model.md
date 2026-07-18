@@ -49,7 +49,7 @@ TickEnd 只捕获一次当时的 physics ticket，并等待该 ticket。它不�
 
 `CoreWorld` 使用有界 `LatestTrainFrameMailbox` 将 physics publisher 与平台 visual consumer 解耦：同一列车积压多帧时只保留最新 revision，stale frame 不能覆盖新状态，容量、合并和丢弃均有指标。因此渲染消费者暂停时不会形成逐 tick 无界 backlog，也不会阻止下一 physics epoch 发布。
 
-当前过渡实现仍由 `WorldManager` 在 Paper TickEnd drain frame，并让 `CarExtension.applyFrame()` 执行 Bukkit visual 更新；但旧的 `CoreWorld.commitPublishedTrainRenderState()` 调用链已经移除，渲染扩展消费 frame 而不是由 Core `commit()` 进入 Bukkit。后续 Folia 阶段会把 visual frame 按 entity/region/player 所有权交给 `PlatformDispatcher`，并移除 Paper 主线程 drain。
+当前过渡实现仍由 `WorldManager` 在 Paper TickEnd drain frame，并让 `CarExtension.applyFrame()` 执行 Bukkit visual 更新；但旧的 `CoreWorld.commitPublishedTrainRenderState()` 调用链已经移除，渲染扩展消费 frame 而不是由 Core `commit()` 进入 Bukkit。`PlatformDispatcher` 已统一封装 Paper/Folia 都支持的 global、async、region 与 entity scheduler；后续阶段会把 visual frame 按 entity/region/player 所有权分派，并移除 Paper 主线程 drain。
 
 ## 通用 TickManager
 
@@ -72,6 +72,10 @@ MineRails 事件按线程归属分成两套同步总线：
 StationCall 通知在 physics 发布后由主线程 Dispatcher 消费。Phase C3 的 `TrainOperationGateway.execute()`、operation ticket 轮询/取消、`behavior.js` 和模型 action 全部只在主线程执行；operation request 只携带稳定 ID 和语义值，不会交给 physics worker。Phase D1 的 controller transfer、release 和 replan 同样只在主线程执行；`SUSPENDED` 状态只读取完整 physics epoch 后已发布的 CoreTrain head/tail 位置来释放旧资源。
 
 给定时刻表运营闭环继续由 World-local Dispatcher 在主线程拥有 timetable epoch/cycle、Depot occupancy、RollingStock reservation 和 MANUAL_ROUTED 状态。确定性随机选择只能读取预解析 RollingStockRecord。Depot reset 必须先等待捕获的 physics ticket，完成全量预检后才能一次提交列车位置和资源账本；physics worker 不参与 Depot 分配或 Bukkit 配置读取。
+
+## 平台调度
+
+生产源码不再使用传统 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously`。不属于区域的协调 timer 使用 global scheduler，但 global task 只能选择玩家 UUID/实体；玩家 inventory、location、action bar、dialog 等访问必须再次进入 player entity scheduler。位置相关的 block/world 操作使用 region scheduler，移动实体操作使用会跟随实体的 entity scheduler。
 
 ## 代码约定
 

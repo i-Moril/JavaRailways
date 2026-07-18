@@ -88,7 +88,7 @@ class RenderChunkManager(
     fun onPlayerTeleport(event: PlayerTeleportEvent) {
         ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerTeleport")
         if (event.from.world != world && event.to.world != world) return
-        Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable {
+        BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(event.player, 1L, action = {
             if (event.player.world == world) refreshPlayer(event.player, force = true) else clearPlayer(event.player)
         })
     }

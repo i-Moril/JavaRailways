@@ -1,25 +1,27 @@
 package work.art1st.mineRails.bukkit.control
 
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import net.kyori.adventure.text.Component
-import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerInputEvent
-import org.bukkit.plugin.Plugin
-import org.bukkit.scheduler.BukkitTask
+import work.art1st.mineRails.bukkit.BukkitPlugin
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class TrainHandleInputListener(
     private val controlManager: TrainControlManager
 ) : Listener {
-    private val states = mutableMapOf<UUID, InputState>()
-    private var repeatTask: BukkitTask? = null
+    private val states = ConcurrentHashMap<UUID, InputState>()
+    private var repeatTask: ScheduledTask? = null
     private var ticks: Long = 0L
+    private lateinit var plugin: BukkitPlugin
 
-    fun start(plugin: Plugin) {
-        Bukkit.getPluginManager().registerEvents(this, plugin)
-        repeatTask = Bukkit.getScheduler().runTaskTimer(plugin, Runnable { tickHeldInputs() }, 1L, 1L)
+    fun start(plugin: BukkitPlugin) {
+        this.plugin = plugin
+        plugin.server.pluginManager.registerEvents(this, plugin)
+        repeatTask = plugin.platformDispatcher.runGlobalAtFixedRate(1L, 1L, ::scheduleHeldInputTick)
     }
 
     fun stop() {
@@ -48,34 +50,47 @@ class TrainHandleInputListener(
         }
     }
 
-    private fun tickHeldInputs() {
+    /** Global task only selects entities; all player/controller access runs on the player scheduler. */
+    private fun scheduleHeldInputTick() {
         ticks++
-        val iterator = states.iterator()
-        while (iterator.hasNext()) {
-            val (playerId, state) = iterator.next()
-            if (state.direction == HandleDirection.NONE || state.direction == HandleDirection.CENTER) continue
-            val player = Bukkit.getPlayer(playerId)
-            if (player == null || !player.isOnline) {
-                iterator.remove()
-                continue
+        val updateActionBars = ticks % ACTION_BAR_INTERVAL_TICKS == 0L
+        val playerIds = HashSet(states.keys)
+        if (updateActionBars) {
+            plugin.server.onlinePlayers.forEach { playerIds += it.uniqueId }
+        }
+        playerIds.forEach { playerId ->
+            val player = plugin.server.getPlayer(playerId)
+            if (player == null) {
+                states.remove(playerId)
+                return@forEach
             }
-            val controller = controlManager.controllerFor(player)
-            if (controller == null) {
-                iterator.remove()
-                continue
-            }
+            plugin.platformDispatcher.runForEntity(player, action = {
+                tickHeldInput(player)
+                if (updateActionBars) updateDriverActionBar(player)
+            })
+        }
+    }
 
-            val heldTicks = state.heldTicks + 1
-            if (heldTicks >= INITIAL_REPEAT_DELAY_TICKS &&
-                (heldTicks - INITIAL_REPEAT_DELAY_TICKS) % REPEAT_INTERVAL_TICKS == 0
-            ) {
-                applyDirection(player, state.direction)
-            }
-            state.heldTicks = heldTicks
+    private fun tickHeldInput(player: Player) {
+        val state = states[player.uniqueId] ?: return
+        if (state.direction == HandleDirection.NONE || state.direction == HandleDirection.CENTER) return
+        if (!player.isOnline) {
+            states.remove(player.uniqueId, state)
+            return
         }
-        if (ticks % ACTION_BAR_INTERVAL_TICKS == 0L) {
-            updateDriverActionBars()
+        val controller = controlManager.controllerFor(player)
+        if (controller == null) {
+            states.remove(player.uniqueId, state)
+            return
         }
+
+        val heldTicks = state.heldTicks + 1
+        if (heldTicks >= INITIAL_REPEAT_DELAY_TICKS &&
+            (heldTicks - INITIAL_REPEAT_DELAY_TICKS) % REPEAT_INTERVAL_TICKS == 0
+        ) {
+            applyDirection(player, state.direction)
+        }
+        state.heldTicks = heldTicks
     }
 
     private fun applyDirection(player: Player, direction: HandleDirection) {
@@ -89,11 +104,9 @@ class TrainHandleInputListener(
         sendControllerActionBar(player, controller)
     }
 
-    private fun updateDriverActionBars() {
-        Bukkit.getOnlinePlayers().forEach { player ->
-            val controller = controlManager.controllerFor(player) ?: return@forEach
-            sendControllerActionBar(player, controller)
-        }
+    private fun updateDriverActionBar(player: Player) {
+        val controller = controlManager.controllerFor(player) ?: return
+        sendControllerActionBar(player, controller)
     }
 
     private fun sendControllerActionBar(player: Player, controller: RealisticManualController) {
@@ -106,7 +119,7 @@ class TrainHandleInputListener(
 
     private data class InputState(
         val direction: HandleDirection = HandleDirection.NONE,
-        var heldTicks: Int = 0
+        @Volatile var heldTicks: Int = 0
     )
 
     private enum class HandleDirection {

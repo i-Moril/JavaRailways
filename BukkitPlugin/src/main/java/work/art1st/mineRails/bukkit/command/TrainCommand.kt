@@ -120,6 +120,7 @@ object TrainCommand {
         sender.sendMessage("正在查找可放置轨道，请稍候...")
         BukkitAsyncTasks.supply(
             plugin = BukkitPlugin.INSTANCE,
+            completionEntity = sender,
             operation = "TrainCommand.handleCreate",
             supplier = { HeavyRailQueries.findNearestRail(railSnapshot, playerPos) },
             onSuccess = { nearestRail ->
@@ -138,7 +139,8 @@ object TrainCommand {
                     "TrainCommand create lookup failed for player ${sender.name}: ${error::class.simpleName}: ${error.message ?: ""}"
                 )
                 BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId)?.sendMessage("错误: 轨道查找失败，请重试")
-            }
+            },
+            onRetired = { heavyOperationGate.finish(sender.uniqueId) }
         )
         return true
     }
@@ -691,6 +693,7 @@ object TrainCommand {
         sender.sendMessage("正在查询附近轨道，请稍候...")
         BukkitAsyncTasks.supply(
             plugin = BukkitPlugin.INSTANCE,
+            completionEntity = sender,
             operation = "TrainCommand.handleInfo",
             supplier = { HeavyRailQueries.findNearestRail(railSnapshot, playerPos) },
             onSuccess = { nearestRail ->
@@ -709,7 +712,8 @@ object TrainCommand {
                     "TrainCommand info lookup failed for player ${sender.name}: ${error::class.simpleName}: ${error.message ?: ""}"
                 )
                 BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId)?.sendMessage("错误: 附近轨道查询失败，请重试")
-            }
+            },
+            onRetired = { heavyOperationGate.finish(sender.uniqueId) }
         )
         return true
     }

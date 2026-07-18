@@ -57,6 +57,7 @@ import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailTopologyEditor
 import work.art1st.mineRails.core.physics.rail.RailView
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.*
 
 /**
@@ -320,7 +321,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     /** 临时锚点：仅存在于当前插件运行期，不再写入磁盘。 */
-    private val transientAnchors = mutableMapOf<UUID, MutableMap<String, Anchor>>()
+    private val transientAnchors = ConcurrentHashMap<UUID, MutableMap<String, Anchor>>()
 
     /** ConfigAPI 注册中心 + Dialog 渲染器 */
     private val configUI = ConfigUIRegistry()
@@ -330,11 +331,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private lateinit var wandKeys: WandConfigKeys
 
     /** Per-player transient anchor marker entities: player UUID -> (anchorId -> Set<entityId>). */
-    private val anchorEntities = mutableMapOf<UUID, MutableMap<String, MutableSet<UUID>>>()
+    private val anchorEntities = ConcurrentHashMap<UUID, MutableMap<String, MutableSet<UUID>>>()
     private val heavyOperationGate = PlayerOperationGate()
 
     /** 每名玩家最近 10 次有效操作。 */
-    private val actionHistories = mutableMapOf<UUID, WandActionHistory>()
+    private val actionHistories = ConcurrentHashMap<UUID, WandActionHistory>()
 
     private data class SplitPreviewTarget(
         val worldId: UUID,
@@ -343,8 +344,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val position: Vector3d
     )
 
-    private val splitPreviewTargets = mutableMapOf<UUID, SplitPreviewTarget>()
-    private val splitPreviewRequests = mutableSetOf<UUID>()
+    private val splitPreviewTargets = ConcurrentHashMap<UUID, SplitPreviewTarget>()
+    private val splitPreviewRequests = ConcurrentHashMap.newKeySet<UUID>()
 
     private val createMode = RailWandCreateMode(this)
     private val connectMode = RailWandConnectMode(this)
@@ -365,7 +366,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     override fun onAfterRegisterEvents() {
-        plugin.server.scheduler.runTaskTimer(plugin, Runnable { updateSplitPreviews() }, 1L, 4L)
+        plugin.platformDispatcher.runGlobalAtFixedRate(1L, 4L, ::updateSplitPreviews)
         plugin.logger.info("RailWand initialized")
     }
 
@@ -867,6 +868,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val derailAcceleration = plugin.mineRailsConfig.derailLateralAccelerationMetersPerSecondSquared
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailWand.createTurnoutAtAnchor",
             supplier = {
                 StandardTurnoutFactory.build(anchor, towards, standard)?.let { result ->
@@ -995,6 +997,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailWand.connectSelectedAnchors",
             supplier = { createCurvesWithSpeedLimits(startAnchors, endAnchors, settingsSnapshot) },
             onSuccess = { builtCurves ->
@@ -1159,6 +1162,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailWand.rebuildRailForEndpointEdit",
             supplier = {
                 val curvesByRailId = linkedMapOf<UUID, BuiltCurve>()
@@ -1602,6 +1606,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailWand.rebuildRailGeometry",
             supplier = { createCurvesWithSpeedLimits(starts, ends, settings) },
             onSuccess = { builtCurves ->
@@ -1783,22 +1788,26 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun updateSplitPreviews() {
         plugin.server.onlinePlayers.forEach { player ->
-            if (!isWandItem(player.inventory.itemInMainHand)) return@forEach
-            val state = getState(player)
-            if (state.mode != WandMode.SPLIT) {
-                splitPreviewTargets.remove(player.uniqueId)
-                return@forEach
-            }
-
-            val coreWorld = getCoreWorld(player) ?: return@forEach
-            val pendingRail = state.pendingSplitRail?.let(coreWorld::getRail)
-            val pendingArc = state.pendingSplitArcLength
-            if (pendingRail != null && pendingArc != null && pendingArc in 0.0..pendingRail.curve.totalArcLength) {
-                val point = pendingRail.curve.getPointAt(pendingArc)
-                spawnSplitParticle(player, point.position, Color.LIME, 1.25f)
-            }
-            requestSplitPreview(player)
+            plugin.platformDispatcher.runForEntity(player, action = { updateSplitPreview(player) })
         }
+    }
+
+    private fun updateSplitPreview(player: Player) {
+        if (!isWandItem(player.inventory.itemInMainHand)) return
+        val state = getState(player)
+        if (state.mode != WandMode.SPLIT) {
+            splitPreviewTargets.remove(player.uniqueId)
+            return
+        }
+
+        val coreWorld = getCoreWorld(player) ?: return
+        val pendingRail = state.pendingSplitRail?.let(coreWorld::getRail)
+        val pendingArc = state.pendingSplitArcLength
+        if (pendingRail != null && pendingArc != null && pendingArc in 0.0..pendingRail.curve.totalArcLength) {
+            val point = pendingRail.curve.getPointAt(pendingArc)
+            spawnSplitParticle(player, point.position, Color.LIME, 1.25f)
+        }
+        requestSplitPreview(player)
     }
 
     private fun requestSplitPreview(player: Player) {
@@ -1815,6 +1824,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val candidates = coreWorld.getRailsAlongRay(origin, direction, 96.0, 1.5).toList()
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailWand.updateSplitPreview",
             supplier = { HeavyRailQueries.findLookedAtRailPoint(candidates, origin, direction, 96.0, 1.5) },
             onSuccess = { match ->
@@ -1908,6 +1918,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val metadataSnapshot = rail.metadata
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailWand.confirmSplit",
             supplier = { curveSnapshot.splitAt(arcLength) },
             onSuccess = { curves ->
@@ -1995,6 +2006,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val afterCurve = after.curve
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailWand.mergeSplitAnchor",
             supplier = { beforeCurve.concatenate(afterCurve) },
             onSuccess = { mergedCurve ->
@@ -2175,6 +2187,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailWand.findLookedAtRail",
             supplier = { HeavyRailQueries.findLookedAtRail(candidates, origin, direction, maxDistance, hitRadius) },
             onSuccess = { railId ->
@@ -2202,7 +2215,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // ═══════════════════════════════════════════
 
     private fun anchorsFor(world: World): MutableMap<String, Anchor> =
-        transientAnchors.getOrPut(world.uid) { mutableMapOf() }
+        transientAnchors.computeIfAbsent(world.uid) { ConcurrentHashMap() }
 
     private fun addAnchor(world: World, anchor: Anchor) {
         anchorsFor(world)[anchor.id] = anchor
@@ -2481,7 +2494,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun scheduleAnchorVisibilityRefresh(player: Player) {
-        plugin.server.scheduler.runTask(plugin, Runnable { refreshAnchorsForPlayer(player) })
+        plugin.platformDispatcher.runForEntityLater(player, 1L, action = {
+            refreshAnchorsForPlayer(player)
+        })
     }
 
     @EventHandler

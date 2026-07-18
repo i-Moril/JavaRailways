@@ -41,6 +41,7 @@ import work.art1st.mineRails.bukkit.util.HeavyRailQueries
 import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 enum class RailObjectWandMode(
     override val displayName: String,
@@ -154,9 +155,9 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private val markerEntities = mutableMapOf<UUID, MutableMap<String, UUID>>()
     private val editingWayPoint = mutableMapOf<UUID, String>()
     private val heavyOperationGate = PlayerOperationGate()
-    private val visibleDirectionRails = mutableMapOf<UUID, MutableSet<UUID>>()
-    private val visibleApproachWayPoints = mutableMapOf<UUID, MutableSet<String>>()
-    private var directionParticleFrame: Long = 0L
+    private val visibleDirectionRails = ConcurrentHashMap<UUID, MutableSet<UUID>>()
+    private val visibleApproachWayPoints = ConcurrentHashMap<UUID, MutableSet<String>>()
+    @Volatile private var directionParticleFrame: Long = 0L
     private val configUI = ConfigUIRegistry()
     private val dialogRenderer = DialogRenderer(configUI)
     private lateinit var editKeys: WayPointEditKeys
@@ -172,13 +173,15 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     }
 
     override fun onAfterRegisterEvents() {
-        plugin.server.scheduler.runTaskTimer(plugin, Runnable {
+        plugin.platformDispatcher.runGlobalAtFixedRate(PARTICLE_REFRESH_TICKS, PARTICLE_REFRESH_TICKS) {
             directionParticleFrame++
             plugin.server.onlinePlayers.forEach { player ->
-                renderDirectionRestrictionParticles(player)
-                renderWayPointApproachParticles(player)
+                plugin.platformDispatcher.runForEntity(player, action = {
+                    renderDirectionRestrictionParticles(player)
+                    renderWayPointApproachParticles(player)
+                })
             }
-        }, PARTICLE_REFRESH_TICKS, PARTICLE_REFRESH_TICKS)
+        }
         plugin.logger.info("RailObjectWand initialized")
     }
 
@@ -417,6 +420,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailObjectWand.handleCreateWayPoint",
             supplier = {
                 val existing = HeavyRailQueries.findNearestWayPoint(wayPointSnapshot, railsById, targetPosition)
@@ -567,6 +571,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val rails = coreWorld.allRails.toList()
         BukkitAsyncTasks.supply(
             plugin = plugin,
+            completionEntity = player,
             operation = "RailObjectWand.handleDirectionRestriction",
             supplier = {
                 val pointB = HeavyRailQueries.findNearestRail(rails, targetPosition)
@@ -926,7 +931,9 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     }
 
     private fun scheduleMarkerVisibilityRefresh(player: Player) {
-        plugin.server.scheduler.runTask(plugin, Runnable { refreshMarkersForPlayer(player) })
+        plugin.platformDispatcher.runForEntityLater(player, 1L, action = {
+            refreshMarkersForPlayer(player)
+        })
     }
 
     @EventHandler

@@ -19,6 +19,7 @@ import org.bukkit.persistence.PersistentDataType
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.core.physics.CoreWorld
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 interface WandModeSpec {
     val displayName: String
@@ -41,7 +42,7 @@ abstract class AbstractWand<S, M>(
     private data class BoundState<S>(val itemId: UUID, val state: S)
 
     private var initialized = false
-    private val playerStates = mutableMapOf<UUID, BoundState<S>>()
+    private val playerStates = ConcurrentHashMap<UUID, BoundState<S>>()
     private val itemIdKey by lazy { NamespacedKey(plugin, "wand_instance_id") }
     private val itemStateKey by lazy { NamespacedKey(plugin, "wand_state") }
 

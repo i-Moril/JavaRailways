@@ -19,6 +19,8 @@ import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Train
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 class SeatModel internal constructor(
     world: World,
@@ -231,11 +233,12 @@ class SeatModel internal constructor(
     )
 
     object SeatInteractionListener : Listener {
-        private val seatsByHitbox = mutableMapOf<UUID, SeatBinding>()
-        private val seatsByCarrier = mutableMapOf<UUID, SeatBinding>()
-        private val driverSeatVacatedHandlers = mutableListOf<(Player, Train) -> Unit>()
+        private val seatsByHitbox = ConcurrentHashMap<UUID, SeatBinding>()
+        private val seatsByCarrier = ConcurrentHashMap<UUID, SeatBinding>()
+        private val driverSeatVacatedHandlers = CopyOnWriteArrayList<(Player, Train) -> Unit>()
         private var registered = false
 
+        @Synchronized
         fun ensureRegistered() {
             if (registered) return
             Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
@@ -293,7 +296,9 @@ class SeatModel internal constructor(
             val player = event.entity as? Player ?: return
             val carrier = event.dismounted as? Interaction ?: return
             val binding = seatsByCarrier[carrier.uniqueId] ?: return
-            Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable { restoreIfEmpty(binding) })
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(carrier, 1L, action = {
+                restoreIfEmpty(binding)
+            })
             if (!binding.driverSeat) return
             val ownerCar = binding.ownerCar ?: return
             val train = ownerCar.world.allTrains.firstOrNull { train -> train.cars.any { it === ownerCar } } ?: return
@@ -302,12 +307,12 @@ class SeatModel internal constructor(
 
         @EventHandler
         fun onPlayerQuit(event: PlayerQuitEvent) {
-            Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable { restoreSeatsFor(event.player.uniqueId) })
+            restoreSeatFor(event.player)
         }
 
         @EventHandler
         fun onPlayerDeath(event: PlayerDeathEvent) {
-            Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable { restoreSeatsFor(event.player.uniqueId) })
+            restoreSeatFor(event.player)
         }
 
         @EventHandler
@@ -321,10 +326,10 @@ class SeatModel internal constructor(
 
             val player: Player = event.player
             setSeatOccupied(binding, occupied = true)
-            Bukkit.getScheduler().runTask(BukkitPlugin.INSTANCE, Runnable {
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(carrier, 1L, action = action@{
                 if (!player.isOnline || !carrier.isValid || carrier.passengers.isNotEmpty()) {
                     restoreIfEmpty(binding)
-                    return@Runnable
+                    return@action
                 }
                 if (!carrier.addPassenger(player)) {
                     restoreIfEmpty(binding)
@@ -332,11 +337,13 @@ class SeatModel internal constructor(
             })
         }
 
-        private fun restoreSeatsFor(playerId: UUID) {
-            seatsByHitbox.values.forEach { binding ->
-                binding.carrier?.passengers?.firstOrNull { it.uniqueId == playerId }?.let { binding.carrier?.removePassenger(it) }
+        private fun restoreSeatFor(player: Player) {
+            val carrier = player.vehicle as? Interaction ?: return
+            val binding = seatsByCarrier[carrier.uniqueId] ?: return
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(carrier, 1L, action = {
+                carrier.passengers.firstOrNull { it.uniqueId == player.uniqueId }?.let(carrier::removePassenger)
                 restoreIfEmpty(binding)
-            }
+            })
         }
 
         private fun restoreIfEmpty(binding: SeatBinding) {

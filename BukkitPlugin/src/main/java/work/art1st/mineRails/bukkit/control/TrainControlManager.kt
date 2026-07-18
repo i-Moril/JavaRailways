@@ -9,7 +9,7 @@ import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
-import org.bukkit.scheduler.BukkitTask
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import org.joml.Vector3d
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.timetable.TimetableControlMode
@@ -22,6 +22,7 @@ import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class TrainControlManager(
     private val plugin: BukkitPlugin
@@ -43,10 +44,10 @@ class TrainControlManager(
         var timetableMode: TimetableControlMode
     )
 
-    private val sessionsByPlayer: MutableMap<UUID, ManualControlSession> = mutableMapOf()
-    private val sessionsByTrain: MutableMap<String, ManualControlSession> = mutableMapOf()
+    private val sessionsByPlayer: MutableMap<UUID, ManualControlSession> = ConcurrentHashMap()
+    private val sessionsByTrain: MutableMap<String, ManualControlSession> = ConcurrentHashMap()
     private val dialog = TrainControlDialog(plugin, this)
-    private var bindingScanTask: BukkitTask? = null
+    private var bindingScanTask: ScheduledTask? = null
 
     fun start() {
         plugin.server.pluginManager.registerEvents(this, plugin)
@@ -54,7 +55,7 @@ class TrainControlManager(
             val session = sessionsByPlayer[player.uniqueId] ?: return@addDriverSeatVacatedHandler
             if (session.trainId == train.id) releaseManualControl(player.uniqueId)
         }
-        bindingScanTask = plugin.server.scheduler.runTaskTimer(plugin, Runnable { scanBoundKeys() }, 20L, 20L)
+        bindingScanTask = plugin.platformDispatcher.runGlobalAtFixedRate(20L, 20L, ::scanBoundKeys)
     }
 
     fun stop() {
@@ -242,27 +243,31 @@ class TrainControlManager(
 
     private fun scanBoundKeys() {
         plugin.server.onlinePlayers.forEach { player ->
-            var unboundAny = false
-            val inventory = player.inventory
+            plugin.platformDispatcher.runForEntity(player, action = { scanBoundKeys(player) })
+        }
+    }
 
-            val storageContents = inventory.storageContents
-            storageContents.forEachIndexed { index, item ->
-                if (item != null && validateKeyBinding(player, item, "inventory[$index]")) {
-                    storageContents[index] = item
-                    unboundAny = true
-                }
-            }
-            inventory.storageContents = storageContents
+    private fun scanBoundKeys(player: Player) {
+        var unboundAny = false
+        val inventory = player.inventory
 
-            val offHand = inventory.itemInOffHand
-            if (validateKeyBinding(player, offHand, "offhand")) {
-                inventory.setItemInOffHand(offHand)
+        val storageContents = inventory.storageContents
+        storageContents.forEachIndexed { index, item ->
+            if (item != null && validateKeyBinding(player, item, "inventory[$index]")) {
+                storageContents[index] = item
                 unboundAny = true
             }
+        }
+        inventory.storageContents = storageContents
 
-            if (unboundAny) {
-                player.sendActionBar(Component.text("列车钥匙已自动解绑", NamedTextColor.YELLOW))
-            }
+        val offHand = inventory.itemInOffHand
+        if (validateKeyBinding(player, offHand, "offhand")) {
+            inventory.setItemInOffHand(offHand)
+            unboundAny = true
+        }
+
+        if (unboundAny) {
+            player.sendActionBar(Component.text("列车钥匙已自动解绑", NamedTextColor.YELLOW))
         }
     }
 

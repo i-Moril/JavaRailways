@@ -9,7 +9,7 @@
 当前 MineRails **不兼容 Folia**。代码整体仍基于传统 Paper/Spigot 的“单 Bukkit 主线程”模型：
 
 - `plugin.yml` 未声明 `folia-supported: true`。
-- 多处使用 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously`。
+- 审计时多处使用 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously`；当前适配分支已替换这些生产调用，但尚未完成所有操作的 region/entity ownership 审计。
 - `ThreadGuard` 将 `Bukkit.isPrimaryThread()` 作为主线程判断。
 - 核心 tick/render commit 通过全服 `ServerTickStartEvent/ServerTickEndEvent` 遍历所有世界和玩家。
 - 大量实体、玩家、世界操作没有通过 Folia 的 `RegionScheduler` / `EntityScheduler` / `GlobalRegionScheduler` 隔离。
@@ -92,6 +92,8 @@ WorldManager.onTickEnd
 - `RenderChunkManager` 的受众距离判断使用 frame 中的新位置，不再回读 live renderable position。
 - `TickManagerImpl.postTick()` 不再调用 `Synchronizable.commit()`；worker 只向有界、按对象 identity 合并的 commit mailbox 发布请求，Paper 过渡消费者位于 `WorldManager`。
 - `/mr perf` 输出 visual frame 与 generic tick commit mailbox 的容量、峰值、合并和丢弃指标。
+- 新增 Paper/Folia 共用的 `PlatformDispatcher`；异步查询完成回调改到 player entity scheduler，seat/teleport 后处理改到相关 entity scheduler，四个传统 repeating timer 改用 global scheduler 分发到各 player scheduler。
+- `BukkitPlugin/src/main/java` 已无 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously` 生产调用。
 - 增加快照集合防御性复制、并发 publisher、stale frame、coalescing、capacity eviction、连续 physics epoch、阻塞 visual consumer 和 generic commit 慢消费者测试。
 
 尚未完成：
@@ -100,7 +102,9 @@ WorldManager.onTickEnd
 - `CarExtension` 已消费 car/bogie frame，但座位、玩家受众及部分模型生命周期逻辑仍需要平台线程上下文。
 - Core 的显式 maintenance/test `CoreTrain.commit()` 暂时保留同步 legacy render 通知，用于兼容非 physics 命令路径。
 - generic commit mailbox 目前仍由 `WorldManager` 在 Paper TickEnd 串行消费；尚未声明 entity/region affinity。
-- mailbox 尚未接入平台调度器及时间/数量预算；监控已接入 `/mr perf`。
+- `ThreadGuard.ensureMainThread` 尚未改造成 entity/region ownership guard；Folia region callback 仍可能触发旧断言。
+- TrainControlManager 的跨玩家/跨列车复合事务虽已使用 concurrent map，但尚未建立原子 command ownership。
+- mailbox 尚未接入时间/数量预算；监控已接入 `/mr perf`。
 
 本阶段验证命令：
 
@@ -127,9 +131,9 @@ folia-supported: true
 
 注意：这个声明只能在完成适配并通过 Folia smoke test 后添加，否则 Folia 可能允许加载但运行期崩溃。
 
-### 2. 传统 BukkitScheduler 使用点
+### 2. 传统 BukkitScheduler 使用点（当前分支已完成 API 替换）
 
-需要替换为调度抽象，Folia 实现应使用对应 scheduler。
+当前分支已引入 `PlatformDispatcher`，生产源码中不再直接调用传统 `BukkitScheduler`。Paper 与 Folia 共用 Paper 提供的 global/async/region/entity scheduler API；剩余工作是继续校验每项操作选择的 ownership 是否正确。原审计位置如下：
 
 主要位置：
 

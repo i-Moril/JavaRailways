@@ -154,7 +154,7 @@ class TrainControlDialog(
         val click = DialogAction.customClick(
             { _, audience ->
                 if (audience is Player) {
-                    plugin.server.scheduler.runTask(plugin, Runnable {
+                    plugin.platformDispatcher.runForEntity(audience, action = {
                         audience.closeInventory()
                         action(audience)
                     })

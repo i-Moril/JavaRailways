@@ -28,6 +28,8 @@ import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
 import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.mineRails.bukkit.util.PaperPlatformDispatcher
+import work.art1st.mineRails.bukkit.util.PlatformDispatcher
 import java.io.File
 
 class BukkitPlugin : Plugin, JavaPlugin() {
@@ -41,6 +43,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var viewDistanceManager: ViewDistanceManager
     lateinit var displayRenderBackend: DisplayRenderBackend
     lateinit var worldManager: WorldManager
+    lateinit var platformDispatcher: PlatformDispatcher
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
 
@@ -76,6 +79,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     override fun onLoad() {
         INSTANCE = this
+        platformDispatcher = PaperPlatformDispatcher(this)
         mineRailsConfig = MineRailsConfig.load(this)
         if (mineRailsConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB) {
             packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }

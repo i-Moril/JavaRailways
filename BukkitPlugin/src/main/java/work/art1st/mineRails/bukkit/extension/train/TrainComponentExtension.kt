@@ -74,13 +74,19 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     protected abstract fun destroyModel()
 
     @MainThread
-    @Synchronized
     override fun sendTo(player: Player) {
         BukkitThreadOwnership.ensureEntity(player, "TrainComponentExtension.sendTo")
+        sendToOwned(player)
+    }
+
+    /** Caller already owns [player]; fresh models must receive one complete frame before exposure. */
+    @Synchronized
+    internal fun sendToOwned(player: Player) {
         audience.add(player.uniqueId)
         if (!modelBuilt) {
             buildModel()
             modelBuilt = true
+            updateModel()
         }
         refreshFor(player)
     }

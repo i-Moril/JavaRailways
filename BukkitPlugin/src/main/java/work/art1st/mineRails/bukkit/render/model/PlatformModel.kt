@@ -127,6 +127,7 @@ class PlatformModel internal constructor(
         }
 
         activePlayers.add(playerId)
+        if (units.isEmpty()) spawnEntities()
     }
 
     fun deactivateFor(player: Player) {

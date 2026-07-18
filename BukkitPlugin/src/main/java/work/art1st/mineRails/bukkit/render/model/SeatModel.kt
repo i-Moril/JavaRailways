@@ -99,6 +99,7 @@ class SeatModel internal constructor(
             return
         }
         activePlayers.add(playerId)
+        if (entity == null) spawnEntity()
     }
 
     fun deactivateFor(player: Player) {

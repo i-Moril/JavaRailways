@@ -114,6 +114,89 @@ WorldManager.onTickEnd
 ./gradlew :Core:test :BukkitPlugin:compileKotlin
 ```
 
+## 调度开销复审（2026-07-18）
+
+结论：snapshot/commit mailbox 降低了无界积压，但当前 Folia scheduler 迁移引入了明显的任务 fan-out；在高列车数或高玩家数服务器上，**现状不适合直接开启 Folia 声明**。
+
+### 严重：renderable × player 调度乘法放大
+
+调用链：
+
+```text
+每个 active car 的 TrainFrame
+  -> CarExtension.applyFrame
+  -> RenderChunkManager.update
+  -> updateAudience
+  -> world.players.forEach
+  -> player EntityScheduler.execute
+```
+
+当前任务提交量近似：
+
+```text
+20 × activeCarCount × worldPlayerCount / 秒
+```
+
+示例：100 个活动车厢、50 名同世界玩家会产生约 100,000 次 entity task submission/s，尚未计算模型、座位和 show/hide 操作。这会把原有 O(car × player) 计算进一步放大为同数量级的 scheduler 入队、lambda/task 分配和跨线程唤醒，属于必须先修复的问题。
+
+整改：
+
+- train frame consumer 先批量更新所有 render spatial index。
+- 按玩家维护 latest-wins audience mailbox/dirty flag。
+- 每个玩家同一 tick 最多提交一次 entity task，在该任务中批量 reconcile 所有移动 renderable。
+- 进一步按 old/new chunk 的 watcher 索引筛选受影响玩家，避免遍历整个 world player 集合。
+
+目标复杂度从 `O(car × player)` 次调度降为每批最多 `O(player)` 次调度；内部距离计算仍可批处理或按 chunk 缩小。
+
+### 高：驾驶输入每 tick 全局 fan-out
+
+`TrainHandleInputListener` 每 tick 执行一次 global task，再为 `states` 中每个玩家提交 entity task。`NONE/CENTER` 状态当前不会立即从 map 移除，因此普通玩家触发过输入事件后可能长期留在扫描集合中。
+
+近似任务量：
+
+```text
+20 × statePlayerCount + 4 × (onlinePlayerCount - statePlayerCount) / 秒
+```
+
+整改：
+
+- 只为实际驾驶玩家创建 per-player repeating entity task。
+- 方向回到 `NONE`、离开驾驶座、下线时立即 cancel/remove。
+- action bar 合并到同一驾驶 task，不再每 5 tick 扫描全部在线玩家。
+
+### 中高：两个 Wand timer 无条件调度全部玩家
+
+- `RailWand` 每 4 tick 为全部在线玩家提交 entity task，进入任务后才检查是否持有 RailWand/SPLIT 模式。
+- `RailObjectWand` 每 4 tick 为全部在线玩家提交 entity task，进入任务后才检查模式。
+
+两者合计约 `10 × onlinePlayerCount` 次 entity submission/s。应维护 active wand viewer UUID set，只调度当前持有对应 wand 且处于需要刷新模式的玩家。
+
+### 中：快照对象与转换分配
+
+每个 car frame 当前大约创建：1 个 `CarFrameSnapshot`、1 个 car render state、每个 bogie 1 个 wrapper + 1 个 render state，以及每个 render state 4 个 `Vector3Snapshot`。按常见 2 bogie 估算约 18 个对象/car/physics frame，即约 `360 × activeCarCount` 个对象/s，未含 List、`associateBy` map 和 `toVector3d()` 临时对象。
+
+整改：
+
+- 将 train frame 改为 flat primitive arrays/packed value buffer，仍保持发布后不可变。
+- `WorldManager.applyPublishedTrainFrames` 避免每帧 `associateBy`，使用稳定 car index 或持久 ID lookup。
+- render consumer 减少重复 `toVector3d()`，在单次消费内复用局部值对象。
+
+### 中低：generic commit mailbox 锁竞争
+
+`LatestTickCommitMailbox.offer()` 使用单锁。它避免了主线程重型 commit 和无界队列，但大量并行动画会在每 tick 竞争同一 monitor。当前 animation/action 数量通常远少于 car 数，因此优先级低于 render fan-out；后续可改为分片 identity mailbox。
+
+### 低：事件型和异步型调度
+
+Dialog callback、异步查询 completion、teleport 后刷新、seat mount/dismount 都是事件驱动，一次事件大致对应一次旧 `runTask`，迁移到 entity/async scheduler 没有明显增加任务数量，且 ownership 更准确。
+
+### 立即优化项
+
+1. `PlatformDispatcher.runForEntity/runAt` 增加 ownership fast path：已处于目标上下文时直接执行，避免 Paper 主线程和 Folia 同 region 的重复入队。
+2. 合并 `RenderChunkManager.updateAudience`，禁止 car × player 逐项提交任务。
+3. 将驾驶输入改为 active-driver per-entity task。
+4. Wand timer 只遍历 active viewer。
+5. 给 `PlatformDispatcher` 增加 submitted/executed/retired/direct-fast-path 指标，并显示到 `/mr perf`。
+
 ## 发现的关键阻塞点
 
 ### 1. plugin.yml 未声明 Folia 支持

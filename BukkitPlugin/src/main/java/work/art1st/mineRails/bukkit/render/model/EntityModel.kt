@@ -9,7 +9,6 @@ import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
-import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.core.api.physics.World
 import java.util.concurrent.atomic.AtomicLong
 
@@ -35,10 +34,7 @@ abstract class EntityModel internal constructor(
         val revision = entitySyncRevision.incrementAndGet()
         BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(entity, action = entityTask@{
             if (revision != entitySyncRevision.get()) return@entityTask
-            if (
-                BukkitPlugin.INSTANCE.platformCapabilities.folia &&
-                !BukkitThreadOwnership.isOwnedByCurrentRegion(location)
-            ) {
+            if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
                 entity.teleportAsync(location).thenAccept { teleported ->
                     if (teleported) {
                         BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(entity, action = motionTask@{

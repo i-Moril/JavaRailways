@@ -231,10 +231,7 @@ class SeatModel internal constructor(
     ) {
         BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(interaction, action = entityTask@{
             if (revision != movementRevision.get() || !interaction.isValid) return@entityTask
-            if (
-                BukkitPlugin.INSTANCE.platformCapabilities.folia &&
-                !BukkitThreadOwnership.isOwnedByCurrentRegion(location)
-            ) {
+            if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
                 interaction.teleportAsync(location).thenAccept { teleported ->
                     if (teleported) {
                         BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(interaction, action = movedTask@{

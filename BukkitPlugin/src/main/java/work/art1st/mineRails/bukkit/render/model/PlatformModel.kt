@@ -15,7 +15,6 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.PartPlatformConfig
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
-import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.core.api.physics.World
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -144,10 +143,7 @@ class PlatformModel internal constructor(
             val location = unitLocation(unit.localOffset, yaw, pitch)
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(unit.chicken, action = entityTask@{
                 if (revision != movementRevision.get() || !unit.chicken.isValid) return@entityTask
-                if (
-                    BukkitPlugin.INSTANCE.platformCapabilities.folia &&
-                    !BukkitThreadOwnership.isOwnedByCurrentRegion(location)
-                ) {
+                if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
                     unit.chicken.teleportAsync(location, TeleportFlag.EntityState.RETAIN_PASSENGERS)
                         .thenAccept { teleported ->
                             if (teleported) applyMotionLater(unit.chicken, location, velocity, revision)

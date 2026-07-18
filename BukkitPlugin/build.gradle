@@ -12,10 +12,19 @@ runPaper {
     disablePluginJarDetection()
 }
 
+def foliaPluginJar = layout.buildDirectory.file("folia-plugin/MineRails.jar")
+def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin", Copy) {
+    dependsOn(tasks.shadowJar)
+    from(tasks.shadowJar.archiveFile)
+    into(layout.buildDirectory.dir("folia-plugin"))
+    rename { "MineRails.jar" }
+}
+
 runPaper.folia.registerTask {
     minecraftVersion("26.1.2")
     runDirectory = file("run-folia")
-    pluginJars.from(tasks.shadowJar.archiveFile)
+    dependsOn(prepareFoliaPlugin)
+    pluginJars.from(foliaPluginJar)
     jvmArgs("-Dcom.mojang.eula.agree=true")
     doFirst {
         if (!providers.gradleProperty("mineRailsFoliaSmoke").map { it.toBoolean() }.getOrElse(false)) {
@@ -45,7 +54,7 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
     // Packet entity backend bootstrap: keep PacketEvents and EntityLib on the same shaded runtime classpath.
-    implementation("com.github.retrooper:packetevents-spigot:2.11.1")
+    implementation("com.github.retrooper:packetevents-spigot:2.12.1")
     compileOnly("org.joml:joml:1.10.8")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
@@ -68,7 +77,7 @@ tasks {
     compileJava {
         // Set the release flag. This configures what version bytecode the compiler will emit, as well as what JDK APIs are usable.
         // See https://openjdk.java.net/jeps/247 for more information.
-        options.release = 21
+        options.release = 25
     }
     runServer {
         minecraftVersion("1.21.11")
@@ -116,7 +125,7 @@ shadowJar {
 // 确保在执行 build 时触发 shadowJar
 build.dependsOn shadowJar
 
-def targetJavaVersion = 21
+def targetJavaVersion = 25
 java {
     def javaVersion = JavaVersion.toVersion(targetJavaVersion)
     if (JavaVersion.current() < javaVersion) {
@@ -147,9 +156,9 @@ processResources {
     exclude 'plugin.yml'
 }
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25
     }
 }
 

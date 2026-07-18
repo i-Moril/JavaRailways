@@ -12,7 +12,7 @@
 - 生产代码已移除传统 `BukkitScheduler` 和 Paper `ServerTickStartEvent/ServerTickEndEvent` 驱动链。
 - visual frame、generic commit、玩家受众以及原生 interaction/seat/platform entity 已进入 target-aware region/entity 调度；跨 region 原生实体移动使用 `teleportAsync`。
 - `ThreadGuard` 的遗留“main thread”语义现表示串行 simulation context；Bukkit 副作用另由 `BukkitThreadOwnership` 校验 target ownership。
-- Folia 1.21.11 build 14 的启动/空服 shutdown smoke 已通过；仍缺跨 region 列车、座位/驾驶、split/link/remove、长期 GC 与 scheduler 压力数据。
+- Folia `26.1.2-8` 的启动/空服 shutdown smoke 已通过；仍缺跨 region 列车、座位/驾驶、split/link/remove、长期 GC 与 scheduler 压力数据。
 
 适配复杂度仍为：**高**。目前代码已从“架构阻塞”进入“真实环境验证和剩余复合事务审计”阶段。
 
@@ -135,7 +135,9 @@ WorldManager.onTickEnd
 
 启动验证：
 
-- `./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia` 已在 Folia `1.21.11-14` 完成空服启动；任务目标现已更新为 `26.1.2`，该版本仍需重新执行 smoke。
+- `./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia` 已在 Folia `26.1.2-8` 完成空服启动。
+- PacketEvents 从 `2.11.1` 更新到明确支持 Minecraft 26.1.2 的 `2.12.1`，修复 `NMS_ITEM_STACK_CLASS` 初始化失败。
+- Folia 测试 jar 先 staging 到独立 `build/folia-plugin` 目录，避免 Folia 在 Shadow 写入期间扫描 `build/libs` 产生损坏 jar 误报。
 - 日志确认 MineRails load/enable、Folia detection、EntityLib backend 选择、三个 world 注册以及 timeout 触发后的 disable/shutdown 均无异常。
 
 仍未完成：

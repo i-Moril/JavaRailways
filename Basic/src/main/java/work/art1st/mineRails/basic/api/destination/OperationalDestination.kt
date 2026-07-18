@@ -93,7 +93,8 @@ data class OperationalDestination(
     val displayName: String,
     val railId: UUID,
     val arcLengthInAbMeters: Double,
-    val approachDirection: ViewDirection,
+    /** Null means no destination-level restriction; rail direction rules still apply. */
+    val approachDirection: ViewDirection? = null,
     val role: DestinationRole = DestinationRole.Regular
 ) {
     init {
@@ -233,8 +234,11 @@ class OperationalDestinationService(private val world: World) {
         railLength: Double
     ) {
         val rail = requireNotNull(world.getRail(destination.railId))
-        val view = rail.getView(destination.approachDirection)
-        val arcInView = when (destination.approachDirection) {
+        val placementDirection = destination.approachDirection
+            ?: rail.metadata.allowedDirection
+            ?: ViewDirection.AB
+        val view = rail.getView(placementDirection)
+        val arcInView = when (placementDirection) {
             ViewDirection.AB -> destination.arcLengthInAbMeters
             ViewDirection.BA -> railLength - destination.arcLengthInAbMeters
         }

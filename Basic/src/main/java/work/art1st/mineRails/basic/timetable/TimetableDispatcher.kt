@@ -2579,9 +2579,10 @@ class TimetableDispatcher(
             ?: return "waypoint not found: $wayPointId"
         val trainArc = train.headLocation.arcLengthIn(ViewDirection.AB)
         val destination = world.basicWorldData.destinations[wayPointId]
-        val facingMismatch = destination != null &&
+        val facingMismatch = destination?.approachDirection?.let { requiredDirection ->
             (train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
-                ?.facing != destination.approachDirection
+                ?.facing != requiredDirection
+        } ?: false
         return if (train.headLocation.rail.id != wayPoint.railId ||
             abs(trainArc - wayPoint.arcLength) > ORIGIN_TOLERANCE_METERS ||
             facingMismatch

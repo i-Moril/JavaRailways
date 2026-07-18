@@ -141,11 +141,14 @@ class DepotResetCoordinator(private val world: World) {
                     "Destination rail disappeared: ${destination.railId}"
                 )
             val railLength = rail.getView(ViewDirection.AB).curve.totalArcLength
-            val arcInView = when (destination.approachDirection) {
+            val placementDirection = destination.approachDirection
+                ?: rail.metadata.allowedDirection
+                ?: ViewDirection.AB
+            val arcInView = when (placementDirection) {
                 ViewDirection.AB -> destination.arcLengthInAbMeters
                 ViewDirection.BA -> railLength - destination.arcLengthInAbMeters
             }
-            val target = rail.getView(destination.approachDirection)
+            val target = rail.getView(placementDirection)
                 .getRailLocationAt(arcInView) as? RailLocationWithFacing
                 ?: return failed(
                     resetId,

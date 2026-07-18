@@ -55,6 +55,44 @@ class OperationalDestinationTest {
     }
 
     @Test
+    fun `destinations default to no approach restriction`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val destination = OperationalDestination(
+            id = "unrestricted",
+            displayName = "Unrestricted",
+            railId = rail.id,
+            arcLengthInAbMeters = 50.0
+        )
+
+        val service = OperationalDestinationService(world)
+        service.register(destination)
+        val stationRole = DestinationRole.StationBerthRole(
+            stationId = StationId("unrestricted-station"),
+            berthId = "platform",
+            doorSide = DoorSide.LEFT
+        )
+        service.register(
+            OperationalDestination(
+                id = "unrestricted-platform",
+                displayName = "Unrestricted platform",
+                railId = rail.id,
+                arcLengthInAbMeters = 60.0,
+                role = stationRole
+            )
+        )
+
+        assertNull(world.basicWorldData.destinations["unrestricted"]?.approachDirection)
+        val berth = requireNotNull(world.basicWorldData.stations.berth(stationRole.berthRef))
+        assertNull(berth.approachDirection)
+        assertEquals(60.0, berth.location.arcLengthIn(ViewDirection.AB), 1.0e-9)
+    }
+
+    @Test
     fun `station destinations atomically aggregate directed passive berths`() {
         val world = createTestWorld().also(worlds::add)
         TestBasicWorldDataRegistry.getOrCreate(world)

@@ -53,7 +53,8 @@ class WandStateCodecTest {
     fun `rail object wand state round trips`() {
         val state = RailObjectWandState(
             mode = RailObjectWandMode.DIRECTION_RESTRICTION,
-            pendingDeleteWayPoint = "station-a"
+            pendingDeleteWayPoint = "station-a",
+            defaultWayPointType = work.art1st.mineRails.basic.api.destination.DestinationRoleType.STATION_BERTH
         )
 
         val restored = requireNotNull(RailObjectWandStateCodec.decode(RailObjectWandStateCodec.encode(state)))

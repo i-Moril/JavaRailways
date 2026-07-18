@@ -250,7 +250,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 val location = train.headLocation as? RailLocationWithFacing
                 val arcInAb = location?.arcLengthIn(ViewDirection.AB)
                 if (location == null || location.rail.id != destination.railId ||
-                    location.facing != destination.approachDirection ||
+                    destination.approachDirection?.let { location.facing != it } == true ||
                     arcInAb == null || kotlin.math.abs(arcInAb - destination.arcLengthInAbMeters) > 1.0
                 ) {
                     sender.sendMessage("列车不在 directed StablingPoint $pointRef")

@@ -40,6 +40,14 @@ class DialogRenderer(
     companion object {
         /** ClickCallback 默认生命周期 */
         private val DEFAULT_LIFETIME = ClickCallback.DEFAULT_LIFETIME
+        private val DEFAULT_TEXT_RESOLVER: (String) -> String = { key ->
+            when (key) {
+                "dialog.confirm" -> "✓ 确认"
+                "dialog.enabled" -> "开启"
+                "dialog.disabled" -> "关闭"
+                else -> key
+            }
+        }
 
         /**
          * 将 [ConfigKey.id] 转换为合法的 Dialog input key。
@@ -81,11 +89,12 @@ class DialogRenderer(
         player: Player,
         groupId: String,
         context: Map<String, Any> = emptyMap(),
+        textResolver: (String) -> String = DEFAULT_TEXT_RESOLVER,
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val session = configUI.getPlayerSession(player.uniqueId)
         val builtGroup = configUI.buildGroupForPlayer(groupId, player.uniqueId, context)
-        showNativeDialog(player, builtGroup, session, onConfirmed)
+        showNativeDialog(player, builtGroup, session, textResolver, onConfirmed)
     }
 
     /**
@@ -95,24 +104,25 @@ class DialogRenderer(
         player: Player,
         builtGroup: BuiltGroup,
         session: PlayerConfigSession,
+        textResolver: (String) -> String,
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val group = builtGroup.group
 
         // 构建 DialogInput 列表
-        val inputs = buildInputs(builtGroup, session)
+        val inputs = buildInputs(builtGroup, session, textResolver)
 
         // 构建 body（描述文本）
         val bodies = mutableListOf<DialogBody>()
         if (group.description.isNotBlank()) {
-            bodies.add(DialogBody.plainMessage(Component.text(group.description, NamedTextColor.GRAY)))
+            bodies.add(DialogBody.plainMessage(Component.text(textResolver(group.description), NamedTextColor.GRAY)))
         }
 
         // 子分组作为 body section 标题
         builtGroup.effectiveSubGroups.forEach { sub ->
             if (sub.items.isNotEmpty()) {
                 bodies.add(DialogBody.plainMessage(
-                    Component.text("▸ ${sub.label}", NamedTextColor.YELLOW)
+                    Component.text("▸ ${textResolver(sub.label)}", NamedTextColor.YELLOW)
                 ))
             }
         }
@@ -121,7 +131,7 @@ class DialogRenderer(
         val confirmAction = DialogAction.customClick(
             { view, audience ->
                 if (audience is Player) {
-                    onConfirm(view, builtGroup, session, audience, onConfirmed)
+                    onConfirm(view, builtGroup, session, audience, textResolver, onConfirmed)
                 }
             },
             ClickCallback.Options.builder()
@@ -131,7 +141,7 @@ class DialogRenderer(
         )
 
         val confirmButton = ActionButton.builder(
-            Component.text("✓ 确认", NamedTextColor.GREEN)
+            Component.text(textResolver("dialog.confirm"), NamedTextColor.GREEN)
         )
             .action(confirmAction)
             .build()
@@ -140,7 +150,7 @@ class DialogRenderer(
         val dialog = Dialog.create { factory ->
             factory.empty()
                 .base(
-                    DialogBase.builder(Component.text(group.label, NamedTextColor.GOLD))
+                    DialogBase.builder(Component.text(textResolver(group.label), NamedTextColor.GOLD))
                         .body(bodies)
                         .inputs(inputs)
                         .canCloseWithEscape(true)
@@ -160,6 +170,7 @@ class DialogRenderer(
         builtGroup: BuiltGroup,
         session: PlayerConfigSession,
         player: Player,
+        textResolver: (String) -> String,
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val allItems = builtGroup.effectiveItems +
@@ -233,36 +244,48 @@ class DialogRenderer(
             }
         }
 
-        // 提交
+        // 提交；触发键变化时先重建 Dialog，最终确认时才调用业务回调。
         session.commit()
-
-        // 通知外部回调
-        onConfirmed?.invoke(player)
-
-        // 如果修改了触发键，重新构建并展示
         if (needsRebuild) {
             val newGroup = configUI.buildGroupForPlayer(
                 builtGroup.group.id, player.uniqueId, emptyMap()
             )
-            showNativeDialog(player, newGroup, configUI.getPlayerSession(player.uniqueId), onConfirmed)
+            showNativeDialog(
+                player,
+                newGroup,
+                configUI.getPlayerSession(player.uniqueId),
+                textResolver,
+                onConfirmed
+            )
+            return
         }
+
+        onConfirmed?.invoke(player)
     }
 
     /**
      * 将 [BuiltGroup] 中的配置项转换为 [DialogInput] 列表。
      */
-    private fun buildInputs(builtGroup: BuiltGroup, session: PlayerConfigSession): List<DialogInput> {
+    private fun buildInputs(
+        builtGroup: BuiltGroup,
+        session: PlayerConfigSession,
+        textResolver: (String) -> String
+    ): List<DialogInput> {
         val allItems = builtGroup.effectiveItems +
             builtGroup.effectiveSubGroups.flatMap { it.items }
 
-        return allItems.mapNotNull { item -> toDialogInput(item, session) }
+        return allItems.mapNotNull { item -> toDialogInput(item, session, textResolver) }
     }
 
     /**
      * 将单个 [ConfigItem] 转换为 [DialogInput]。
      */
     @Suppress("UNCHECKED_CAST")
-    private fun toDialogInput(item: ConfigItem, session: PlayerConfigSession): DialogInput? {
+    private fun toDialogInput(
+        item: ConfigItem,
+        session: PlayerConfigSession,
+        textResolver: (String) -> String
+    ): DialogInput? {
         val key = item.key
         val current = session.getValue(key as ConfigKey<Any?>) ?: key.defaultValue
 
@@ -270,10 +293,10 @@ class DialogRenderer(
 
         return when (key.valueType) {
             ConfigValueType.BOOLEAN -> {
-                DialogInput.bool(inputKey, Component.text(key.label))
+                DialogInput.bool(inputKey, Component.text(textResolver(key.label)))
                     .initial(current as? Boolean ?: false)
-                    .onTrue("开启")
-                    .onFalse("关闭")
+                    .onTrue(textResolver("dialog.enabled"))
+                    .onFalse(textResolver("dialog.disabled"))
                     .build()
             }
             ConfigValueType.NUMBER -> {
@@ -282,7 +305,7 @@ class DialogRenderer(
                 val max = constraints?.max?.toFloat() ?: 100f
                 val step = constraints?.step?.toFloat() ?: 1f
                 val value = (current as? Double)?.toFloat() ?: min
-                DialogInput.numberRange(inputKey, Component.text(key.label), min, max)
+                DialogInput.numberRange(inputKey, Component.text(textResolver(key.label)), min, max)
                     .step(step)
                     .initial(value)
                     .build()
@@ -292,7 +315,7 @@ class DialogRenderer(
                 val min = constraints?.min?.toFloat() ?: 0f
                 val max = constraints?.max?.toFloat() ?: 100f
                 val value = (current as? Int)?.toFloat() ?: min
-                DialogInput.numberRange(inputKey, Component.text(key.label), min, max)
+                DialogInput.numberRange(inputKey, Component.text(textResolver(key.label)), min, max)
                     .step(1f)
                     .initial(value)
                     .build()
@@ -300,7 +323,7 @@ class DialogRenderer(
             ConfigValueType.STRING -> {
                 val constraints = key.constraints as? ConfigConstraints.StringLength
                 val value = (current as? String) ?: ""
-                val builder = DialogInput.text(inputKey, Component.text(key.label))
+                val builder = DialogInput.text(inputKey, Component.text(textResolver(key.label)))
                     .initial(value)
                 if (constraints != null) {
                     builder.maxLength(constraints.maxLength)
@@ -312,7 +335,7 @@ class DialogRenderer(
                     ?: return null
                 val currentEnum = current as? Enum<*>
                 val options = constraints.options.map { option ->
-                    val displayName = constraints.displayName(option)
+                    val displayName = textResolver(constraints.displayName(option))
                     SingleOptionDialogInput.OptionEntry.create(
                         option.name,                  // id (used as return value)
                         Component.text(displayName),   // display text
@@ -321,7 +344,7 @@ class DialogRenderer(
                 }
                 DialogInput.singleOption(
                     inputKey,
-                    Component.text(key.label),
+                    Component.text(textResolver(key.label)),
                     options
                 ).build()
             }

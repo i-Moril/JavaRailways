@@ -1,6 +1,7 @@
 package work.art1st.mineRails.bukkit.tool
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.destination.DestinationRole
@@ -59,6 +60,30 @@ class RailObjectDestinationEditTest {
         assertEquals(6.0, role.releaseDistanceMetersAfter)
         assertEquals(DoorSide.RIGHT, role.doorSide)
         assertEquals(ViewDirection.BA, updated.approachDirection)
+    }
+
+    @Test
+    fun `editing can remove a destination approach restriction`() {
+        val railId = UUID.randomUUID()
+        val original = OperationalDestination(
+            id = "regular",
+            displayName = "Regular",
+            railId = railId,
+            arcLengthInAbMeters = 10.0,
+            approachDirection = ViewDirection.AB
+        )
+
+        val updated = applyRailObjectDestinationEdit(
+            WayPoint(original.id, original.displayName, railId, original.arcLengthInAbMeters),
+            original,
+            RailObjectDestinationEdit(
+                id = original.id,
+                roleType = DestinationRoleType.REGULAR,
+                approachDirection = null
+            )
+        )
+
+        assertNull(updated.approachDirection)
     }
 
     @Test

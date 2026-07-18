@@ -191,10 +191,10 @@ class ConfigUIRegistry : ConfigUI {
             ?: return BuiltGroup(
                 ConfigGroup(groupId, groupId),
                 emptyList(), emptyList(), emptySet(),
-                createSnapshot()
+                createSnapshot(playerId)
             )
 
-        val snapshot = createSnapshot()
+        val snapshot = createSnapshot(playerId)
 
         // Step 1: 展平 items（评估 visibleWhen）
         val flattenedItems = flattenItems(group, snapshot, emptySet())
@@ -329,17 +329,19 @@ class ConfigUIRegistry : ConfigUI {
         return ids
     }
 
-    /** 创建当前全局配置的快照 */
-    private fun createSnapshot(): ConfigSnapshot {
+    /** 创建当前玩家会话优先、全局值回退的配置快照。 */
+    private fun createSnapshot(playerId: UUID? = null): ConfigSnapshot {
+        val session = playerId?.let(playerSessions::get)
         return object : ConfigSnapshot {
             @Suppress("UNCHECKED_CAST")
             override fun <T> get(keyId: String): T? {
-                return items[keyId]?.currentValue as? T
+                val item = items[keyId] ?: return null
+                val key = item.key as ConfigKey<Any?>
+                return (session?.getValue(key) ?: item.currentValue) as? T
             }
 
-            @Suppress("UNCHECKED_CAST")
             override fun <T> getOrDefault(keyId: String, default: T): T {
-                return (items[keyId]?.currentValue as? T) ?: default
+                return get<T>(keyId) ?: default
             }
 
             override fun contains(keyId: String): Boolean {

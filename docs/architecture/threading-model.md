@@ -82,7 +82,7 @@ StationCall 通知在 physics 发布后由 simulation Dispatcher 消费。Phase 
 
 生产源码不再使用传统 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously`。不属于区域的协调 timer 使用 global scheduler，但 global task 只能做 simulation/value 协调；玩家 inventory、location、action bar、dialog 等访问必须再次进入 player entity scheduler。驾驶输入、列车钥匙扫描和 Wand 粒子均使用活跃玩家的持久 per-entity task/subscription，不做每 tick 全服 fan-out。`PlatformDispatcher` 在当前线程已拥有目标 entity/location 时直接执行，避免重复入队。位置相关的 block/world 操作使用 region scheduler，移动实体操作使用会跟随实体的 entity scheduler；跨 region native entity movement 必须使用 `teleportAsync`。
 
-本地 Folia 测试使用 `./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia`。该 Gradle property 只为 smoke artifact 临时生成 `folia-supported: true`；普通 build 仍生成 `false`，真实验证完成前不得修改生产默认值。Folia `1.21.11-14` 的空服 load/enable/disable smoke 已通过；`runFolia` 当前目标版本已更新为 `26.2`，需要重新执行该版本的 smoke。跨 region 功能和压力场景仍是发布前置条件。
+本地 Folia 测试使用 `./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia`。该 Gradle property 只为 smoke artifact 临时生成 `folia-supported: true`；普通 build 仍生成 `false`，真实验证完成前不得修改生产默认值。Folia `1.21.11-14` 的空服 load/enable/disable smoke 已通过；`runFolia` 当前目标版本已更新为 `26.1.2`，需要重新执行该版本的 smoke。跨 region 功能和压力场景仍是发布前置条件。
 
 ## 代码约定
 

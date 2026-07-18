@@ -13,7 +13,7 @@ runPaper {
 }
 
 runPaper.folia.registerTask {
-    minecraftVersion("26.2")
+    minecraftVersion("26.1.2")
     runDirectory = file("run-folia")
     pluginJars.from(tasks.shadowJar.archiveFile)
     jvmArgs("-Dcom.mojang.eula.agree=true")

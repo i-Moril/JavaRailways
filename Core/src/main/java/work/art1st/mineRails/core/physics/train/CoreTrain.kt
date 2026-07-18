@@ -12,8 +12,14 @@ import work.art1st.mineRails.core.api.physics.exception.CannotCreateTrainExcepti
 import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardException
 import work.art1st.mineRails.core.api.physics.exception.PhysicsException
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
+import work.art1st.mineRails.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.mineRails.core.api.physics.train.BogieFrameSnapshot
+import work.art1st.mineRails.core.api.physics.train.CarFrameSnapshot
+import work.art1st.mineRails.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainExtension
+import work.art1st.mineRails.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.mineRails.core.api.render.RenderableFrameSnapshot
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.annotation.AsyncEventApi
 import work.art1st.mineRails.core.api.util.plugin.Extendable
@@ -32,6 +38,8 @@ import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 
 /**
@@ -58,6 +66,12 @@ open class CoreTrain @MainThread internal constructor(
     internal var publishedSweptSpans: List<SweptRailSpan> = emptyList()
         private set
     private var pendingSweptSpans: List<SweptRailSpan>? = null
+    private val frameRevision = AtomicLong(0L)
+    private val publishedFrameRef = AtomicReference<TrainFrameSnapshot?>()
+
+    /** Latest complete value-only frame; consumers must not supplement it from live train state. */
+    val publishedFrame: TrainFrameSnapshot
+        get() = publishedFrameRef.get() ?: error("initial train frame has not been published: $id")
 
     /** Opaque state used to roll back an administrator maintenance relocation. */
     class PlacementSnapshot internal constructor(
@@ -94,6 +108,7 @@ open class CoreTrain @MainThread internal constructor(
         world.addTrain(this)
         this.initialize(savedExtensionData)
         publishedSweptSpans = spansFromLocations(currentRailLocations())
+        publishedFrameRef.set(captureFrame(revision = 0L, physicsEpoch = 0L))
     }
 
     val headCar
@@ -340,6 +355,43 @@ open class CoreTrain @MainThread internal constructor(
         }
     }
 
+    /** Publishes one complete frame after this train's physics buffers have been flipped. */
+    internal fun publishFrame(physicsEpoch: Long): TrainFrameSnapshot {
+        require(physicsEpoch >= 0L) { "physicsEpoch must be non-negative" }
+        val frame = captureFrame(
+            revision = frameRevision.incrementAndGet(),
+            physicsEpoch = physicsEpoch
+        )
+        while (true) {
+            val current = publishedFrameRef.get()
+            if (current != null && current.revision >= frame.revision) return current
+            if (publishedFrameRef.compareAndSet(current, frame)) return frame
+        }
+    }
+
+    private fun captureFrame(revision: Long, physicsEpoch: Long): TrainFrameSnapshot = TrainFrameSnapshot.create(
+        trainId = id,
+        revision = revision,
+        physicsEpoch = physicsEpoch,
+        speedMetersPerSecond = speed,
+        derailed = isDerailed,
+        reversed = isReversed,
+        cars = cars.map { car ->
+            CarFrameSnapshot.create(
+                carId = car.id,
+                state = RenderableFrameSnapshot.capture(car),
+                bogies = car.bogies.map { bogie ->
+                    BogieFrameSnapshot(RenderableFrameSnapshot.capture(bogie))
+                }
+            )
+        },
+        head = RailPositionSnapshot.capture(head.location, ViewDirection.AB),
+        tail = RailPositionSnapshot.capture(tail.location, ViewDirection.AB),
+        sweptSpans = publishedSweptSpans.map { span ->
+            SweptRailSpanSnapshot(span.railId, span.minArcAB, span.maxArcAB)
+        }
+    )
+
     private fun currentRailLocations(): List<RailLocationWithFacing> = buildList {
         add(head.location)
         cars.forEach { car -> car.bogies.forEach { add(it.location) } }
@@ -402,8 +454,10 @@ open class CoreTrain @MainThread internal constructor(
     }
 
     override fun commit() {
-        // Explicit command/test paths still publish and render synchronously.
+        // Explicit command/test paths still render synchronously during the transition, but they
+        // also advance the value-only publication so cross-thread readers never remain stale.
         publishPhysicsState()
+        publishFrame(publishedFrame.physicsEpoch)
         commitRenderState()
     }
 

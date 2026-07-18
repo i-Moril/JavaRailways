@@ -13,7 +13,6 @@ import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerTeleportEvent
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.BukkitPlugin
-import work.art1st.mineRails.bukkit.extension.chunk
 import work.art1st.mineRails.bukkit.extension.rail.RailArcVisualSegment
 import work.art1st.mineRails.bukkit.extension.rail.renderer
 import work.art1st.mineRails.bukkit.extension.train.renderer
@@ -200,9 +199,9 @@ class RenderChunkManager(
         }
     }
 
-    internal fun remove(renderable: Renderable) {
+    internal fun remove(renderable: Renderable, position: Vector3dc = renderable.position) {
         ThreadGuard.ensureMainThread("RenderChunkManager.remove")
-        remove(renderable, renderable.chunk)
+        remove(renderable, RenderChunk(position))
         val playerIds = visibleByPlayer.entries
             .filter { (_, renderables) -> renderable in renderables }
             .map { (playerId, _) -> playerId }
@@ -233,17 +232,17 @@ class RenderChunkManager(
             if (oldChunk != null && oldChunk != newChunk) remove(renderable, oldChunk)
         }
 
-        updateAudience(renderable)
+        updateAudience(renderable, newPosition)
     }
 
-    private fun updateAudience(renderable: Renderable) {
+    private fun updateAudience(renderable: Renderable, position: Vector3dc) {
         world.players.forEach { player ->
             if (player.world != world) {
                 clearPlayer(player)
                 return@forEach
             }
             val radius = player.railViewDistanceSettings.viewDistance
-            val visible = distanceSquared(renderable.position, player.location.asVector3d()) <= radius * radius
+            val visible = distanceSquared(position, player.location.asVector3d()) <= radius * radius
             setVisible(player, renderable, visible)
         }
     }

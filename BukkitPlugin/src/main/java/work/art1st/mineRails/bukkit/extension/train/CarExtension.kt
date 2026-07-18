@@ -14,8 +14,10 @@ import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
 import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.bukkit.render.chunk.railViewDistanceSettings
+import work.art1st.mineRails.core.api.physics.train.BogieFrameSnapshot
 import work.art1st.mineRails.core.api.physics.train.Car
-import work.art1st.mineRails.core.api.physics.train.Bogie
+import work.art1st.mineRails.core.api.physics.train.CarFrameSnapshot
+import work.art1st.mineRails.core.api.render.RenderableFrameSnapshot
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.core.physics.train.CoreCar
@@ -44,6 +46,8 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var modelStateApplied: Boolean = false
     private var detailStateCurrent: Boolean = false
     private var forceNextModelUpdate: Boolean = false
+    private var latestFrameRevision: Long = -1L
+    private var latestFrame: CarFrameSnapshot? = null
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
         super.initialize(host, savedExtensionData)
@@ -71,16 +75,25 @@ class CarExtension : TrainComponentExtension<Car>() {
         )
     }
 
+    /** Legacy synchronous entry point retained for explicit Core command paths. */
     override fun commit() {
-        val renderManager = self.world.renderChunkManager
-        renderManager.update(self, self.lastState.position, self.position)
-        // Bogie entities are owned here, but their transforms follow the live bogies.
+        applyFrame(captureLiveFrame(), latestFrameRevision + 1L)
+    }
+
+    /** Applies one value-only frame; stale revisions cannot move a model backwards. */
+    fun applyFrame(frame: CarFrameSnapshot, revision: Long) {
+        ThreadGuard.ensureMainThread("CarExtension.applyFrame")
+        if (revision <= latestFrameRevision) return
+        val oldPosition = latestFrame?.state?.position?.toVector3d() ?: self.lastState.position
+        latestFrame = frame
+        latestFrameRevision = revision
+        self.world.renderChunkManager.update(self, oldPosition, frame.state.position.toVector3d())
         super.commit()
     }
 
     override fun destroy() {
         val renderManager = self.world.renderChunkManager
-        renderManager.remove(self)
+        renderManager.remove(self, latestFrame?.state?.position?.toVector3d() ?: self.position)
         super.destroy()
     }
 
@@ -101,7 +114,8 @@ class CarExtension : TrainComponentExtension<Car>() {
             modelManager.createTreeBuilder(self.world, carDef.packageName)
         }
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
-        val rootLocation = Location(bukkitWorld, self.position.x(), self.position.y(), self.position.z())
+        val rootPosition = renderFrame().state.position
+        val rootLocation = Location(bukkitWorld, rootPosition.x, rootPosition.y, rootPosition.z)
 
         bodyModel = builder.buildCarBody(carDef, rootLocation, self)
         bogieModels = carDef.bogies.map { bogieDef ->
@@ -120,9 +134,15 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     override fun updateModel() {
         val model = bodyModel ?: return
+        val frame = renderFrame()
+        val state = frame.state
+        val position = state.position.toVector3d()
+        val direction = state.direction.toVector3d()
+        val normal = state.normal.toVector3d()
+        val velocity = state.velocity.toVector3d()
         modelUpdateSequence += 1L
         val nearDetailAudience = hasAudiencePlayer(::isWithinDetailDistance)
-        val movingWithAudience = self.velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudiencePlayer { true }
+        val movingWithAudience = velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudiencePlayer { true }
         val updateInterval = if (nearDetailAudience || movingWithAudience) NEAR_UPDATE_INTERVAL else FAR_UPDATE_INTERVAL
         val shouldUpdateModel = forceNextModelUpdate || !modelStateApplied ||
             updateInterval == 1 || modelUpdateSequence % updateInterval == 0L
@@ -130,9 +150,9 @@ class CarExtension : TrainComponentExtension<Car>() {
             detailStateCurrent = false
             // Keep world positions exact every tick while avoiding the expensive recursive child
             // transform walk for distant cars.
-            model.updateRootPosition(self.position)
-            self.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
-                bogieModel.updateRootPosition(bogieRootPosition(bogie))
+            model.updateRootPosition(position)
+            frame.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
+                bogieModel.updateRootPosition(bogieRootPosition(bogie.state))
             }
             refreshInteractiveActivationForAudience()
             return
@@ -140,12 +160,9 @@ class CarExtension : TrainComponentExtension<Car>() {
         forceNextModelUpdate = false
         modelStateApplied = true
         detailStateCurrent = true
-        val renderRotation = rotationFrom(self.direction, self.normal)
-        val carTransform = CompactTransform(
-            position = self.position,
-            rotation = renderRotation
-        )
-        model.updateState(carTransform, self.velocity)
+        val renderRotation = rotationFrom(direction, normal)
+        val carTransform = CompactTransform(position = position, rotation = renderRotation)
+        model.updateState(carTransform, velocity)
 
         if (TrainDebugLog.enabled) {
             val euler = TrainDebugLog.euler(renderRotation)
@@ -154,9 +171,9 @@ class CarExtension : TrainComponentExtension<Car>() {
                 null, null, (self as? CoreCar)?.id ?: self.hashCode(),
                 null, null, null,
                 null, null, null, null, null,
-                self.position.x(), self.position.y(), self.position.z(),
-                self.direction.x(), self.direction.y(), self.direction.z(),
-                self.normal.x(), self.normal.y(), self.normal.z(),
+                position.x(), position.y(), position.z(),
+                direction.x(), direction.y(), direction.z(),
+                normal.x(), normal.y(), normal.z(),
                 null, null, null, null, null, null, null, null, null, null, null, null,
                 euler.x(), euler.y(), euler.z(),
                 renderRotation.x(), renderRotation.y(), renderRotation.z(), renderRotation.w(),
@@ -164,12 +181,13 @@ class CarExtension : TrainComponentExtension<Car>() {
             ))
         }
 
-        self.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
+        frame.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
+            val bogieState = bogie.state
             val bogieTransform = CompactTransform(
-                position = bogieRootPosition(bogie),
-                rotation = currentBogieRotation(bogie)
+                position = bogieRootPosition(bogieState),
+                rotation = rotationFrom(bogieState.direction.toVector3d(), bogieState.normal.toVector3d())
             )
-            bogieModel.updateState(bogieTransform, bogie.velocity)
+            bogieModel.updateState(bogieTransform, bogieState.velocity.toVector3d())
         }
 
         refreshInteractiveActivationForAudience()
@@ -276,9 +294,10 @@ class CarExtension : TrainComponentExtension<Car>() {
     private fun isWithinDetailDistance(player: Player): Boolean {
         if (player.world != self.world.bukkitWorldData.bukkitWorld) return false
         val location = player.location
-        val dx = location.x - self.position.x()
-        val dy = location.y - self.position.y()
-        val dz = location.z - self.position.z()
+        val position = renderFrame().state.position
+        val dx = location.x - position.x
+        val dy = location.y - position.y
+        val dz = location.z - position.z
         val threshold = player.railViewDistanceSettings.lodThreshold
         return dx * dx + dy * dy + dz * dz <= threshold * threshold
     }
@@ -304,11 +323,18 @@ class CarExtension : TrainComponentExtension<Car>() {
         return Quaterniond().setFromNormalized(rotationMatrix)
     }
 
-    private fun currentBogieRotation(bogie: Bogie): Quaterniond =
-        rotationFrom(bogie.direction, bogie.normal)
+    private fun renderFrame(): CarFrameSnapshot = latestFrame ?: captureLiveFrame()
 
-    private fun bogieRootPosition(bogie: Bogie): Vector3d =
-        Vector3d(bogie.position).add(Vector3d(bogie.normal).mul(self.floorHeight))
+    private fun captureLiveFrame(): CarFrameSnapshot = CarFrameSnapshot.create(
+        carId = (self as? CoreCar)?.id ?: self.hashCode().toString(),
+        state = RenderableFrameSnapshot.capture(self),
+        bogies = self.bogies.map { bogie ->
+            BogieFrameSnapshot(RenderableFrameSnapshot.capture(bogie))
+        }
+    )
+
+    private fun bogieRootPosition(state: RenderableFrameSnapshot): Vector3d =
+        state.position.toVector3d().add(state.normal.toVector3d().mul(self.floorHeight))
 
     companion object {
         private const val NEAR_UPDATE_INTERVAL = 1

@@ -14,11 +14,13 @@ import work.art1st.mineRails.bukkit.debug.MineRailsServerTickMetrics
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
+import work.art1st.mineRails.bukkit.extension.train.carRendererOrNull
 import work.art1st.mineRails.bukkit.extension.train.SeatExtension
 import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.persistence.WorldPersistence
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.ArrayDeque
 import kotlin.system.measureNanoTime
@@ -174,9 +176,9 @@ class WorldManager(
                 blockedWaitAsyncNanos += physicsWaitNanos
 
                 val renderCommitNanos = measureNanoTime {
-                    coreWorld.commitPublishedTrainRenderState()
+                    applyPublishedTrainFrames(coreWorld)
                 }
-                phaseBreakdown["world:${world.name}:train_render_commit"] = renderCommitNanos
+                phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = renderCommitNanos
                 computeNanos += renderCommitNanos
             }
 
@@ -241,6 +243,20 @@ class WorldManager(
                 phaseBreakdownNanos = phaseBreakdown.toMap()
             )
         )
+    }
+
+    /** Transitional Paper consumer; Folia will dispatch each car frame to its owning context. */
+    private fun applyPublishedTrainFrames(coreWorld: CoreWorld) {
+        coreWorld.drainPublishedTrainFrames().forEach { trainFrame ->
+            val train = coreWorld.getTrain(trainFrame.trainId) ?: return@forEach
+            val carsById = train.cars
+                .filterIsInstance<CoreCar>()
+                .associateBy { it.id }
+            trainFrame.cars.forEach carFrameLoop@{ carFrame ->
+                val car = carsById[carFrame.carId] ?: return@carFrameLoop
+                car.carRendererOrNull?.applyFrame(carFrame, trainFrame.revision)
+            }
+        }
     }
 
     private fun rememberServerTickMetrics(snapshot: MineRailsServerTickMetrics) {

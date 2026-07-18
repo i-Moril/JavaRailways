@@ -309,7 +309,10 @@ class PhysicsCoordinator(
             // Publish only after every worker has finished reading the previous epoch.
             snapshot.forEach { controller ->
                 controller.publishPhysicsState()
-                world?.markTrainRenderPending(controller.profileId)
+                val train = controller.train as? CoreTrain
+                if (train != null) {
+                    world?.publishTrainFrame(train.publishFrame(ticket.epoch))
+                }
             }
             world?.rebuildSweptOccupancyIndex()
             val occupancyStats = world?.sweptOccupancyStats() ?: (0 to 0)

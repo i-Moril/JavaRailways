@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 class PhysicsCoordinatorTest {
     @Test
-    fun `published active trains are queued for main-thread render commit`() {
+    fun `physics publishes one immutable versioned frame per active train`() {
         val coordinator = PhysicsCoordinator(
             workerThreads = 1,
             fallbackPeriodMillis = 1_000_000L,
@@ -38,17 +38,54 @@ class PhysicsCoordinatorTest {
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("render-dirty", rail, world, listOf(10.0))
-        val car = train.cars.single()
-        val initialRenderedPosition = car.lastState.position
+        val initialFrame = train.publishedFrame
         train.setController(ConstantSpeedController(train, world))
         coordinator.start()
         try {
-            coordinator.wakeFromMainThread().await()
-            assertNotEquals(initialRenderedPosition, car.position)
-            assertEquals(initialRenderedPosition, car.lastState.position)
+            val firstTicket = coordinator.wakeFromMainThread()
+            firstTicket.await()
+            val firstFrame = world.drainPublishedTrainFrames().single()
 
-            world.commitPublishedTrainRenderState()
-            assertEquals(car.position, car.lastState.position)
+            assertEquals(firstTicket.epoch, firstFrame.physicsEpoch)
+            assertTrue(firstFrame.revision > initialFrame.revision)
+            assertEquals(train.id, firstFrame.trainId)
+            assertNotEquals(initialFrame.cars.single().state.position, firstFrame.cars.single().state.position)
+            assertEquals(firstFrame, train.publishedFrame)
+
+            val secondTicket = coordinator.wakeFromMainThread()
+            secondTicket.await()
+            val thirdTicket = coordinator.wakeFromMainThread()
+            thirdTicket.await()
+            val coalesced = world.drainPublishedTrainFrames().single()
+
+            assertEquals(thirdTicket.epoch, coalesced.physicsEpoch)
+            assertTrue(coalesced.revision > firstFrame.revision)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `physics keeps publishing while visual frames are not consumed`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("slow-consumer", rail, world, listOf(10.0))
+        train.setController(ConstantSpeedController(train, world))
+        coordinator.start()
+        try {
+            repeat(32) { coordinator.wakeFromMainThread().await() }
+
+            val metrics = world.trainFrameMailboxMetrics()
+            assertEquals(1, metrics.size)
+            assertEquals(31L, metrics.coalescedFrames)
+            assertEquals(0L, metrics.droppedCapacityFrames)
+            assertEquals(32L, world.drainPublishedTrainFrames().single().physicsEpoch)
         } finally {
             coordinator.close()
         }

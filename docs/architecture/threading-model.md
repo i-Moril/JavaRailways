@@ -14,15 +14,18 @@ sequenceDiagram
     participant Main as Paper 主线程
     participant Physics as PhysicsCoordinator
     participant Workers as Physics workers
+    participant Mailbox as LatestTrainFrameMailbox
     participant Generic as TickManagerImpl
 
     Main->>Physics: TickStart: wakeFromMainThread()
     Main->>Generic: preTick(now)
     Physics->>Workers: 按 batch 计算控制器
     Workers-->>Physics: next physics state
-    Physics->>Physics: 发布状态并重建 swept occupancy
+    Physics->>Physics: 发布 Core 状态并重建 swept occupancy
+    Physics->>Mailbox: offer immutable TrainFrameSnapshot
     Main->>Physics: TickEnd: captureCurrentTicket().await()
-    Main->>Main: commitPublishedTrainRenderState()
+    Main->>Mailbox: drain latest frame per train
+    Main->>Main: Bukkit visual frame consume
     Main->>Generic: postTick()
 ```
 
@@ -42,7 +45,11 @@ TickEnd 只捕获一次当时的 physics ticket，并等待该 ticket。它不�
 
 ## 发布与渲染
 
-物理 worker 计算完后，Coordinator 统一发布列车状态并重建 swept occupancy。Bukkit 实体更新仍在主线程通过 `commitPublishedTrainRenderState()` 完成。渲染是否及时不会决定下一物理 epoch 能否读取已发布状态。
+物理 worker 计算完后，Coordinator 统一发布列车状态并重建 swept occupancy，同时为每列车原子发布 value-only、带 revision/physics epoch 的 `TrainFrameSnapshot`。frame 不保留 live JOML、World 或 Bukkit 对象。
+
+`CoreWorld` 使用有界 `LatestTrainFrameMailbox` 将 physics publisher 与平台 visual consumer 解耦：同一列车积压多帧时只保留最新 revision，stale frame 不能覆盖新状态，容量、合并和丢弃均有指标。因此渲染消费者暂停时不会形成逐 tick 无界 backlog，也不会阻止下一 physics epoch 发布。
+
+当前过渡实现仍由 `WorldManager` 在 Paper TickEnd drain frame，并让 `CarExtension.applyFrame()` 执行 Bukkit visual 更新；但旧的 `CoreWorld.commitPublishedTrainRenderState()` 调用链已经移除，渲染扩展消费 frame 而不是由 Core `commit()` 进入 Bukkit。后续 Folia 阶段会把 visual frame 按 entity/region/player 所有权交给 `PlatformDispatcher`，并移除 Paper 主线程 drain。
 
 ## 通用 TickManager
 

@@ -6,6 +6,7 @@ import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.api.physics.rail.Rail
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Train
+import work.art1st.mineRails.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.configLib.persistence.Loads
 import work.art1st.configLib.persistence.PersistentBy
@@ -21,6 +22,7 @@ import work.art1st.mineRails.core.physics.rail.SweptOccupancyIndex
 import work.art1st.mineRails.core.physics.rail.SweptOccupancyQueryResult
 import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.physics.train.SavedTrainV1
+import work.art1st.mineRails.core.physics.tick.LatestTrainFrameMailbox
 import work.art1st.mineRails.core.physics.tick.PhysicsCoordinator
 import java.util.LinkedHashMap
 import java.util.UUID
@@ -44,7 +46,7 @@ class CoreWorld(
 
     @Volatile
     private var sweptOccupancyIndex: SweptOccupancyIndex = SweptOccupancyIndex.EMPTY
-    private val pendingRenderTrainIds = ConcurrentHashMap.newKeySet<String>()
+    private val publishedTrainFrames = LatestTrainFrameMailbox(DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY)
 
     init {
         worldParent.attachWorld(this)
@@ -58,6 +60,8 @@ class CoreWorld(
     ) : this(LinkedHashMap(), ConcurrentHashMap(), hashMapOf(), tickManager, physicsCoordinator, worldParent)
 
     companion object {
+        private const val DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY = 65_536
+
         fun createEmpty(
             tickManager: TickManager,
             worldParent: WorldParentContext,
@@ -77,7 +81,7 @@ class CoreWorld(
 
     @MainThread
     override fun removeTrain(train: Train) {
-        pendingRenderTrainIds.remove(train.id)
+        publishedTrainFrames.remove(train.id)
         trains.remove(train.id)
     }
 
@@ -129,19 +133,19 @@ class CoreWorld(
             maxCandidates = SweptOccupancyIndex.DEFAULT_MAX_CANDIDATES
         )
 
-    /** Called by the Coordinator after publishing an active train's physics state. */
-    internal fun markTrainRenderPending(trainId: String) {
-        pendingRenderTrainIds.add(trainId)
+    /** Called by the Coordinator after atomically publishing an active train frame. */
+    internal fun publishTrainFrame(frame: TrainFrameSnapshot) {
+        publishedTrainFrames.offer(frame)
     }
 
-    /** Main-thread Bukkit render commit; it never flips physics buffers. */
-    fun commitPublishedTrainRenderState() {
-        pendingRenderTrainIds.toList().forEach { trainId ->
-            if (pendingRenderTrainIds.remove(trainId)) {
-                trains[trainId]?.commitRenderState()
-            }
-        }
-    }
+    /**
+     * Drains at most one latest frame per train without executing render or platform side effects.
+     * A slow consumer therefore cannot build an unbounded per-tick backlog.
+     */
+    fun drainPublishedTrainFrames(limit: Int = Int.MAX_VALUE): List<TrainFrameSnapshot> =
+        publishedTrainFrames.drain(limit)
+
+    fun trainFrameMailboxMetrics(): LatestTrainFrameMailbox.Metrics = publishedTrainFrames.metrics()
 
     override fun save(): SavedWorldV1 {
         return SavedWorldV1(

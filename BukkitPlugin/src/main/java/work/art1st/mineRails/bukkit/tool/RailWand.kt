@@ -346,6 +346,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private val splitPreviewTargets = ConcurrentHashMap<UUID, SplitPreviewTarget>()
     private val splitPreviewRequests = ConcurrentHashMap.newKeySet<UUID>()
+    private val splitPreviewViewers = ConcurrentHashMap.newKeySet<UUID>()
+    private val anchorViewers = ConcurrentHashMap.newKeySet<UUID>()
 
     private val createMode = RailWandCreateMode(this)
     private val connectMode = RailWandConnectMode(this)
@@ -686,6 +688,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     override fun clearSelection(player: Player, state: WandPlayerState) {
         clearSelection(state)
+        updateSplitPreviewSubscription(player, state)
         updateAnchorDisplay(player)
     }
 
@@ -702,6 +705,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         actionHistories.remove(player.uniqueId)
         splitPreviewTargets.remove(player.uniqueId)
         splitPreviewRequests.remove(player.uniqueId)
+        splitPreviewViewers.remove(player.uniqueId)
+        anchorViewers.remove(player.uniqueId)
         heavyOperationGate.clear(player.uniqueId)
         configUI.removePlayerSession(player.uniqueId)
     }
@@ -1787,15 +1792,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // ═══════════════════════════════════════════
 
     private fun updateSplitPreviews() {
-        plugin.server.onlinePlayers.forEach { player ->
-            plugin.platformDispatcher.runForEntity(player, action = { updateSplitPreview(player) })
+        splitPreviewViewers.forEach { playerId ->
+            val player = plugin.server.getPlayer(playerId)
+            if (player == null) {
+                splitPreviewViewers.remove(playerId)
+            } else {
+                plugin.platformDispatcher.runForEntity(player, action = { updateSplitPreview(player) })
+            }
         }
     }
 
     private fun updateSplitPreview(player: Player) {
-        if (!isWandItem(player.inventory.itemInMainHand)) return
+        if (!isWandItem(player.inventory.itemInMainHand)) {
+            splitPreviewViewers.remove(player.uniqueId)
+            return
+        }
         val state = getState(player)
         if (state.mode != WandMode.SPLIT) {
+            splitPreviewViewers.remove(player.uniqueId)
             splitPreviewTargets.remove(player.uniqueId)
             return
         }
@@ -2484,13 +2498,36 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun refreshAnchorsForPlayer(player: Player) {
         removeAllAnchorDisplays(player)
-        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) return
+        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) {
+            splitPreviewViewers.remove(player.uniqueId)
+            anchorViewers.remove(player.uniqueId)
+            return
+        }
+        anchorViewers.add(player.uniqueId)
+        updateSplitPreviewSubscription(player, getState(player))
         getAllAnchors(player.world).forEach { spawnAnchorDisplay(player, it) }
         updateAnchorDisplay(player)
     }
 
+    private fun updateSplitPreviewSubscription(player: Player, state: WandPlayerState) {
+        if (state.mode == WandMode.SPLIT && isWandItem(player.inventory.itemInMainHand)) {
+            splitPreviewViewers.add(player.uniqueId)
+        } else {
+            splitPreviewViewers.remove(player.uniqueId)
+        }
+    }
+
     private fun refreshAnchorsForAllViewers() {
-        plugin.server.onlinePlayers.forEach { refreshAnchorsForPlayer(it) }
+        anchorViewers.forEach { playerId ->
+            val player = plugin.server.getPlayer(playerId)
+            if (player == null) {
+                anchorViewers.remove(playerId)
+            } else {
+                plugin.platformDispatcher.runForEntity(player, action = {
+                    refreshAnchorsForPlayer(player)
+                })
+            }
+        }
     }
 
     private fun scheduleAnchorVisibilityRefresh(player: Player) {

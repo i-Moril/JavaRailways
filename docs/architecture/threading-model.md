@@ -51,6 +51,8 @@ TickEnd 只捕获一次当时的 physics ticket，并等待该 ticket。它不�
 
 当前过渡实现仍由 `WorldManager` 在 Paper TickEnd drain frame，并让 `CarExtension.applyFrame()` 执行 Bukkit visual 更新；但旧的 `CoreWorld.commitPublishedTrainRenderState()` 调用链已经移除，渲染扩展消费 frame 而不是由 Core `commit()` 进入 Bukkit。`PlatformDispatcher` 已统一封装 Paper/Folia 都支持的 global、async、region 与 entity scheduler；后续阶段会把 visual frame 按 entity/region/player 所有权分派，并移除 Paper 主线程 drain。
 
+玩家受众更新使用 `RenderAudienceIndex` 的两组反向索引：chunk watcher 和 renderable 当前受众。车辆移动只检查新 chunk 的 watcher 与需要退出视距的旧受众；同一玩家积压的多个车辆位置按 renderable key 合并，由单个 entity task 批量 reconcile，不再形成 `car × world players` 次 scheduler submission。
+
 ## 通用 TickManager
 
 `TickManagerImpl` 继续负责动画、延迟 action、速度安全监控等通用 `TickingObject`。它与列车物理 Coordinator 是两条独立调度路径，不应把列车控制器重新注册回通用 TickManager。
@@ -75,7 +77,7 @@ StationCall 通知在 physics 发布后由主线程 Dispatcher 消费。Phase C3
 
 ## 平台调度
 
-生产源码不再使用传统 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously`。不属于区域的协调 timer 使用 global scheduler，但 global task 只能选择玩家 UUID/实体；玩家 inventory、location、action bar、dialog 等访问必须再次进入 player entity scheduler。位置相关的 block/world 操作使用 region scheduler，移动实体操作使用会跟随实体的 entity scheduler。
+生产源码不再使用传统 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously`。不属于区域的协调 timer 使用 global scheduler，但 global task 只能选择玩家 UUID/实体；玩家 inventory、location、action bar、dialog 等访问必须再次进入 player entity scheduler。驾驶输入、列车钥匙扫描和 Wand 粒子均使用活跃玩家的持久 per-entity task/subscription，不做每 tick 全服 fan-out。`PlatformDispatcher` 在当前线程已拥有目标 entity/location 时直接执行，避免重复入队。位置相关的 block/world 操作使用 region scheduler，移动实体操作使用会跟随实体的 entity scheduler。
 
 ## 代码约定
 

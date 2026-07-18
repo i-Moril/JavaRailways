@@ -56,7 +56,7 @@ class LatestTrainFrameMailboxTest {
 
     @Test
     fun `frame defensively copies and freezes component collections`() {
-        val state = RenderableFrameSnapshot(
+        val state = RenderableFrameSnapshot.create(
             position = Vector3Snapshot(1.0, 2.0, 3.0),
             direction = Vector3Snapshot(0.0, 0.0, 1.0),
             normal = Vector3Snapshot(0.0, 1.0, 0.0),

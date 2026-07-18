@@ -6,6 +6,7 @@ import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerInputEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -14,21 +15,18 @@ class TrainHandleInputListener(
     private val controlManager: TrainControlManager
 ) : Listener {
     private val states = ConcurrentHashMap<UUID, InputState>()
-    private var repeatTask: ScheduledTask? = null
-    private var ticks: Long = 0L
+    private val repeatTasks = ConcurrentHashMap<UUID, ScheduledTask>()
     private lateinit var plugin: BukkitPlugin
 
     fun start(plugin: BukkitPlugin) {
         this.plugin = plugin
         plugin.server.pluginManager.registerEvents(this, plugin)
-        repeatTask = plugin.platformDispatcher.runGlobalAtFixedRate(1L, 1L, ::scheduleHeldInputTick)
     }
 
     fun stop() {
-        repeatTask?.cancel()
-        repeatTask = null
+        repeatTasks.values.forEach(ScheduledTask::cancel)
+        repeatTasks.clear()
         states.clear()
-        ticks = 0L
     }
 
     @EventHandler
@@ -44,53 +42,67 @@ class TrainHandleInputListener(
 
         if (direction != previous.direction) {
             applyDirection(player, direction)
-            states[player.uniqueId] = InputState(direction = direction, heldTicks = 0)
+            states[player.uniqueId] = InputState(direction = direction)
+        }
+
+        if (controlManager.controllerFor(player) == null) {
+            stopRepeating(player.uniqueId)
         } else {
-            states[player.uniqueId] = previous.copy(direction = direction)
+            ensureRepeating(player)
         }
     }
 
-    /** Global task only selects entities; all player/controller access runs on the player scheduler. */
-    private fun scheduleHeldInputTick() {
-        ticks++
-        val updateActionBars = ticks % ACTION_BAR_INTERVAL_TICKS == 0L
-        val playerIds = HashSet(states.keys)
-        if (updateActionBars) {
-            plugin.server.onlinePlayers.forEach { playerIds += it.uniqueId }
-        }
-        playerIds.forEach { playerId ->
-            val player = plugin.server.getPlayer(playerId)
-            if (player == null) {
-                states.remove(playerId)
-                return@forEach
+    @EventHandler
+    fun onPlayerQuit(event: PlayerQuitEvent) {
+        stopRepeating(event.player.uniqueId)
+    }
+
+    private fun ensureRepeating(player: Player) {
+        if (repeatTasks.containsKey(player.uniqueId)) return
+        val task = plugin.platformDispatcher.runForEntityAtFixedRate(
+            entity = player,
+            initialDelayTicks = 1L,
+            periodTicks = 1L,
+            action = { scheduledTask -> tickDriver(player, scheduledTask) },
+            retired = {
+                repeatTasks.remove(player.uniqueId)
+                states.remove(player.uniqueId)
             }
-            plugin.platformDispatcher.runForEntity(player, action = {
-                tickHeldInput(player)
-                if (updateActionBars) updateDriverActionBar(player)
-            })
-        }
+        ) ?: return
+        val previous = repeatTasks.putIfAbsent(player.uniqueId, task)
+        if (previous != null) task.cancel()
     }
 
-    private fun tickHeldInput(player: Player) {
-        val state = states[player.uniqueId] ?: return
-        if (state.direction == HandleDirection.NONE || state.direction == HandleDirection.CENTER) return
-        if (!player.isOnline) {
-            states.remove(player.uniqueId, state)
-            return
-        }
+    private fun tickDriver(player: Player, task: ScheduledTask) {
         val controller = controlManager.controllerFor(player)
         if (controller == null) {
-            states.remove(player.uniqueId, state)
+            task.cancel()
+            repeatTasks.remove(player.uniqueId, task)
+            states.remove(player.uniqueId)
             return
         }
 
-        val heldTicks = state.heldTicks + 1
-        if (heldTicks >= INITIAL_REPEAT_DELAY_TICKS &&
-            (heldTicks - INITIAL_REPEAT_DELAY_TICKS) % REPEAT_INTERVAL_TICKS == 0
-        ) {
-            applyDirection(player, state.direction)
+        val state = states.computeIfAbsent(player.uniqueId) { InputState() }
+        state.taskTicks++
+        if (state.direction == HandleDirection.UP || state.direction == HandleDirection.DOWN) {
+            state.heldTicks++
+            if (state.heldTicks >= INITIAL_REPEAT_DELAY_TICKS &&
+                (state.heldTicks - INITIAL_REPEAT_DELAY_TICKS) % REPEAT_INTERVAL_TICKS == 0
+            ) {
+                applyDirection(player, state.direction)
+            }
+        } else {
+            state.heldTicks = 0
         }
-        state.heldTicks = heldTicks
+
+        if (state.taskTicks % ACTION_BAR_INTERVAL_TICKS == 0) {
+            sendControllerActionBar(player, controller)
+        }
+    }
+
+    private fun stopRepeating(playerId: UUID) {
+        repeatTasks.remove(playerId)?.cancel()
+        states.remove(playerId)
     }
 
     private fun applyDirection(player: Player, direction: HandleDirection) {
@@ -104,11 +116,6 @@ class TrainHandleInputListener(
         sendControllerActionBar(player, controller)
     }
 
-    private fun updateDriverActionBar(player: Player) {
-        val controller = controlManager.controllerFor(player) ?: return
-        sendControllerActionBar(player, controller)
-    }
-
     private fun sendControllerActionBar(player: Player, controller: RealisticManualController) {
         val speedMps = controller.displaySpeed
         val speedKmh = speedMps * 3.6
@@ -119,7 +126,8 @@ class TrainHandleInputListener(
 
     private data class InputState(
         val direction: HandleDirection = HandleDirection.NONE,
-        @Volatile var heldTicks: Int = 0
+        var heldTicks: Int = 0,
+        var taskTicks: Int = 0
     )
 
     private enum class HandleDirection {
@@ -132,6 +140,6 @@ class TrainHandleInputListener(
     companion object {
         private const val INITIAL_REPEAT_DELAY_TICKS = 8
         private const val REPEAT_INTERVAL_TICKS = 4
-        private const val ACTION_BAR_INTERVAL_TICKS = 5L
+        private const val ACTION_BAR_INTERVAL_TICKS = 5
     }
 }

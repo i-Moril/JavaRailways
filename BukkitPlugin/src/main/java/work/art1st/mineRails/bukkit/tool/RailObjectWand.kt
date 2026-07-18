@@ -157,6 +157,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private val heavyOperationGate = PlayerOperationGate()
     private val visibleDirectionRails = ConcurrentHashMap<UUID, MutableSet<UUID>>()
     private val visibleApproachWayPoints = ConcurrentHashMap<UUID, MutableSet<String>>()
+    private val particleViewers = ConcurrentHashMap.newKeySet<UUID>()
     @Volatile private var directionParticleFrame: Long = 0L
     private val configUI = ConfigUIRegistry()
     private val dialogRenderer = DialogRenderer(configUI)
@@ -175,11 +176,16 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     override fun onAfterRegisterEvents() {
         plugin.platformDispatcher.runGlobalAtFixedRate(PARTICLE_REFRESH_TICKS, PARTICLE_REFRESH_TICKS) {
             directionParticleFrame++
-            plugin.server.onlinePlayers.forEach { player ->
-                plugin.platformDispatcher.runForEntity(player, action = {
-                    renderDirectionRestrictionParticles(player)
-                    renderWayPointApproachParticles(player)
-                })
+            particleViewers.forEach { playerId ->
+                val player = plugin.server.getPlayer(playerId)
+                if (player == null) {
+                    particleViewers.remove(playerId)
+                } else {
+                    plugin.platformDispatcher.runForEntity(player, action = {
+                        renderDirectionRestrictionParticles(player)
+                        renderWayPointApproachParticles(player)
+                    })
+                }
             }
         }
         plugin.logger.info("RailObjectWand initialized")
@@ -385,9 +391,16 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     }
 
     fun removeMarker(worldId: UUID, wayPointId: String) {
-        plugin.server.onlinePlayers
-            .filter { it.world.uid == worldId }
-            .forEach { removeMarkerForPlayer(it, wayPointId) }
+        particleViewers.forEach { playerId ->
+            val player = plugin.server.getPlayer(playerId)
+            if (player == null) {
+                particleViewers.remove(playerId)
+            } else {
+                plugin.platformDispatcher.runForEntity(player, action = {
+                    if (player.world.uid == worldId) removeMarkerForPlayer(player, wayPointId)
+                })
+            }
+        }
     }
 
     private fun handleCreateWayPoint(player: Player, event: PlayerInteractEvent) {
@@ -925,7 +938,11 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
     private fun refreshMarkersForPlayer(player: Player) {
         clearMarkersForPlayer(player)
-        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) return
+        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) {
+            particleViewers.remove(player.uniqueId)
+            return
+        }
+        particleViewers.add(player.uniqueId)
         val coreWorld = getCoreWorld(player) ?: return
         coreWorld.basicWorldData.wayPoints.all().forEach { spawnOrReplaceMarker(player, it) }
     }
@@ -957,6 +974,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         heavyOperationGate.clear(player.uniqueId)
         visibleDirectionRails.remove(player.uniqueId)
         visibleApproachWayPoints.remove(player.uniqueId)
+        particleViewers.remove(player.uniqueId)
         configUI.removePlayerSession(player.uniqueId)
     }
 

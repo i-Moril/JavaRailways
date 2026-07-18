@@ -49,7 +49,7 @@ class PhysicsCoordinatorTest {
             assertEquals(firstTicket.epoch, firstFrame.physicsEpoch)
             assertTrue(firstFrame.revision > initialFrame.revision)
             assertEquals(train.id, firstFrame.trainId)
-            assertNotEquals(initialFrame.cars.single().state.position, firstFrame.cars.single().state.position)
+            assertNotEquals(initialFrame.cars.single().state.positionValue(), firstFrame.cars.single().state.positionValue())
             assertEquals(firstFrame, train.publishedFrame)
 
             val secondTicket = coordinator.wakeFromMainThread()

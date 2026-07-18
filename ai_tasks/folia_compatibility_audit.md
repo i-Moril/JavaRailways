@@ -197,6 +197,22 @@ Dialog callback、异步查询 completion、teleport 后刷新、seat mount/dism
 4. Wand timer 只遍历 active viewer。
 5. 给 `PlatformDispatcher` 增加 submitted/executed/retired/direct-fast-path 指标，并显示到 `/mr perf`。
 
+### 调度开销整改状态
+
+上述项目已在当前分支完成：
+
+- `RenderAudienceIndex` 维护 chunk watcher 与 renderable 当前受众反向索引；车辆更新只考虑新 chunk watcher 与旧受众，不再遍历 `world.players`。
+- 同一玩家的多个 renderable 更新进入 latest-wins pending map，并由一个延迟 entity task 批量 drain；同一时刻每名玩家最多一个 audience task 在途。
+- 驾驶输入取消全局每 tick fan-out，改为仅实际驾驶玩家持有 per-entity repeating task；失去 controller 后立即取消。
+- Train key 扫描改为每玩家持久 repeating entity task，不再每秒从 global scheduler 重复提交全服玩家任务。
+- RailWand split preview、anchor refresh 和 RailObjectWand particle/marker 刷新只遍历活跃 viewer UUID set。
+- `PlatformDispatcher.runForEntity/runAt` 在当前线程已拥有目标时直接执行，并在 `/mr perf` 暴露 submission、execution、direct、retired 计数。
+- `RenderableFrameSnapshot` 改为 12 个内联标量，不再为每个 render state 创建 4 个 `Vector3Snapshot`；移除只包装一个 state 的 `BogieFrameSnapshot`。常见双 bogie car 的核心 frame 对象由约 18 个降至约 4 个 value object，另有每 car 一个 bogie list。
+- `WorldManager` 按稳定 car 顺序消费 frame，不再每 train/frame 创建 `associateBy` map。
+- `LatestTickCommitMailbox` 改为 concurrent identity map + 原子容量计数，移除多 worker 共用的单 monitor。
+
+新增测试覆盖 audience 候选集合、watcher 迁移、renderable 受众移除，以及 concurrent commit mailbox coalescing/capacity。仍需通过真实 Paper/Folia 压力场景读取 `/mr perf` 数据验证任务速率和 GC。
+
 ## 发现的关键阻塞点
 
 ### 1. plugin.yml 未声明 Folia 支持

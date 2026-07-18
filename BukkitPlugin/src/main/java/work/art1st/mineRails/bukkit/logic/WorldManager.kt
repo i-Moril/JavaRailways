@@ -262,11 +262,11 @@ class WorldManager(
     private fun applyPublishedTrainFrames(coreWorld: CoreWorld) {
         coreWorld.drainPublishedTrainFrames().forEach { trainFrame ->
             val train = coreWorld.getTrain(trainFrame.trainId) ?: return@forEach
-            val carsById = train.cars
-                .filterIsInstance<CoreCar>()
-                .associateBy { it.id }
-            trainFrame.cars.forEach carFrameLoop@{ carFrame ->
-                val car = carsById[carFrame.carId] ?: return@carFrameLoop
+            if (train.cars.size != trainFrame.cars.size) return@forEach
+            for (index in trainFrame.cars.indices) {
+                val car: CoreCar = train.cars[index]
+                val carFrame = trainFrame.cars[index]
+                if (car.id != carFrame.carId) return@forEach
                 car.carRendererOrNull?.applyFrame(carFrame, trainFrame.revision)
             }
         }

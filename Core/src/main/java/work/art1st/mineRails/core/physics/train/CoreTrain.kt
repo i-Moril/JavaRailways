@@ -13,7 +13,6 @@ import work.art1st.mineRails.core.api.physics.exception.CannotMoveForwardExcepti
 import work.art1st.mineRails.core.api.physics.exception.PhysicsException
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.physics.rail.RailPositionSnapshot
-import work.art1st.mineRails.core.api.physics.train.BogieFrameSnapshot
 import work.art1st.mineRails.core.api.physics.train.CarFrameSnapshot
 import work.art1st.mineRails.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.mineRails.core.api.physics.train.Train
@@ -380,9 +379,7 @@ open class CoreTrain @MainThread internal constructor(
             CarFrameSnapshot.create(
                 carId = car.id,
                 state = RenderableFrameSnapshot.capture(car),
-                bogies = car.bogies.map { bogie ->
-                    BogieFrameSnapshot(RenderableFrameSnapshot.capture(bogie))
-                }
+                bogies = car.bogies.map(RenderableFrameSnapshot::capture)
             )
         },
         head = RailPositionSnapshot.capture(head.location, ViewDirection.AB),

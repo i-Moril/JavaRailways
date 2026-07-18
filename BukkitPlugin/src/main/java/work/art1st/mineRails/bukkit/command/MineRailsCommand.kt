@@ -25,6 +25,7 @@ import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoader
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
 import work.art1st.mineRails.bukkit.debug.DepotResetDiagnostics
+import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.extension.train.rendererOrNull
 import work.art1st.mineRails.core.api.physics.World as RailWorld
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
@@ -720,10 +721,25 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     "capacityDrops=${metrics.droppedCapacityFrames}"
             )
         }
+        coreWorld.renderChunkManager.audienceMetrics().let { metrics ->
+            sender.sendMessage(
+                "audience candidates=${metrics.candidateUpdates} coalesced=${metrics.coalescedUpdates} " +
+                    "drains=${metrics.scheduledDrains} processed=${metrics.processedUpdates} " +
+                    "pendingPlayers=${metrics.pendingPlayers}"
+            )
+        }
         coreWorld.tickManager.pendingCommitMetrics().let { metrics ->
             sender.sendMessage(
                 "tick commit mailbox=${metrics.size}/${metrics.capacity} peak=${metrics.peakSize} " +
                     "coalesced=${metrics.coalescedRequests} capacityDrops=${metrics.droppedCapacityRequests}"
+            )
+        }
+        plugin.platformDispatcher.metrics().let { metrics ->
+            sender.sendMessage(
+                "platform dispatch entity=${metrics.entitySubmissions}/${metrics.entityExecutions} " +
+                    "region=${metrics.regionSubmissions}/${metrics.regionExecutions} " +
+                    "direct=${metrics.directExecutions} globalRuns=${metrics.globalExecutions} " +
+                    "asyncRuns=${metrics.asyncExecutions} retired=${metrics.retiredTasks}"
             )
         }
         return true

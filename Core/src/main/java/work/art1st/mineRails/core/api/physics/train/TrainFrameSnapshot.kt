@@ -4,17 +4,12 @@ import work.art1st.mineRails.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.mineRails.core.api.render.RenderableFrameSnapshot
 import java.util.UUID
 
-/** Immutable render state for one bogie in a train frame. */
-data class BogieFrameSnapshot(
-    val state: RenderableFrameSnapshot
-)
-
 /** Immutable render state for one car and all bogies owned by that car. */
 @ConsistentCopyVisibility
 data class CarFrameSnapshot private constructor(
     val carId: String,
     val state: RenderableFrameSnapshot,
-    val bogies: List<BogieFrameSnapshot>
+    val bogies: List<RenderableFrameSnapshot>
 ) {
     init {
         require(carId.isNotBlank()) { "CarFrameSnapshot carId must not be blank" }
@@ -24,7 +19,7 @@ data class CarFrameSnapshot private constructor(
         fun create(
             carId: String,
             state: RenderableFrameSnapshot,
-            bogies: Collection<BogieFrameSnapshot>
+            bogies: Collection<RenderableFrameSnapshot>
         ): CarFrameSnapshot = CarFrameSnapshot(carId, state, java.util.List.copyOf(bogies))
     }
 }

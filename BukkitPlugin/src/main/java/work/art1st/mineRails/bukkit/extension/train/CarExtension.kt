@@ -14,7 +14,6 @@ import work.art1st.mineRails.bukkit.render.model.CompositeModel
 import work.art1st.mineRails.bukkit.render.model.PlatformModel
 import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.bukkit.render.chunk.railViewDistanceSettings
-import work.art1st.mineRails.core.api.physics.train.BogieFrameSnapshot
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.CarFrameSnapshot
 import work.art1st.mineRails.core.api.render.RenderableFrameSnapshot
@@ -85,16 +84,16 @@ class CarExtension : TrainComponentExtension<Car>() {
     fun applyFrame(frame: CarFrameSnapshot, revision: Long) {
         ThreadGuard.ensureMainThread("CarExtension.applyFrame")
         if (revision <= latestFrameRevision) return
-        val oldPosition = latestFrame?.state?.position?.toVector3d() ?: self.lastState.position
+        val oldPosition = latestFrame?.state?.positionVector() ?: self.lastState.position
         latestFrame = frame
         latestFrameRevision = revision
-        self.world.renderChunkManager.update(self, oldPosition, frame.state.position.toVector3d())
+        self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
         super.commit()
     }
 
     override fun destroy() {
         val renderManager = self.world.renderChunkManager
-        renderManager.remove(self, latestFrame?.state?.position?.toVector3d() ?: self.position)
+        renderManager.remove(self, latestFrame?.state?.positionVector() ?: self.position)
         super.destroy()
     }
 
@@ -115,8 +114,8 @@ class CarExtension : TrainComponentExtension<Car>() {
             modelManager.createTreeBuilder(self.world, carDef.packageName)
         }
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
-        val rootPosition = renderFrame().state.position
-        val rootLocation = Location(bukkitWorld, rootPosition.x, rootPosition.y, rootPosition.z)
+        val rootState = renderFrame().state
+        val rootLocation = Location(bukkitWorld, rootState.positionX, rootState.positionY, rootState.positionZ)
 
         bodyModel = builder.buildCarBody(carDef, rootLocation, self)
         bogieModels = carDef.bogies.map { bogieDef ->
@@ -137,10 +136,10 @@ class CarExtension : TrainComponentExtension<Car>() {
         val model = bodyModel ?: return
         val frame = renderFrame()
         val state = frame.state
-        val position = state.position.toVector3d()
-        val direction = state.direction.toVector3d()
-        val normal = state.normal.toVector3d()
-        val velocity = state.velocity.toVector3d()
+        val position = state.positionVector()
+        val direction = state.directionVector()
+        val normal = state.normalVector()
+        val velocity = state.velocityVector()
         modelUpdateSequence += 1L
         val nearDetailAudience = hasAudiencePlayer(::isWithinDetailDistance)
         val movingWithAudience = velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudiencePlayer { true }
@@ -152,8 +151,8 @@ class CarExtension : TrainComponentExtension<Car>() {
             // Keep world positions exact every tick while avoiding the expensive recursive child
             // transform walk for distant cars.
             model.updateRootPosition(position)
-            frame.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
-                bogieModel.updateRootPosition(bogieRootPosition(bogie.state))
+            frame.bogies.zip(bogieModels).forEach { (bogieState, bogieModel) ->
+                bogieModel.updateRootPosition(bogieRootPosition(bogieState))
             }
             refreshInteractiveActivationForAudience()
             return
@@ -182,13 +181,12 @@ class CarExtension : TrainComponentExtension<Car>() {
             ))
         }
 
-        frame.bogies.zip(bogieModels).forEach { (bogie, bogieModel) ->
-            val bogieState = bogie.state
+        frame.bogies.zip(bogieModels).forEach { (bogieState, bogieModel) ->
             val bogieTransform = CompactTransform(
                 position = bogieRootPosition(bogieState),
-                rotation = rotationFrom(bogieState.direction.toVector3d(), bogieState.normal.toVector3d())
+                rotation = rotationFrom(bogieState.directionVector(), bogieState.normalVector())
             )
-            bogieModel.updateState(bogieTransform, bogieState.velocity.toVector3d())
+            bogieModel.updateState(bogieTransform, bogieState.velocityVector())
         }
 
         refreshInteractiveActivationForAudience()
@@ -295,10 +293,10 @@ class CarExtension : TrainComponentExtension<Car>() {
     private fun isWithinDetailDistance(player: Player): Boolean {
         if (player.world != self.world.bukkitWorldData.bukkitWorld) return false
         val location = player.location
-        val position = renderFrame().state.position
-        val dx = location.x - position.x
-        val dy = location.y - position.y
-        val dz = location.z - position.z
+        val state = renderFrame().state
+        val dx = location.x - state.positionX
+        val dy = location.y - state.positionY
+        val dz = location.z - state.positionZ
         val threshold = player.railViewDistanceSettings.lodThreshold
         return dx * dx + dy * dy + dz * dz <= threshold * threshold
     }
@@ -329,13 +327,11 @@ class CarExtension : TrainComponentExtension<Car>() {
     private fun captureLiveFrame(): CarFrameSnapshot = CarFrameSnapshot.create(
         carId = (self as? CoreCar)?.id ?: self.hashCode().toString(),
         state = RenderableFrameSnapshot.capture(self),
-        bogies = self.bogies.map { bogie ->
-            BogieFrameSnapshot(RenderableFrameSnapshot.capture(bogie))
-        }
+        bogies = self.bogies.map(RenderableFrameSnapshot::capture)
     )
 
     private fun bogieRootPosition(state: RenderableFrameSnapshot): Vector3d =
-        state.position.toVector3d().add(state.normal.toVector3d().mul(self.floorHeight))
+        state.positionVector().add(state.normalVector().mul(self.floorHeight))
 
     companion object {
         private const val NEAR_UPDATE_INTERVAL = 1

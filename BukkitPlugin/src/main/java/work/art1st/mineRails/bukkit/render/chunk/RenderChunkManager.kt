@@ -20,11 +20,14 @@ import work.art1st.mineRails.bukkit.render.asVector3d
 import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
+import work.art1st.mineRails.core.api.render.Vector3Snapshot
 import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
 import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 保存 renderable 的区块索引，并在玩家移动 / renderable 位置变化时增量触发模型构建。
@@ -36,6 +39,13 @@ class RenderChunkManager(
     val world: World by WeakReferenceWrapper(world)
     private val visibleByPlayer: ConcurrentMap<UUID, MutableSet<Renderable>> = ConcurrentHashMap()
     private val refreshStateByPlayer: ConcurrentMap<UUID, PlayerRefreshState> = ConcurrentHashMap()
+    private val audienceIndex = RenderAudienceIndex<Renderable>()
+    private val renderablePositions: ConcurrentMap<Renderable, Vector3Snapshot> = ConcurrentHashMap()
+    private val pendingAudienceUpdates: ConcurrentMap<UUID, PendingAudienceUpdates> = ConcurrentHashMap()
+    private val candidateUpdates = AtomicLong()
+    private val coalescedUpdates = AtomicLong()
+    private val scheduledDrains = AtomicLong()
+    private val processedUpdates = AtomicLong()
 
     init {
         Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
@@ -44,6 +54,9 @@ class RenderChunkManager(
     fun close() {
         ThreadGuard.ensureMainThread("RenderChunkManager.close")
         world.players.forEach(::clearPlayer)
+        pendingAudienceUpdates.clear()
+        renderablePositions.clear()
+        audienceIndex.clear()
         HandlerList.unregisterAll(this)
     }
 
@@ -53,7 +66,9 @@ class RenderChunkManager(
         val selected = LinkedHashSet<Renderable>()
         for (chunk in chunks) {
             renderableObjects[chunk]?.forEach { renderable ->
-                if (distanceSquared(renderable.position, position) <= radiusSq) {
+                val renderablePosition = renderablePositions[renderable]
+                    ?: Vector3Snapshot.capture(renderable.position)
+                if (distanceSquared(renderablePosition, position) <= radiusSq) {
                     selected.add(renderable)
                 }
             }
@@ -123,6 +138,8 @@ class RenderChunkManager(
             if (dx * dx + dy * dy + dz * dz < PLAYER_REFRESH_DISTANCE_SQ) return
         }
 
+        val watchedChunks = RenderChunk.getChunksAround(position, settings.viewDistance).toSet()
+        audienceIndex.replaceWatchedChunks(player.uniqueId, watchedChunks)
         val newVisible = getRenderablesAround(position, settings.viewDistance).toSet()
         reconcilePlayerVisibility(player, newVisible)
         refreshStateByPlayer[player.uniqueId] = PlayerRefreshState(
@@ -148,6 +165,7 @@ class RenderChunkManager(
     private fun setVisible(player: Player, renderable: Renderable, visible: Boolean, refreshExisting: Boolean = false) {
         if (visible) {
             val renderables = visibleByPlayer.computeIfAbsent(player.uniqueId) { ConcurrentHashMap.newKeySet() }
+            audienceIndex.markVisible(player.uniqueId, renderable)
             if (renderables.add(renderable)) {
                 dispatchSendTo(renderable, player)
             } else if (refreshExisting) {
@@ -156,6 +174,7 @@ class RenderChunkManager(
             return
         }
 
+        audienceIndex.markHidden(player.uniqueId, renderable)
         val renderables = visibleByPlayer[player.uniqueId] ?: return
         if (renderables.remove(renderable)) {
             dispatchHideFrom(renderable, player)
@@ -166,8 +185,14 @@ class RenderChunkManager(
     }
 
     private fun clearPlayer(player: Player) {
-        refreshStateByPlayer.remove(player.uniqueId)
-        visibleByPlayer.remove(player.uniqueId)?.forEach { dispatchHideFrom(it, player) }
+        val playerId = player.uniqueId
+        refreshStateByPlayer.remove(playerId)
+        pendingAudienceUpdates.remove(playerId)?.updates?.clear()
+        audienceIndex.removePlayer(playerId)
+        visibleByPlayer.remove(playerId)?.forEach { renderable ->
+            audienceIndex.markHidden(playerId, renderable)
+            dispatchHideFrom(renderable, player)
+        }
     }
 
     private fun dispatchSendTo(renderable: Renderable, player: Player) {
@@ -203,18 +228,19 @@ class RenderChunkManager(
     internal fun remove(renderable: Renderable, position: Vector3dc = renderable.position) {
         ThreadGuard.ensureMainThread("RenderChunkManager.remove")
         remove(renderable, RenderChunk(position))
-        val playerIds = visibleByPlayer.entries
-            .filter { (_, renderables) -> renderable in renderables }
-            .map { (playerId, _) -> playerId }
-        val playersById = world.players.associateBy { it.uniqueId }
+        renderablePositions.remove(renderable)
+        pendingAudienceUpdates.values.forEach { it.updates.remove(renderable) }
+        val playerIds = audienceIndex.removeRenderable(renderable)
         playerIds.forEach { playerId ->
-            val player = playersById[playerId]
+            val player = Bukkit.getPlayer(playerId)
             if (player != null) {
-                setVisible(player, renderable, visible = false)
+                BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = {
+                    setVisible(player, renderable, visible = false)
+                })
             } else {
                 visibleByPlayer[playerId]?.let { renderables ->
                     renderables.remove(renderable)
-                    if (renderables.isEmpty()) visibleByPlayer.remove(playerId)
+                    if (renderables.isEmpty()) visibleByPlayer.remove(playerId, renderables)
                 }
             }
         }
@@ -224,6 +250,8 @@ class RenderChunkManager(
         ThreadGuard.ensureMainThread("RenderChunkManager.update")
         val newChunk = RenderChunk(newPosition)
         val oldChunk = oldPosition?.let(::RenderChunk)
+        val positionSnapshot = Vector3Snapshot.capture(newPosition)
+        renderablePositions[renderable] = positionSnapshot
 
         // The chunk map is an in-memory spatial index, not a reason to force-load Bukkit chunks.
         // Only mutate it when a renderable is first registered or actually crosses a chunk border.
@@ -233,22 +261,81 @@ class RenderChunkManager(
             if (oldChunk != null && oldChunk != newChunk) remove(renderable, oldChunk)
         }
 
-        updateAudience(renderable, newPosition)
+        updateAudience(renderable, newChunk, positionSnapshot)
     }
 
-    private fun updateAudience(renderable: Renderable, position: Vector3dc) {
-        val positionSnapshot = org.joml.Vector3d(position)
-        world.players.forEach { player ->
-            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = playerAction@{
-                if (player.world != world) {
-                    clearPlayer(player)
-                    return@playerAction
-                }
-                val radius = player.railViewDistanceSettings.viewDistance
-                val visible = distanceSquared(positionSnapshot, player.location.asVector3d()) <= radius * radius
-                setVisible(player, renderable, visible)
-            })
+    private fun updateAudience(
+        renderable: Renderable,
+        newChunk: RenderChunk,
+        position: Vector3Snapshot
+    ) {
+        audienceIndex.candidates(renderable, newChunk).forEach { playerId ->
+            candidateUpdates.incrementAndGet()
+            queueAudienceUpdate(playerId, renderable, position)
         }
+    }
+
+    private fun queueAudienceUpdate(
+        playerId: UUID,
+        renderable: Renderable,
+        position: Vector3Snapshot
+    ) {
+        val pending = pendingAudienceUpdates.computeIfAbsent(playerId) { PendingAudienceUpdates() }
+        if (pending.updates.put(renderable, position) != null) coalescedUpdates.incrementAndGet()
+        if (pending.scheduled.compareAndSet(false, true)) {
+            scheduleAudienceDrain(playerId, pending)
+        }
+    }
+
+    private fun scheduleAudienceDrain(playerId: UUID, pending: PendingAudienceUpdates) {
+        val player = Bukkit.getPlayer(playerId)
+        if (player == null) {
+            discardPendingAudienceUpdates(playerId, pending)
+            return
+        }
+        scheduledDrains.incrementAndGet()
+        val task = BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(
+            entity = player,
+            delayTicks = 1L,
+            action = { drainAudienceUpdates(player, pending) },
+            retired = { discardPendingAudienceUpdates(playerId, pending) }
+        )
+        if (task == null) discardPendingAudienceUpdates(playerId, pending)
+    }
+
+    private fun drainAudienceUpdates(player: Player, pending: PendingAudienceUpdates) {
+        if (player.world != world) {
+            discardPendingAudienceUpdates(player.uniqueId, pending)
+            clearPlayer(player)
+            return
+        }
+        val playerPosition = player.location.asVector3d()
+        val radius = player.railViewDistanceSettings.viewDistance
+        val radiusSq = radius * radius
+        pending.updates.forEach { (renderable, position) ->
+            if (pending.updates.remove(renderable, position)) {
+                processedUpdates.incrementAndGet()
+                setVisible(player, renderable, distanceSquared(position, playerPosition) <= radiusSq)
+            }
+        }
+
+        pending.scheduled.set(false)
+        if (pending.updates.isNotEmpty() && pending.scheduled.compareAndSet(false, true)) {
+            scheduleAudienceDrain(player.uniqueId, pending)
+        }
+    }
+
+    private fun discardPendingAudienceUpdates(playerId: UUID, pending: PendingAudienceUpdates) {
+        pending.updates.clear()
+        pending.scheduled.set(false)
+        pendingAudienceUpdates.remove(playerId, pending)
+    }
+
+    private fun distanceSquared(a: Vector3Snapshot, b: Vector3dc): Double {
+        val dx = a.x - b.x()
+        val dy = a.y - b.y()
+        val dz = a.z - b.z()
+        return dx * dx + dy * dy + dz * dz
     }
 
     private fun distanceSquared(a: Vector3dc, b: Vector3dc): Double {
@@ -256,6 +343,29 @@ class RenderChunkManager(
         val dy = a.y() - b.y()
         val dz = a.z() - b.z()
         return dx * dx + dy * dy + dz * dz
+    }
+
+    fun audienceMetrics(): AudienceMetrics = AudienceMetrics(
+        candidateUpdates = candidateUpdates.get(),
+        coalescedUpdates = coalescedUpdates.get(),
+        scheduledDrains = scheduledDrains.get(),
+        processedUpdates = processedUpdates.get(),
+        pendingPlayers = pendingAudienceUpdates.count { (_, pending) ->
+            pending.scheduled.get() || pending.updates.isNotEmpty()
+        }
+    )
+
+    data class AudienceMetrics(
+        val candidateUpdates: Long,
+        val coalescedUpdates: Long,
+        val scheduledDrains: Long,
+        val processedUpdates: Long,
+        val pendingPlayers: Int
+    )
+
+    private class PendingAudienceUpdates {
+        val updates: ConcurrentMap<Renderable, Vector3Snapshot> = ConcurrentHashMap()
+        val scheduled = AtomicBoolean(false)
     }
 
     private data class PlayerRefreshState(

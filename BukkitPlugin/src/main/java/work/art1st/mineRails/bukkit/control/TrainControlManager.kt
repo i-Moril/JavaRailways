@@ -7,6 +7,8 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.event.player.PlayerJoinEvent
+import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
@@ -47,7 +49,7 @@ class TrainControlManager(
     private val sessionsByPlayer: MutableMap<UUID, ManualControlSession> = ConcurrentHashMap()
     private val sessionsByTrain: MutableMap<String, ManualControlSession> = ConcurrentHashMap()
     private val dialog = TrainControlDialog(plugin, this)
-    private var bindingScanTask: ScheduledTask? = null
+    private val bindingScanTasks = ConcurrentHashMap<UUID, ScheduledTask>()
 
     fun start() {
         plugin.server.pluginManager.registerEvents(this, plugin)
@@ -55,12 +57,12 @@ class TrainControlManager(
             val session = sessionsByPlayer[player.uniqueId] ?: return@addDriverSeatVacatedHandler
             if (session.trainId == train.id) releaseManualControl(player.uniqueId)
         }
-        bindingScanTask = plugin.platformDispatcher.runGlobalAtFixedRate(20L, 20L, ::scanBoundKeys)
+        plugin.server.onlinePlayers.forEach(::ensureBindingScan)
     }
 
     fun stop() {
-        bindingScanTask?.cancel()
-        bindingScanTask = null
+        bindingScanTasks.values.forEach(ScheduledTask::cancel)
+        bindingScanTasks.clear()
         clear()
     }
 
@@ -241,10 +243,28 @@ class TrainControlManager(
         }
     }
 
-    private fun scanBoundKeys() {
-        plugin.server.onlinePlayers.forEach { player ->
-            plugin.platformDispatcher.runForEntity(player, action = { scanBoundKeys(player) })
-        }
+    private fun ensureBindingScan(player: Player) {
+        if (bindingScanTasks.containsKey(player.uniqueId)) return
+        val task = plugin.platformDispatcher.runForEntityAtFixedRate(
+            entity = player,
+            initialDelayTicks = 20L,
+            periodTicks = 20L,
+            action = { scanBoundKeys(player) },
+            retired = { bindingScanTasks.remove(player.uniqueId) }
+        ) ?: return
+        val previous = bindingScanTasks.putIfAbsent(player.uniqueId, task)
+        if (previous != null) task.cancel()
+    }
+
+    @EventHandler
+    fun onPlayerJoin(event: PlayerJoinEvent) {
+        ensureBindingScan(event.player)
+    }
+
+    @EventHandler
+    fun onPlayerQuit(event: PlayerQuitEvent) {
+        bindingScanTasks.remove(event.player.uniqueId)?.cancel()
+        releaseManualControl(event.player.uniqueId)
     }
 
     private fun scanBoundKeys(player: Player) {

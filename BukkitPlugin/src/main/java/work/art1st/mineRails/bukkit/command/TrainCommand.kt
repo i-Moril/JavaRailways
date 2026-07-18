@@ -243,6 +243,7 @@ object TrainCommand {
         trainExtension.initialize(train, emptyMap())
 
         train.commit()
+        coreWorld.publishCurrentTrainFrame(train.id)
         cars.forEach { it.renderer.sendTo(sender) }
 
         sender.sendMessage("创建列车成功: ${train.id} (类型: $trainTypeName)")

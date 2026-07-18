@@ -1,13 +1,10 @@
 package work.art1st.mineRails.core.util.trait.render
 
 import work.art1st.mineRails.core.api.render.RenderableStateSnapshot
-import work.art1st.mineRails.core.api.util.tick.Synchronizable
-
-internal interface DynamicRenderableTrait<T> : ExtendableRenderableTrait<T>, Synchronizable {
+internal interface DynamicRenderableTrait<T> : ExtendableRenderableTrait<T> {
     /**
      * 如果在该Tick内需要重新渲染则设置dirty，否则不会触发commitEvent
      */
-    var dirty: Boolean
     override var lastState: RenderableStateSnapshot
 
     fun takeSnapshot(): RenderableStateSnapshot {
@@ -20,13 +17,4 @@ internal interface DynamicRenderableTrait<T> : ExtendableRenderableTrait<T>, Syn
         )
     }
 
-    override fun commit() {
-        if (dirty) {
-            forEachExtensionData {
-                it.commit()
-            }
-            lastState = takeSnapshot()
-            dirty = false
-        }
-    }
 }

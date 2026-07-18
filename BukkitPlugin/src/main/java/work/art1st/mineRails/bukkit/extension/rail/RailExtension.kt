@@ -32,7 +32,7 @@ import work.art1st.mineRails.bukkit.render.backend.DisplayVisualContent
 import work.art1st.mineRails.bukkit.render.backend.DisplayVisualDescriptor
 import work.art1st.mineRails.bukkit.render.backend.displayViewRangeForDistance
 import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
-import work.art1st.mineRails.core.util.ThreadGuard
+import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 import kotlin.math.ceil
 
@@ -41,7 +41,7 @@ import kotlin.math.ceil
  */
 class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderable<RailArcVisualSegment> {
     private lateinit var self: RailArcVisualSegment
-    private val audience: MutableSet<UUID> = hashSetOf()
+    private val audience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
     override fun initialize(host: RailArcVisualSegment, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
@@ -52,6 +52,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     override fun save(): Pair<String, SerializableExtensionData>? = null
 
     @MainThread
+    @Synchronized
     override fun sendTo(player: Player) {
         BukkitThreadOwnership.ensureEntity(player, "RailExtension.sendTo")
         audience.add(player.uniqueId)
@@ -61,6 +62,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
 
     /** Unload static rail entities after the last nearby player leaves. */
     @MainThread
+    @Synchronized
     fun hideFrom(player: Player) {
         BukkitThreadOwnership.ensureEntity(player, "RailExtension.hideFrom")
         if (!audience.remove(player.uniqueId)) return
@@ -73,6 +75,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
      * 仅构建当前分段 [RailArcVisualSegment.arcStart] ~ [RailArcVisualSegment.arcEnd]。
      */
     @MainThread
+    @Synchronized
     protected fun buildModel() {
         if (displayVisuals.isNotEmpty()) return
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
@@ -135,8 +138,8 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     }
 
     @MainThread
+    @Synchronized
     override fun destroy() {
-        ThreadGuard.ensureMainThread("RailExtension.destroy")
         audience.clear()
         self.world.renderChunkManager.remove(self)
         destroyModel()
@@ -145,6 +148,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     /**
      * 主线程：销毁所有 ItemDisplay 实体。
      */
+    @Synchronized
     protected fun destroyModel() {
         displayVisuals.forEach { it.destroy() }
         displayVisuals.clear()

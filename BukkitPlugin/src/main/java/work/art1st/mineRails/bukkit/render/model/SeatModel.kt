@@ -15,12 +15,14 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.model.DriverControlEnd
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.bukkit.render.Animation
+import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.physics.train.Train
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 
 class SeatModel internal constructor(
     world: World,
@@ -32,10 +34,16 @@ class SeatModel internal constructor(
     private val driverSeat: Boolean,
     private val controlEnd: DriverControlEnd?
 ) : EntityModel(world, state, attachedModels, animation, null) {
+    @Volatile
     private var carrierEntity: Interaction? = null
+    @Volatile
     private var seatBinding: SeatBinding? = null
     private val visualLocationDelay: ArrayDeque<Location> = ArrayDeque()
-    private val activePlayers: MutableSet<UUID> = hashSetOf()
+    private val activePlayers: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
+    private val movementRevision = AtomicLong(0L)
+    private val spawnScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile
+    private var retired = false
 
     init {
         SeatInteractionListener.ensureRegistered()
@@ -43,8 +51,7 @@ class SeatModel internal constructor(
 
     /** Seat hitboxes are created only while at least one audience player is close enough to use them. */
     override fun spawnEntity() {
-        if (entity?.isValid == true) return
-        destroyRuntimeEntities(force = true)
+        if (entity != null || retired || !spawnScheduled.compareAndSet(false, true)) return
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
         val position = state.worldTransform.position
         val spawnLocation = Location(
@@ -55,20 +62,28 @@ class SeatModel internal constructor(
             initialLocation.yaw,
             initialLocation.pitch
         )
-        val hitbox = bukkitWorld.spawn(spawnLocation, Interaction::class.java)
-        configureSeatHitbox(hitbox, occupied = false)
-
-        entity = hitbox
-        seatBinding = SeatBinding(
-            hitbox = hitbox,
-            carrier = null,
-            ownerCar = ownerCar,
-            driverSeat = driverSeat,
-            controlEnd = controlEnd,
-            ensureCarrier = ::ensureCarrier,
-            destroyCarrier = ::destroyCarrier
-        ).also { binding ->
-            SeatInteractionListener.register(hitbox.uniqueId, binding)
+        BukkitPlugin.INSTANCE.platformDispatcher.runAt(spawnLocation) {
+            try {
+                synchronized(this@SeatModel) {
+                    if (retired || activePlayers.isEmpty() || entity != null) return@synchronized
+                    val hitbox = bukkitWorld.spawn(spawnLocation, Interaction::class.java)
+                    configureSeatHitbox(hitbox, occupied = false)
+                    entity = hitbox
+                    seatBinding = SeatBinding(
+                        hitbox = hitbox,
+                        carrier = null,
+                        ownerCar = ownerCar,
+                        driverSeat = driverSeat,
+                        controlEnd = controlEnd,
+                        ensureCarrier = ::ensureCarrier,
+                        destroyCarrier = ::destroyCarrier
+                    ).also { binding ->
+                        SeatInteractionListener.register(hitbox.uniqueId, binding)
+                    }
+                }
+            } finally {
+                spawnScheduled.set(false)
+            }
         }
     }
 
@@ -84,7 +99,6 @@ class SeatModel internal constructor(
             return
         }
         activePlayers.add(playerId)
-        if (entity?.isValid != true) spawnEntity()
     }
 
     fun deactivateFor(player: Player) {
@@ -101,36 +115,38 @@ class SeatModel internal constructor(
         transformDirty: Boolean
     ) {
         super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
-        if (activePlayers.isEmpty() && carrierEntity?.passengers?.isNotEmpty() != true) {
+        if (activePlayers.isEmpty() && carrierEntity == null) {
             destroyRuntimeEntities(force = false)
             return
         }
-        val hitbox = entity as? Interaction ?: return
-        val targetLocation = entityLocation(hitbox)
-        val visualLocation = delayedVisualLocation(targetLocation)
-        hitbox.teleport(visualLocation)
-
-        val carrier = carrierEntity
-        val occupied = carrier?.passengers?.isNotEmpty() == true
-        configureSeatHitbox(hitbox, occupied)
-
-        carrier?.let {
-            if (!it.isValid) {
-                destroyCarrier()
-                return@let
+        val hitbox = entity as? Interaction
+        if (hitbox == null) {
+            if (activePlayers.isNotEmpty()) spawnEntity()
+            return
+        }
+        val visualLocation = delayedVisualLocation(entityLocation(hitbox))
+        val revision = movementRevision.incrementAndGet()
+        moveInteraction(hitbox, visualLocation, revision) {
+            val carrier = carrierEntity
+            configureSeatHitbox(hitbox, occupied = carrier != null)
+            if (carrier != null) {
+                moveInteraction(carrier, bottomCarrierLocation(visualLocation), revision) {
+                    configureSeatCarrier(carrier)
+                }
             }
-            configureSeatCarrier(it)
-            it.teleport(bottomCarrierLocation(visualLocation))
         }
     }
 
     override fun destroy() {
+        retired = true
+        movementRevision.incrementAndGet()
         activePlayers.clear()
         destroyRuntimeEntities(force = true)
         visualLocationDelay.clear()
         super.destroy()
     }
 
+    @Synchronized
     private fun ensureCarrier(): Interaction {
         carrierEntity?.takeIf { it.isValid }?.let { return it }
         destroyCarrier()
@@ -144,23 +160,30 @@ class SeatModel internal constructor(
         return carrier
     }
 
+    @Synchronized
     private fun destroyCarrier() {
         val binding = seatBinding
         val carrier = carrierEntity ?: binding?.carrier ?: return
         if (binding != null) SeatInteractionListener.unbindCarrier(binding)
-        carrier.eject()
-        carrier.remove()
         binding?.carrier = null
         carrierEntity = null
+        BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(carrier, action = {
+            carrier.eject()
+            carrier.remove()
+        })
     }
 
+    @Synchronized
     private fun destroyRuntimeEntities(force: Boolean) {
-        if (!force && carrierEntity?.passengers?.isNotEmpty() == true) return
+        if (!force && carrierEntity != null) return
+        movementRevision.incrementAndGet()
         destroyCarrier()
         (entity as? Interaction)?.let { hitbox ->
             SeatInteractionListener.unregister(hitbox.uniqueId)
-            hitbox.eject()
-            hitbox.remove()
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(hitbox, action = {
+                hitbox.eject()
+                hitbox.remove()
+            })
         }
         entity = null
         seatBinding = null
@@ -197,6 +220,33 @@ class SeatModel internal constructor(
         interaction.isSilent = true
         interaction.setNoPhysics(true)
         interaction.setGravity(false)
+    }
+
+    private fun moveInteraction(
+        interaction: Interaction,
+        location: Location,
+        revision: Long,
+        afterMove: () -> Unit
+    ) {
+        BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(interaction, action = entityTask@{
+            if (revision != movementRevision.get() || !interaction.isValid) return@entityTask
+            if (
+                BukkitPlugin.INSTANCE.platformCapabilities.folia &&
+                !BukkitThreadOwnership.isOwnedByCurrentRegion(location)
+            ) {
+                interaction.teleportAsync(location).thenAccept { teleported ->
+                    if (teleported) {
+                        BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(interaction, action = movedTask@{
+                            if (revision != movementRevision.get()) return@movedTask
+                            afterMove()
+                        })
+                    }
+                }
+            } else {
+                interaction.teleport(location)
+                afterMove()
+            }
+        })
     }
 
     private fun delayedVisualLocation(current: Location): Location {
@@ -327,7 +377,12 @@ class SeatModel internal constructor(
             val player: Player = event.player
             setSeatOccupied(binding, occupied = true)
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(carrier, 1L, action = action@{
-                if (!player.isOnline || !carrier.isValid || carrier.passengers.isNotEmpty()) {
+                if (
+                    !carrier.isValid ||
+                    carrier.passengers.isNotEmpty() ||
+                    !BukkitThreadOwnership.isOwnedByCurrentRegion(player) ||
+                    !player.isOnline
+                ) {
                     restoreIfEmpty(binding)
                     return@action
                 }
@@ -361,10 +416,12 @@ class SeatModel internal constructor(
         }
 
         private fun setSeatOccupied(binding: SeatBinding, occupied: Boolean) {
-            if (!binding.hitbox.isValid) return
-            binding.hitbox.setResponsive(!occupied)
-            binding.hitbox.setInteractionWidth(if (occupied) 0.0f else 1.0f)
-            binding.hitbox.setInteractionHeight(if (occupied) 0.0f else 1.0f)
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(binding.hitbox, action = {
+                if (!binding.hitbox.isValid) return@runForEntity
+                binding.hitbox.setResponsive(!occupied)
+                binding.hitbox.setInteractionWidth(if (occupied) 0.0f else 1.0f)
+                binding.hitbox.setInteractionHeight(if (occupied) 0.0f else 1.0f)
+            })
         }
     }
 }

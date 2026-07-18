@@ -29,6 +29,7 @@ import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
 import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.mineRails.bukkit.util.PaperPlatformDispatcher
+import work.art1st.mineRails.bukkit.util.PlatformCapabilities
 import work.art1st.mineRails.bukkit.util.PlatformDispatcher
 import java.io.File
 
@@ -44,6 +45,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var displayRenderBackend: DisplayRenderBackend
     lateinit var worldManager: WorldManager
     lateinit var platformDispatcher: PlatformDispatcher
+    lateinit var platformCapabilities: PlatformCapabilities
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
 
@@ -79,9 +81,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     override fun onLoad() {
         INSTANCE = this
+        platformCapabilities = PlatformCapabilities.detect(javaClass.classLoader)
         platformDispatcher = PaperPlatformDispatcher(this)
         mineRailsConfig = MineRailsConfig.load(this)
-        if (mineRailsConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB) {
+        if (
+            platformCapabilities.folia ||
+            mineRailsConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB
+        ) {
             packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }
         }
     }
@@ -112,8 +118,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             TrainDebugLog.enabled = true
         }
         logger.info("Train model update policy: ${mineRailsConfig.trainModelUpdatePolicy.name.lowercase().replace('_', '-')}")
-        logger.info("Display renderer backend: ${mineRailsConfig.displayRenderer.backend.name.lowercase()}")
-        if (mineRailsConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB) {
+        val effectiveDisplayBackend = if (platformCapabilities.folia) {
+            DisplayRendererBackend.ENTITYLIB
+        } else {
+            mineRailsConfig.displayRenderer.backend
+        }
+        logger.info("Display renderer backend: ${effectiveDisplayBackend.name.lowercase()}")
+        if (effectiveDisplayBackend == DisplayRendererBackend.ENTITYLIB) {
             logger.warning("EntityLib display backend is experimental; interaction, seat and collision entities remain native")
         }
         logger.info("Physics worker threads per world: ${mineRailsConfig.physicsWorkerThreads}")
@@ -153,14 +164,20 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             }
         }
 
-        server.worlds.forEach { worldManager.registerRailWorld(it) }
+        BukkitThreadGuardBridge.runInSimulationContext {
+            server.worlds.forEach { worldManager.registerRailWorld(it) }
+        }
+        worldManager.start()
     }
 
     override fun onDisable() {
         try {
             if (::worldManager.isInitialized) {
+                worldManager.stop()
                 val worlds = worldManager.railWorlds.keys.toList()
-                worlds.forEach { worldManager.unregisterRailWorld(it) }
+                BukkitThreadGuardBridge.runInSimulationContext {
+                    worlds.forEach { worldManager.unregisterRailWorld(it) }
+                }
             }
             if (::trainHandleInputListener.isInitialized) runCatching { trainHandleInputListener.stop() }
             if (::trainControlManager.isInitialized) runCatching { trainControlManager.stop() }

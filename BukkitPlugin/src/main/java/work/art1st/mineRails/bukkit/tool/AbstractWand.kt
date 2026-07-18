@@ -17,6 +17,7 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.ItemMeta
 import org.bukkit.persistence.PersistentDataType
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.mineRails.core.physics.CoreWorld
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -117,6 +118,10 @@ abstract class AbstractWand<S, M>(
 
     @EventHandler
     fun onInteract(event: PlayerInteractEvent) {
+        BukkitThreadGuardBridge.runInSimulationContext { handleInteract(event) }
+    }
+
+    private fun handleInteract(event: PlayerInteractEvent) {
         val player = event.player
         if (!isWandItem(player.inventory.itemInMainHand)) return
         if (event.hand != EquipmentSlot.HAND) return

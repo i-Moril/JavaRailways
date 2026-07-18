@@ -20,6 +20,7 @@ import work.art1st.mineRails.basic.timetable.TimetableAtoFactory
 import work.art1st.mineRails.basic.timetable.TimetableDispatcher
 import work.art1st.mineRails.bukkit.extension.train.rendererOrNull
 import work.art1st.mineRails.bukkit.operation.BukkitTrainOperationGateway
+import work.art1st.mineRails.bukkit.operation.RegionTrainOperationDispatcher
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.util.annotation.Heavy
@@ -63,7 +64,10 @@ object RailWorldFactory {
             BasicPlugin.INSTANCE,
             BasicWorldData(
                 dispatcher = TimetableDispatcher(
-                    operationGateway = BukkitTrainOperationGateway(coreWorld),
+                    operationGateway = BukkitTrainOperationGateway(
+                    coreWorld,
+                    operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+                ),
                     atoFactory = TimetableAtoFactory { train, world ->
                         val profile = AtoSafetyProfile()
                         val packageName = train.rendererOrNull?.modelPackageName()

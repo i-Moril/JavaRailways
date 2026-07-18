@@ -22,7 +22,6 @@ import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.render.Vector3Snapshot
 import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
-import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
@@ -52,8 +51,14 @@ class RenderChunkManager(
     }
 
     fun close() {
-        ThreadGuard.ensureMainThread("RenderChunkManager.close")
-        world.players.forEach(::clearPlayer)
+        visibleByPlayer.keys.toList().forEach { playerId ->
+            val player = Bukkit.getPlayer(playerId)
+            if (player == null) {
+                visibleByPlayer.remove(playerId)
+            } else {
+                BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = { clearPlayer(player) })
+            }
+        }
         pendingAudienceUpdates.clear()
         renderablePositions.clear()
         audienceIndex.clear()
@@ -226,7 +231,6 @@ class RenderChunkManager(
     }
 
     internal fun remove(renderable: Renderable, position: Vector3dc = renderable.position) {
-        ThreadGuard.ensureMainThread("RenderChunkManager.remove")
         remove(renderable, RenderChunk(position))
         renderablePositions.remove(renderable)
         pendingAudienceUpdates.values.forEach { it.updates.remove(renderable) }
@@ -247,7 +251,6 @@ class RenderChunkManager(
     }
 
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {
-        ThreadGuard.ensureMainThread("RenderChunkManager.update")
         val newChunk = RenderChunk(newPosition)
         val oldChunk = oldPosition?.let(::RenderChunk)
         val positionSnapshot = Vector3Snapshot.capture(newPosition)
@@ -315,7 +318,12 @@ class RenderChunkManager(
         pending.updates.forEach { (renderable, position) ->
             if (pending.updates.remove(renderable, position)) {
                 processedUpdates.incrementAndGet()
-                setVisible(player, renderable, distanceSquared(position, playerPosition) <= radiusSq)
+                setVisible(
+                    player,
+                    renderable,
+                    distanceSquared(position, playerPosition) <= radiusSq,
+                    refreshExisting = true
+                )
             }
         }
 

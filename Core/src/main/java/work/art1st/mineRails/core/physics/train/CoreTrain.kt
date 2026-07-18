@@ -444,18 +444,10 @@ open class CoreTrain @MainThread internal constructor(
             )
         }
 
-    internal fun commitRenderState() {
-        cars.forEach { it.commit() }
-        head.commit()
-        tail.commit()
-    }
-
     override fun commit() {
-        // Explicit command/test paths still render synchronously during the transition, but they
-        // also advance the value-only publication so cross-thread readers never remain stale.
+        // Explicit command/test paths advance immutable state without invoking platform extensions.
         publishPhysicsState()
         publishFrame(publishedFrame.physicsEpoch)
-        commitRenderState()
     }
 
     override fun destroy() {

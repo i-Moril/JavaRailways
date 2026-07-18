@@ -1,7 +1,7 @@
 package work.art1st.mineRails.bukkit.logic
 
-import com.destroystokyo.paper.event.server.ServerTickEndEvent
-import com.destroystokyo.paper.event.server.ServerTickStartEvent
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
+import org.bukkit.Location
 import org.bukkit.World as BukkitWorld
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
@@ -15,25 +15,70 @@ import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.carRendererOrNull
-import work.art1st.mineRails.bukkit.extension.train.SeatExtension
 import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.persistence.WorldPersistence
+import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
+import work.art1st.mineRails.bukkit.util.LatestAffinityTaskDispatcher
+import work.art1st.mineRails.bukkit.util.PlatformCommitAffinity
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.CoreWorld
+import work.art1st.mineRails.core.api.physics.train.CarFrameSnapshot
+import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.ArrayDeque
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.system.measureNanoTime
+
+data class CarFrameDispatchMetrics(
+    val pendingCars: Int,
+    val coalescedFrames: Long,
+    val scheduledTasks: Long
+)
 
 class WorldManager(
     val railWorlds: MutableMap<BukkitWorld, World> = mutableMapOf()
 ) : Listener {
     private var serverTickIndex: Long = 0L
+    private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()
+    private var tickTask: ScheduledTask? = null
+    @Volatile
+    private var stopping: Boolean = false
+    private val carFrameDispatcher = LatestAffinityTaskDispatcher<CoreCar, PendingCarFrame>(::scheduleCarFrame)
+    private val platformCommitDispatcher =
+        LatestAffinityTaskDispatcher<Synchronizable, PendingPlatformCommit>(::schedulePlatformCommit)
     @Volatile
     private var latestServerTickMetricsSnapshot: MineRailsServerTickMetrics? = null
     private val recentServerTickMetrics: ArrayDeque<MineRailsServerTickMetrics> = ArrayDeque()
 
+    fun start() {
+        check(tickTask == null) { "WorldManager is already started" }
+        stopping = false
+        tickTask = BukkitPlugin.INSTANCE.platformDispatcher.runGlobalAtFixedRate(1L, 1L) {
+            withSimulationContext(::tick)
+        }
+    }
+
+    fun stop() {
+        stopping = true
+        unloadingWorlds.addAll(railWorlds.keys)
+        tickTask?.cancel()
+        tickTask = null
+        carFrameDispatcher.clear()
+        platformCommitDispatcher.clear()
+    }
+
     fun latestServerTickMetrics(): MineRailsServerTickMetrics? = latestServerTickMetricsSnapshot
+
+    fun carFrameDispatchMetrics(): CarFrameDispatchMetrics {
+        val metrics = carFrameDispatcher.metrics()
+        return CarFrameDispatchMetrics(
+            pendingCars = metrics.activeKeys,
+            coalescedFrames = metrics.coalescedValues,
+            scheduledTasks = metrics.scheduledTasks
+        )
+    }
 
     fun recentServerTickMetrics(limit: Int = 20): List<MineRailsServerTickMetrics> {
         if (limit <= 0) return emptyList()
@@ -43,6 +88,7 @@ class WorldManager(
     fun registerRailWorld(bukkitWorld: BukkitWorld) {
         ThreadGuard.ensureMainThread("WorldManager.registerRailWorld")
         if (railWorlds.containsKey(bukkitWorld)) return
+        unloadingWorlds.remove(bukkitWorld)
 
         val snapshot = when (val result = WorldPersistence.loadSnapshot(bukkitWorld)) {
             WorldPersistence.SnapshotLoadResult.Missing -> null
@@ -82,7 +128,6 @@ class WorldManager(
 
             runCatching {
                 train.setLocation(train.head.location)
-                train.commit()
             }.onFailure { error ->
                 BukkitPlugin.INSTANCE.logger.warning(
                     "Failed to refresh restored train '${train.id}' render state: " +
@@ -111,6 +156,7 @@ class WorldManager(
 
     fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
+        unloadingWorlds.add(bukkitWorld)
         railWorlds[bukkitWorld]?.let { rw ->
             val coreWorld = rw as? CoreWorld
             try {
@@ -131,19 +177,21 @@ class WorldManager(
 
     @EventHandler
     fun onWorldLoad(event: WorldLoadEvent) {
-        ThreadGuard.ensureMainThread("WorldManager.onWorldLoad")
-        registerRailWorld(event.world)
+        withSimulationContext { registerRailWorld(event.world) }
     }
 
     @EventHandler
     fun onWorldUnload(event: WorldUnloadEvent) {
-        ThreadGuard.ensureMainThread("WorldManager.onWorldUnload")
-        unregisterRailWorld(event.world)
+        withSimulationContext { unregisterRailWorld(event.world) }
     }
 
-    @EventHandler
-    fun onTickStart(event: ServerTickStartEvent) {
-        ThreadGuard.ensureMainThread("WorldManager.onTickStart")
+    private fun tick() {
+        tickStart()
+        tickEnd()
+    }
+
+    private fun tickStart() {
+        ThreadGuard.ensureMainThread("WorldManager.tickStart")
         serverTickIndex += 1L
         val currentTimeMs = System.currentTimeMillis()
         railWorlds.forEach { (_, railWorld) ->
@@ -152,19 +200,11 @@ class WorldManager(
         }
     }
 
-    @EventHandler
-    fun onTickEnd(event: ServerTickEndEvent) {
-        ThreadGuard.ensureMainThread("WorldManager.onTickEnd")
+    private fun tickEnd() {
+        ThreadGuard.ensureMainThread("WorldManager.tickEnd")
         val phaseBreakdown = linkedMapOf<String, Long>()
         var computeNanos = 0L
         var blockedWaitAsyncNanos = 0L
-
-        // 更新座位系统（跟随车厢移动 + 同步坐着的玩家）
-        val seatExtensionNanos = measureNanoTime {
-            SeatExtension.tickAll()
-        }
-        phaseBreakdown["seat_extension"] = seatExtensionNanos
-        computeNanos += seatExtensionNanos
 
         railWorlds.forEach { (world, railWorld) ->
             (railWorld as? CoreWorld)?.let { coreWorld ->
@@ -176,7 +216,7 @@ class WorldManager(
                 blockedWaitAsyncNanos += physicsWaitNanos
 
                 val renderCommitNanos = measureNanoTime {
-                    applyPublishedTrainFrames(coreWorld)
+                    dispatchPublishedTrainFrames(world, coreWorld)
                 }
                 phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = renderCommitNanos
                 computeNanos += renderCommitNanos
@@ -199,15 +239,24 @@ class WorldManager(
 
             val platformCommitNanos = measureNanoTime {
                 railWorld.tickManager.drainPendingCommits().forEach { synchronizable ->
-                    runCatching { synchronizable.commit() }.onFailure { error ->
-                        BukkitPlugin.INSTANCE.logger.severe(
-                            "Tick platform commit failed in world '${world.name}': " +
-                                "${error::class.simpleName}: ${error.message.orEmpty()}"
-                        )
+                    val action: () -> Unit = {
+                        runCatching { synchronizable.commit() }.onFailure { error ->
+                            BukkitPlugin.INSTANCE.logger.severe(
+                                "Tick platform commit failed in world '${world.name}': " +
+                                    "${error::class.simpleName}: ${error.message.orEmpty()}"
+                            )
+                        }
+                        Unit
+                    }
+                    val location = (synchronizable as? PlatformCommitAffinity)?.commitLocation()
+                    if (location == null) {
+                        action()
+                    } else {
+                        queuePlatformCommit(PendingPlatformCommit(synchronizable, location, action))
                     }
                 }
             }
-            phaseBreakdown["world:${world.name}:tick_platform_commit_consume"] = platformCommitNanos
+            phaseBreakdown["world:${world.name}:tick_platform_commit_dispatch"] = platformCommitNanos
             computeNanos += platformCommitNanos
 
             if (TrainDebugLog.enabled) {
@@ -258,19 +307,88 @@ class WorldManager(
         )
     }
 
-    /** Transitional Paper consumer; Folia will dispatch each car frame to its owning context. */
-    private fun applyPublishedTrainFrames(coreWorld: CoreWorld) {
+    /** Keeps at most one in-flight and one latest pending region task per car. */
+    private fun dispatchPublishedTrainFrames(bukkitWorld: BukkitWorld, coreWorld: CoreWorld) {
         coreWorld.drainPublishedTrainFrames().forEach { trainFrame ->
             val train = coreWorld.getTrain(trainFrame.trainId) ?: return@forEach
             if (train.cars.size != trainFrame.cars.size) return@forEach
+            if (trainFrame.cars.indices.any { train.cars[it].id != trainFrame.cars[it].carId }) return@forEach
             for (index in trainFrame.cars.indices) {
-                val car: CoreCar = train.cars[index]
-                val carFrame = trainFrame.cars[index]
-                if (car.id != carFrame.carId) return@forEach
-                car.carRendererOrNull?.applyFrame(carFrame, trainFrame.revision)
+                queueCarFrame(
+                    PendingCarFrame(
+                        bukkitWorld = bukkitWorld,
+                        car = train.cars[index],
+                        frame = trainFrame.cars[index],
+                        revision = trainFrame.revision
+                    )
+                )
             }
         }
     }
+
+    private fun queueCarFrame(pending: PendingCarFrame) {
+        carFrameDispatcher.offer(pending.car, pending)
+    }
+
+    private fun scheduleCarFrame(pending: PendingCarFrame, complete: () -> Unit) {
+        val frame = pending.frame
+        val location = Location(
+            pending.bukkitWorld,
+            frame.state.positionX,
+            frame.state.positionY,
+            frame.state.positionZ
+        )
+        BukkitPlugin.INSTANCE.platformDispatcher.runAt(location) {
+            try {
+                if (!stopping && pending.bukkitWorld !in unloadingWorlds) {
+                    pending.car.carRendererOrNull?.applyFrame(frame, pending.revision)
+                }
+            } finally {
+                complete.invoke()
+            }
+        }
+    }
+
+    private fun queuePlatformCommit(pending: PendingPlatformCommit) {
+        platformCommitDispatcher.offer(pending.synchronizable, pending)
+    }
+
+    private fun schedulePlatformCommit(pending: PendingPlatformCommit, complete: () -> Unit) {
+        BukkitPlugin.INSTANCE.platformDispatcher.runAt(pending.location) platformTask@{
+            if (stopping || pending.location.world in unloadingWorlds) {
+                complete.invoke()
+                return@platformTask
+            }
+            val currentLocation =
+                (pending.synchronizable as? PlatformCommitAffinity)?.commitLocation()
+            if (currentLocation != null && !BukkitThreadOwnership.isOwnedByCurrentRegion(currentLocation)) {
+                schedulePlatformCommit(pending.copy(location = currentLocation), complete)
+                return@platformTask
+            }
+            try {
+                pending.action.invoke()
+            } finally {
+                complete.invoke()
+            }
+        }
+    }
+
+    private fun <T> withSimulationContext(action: () -> T): T =
+        BukkitThreadGuardBridge.runInSimulationContext(action)
+
+    private data class PendingCarFrame(
+        val bukkitWorld: BukkitWorld,
+        val car: CoreCar,
+        val frame: CarFrameSnapshot,
+        val revision: Long
+    )
+
+    private data class PendingPlatformCommit(
+        val synchronizable: Synchronizable,
+        val location: Location,
+        val action: () -> Unit
+    )
+
 
     private fun rememberServerTickMetrics(snapshot: MineRailsServerTickMetrics) {
         latestServerTickMetricsSnapshot = snapshot

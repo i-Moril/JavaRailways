@@ -138,6 +138,13 @@ class CoreWorld(
         publishedTrainFrames.offer(frame)
     }
 
+    /** Enqueues the current immutable frame after an explicit command-side train commit. */
+    fun publishCurrentTrainFrame(trainId: String): Boolean {
+        val train = getTrain(trainId) ?: return false
+        publishTrainFrame(train.publishedFrame)
+        return true
+    }
+
     /**
      * Drains at most one latest frame per train without executing render or platform side effects.
      * A slow consumer therefore cannot build an unbounded per-tick backlog.

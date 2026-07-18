@@ -27,6 +27,7 @@ import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
 import work.art1st.mineRails.bukkit.debug.DepotResetDiagnostics
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.extension.train.rendererOrNull
+import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.mineRails.core.api.physics.World as RailWorld
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
@@ -39,7 +40,11 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         command: Command,
         label: String,
         args: Array<out String>
-    ): Boolean {
+    ): Boolean = BukkitThreadGuardBridge.runInSimulationContext {
+        executeCommand(sender, args)
+    }
+
+    private fun executeCommand(sender: CommandSender, args: Array<out String>): Boolean {
         if (args.isEmpty()) {
             sendHelp(sender)
             return true
@@ -68,7 +73,11 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         command: Command,
         alias: String,
         args: Array<out String>
-    ): List<String> {
+    ): List<String> = BukkitThreadGuardBridge.runInSimulationContext {
+        completeCommand(args)
+    }
+
+    private fun completeCommand(args: Array<out String>): List<String> {
         if (args.size == 1) {
             return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "depot", "ato", "stop", "perf", "undo", "redo", "help")
         }
@@ -719,6 +728,12 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 "visual mailbox=${metrics.size}/${metrics.capacity} peak=${metrics.peakSize} " +
                     "coalesced=${metrics.coalescedFrames} stale=${metrics.droppedStaleFrames} " +
                     "capacityDrops=${metrics.droppedCapacityFrames}"
+            )
+        }
+        plugin.worldManager.carFrameDispatchMetrics().let { metrics ->
+            sender.sendMessage(
+                "visual region dispatch pendingCars=${metrics.pendingCars} " +
+                    "coalesced=${metrics.coalescedFrames} tasks=${metrics.scheduledTasks}"
             )
         }
         coreWorld.renderChunkManager.audienceMetrics().let { metrics ->

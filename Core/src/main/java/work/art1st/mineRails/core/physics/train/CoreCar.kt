@@ -17,11 +17,9 @@ import work.art1st.mineRails.core.util.trait.render.DynamicRenderableTrait
 import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
-import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.configLib.persistence.PersistentBy
 import kotlin.math.absoluteValue
 import kotlin.math.max
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 车厢类
@@ -43,7 +41,7 @@ class CoreCar @MainThread internal constructor(
     override val world: CoreWorld,
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Car>> = ExtensionDataContainer()
-) : Car, Synchronizable, Reversible, DynamicRenderableTrait<Car>, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCarV1> {
+) : Car, Reversible, DynamicRenderableTrait<Car>, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCarV1> {
 
     /**
      * 车厢内的座位列表，position/direction 由车厢当前状态实时计算。
@@ -106,9 +104,7 @@ class CoreCar @MainThread internal constructor(
         get() = motionState.tangentialVelocity
 
     override var lastState: RenderableStateSnapshot = takeSnapshot()
-    override var dirty: Boolean = false
     private var physicsDirty: Boolean = false
-    private val renderPending = AtomicBoolean(false)
 
     var isReversed: Boolean = false
         protected set
@@ -333,15 +329,6 @@ class CoreCar @MainThread internal constructor(
         _normal.commit()
         _motionState.commit()
         physicsDirty = false
-        renderPending.set(true)
-    }
-
-    /** Main-thread render notification; physics publication happens in the Coordinator. */
-    override fun commit() {
-        bogies.forEach { it.commit() }
-        if (!renderPending.getAndSet(false)) return
-        dirty = true
-        super.commit()
     }
 
     companion object {

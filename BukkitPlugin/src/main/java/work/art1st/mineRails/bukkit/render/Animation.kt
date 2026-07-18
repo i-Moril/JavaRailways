@@ -1,6 +1,8 @@
 package work.art1st.mineRails.bukkit.render
 
+import org.bukkit.Location
 import work.art1st.mineRails.bukkit.render.model.CompactTransform
+import work.art1st.mineRails.bukkit.util.PlatformCommitAffinity
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.api.util.tick.TickingObject
@@ -53,6 +55,7 @@ class Animation(
 
     fun activate(
         startFrom: Double = 0.0,
+        commitLocation: () -> Location? = { null },
         onDestroy: (ActiveAnimation) -> Unit,
         onCommit: (ActiveAnimation) -> Unit = {}
     ): ActiveAnimation {
@@ -60,6 +63,7 @@ class Animation(
         return ActiveAnimation(
             onDestroy = onDestroy,
             onCommit = onCommit,
+            commitLocation = commitLocation,
             frames = segmentFrames(start, lastTime),
             keepFinalState = keepFinalState,
             targetScene = timeline.lastOrNull { it.timeSeconds == lastTime }?.scene
@@ -77,6 +81,7 @@ class Animation(
         sceneName: String,
         currentScene: String? = null,
         currentTransform: CompactTransform? = null,
+        commitLocation: () -> Location? = { null },
         onDestroy: (ActiveAnimation) -> Unit,
         onCommit: (ActiveAnimation) -> Unit = {}
     ): ActiveAnimation {
@@ -102,6 +107,7 @@ class Animation(
         return ActiveAnimation(
             onDestroy = onDestroy,
             onCommit = onCommit,
+            commitLocation = commitLocation,
             frames = frames,
             keepFinalState = keepFinalState,
             targetScene = targetScene
@@ -170,10 +176,11 @@ class Animation(
     class ActiveAnimation internal constructor(
         private val onDestroy: (ActiveAnimation) -> Unit,
         private val onCommit: (ActiveAnimation) -> Unit,
+        private val commitLocation: () -> Location?,
         private val frames: List<PlaybackFrame>,
         val keepFinalState: Boolean,
         val targetScene: String?
-    ) : TickingObject, Synchronizable, Destroyable {
+    ) : TickingObject, Synchronizable, Destroyable, PlatformCommitAffinity {
         private var elapsedSeconds: Double = 0.0
         private var destroyed: Boolean = false
         private var finished: Boolean = false
@@ -197,6 +204,7 @@ class Animation(
             updateTransform()
         }
 
+        @Synchronized
         override fun tick(deltaT: Double) {
             if (destroyed || finished) return
             elapsedSeconds += max(0.0, deltaT) / 1000.0
@@ -208,6 +216,9 @@ class Animation(
             }
         }
 
+        override fun commitLocation(): Location? = commitLocation.invoke()
+
+        @Synchronized
         override fun commit() {
             if (destroyed) return
             onCommit.invoke(this)
@@ -246,6 +257,7 @@ class Animation(
             displayState = frames.take(nextIndex + 1).lastOrNull { it.displayState != null }?.displayState
         }
 
+        @Synchronized
         override fun destroy() {
             if (destroyed) return
             destroyed = true

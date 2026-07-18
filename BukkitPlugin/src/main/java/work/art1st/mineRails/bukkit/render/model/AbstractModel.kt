@@ -1,9 +1,11 @@
 package work.art1st.mineRails.bukkit.render.model
 
+import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Vector3dc
 import work.art1st.mineRails.bukkit.render.Animation
 import work.art1st.mineRails.bukkit.render.AnimationDisplayState
+import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.Destroyable
@@ -20,6 +22,7 @@ abstract class AbstractModel(
     protected var heldAnimationName: String? = null
     protected var heldAnimationScene: String? = null
     private var lastParentRelativeTransform: CompactTransform? = null
+    @Volatile
     private var lastRootTransform: CompactTransform? = null
     private var lastRootVelocity: Vector3dc? = null
     protected val rootRelativeTransform: CompactTransform
@@ -48,6 +51,7 @@ abstract class AbstractModel(
             startAnimation(
                 animationName,
                 animationPrototype.activate(
+                    commitLocation = ::animationCommitLocation,
                     onDestroy = ::onAnimationFinished,
                     onCommit = ::onAnimationCommit
                 )
@@ -72,6 +76,7 @@ abstract class AbstractModel(
                         sceneName = sceneName,
                         currentScene = currentScene,
                         currentTransform = currentTransform,
+                        commitLocation = ::animationCommitLocation,
                         onDestroy = ::onAnimationFinished,
                         onCommit = ::onAnimationCommit
                     )
@@ -117,6 +122,11 @@ abstract class AbstractModel(
         heldAnimationName = animationName
         activeAnimation = active
         world.tickManager.register(active)
+    }
+
+    private fun animationCommitLocation(): Location? {
+        val root = lastRootTransform?.position ?: return null
+        return Location(world.bukkitWorldData.bukkitWorld, root.x(), root.y(), root.z())
     }
 
     private fun onAnimationCommit(animation: Animation.ActiveAnimation) {

@@ -22,7 +22,8 @@ import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
 import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
-import work.art1st.mineRails.core.util.ThreadGuard
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Car rendering extension: builds the car model from CarDefinition and
@@ -48,6 +49,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var forceNextModelUpdate: Boolean = false
     private var latestFrameRevision: Long = -1L
     private var latestFrame: CarFrameSnapshot? = null
+    private val detailAudience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
         super.initialize(host, savedExtensionData)
@@ -81,8 +83,17 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     /** Applies one value-only frame; stale revisions cannot move a model backwards. */
+    @Synchronized
     fun applyFrame(frame: CarFrameSnapshot, revision: Long) {
-        ThreadGuard.ensureMainThread("CarExtension.applyFrame")
+        BukkitThreadOwnership.ensureLocation(
+            Location(
+                self.world.bukkitWorldData.bukkitWorld,
+                frame.state.positionX,
+                frame.state.positionY,
+                frame.state.positionZ
+            ),
+            "CarExtension.applyFrame"
+        )
         if (revision <= latestFrameRevision) return
         val oldPosition = latestFrame?.state?.positionVector() ?: self.lastState.position
         latestFrame = frame
@@ -91,6 +102,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         super.commit()
     }
 
+    @Synchronized
     override fun destroy() {
         val renderManager = self.world.renderChunkManager
         renderManager.remove(self, latestFrame?.state?.positionVector() ?: self.position)
@@ -141,8 +153,8 @@ class CarExtension : TrainComponentExtension<Car>() {
         val normal = state.normalVector()
         val velocity = state.velocityVector()
         modelUpdateSequence += 1L
-        val nearDetailAudience = hasAudiencePlayer(::isWithinDetailDistance)
-        val movingWithAudience = velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudiencePlayer { true }
+        val nearDetailAudience = detailAudience.isNotEmpty()
+        val movingWithAudience = velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudience()
         val updateInterval = if (nearDetailAudience || movingWithAudience) NEAR_UPDATE_INTERVAL else FAR_UPDATE_INTERVAL
         val shouldUpdateModel = forceNextModelUpdate || !modelStateApplied ||
             updateInterval == 1 || modelUpdateSequence % updateInterval == 0L
@@ -154,7 +166,6 @@ class CarExtension : TrainComponentExtension<Car>() {
             frame.bogies.zip(bogieModels).forEach { (bogieState, bogieModel) ->
                 bogieModel.updateRootPosition(bogieRootPosition(bogieState))
             }
-            refreshInteractiveActivationForAudience()
             return
         }
         forceNextModelUpdate = false
@@ -189,9 +200,9 @@ class CarExtension : TrainComponentExtension<Car>() {
             bogieModel.updateState(bogieTransform, bogieState.velocityVector())
         }
 
-        refreshInteractiveActivationForAudience()
     }
 
+    @Synchronized
     override fun refreshFor(player: Player) {
         BukkitThreadOwnership.ensureEntity(player, "CarExtension.refreshFor")
         bodyModel?.showTo(player)
@@ -200,15 +211,17 @@ class CarExtension : TrainComponentExtension<Car>() {
             model.showTo(player)
             model.updatePlayerVisibility(player)
         }
-        if (isWithinDetailDistance(player) && !detailStateCurrent) {
-            forceNextModelUpdate = true
-            updateModel()
-            return
+        if (isWithinDetailDistance(player)) {
+            detailAudience.add(player.uniqueId)
+            if (!detailStateCurrent) forceNextModelUpdate = true
+        } else {
+            detailAudience.remove(player.uniqueId)
         }
         refreshInteractiveActivation(player)
     }
 
     override fun onAudienceRemoved(player: Player) {
+        detailAudience.remove(player.uniqueId)
         bodyModel?.hideFrom(player)
         bogieModels.forEach { it.hideFrom(player) }
         deactivateInteractiveModelsFor(player)
@@ -226,6 +239,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         modelStateApplied = false
         detailStateCurrent = false
         forceNextModelUpdate = false
+        detailAudience.clear()
     }
 
     override fun applyAnimation(name: String): Boolean {
@@ -273,10 +287,6 @@ class CarExtension : TrainComponentExtension<Car>() {
         if (applied) {
             pendingHeldScenes = scenes
         }
-    }
-
-    private fun refreshInteractiveActivationForAudience() {
-        forEachAudiencePlayer(::refreshInteractiveActivation)
     }
 
     private fun refreshInteractiveActivation(player: Player) {

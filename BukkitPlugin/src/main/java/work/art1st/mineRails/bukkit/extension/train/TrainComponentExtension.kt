@@ -1,9 +1,9 @@
 package work.art1st.mineRails.bukkit.extension.train
 
-import org.bukkit.Bukkit
 import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.BukkitRenderable
+import work.art1st.mineRails.bukkit.extension.bukkitLocation
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.util.annotation.MainThread
@@ -11,7 +11,6 @@ import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
-import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 
 @OptIn(ExtensionData::class)
@@ -75,18 +74,19 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     protected abstract fun destroyModel()
 
     @MainThread
+    @Synchronized
     override fun sendTo(player: Player) {
         BukkitThreadOwnership.ensureEntity(player, "TrainComponentExtension.sendTo")
         audience.add(player.uniqueId)
         if (!modelBuilt) {
             buildModel()
             modelBuilt = true
-            updateModel()
         }
         refreshFor(player)
     }
 
     @MainThread
+    @Synchronized
     fun hideFrom(player: Player) {
         BukkitThreadOwnership.ensureEntity(player, "TrainComponentExtension.hideFrom")
         if (!audience.remove(player.uniqueId)) return
@@ -96,8 +96,9 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         destroyModel()
     }
 
+    @Synchronized
     override fun commit() {
-        ThreadGuard.ensureMainThread("TrainComponentExtension.commit")
+        BukkitThreadOwnership.ensureLocation(self.bukkitLocation, "TrainComponentExtension.commit")
         if (!modelBuilt) return
         if (audience.isEmpty()) {
             modelBuilt = false
@@ -108,26 +109,14 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     }
 
     @MainThread
+    @Synchronized
     override fun destroy() {
-        ThreadGuard.ensureMainThread("TrainComponentExtension.destroy")
         audience.clear()
         modelBuilt = false
         destroyModel()
     }
 
-    protected fun forEachAudiencePlayer(action: (Player) -> Unit) {
-        audience.forEach { playerId ->
-            Bukkit.getPlayer(playerId)?.let(action)
-        }
-    }
-
-    protected fun hasAudiencePlayer(predicate: (Player) -> Boolean): Boolean {
-        for (playerId in audience) {
-            val player = Bukkit.getPlayer(playerId) ?: continue
-            if (predicate(player)) return true
-        }
-        return false
-    }
+    protected fun hasAudience(): Boolean = audience.isNotEmpty()
 
     open fun applyAnimation(name: String): Boolean = false
 

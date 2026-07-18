@@ -1,6 +1,5 @@
 package work.art1st.mineRails.bukkit.render.model
 
-import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Quaterniond
@@ -11,7 +10,6 @@ import work.art1st.mineRails.bukkit.render.backend.DisplayVisual
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.mineRails.core.api.util.annotation.MainThread
-import java.util.concurrent.Callable
 
 class CompositeModel internal constructor(
     private val world: World,
@@ -30,13 +28,7 @@ class CompositeModel internal constructor(
     override fun destroy() {
         if (destroyed) return
         destroyed = true
-        if (Bukkit.isPrimaryThread()) {
-            destroyNow()
-        } else {
-            world.tickManager.scheduleMainThreadAfterCommitTask {
-                destroyNow()
-            }
-        }
+        destroyNow()
     }
 
     private fun destroyNow() {
@@ -46,10 +38,6 @@ class CompositeModel internal constructor(
 
     fun prepareForUnload() {
         models.forEach { it.prepareForUnload() }
-    }
-
-    fun onMainThread(f: Callable<Unit>) {
-        world.tickManager.scheduleMainThreadAfterCommitTask(f)
     }
 
     fun updateState(rootTransform: CompactTransform, rootVelocity: Vector3dc = Vector3d()) {
@@ -67,11 +55,7 @@ class CompositeModel internal constructor(
     fun updateRootPosition(position: Vector3dc) {
         val bukkitWorld = world.bukkitWorldData.bukkitWorld
         val location = Location(bukkitWorld, position.x(), position.y(), position.z())
-        if (Bukkit.isPrimaryThread()) {
-            rootVisual.teleport(location)
-        } else {
-            onMainThread { rootVisual.teleport(location) }
-        }
+        rootVisual.teleport(location)
     }
 
     fun applyAnimation(name: String): Boolean {

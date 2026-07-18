@@ -43,6 +43,7 @@ import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
 import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
 import work.art1st.mineRails.bukkit.util.BukkitAsyncTasks
 import work.art1st.mineRails.bukkit.util.HeavyRailQueries
+import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
@@ -331,7 +332,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private lateinit var wandKeys: WandConfigKeys
 
     /** Per-player transient anchor marker entities: player UUID -> (anchorId -> Set<entityId>). */
-    private val anchorEntities = ConcurrentHashMap<UUID, MutableMap<String, MutableSet<UUID>>>()
+    private val anchorEntities =
+        ConcurrentHashMap<UUID, ConcurrentHashMap<String, MutableSet<ItemDisplay>>>()
     private val heavyOperationGate = PlayerOperationGate()
 
     /** 每名玩家最近 10 次有效操作。 */
@@ -368,7 +370,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     override fun onAfterRegisterEvents() {
-        plugin.platformDispatcher.runGlobalAtFixedRate(1L, 4L, ::updateSplitPreviews)
+        plugin.platformDispatcher.runGlobalAtFixedRate(1L, 4L) {
+            BukkitThreadGuardBridge.runInSimulationContext(::updateSplitPreviews)
+        }
         plugin.logger.info("RailWand initialized")
     }
 
@@ -2411,33 +2415,32 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // ═══════════════════════════════════════════
 
     private fun spawnAnchorDisplay(player: Player, anchor: Anchor) {
-        val entityIds = anchorEntities
-            .getOrPut(player.uniqueId) { mutableMapOf() }
-            .getOrPut(anchor.id) { mutableSetOf() }
+        val entities = anchorEntities
+            .computeIfAbsent(player.uniqueId) { ConcurrentHashMap() }
+            .computeIfAbsent(anchor.id) { ConcurrentHashMap.newKeySet() }
 
-        val anchorEntity = spawnAnchorDisplayEntity(
+        spawnAnchorDisplayEntity(
             player = player,
             anchor = anchor,
             position = anchor.position,
             material = ANCHOR_DISPLAY_MATERIAL,
             scale = 1.1f,
-            showName = true
+            showName = true,
+            entities = entities
         )
-        entityIds.add(anchorEntity.uniqueId)
 
         val direction = Vector3d(anchor.tangent)
         if (direction.lengthSquared() > 1e-9) {
             direction.normalize()
-            val directionPosition = Vector3d(anchor.position).fma(1.35, direction)
-            val directionEntity = spawnAnchorDisplayEntity(
+            spawnAnchorDisplayEntity(
                 player = player,
                 anchor = anchor,
-                position = directionPosition,
+                position = Vector3d(anchor.position).fma(1.35, direction),
                 material = ANCHOR_DIRECTION_MATERIAL,
                 scale = 0.8f,
-                showName = false
+                showName = false,
+                entities = entities
             )
-            entityIds.add(directionEntity.uniqueId)
         }
     }
 
@@ -2447,51 +2450,65 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         position: Vector3dc,
         material: Material,
         scale: Float,
-        showName: Boolean
-    ): ItemDisplay {
-        val displayEntity = player.world.spawn(
-            Location(player.world, position.x(), position.y(), position.z()),
-            ItemDisplay::class.java
-        ) { entity ->
-            entity.setItemStack(ItemStack(material))
-            entity.isPersistent = false
-            entity.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
-            entity.customName(Component.text(anchor.id, NamedTextColor.RED))
-            entity.isCustomNameVisible = showName
-            entity.transformation = Transformation(
-                entity.transformation.translation,
-                entity.transformation.leftRotation,
-                org.joml.Vector3f(scale, scale, scale),
-                entity.transformation.rightRotation
+        showName: Boolean,
+        entities: MutableSet<ItemDisplay>
+    ) {
+        val playerId = player.uniqueId
+        val world = player.world
+        val location = Location(world, position.x(), position.y(), position.z())
+        plugin.platformDispatcher.runAt(location) spawnTask@{
+            if (anchorEntities[playerId]?.get(anchor.id) !== entities) return@spawnTask
+            val displayEntity = world.spawn(location, ItemDisplay::class.java) { entity ->
+                entity.setItemStack(ItemStack(material))
+                entity.isPersistent = false
+                entity.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
+                entity.customName(Component.text(anchor.id, NamedTextColor.RED))
+                entity.isCustomNameVisible = showName
+                entity.transformation = Transformation(
+                    entity.transformation.translation,
+                    entity.transformation.leftRotation,
+                    org.joml.Vector3f(scale, scale, scale),
+                    entity.transformation.rightRotation
+                )
+                entity.isVisibleByDefault = false
+            }
+            entities.add(displayEntity)
+            plugin.platformDispatcher.runForEntity(
+                entity = player,
+                action = {
+                    if (anchorEntities[playerId]?.get(anchor.id) === entities) {
+                        player.showEntity(plugin, displayEntity)
+                    } else {
+                        removeAnchorEntity(displayEntity)
+                    }
+                },
+                retired = { removeAnchorEntity(displayEntity) }
             )
-            entity.isVisibleByDefault = false
         }
-        player.showEntity(plugin, displayEntity)
-        return displayEntity
     }
 
     private fun removeAnchorDisplay(player: Player, anchorId: String) {
-        val entries = anchorEntities[player.uniqueId]?.remove(anchorId) ?: return
-        entries.forEach { entityId ->
-            player.world.getEntity(entityId)?.remove()
-        }
+        anchorEntities[player.uniqueId]?.remove(anchorId)?.forEach(::removeAnchorEntity)
     }
 
     private fun removeAllAnchorDisplays(player: Player) {
-        anchorEntities.remove(player.uniqueId)?.forEach { (_, entityIds) ->
-            entityIds.forEach { entityId ->
-                player.world.getEntity(entityId)?.remove()
-            }
+        anchorEntities.remove(player.uniqueId)?.values?.forEach { entities ->
+            entities.forEach(::removeAnchorEntity)
         }
+    }
+
+    private fun removeAnchorEntity(entity: ItemDisplay) {
+        plugin.platformDispatcher.runForEntity(entity, action = { entity.remove() })
     }
 
     /** 更新锚点展示效果：选中 = Glowing */
     internal fun updateAnchorDisplay(player: Player) {
-        val state = getState(player)
-        anchorEntities[player.uniqueId]?.forEach { (anchorId, entityIds) ->
-            entityIds.forEach { entityId ->
-                val entity = player.world.getEntity(entityId) ?: return@forEach
-                entity.isGlowing = anchorId in state.selectedAnchors
+        val selectedAnchors = getState(player).selectedAnchors.toSet()
+        anchorEntities[player.uniqueId]?.forEach { (anchorId, entities) ->
+            entities.forEach { entity ->
+                plugin.platformDispatcher.runForEntity(entity, action = {
+                    entity.isGlowing = anchorId in selectedAnchors
+                })
             }
         }
     }

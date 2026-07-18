@@ -18,7 +18,8 @@ import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
 import work.art1st.mineRails.core.api.util.tick.TickingObject
-import work.art1st.mineRails.core.util.ThreadGuard
+import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
+import work.art1st.mineRails.bukkit.util.PlatformCommitAffinity
 import kotlin.math.max
 
 @OptIn(ExtensionData::class)
@@ -94,7 +95,11 @@ class TrainExtension : CoreTrainExtension {
         opening: Boolean,
         onComplete: () -> Unit
     ): TrainModelOperationResult {
-        ThreadGuard.ensureMainThread("TrainExtension.executeDoorOperation")
+        val position = self.headLocation.position
+        BukkitThreadOwnership.ensureLocation(
+            Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z()),
+            "TrainExtension.executeDoorOperation"
+        )
         if (side == DoorSide.NONE) return TrainModelOperationResult.Rejected("door side is NONE")
         if (actionExecutionTracker != null) {
             return TrainModelOperationResult.Rejected("another tracked train action is executing")
@@ -232,9 +237,12 @@ class TrainExtension : CoreTrainExtension {
     }
 
     private fun playSound(key: String, volume: Double = 1.0, pitch: Double = 1.0) {
-        ThreadGuard.ensureMainThread("TrainExtension.playSound")
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val position = self.headLocation.position
+        BukkitThreadOwnership.ensureLocation(
+            Location(bukkitWorld, position.x(), position.y(), position.z()),
+            "TrainExtension.playSound"
+        )
         val location = Location(bukkitWorld, position.x(), position.y(), position.z())
         bukkitWorld.playSound(location, key, volume.toFloat(), pitch.toFloat())
     }
@@ -260,23 +268,31 @@ class TrainExtension : CoreTrainExtension {
     private inner class DelayedActionEffect(
         private val delaySeconds: Double,
         private val action: () -> Unit
-    ) : TickingObject, Synchronizable, Destroyable {
+    ) : TickingObject, Synchronizable, Destroyable, PlatformCommitAffinity {
         private var elapsedSeconds: Double = 0.0
         private var ready: Boolean = delaySeconds <= 0.0
         private var destroyed: Boolean = false
 
+        @Synchronized
         override fun tick(deltaT: Double) {
             if (destroyed || ready) return
             elapsedSeconds += deltaT.coerceAtLeast(0.0) / 1000.0
             if (elapsedSeconds >= delaySeconds) ready = true
         }
 
+        override fun commitLocation(): Location {
+            val position = self.headLocation.position
+            return Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z())
+        }
+
+        @Synchronized
         override fun commit() {
             if (destroyed || !ready) return
             action.invoke()
             destroy()
         }
 
+        @Synchronized
         override fun destroy() {
             if (destroyed) return
             destroyed = true

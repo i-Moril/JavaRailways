@@ -6,15 +6,15 @@
 
 ## 结论
 
-当前 MineRails **不兼容 Folia**。代码整体仍基于传统 Paper/Spigot 的“单 Bukkit 主线程”模型：
+当前分支已经完成核心 tick 解耦和首轮 entity/region affinity 改造，但在真实 Folia 跨 region smoke/stress test 完成前，MineRails **仍不能声明正式兼容 Folia**：
 
-- `plugin.yml` 未声明 `folia-supported: true`。
-- 审计时多处使用 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously`；当前适配分支已替换这些生产调用，但尚未完成所有操作的 region/entity ownership 审计。
-- `ThreadGuard` 将 `Bukkit.isPrimaryThread()` 作为主线程判断。
-- 核心 tick/render commit 通过全服 `ServerTickStartEvent/ServerTickEndEvent` 遍历所有世界和玩家。
-- 大量实体、玩家、世界操作没有通过 Folia 的 `RegionScheduler` / `EntityScheduler` / `GlobalRegionScheduler` 隔离。
+- 生产 `plugin.yml` 继续生成 `folia-supported: false`；只有 `-PmineRailsFoliaSmoke=true` 的测试 artifact 会临时生成 `true`。
+- 生产代码已移除传统 `BukkitScheduler` 和 Paper `ServerTickStartEvent/ServerTickEndEvent` 驱动链。
+- visual frame、generic commit、玩家受众以及原生 interaction/seat/platform entity 已进入 target-aware region/entity 调度；跨 region 原生实体移动使用 `teleportAsync`。
+- `ThreadGuard` 的遗留“main thread”语义现表示串行 simulation context；Bukkit 副作用另由 `BukkitThreadOwnership` 校验 target ownership。
+- Folia 1.21.11 build 14 的启动/空服 shutdown smoke 已通过；仍缺跨 region 列车、座位/驾驶、split/link/remove、长期 GC 与 scheduler 压力数据。
 
-适配复杂度：**高**。不是简单替换 scheduler API 就能完成；首要工作是解除 Core tick 对单一主线程 commit 的依赖，再把渲染和 Bukkit 副作用交给平台调度层。
+适配复杂度仍为：**高**。目前代码已从“架构阻塞”进入“真实环境验证和剩余复合事务审计”阶段。
 
 ## 适配复杂度评估
 
@@ -114,7 +114,39 @@ WorldManager.onTickEnd
 ./gradlew :Core:test :BukkitPlugin:compileKotlin
 ```
 
-## 调度开销复审（2026-07-18）
+### 2026-07-18：T3 entity/region affinity 分发
+
+本节状态覆盖上方 T2 的“尚未完成”列表。
+
+已完成：
+
+- `WorldManager` 改由 global scheduler 的 1-tick task 驱动 simulation epoch，删除 Paper TickStart/TickEnd consumer。
+- `BukkitThreadGuardBridge` 提供可重入 simulation lock；world lifecycle、命令和 Wand Core 变更串行执行。等待 region operation 时释放并恢复 simulation context，region action 重新取锁，避免跨 region 等待死锁。
+- visual frame 按 car frame 目标位置分发到 region scheduler；`LatestAffinityTaskDispatcher` 将每个 car 限制为一个 in-flight 和一个 latest pending frame。
+- generic `Synchronizable` commit 通过 `PlatformCommitAffinity` 获取 location，并使用相同的有界 affinity dispatcher；执行前会重新解析移动列车的 current affinity。
+- `CoreTrain.commitRenderState()` 已删除；显式 `CoreTrain.commit()` 只发布 Core immutable state。命令侧 frame 通过 `CoreWorld.publishCurrentTrainFrame()` 显式进入 visual mailbox。`CoreCar`/`CoreBogie` 也不再实现 generic `Synchronizable`，结构上不能误入 platform commit mailbox。
+- Folia 自动强制使用 EntityLib packet display backend。native interaction、seat carrier、platform collision 与 Wand marker entity 的 spawn/mutation/removal 使用 location/entity scheduler；跨 region movement 使用 `teleportAsync` 和 stale revision token。玩家距离判断先在 player entity task 形成 activation/snapshot，再由目标 location task 创建 native entity。
+- 删除未被使用、仍依赖单主线程 teleport 的旧 `SeatExtension`；实际座位实现为 `SeatModel`。
+- rail/car audience/model lifecycle 增加并发集合或对象级串行化，防止不同 player region 与 car region 同时 build/destroy/update；shutdown 会先设置 stopping 并标记所有 world unloading，使已提交 frame/commit task 在 teardown 时跳过。
+- `/mr perf` 增加 visual region dispatch 的 pending car、coalesced frame 和 task 计数。
+- 新增 `runFolia`：`./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia`。生产元数据仍保持 `folia-supported: false`。
+- 新增 affinity coalescer、simulation lock/release-restore 及 Core car/bogie commit decoupling 单元测试；`./gradlew test` 通过。
+- 使用 `openai-codex/gpt-5.5` 多轮审查；修复了 legacy CoreCar generic commit、player-affine native spawn、shutdown queued task、seat passenger ownership 与 marker mutable-state capture 问题。
+
+启动验证：
+
+- `./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia` 已在 Folia `1.21.11-14` 完成空服启动。
+- 日志确认 MineRails load/enable、Folia detection、EntityLib backend 选择、三个 world 注册以及 timeout 触发后的 disable/shutdown 均无异常。
+
+仍未完成：
+
+- 真实 Folia server 的跨 region 功能 smoke/stress test 与指标采集。
+- 逐项验证驾驶、乘坐/下车、collision platform、door behavior、声音以及跨 region split/link/remove。
+- 根据压力数据决定是否进一步按 region batch car frame task；当前按 car 有界调度优先保证 latest-wins 和迁移正确性。
+- 确认 EntityLib/PacketEvents 在目标 Folia build 上的实际线程安全边界与 shutdown 行为。
+- 全部验证通过前不得把生产 `folia-supported` 改为 `true`。
+
+## 调度开销复审（2026-07-18，初始 T2 状态）
 
 结论：snapshot/commit mailbox 降低了无界积压，但当前 Folia scheduler 迁移引入了明显的任务 fan-out；在高列车数或高玩家数服务器上，**现状不适合直接开启 Folia 声明**。
 

@@ -38,6 +38,7 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.ui.dialog.DialogRenderer
 import work.art1st.mineRails.bukkit.util.BukkitAsyncTasks
 import work.art1st.mineRails.bukkit.util.HeavyRailQueries
+import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.mineRails.bukkit.util.PlayerOperationGate
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import java.util.UUID
@@ -152,7 +153,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     modes = RailObjectWandMode.entries.toList()
 ) {
     /** Per-player transient marker entities: player UUID -> (wayPoint id -> entity UUID). */
-    private val markerEntities = mutableMapOf<UUID, MutableMap<String, UUID>>()
+    private val markerEntities =
+        ConcurrentHashMap<UUID, ConcurrentHashMap<String, MarkerHandle>>()
     private val editingWayPoint = mutableMapOf<UUID, String>()
     private val heavyOperationGate = PlayerOperationGate()
     private val visibleDirectionRails = ConcurrentHashMap<UUID, MutableSet<UUID>>()
@@ -182,8 +184,10 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     particleViewers.remove(playerId)
                 } else {
                     plugin.platformDispatcher.runForEntity(player, action = {
-                        renderDirectionRestrictionParticles(player)
-                        renderWayPointApproachParticles(player)
+                        BukkitThreadGuardBridge.runInSimulationContext {
+                            renderDirectionRestrictionParticles(player)
+                            renderWayPointApproachParticles(player)
+                        }
                     })
                 }
             }
@@ -898,42 +902,73 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val coreWorld = getCoreWorld(player) ?: return
         val rail = coreWorld.getRail(wayPoint.railId) ?: return
         val position = rail.curve.getPointAt(wayPoint.arcLength).position
-        val location = Location(player.world, position.x(), position.y() + 1.0, position.z())
-        val entity = player.world.spawn(location, ItemDisplay::class.java)
-        entity.setItemStack(ItemStack(Material.LIME_CONCRETE))
-        entity.isPersistent = false
-        entity.isVisibleByDefault = false
-        entity.isGlowing = true
-        entity.customName(Component.text(wayPoint.id, NamedTextColor.GREEN))
-        entity.isCustomNameVisible = true
-        markerEntities.getOrPut(player.uniqueId) { mutableMapOf() }[wayPoint.id] = entity.uniqueId
-        player.showEntity(plugin, entity)
+        val world = player.world
+        val location = Location(world, position.x(), position.y() + 1.0, position.z())
+        val playerId = player.uniqueId
+        val playerMarkers = markerEntities.computeIfAbsent(playerId) { ConcurrentHashMap() }
+        val handle = MarkerHandle(wayPoint.id, wayPoint.id)
+        playerMarkers[wayPoint.id] = handle
+
+        plugin.platformDispatcher.runAt(location) markerTask@{
+            if (markerEntities[playerId]?.get(handle.id) !== handle) return@markerTask
+            val entity = world.spawn(location, ItemDisplay::class.java)
+            entity.setItemStack(ItemStack(handle.material))
+            entity.isPersistent = false
+            entity.isVisibleByDefault = false
+            entity.isGlowing = true
+            entity.customName(Component.text(handle.displayName, NamedTextColor.GREEN))
+            entity.isCustomNameVisible = true
+            handle.entity = entity
+            plugin.platformDispatcher.runForEntity(
+                entity = player,
+                action = {
+                    if (markerEntities[playerId]?.get(handle.id) === handle) {
+                        player.showEntity(plugin, entity)
+                    } else {
+                        removeMarkerEntity(entity)
+                    }
+                },
+                retired = { removeMarkerEntity(entity) }
+            )
+        }
     }
 
     private fun removeMarkerForPlayer(player: Player, wayPointId: String) {
-        val entityId = markerEntities[player.uniqueId]?.remove(wayPointId) ?: return
-        player.world.getEntity(entityId)?.remove()
+        markerEntities[player.uniqueId]?.remove(wayPointId)?.entity?.let(::removeMarkerEntity)
     }
 
     private fun clearMarkersForPlayer(player: Player) {
-        val markers = markerEntities.remove(player.uniqueId) ?: return
-        markers.values.forEach { entityId -> player.world.getEntity(entityId)?.remove() }
+        markerEntities.remove(player.uniqueId)?.values?.forEach { handle ->
+            handle.entity?.let(::removeMarkerEntity)
+        }
+    }
+
+    private fun removeMarkerEntity(entity: ItemDisplay) {
+        plugin.platformDispatcher.runForEntity(entity, action = { entity.remove() })
     }
 
     private fun renameMarker(oldId: String, newId: String, displayName: String) {
-        markerEntities.forEach { (playerId, playerMarkers) ->
-            val entityId = playerMarkers.remove(oldId) ?: return@forEach
-            playerMarkers[newId] = entityId
-            val player = plugin.server.getPlayer(playerId) ?: return@forEach
-            val entity = player.world.getEntity(entityId) as? ItemDisplay ?: return@forEach
-            entity.customName(Component.text(displayName, NamedTextColor.GREEN))
+        markerEntities.forEach { (_, playerMarkers) ->
+            val handle = playerMarkers.remove(oldId) ?: return@forEach
+            handle.id = newId
+            handle.displayName = displayName
+            playerMarkers[newId] = handle
+            handle.entity?.let { entity ->
+                plugin.platformDispatcher.runForEntity(entity, action = {
+                    entity.customName(Component.text(displayName, NamedTextColor.GREEN))
+                })
+            }
         }
     }
 
     private fun setMarkerMaterial(player: Player, wayPointId: String, material: Material) {
-        val entityId = markerEntities[player.uniqueId]?.get(wayPointId) ?: return
-        val entity = player.world.getEntity(entityId) as? ItemDisplay ?: return
-        entity.setItemStack(ItemStack(material))
+        val handle = markerEntities[player.uniqueId]?.get(wayPointId) ?: return
+        handle.material = material
+        handle.entity?.let { entity ->
+            plugin.platformDispatcher.runForEntity(entity, action = {
+                entity.setItemStack(ItemStack(material))
+            })
+        }
     }
 
     private fun refreshMarkersForPlayer(player: Player) {
@@ -949,7 +984,9 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
     private fun scheduleMarkerVisibilityRefresh(player: Player) {
         plugin.platformDispatcher.runForEntityLater(player, 1L, action = {
-            refreshMarkersForPlayer(player)
+            BukkitThreadGuardBridge.runInSimulationContext {
+                refreshMarkersForPlayer(player)
+            }
         })
     }
 
@@ -977,6 +1014,13 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         particleViewers.remove(player.uniqueId)
         configUI.removePlayerSession(player.uniqueId)
     }
+
+    private class MarkerHandle(
+        @Volatile var id: String,
+        @Volatile var displayName: String,
+        @Volatile var material: Material = Material.LIME_CONCRETE,
+        @Volatile var entity: ItemDisplay? = null
+    )
 
     private data class DirectionRestrictionLookup(
         val pointA: HeavyRailQueries.NearestRailMatch,

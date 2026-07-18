@@ -6,9 +6,9 @@ import org.bukkit.Particle
 import org.bukkit.World as BukkitWorld
 import org.joml.Vector3d
 import org.joml.Vector3dc
+import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.extension.bukkitWorldDataOrNull
 import work.art1st.mineRails.core.physics.CoreWorld
-import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.physics.train.CoreTrain
 import work.art1st.mineRails.core.physics.train.SavedTrainV1
 import java.util.UUID
@@ -65,7 +65,6 @@ object AbnormalTrainMarker {
     }
 
     fun tick(coreWorld: CoreWorld, bukkitWorld: BukkitWorld, nowMs: Long = System.currentTimeMillis()) {
-        ThreadGuard.ensureMainThread("AbnormalTrainMarker.tick")
         coreWorld.allTrains.forEach { train ->
             if (train.isDerailed) {
                 val marker = markersFor(bukkitWorld).getOrPut(train.id) { Marker(train.id, "derailed") }
@@ -115,24 +114,27 @@ object AbnormalTrainMarker {
 
     private fun spawnMarkers(bukkitWorld: BukkitWorld, positions: List<Vector3d>) {
         positions.forEach { position ->
-            for (offset in MARKER_OFFSETS) {
-                val location = Location(
-                    bukkitWorld,
-                    position.x() + offset.x(),
-                    position.y() + 1.0 + offset.y(),
-                    position.z() + offset.z()
-                )
-                bukkitWorld.spawnParticle(
-                    Particle.BLOCK_MARKER,
-                    location,
-                    1,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    barrierData,
-                    true
-                )
+            val anchor = Location(bukkitWorld, position.x(), position.y(), position.z())
+            BukkitPlugin.INSTANCE.platformDispatcher.runAt(anchor) {
+                for (offset in MARKER_OFFSETS) {
+                    val location = Location(
+                        bukkitWorld,
+                        position.x() + offset.x(),
+                        position.y() + 1.0 + offset.y(),
+                        position.z() + offset.z()
+                    )
+                    bukkitWorld.spawnParticle(
+                        Particle.BLOCK_MARKER,
+                        location,
+                        1,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        barrierData,
+                        true
+                    )
+                }
             }
         }
     }

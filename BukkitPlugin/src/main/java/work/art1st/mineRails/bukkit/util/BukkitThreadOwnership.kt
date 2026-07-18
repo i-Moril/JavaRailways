@@ -6,6 +6,10 @@ import org.bukkit.entity.Entity
 
 /** Runtime assertions for Folia ownership; unlike Bukkit.isPrimaryThread, these are target-aware. */
 object BukkitThreadOwnership {
+    fun isOwnedByCurrentRegion(entity: Entity): Boolean = Bukkit.isOwnedByCurrentRegion(entity)
+
+    fun isOwnedByCurrentRegion(location: Location): Boolean = Bukkit.isOwnedByCurrentRegion(location)
+
     fun ensureEntity(entity: Entity, operation: String) {
         check(Bukkit.isOwnedByCurrentRegion(entity)) {
             "$operation must run on the scheduler that owns entity ${entity.uniqueId}"

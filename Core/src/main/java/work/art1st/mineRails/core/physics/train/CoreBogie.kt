@@ -16,7 +16,6 @@ import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.configLib.persistence.PersistentBy
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 转向架类
@@ -60,9 +59,7 @@ class CoreBogie @MainThread internal constructor(
         get() = location.rail.world
 
     override var lastState: RenderableStateSnapshot = takeSnapshot()
-    override var dirty = false
     private var physicsDirty = false
-    private val renderPending = AtomicBoolean(false)
 
     init {
         this.initialize(savedExtensionData)
@@ -84,14 +81,6 @@ class CoreBogie @MainThread internal constructor(
         _location.commit()
         _velocity.commit()
         physicsDirty = false
-        renderPending.set(true)
-    }
-
-    /** Main-thread render notification; it no longer publishes physics buffers. */
-    override fun commit() {
-        if (!renderPending.getAndSet(false)) return
-        dirty = true
-        super.commit()
     }
 
     fun updateLocation(location: RailLocationWithFacing) {

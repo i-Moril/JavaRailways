@@ -10,6 +10,7 @@ import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.ExtensionData
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.Destroyable
+import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 
@@ -75,7 +76,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
 
     @MainThread
     override fun sendTo(player: Player) {
-        ThreadGuard.ensureMainThread("TrainComponentExtension.sendTo")
+        BukkitThreadOwnership.ensureEntity(player, "TrainComponentExtension.sendTo")
         audience.add(player.uniqueId)
         if (!modelBuilt) {
             buildModel()
@@ -87,7 +88,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
 
     @MainThread
     fun hideFrom(player: Player) {
-        ThreadGuard.ensureMainThread("TrainComponentExtension.hideFrom")
+        BukkitThreadOwnership.ensureEntity(player, "TrainComponentExtension.hideFrom")
         if (!audience.remove(player.uniqueId)) return
         onAudienceRemoved(player)
         if (audience.isNotEmpty() || !modelBuilt) return

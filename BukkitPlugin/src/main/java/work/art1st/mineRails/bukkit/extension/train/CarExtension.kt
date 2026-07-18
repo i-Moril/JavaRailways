@@ -22,6 +22,7 @@ import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.bukkit.extension.bukkitWorldData
 import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.core.util.ThreadGuard
 
 /**
@@ -194,7 +195,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun refreshFor(player: Player) {
-        ThreadGuard.ensureMainThread("CarExtension.refreshFor")
+        BukkitThreadOwnership.ensureEntity(player, "CarExtension.refreshFor")
         bodyModel?.showTo(player)
         bodyModel?.updatePlayerVisibility(player)
         bogieModels.forEach { model ->

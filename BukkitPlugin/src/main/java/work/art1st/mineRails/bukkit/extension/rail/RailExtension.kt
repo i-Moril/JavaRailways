@@ -31,6 +31,7 @@ import work.art1st.mineRails.bukkit.render.backend.DisplayVisual
 import work.art1st.mineRails.bukkit.render.backend.DisplayVisualContent
 import work.art1st.mineRails.bukkit.render.backend.DisplayVisualDescriptor
 import work.art1st.mineRails.bukkit.render.backend.displayViewRangeForDistance
+import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 import kotlin.math.ceil
@@ -52,7 +53,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
 
     @MainThread
     override fun sendTo(player: Player) {
-        ThreadGuard.ensureMainThread("RailExtension.sendTo")
+        BukkitThreadOwnership.ensureEntity(player, "RailExtension.sendTo")
         audience.add(player.uniqueId)
         buildModel()
         displayVisuals.forEach { it.showTo(player) }
@@ -61,7 +62,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     /** Unload static rail entities after the last nearby player leaves. */
     @MainThread
     fun hideFrom(player: Player) {
-        ThreadGuard.ensureMainThread("RailExtension.hideFrom")
+        BukkitThreadOwnership.ensureEntity(player, "RailExtension.hideFrom")
         if (!audience.remove(player.uniqueId)) return
         displayVisuals.forEach { it.hideFrom(player) }
         if (audience.isEmpty()) destroyModel()

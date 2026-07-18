@@ -94,6 +94,8 @@ WorldManager.onTickEnd
 - `/mr perf` 输出 visual frame 与 generic tick commit mailbox 的容量、峰值、合并和丢弃指标。
 - 新增 Paper/Folia 共用的 `PlatformDispatcher`；异步查询完成回调改到 player entity scheduler，seat/teleport 后处理改到相关 entity scheduler，四个传统 repeating timer 改用 global scheduler 分发到各 player scheduler。
 - `BukkitPlugin/src/main/java` 已无 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously` 生产调用。
+- 新增 target-aware `BukkitThreadOwnership`；玩家移动/加入/传送等渲染受众事件改为校验 entity ownership，而非 `Bukkit.isPrimaryThread()`。
+- 玩家状态、seat binding、控制会话和 wand 跨玩家容器开始迁移到 concurrent collections；global timer 只选择实体，实际玩家访问进入 entity scheduler。
 - 增加快照集合防御性复制、并发 publisher、stale frame、coalescing、capacity eviction、连续 physics epoch、阻塞 visual consumer 和 generic commit 慢消费者测试。
 
 尚未完成：

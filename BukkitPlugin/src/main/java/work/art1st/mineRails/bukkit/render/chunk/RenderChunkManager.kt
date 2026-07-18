@@ -17,6 +17,7 @@ import work.art1st.mineRails.bukkit.extension.rail.RailArcVisualSegment
 import work.art1st.mineRails.bukkit.extension.rail.renderer
 import work.art1st.mineRails.bukkit.extension.train.renderer
 import work.art1st.mineRails.bukkit.render.asVector3d
+import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.core.api.physics.train.Car
 import work.art1st.mineRails.core.api.render.Renderable
 import work.art1st.mineRails.core.api.util.WeakReferenceWrapper
@@ -33,8 +34,8 @@ class RenderChunkManager(
     private val renderableObjects: ConcurrentMap<RenderChunk, MutableSet<Renderable>> = ConcurrentHashMap()
 ) : Listener {
     val world: World by WeakReferenceWrapper(world)
-    private val visibleByPlayer: MutableMap<UUID, MutableSet<Renderable>> = HashMap()
-    private val refreshStateByPlayer: MutableMap<UUID, PlayerRefreshState> = HashMap()
+    private val visibleByPlayer: ConcurrentMap<UUID, MutableSet<Renderable>> = ConcurrentHashMap()
+    private val refreshStateByPlayer: ConcurrentMap<UUID, PlayerRefreshState> = ConcurrentHashMap()
 
     init {
         Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
@@ -62,7 +63,7 @@ class RenderChunkManager(
 
     @EventHandler
     fun onPlayerJoin(event: PlayerJoinEvent) {
-        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerJoin")
+        BukkitThreadOwnership.ensureEntity(event.player, "RenderChunkManager.onPlayerJoin")
         if (event.player.world == world) {
             refreshPlayer(event.player, force = true)
         }
@@ -70,14 +71,14 @@ class RenderChunkManager(
 
     @EventHandler
     fun onPlayerQuit(event: PlayerQuitEvent) {
-        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerQuit")
+        BukkitThreadOwnership.ensureEntity(event.player, "RenderChunkManager.onPlayerQuit")
         clearPlayer(event.player)
         BukkitPlugin.INSTANCE.viewDistanceManager.clear(event.player.uniqueId)
     }
 
     @EventHandler
     fun onPlayerMove(event: PlayerMoveEvent) {
-        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerMove")
+        BukkitThreadOwnership.ensureEntity(event.player, "RenderChunkManager.onPlayerMove")
         val to = event.to
         if (event.player.world != world) return
         if (event.from.x == to.x && event.from.y == to.y && event.from.z == to.z) return
@@ -86,7 +87,7 @@ class RenderChunkManager(
 
     @EventHandler
     fun onPlayerTeleport(event: PlayerTeleportEvent) {
-        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerTeleport")
+        BukkitThreadOwnership.ensureEntity(event.player, "RenderChunkManager.onPlayerTeleport")
         if (event.from.world != world && event.to.world != world) return
         BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(event.player, 1L, action = {
             if (event.player.world == world) refreshPlayer(event.player, force = true) else clearPlayer(event.player)
@@ -95,7 +96,7 @@ class RenderChunkManager(
 
     @EventHandler
     fun onPlayerChangedWorld(event: PlayerChangedWorldEvent) {
-        ThreadGuard.ensureMainThread("RenderChunkManager.onPlayerChangedWorld")
+        BukkitThreadOwnership.ensureEntity(event.player, "RenderChunkManager.onPlayerChangedWorld")
         if (event.player.world == world) {
             refreshPlayer(event.player, force = true)
         } else if (event.from == world) {
@@ -146,7 +147,7 @@ class RenderChunkManager(
 
     private fun setVisible(player: Player, renderable: Renderable, visible: Boolean, refreshExisting: Boolean = false) {
         if (visible) {
-            val renderables = visibleByPlayer.getOrPut(player.uniqueId) { LinkedHashSet() }
+            val renderables = visibleByPlayer.computeIfAbsent(player.uniqueId) { ConcurrentHashMap.newKeySet() }
             if (renderables.add(renderable)) {
                 dispatchSendTo(renderable, player)
             } else if (refreshExisting) {
@@ -228,7 +229,7 @@ class RenderChunkManager(
         // Only mutate it when a renderable is first registered or actually crosses a chunk border.
         val alreadyIndexed = renderableObjects[newChunk]?.contains(renderable) == true
         if (!alreadyIndexed || oldChunk == null || oldChunk != newChunk) {
-            renderableObjects.getOrPut(newChunk) { HashSet() }.add(renderable)
+            renderableObjects.computeIfAbsent(newChunk) { ConcurrentHashMap.newKeySet() }.add(renderable)
             if (oldChunk != null && oldChunk != newChunk) remove(renderable, oldChunk)
         }
 
@@ -236,14 +237,17 @@ class RenderChunkManager(
     }
 
     private fun updateAudience(renderable: Renderable, position: Vector3dc) {
+        val positionSnapshot = org.joml.Vector3d(position)
         world.players.forEach { player ->
-            if (player.world != world) {
-                clearPlayer(player)
-                return@forEach
-            }
-            val radius = player.railViewDistanceSettings.viewDistance
-            val visible = distanceSquared(position, player.location.asVector3d()) <= radius * radius
-            setVisible(player, renderable, visible)
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = playerAction@{
+                if (player.world != world) {
+                    clearPlayer(player)
+                    return@playerAction
+                }
+                val radius = player.railViewDistanceSettings.viewDistance
+                val visible = distanceSquared(positionSnapshot, player.location.asVector3d()) <= radius * radius
+                setVisible(player, renderable, visible)
+            })
         }
     }
 

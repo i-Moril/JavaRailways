@@ -55,6 +55,8 @@ TickEnd 只捕获一次当时的 physics ticket，并等待该 ticket。它不�
 
 `TickManagerImpl` 继续负责动画、延迟 action、速度安全监控等通用 `TickingObject`。它与列车物理 Coordinator 是两条独立调度路径，不应把列车控制器重新注册回通用 TickManager。
 
+`Synchronizable` 对象的 `commit()` 已不再由 `TickManagerImpl.postTick()` 串行执行。worker 成功完成 `tick()` 后只向有界、按对象 identity 合并的 commit mailbox 发布请求；`postTick()` 负责等待 worker 和处理 simulation command queue。当前 Paper 过渡消费者由 `WorldManager` drain mailbox 后执行副作用，后续 Folia 实现将把请求交给带 entity/region affinity 的 `PlatformDispatcher`。慢消费者不会为同一 animation/delayed action 累积逐 tick commit。
+
 ## 事件线程
 
 MineRails 事件按线程归属分成两套同步总线：

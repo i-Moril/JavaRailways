@@ -21,7 +21,7 @@ class TickManagerImpl(
     private var currentTick: Long
 ) : TickManager, AutoCloseable {
     private val tickingObjects: MutableSet<TickingObject> = HashSet()
-    private val tickingSynchronizableObjects: MutableSet<Synchronizable> = HashSet()
+    private val pendingCommits = LatestTickCommitMailbox(DEFAULT_COMMIT_MAILBOX_CAPACITY)
 
     private val afterCommitTasks: ConcurrentLinkedQueue<Runnable> = ConcurrentLinkedQueue()
     private val postTickTasks: ConcurrentLinkedQueue<Runnable> = ConcurrentLinkedQueue()
@@ -39,19 +39,14 @@ class TickManagerImpl(
 
     override fun register(obj: TickingObject) {
         scheduleMainThreadPostTickTask {
-            if (obj is Synchronizable) {
-                tickingSynchronizableObjects.add(obj)
-            }
             tickingObjects.add(obj)
         }
     }
 
     override fun unregister(obj: TickingObject) {
         scheduleMainThreadPostTickTask {
-            if (obj is Synchronizable) {
-                tickingSynchronizableObjects.remove(obj)
-            }
             tickingObjects.remove(obj)
+            if (obj is Synchronizable) pendingCommits.remove(obj)
         }
     }
 
@@ -61,11 +56,10 @@ class TickManagerImpl(
         val deltaT = (currentTimeMs - currentTick).toDouble()
         currentTick = currentTimeMs
         val objects = tickingObjects.toList()
-        val synchronizableObjects = tickingSynchronizableObjects.toList()
         val tickLatch = CountDownLatch(objects.size)
         val tickErrors = ConcurrentLinkedQueue<Throwable>()
-        val successfulSynchronizableObjects = ConcurrentHashMap.newKeySet<Synchronizable>()
         val totalObjectNanos = AtomicLong(0L)
+        val commitPublishNanos = AtomicLong(0L)
         val asyncPhaseStartNanos = System.nanoTime()
 
         if (objects.isEmpty()) {
@@ -90,7 +84,9 @@ class TickManagerImpl(
                         try {
                             obj.tick(deltaT)
                             if (obj is Synchronizable) {
-                                successfulSynchronizableObjects.add(obj)
+                                val publishStartNanos = System.nanoTime()
+                                pendingCommits.offer(obj)
+                                commitPublishNanos.addAndGet(System.nanoTime() - publishStartNanos)
                             }
                         } catch (t: Throwable) {
                             tickErrors.add(t)
@@ -117,18 +113,6 @@ class TickManagerImpl(
             val wallTimeNanos = System.nanoTime() - asyncPhaseStartNanos
             tickErrors.forEach { it.printStackTrace() }
 
-            val commitStartNanos = System.nanoTime()
-            synchronizableObjects.forEach {
-                if (successfulSynchronizableObjects.contains(it)) {
-                    try {
-                        it.commit()
-                    } catch (t: Throwable) {
-                        t.printStackTrace()
-                    }
-                }
-            }
-            val commitNanos = System.nanoTime() - commitStartNanos
-
             lastAsyncPhaseMetricsSnapshot = AsyncTickPhaseMetrics(
                 tickIndex = currentTickIndex,
                 deltaMillis = deltaT,
@@ -138,7 +122,7 @@ class TickManagerImpl(
                 errorCount = tickErrors.size
             )
 
-            PostTickBarrierMetrics(waitNanos, commitNanos)
+            PostTickBarrierMetrics(waitNanos, commitPublishNanos.get())
         }
     }
 
@@ -148,7 +132,7 @@ class TickManagerImpl(
 
         val barrierMetrics = awaitAsyncAndCommit()
         phaseBreakdown["postTick.wait_async"] = barrierMetrics.waitNanos
-        phaseBreakdown["postTick.commit"] = barrierMetrics.commitNanos
+        phaseBreakdown["postTick.publish_commit_requests"] = barrierMetrics.publishCommitRequestsNanos
         phaseBreakdown["postTick.after_commit_tasks"] = drainQueue(afterCommitTasks)
         phaseBreakdown["postTick.post_tick_tasks"] = drainQueue(postTickTasks)
 
@@ -185,6 +169,11 @@ class TickManagerImpl(
         }
         return futureTask
     }
+
+    override fun drainPendingCommits(limit: Int): List<Synchronizable> = pendingCommits.drain(limit)
+
+    override fun pendingCommitMetrics(): work.art1st.mineRails.core.api.util.tick.TickCommitMailboxMetrics =
+        pendingCommits.metrics()
 
     override fun latestAsyncPhaseMetrics(): AsyncTickPhaseMetrics? = lastAsyncPhaseMetricsSnapshot
 
@@ -234,7 +223,7 @@ class TickManagerImpl(
 
     private data class PostTickBarrierMetrics(
         val waitNanos: Long,
-        val commitNanos: Long
+        val publishCommitRequestsNanos: Long
     ) {
         companion object {
             val EMPTY = PostTickBarrierMetrics(0L, 0L)
@@ -242,7 +231,12 @@ class TickManagerImpl(
     }
 
     override fun close() {
+        pendingCommits.clear()
         scheduler.shutdownNow()
+    }
+
+    companion object {
+        private const val DEFAULT_COMMIT_MAILBOX_CAPACITY = 65_536
     }
 
     private class AsyncObjectMetricState {

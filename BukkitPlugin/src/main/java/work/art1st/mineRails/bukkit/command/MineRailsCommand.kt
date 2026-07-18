@@ -712,6 +712,20 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     "collisions=${metrics.collisionClaims} overloads=${metrics.overloadCountInWindow}"
             )
         } ?: sender.sendMessage("physics metrics: 尚无样本")
+
+        coreWorld.trainFrameMailboxMetrics().let { metrics ->
+            sender.sendMessage(
+                "visual mailbox=${metrics.size}/${metrics.capacity} peak=${metrics.peakSize} " +
+                    "coalesced=${metrics.coalescedFrames} stale=${metrics.droppedStaleFrames} " +
+                    "capacityDrops=${metrics.droppedCapacityFrames}"
+            )
+        }
+        coreWorld.tickManager.pendingCommitMetrics().let { metrics ->
+            sender.sendMessage(
+                "tick commit mailbox=${metrics.size}/${metrics.capacity} peak=${metrics.peakSize} " +
+                    "coalesced=${metrics.coalescedRequests} capacityDrops=${metrics.droppedCapacityRequests}"
+            )
+        }
         return true
     }
 

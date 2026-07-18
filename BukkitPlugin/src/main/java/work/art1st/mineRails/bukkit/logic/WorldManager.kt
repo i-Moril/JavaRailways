@@ -197,6 +197,19 @@ class WorldManager(
                 }
             }
 
+            val platformCommitNanos = measureNanoTime {
+                railWorld.tickManager.drainPendingCommits().forEach { synchronizable ->
+                    runCatching { synchronizable.commit() }.onFailure { error ->
+                        BukkitPlugin.INSTANCE.logger.severe(
+                            "Tick platform commit failed in world '${world.name}': " +
+                                "${error::class.simpleName}: ${error.message.orEmpty()}"
+                        )
+                    }
+                }
+            }
+            phaseBreakdown["world:${world.name}:tick_platform_commit_consume"] = platformCommitNanos
+            computeNanos += platformCommitNanos
+
             if (TrainDebugLog.enabled) {
                 val debugLogNanos = measureNanoTime {
                     (railWorld as? CoreWorld)?.let { coreWorld ->

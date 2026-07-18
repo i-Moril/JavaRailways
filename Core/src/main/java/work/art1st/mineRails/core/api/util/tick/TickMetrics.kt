@@ -19,6 +19,14 @@ data class AsyncTickPhaseMetrics(
     val errorCount: Int
 )
 
+data class TickCommitMailboxMetrics(
+    val size: Int,
+    val capacity: Int,
+    val peakSize: Int,
+    val coalescedRequests: Long,
+    val droppedCapacityRequests: Long
+)
+
 data class MainThreadTickMetrics(
     val tickIndex: Long,
     val computeNanos: Long,

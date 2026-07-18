@@ -11,12 +11,11 @@ import work.art1st.mineRails.core.api.util.tick.TickProfiled
 import work.art1st.mineRails.core.api.util.tick.TickingObject
 import java.time.Duration
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicReference
 
 class TickManagerImplTest {
 
     @Test
-    fun `single thread scheduler commits multiple synchronizable objects on postTick thread`() {
+    fun `postTick publishes commit requests without executing platform side effects`() {
         val scheduler = Executors.newSingleThreadScheduledExecutor()
         try {
             val manager = TickManagerImpl(scheduler, 0L)
@@ -25,22 +24,48 @@ class TickManagerImplTest {
 
             manager.register(first)
             manager.register(second)
-            manager.preTick(50L)
             manager.postTick()
-
-            val postTickThread = AtomicReference<Thread>()
             assertTimeoutPreemptively(Duration.ofSeconds(1)) {
-                postTickThread.set(Thread.currentThread())
                 manager.preTick(100L)
                 manager.postTick()
             }
 
             assertEquals(1, first.tickCount)
             assertEquals(1, second.tickCount)
+            assertEquals(0, first.commitCount)
+            assertEquals(0, second.commitCount)
+
+            val consumerThread = Thread.currentThread()
+            manager.drainPendingCommits().forEach(Synchronizable::commit)
+
             assertEquals(1, first.commitCount)
             assertEquals(1, second.commitCount)
-            assertSame(postTickThread.get(), first.commitThread)
-            assertSame(postTickThread.get(), second.commitThread)
+            assertSame(consumerThread, first.commitThread)
+            assertSame(consumerThread, second.commitThread)
+        } finally {
+            scheduler.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `slow commit consumer retains only one request per synchronizable object`() {
+        val scheduler = Executors.newSingleThreadScheduledExecutor()
+        try {
+            val manager = TickManagerImpl(scheduler, 0L)
+            val obj = RecordingSynchronizableTickingObject()
+            manager.register(obj)
+            manager.postTick()
+
+            repeat(3) { tick ->
+                manager.preTick((tick + 1L) * 50L)
+                manager.postTick()
+            }
+
+            assertEquals(3, obj.tickCount)
+            assertEquals(0, obj.commitCount)
+            assertEquals(1, manager.pendingCommitMetrics().size)
+            assertEquals(2L, manager.pendingCommitMetrics().coalescedRequests)
+            assertEquals(1, manager.drainPendingCommits().size)
         } finally {
             scheduler.shutdownNow()
         }
@@ -73,7 +98,7 @@ class TickManagerImplTest {
             assertNotNull(mainThreadMetrics)
             assertTrue(mainThreadMetrics!!.phaseBreakdownNanos.containsKey("preTick.snapshot_and_schedule"))
             assertTrue(mainThreadMetrics.phaseBreakdownNanos.containsKey("postTick.wait_async"))
-            assertTrue(mainThreadMetrics.phaseBreakdownNanos.containsKey("postTick.commit"))
+            assertTrue(mainThreadMetrics.phaseBreakdownNanos.containsKey("postTick.publish_commit_requests"))
         } finally {
             scheduler.shutdownNow()
         }

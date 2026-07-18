@@ -90,15 +90,17 @@ WorldManager.onTickEnd
 - `CoreWorld` 以有界 `LatestTrainFrameMailbox` 接收 frame；同一列车只保留最新帧，拒绝 stale revision，容量耗尽时有明确淘汰指标。
 - 删除 `CoreWorld.commitPublishedTrainRenderState()` 生产调用链；`WorldManager` drain frame 后，由 `CarExtension.applyFrame()` 直接消费对应 car/bogie value snapshot。
 - `RenderChunkManager` 的受众距离判断使用 frame 中的新位置，不再回读 live renderable position。
-- 增加快照集合防御性复制、并发 publisher、stale frame、coalescing、capacity eviction、连续 physics epoch 和阻塞 visual consumer 发布测试。
+- `TickManagerImpl.postTick()` 不再调用 `Synchronizable.commit()`；worker 只向有界、按对象 identity 合并的 commit mailbox 发布请求，Paper 过渡消费者位于 `WorldManager`。
+- `/mr perf` 输出 visual frame 与 generic tick commit mailbox 的容量、峰值、合并和丢弃指标。
+- 增加快照集合防御性复制、并发 publisher、stale frame、coalescing、capacity eviction、连续 physics epoch、阻塞 visual consumer 和 generic commit 慢消费者测试。
 
 尚未完成：
 
 - `WorldManager` 仍在 Paper TickEnd 同步 drain visual frame；尚未按 Folia entity/region ownership 调度。
 - `CarExtension` 已消费 car/bogie frame，但座位、玩家受众及部分模型生命周期逻辑仍需要平台线程上下文。
 - Core 的显式 maintenance/test `CoreTrain.commit()` 暂时保留同步 legacy render 通知，用于兼容非 physics 命令路径。
-- `TickManagerImpl.postTick()` 的通用 `Synchronizable.commit()` 仍为单线程 O(N) 路径。
-- mailbox 尚未接入平台调度器、时间/数量预算和运行时监控输出。
+- generic commit mailbox 目前仍由 `WorldManager` 在 Paper TickEnd 串行消费；尚未声明 entity/region affinity。
+- mailbox 尚未接入平台调度器及时间/数量预算；监控已接入 `/mr perf`。
 
 本阶段验证命令：
 

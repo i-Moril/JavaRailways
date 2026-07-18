@@ -25,8 +25,31 @@ class DirectionRestrictionParticleLayoutTest {
     }
 
     @Test
+    fun `waypoint approach particles stay on the arrival side of the target`() {
+        val arcs = WayPointApproachParticleLayout.arcLengths(
+            destinationArcInView = 50.0,
+            phase = 1.5
+        )
+
+        assertTrue(arcs.isNotEmpty())
+        assertTrue(arcs.all { it in 26.0..50.0 })
+        assertTrue(arcs.zipWithNext().all { (a, b) -> b > a })
+    }
+
+    @Test
+    fun `waypoint approach layout clamps to the start of a short view`() {
+        val arcs = WayPointApproachParticleLayout.arcLengths(
+            destinationArcInView = 6.0,
+            phase = 1.0
+        )
+
+        assertTrue(arcs.all { it in 0.0..6.0 })
+    }
+
+    @Test
     fun `invalid geometry produces no particles`() {
         assertTrue(DirectionRestrictionParticleLayout.arcLengths(0.0, 1.0).isEmpty())
         assertTrue(DirectionRestrictionParticleLayout.arcLengths(10.0, 1.0, maxPoints = 0).isEmpty())
+        assertTrue(WayPointApproachParticleLayout.arcLengths(-1.0, 1.0).isEmpty())
     }
 }

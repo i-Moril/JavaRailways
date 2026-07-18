@@ -12,7 +12,7 @@ import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 internal data class RailObjectDestinationEdit(
     val id: String,
     val roleType: DestinationRoleType,
-    val approachDirection: ViewDirection,
+    val approachDirection: ViewDirection?,
     val stationId: String = "",
     val berthId: String = "",
     val doorSide: DoorSide = DoorSide.LEFT,

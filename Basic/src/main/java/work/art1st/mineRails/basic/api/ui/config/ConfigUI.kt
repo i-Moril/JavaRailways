@@ -194,14 +194,11 @@ data class BuiltGroup(
     /** 被其他项 [ConfigKey.dependsOn] 引用的触发键 ID 集合。仅这些键变更时需重建 Dialog。 */
     val triggerKeyIds: Set<String> by lazy {
         val referenced = mutableSetOf<String>()
-        effectiveItems.forEach { item ->
-            referenced.addAll(item.key.dependsOn)
+        fun collect(source: ConfigGroup) {
+            source.items.forEach { referenced.addAll(it.key.dependsOn) }
+            source.subGroups.forEach(::collect)
         }
-        effectiveSubGroups.forEach { sub ->
-            sub.items.forEach { item ->
-                referenced.addAll(item.key.dependsOn)
-            }
-        }
+        collect(group)
         referenced
     }
 }

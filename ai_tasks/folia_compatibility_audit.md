@@ -135,7 +135,7 @@ WorldManager.onTickEnd
 
 启动验证：
 
-- `./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia` 已在 Folia `1.21.11-14` 完成空服启动。
+- `./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia` 已在 Folia `1.21.11-14` 完成空服启动；任务目标现已更新为 `26.2`，该版本仍需重新执行 smoke。
 - 日志确认 MineRails load/enable、Folia detection、EntityLib backend 选择、三个 world 注册以及 timeout 触发后的 disable/shutdown 均无异常。
 
 仍未完成：

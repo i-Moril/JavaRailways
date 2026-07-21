@@ -25,8 +25,9 @@ class TimetableBuilder(private val id: String) {
         val trainId = selector?.takeUnless { it.isNull }?.let { require(it.isString) { "selector must be a train id or null" }; it.asString() }
         val builder = ServiceBuilder()
         callback.executeVoid(builder)
+        options?.requireOnly(setOf("activation", "lineId"), "service options")
         val activation = options?.member("activation")?.takeUnless { it.isNull }?.let { activation(it) } ?: SavedTimetableActivationV1()
-        val lineId = options?.string("lineId")
+        val lineId = options?.string("lineId")?.also { require(it.isNotBlank()) { "lineId must not be blank" } }
         services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.steps, activation, lineId)
         return this
     }
@@ -53,11 +54,26 @@ class TimedActionBuilder(private val service: ServiceBuilder, private val tick: 
     @HostAccess.Export fun depot(depotId: String): ServiceBuilder = takeFromDepot(depotId)
     @HostAccess.Export fun depot(depotId: String, options: Value): ServiceBuilder = takeFromDepot(depotId, options)
     @HostAccess.Export fun takeFromDepot(depotId: String): ServiceBuilder = takeFromDepot(depotId, Value.asValue(null))
-    @HostAccess.Export fun takeFromDepot(depotId: String, options: Value): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.TAKE_FROM_DEPOT, depotId = depotId, requiredTags = options.strings("tags"), minimumCars = options.int("minimumCars"), maximumCars = options.int("maximumCars"), minimumSpeedMetersPerSecond = options.double("minimumSpeedMetersPerSecond"), requiredCapabilities = options.strings("capabilities")))
+    @HostAccess.Export fun takeFromDepot(depotId: String, options: Value): ServiceBuilder {
+        require(depotId.isNotBlank()) { "depotId must not be blank" }
+        options.requireOnly(setOf("tags", "minimumCars", "maximumCars", "minimumSpeedMetersPerSecond", "capabilities"), "takeFromDepot options")
+        return service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.TAKE_FROM_DEPOT, depotId = depotId, requiredTags = options.strings("tags"), minimumCars = options.int("minimumCars"), maximumCars = options.int("maximumCars"), minimumSpeedMetersPerSecond = options.double("minimumSpeedMetersPerSecond"), requiredCapabilities = options.strings("capabilities")))
+    }
     @HostAccess.Export fun storeAtDepot(depotId: String): ServiceBuilder = storeAtDepot(depotId, Value.asValue(null))
-    @HostAccess.Export fun storeAtDepot(depotId: String, options: Value): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STORE_AT_DEPOT, depotId = depotId, stablingPointIds = options.strings("stablingPoints")))
+    @HostAccess.Export fun storeAtDepot(depotId: String, options: Value): ServiceBuilder {
+        require(depotId.isNotBlank()) { "depotId must not be blank" }
+        options.requireOnly(setOf("stablingPoints"), "storeAtDepot options")
+        return service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STORE_AT_DEPOT, depotId = depotId, stablingPointIds = options.strings("stablingPoints")))
+    }
     @HostAccess.Export fun call(stationId: String, berthId: String): ServiceBuilder = call(stationId, berthId, Value.asValue(null))
-    @HostAccess.Export fun call(stationId: String, berthId: String, options: Value): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS, stationId = stationId, berthId = berthId, minimumDwellTicks = options.long("minimumDwellTicks"), stoppingOffsetMetersBefore = options.double("stoppingOffsetMetersBefore"), doorSideOverride = options.string("doorSide")))
+    @HostAccess.Export fun call(stationId: String, berthId: String, options: Value): ServiceBuilder {
+        require(stationId.isNotBlank() && berthId.isNotBlank()) { "stationId and berthId must not be blank" }
+        options.requireOnly(setOf("minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide"), "call options")
+        val doorSide = options.string("doorSide")?.uppercase()?.also {
+            require(it in setOf("NONE", "LEFT", "RIGHT", "BOTH")) { "doorSide must be NONE, LEFT, RIGHT, or BOTH" }
+        }
+        return service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS, stationId = stationId, berthId = berthId, minimumDwellTicks = options.long("minimumDwellTicks"), stoppingOffsetMetersBefore = options.double("stoppingOffsetMetersBefore"), doorSideOverride = doorSide))
+    }
     @HostAccess.Export fun action(typeId: String, parameters: Value): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.EXTENSION, extensionCall = extension(typeId, 1, parameters)))
     @HostAccess.Export fun action(typeId: String, version: Int, parameters: Value): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.EXTENSION, extensionCall = extension(typeId, version, parameters)))
     @HostAccess.Export fun whenCondition(condition: SavedTimetableConditionV1, thenBuilder: Value): ServiceBuilder = whenCondition(condition, thenBuilder, Value.asValue(null))
@@ -71,23 +87,44 @@ class TimedActionBuilder(private val service: ServiceBuilder, private val tick: 
 class RuntimeActions { internal val actions = mutableListOf<SavedTimetableActionV1>(); @HostAccess.Export fun action(typeId: String, parameters: Value): RuntimeActions { actions += SavedTimetableActionV1(SavedTimetableActionTypeV1.EXTENSION, extensionCall = extension(typeId, 1, parameters)); return this } }
 
 private fun extension(typeId: String, version: Int, parameters: Value) = SavedTimetableExtensionCallV1(typeId, version, (toJson(parameters) as? JsonObject) ?: JsonObject(emptyMap()))
-private fun activation(value: Value): SavedTimetableActivationV1 = when (value.string("type")?.uppercase()) {
-    "MANUAL" -> SavedTimetableActivationV1(SavedTimetableActivationTypeV1.MANUAL)
-    "CONDITIONAL" -> {
-        val behavior = value.string("falseBehavior")?.uppercase() ?: "SKIP_CYCLE"
-        require(behavior == "SKIP_CYCLE" || behavior == "WAIT_UNTIL_TRUE") {
-            "conditional activation falseBehavior must be SKIP_CYCLE or WAIT_UNTIL_TRUE"
+private fun activation(value: Value): SavedTimetableActivationV1 {
+    value.requireOnly(setOf("type", "condition", "falseBehavior"), "activation")
+    return when (value.string("type")?.uppercase()) {
+        "MANUAL" -> SavedTimetableActivationV1(SavedTimetableActivationTypeV1.MANUAL)
+        "CONDITIONAL" -> {
+            val behavior = value.string("falseBehavior")?.uppercase() ?: "SKIP_CYCLE"
+            require(behavior == "SKIP_CYCLE" || behavior == "WAIT_UNTIL_TRUE") {
+                "conditional activation falseBehavior must be SKIP_CYCLE or WAIT_UNTIL_TRUE"
+            }
+            val condition = value.member("condition")
+                ?: error("conditional activation requires condition")
+            SavedTimetableActivationV1(
+                SavedTimetableActivationTypeV1.CONDITIONAL,
+                condition.`as`(SavedTimetableConditionV1::class.java),
+                behavior
+            )
         }
-        SavedTimetableActivationV1(
-            SavedTimetableActivationTypeV1.CONDITIONAL,
-            value.getMember("condition").`as`(SavedTimetableConditionV1::class.java),
-            behavior
-        )
+        "SCHEDULED", null -> SavedTimetableActivationV1()
+        else -> error("activation type must be scheduled, manual, or conditional")
     }
-    "SCHEDULED", null -> SavedTimetableActivationV1()
-    else -> error("activation type must be scheduled, manual, or conditional")
 }
-private fun strings(value: Value): List<String> = if (value.isString) listOf(value.asString()) else { require(value.hasArrayElements()); (0 until value.arraySize).map { value.getArrayElement(it).asString() }.also { require(it.isNotEmpty()) } }
+private fun Value.requireOnly(allowed: Set<String>, subject: String) {
+    if (isNull) return
+    require(hasMembers()) { "$subject must be an object" }
+    val unknown = memberKeys - allowed
+    require(unknown.isEmpty()) { "$subject contains unknown fields: ${unknown.sorted().joinToString()}" }
+}
+private fun strings(value: Value): List<String> = if (value.isString) {
+    listOf(value.asString()).also { require(it.single().isNotBlank()) { "value must not be blank" } }
+} else {
+    require(value.hasArrayElements()) { "value must be a string or string array" }
+    (0 until value.arraySize).map { value.getArrayElement(it).asString() }
+        .also { values ->
+            require(values.isNotEmpty() && values.all(String::isNotBlank)) {
+                "string array must be non-empty and contain no blank values"
+            }
+        }
+}
 private fun Value.member(name: String): Value? = if (!isNull && hasMembers() && hasMember(name)) getMember(name) else null
 private fun Value.string(name: String) = member(name)?.takeUnless { it.isNull }?.asString()
 private fun Value.long(name: String) = member(name)?.takeUnless { it.isNull }?.asLong()

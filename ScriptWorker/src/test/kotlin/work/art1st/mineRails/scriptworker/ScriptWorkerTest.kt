@@ -50,6 +50,14 @@ class ScriptWorkerTest {
         assertEquals("SKIP_CYCLE", activation.falseBehavior)
     }
 
+    @Test fun `options reject unknown fields and normalize door side`() {
+        val result = run("timetable.setPeriodDays(1); timetable.service('s','train', t => { t.at(1).call('central','one',{doorSide:'left'}); t.at(1).goto('central@one'); });")
+        assertEquals("LEFT", result.services.single().steps.first().action?.doorSideOverride)
+        assertThrows(Throwable::class.java) {
+            run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).call('central','one',{plannedDepartureTick:2}));")
+        }
+    }
+
     @Test fun `host classes are inaccessible`() {
         val error = assertThrows(Throwable::class.java) { run("timetable.setPeriodDays(1); Java.type('java.lang.System');") }
         assertTrue(error.toString().contains("Java") || error.toString().contains("host", ignoreCase = true))

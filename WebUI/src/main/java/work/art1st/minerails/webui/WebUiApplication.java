@@ -53,6 +53,8 @@ public final class WebUiApplication {
 
         app.get("/api/v1/worlds", context -> proxyGet(context, "worlds"));
         app.get("/api/v1/worlds/{world}/metadata", this::metadata);
+        app.get("/api/v1/worlds/{world}/scripts", this::scripts);
+        app.get("/api/v1/worlds/{world}/scripts/{script}", this::renderScript);
         app.get("/api/v1/worlds/{world}/lines", this::lines);
         app.post("/api/v1/worlds/{world}/lines/preview", this::previewLine);
         app.post("/api/v1/worlds/{world}/lines/{line}/simulate", this::simulateLine);
@@ -141,6 +143,21 @@ public final class WebUiApplication {
         context.json(merged);
     }
 
+    private void scripts(Context context) throws IOException, InterruptedException {
+        respond(context, bridge.get(worldPath(context) + "/scripts"));
+    }
+
+    private void renderScript(Context context) throws IOException, InterruptedException {
+        String path = worldPath(context) + "/scripts/" + segment(context.pathParam("script"));
+        String id = context.queryParam("id");
+        if (id != null && !id.isBlank()) path += "?id=" + segment(id);
+        respond(context, bridge.get(path));
+    }
+
+    private String worldPath(Context context) {
+        return "worlds/" + segment(context.pathParam("world"));
+    }
+
     private void lines(Context context) throws IOException, InterruptedException {
         respond(context, bridge.get(lineCollectionPath(context)));
     }
@@ -171,7 +188,7 @@ public final class WebUiApplication {
     }
 
     private String lineCollectionPath(Context context) {
-        return "worlds/" + segment(context.pathParam("world")) + "/lines";
+        return worldPath(context) + "/lines";
     }
 
     private void listDrafts(Context context) throws IOException {

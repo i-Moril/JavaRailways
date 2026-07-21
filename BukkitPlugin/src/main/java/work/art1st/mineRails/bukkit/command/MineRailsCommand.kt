@@ -120,7 +120,10 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             if (args.size == 3) return BukkitPlugin.INSTANCE.worldManager.railWorlds.keys.map { it.name }
         }
         if (args[0].equals("timetable", ignoreCase = true) || args[0].equals("tt", ignoreCase = true)) {
-            if (args.size == 2) return listOf("edit", "dump", "list", "start", "status", "stop", "replan")
+            if (args.size == 2) return listOf("edit", "load", "dump", "list", "start", "status", "stop", "replan")
+            if (args.size == 3 && args[1].equals("load", ignoreCase = true)) {
+                return BukkitPlugin.INSTANCE.timetableScriptSandbox.listScripts().map { it.name }
+            }
         }
         return emptyList()
     }
@@ -609,6 +612,60 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             return true
         }
         when (args.firstOrNull()?.lowercase()) {
+            "load" -> {
+                if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
+                    sender.sendMessage(Component.text("没有权限加载 JS 时刻表", NamedTextColor.RED))
+                    return true
+                }
+                val scriptName = args.getOrNull(1) ?: run {
+                    sender.sendMessage("用法: /mr timetable load <file.js> [id]")
+                    return true
+                }
+                val timetableId = args.getOrNull(2) ?: scriptName.removeSuffix(".js")
+                val playerId = sender.uniqueId
+                val sourceWorldId = sender.world.uid
+                sender.sendMessage(Component.text("正在沙盒 Worker 中编译 $scriptName ...", NamedTextColor.GRAY))
+                BukkitPlugin.INSTANCE.timetableScriptSandbox.compileScriptAsync(scriptName, timetableId)
+                    .whenComplete { saved, failure ->
+                        val plugin = BukkitPlugin.INSTANCE
+                        plugin.platformDispatcher.runGlobal {
+                            BukkitThreadGuardBridge.runInSimulationContext {
+                                val player = Bukkit.getPlayer(playerId)
+                                val messageTarget: (Component) -> Unit = { message ->
+                                    if (player != null) player.sendMessage(message) else plugin.logger.info(message.toString())
+                                }
+                                if (failure != null) {
+                                    val cause = generateSequence(failure) { it.cause }.last()
+                                    messageTarget(Component.text("JS 时刻表编译失败: ${cause.message}", NamedTextColor.RED))
+                                    return@runInSimulationContext
+                                }
+                                if (player == null) {
+                                    plugin.logger.warning("JS timetable compiled after player disconnected: $scriptName")
+                                    return@runInSimulationContext
+                                }
+                                val sourceWorld = Bukkit.getWorld(sourceWorldId)
+                                val world = sourceWorld?.let(plugin.worldManager.railWorlds::get) ?: run {
+                                    messageTarget(Component.text("发起加载的世界已卸载或尚未初始化 MineRails", NamedTextColor.RED))
+                                    return@runInSimulationContext
+                                }
+                                val timetable = runCatching(saved::restore).getOrElse { invalid ->
+                                    messageTarget(Component.text("JS 输出无效: ${invalid.message}", NamedTextColor.RED))
+                                    return@runInSimulationContext
+                                }
+                                val validation = TimetableValidator(world).validate(timetable)
+                                if (!validation.isSuccess) {
+                                    messageTarget(Component.text("JS 时刻表验证失败:", NamedTextColor.RED))
+                                    validation.errors.take(20).forEach { error ->
+                                        messageTarget(Component.text("- $error", NamedTextColor.RED))
+                                    }
+                                    return@runInSimulationContext
+                                }
+                                world.basicWorldData.timetables.add(timetable)
+                                messageTarget(Component.text("已加载 JS 时刻表 ${timetable.id}", NamedTextColor.GREEN))
+                            }
+                        }
+                    }
+            }
             "edit" -> {
                 if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
                     sender.sendMessage(Component.text("没有权限编辑时刻表", NamedTextColor.RED))
@@ -833,7 +890,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     }
                 }
             }
-            else -> sender.sendMessage("用法: /mr timetable <edit|dump|list|start|status|stop|replan>")
+            else -> sender.sendMessage("用法: /mr timetable <edit|load|dump|list|start|status|stop|replan>")
         }
         return true
     }
@@ -1082,6 +1139,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr depot reset <depot> confirm | reset-all confirm - Stall 中原子重置")
         sender.sendMessage("/mr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")
         sender.sendMessage("/mr timetable edit - 获取短期有效的 WebUI 登录链接")
+        sender.sendMessage("/mr timetable load <file.js> [id] - 在隔离 Worker 中编译并加载 JS 时刻表")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/mr timetable start|status|stop <id> [service] - 管理显式列车 service")
         sender.sendMessage("/mr ato status [world] - 查看 World-local ATO 状态")

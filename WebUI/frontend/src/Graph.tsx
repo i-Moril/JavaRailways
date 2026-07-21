@@ -10,10 +10,12 @@ export function Graph({
   onSelect,
   metadata,
   line,
+  readOnly = false,
 }: {
   value: SavedTimetableV1;
   metadata?: WorldMetadata;
   line?: LineV1;
+  readOnly?: boolean;
   onTick: (service: number, step: number, tick: number) => void;
   onSelect?: (service: number, step: number) => void;
 }) {
@@ -102,6 +104,7 @@ export function Graph({
     className="graph"
     style={{ width: '100%' }}
     onPointerDown={(event) => {
+      if (readOnly) return;
       const pointer = position(event);
       const hit = layout.points.find((point) => Math.hypot(point.x - pointer.x, point.y - pointer.y) < 13);
       if (!hit) return;
@@ -110,7 +113,7 @@ export function Graph({
       event.currentTarget.setPointerCapture(event.pointerId);
     }}
     onPointerMove={(event) => {
-      if (!drag.current) return;
+      if (readOnly || !drag.current) return;
       const pointer = position(event);
       onTick(drag.current.service, drag.current.step, snapTick(layout.xToTick(pointer.x)));
     }}

@@ -11,7 +11,9 @@ import type {
   LineSimulationResult,
   LineV1,
   SimulationProfile,
+  RenderedTimetableScript,
   SavedTimetableV1,
+  TimetableScriptSummary,
   TimetableActionV1,
   TimetableStepV1,
   ValidationIssue,
@@ -24,7 +26,7 @@ const actionTypes = [
   'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'STORE_AT_DEPOT',
   'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS',
 ] as const satisfies readonly ActionType[];
-type View = 'graph' | 'lines' | 'services' | 'simulation';
+type View = 'graph' | 'lines' | 'services' | 'scripts' | 'simulation';
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
@@ -127,7 +129,7 @@ export default function App() {
     <header className="topbar">
       <div className="brand"><h1>{t('app.title')}</h1><span>{t('app.subtitle')}</span></div>
       <nav aria-label={t('nav.primary')}>
-        {(['graph', 'lines', 'services', 'simulation'] as View[]).map((item) =>
+        {(['graph', 'lines', 'services', 'scripts', 'simulation'] as View[]).map((item) =>
           <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{t(`nav.${item}`)}</button>)}
       </nav>
       <div className="top-controls">
@@ -141,6 +143,7 @@ export default function App() {
     </header>
 
     <section className="commandbar">
+      {view === 'scripts' ? <span className="readonly-banner">{t('scripts.readOnly')}</span> : <>
       <label>{t('common.draft')}<select value={draftId} onChange={(event) => void load(event.target.value)}>
         <option value="">{t('common.newDraft')}</option>
         {drafts.map((draft) => <option key={draft.id} value={draft.id}>{draft.id}</option>)}
@@ -150,6 +153,7 @@ export default function App() {
       <span className="spacer" />
       <button onClick={() => void validate()} disabled={!world || busy}>{t('common.validate')}</button>
       <button className="primary" onClick={() => void run(() => api.publish(world, state))} disabled={!world || busy}>{t('common.publish')}</button>
+      </>}
     </section>
 
     {(error || issues.length > 0) && <section className="notice-strip">
@@ -211,7 +215,8 @@ export default function App() {
       replaceStep={replaceStep} setSelected={setSelected} />}
     {view === 'lines' && <LinesPage world={world} metadata={metadata} collection={lineCollection}
       onCollection={setLineCollection} run={run} />}
-    {view === 'simulation' && <SimulationPage world={world} lines={lineCollection.lines} run={run} />}
+    {view === 'scripts' && <ScriptsPage world={world} metadata={metadata} run={run} />}
+    {view === 'simulation' && <SimulationPage world={world} lines={lineCollection.lines} metadata={metadata} run={run} />}
 
     <DataLists metadata={metadata} />
   </main>;
@@ -333,33 +338,69 @@ function move<T>(items:T[], from:number, to:number):T[] {
   const copy = [...items]; const [item] = copy.splice(from,1); copy.splice(to,0,item); return copy;
 }
 
-function SimulationPage({ world, lines, run }: {
-  world:string; lines:LineV1[]; run:<T>(operation:()=>Promise<T>)=>Promise<T|undefined>;
+function ScriptsPage({ world, metadata, run }: {
+  world:string; metadata:WorldMetadata; run:<T>(operation:()=>Promise<T>)=>Promise<T|undefined>;
+}) {
+  const { t } = useI18n();
+  const [scripts,setScripts] = useState<TimetableScriptSummary[]>([]);
+  const [selected,setSelected] = useState('');
+  const [rendered,setRendered] = useState<RenderedTimetableScript>();
+  useEffect(() => {
+    if (!world) return;
+    void run(() => api.scripts(world)).then((items) => { setScripts(items || []); setSelected(''); setRendered(undefined); });
+  }, [world]);
+  const select = async (name:string) => {
+    setSelected(name); setRendered(undefined);
+    if (!name) return;
+    setRendered(await run(() => api.renderScript(world,name)));
+  };
+  return <section className="page-scroll scripts-page">
+    <aside className="card script-list"><h2>{t('scripts.title')}</h2>
+      {scripts.length === 0 && <p className="empty">{t('scripts.empty')}</p>}
+      {scripts.map((script) => <button key={script.name} className={selected === script.name ? 'active' : ''} onClick={() => void select(script.name)}>
+        <strong>{script.name}</strong><small>{Math.ceil(script.sizeBytes/1024)} KiB</small>
+      </button>)}
+    </aside>
+    <article className="script-preview">
+      {!rendered ? <div className="placeholder"><p>{t('scripts.select')}</p></div> : <>
+        <div className="card script-status"><h2>{rendered.name}</h2><span className={rendered.validation.valid ? 'valid' : 'invalid'}>
+          {rendered.validation.valid ? t('scripts.valid') : t('scripts.invalid')}
+        </span>{rendered.validation.errors.map((error,index) => <p key={index}>{error}</p>)}</div>
+        <div className="script-columns">
+          <section className="card source-view"><h3>{t('scripts.source')}</h3><pre>{rendered.source}</pre></section>
+          <section className="card readonly-graph"><h3>{t('scripts.rendered')}</h3><Graph value={rendered.timetable} metadata={metadata} readOnly onTick={() => {}} /></section>
+        </div>
+      </>}
+    </article>
+  </section>;
+}
+
+function SimulationPage({ world, lines, metadata, run }: {
+  world:string; lines:LineV1[]; metadata:WorldMetadata; run:<T>(operation:()=>Promise<T>)=>Promise<T|undefined>;
 }) {
   const { t } = useI18n();
   const [lineId,setLineId] = useState('');
-  const [profile,setProfile] = useState<SimulationProfile>({
-    maxSpeedKmh:72, carCount:6, poweredCars:4, carMassKilograms:32000,
-    tractionForceNewtons:40000, tractionPowerWatts:500000, brakeForceNewtons:45000,
-  });
+  const [profileKey,setProfileKey] = useState('');
   const [result,setResult] = useState<LineSimulationResult>();
-  const number = (key:keyof SimulationProfile, minimum:number) => (event:React.ChangeEvent<HTMLInputElement>) =>
-    setProfile({ ...profile, [key]:Math.max(minimum,+event.target.value) });
+  const profiles = metadata.simulationProfiles || [];
+  const selectedProfile = profiles.find((candidate) => `${candidate.type}:${candidate.id}` === profileKey);
   return <section className="page-scroll simulation-page">
     <article className="card simulation-config"><h2>{t('simulation.title')}</h2>
       <label>{t('simulation.line')}<select value={lineId} onChange={(event) => { setLineId(event.target.value); setResult(undefined); }}>
         <option value="">{t('common.select')}</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
       </select></label>
-      <div className="fields-grid simulation-fields">
-        <label>{t('simulation.maxSpeed')}<input type="number" min="1" value={profile.maxSpeedKmh} onChange={number('maxSpeedKmh',1)} /></label>
-        <label>{t('simulation.cars')}<input type="number" min="1" max="64" value={profile.carCount} onChange={number('carCount',1)} /></label>
-        <label>{t('simulation.poweredCars')}<input type="number" min="1" max={profile.carCount} value={profile.poweredCars} onChange={(event) => setProfile({...profile,poweredCars:Math.min(profile.carCount,Math.max(1,+event.target.value))})} /></label>
-        <label>{t('simulation.carMass')}<input type="number" min="100" value={profile.carMassKilograms} onChange={number('carMassKilograms',100)} /></label>
-        <label>{t('simulation.tractionForce')}<input type="number" min="1" value={profile.tractionForceNewtons} onChange={number('tractionForceNewtons',1)} /></label>
-        <label>{t('simulation.tractionPower')}<input type="number" min="1" value={profile.tractionPowerWatts} onChange={number('tractionPowerWatts',1)} /></label>
-        <label>{t('simulation.brakeForce')}<input type="number" min="1" value={profile.brakeForceNewtons} onChange={number('brakeForceNewtons',1)} /></label>
-      </div>
-      <button className="primary" disabled={!lineId} onClick={async () => setResult(await run(() => api.simulateLine(world,lineId,profile)))}>{t('simulation.run')}</button>
+      <label>{t('simulation.profile')}<select value={profileKey} onChange={(event) => { setProfileKey(event.target.value); setResult(undefined); }}>
+        <option value="">{t('common.select')}</option>
+        <optgroup label={t('simulation.worldTrains')}>{profiles.filter((profile) => profile.type === 'WORLD_TRAIN').map((profile) =>
+          <option key={`WORLD_TRAIN:${profile.id}`} value={`WORLD_TRAIN:${profile.id}`}>{profile.displayName}</option>)}</optgroup>
+        <optgroup label={t('simulation.templates')}>{profiles.filter((profile) => profile.type === 'TRAIN_TEMPLATE').map((profile) =>
+          <option key={`TRAIN_TEMPLATE:${profile.id}`} value={`TRAIN_TEMPLATE:${profile.id}`}>{profile.displayName} · {profile.carCount}</option>)}</optgroup>
+      </select></label>
+      <button className="primary" disabled={!lineId || !selectedProfile} onClick={async () => {
+        if (!selectedProfile) return;
+        const profile:SimulationProfile = { profileType:selectedProfile.type, profileId:selectedProfile.id };
+        setResult(await run(() => api.simulateLine(world,lineId,profile)));
+      }}>{t('simulation.run')}</button>
     </article>
     <article className="card simulation-results"><h2>{t('simulation.results')}</h2>
       {!result ? <p className="empty">{t('simulation.pending')}</p> : <>

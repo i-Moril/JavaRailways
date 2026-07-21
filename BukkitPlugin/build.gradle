@@ -9,6 +9,7 @@ plugins {
 }
 
 evaluationDependsOn(":WebUI")
+evaluationDependsOn(":ScriptWorker")
 
 runPaper {
     disablePluginJarDetection()
@@ -32,12 +33,18 @@ runPaper.folia.registerTask {
 
 def jomlShadow = configurations.detachedConfiguration(dependencies.create("org.joml:joml:1.10.8"))
 def webUiShadowJar = project(":WebUI").tasks.named("shadowJar")
+def scriptWorkerShadowJar = project(":ScriptWorker").tasks.named("shadowJar")
 
 tasks.named("processResources") {
     dependsOn(webUiShadowJar)
     from(webUiShadowJar.flatMap { it.archiveFile }) {
         into("webui")
         rename { "MineRails-WebUI.jar" }
+    }
+    dependsOn(scriptWorkerShadowJar)
+    from(scriptWorkerShadowJar.flatMap { it.archiveFile }) {
+        into("timetable-js")
+        rename { "MineRails-ScriptWorker.jar" }
     }
 }
 
@@ -74,6 +81,7 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation(testFixtures(project(":Core")))
+    testImplementation(project(":ScriptWorker"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

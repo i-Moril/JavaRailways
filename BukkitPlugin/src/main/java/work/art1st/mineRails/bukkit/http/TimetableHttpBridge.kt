@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 private data class LineSimulationSnapshot(
     val revision: Long,
-    val profile: SimulationTrainProfile,
+    val profile: SimulationControlProfile,
     val legs: List<SimulationLeg>
 )
 
@@ -120,6 +120,16 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             when {
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "metadata" -> exchange.respond(200, await { metadataJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "extensions" -> exchange.respond(200, await { extensionsJson(worldName) })
+                exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "scripts" ->
+                    exchange.respond(200, scriptsJson())
+                exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "scripts" -> {
+                    val scriptName = decode(parts[2])
+                    val timetableId = exchange.requestURI.rawQuery?.split('&')?.mapNotNull { pair ->
+                        val pieces = pair.split('=', limit = 2)
+                        if (pieces.firstOrNull() == "id") decode(pieces.getOrElse(1) { "" }) else null
+                    }?.firstOrNull()?.takeIf { it.isNotBlank() } ?: scriptName.removeSuffix(".js")
+                    exchange.respond(200, renderScriptJson(worldName, scriptName, timetableId))
+                }
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "lines" -> exchange.respond(200, await { linesJson(worldName) })
                 exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "lines" && parts[2] == "preview" -> {
                     val body = readBody(exchange)
@@ -238,6 +248,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                     } }))
                 } }))
                 put("trains", JsonArray(world.allTrains.map { JsonPrimitive(it.id) }.sortedBy { it.content }))
+                put("simulationProfiles", JsonArray(
+                    SimulationControlProfileCatalog(plugin).descriptors(world).map { profile -> buildJsonObject {
+                        put("type", profile.type.name)
+                        put("id", profile.id)
+                        put("displayName", profile.displayName)
+                        put("carCount", profile.carCount)
+                    } }
+                ))
                 put("destinations", JsonArray(destinations.map { destination ->
                     buildJsonObject {
                         put("id", destination.id)
@@ -269,6 +287,34 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                 ))
             })
         }
+        private fun scriptsJson(): String = json.encodeToString(JsonArray(
+            plugin.timetableScriptSandbox.listScripts().map { script -> buildJsonObject {
+                put("name", script.name)
+                put("sizeBytes", script.sizeBytes)
+                put("modifiedAtEpochMillis", script.modifiedAtEpochMillis)
+            } }
+        ))
+
+        private fun renderScriptJson(worldName: String, scriptName: String, timetableId: String): String {
+            val source = plugin.timetableScriptSandbox.readSource(scriptName)
+            val saved = plugin.timetableScriptSandbox.compileSource(source, timetableId)
+            val timetable = runCatching(saved::restore).getOrElse {
+                throw HttpFailure(422, "script produced an invalid timetable: ${it.message}")
+            }
+            val validation = await {
+                withWorld(worldName) { _, world -> TimetableValidator(world).validate(timetable) }
+            }
+            return json.encodeToString(buildJsonObject {
+                put("name", scriptName)
+                put("source", source)
+                put("timetable", json.parseToJsonElement(TimetableSnapshotCodec.encode(saved)))
+                put("validation", buildJsonObject {
+                    put("valid", validation.isSuccess)
+                    put("errors", JsonArray(validation.errors.map(::JsonPrimitive)))
+                })
+            })
+        }
+
         private fun linesJson(worldName: String) = withWorld(worldName) { _, world ->
             val snapshot = world.basicWorldData.lines.snapshot()
             json.encodeToString(buildJsonObject {
@@ -314,15 +360,16 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                         val failure = compilation as LineCompileResult.Failure
                         throw HttpFailure(422, failure.reason)
                     }
-                    val profile = SimulationTrainProfile(
-                        maxSpeedMetersPerSecond = request.double("maxSpeedKmh", 72.0) / 3.6,
-                        carCount = request.int("carCount", 6),
-                        poweredCars = request.int("poweredCars", 4),
-                        carMassKilograms = request.double("carMassKilograms", 32_000.0),
-                        tractionForcePerPoweredCarNewtons = request.double("tractionForceNewtons", 40_000.0),
-                        tractionPowerPerPoweredCarWatts = request.double("tractionPowerWatts", 500_000.0),
-                        brakeForcePerCarNewtons = request.double("brakeForceNewtons", 45_000.0)
-                    )
+                    val profileType = request["profileType"]?.jsonPrimitive?.content?.let { value ->
+                        runCatching { SimulationProfileType.valueOf(value) }.getOrElse {
+                            throw HttpFailure(400, "unknown simulation profileType: $value")
+                        }
+                    } ?: throw HttpFailure(400, "profileType is required")
+                    val profileId = request["profileId"]?.jsonPrimitive?.content
+                        ?: throw HttpFailure(400, "profileId is required")
+                    val profile = runCatching {
+                        SimulationControlProfileCatalog(plugin).resolve(world, profileType, profileId)
+                    }.getOrElse { throw HttpFailure(422, it.message ?: "simulation profile is unavailable") }
                     LineSimulationSnapshot(
                         revision = data.lines.snapshot().revision,
                         profile = profile,
@@ -385,12 +432,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                 } }))
             })
         }
-
-        private fun JsonObject.double(name: String, default: Double): Double =
-            this[name]?.jsonPrimitive?.content?.toDoubleOrNull() ?: default
-
-        private fun JsonObject.int(name: String, default: Int): Int =
-            this[name]?.jsonPrimitive?.content?.toIntOrNull() ?: default
 
         private fun deleteLineJson(worldName: String, pathId: String, body: String) = withWorld(worldName) { _, world ->
             val root = json.parseToJsonElement(body).jsonObject

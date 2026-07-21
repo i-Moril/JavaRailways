@@ -14,6 +14,7 @@ import work.art1st.mineRails.bukkit.control.TrainHandleInputListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugEventListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.http.TimetableHttpBridge
+import work.art1st.mineRails.bukkit.http.TimetableScriptSandbox
 import work.art1st.mineRails.bukkit.http.TimetableWebUiSidecar
 import work.art1st.mineRails.bukkit.http.WebUiLoginTokens
 import work.art1st.mineRails.bukkit.logic.WorldManager
@@ -54,6 +55,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var platformCapabilities: PlatformCapabilities
     lateinit var trainPacketBundles: TrainPacketBundleCoordinator
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
+    lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
     private var timetableHttpBridge: TimetableHttpBridge? = null
@@ -163,6 +165,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             "${modelManager.carLoader.getAllNames().size} cars, " +
             "${modelManager.trainLoader.getAllNames().size} trains")
 
+        timetableScriptSandbox = TimetableScriptSandbox(this)
+
         // 初始化 Wand 工具
         railWand = RailWand(this)
         railWand.init()
@@ -199,6 +203,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             timetableWebUiSidecar = null
             runCatching { timetableHttpBridge?.stop() }
             timetableHttpBridge = null
+            if (::timetableScriptSandbox.isInitialized) runCatching { timetableScriptSandbox.close() }
             if (::worldManager.isInitialized) {
                 worldManager.stop()
                 val worlds = worldManager.railWorlds.keys.toList()

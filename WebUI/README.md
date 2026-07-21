@@ -68,13 +68,30 @@ Configuration environment variables:
 
 Remote plaintext HTTP is supported when explicitly configured. It preserves short-token authentication but does not protect tokens or session traffic from network interception.
 
+## JS 时刻表只读预览
+
+服务器管理员可把脚本放入 `plugins/MineRails/timetables/*.js`，并执行：
+
+```text
+/mr timetable load <file.js> [id]
+```
+
+脚本不会在 Bukkit 或浏览器进程内执行。插件为每次编译启动内存受限、3 秒超时的独立
+`ScriptWorker` JVM；GraalJS Context 禁止 Host class lookup、IO/网络、线程、native 和 polyglot
+访问，Worker 进程也不会继承 Bukkit 环境变量。普通 JS `if/else` 在构建期运行，DSL 的
+`predicate/all/any/not`、conditional activation 和 `whenCondition` 生成结构化运行期条件。
+
+WebUI 的“JS 时刻表”页面只能列出服务器文件、显示只读源码，并把沙盒输出渲染为运行图；
+它不提供上传、编辑、发布或加载按钮。
+
 ## 线路与隔离模拟
 
 WebUI 会从 Bukkit 运营基础设施自动读取车站、站台、车辆段和列车。线路保存为有 revision
 保护的有序 `stationId` 列表；保存前由 `RoutePlanner` 尝试所有可用站台组合，并选择每一区间
 最短的合法有向路径。时刻表车次可以绑定线路，运行图据此分线路显示车站顺序。
 
-“模拟”页面创建的列车只是一组不可变动力参数。Bukkit/Folia simulation context 负责捕获线路长度、
+“模拟”页面只能选择世界中已有列车或已加载车辆模板，不接受手工填写动力参数。Bukkit/Folia
+simulation context 会从所选对象捕获真实 `TrainControlConfig`、逐车 `CarControlConfig`、线路长度、
 坡度采样和基础设施 revision；随后专用线程调用与真实列车相同的 `TrainDynamics`，不会创建实体、
 注册控制器或修改世界。若计算期间线路 revision 变化，结果会被拒绝。
 

@@ -48,7 +48,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: '时刻表',
       collapsed: false,
-      items: ['in-game-timetable-validation'],
+      items: ['timetable_js_syntax', 'in-game-timetable-validation'],
     },
   ],
 };

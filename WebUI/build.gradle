@@ -45,7 +45,7 @@ tasks.named('processResources') {
     from(frontendBuildDir) { into 'public' }
 }
 tasks.named('shadowJar') {
-    archiveClassifier.set('')
+    archiveClassifier.set('all')
     mergeServiceFiles()
 }
 tasks.named('build') { dependsOn tasks.named('shadowJar') }

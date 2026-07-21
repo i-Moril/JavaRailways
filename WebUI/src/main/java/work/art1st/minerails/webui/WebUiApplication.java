@@ -35,7 +35,7 @@ public final class WebUiApplication {
     }
 
     public void start() {
-        createApp().start(config.port());
+        createApp().start(config.bindAddress(), config.port());
     }
 
     Javalin createApp() {

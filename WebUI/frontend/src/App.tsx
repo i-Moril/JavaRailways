@@ -173,13 +173,14 @@ export default function App() {
       </article>)}
     </section>
 
-    <datalist id="points">{[...(metadata.wayPoints || []), ...(metadata.stations || [])].map((id) => <option key={id} value={id} />)}</datalist>
+    <datalist id="points">{[...(metadata.wayPoints || []), ...(metadata.stations || []).map((berth) => berth.destinationId)].map((id) => <option key={id} value={id} />)}</datalist>
+    <datalist id="stations">{Array.from(new Set((metadata.stations || []).map((berth) => berth.stationId))).map((id) => <option key={id} value={id} />)}</datalist>
     <datalist id="depots">{metadata.depots?.map((id) => <option key={id} value={id} />)}</datalist>
     <datalist id="trains">{metadata.trains?.map((id) => <option key={id} value={id} />)}</datalist>
   </main>;
 }
 
-function ActionRow({ step, selected, onSelect, onReplace, onTick, onAction, onCheck, onDelete }: {
+function ActionRow({ step, selected, metadata, onSelect, onReplace, onTick, onAction, onCheck, onDelete }: {
   step: TimetableStepV1;
   selected: boolean;
   metadata: WorldMetadata;
@@ -200,7 +201,7 @@ function ActionRow({ step, selected, onSelect, onReplace, onTick, onAction, onCh
     </select></td>
     <td>{step.type === 'CHECK'
       ? <input list="points" value={step.wayPointId || ''} onChange={(event) => onCheck(event.target.value)} />
-      : <input list={action?.type.includes('DEPOT') ? 'depots' : 'points'} value={target} onChange={(event) => {
+      : <input list={action?.type.includes('DEPOT') ? 'depots' : action?.type === 'STATION_DESTINATION_OPTIONS' ? 'stations' : 'points'} value={target} onChange={(event) => {
           if (action?.type.includes('DEPOT')) onAction({ depotId: event.target.value });
           else if (action?.type === 'STATION_DESTINATION_OPTIONS') onAction({ stationId: event.target.value });
           else onAction({ wayPointIds: [event.target.value] });
@@ -209,7 +210,11 @@ function ActionRow({ step, selected, onSelect, onReplace, onTick, onAction, onCh
     <td>{action?.type === 'STOP'
       ? <input type="number" min="1" value={action.stopTicks ?? 20} onChange={(event) => onAction({ stopTicks: Math.max(1, +event.target.value) })} />
       : action?.type === 'STATION_DESTINATION_OPTIONS'
-        ? <input placeholder="Berth ID" value={action.berthId || ''} onChange={(event) => onAction({ berthId: event.target.value })} />
+        ? <select value={action.berthId || ''} onChange={(event) => onAction({ berthId: event.target.value })}>
+            <option value="">Select berth</option>
+            {(metadata.stations || []).filter((berth) => berth.stationId === action.stationId).map((berth) =>
+              <option key={berth.destinationId} value={berth.berthId}>{berth.berthId}</option>)}
+          </select>
         : '—'}</td>
     <td><button className="danger" onClick={(event) => { event.stopPropagation(); onDelete(); }}>×</button></td>
   </tr>;

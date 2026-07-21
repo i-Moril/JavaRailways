@@ -6,6 +6,7 @@ import work.art1st.mineRails.bukkit.command.MineRailsCommand
 import work.art1st.mineRails.bukkit.config.DisplayRendererBackend
 import work.art1st.mineRails.bukkit.config.MineRailsConfig
 import work.art1st.mineRails.bukkit.config.RailModelConfig
+import work.art1st.mineRails.bukkit.config.TimetableWebUiMode
 import work.art1st.mineRails.bukkit.config.loadRailModelConfig
 import work.art1st.mineRails.bukkit.config.model.ModelManager
 import work.art1st.mineRails.bukkit.control.TrainControlManager
@@ -13,6 +14,7 @@ import work.art1st.mineRails.bukkit.control.TrainHandleInputListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugEventListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.http.TimetableHttpBridge
+import work.art1st.mineRails.bukkit.http.TimetableWebUiSidecar
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackendFactory
@@ -53,6 +55,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
     private var timetableHttpBridge: TimetableHttpBridge? = null
+    private var timetableWebUiSidecar: TimetableWebUiSidecar? = null
     var foliaPacketEntityMotion: FoliaPacketEntityMotion? = null
         private set
 
@@ -176,12 +179,22 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         BukkitThreadGuardBridge.runInSimulationContext {
             server.worlds.forEach { worldManager.registerRailWorld(it) }
         }
-        timetableHttpBridge = TimetableHttpBridge(this).also { it.start() }
+        if (mineRailsConfig.timetableWebUi.mode != TimetableWebUiMode.DISABLED) {
+            val sidecar = TimetableWebUiSidecar(this)
+            timetableWebUiSidecar = sidecar
+            timetableHttpBridge = TimetableHttpBridge(this).also {
+                it.start(sidecar.managedBridgeToken())
+            }
+            sidecar.start()
+        }
         worldManager.start()
     }
 
     override fun onDisable() {
         try {
+            runCatching { timetableWebUiSidecar?.stop() }
+                .onFailure { logger.severe("Failed to stop Timetable WebUI sidecar: ${it.message}") }
+            timetableWebUiSidecar = null
             runCatching { timetableHttpBridge?.stop() }
             timetableHttpBridge = null
             if (::worldManager.isInitialized) {

@@ -28,12 +28,12 @@ dependencies {
     compileOnly(project(":BukkitPlugin"))
 }
 
-tasks.compileJava { options.release = 21 }
+tasks.compileJava { options.release = 25 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(25)
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25
     }
 }
 

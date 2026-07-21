@@ -14,7 +14,8 @@ class MineRailsConfigTest {
 
         val config = MineRailsConfig.fromYaml(yaml)
         assertEquals(DisplayRendererBackend.ENTITYLIB, config.displayRenderer.backend)
-        assertEquals(false, config.timetableHttpBridge.enabled)
+        assertEquals(true, config.timetableHttpBridge.enabled)
+        assertEquals(TimetableWebUiMode.MANAGED, config.timetableWebUi.mode)
         assertEquals("127.0.0.1", config.timetableHttpBridge.bindAddress)
     }
 
@@ -43,7 +44,8 @@ class MineRailsConfigTest {
         assertEquals(DisplayRendererBackend.NATIVE, config.displayRenderer.backend)
         assertEquals(PlayerDisplayDistanceDefault.PLAYER_VIEW_DISTANCE, config.displayRenderer.playerDistance.default)
         assertEquals(512.0, config.displayRenderer.playerDistance.maxBlocks)
-        assertEquals(false, config.timetableHttpBridge.enabled)
+        assertEquals(true, config.timetableHttpBridge.enabled)
+        assertEquals(TimetableWebUiMode.MANAGED, config.timetableWebUi.mode)
         assertEquals("MINERAILS_TIMETABLE_HTTP_TOKEN", config.timetableHttpBridge.bearerTokenEnvironmentVariable)
     }
 
@@ -94,6 +96,31 @@ class MineRailsConfigTest {
     }
 
     @Test
+    fun `legacy config without webui keys defaults to managed sidecar`() {
+        val yaml = validYaml().apply {
+            set("timetable-webui", null)
+            set("timetable-http-bridge", null)
+        }
+
+        val config = MineRailsConfig.fromYaml(yaml)
+        assertEquals(TimetableWebUiMode.MANAGED, config.timetableWebUi.mode)
+        assertEquals(true, config.timetableHttpBridge.enabled)
+        assertEquals(8080, config.timetableWebUi.port)
+    }
+
+    @Test
+    fun `webui supports external and disabled process modes`() {
+        val external = validYaml().apply { set("timetable-webui.mode", "external") }
+        val disabled = validYaml().apply {
+            set("timetable-webui.mode", "disabled")
+            set("timetable-http-bridge.enabled", false)
+        }
+
+        assertEquals(TimetableWebUiMode.EXTERNAL, MineRailsConfig.fromYaml(external).timetableWebUi.mode)
+        assertEquals(TimetableWebUiMode.DISABLED, MineRailsConfig.fromYaml(disabled).timetableWebUi.mode)
+    }
+
+    @Test
     fun `physics worker threads must be positive`() {
         val yaml = validYaml()
         yaml.set("physics-worker-threads", 0)
@@ -122,7 +149,11 @@ class MineRailsConfigTest {
         set("display-renderer.backend", "native")
         set("display-renderer.player-distance.default", "player-view-distance")
         set("display-renderer.player-distance.max-blocks", 512.0)
-        set("timetable-http-bridge.enabled", false)
+        set("timetable-webui.mode", "managed")
+        set("timetable-webui.bind-address", "127.0.0.1")
+        set("timetable-webui.port", 8080)
+        set("timetable-webui.shutdown-timeout-millis", 5000)
+        set("timetable-http-bridge.enabled", true)
         set("timetable-http-bridge.bind-address", "127.0.0.1")
         set("timetable-http-bridge.port", 8765)
         set("timetable-http-bridge.bearer-token-env", "MINERAILS_TIMETABLE_HTTP_TOKEN")

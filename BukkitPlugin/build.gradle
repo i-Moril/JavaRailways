@@ -8,6 +8,8 @@ plugins {
     id 'com.gradleup.shadow' version '9.2.2'
 }
 
+evaluationDependsOn(":WebUI")
+
 runPaper {
     disablePluginJarDetection()
 }
@@ -29,6 +31,15 @@ runPaper.folia.registerTask {
 }
 
 def jomlShadow = configurations.detachedConfiguration(dependencies.create("org.joml:joml:1.10.8"))
+def webUiShadowJar = project(":WebUI").tasks.named("shadowJar")
+
+tasks.named("processResources") {
+    dependsOn(webUiShadowJar)
+    from(webUiShadowJar.flatMap { it.archiveFile }) {
+        into("webui")
+        rename { "MineRails-WebUI.jar" }
+    }
+}
 
 group = 'work.art1st'
 version = '1.0-SNAPSHOT'
@@ -92,6 +103,16 @@ tasks {
 }
 
 //paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.REOBF_PRODUCTION
+
+tasks.named("reobfJar") {
+    // Development servers consume the Mojang-mapped shadow JAR directly. TinyRemapper 0.12
+    // cannot read the Java 25 bytecode required by the current Folia target.
+    onlyIf {
+        !gradle.startParameter.taskNames.any { name ->
+            name.endsWith("runServer") || name.endsWith("runFolia")
+        }
+    }
+}
 
 tasks.assemble {
     dependsOn(tasks.reobfJar)

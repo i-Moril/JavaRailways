@@ -8,7 +8,8 @@ export interface TimetableStepV1 { type: StepType; tick?: number|null; wayPointI
 export interface TimetableServiceV1 { id: string; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
 export interface SavedTimetableV1 { id: string; periodDays: number; services: TimetableServiceV1[] }
 export interface WorldSummary { id: string; name?: string }
-export interface WorldMetadata { wayPoints?: string[]; stations?: string[]; depots?: string[]; trains?: string[] }
+export interface StationBerthMetadata { stationId:string; stationDisplayName?:string; berthId:string; destinationId:string }
+export interface WorldMetadata { wayPoints?: string[]; stations?: StationBerthMetadata[]; depots?: string[]; trains?: string[] }
 export interface DraftSummary { id: string; updatedAt?: string; timetable?: SavedTimetableV1 }
 export interface ValidationIssue { path?: string; message: string; severity?: string }
 export interface ValidationResult { valid: boolean; errors?: ValidationIssue[]; warnings?: ValidationIssue[] }

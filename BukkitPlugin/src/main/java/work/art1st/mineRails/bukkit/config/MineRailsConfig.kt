@@ -18,6 +18,30 @@ data class TimetableHttpBridgeConfig(
     val timeoutMillis: Long
 )
 
+enum class TimetableWebUiMode {
+    MANAGED,
+    EXTERNAL,
+    DISABLED;
+
+    companion object {
+        fun fromConfig(value: String): TimetableWebUiMode = when (value.trim().lowercase()) {
+            "managed" -> MANAGED
+            "external" -> EXTERNAL
+            "disabled" -> DISABLED
+            else -> throw IllegalArgumentException(
+                "Unsupported timetable-webui.mode '$value'. Expected managed, external, or disabled"
+            )
+        }
+    }
+}
+
+data class TimetableWebUiConfig(
+    val mode: TimetableWebUiMode,
+    val bindAddress: String,
+    val port: Int,
+    val shutdownTimeoutMillis: Long
+)
+
 data class PlayerDisplayDistanceConfig(
     val default: PlayerDisplayDistanceDefault,
     val maxBlocks: Double
@@ -62,7 +86,8 @@ data class MineRailsConfig(
     val overspeedToleranceKmH: Double,
     val overspeedGraceTicks: Int,
     val displayRenderer: DisplayRendererConfig,
-    val timetableHttpBridge: TimetableHttpBridgeConfig
+    val timetableHttpBridge: TimetableHttpBridgeConfig,
+    val timetableWebUi: TimetableWebUiConfig
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
@@ -100,19 +125,44 @@ data class MineRailsConfig(
             require(maxDisplayDistance <= MAX_DISPLAY_DISTANCE_BLOCKS) {
                 "display-renderer.player-distance.max-blocks must be <= $MAX_DISPLAY_DISTANCE_BLOCKS"
             }
-            val bridgePort = requireInt(yaml, "timetable-http-bridge.port")
+            val bridgePort = optionalInt(yaml, "timetable-http-bridge.port", 8765)
             require(bridgePort in 1..65535) { "timetable-http-bridge.port must be in 1..65535" }
-            val bridgeBodyLimit = requireInt(yaml, "timetable-http-bridge.body-limit-bytes")
+            val bridgeBodyLimit = optionalInt(yaml, "timetable-http-bridge.body-limit-bytes", 1_048_576)
             require(bridgeBodyLimit in 1..10_485_760) { "timetable-http-bridge.body-limit-bytes must be in 1..10485760" }
-            val bridgeTimeoutMillis = requireLong(yaml, "timetable-http-bridge.timeout-millis")
+            val bridgeTimeoutMillis = optionalLong(yaml, "timetable-http-bridge.timeout-millis", 5_000L)
             require(bridgeTimeoutMillis in 1L..60_000L) { "timetable-http-bridge.timeout-millis must be in 1..60000" }
-            val bridgeBindAddress = requireString(yaml, "timetable-http-bridge.bind-address")
+            val bridgeBindAddress = optionalString(yaml, "timetable-http-bridge.bind-address", "127.0.0.1")
             require(bridgeBindAddress == "127.0.0.1" || bridgeBindAddress == "localhost" || bridgeBindAddress == "::1") {
                 "timetable-http-bridge.bind-address must be loopback only"
             }
-            val tokenEnv = requireString(yaml, "timetable-http-bridge.bearer-token-env")
+            val tokenEnv = optionalString(
+                yaml,
+                "timetable-http-bridge.bearer-token-env",
+                "MINERAILS_TIMETABLE_HTTP_TOKEN"
+            )
             require(tokenEnv.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) {
                 "timetable-http-bridge.bearer-token-env must be an environment variable name"
+            }
+            val webUiMode = TimetableWebUiMode.fromConfig(
+                optionalString(yaml, "timetable-webui.mode", "managed")
+            )
+            val webUiBindAddress = optionalString(yaml, "timetable-webui.bind-address", "127.0.0.1")
+            require(webUiBindAddress == "127.0.0.1" || webUiBindAddress == "localhost" || webUiBindAddress == "::1") {
+                "timetable-webui.bind-address must be loopback only"
+            }
+            val webUiPort = optionalInt(yaml, "timetable-webui.port", 8080)
+            require(webUiPort in 1..65535) { "timetable-webui.port must be in 1..65535" }
+            val webUiShutdownTimeout = optionalLong(
+                yaml,
+                "timetable-webui.shutdown-timeout-millis",
+                5_000L
+            )
+            require(webUiShutdownTimeout in 1L..60_000L) {
+                "timetable-webui.shutdown-timeout-millis must be in 1..60000"
+            }
+            val bridgeEnabled = optionalBoolean(yaml, "timetable-http-bridge.enabled", true)
+            require(webUiMode == TimetableWebUiMode.DISABLED || bridgeEnabled) {
+                "timetable-http-bridge.enabled must be true when timetable-webui is managed or external"
             }
             return MineRailsConfig(
                 trainModelUpdatePolicy = policy,
@@ -131,15 +181,33 @@ data class MineRailsConfig(
                     )
                 ),
                 timetableHttpBridge = TimetableHttpBridgeConfig(
-                    enabled = requireBoolean(yaml, "timetable-http-bridge.enabled"),
+                    enabled = bridgeEnabled,
                     bindAddress = bridgeBindAddress,
                     port = bridgePort,
                     bearerTokenEnvironmentVariable = tokenEnv,
                     bodyLimitBytes = bridgeBodyLimit,
                     timeoutMillis = bridgeTimeoutMillis
+                ),
+                timetableWebUi = TimetableWebUiConfig(
+                    mode = webUiMode,
+                    bindAddress = webUiBindAddress,
+                    port = webUiPort,
+                    shutdownTimeoutMillis = webUiShutdownTimeout
                 )
             )
         }
+
+        private fun optionalString(yaml: YamlConfiguration, path: String, fallback: String): String =
+            if (yaml.contains(path, true)) requireString(yaml, path) else fallback
+
+        private fun optionalInt(yaml: YamlConfiguration, path: String, fallback: Int): Int =
+            if (yaml.contains(path, true)) requireInt(yaml, path) else fallback
+
+        private fun optionalLong(yaml: YamlConfiguration, path: String, fallback: Long): Long =
+            if (yaml.contains(path, true)) requireLong(yaml, path) else fallback
+
+        private fun optionalBoolean(yaml: YamlConfiguration, path: String, fallback: Boolean): Boolean =
+            if (yaml.contains(path, true)) requireBoolean(yaml, path) else fallback
 
         private fun requireString(yaml: YamlConfiguration, path: String): String {
             require(yaml.contains(path, true)) { "Missing required config key '$path'" }

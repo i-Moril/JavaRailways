@@ -6,11 +6,15 @@ import java.time.Duration;
 
 /** Configuration is deliberately server-only: never expose bridgeToken to browser responses. */
 public record WebUiConfig(URI bridgeUrl, String bridgeToken, Path draftDirectory,
-                          int port, int maxRequestBytes, Duration requestTimeout) {
+                          String bindAddress, int port, int maxRequestBytes, Duration requestTimeout) {
     public static WebUiConfig fromEnvironment() {
         String bridge = value("MINERAILS_BRIDGE_URL", "minerails.bridge.url", "http://127.0.0.1:8765/");
         String token = value("MINERAILS_BRIDGE_TOKEN", "minerails.bridge.token", "");
         String drafts = value("MINERAILS_DRAFT_DIR", "minerails.draft.dir", "data/drafts");
+        String bindAddress = value("MINERAILS_WEB_BIND", "minerails.web.bind", "127.0.0.1");
+        if (!(bindAddress.equals("127.0.0.1") || bindAddress.equals("localhost") || bindAddress.equals("::1"))) {
+            throw new IllegalArgumentException("WebUI bind address must be loopback; use a secured reverse proxy for remote access");
+        }
         int port = integer("MINERAILS_WEB_PORT", "minerails.web.port", 8080, 1, 65535);
         int max = integer("MINERAILS_MAX_REQUEST_BYTES", "minerails.max.request.bytes", 1_048_576, 1, 50_000_000);
         int timeoutMillis = integer("MINERAILS_REQUEST_TIMEOUT_MS", "minerails.request.timeout.ms", 10_000, 1, 120_000);
@@ -18,7 +22,7 @@ public record WebUiConfig(URI bridgeUrl, String bridgeToken, Path draftDirectory
         if (!uri.isAbsolute() || uri.getHost() == null || !("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))) {
             throw new IllegalArgumentException("bridge URL must be an absolute http(s) URL");
         }
-        return new WebUiConfig(uri, token, Path.of(drafts), port, max, Duration.ofMillis(timeoutMillis));
+        return new WebUiConfig(uri, token, Path.of(drafts), bindAddress, port, max, Duration.ofMillis(timeoutMillis));
     }
 
     private static String value(String environment, String property, String fallback) {

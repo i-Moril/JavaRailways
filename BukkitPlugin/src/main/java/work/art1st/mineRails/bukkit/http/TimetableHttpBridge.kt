@@ -24,16 +24,18 @@ import java.security.MessageDigest
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicReference
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) {
     private val json = Json { encodeDefaults = true; prettyPrint = true; ignoreUnknownKeys = true }
     private var server: HttpServer? = null
     private val executor = Executors.newCachedThreadPool { Thread(it, "MineRails-timetable-http").apply { isDaemon = true } }
 
-    fun start() {
+    fun start(managedToken: String? = null) {
         val config = plugin.mineRailsConfig.timetableHttpBridge
         if (!config.enabled) return
-        val token = System.getenv(config.bearerTokenEnvironmentVariable)
+        val token = managedToken ?: System.getenv(config.bearerTokenEnvironmentVariable)
             ?: throw IllegalStateException("Timetable HTTP bridge token environment variable is not set: ${config.bearerTokenEnvironmentVariable}")
         require(token.isNotEmpty()) { "Timetable HTTP bridge bearer token must not be empty" }
         server = HttpServer.create(InetSocketAddress(config.bindAddress, config.port), 0).also { http ->
@@ -62,6 +64,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                     return
                 }
                 route(exchange)
+            } catch (e: HttpFailure) {
+                exchange.respond(e.status, error(e.message ?: "request failed"))
             } catch (e: IllegalArgumentException) {
                 exchange.respond(400, error(e.message ?: "bad request"))
             } catch (e: Exception) {
@@ -101,11 +105,24 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
 
         private fun await(action: () -> String): String {
             val future = CompletableFuture<String>()
+            val state = AtomicReference(RequestState.PENDING)
             plugin.platformDispatcher.runGlobal {
+                if (!state.compareAndSet(RequestState.PENDING, RequestState.RUNNING)) return@runGlobal
                 try { future.complete(BukkitThreadGuardBridge.runInSimulationContext(action)) }
                 catch (t: Throwable) { future.completeExceptionally(t) }
+                finally { state.set(RequestState.COMPLETED) }
             }
-            return future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+            return try {
+                future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+            } catch (_: TimeoutException) {
+                if (state.compareAndSet(RequestState.PENDING, RequestState.CANCELLED)) {
+                    future.cancel(false)
+                    throw HttpFailure(504, "request expired before entering the simulation context")
+                }
+                // Once mutation has entered the serialized simulation context, return its real
+                // outcome rather than reporting a timeout and allowing an apparently failed write.
+                future.get()
+            }
         }
 
         private fun worldsJson() = json.encodeToString(JsonArray(
@@ -132,9 +149,15 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                 put("name", bukkit.name)
                 put("uuid", bukkit.uid.toString())
                 put("wayPoints", JsonArray(data.wayPoints.all().map { JsonPrimitive(it.id) }))
-                put("stations", JsonArray(destinations.mapNotNull {
-                    val role = it.role as? DestinationRole.StationBerthRole ?: return@mapNotNull null
-                    JsonPrimitive("${role.stationId.value}@${role.berthId}")
+                put("stations", JsonArray(destinations.mapNotNull { destination ->
+                    val role = destination.role as? DestinationRole.StationBerthRole
+                        ?: return@mapNotNull null
+                    buildJsonObject {
+                        put("stationId", role.stationId.value)
+                        put("stationDisplayName", role.stationDisplayName)
+                        put("berthId", role.berthId)
+                        put("destinationId", destination.id)
+                    }
                 }))
                 put("depots", JsonArray(depotIds.map(::JsonPrimitive)))
                 put("trains", JsonArray(world.allTrains.map { JsonPrimitive(it.id) }.sortedBy { it.content }))
@@ -247,6 +270,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             return bytes.toString(StandardCharsets.UTF_8)
         }
     }
+
+    private enum class RequestState { PENDING, RUNNING, COMPLETED, CANCELLED }
+    private class HttpFailure(val status: Int, message: String) : RuntimeException(message)
 
     private fun HttpExchange.respond(status: Int, body: String) {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)

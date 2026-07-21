@@ -38,11 +38,21 @@ overspeed-tolerance-kmh: 5.0
 # 连续超速多少 tick 后脱轨。
 overspeed-grace-ticks: 5
 
-# Authenticated loopback-only timetable HTTP bridge for external tooling.
-# Disabled by default. When enabled, bearer-token-env must name an environment variable
-# containing the required Authorization: Bearer token.
+# Timetable WebUI process mode:
+# managed: MineRails extracts, starts, and stops an isolated WebUI Java sidecar (default).
+# external: an administrator runs WebUI independently; both processes use bearer-token-env.
+# disabled: neither WebUI nor its bridge is started.
+timetable-webui:
+  mode: managed
+  bind-address: 127.0.0.1
+  port: 8080
+  shutdown-timeout-millis: 5000
+
+# Authenticated loopback-only timetable HTTP bridge used by managed or external WebUI.
+# In managed mode MineRails generates an ephemeral token; bearer-token-env is used only
+# in external mode.
 timetable-http-bridge:
-  enabled: false
+  enabled: true
   bind-address: 127.0.0.1
   port: 8765
   bearer-token-env: MINERAILS_TIMETABLE_HTTP_TOKEN

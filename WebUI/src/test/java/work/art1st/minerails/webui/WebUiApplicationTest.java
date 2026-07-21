@@ -18,7 +18,7 @@ class WebUiApplicationTest {
     @TempDir Path drafts;
 
     @Test void healthIsLocalAndDoesNotRequireBridgeAuthentication() throws Exception {
-        WebUiConfig config = new WebUiConfig(URI.create("http://127.0.0.1:1/"), "", drafts, 0, 4096, Duration.ofSeconds(1));
+        WebUiConfig config = new WebUiConfig(URI.create("http://127.0.0.1:1/"), "", drafts, "127.0.0.1", 0, 4096, Duration.ofSeconds(1));
         Javalin app = new WebUiApplication(config).createApp().start(0);
         try {
             HttpResponse<String> response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + app.port() + "/health")).GET().build(), HttpResponse.BodyHandlers.ofString());

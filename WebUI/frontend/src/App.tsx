@@ -2,6 +2,7 @@ import { useEffect, useReducer, useState } from 'react';
 import { api } from './api';
 import { emptyAction, emptyTimetable, reducer } from './editor';
 import { Graph } from './Graph';
+import { assignLineToService, availableStationStatuses, serviceStationRows, updateStationStatus, type ServiceStationRow, type StationStopStatus } from './schedule';
 import { useI18n } from './i18n';
 import type {
   ActionType,
@@ -24,7 +25,7 @@ import './styles.css';
 
 const actionTypes = [
   'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'STORE_AT_DEPOT',
-  'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS',
+  'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS', 'EXTENSION',
 ] as const satisfies readonly ActionType[];
 type View = 'graph' | 'lines' | 'services' | 'scripts' | 'simulation';
 
@@ -43,6 +44,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState('');
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
+  const [arrivalTimes, setArrivalTimes] = useState<Record<string,number>>({});
   const [busy, setBusy] = useState(false);
 
   const run = async <T,>(operation: () => Promise<T>) => {
@@ -156,10 +158,10 @@ export default function App() {
       </>}
     </section>
 
-    {(error || issues.length > 0) && <section className="notice-strip">
+    <section className="notice-strip">
       {error && <div className="error" role="alert">{error}</div>}
       {issues.map((issue, index) => <div key={index} className={issue.severity}>{issue.path && <code>{issue.path}</code>} {issue.message}</div>)}
-    </section>}
+    </section>
 
     {view === 'graph' && <section className={`workspace ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
       <div className="graph-workspace">
@@ -186,13 +188,33 @@ export default function App() {
         </div>
         {selectedService && selected && <div className="sidebar-section fields-vertical">
           <label>{t('editor.serviceId')}<input value={selectedService.id} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: selected.service, patch: { id: event.target.value } })} /></label>
-          <label>{t('lines.title')}<select value={selectedService.lineId || ''} onChange={(event) => dispatch({ type:'PATCH_SERVICE', service:selected.service, patch:{ lineId:event.target.value || null } })}>
+          <label>{t('lines.title')}<select value={selectedService.lineId || ''} onChange={(event) => {
+            const line=lineCollection.lines.find((item) => item.id===event.target.value);
+            const updated=line ? assignLineToService(selectedService,line,metadata) : { ...selectedService,lineId:null };
+            dispatch({ type:'PATCH_SERVICE', service:selected.service, patch:{ lineId:updated.lineId,steps:updated.steps } });
+          }}>
             <option value="">{t('common.none')}</option>{lineCollection.lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
           </select></label>
-          <div className="step-list">{selectedService.steps.map((step, stepIndex) =>
-            <button key={stepIndex} className={selected.step === stepIndex ? 'active' : ''} onClick={() => setSelected({ service: selected.service, step: stepIndex })}>
-              {stepIndex + 1}. {step.type === 'CHECK' ? t('actions.CHECK') : t(`actions.${step.action?.type || 'DESTINATION'}` as Parameters<typeof t>[0])}
-            </button>)}</div>
+          <ServiceScheduleTable service={selectedService} serviceIndex={selected.service} line={lineCollection.lines.find((line) => line.id === selectedService.lineId)}
+            metadata={metadata} selectedStep={selected.step} arrivals={arrivalTimes}
+            onArrival={(stationId,tick) => setArrivalTimes((values) => ({ ...values, [`${selectedService.id}:${stationId}`]:tick }))}
+            onSelect={(step) => setSelected({ service:selected.service, step })}
+            onDeparture={(step,tick) => dispatch({ type:'PATCH_STEP', service:selected.service, step, tick })}
+            onStatus={(stationId,status) => {
+              const updated=updateStationStatus(selectedService,stationId,status,metadata);
+              dispatch({ type:'PATCH_SERVICE', service:selected.service, patch:{ steps:updated.steps } });
+              setSelected({ service:selected.service, step:0 });
+            }}
+            onAddAction={(row,typeId) => {
+              const step=row.departureStepIndex ?? selectedService.steps.length;
+              const action=typeId.startsWith('extension|') ? emptyAction('EXTENSION') : emptyAction(typeId as ActionType);
+              if (typeId.startsWith('extension|')) {
+                const [,id,version]=typeId.split('|');
+                action.extensionCall={ typeId:id, version:+version, parameters:{} };
+              }
+              dispatch({ type:'INSERT_STEP', service:selected.service, step, value:{ type:'AT', tick:row.departureTick ?? 0, action } });
+              setSelected({ service:selected.service, step });
+            }} />
           {selectedStep && <ActionInspector step={selectedStep} metadata={metadata}
             onReplace={(kind) => replaceStep(selected.service, selected.step, kind)}
             onTick={(tick) => dispatch({ type: 'PATCH_STEP', service: selected.service, step: selected.step, tick })}
@@ -222,6 +244,49 @@ export default function App() {
   </main>;
 }
 
+function ServiceScheduleTable({ service, serviceIndex, line, metadata, selectedStep, arrivals, onArrival, onSelect, onDeparture, onStatus, onAddAction }: {
+  service:SavedTimetableV1['services'][number]; serviceIndex:number; line?:LineV1; metadata:WorldMetadata; selectedStep:number;
+  arrivals:Record<string,number>; onArrival:(stationId:string,tick:number)=>void; onSelect:(step:number)=>void;
+  onDeparture:(step:number,tick:number)=>void; onStatus:(stationId:string,status:StationStopStatus)=>void;
+  onAddAction:(row:ServiceStationRow,typeId:string)=>void;
+}) {
+  const { t } = useI18n();
+  const rows=serviceStationRows(service,metadata,line);
+  const extensions=metadata.extensions?.actions || [];
+  if (!line) return <p className="empty">{t('editor.selectLineForSchedule')}</p>;
+  return <div className="schedule-editor">
+    <div className="schedule-header"><span>{t('editor.station')}</span><span>{t('editor.stopStatus')}</span><span>{t('editor.arrivalTime')}</span><span>{t('editor.departureTime')}</span><span>{t('editor.rowActions')}</span></div>
+    {rows.map((row) => {
+      const arrivalKey=`${service.id}:${row.stationId}`;
+      const available=availableStationStatuses(service,row,metadata);
+      return <div className="schedule-row" key={`${serviceIndex}:${row.stationId}`}>
+        <strong title={row.stationId}>{row.displayName}</strong>
+        <select aria-label={`${row.displayName} ${t('editor.stopStatus')}`} value={row.status} onChange={(event) => onStatus(row.stationId,event.target.value as StationStopStatus)}>
+          <option value="ORIGIN" disabled={!available.includes('ORIGIN')}>{t('status.origin')}</option><option value="STOP" disabled={!available.includes('STOP')}>{t('status.stop')}</option>
+          <option value="PASS" disabled={!available.includes('PASS')}>{t('status.pass')}</option><option value="TERMINAL" disabled={!available.includes('TERMINAL')}>{t('status.terminal')}</option>
+        </select>
+        <input aria-label={`${row.displayName} ${t('editor.arrivalTime')}`} type="number" min="0" value={arrivals[arrivalKey] ?? row.arrivalTick ?? ''}
+          placeholder="—" onChange={(event) => onArrival(row.stationId,Math.max(0,+event.target.value))} />
+        <input aria-label={`${row.displayName} ${t('editor.departureTime')}`} type="number" min="0" value={row.departureTick ?? ''} placeholder="—"
+          disabled={row.departureStepIndex == null} onChange={(event) => row.departureStepIndex != null && onDeparture(row.departureStepIndex,Math.max(0,+event.target.value))} />
+        <div className="schedule-actions">
+          {row.departureStepIndex != null && <button className={selectedStep===row.departureStepIndex?'active':''} onClick={() => onSelect(row.departureStepIndex!)}>{t('actions.DESTINATION')}</button>}
+          {row.actionStepIndices.map((stepIndex) => {
+            const action=service.steps[stepIndex].action;
+            const label=action?.type==='EXTENSION' ? action.extensionCall?.typeId || 'EXTENSION' : action?.type==='STOP' ? t('actions.WAIT') : t(`actions.${action?.type || 'DESTINATION'}` as Parameters<typeof t>[0]);
+            return <button key={stepIndex} className={selectedStep===stepIndex?'active':''} onClick={() => onSelect(stepIndex)}>{label}</button>;
+          })}
+          <select aria-label={`${row.displayName} ${t('editor.addAction')}`} value="" onChange={(event) => { if(event.target.value) onAddAction(row,event.target.value); }}>
+            <option value="">＋</option><option value="REVERSE">{t('actions.REVERSE')}</option><option value="STOP">{t('actions.WAIT')}</option><option value="HALT">{t('actions.HALT')}</option>
+            {extensions.map((extension) => <option key={`${extension.typeId}@${extension.version}`} value={`extension|${extension.typeId}|${extension.version}`}>{extension.title}</option>)}
+          </select>
+        </div>
+      </div>;
+    })}
+    <p className="schedule-note">{t('editor.arrivalVisualOnly')}</p>
+  </div>;
+}
+
 function ServicesPage({ state, metadata, lines, selected, dispatch, replaceStep, setSelected }: {
   state: SavedTimetableV1; metadata: WorldMetadata; lines:LineV1[]; selected?: {service:number;step:number};
   dispatch: React.Dispatch<Parameters<typeof reducer>[1]>;
@@ -235,7 +300,11 @@ function ServicesPage({ state, metadata, lines, selected, dispatch, replaceStep,
     {state.services.map((service, serviceIndex) => <article className="service card" key={serviceIndex}>
       <div className="service-head">
         <input aria-label={t('editor.serviceId')} value={service.id} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: serviceIndex, patch: { id: event.target.value } })} />
-        <select aria-label={t('lines.title')} value={service.lineId || ''} onChange={(event) => dispatch({ type:'PATCH_SERVICE', service:serviceIndex, patch:{ lineId:event.target.value || null } })}>
+        <select aria-label={t('lines.title')} value={service.lineId || ''} onChange={(event) => {
+          const line=lines.find((item) => item.id===event.target.value);
+          const updated=line ? assignLineToService(service,line,metadata) : { ...service,lineId:null };
+          dispatch({ type:'PATCH_SERVICE', service:serviceIndex, patch:{ lineId:updated.lineId,steps:updated.steps } });
+        }}>
           <option value="">{t('common.none')}</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
         </select>
         <select value={service.selectorType} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: serviceIndex, patch: { selectorType: event.target.value as 'ANY'|'TRAIN_ID', trainId: event.target.value === 'ANY' ? null : service.trainId } })}>
@@ -453,6 +522,19 @@ function ActionFields({ step, metadata, onAction, onCheck, onStationOperation }:
   if (!action) return null;
   if (action.type === 'HALT' || action.type === 'REVERSE') return null;
   if (action.type === 'STOP') return <label>{t('editor.value')}<input type="number" min="1" value={action.stopTicks ?? 20} onChange={(event) => onAction({ stopTicks: Math.max(1, +event.target.value) })} /></label>;
+  if (action.type === 'EXTENSION') {
+    const providers=metadata.extensions?.actions || [];
+    const call=action.extensionCall || { typeId:'', version:1, parameters:{} };
+    return <>
+      <label>{t('editor.extensionAction')}<select value={`${call.typeId}@${call.version}`} onChange={(event) => {
+        const provider=providers.find((item) => `${item.typeId}@${item.version}`===event.target.value);
+        if(provider) onAction({ extensionCall:{ typeId:provider.typeId, version:provider.version, parameters:{} } });
+      }}><option value="">{t('common.select')}</option>{providers.map((provider) => <option key={`${provider.typeId}@${provider.version}`} value={`${provider.typeId}@${provider.version}`}>{provider.title}</option>)}</select></label>
+      <label>{t('editor.extensionParameters')}<textarea key={`${call.typeId}@${call.version}:${JSON.stringify(call.parameters)}`} defaultValue={JSON.stringify(call.parameters,null,2)} onBlur={(event) => {
+        try { onAction({ extensionCall:{ ...call, parameters:JSON.parse(event.target.value) as Record<string,unknown> } }); } catch { event.currentTarget.setCustomValidity(t('editor.invalidJson')); event.currentTarget.reportValidity(); }
+      }} onInput={(event) => event.currentTarget.setCustomValidity('')} /></label>
+    </>;
+  }
   if (action.type === 'TAKE_FROM_DEPOT' || action.type === 'STORE_AT_DEPOT') {
     const points = metadata.depotDetails?.find((depot) => depot.id === action.depotId)?.stablingPoints || [];
     return <>
@@ -479,7 +561,7 @@ function ActionFields({ step, metadata, onAction, onCheck, onStationOperation }:
       </select></label>
       {onStationOperation && <div className="station-operation-buttons"><span>{t('editor.afterArrival')}</span>
         <button onClick={() => onStationOperation('REVERSE')}>{t('actions.REVERSE')}</button>
-        <button onClick={() => onStationOperation('STOP')}>{t('actions.STOP')}</button>
+        <button onClick={() => onStationOperation('STOP')}>{t('actions.WAIT')}</button>
         <button onClick={() => onStationOperation('HALT')}>{t('actions.HALT')}</button>
       </div>}
     </fieldset>

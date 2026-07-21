@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { layoutGraph, snapTick } from './graph';
+import { graphScreenXToTick, layoutGraph, snapTick, zoomGraphViewport } from './graph';
 import type { SavedTimetableV1 } from './types';
 
 const value: SavedTimetableV1 = {
@@ -36,6 +36,22 @@ describe('graph layout', () => {
     });
     expect(layout.height).toBe(600);
     expect(layout.lanes.slice(0,2).map((lane) => lane.id)).toEqual(['central','terminus']);
+  });
+
+  it('zooms each axis independently around its pointer anchor', () => {
+    const initial={scaleX:1,scaleY:1,offsetX:0,offsetY:0};
+    const horizontal=zoomGraphViewport(initial,'x',2,400,150);
+    expect(horizontal).toMatchObject({scaleX:2,scaleY:1,offsetX:-250,offsetY:0});
+    const vertical=zoomGraphViewport(initial,'y',2,300,54);
+    expect(vertical).toMatchObject({scaleX:1,scaleY:2,offsetX:0,offsetY:-246});
+  });
+
+  it('maps dragged points through the inverse horizontal viewport', () => {
+    const layout=layoutGraph(value,1000);
+    const viewport=zoomGraphViewport({scaleX:1,scaleY:1,offsetX:0,offsetY:0},'x',2,layout.left,layout.left);
+    const logical=layout.tickToX(200);
+    const screen=layout.left+(logical-layout.left)*viewport.scaleX+viewport.offsetX;
+    expect(graphScreenXToTick(layout,viewport,screen)).toBeCloseTo(200);
   });
 
   it('snaps and clamps ticks', () => {

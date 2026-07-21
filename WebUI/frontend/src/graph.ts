@@ -1,5 +1,20 @@
 import type { LineV1, SavedTimetableV1, TimetableActionV1, WorldMetadata } from './types';
 
+export interface GraphViewport { scaleX:number; scaleY:number; offsetX:number; offsetY:number }
+
+export function zoomGraphViewport(viewport:GraphViewport, axis:'x'|'y', factor:number, anchor:number, origin:number, minimum=0.5, maximum=8):GraphViewport {
+  const scaleKey=axis==='x'?'scaleX':'scaleY';
+  const offsetKey=axis==='x'?'offsetX':'offsetY';
+  const previous=viewport[scaleKey];
+  const next=Math.min(maximum,Math.max(minimum,previous*factor));
+  return { ...viewport, [scaleKey]:next, [offsetKey]:anchor-origin-(anchor-origin-viewport[offsetKey])*next/previous };
+}
+
+export function graphScreenXToTick(layout:Pick<GraphLayout,'left'|'xToTick'>, viewport:GraphViewport, screenX:number):number {
+  const logicalX=layout.left+(screenX-layout.left-viewport.offsetX)/viewport.scaleX;
+  return layout.xToTick(logicalX);
+}
+
 export interface GraphPoint {
   serviceIndex: number;
   stepIndex: number;

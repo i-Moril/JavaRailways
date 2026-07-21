@@ -6,8 +6,8 @@
 }
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-button, input, select { font: inherit; }
-button, input, select {
+button, input, select, textarea { font: inherit; }
+button, input, select, textarea {
   border: 1px solid #40516b;
   border-radius: 6px;
   background: #0d1828;
@@ -37,17 +37,21 @@ h1, h2, p { margin-top: 0; }
 .commandbar { min-height: 50px; display: flex; align-items: center; gap: 8px; padding: 7px 16px; background: #111d30; border-bottom: 1px solid #263853; }
 .readonly-banner { color: #80cfff; }
 .notice-strip { max-height: 100px; overflow: auto; padding: 5px 16px; background: #222f43; border-bottom: 1px solid #40516b; }
+.notice-strip:empty { max-height: 0; padding-block: 0; border-bottom: 0; }
 .notice-strip .error { color: #ffabb5; }
 .notice-strip .success { color: #80d8a3; }
 .notice-strip code { color: #ffd580; }
 
-.workspace { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(300px, 24vw); overflow: hidden; }
+.workspace { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(500px, 36vw); overflow: hidden; }
 .workspace.sidebar-collapsed { grid-template-columns: minmax(0, 1fr) 28px 0; }
-.graph-workspace { min-width: 0; min-height: 0; position: relative; overflow: auto; background: #07101d; }
+.graph-workspace { min-width: 0; min-height: 0; height: 100%; position: relative; overflow: hidden; background: #07101d; }
 .graph-overlay { position: absolute; z-index: 2; left: 12px; top: 10px; display: flex; gap: 12px; align-items: baseline; pointer-events: auto; text-shadow: 0 1px 4px #000; }
 .graph-overlay strong, .graph-overlay span { pointer-events: none; }
 .graph-overlay span { color: #8195af; font-size: 11px; }
-.graph { display: block; min-width: 100%; background: #091525; touch-action: none; }
+.graph { display: block; min-width: 100%; min-height: 100%; background: #091525; touch-action: none; cursor: grab; }
+.graph:active { cursor: grabbing; }
+.graph-viewport-controls { position: absolute; z-index: 3; top: 9px; right: 10px; display: flex; gap: 4px; }
+.graph-viewport-controls button { min-width: 34px; padding: 4px 7px; background: rgb(13 24 40 / 88%); }
 .sidebar-toggle { z-index: 3; width: 28px; padding: 0; border-radius: 0; border-block: 0; }
 .sidebar-toggle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
 .editor-sidebar { min-width: 0; overflow: auto; background: #101c2e; border-left: 1px solid #263853; }
@@ -61,6 +65,16 @@ h1, h2, p { margin-top: 0; }
 .service-list button, .step-list button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step-list { display: grid; gap: 5px; }
 .step-list button { text-align: left; }
+.schedule-editor { display: grid; gap: 5px; overflow-x: auto; }
+.schedule-header, .schedule-row { min-width: 470px; display: grid; grid-template-columns: minmax(88px, 1fr) 82px 78px 78px minmax(120px, 1.5fr); align-items: center; gap: 5px; }
+.schedule-header { color: #8195af; font-size: 10px; }
+.schedule-row { padding-block: 5px; border-top: 1px solid #2b3c56; }
+.schedule-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.schedule-row input, .schedule-row select { min-width: 0; width: 100%; padding: 5px; }
+.schedule-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.schedule-actions button, .schedule-actions select { width: auto; max-width: 100%; padding: 4px 6px; font-size: 10px; }
+.schedule-note { margin: 4px 0 0; color: #8195af; font-size: 10px; }
+.action-inspector textarea { width: 100%; min-height: 110px; resize: vertical; font-family: ui-monospace, monospace; }
 .action-inspector fieldset { min-width: 0; display: grid; gap: 8px; padding: 9px; border: 1px solid #40516b; border-radius: 7px; }
 .action-inspector legend { color: #80cfff; font-size: 12px; }
 .station-operation-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -78,8 +92,9 @@ tr.selected { background: #173954; }
 .empty { color: #8195af; }
 .placeholder { height: 100%; display: grid; place-content: center; text-align: center; color: #8195af; }
 .placeholder h2 { color: #dbe8f7; }
-.line-page { display: grid; grid-template-columns: minmax(220px, 20vw) minmax(480px, 1fr); gap: 14px; }
-.line-list { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.line-page { height: 100%; display: grid; grid-template-columns: minmax(220px, 20vw) minmax(480px, 1fr); align-items: stretch; gap: 14px; overflow: hidden; }
+.line-list { min-height: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.line-editor { min-height: 0; overflow: auto; }
 .line-list button { display: flex; align-items: center; gap: 8px; text-align: left; }
 .line-list i { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; }
 .line-editor { margin: 0; }
@@ -123,7 +138,7 @@ tr.selected { background: #173954; }
   .brand span { display: none; }
   .topbar nav { order: 3; width: 100%; height: 38px; overflow-x: auto; }
   .top-controls { margin-left: auto; }
-  .workspace { grid-template-columns: minmax(0, 1fr) 28px min(88vw, 360px); }
+  .workspace { grid-template-columns: minmax(0, 1fr) 28px min(92vw, 540px); }
   .editor-sidebar { position: relative; z-index: 4; }
   .commandbar { overflow-x: auto; }
   .commandbar .spacer { min-width: 20px; }

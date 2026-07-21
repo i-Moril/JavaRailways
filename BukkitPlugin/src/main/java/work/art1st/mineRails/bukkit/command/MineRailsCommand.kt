@@ -32,6 +32,7 @@ import work.art1st.mineRails.basic.timetable.TimetableValidator
 import work.art1st.mineRails.basic.timetable.TimetableWaypointProgressListener
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.TimetableWebUiMode
+import work.art1st.mineRails.bukkit.http.TimetableScriptNormalizer
 import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
 import work.art1st.mineRails.bukkit.debug.DepotResetDiagnostics
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
@@ -648,7 +649,8 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                                     messageTarget(Component.text("发起加载的世界已卸载或尚未初始化 MineRails", NamedTextColor.RED))
                                     return@runInSimulationContext
                                 }
-                                val timetable = runCatching(saved::restore).getOrElse { invalid ->
+                                val normalized = TimetableScriptNormalizer.normalize(saved, world)
+                                val timetable = runCatching(normalized::restore).getOrElse { invalid ->
                                     messageTarget(Component.text("JS 输出无效: ${invalid.message}", NamedTextColor.RED))
                                     return@runInSimulationContext
                                 }

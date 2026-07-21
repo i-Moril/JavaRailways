@@ -28,7 +28,7 @@ class TimetableBuilder(private val id: String) {
         options?.requireOnly(setOf("activation", "lineId"), "service options")
         val activation = options?.member("activation")?.takeUnless { it.isNull }?.let { activation(it) } ?: SavedTimetableActivationV1()
         val lineId = options?.string("lineId")?.also { require(it.isNotBlank()) { "lineId must not be blank" } }
-        services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.steps, activation, lineId)
+        services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.buildSteps(), activation, lineId)
         return this
     }
 
@@ -40,15 +40,98 @@ class TimetableBuilder(private val id: String) {
 }
 
 class ServiceBuilder {
-    internal val steps = mutableListOf<SavedTimetableStepV1>()
-    @HostAccess.Export fun check(wayPointId: String): ServiceBuilder { require(wayPointId.isNotBlank()); steps += SavedTimetableStepV1(SavedTimetableStepTypeV1.CHECK, wayPointId = wayPointId); return this }
-    @HostAccess.Export fun at(tick: Long): TimedActionBuilder { require(tick >= 0); return TimedActionBuilder(this, tick) }
-    internal fun add(tick: Long, action: SavedTimetableActionV1): ServiceBuilder { steps += SavedTimetableStepV1(SavedTimetableStepTypeV1.AT, tick, action = action); return this }
+    private val steps = mutableListOf<SavedTimetableStepV1>()
+    private val pendingPasses = mutableListOf<String>()
+    private var currentTick = 0L
+
+    @HostAccess.Export fun check(wayPointId: String): ServiceBuilder {
+        requireNoPendingRoute()
+        require(wayPointId.isNotBlank())
+        steps += SavedTimetableStepV1(SavedTimetableStepTypeV1.CHECK, wayPointId = wayPointId)
+        return this
+    }
+
+    @HostAccess.Export fun at(tick: Long): TimedActionBuilder {
+        requireNoPendingRoute()
+        require(tick >= 0)
+        currentTick = tick
+        return TimedActionBuilder(this, tick)
+    }
+
+    @HostAccess.Export fun pass(target: Value): ServiceBuilder = passAt(currentTick, target)
+    @HostAccess.Export fun destination(target: String): ServiceBuilder = destinationAt(currentTick, target, Value.asValue(null))
+    @HostAccess.Export fun destination(target: String, options: Value): ServiceBuilder = destinationAt(currentTick, target, options)
+    @HostAccess.Export fun stop(ticks: Long): ServiceBuilder = addStop(currentTick, ticks)
+    @HostAccess.Export fun reverse(): ServiceBuilder = add(currentTick, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
+    @HostAccess.Export fun halt(): ServiceBuilder = add(currentTick, SavedTimetableActionV1(SavedTimetableActionTypeV1.HALT))
+
+    internal fun passAt(tick: Long, target: Value): ServiceBuilder {
+        require(tick == currentTick)
+        pendingPasses += strings(target)
+        return this
+    }
+
+    internal fun destinationAt(tick: Long, target: String, options: Value): ServiceBuilder {
+        require(tick == currentTick)
+        require(target.isNotBlank()) { "destination target must not be blank" }
+        options.requireOnly(setOf("minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide"), "destination options")
+        val dwell = options.long("minimumDwellTicks")
+        val offset = options.double("stoppingOffsetMetersBefore")
+        require(dwell == null || dwell >= 0L) { "minimumDwellTicks must not be negative" }
+        require(offset == null || offset >= 0.0) { "stoppingOffsetMetersBefore must not be negative" }
+        val doorSide = options.string("doorSide")?.uppercase()?.also {
+            require(it in setOf("NONE", "LEFT", "RIGHT", "BOTH")) { "doorSide must be NONE, LEFT, RIGHT, or BOTH" }
+        }
+        steps += SavedTimetableStepV1(
+            SavedTimetableStepTypeV1.AT,
+            tick,
+            action = SavedTimetableActionV1(
+                SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
+                wayPointIds = listOf(target),
+                minimumDwellTicks = dwell,
+                stoppingOffsetMetersBefore = offset,
+                doorSideOverride = doorSide
+            )
+        )
+        steps += SavedTimetableStepV1(
+            SavedTimetableStepTypeV1.AT,
+            tick,
+            action = SavedTimetableActionV1(
+                SavedTimetableActionTypeV1.DESTINATION,
+                wayPointIds = pendingPasses + target
+            )
+        )
+        pendingPasses.clear()
+        return this
+    }
+
+    internal fun addStop(tick: Long, ticks: Long): ServiceBuilder {
+        require(ticks > 0)
+        return add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STOP, stopTicks = ticks))
+    }
+
+    internal fun add(tick: Long, action: SavedTimetableActionV1): ServiceBuilder {
+        requireNoPendingRoute()
+        currentTick = tick
+        steps += SavedTimetableStepV1(SavedTimetableStepTypeV1.AT, tick, action = action)
+        return this
+    }
+
+    internal fun buildSteps(): List<SavedTimetableStepV1> {
+        requireNoPendingRoute()
+        return steps.toList()
+    }
+
+    private fun requireNoPendingRoute() {
+        require(pendingPasses.isEmpty()) { "pass(...) must be completed by destination(...) before another action" }
+    }
 }
 
 class TimedActionBuilder(private val service: ServiceBuilder, private val tick: Long) {
-    @HostAccess.Export fun goto(target: Value): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.DESTINATION, wayPointIds = strings(target)))
-    @HostAccess.Export fun stop(ticks: Long): ServiceBuilder { require(ticks > 0); return service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STOP, stopTicks = ticks)) }
+    @HostAccess.Export fun pass(target: Value): ServiceBuilder = service.passAt(tick, target)
+    @HostAccess.Export fun destination(target: String): ServiceBuilder = service.destinationAt(tick, target, Value.asValue(null))
+    @HostAccess.Export fun destination(target: String, options: Value): ServiceBuilder = service.destinationAt(tick, target, options)
+    @HostAccess.Export fun stop(ticks: Long): ServiceBuilder = service.addStop(tick, ticks)
     @HostAccess.Export fun reverse(): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
     @HostAccess.Export fun halt(): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.HALT))
     @HostAccess.Export fun depot(depotId: String): ServiceBuilder = takeFromDepot(depotId)
@@ -64,15 +147,6 @@ class TimedActionBuilder(private val service: ServiceBuilder, private val tick: 
         require(depotId.isNotBlank()) { "depotId must not be blank" }
         options.requireOnly(setOf("stablingPoints"), "storeAtDepot options")
         return service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STORE_AT_DEPOT, depotId = depotId, stablingPointIds = options.strings("stablingPoints")))
-    }
-    @HostAccess.Export fun call(stationId: String, berthId: String): ServiceBuilder = call(stationId, berthId, Value.asValue(null))
-    @HostAccess.Export fun call(stationId: String, berthId: String, options: Value): ServiceBuilder {
-        require(stationId.isNotBlank() && berthId.isNotBlank()) { "stationId and berthId must not be blank" }
-        options.requireOnly(setOf("minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide"), "call options")
-        val doorSide = options.string("doorSide")?.uppercase()?.also {
-            require(it in setOf("NONE", "LEFT", "RIGHT", "BOTH")) { "doorSide must be NONE, LEFT, RIGHT, or BOTH" }
-        }
-        return service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS, stationId = stationId, berthId = berthId, minimumDwellTicks = options.long("minimumDwellTicks"), stoppingOffsetMetersBefore = options.double("stoppingOffsetMetersBefore"), doorSideOverride = doorSide))
     }
     @HostAccess.Export fun action(typeId: String, parameters: Value): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.EXTENSION, extensionCall = extension(typeId, 1, parameters)))
     @HostAccess.Export fun action(typeId: String, version: Int, parameters: Value): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.EXTENSION, extensionCall = extension(typeId, version, parameters)))

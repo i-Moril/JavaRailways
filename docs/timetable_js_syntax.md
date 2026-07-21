@@ -6,7 +6,7 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档完整描述当前 JS 时刻表 DSL。运行时支持显式 `TrainId` 或 Depot 动态配车、连续 `GoTo`/`GoVia`、`takeFromDepot`/`storeAtDepot`、`Stop`、`Reverse`、`Halt`、Station/Berth call、扩展动作、结构化条件，以及共同 epoch 下的 not-before 计划时间和 period 自动 cycle。运营闭环仍以 [设计](architecture/timetable-operation-design.md) 和 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
+本文档完整描述当前 JS 时刻表 DSL。运行时支持显式 `TrainId` 或 Depot 动态配车、`pass(...).destination(...)` 链式线路、`takeFromDepot`/`storeAtDepot`、非线路 hold、`Reverse`、`Halt`、Station/Berth 运营流程、扩展动作、结构化条件，以及共同 epoch 下的 not-before 计划时间和 period 自动 cycle。运营闭环仍以 [设计](architecture/timetable-operation-design.md) 和 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
 :::
 
 JS 只负责生成 `SavedTimetableV1`，不会成为运行时脚本。每次编译都在独立 Worker JVM 的受限 GraalJS Context 中完成；Bukkit 随后恢复内部 `Timetable`、针对命令发起时所在世界执行 dry-run，通过后才替换运行期 store 中的同 ID 时刻表。加载不会自动启动 service。
@@ -53,7 +53,7 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable replan <id> <service> <current-waypoint> [cycle]
 ```
 
-service 可以使用字符串 `trainId` selector，并在第一个运行动作前通过 `check()` 指定初始 WayPoint；也可以省略 selector，并把 `takeFromDepot` 作为第一步。后续 `goto` 会在前一 Mission 停稳以及可选 `stop` dwell 完成后继续。
+service 可以使用字符串 `trainId` selector，并在第一条线路前通过 `check()` 指定初始位置；也可以省略 selector，并把 `takeFromDepot` 作为第一步。线路使用 `[at(departureTick).]pass(...).destination(target, options?)` 一次提交，不能用逐段 `goto + stop` 拼接运营语义。
 
 `stop` 命令先禁用匹配 timetable/service 的后续自动 cycle，再对当前所有匹配 cycle run 请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。重新显式 start service 会重新启用该 service 的周期调度。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。`status` 会显式输出 operation ticket 的 snapshot 错误。一般 `at(tick)` 是 not-before 时间；StationCall 的最短停站由 `minimumDwellTicks` 控制，下一条定时动作可以继续延长发车保持。
 
@@ -94,9 +94,10 @@ function main(timetable) {
 
   timetable.service("001", "train-001", function(t) {
     t.check("depot1")
-    t.at(1000).goto("a0")
-    t.at(2000).stop(100)
-    t.at(2200).goto("b0")
+    t.at(1000).pass("a0").destination("b0", {
+      minimumDwellTicks: 100,
+      doorSide: "LEFT"
+    })
   })
 }
 ```
@@ -106,9 +107,9 @@ function main(timetable) {
 - 时刻表周期为 `1` 个逻辑游戏日，即 `24000` Dispatcher Tick。
 - 定义由 `train-001` 执行的车次/服务 `001`。
 - `check("depot1")` 声明并验证第一次移动的初始位置。
-- 在 `1000` tick 前往 `a0`。
-- 在 `2000` tick 停留 `100` tick。
-- 在 `2200` tick 前往 `b0`。
+- `1000` tick 是整条线路的最早出发 Tick。
+- 列车通过 `a0`，不在该 pass 点停车。
+- `b0` 是最终停车目的地；到达后按 destination options 执行开门和最短停站。
 
 ## 顶层 API
 
@@ -125,7 +126,7 @@ timetable.setPeriodDays(2)
 - `days` 必须是大于 0 的整数；
 - loader 严格检查 `days × 24000` 溢出；
 - 每个脚本必须显式调用；
-- 所有 `at(tick)` 和 planned departure 必须小于 `periodDays × 24000`；
+- 所有显式 `at(departureTick)` 必须小于 `periodDays × 24000`；
 - 管理员启动整张 timetable 时建立全部 service 共享的 cycle-zero epoch；
 - period 边界为全部 service 自动创建使用同一 cycle 起点的下一 cycle run；
 - 前一 cycle 仍活动时不会被抢占，动态服务必须取得另一列兼容 AVAILABLE 列车，否则按 Depot 规则 Stall。
@@ -139,7 +140,7 @@ timetable.setPeriodDays(2)
 ```js
 timetable.service("001", function(t) {
   t.at(0).takeFromDepot("north")
-  t.at(1000).goto("a0")
+  t.at(1000).destination("a0")
 })
 ```
 
@@ -150,7 +151,7 @@ timetable.service("001", function(t) {
 ```js
 timetable.service("001", "train-001", function(t) {
   t.check("depot1")
-  t.at(1000).goto("a0")
+  t.at(1000).destination("a0")
 })
 ```
 
@@ -179,7 +180,7 @@ timetable.service("001", "train-001", {
   }
 }, function (t) {
   t.check("depot1")
-  t.at(1000).goto("central@one")
+  t.at(1000).destination("central@one")
 })
 ```
 
@@ -210,7 +211,7 @@ timetable.service("001", function(t) {
     minimumSpeedMetersPerSecond: 16.5,
     capabilities: ["doors"]
   })
-  t.at(1000).goto("central-1")
+  t.at(1000).destination("central-1")
 })
 ```
 
@@ -251,89 +252,64 @@ t.at(22000).storeAtDepot("north", {
 /mr depot list [depot]
 ```
 
-### `t.at(tick).goto(wayPointId)`
+### `[t.at(departureTick).]pass(...).destination(target, options?)`
 
-在当前 timetable cycle 的指定 tick 或之后前往一个路径点。若前序动作导致晚点，条件满足后立即执行并记录 lateness；不会跳过动作。
+一次链式调用提交一条完整运营线路：零个或多个不停车 pass 目标，以及恰好一个最终停车 destination。
 
 ```js
-t.at(1000).goto("a0")
+t.at(1000)
+  .pass("a1")
+  .pass(["a2", "junction"])
+  .destination("central@platform-1", {
+    minimumDwellTicks: 100,
+    stoppingOffsetMetersBefore: 1.5,
+    doorSide: "LEFT"
+  })
+```
+
+也可以省略 `at()`：
+
+```js
+t.pass("a1").destination("central@platform-1", {
+  minimumDwellTicks: 100
+})
 ```
 
 规则：
 
-- `tick` 必须是大于等于 0 的整数。
-- 同一个 service 内，`at` 的 tick 不应倒退。
-- `wayPointId` 必须是已存在路径点。
-- 如果 validator 能确定当前位置，会验证当前位置到目标路径点是否可达。
+- `departureTick` 是整条线路的 not-before 出发 Tick，而不是到达 Tick；省略时第一条线路使用 0，后续沿用最近显式 Tick。
+- `pass()` 接受一个稳定 Destination/WayPoint ID 或非空 ID 数组；列车经过这些点但不产生停车业务。
+- `destination()` 接受恰好一个最终停车目标，并立即提交此前累计的全部 pass。
+- 有未提交 pass 时不能开始另一条 `at()` 或执行其他动作；脚本结束时仍有 pass 也会失败。
+- `minimumDwellTicks`、`stoppingOffsetMetersBefore` 不能为负；`doorSide` 接受大小写形式的 `none/left/right/both`。
+- 若 target 是 StationBerth Destination，Bukkit 在 Worker 结束后根据当前世界角色把统一 destination options 解析为 StationCall，执行 berth 分配、停准、开关门、dwell 和车尾释放。
+- 普通 Destination 使用同一停车偏移、开门和 minimum dwell 语义，但不申请 StationBerth 资源。
+- 每个 pass 段和最终 destination 段都会进行方向感知的 dry-run；任何一段不可达都会拒绝加载。
 
-### `t.at(tick).goto([wayPointId1, wayPointId2, ...])`
+内部持久化仍可能把这条线路规范化为 `DESTINATION_OPTIONS + DESTINATION`，这是结构化运行模型，不是面向脚本作者的 `goto/call` API。
 
-按顺序经过多个路径点。
+### `t.at(tick).stop(ticks)`（非线路 hold）
 
-```js
-t.at(2200).goto(["a1", "a2", "b0"])
-```
-
-等价于一次 `GoVia`：
-
-- 当前点 -> `a1`
-- `a1` -> `a2`
-- `a2` -> `b0`
-
-规则：
-
-- 数组不能为空。
-- 数组元素必须是非空字符串。
-- 每一段都会 dry-run 验证可达性。
-
-### `t.at(tick).stop(ticks)`
-
-停留一段时间。
+`stop()` 只保留为不带 Destination、StationBerth、开门或停车偏移语义的普通停留动作；它不能代替 `destination(..., { minimumDwellTicks })`：
 
 ```js
 t.at(2000).stop(100)
 ```
 
-规则：
+新线路脚本不应使用 `goto + stop + goto` 表达车站停靠。车站和普通终点停站必须使用 `pass(...).destination(...)`。
 
-- `ticks` 必须是大于 0 的整数。
-- 运行时会在前一 Mission 停稳后按 Dispatcher Tick 计时；它不是 Station berth 或车门操作。
-
-### `t.at(tick).call(stationId, berthId, options?)`
-
-安排一次显式 StationBerth 停站：
-
-```js
-t.at(1000).call("central", "platform-1", {
-  minimumDwellTicks: 100,
-  stoppingOffsetMetersBefore: 1.5,
-  doorSide: "LEFT"
-})
-t.at(1000).goto("central@platform-1")
-t.at(1500).goto("next-waypoint")
-```
-
-规则：
-
-- `stationId` 和 `berthId` 必须显式指定且已注册；C2 不自动选台。
-- call 后必须直接配对一个 `goto`，并且 berth 必须位于该 Mission 经路前缀上。
-- `minimumDwellTicks` 和 `stoppingOffsetMetersBefore` 不能为负。
-- 下一条定时动作的 `at(tick)` 与最短停站共同决定最早发车时间。
-- `doorSide` 只接受 `none`、`left`、`right`、`both`。C3 会通过平台 operation gateway 执行开关门；`none` 保持无车门路径。
-- 未知 options 会导致 loader 严格失败。
-- 列车头部是固定停车对齐参考点；berth 所有权在车尾越过 release boundary 后释放。
-
-### `t.at(tick).reverse()` 与 `t.at(tick).halt()`
+### `[t.at(tick).]reverse()` 与 `[t.at(tick).]halt()`
 
 ```js
 t.at(3000).reverse()
-t.at(3200).goto("return-platform")
+t.at(3200).destination("return-platform")
 t.at(22000).halt()
 ```
 
+- 两者都可省略 `at()`，并沿用最近一次显式 departure Tick。
 - `reverse()` 要求列车已经停稳；Dispatcher 会执行真实列车换向，等待一个 dispatcher tick，再让下一条 Mission 使用相反起步方向。
 - `halt()` 通过当前车辆模板的 operation gateway 执行 `power-off` 动作；模板不支持或 operation 失败会明确 Stall 当前 run。
-- 终点站换向应放在配对 `call + goto` 之后。车站状态机会先完成停准、最短停站和关门，再推进到 `reverse()`，因此它也可表达“到站后、下一次发车前换向”。
+- 终点站换向应放在前一条 `destination()` 之后。车站状态机会先完成停准、最短停站和关门，再推进到 `reverse()`，因此它表达“到站后、下一次发车前换向”。
 
 ### `t.at(tick).action(typeId, version?, parameters)`
 
@@ -353,9 +329,9 @@ Worker 执行的是普通 JavaScript，因此可以使用变量、函数、数�
 ```js
 const express = true
 if (express) {
-  t.at(1000).goto(["a", "express-platform"])
+  t.at(1000).pass("a").destination("express-platform")
 } else {
-  t.at(1000).goto(["a", "local-1", "local-2"])
+  t.at(1000).pass(["a", "local-1"]).destination("local-2")
 }
 ```
 
@@ -404,16 +380,16 @@ t.check("a0")
 用途：
 
 - 检查路径点是否存在。
-- 更新 validator 的“当前位置”，后续 `goto` 会从这个点开始验证经路。
+- 更新 validator 的“当前位置”，后续链式线路会从这个点开始验证经路。
 
 示例：
 
 ```js
 timetable.service("001", function(t) {
   t.check("depot1")
-  t.at(1000).goto("a0")
+  t.at(1000).destination("a0")
   t.check("a0")
-  t.at(2000).goto("b0")
+  t.at(2000).destination("b0")
 })
 ```
 
@@ -472,7 +448,7 @@ JavaScript 的 `number` 类型不能表达“必须是整数”，因此 tick �
    - line、Waypoint、Destination、Station/Berth、Depot/StablingPoint 和 Train 引用；
    - 动态 selector、取存车顺序、车型标签/能力和编组约束；
    - StationCall 与下一条 movement 的配对及站台是否位于路线；
-   - `goto` / `goVia` 每段的方向与可达性；
+   - `pass` / `destination` 每段的方向与可达性；
    - extension condition/action provider、版本、参数 schema 和 scope；
    - conditional activation 与 runtime branch 的结构合法性。
 
@@ -499,8 +475,8 @@ function main(timetable) {...}
 function main(timetable) {
   timetable.service("001", "train-001", function(t) {
     t.check("depot1")
-    t.at(2000).goto("a0")
-    t.at(1000).goto("b0")
+    t.at(2000).destination("a0")
+    t.at(1000).destination("b0")
   })
 }
 ```
@@ -511,7 +487,7 @@ function main(timetable) {
 function main(timetable) {
   timetable.service("001", "train-001", function(t) {
     t.check("depot1")
-    t.at(1000).goto("missing_waypoint")
+    t.at(1000).destination("missing_waypoint")
   })
 }
 ```
@@ -522,7 +498,7 @@ function main(timetable) {
 function main(timetable) {
   timetable.service("001", "train-001", function(t) {
     t.check("depot1")
-    t.at(1000).goto(123) // 错误：goto 只接受字符串或字符串数组
+    t.at(1000).pass(123).destination("a0") // 错误：pass 只接受字符串或字符串数组
   })
 }
 ```
@@ -532,26 +508,22 @@ function main(timetable) {
 仓库中的可检查示例位于 `examples/timetables/demo.js`。下面展示同一类完整脚本：
 
 ```js
-const outbound = ["a0", "a1", "b0"]
-const inbound = ["b0", "a1", "a0", "depot1"]
+const outboundPasses = ["a0", "a1"]
+const inboundPasses = ["a1", "a0"]
 
 function main(timetable) {
   timetable.setPeriodDays(1)
 
   timetable.service("001", "train-001", function(t) {
     t.check("depot1")
-    t.at(1000).goto(outbound)
-    t.check("b0")
-    t.at(4000).stop(200)
-    t.at(4500).goto(inbound)
+    t.at(1000).pass(outboundPasses).destination("b0", { minimumDwellTicks: 200 })
+    t.at(4500).pass(inboundPasses).destination("depot1")
   })
 
   timetable.service("002", "train-002", function(t) {
     t.check("depot2")
-    t.at(3000).goto(outbound)
-    t.check("b0")
-    t.at(6000).stop(200)
-    t.at(6500).goto(inbound)
+    t.at(3000).pass(outboundPasses).destination("b0", { minimumDwellTicks: 200 })
+    t.at(6500).pass(inboundPasses).destination("depot2")
   })
 }
 ```
@@ -560,7 +532,7 @@ function main(timetable) {
 
 - JS 是**导入期模型生成器**，不是每 tick 执行的运行时脚本；世界状态判断必须使用结构化 condition provider。
 - WebUI 只读展示服务器文件，不提供上传、编辑、发布或加载按钮；显式加载只能由游戏内管理员执行。
-- conditional branch 首版只接受插件扩展动作，不能把 `goto`、`reverse`、Depot 或其他核心安全动作放进分支。
+- conditional branch 首版只接受插件扩展动作，不能把 `pass/destination`、`reverse`、Depot 或其他核心安全动作放进分支。
 - Worker 是受限 GraalJS Context 加独立 JVM、内存/时间/输出限制，不是操作系统容器。它显著隔离 JVM 故障和 Host API，但服务器管理员仍应审查脚本来源。
 - Dispatcher 不会预先解决整张时刻表的容量、会让、越行或全局晚点优化；运行时只处理实际申请的原子 Route Section 冲突。
 - 脚本文件本身由服务器管理员管理；结构化加载结果按现有世界持久化流程处理，但活动 service 是否运行仍由显式 `start` 和 runtime snapshot 决定。

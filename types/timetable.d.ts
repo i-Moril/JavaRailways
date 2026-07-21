@@ -20,20 +20,34 @@ interface MineRailsServiceOptions {
     | { readonly type: 'scheduled' | 'manual' }
     | { readonly type: 'conditional'; readonly condition: MineRailsCondition; readonly falseBehavior?: 'SKIP_CYCLE' | 'WAIT_UNTIL_TRUE' };
 }
-interface MineRailsServiceBuilder { check(wayPointId: string): this; at(tick: number): MineRailsTimedActionBuilder }
+interface MineRailsServiceBuilder {
+  check(wayPointId: string): this;
+  at(departureTick: number): MineRailsTimedActionBuilder;
+  pass(target: string | readonly string[]): this;
+  destination(target: string, options?: MineRailsDestinationOptions): this;
+  /** Non-route operational hold. Destination dwell belongs in destination options. */
+  stop(ticks: number): this;
+  reverse(): this;
+  halt(): this;
+}
 interface MineRailsDepotSelectorOptions { readonly tags?: readonly string[]; readonly minimumCars?: number; readonly maximumCars?: number; readonly minimumSpeedMetersPerSecond?: number; readonly capabilities?: readonly string[] }
 interface MineRailsDepotStorageOptions { readonly stablingPoints?: readonly string[] }
-type MineRailsDoorSide = 'NONE' | 'LEFT' | 'RIGHT' | 'BOTH';
-interface MineRailsCallOptions { readonly minimumDwellTicks?: number; readonly stoppingOffsetMetersBefore?: number; readonly doorSide?: MineRailsDoorSide }
+type MineRailsDoorSide = 'NONE' | 'LEFT' | 'RIGHT' | 'BOTH' | 'none' | 'left' | 'right' | 'both';
+interface MineRailsDestinationOptions {
+  readonly minimumDwellTicks?: number;
+  readonly stoppingOffsetMetersBefore?: number;
+  readonly doorSide?: MineRailsDoorSide;
+}
 interface MineRailsRuntimeActions { action(typeId: string, parameters: Readonly<Record<string, unknown>>): this }
 interface MineRailsTimedActionBuilder {
-  goto(target: string | readonly string[]): MineRailsServiceBuilder;
+  pass(target: string | readonly string[]): MineRailsServiceBuilder;
+  destination(target: string, options?: MineRailsDestinationOptions): MineRailsServiceBuilder;
+  /** Non-route operational hold. Destination dwell belongs in destination options. */
   stop(ticks: number): MineRailsServiceBuilder;
   reverse(): MineRailsServiceBuilder; halt(): MineRailsServiceBuilder;
   /** Compatibility alias for takeFromDepot. */ depot(depotId: string, options?: MineRailsDepotSelectorOptions): MineRailsServiceBuilder;
   takeFromDepot(depotId: string, options?: MineRailsDepotSelectorOptions): MineRailsServiceBuilder;
   storeAtDepot(depotId: string, options?: MineRailsDepotStorageOptions): MineRailsServiceBuilder;
-  call(stationId: string, berthId: string, options?: MineRailsCallOptions): MineRailsServiceBuilder;
   action(typeId: string, parameters: Readonly<Record<string, unknown>>): MineRailsServiceBuilder;
   action(typeId: string, version: number, parameters: Readonly<Record<string, unknown>>): MineRailsServiceBuilder;
   whenCondition(condition: MineRailsCondition, then: (actions: MineRailsRuntimeActions) => void, otherwise?: (actions: MineRailsRuntimeActions) => void): MineRailsServiceBuilder;

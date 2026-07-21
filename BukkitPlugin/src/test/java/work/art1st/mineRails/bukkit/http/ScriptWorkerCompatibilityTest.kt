@@ -19,7 +19,7 @@ class ScriptWorkerCompatibilityTest {
                 activation: { type: 'conditional', condition: demand, falseBehavior: 'SKIP_CYCLE' }
               }, t => {
                 t.check('origin')
-                t.at(10).goto('central@one')
+                t.at(10).destination('central@one', { minimumDwellTicks: 40, doorSide: 'LEFT' })
                 t.at(20).whenCondition(demand, a => a.action('demo:ring', { count: 2 }))
               })
             }

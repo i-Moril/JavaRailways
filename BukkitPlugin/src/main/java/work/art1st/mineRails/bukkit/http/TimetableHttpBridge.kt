@@ -297,12 +297,15 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
 
         private fun renderScriptJson(worldName: String, scriptName: String, timetableId: String): String {
             val source = plugin.timetableScriptSandbox.readSource(scriptName)
-            val saved = plugin.timetableScriptSandbox.compileSource(source, timetableId)
-            val timetable = runCatching(saved::restore).getOrElse {
-                throw HttpFailure(422, "script produced an invalid timetable: ${it.message}")
-            }
-            val validation = await {
-                withWorld(worldName) { _, world -> TimetableValidator(world).validate(timetable) }
+            val workerSaved = plugin.timetableScriptSandbox.compileSource(source, timetableId)
+            val (saved, validation) = await {
+                withWorld(worldName) { _, world ->
+                    val normalized = TimetableScriptNormalizer.normalize(workerSaved, world)
+                    val timetable = runCatching(normalized::restore).getOrElse {
+                        throw HttpFailure(422, "script produced an invalid timetable: ${it.message}")
+                    }
+                    normalized to TimetableValidator(world).validate(timetable)
+                }
             }
             return json.encodeToString(buildJsonObject {
                 put("name", scriptName)

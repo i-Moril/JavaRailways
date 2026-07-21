@@ -22,6 +22,7 @@ final class BridgeClient {
 
     Response get(String path) throws IOException, InterruptedException { return send("GET", path, null); }
     Response post(String path, JsonNode payload) throws IOException, InterruptedException { return send("POST", path, payload); }
+    Response put(String path, JsonNode payload) throws IOException, InterruptedException { return send("PUT", path, payload); }
 
     private Response send(String method, String path, JsonNode payload) throws IOException, InterruptedException {
         if (config.bridgeToken().isBlank()) throw new IllegalStateException("Bukkit bridge token is not configured");

@@ -10,6 +10,8 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.bukkit.World as BukkitWorld
+import work.art1st.mineRails.basic.api.destination.DestinationRole
+import work.art1st.mineRails.basic.api.timetable.TimetableConditionProvider
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.persistence.SavedTimetableV1
 import work.art1st.mineRails.basic.persistence.TimetableSnapshotCodec
@@ -106,14 +108,65 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             return future.get(timeoutMillis, TimeUnit.MILLISECONDS)
         }
 
-        private fun worldsJson() = json.encodeToString(JsonArray(plugin.worldManager.railWorlds.keys.map { JsonPrimitive(it.name) }))
+        private fun worldsJson() = json.encodeToString(JsonArray(
+            plugin.worldManager.railWorlds.keys.sortedBy { it.name }.map { world ->
+                buildJsonObject {
+                    put("id", world.name)
+                    put("name", world.name)
+                    put("uuid", world.uid.toString())
+                }
+            }
+        ))
+
         private fun metadataJson(worldName: String) = withWorld(worldName) { bukkit, world ->
-            json.encodeToString(buildJsonObject { put("name", bukkit.name); put("timetables", world.basicWorldData.timetables.all().size) })
+            val data = world.basicWorldData
+            val destinations = data.destinations.all()
+            val depotIds = buildSet {
+                destinations.mapNotNullTo(this) {
+                    (it.role as? DestinationRole.DepotStablingPointRole)?.depotId
+                }
+                data.depots.allRollingStock().mapTo(this) { it.record.homeDepotId.value }
+            }.sorted()
+            json.encodeToString(buildJsonObject {
+                put("id", bukkit.name)
+                put("name", bukkit.name)
+                put("uuid", bukkit.uid.toString())
+                put("wayPoints", JsonArray(data.wayPoints.all().map { JsonPrimitive(it.id) }))
+                put("stations", JsonArray(destinations.mapNotNull {
+                    val role = it.role as? DestinationRole.StationBerthRole ?: return@mapNotNull null
+                    JsonPrimitive("${role.stationId.value}@${role.berthId}")
+                }))
+                put("depots", JsonArray(depotIds.map(::JsonPrimitive)))
+                put("trains", JsonArray(world.allTrains.map { JsonPrimitive(it.id) }.sortedBy { it.content }))
+                put("destinations", JsonArray(destinations.map { destination ->
+                    buildJsonObject {
+                        put("id", destination.id)
+                        put("displayName", destination.displayName)
+                        put("railId", destination.railId.toString())
+                        put("arcLengthMeters", destination.arcLengthInAbMeters)
+                        put("approachDirection", destination.approachDirection?.name ?: "ANY")
+                        put("role", destination.role::class.simpleName ?: "Unknown")
+                    }
+                }))
+            })
         }
+
         private fun extensionsJson(worldName: String) = withWorld(worldName) { _, world ->
             json.encodeToString(buildJsonObject {
-                put("conditions", JsonArray(world.basicWorldData.timetableExtensions.conditionProviders().map { descriptorJson(it.typeId, it.version, it.descriptor.title, it.descriptor.description) }))
-                put("actions", JsonArray(world.basicWorldData.timetableExtensions.actionProviders().map { descriptorJson(it.typeId, it.version, it.descriptor.title, it.descriptor.description) }))
+                put("conditions", JsonArray(
+                    world.basicWorldData.timetableExtensions.conditionProviders().map(::conditionDescriptorJson)
+                ))
+                put("actions", JsonArray(
+                    world.basicWorldData.timetableExtensions.actionProviders().map { provider ->
+                        descriptorJson(
+                            provider.typeId,
+                            provider.version,
+                            provider.descriptor.title,
+                            provider.descriptor.description,
+                            provider.descriptor.parameterSchema
+                        )
+                    }
+                ))
             })
         }
         private fun timetablesJson(worldName: String) = withWorld(worldName) { _, world ->
@@ -127,7 +180,15 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             val saved = TimetableSnapshotCodec.decode(body); val tt = saved.restore()
             require(tt.id == id && saved.id == id) { "path timetable id does not match body id" }
             val result = TimetableValidator(world).validate(tt)
-            json.encodeToString(buildJsonObject { put("valid", result.isSuccess); put("errors", JsonArray(result.errors.map(::JsonPrimitive))) })
+            json.encodeToString(buildJsonObject {
+                put("valid", result.isSuccess)
+                put("errors", JsonArray(result.errors.map { message ->
+                    buildJsonObject {
+                        put("message", message)
+                        put("severity", "error")
+                    }
+                }))
+            })
         }
         private fun publishJson(worldName: String, id: String, body: String, ifMatch: String?) = withWorld(worldName) { _, world ->
             val data = world.basicWorldData
@@ -151,7 +212,29 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                 ?: throw IllegalArgumentException("world not found: $name")
             return action(entry.key, entry.value)
         }
-        private fun descriptorJson(typeId: String, version: Int, title: String, description: String) = buildJsonObject { put("typeId", typeId); put("version", version); put("title", title); put("description", description) }
+        private fun descriptorJson(
+            typeId: String,
+            version: Int,
+            title: String,
+            description: String,
+            parameterSchema: JsonObject
+        ) = buildJsonObject {
+            put("typeId", typeId)
+            put("version", version)
+            put("title", title)
+            put("description", description)
+            put("parameterSchema", parameterSchema)
+        }
+
+        private fun conditionDescriptorJson(provider: TimetableConditionProvider) = buildJsonObject {
+            val descriptor = provider.descriptor
+            put("typeId", provider.typeId)
+            put("version", provider.version)
+            put("title", descriptor.title)
+            put("description", descriptor.description)
+            put("parameterSchema", descriptor.parameterSchema)
+            put("supportedScopes", JsonArray(provider.supportedScopes.map { JsonPrimitive(it.name) }))
+        }
         private fun authorized(exchange: HttpExchange): Boolean {
             val value = exchange.requestHeaders.getFirst("Authorization") ?: return false
             val prefix = "Bearer "

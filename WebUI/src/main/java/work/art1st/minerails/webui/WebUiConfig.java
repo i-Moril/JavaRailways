@@ -8,7 +8,7 @@ import java.time.Duration;
 public record WebUiConfig(URI bridgeUrl, String bridgeToken, Path draftDirectory,
                           int port, int maxRequestBytes, Duration requestTimeout) {
     public static WebUiConfig fromEnvironment() {
-        String bridge = value("MINERAILS_BRIDGE_URL", "minerails.bridge.url", "http://127.0.0.1:8081/");
+        String bridge = value("MINERAILS_BRIDGE_URL", "minerails.bridge.url", "http://127.0.0.1:8765/");
         String token = value("MINERAILS_BRIDGE_TOKEN", "minerails.bridge.token", "");
         String drafts = value("MINERAILS_DRAFT_DIR", "minerails.draft.dir", "data/drafts");
         int port = integer("MINERAILS_WEB_PORT", "minerails.web.port", 8080, 1, 65535);

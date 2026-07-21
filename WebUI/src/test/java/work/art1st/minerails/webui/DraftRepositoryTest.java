@@ -17,6 +17,15 @@ class DraftRepositoryTest {
         repository.save("weekday_1", mapper.readTree("{\"name\":\"Weekday\"}"));
         assertEquals("Weekday", repository.find("weekday_1").orElseThrow().path("name").asText());
     }
+    @Test void listsCreatesAndDeletesWorldScopedDrafts() throws Exception {
+        DraftRepository repository = new DraftRepository(directory, mapper);
+        String id = repository.create("world", mapper.readTree("{\"id\":\"weekday\"}"));
+        assertEquals("weekday", id);
+        assertEquals("weekday", repository.list("world").get(0).path("id").asText());
+        assertTrue(repository.delete("world", id));
+        assertTrue(repository.list("world").isEmpty());
+    }
+
     @Test void rejectsTraversalAndNonObjectDrafts() throws Exception {
         DraftRepository repository = new DraftRepository(directory, mapper);
         assertThrows(IllegalArgumentException.class, () -> repository.save("../outside", mapper.createObjectNode()));

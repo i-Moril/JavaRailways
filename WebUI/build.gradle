@@ -1,7 +1,7 @@
 plugins {
     id 'java'
     id 'application'
-    id 'com.gradleup.shadow' version '8.3.6'
+    id 'com.gradleup.shadow' version '9.2.2'
 }
 
 group = 'work.art1st.minerails'
@@ -15,6 +15,7 @@ application { mainClass = 'work.art1st.minerails.webui.WebUiApplication' }
 dependencies {
     implementation 'io.javalin:javalin:6.7.0'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.16'
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -24,11 +25,18 @@ tasks.withType(Test).configureEach { useJUnitPlatform() }
 
 def frontendDir = layout.projectDirectory.dir('frontend')
 def frontendBuildDir = frontendDir.dir('dist')
+tasks.register('installFrontend', Exec) {
+    workingDir frontendDir
+    commandLine 'npm', 'ci'
+    inputs.files(frontendDir.file('package.json'), frontendDir.file('package-lock.json'))
+    outputs.dir(frontendDir.dir('node_modules'))
+}
 tasks.register('buildFrontend', Exec) {
+    dependsOn tasks.named('installFrontend')
     onlyIf { frontendDir.file('package.json').asFile.exists() }
     workingDir frontendDir
     commandLine 'npm', 'run', 'build'
-    inputs.file(frontendDir.file('package.json'))
+    inputs.files(frontendDir.file('package.json'), frontendDir.file('package-lock.json'))
     inputs.dir(frontendDir.dir('src')).optional()
     outputs.dir(frontendBuildDir)
 }

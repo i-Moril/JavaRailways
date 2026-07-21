@@ -121,6 +121,23 @@ class MineRailsConfigTest {
     }
 
     @Test
+    fun `remote WebUI public URL requires https`() {
+        val plaintext = validYaml().apply {
+            set("timetable-webui.public-url", "http://rail.example.com")
+        }
+        val deceptiveHostname = validYaml().apply {
+            set("timetable-webui.public-url", "http://127.attacker.example")
+        }
+        val tls = validYaml().apply {
+            set("timetable-webui.public-url", "https://rail.example.com")
+        }
+
+        assertThrows(IllegalArgumentException::class.java) { MineRailsConfig.fromYaml(plaintext) }
+        assertThrows(IllegalArgumentException::class.java) { MineRailsConfig.fromYaml(deceptiveHostname) }
+        assertEquals("https://rail.example.com", MineRailsConfig.fromYaml(tls).timetableWebUi.publicUrl)
+    }
+
+    @Test
     fun `physics worker threads must be positive`() {
         val yaml = validYaml()
         yaml.set("physics-worker-threads", 0)

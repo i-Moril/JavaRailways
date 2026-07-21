@@ -3,6 +3,7 @@ package work.art1st.mineRails.bukkit.config
 import org.bukkit.configuration.file.YamlConfiguration
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import java.io.File
+import java.net.URI
 
 data class DisplayRendererConfig(
     val backend: DisplayRendererBackend,
@@ -39,6 +40,7 @@ data class TimetableWebUiConfig(
     val mode: TimetableWebUiMode,
     val bindAddress: String,
     val port: Int,
+    val publicUrl: String,
     val shutdownTimeoutMillis: Long
 )
 
@@ -153,6 +155,23 @@ data class MineRailsConfig(
             }
             val webUiPort = optionalInt(yaml, "timetable-webui.port", 8080)
             require(webUiPort in 1..65535) { "timetable-webui.port must be in 1..65535" }
+            val defaultPublicHost = if (webUiBindAddress == "::1") "[::1]" else webUiBindAddress
+            val webUiPublicUrl = optionalString(
+                yaml,
+                "timetable-webui.public-url",
+                "http://$defaultPublicHost:$webUiPort"
+            ).trimEnd('/')
+            val publicUri = runCatching { URI.create(webUiPublicUrl) }.getOrElse {
+                throw IllegalArgumentException("timetable-webui.public-url must be a valid URL", it)
+            }
+            require(publicUri.isAbsolute && publicUri.host != null && publicUri.scheme in setOf("http", "https") &&
+                publicUri.rawQuery == null && publicUri.rawFragment == null
+            ) { "timetable-webui.public-url must be an absolute http(s) URL without query or fragment" }
+            val publicHostIsLoopback = publicUri.host == "localhost" || publicUri.host == "::1" ||
+                publicUri.host == "127.0.0.1"
+            require(publicHostIsLoopback || publicUri.scheme == "https") {
+                "timetable-webui.public-url must use https for non-loopback hosts"
+            }
             val webUiShutdownTimeout = optionalLong(
                 yaml,
                 "timetable-webui.shutdown-timeout-millis",
@@ -193,6 +212,7 @@ data class MineRailsConfig(
                     mode = webUiMode,
                     bindAddress = webUiBindAddress,
                     port = webUiPort,
+                    publicUrl = webUiPublicUrl,
                     shutdownTimeoutMillis = webUiShutdownTimeout
                 )
             )

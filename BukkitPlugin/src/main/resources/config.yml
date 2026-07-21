@@ -46,6 +46,9 @@ timetable-webui:
   mode: managed
   bind-address: 127.0.0.1
   port: 8080
+  # Clickable URL emitted by /mr timetable edit. Set this to the authenticated
+  # reverse-proxy URL when players do not browse on the server host.
+  public-url: http://127.0.0.1:8080
   shutdown-timeout-millis: 5000
 
 # Authenticated loopback-only timetable HTTP bridge used by managed or external WebUI.

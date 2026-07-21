@@ -43,6 +43,7 @@ class TimetableWebUiSidecar(private val plugin: BukkitPlugin) {
                 environment()["MINERAILS_BRIDGE_TOKEN"] = requireNotNull(token)
                 environment()["MINERAILS_WEB_BIND"] = config.bindAddress
                 environment()["MINERAILS_WEB_PORT"] = config.port.toString()
+                environment()["MINERAILS_WEB_SECURE_COOKIE"] = config.publicUrl.startsWith("https://").toString()
                 environment()["MINERAILS_DRAFT_DIR"] = runtimeDirectory.resolve("drafts").toString()
                 environment()["MINERAILS_MAX_REQUEST_BYTES"] = bridge.bodyLimitBytes.toString()
                 environment()["MINERAILS_REQUEST_TIMEOUT_MS"] = bridge.timeoutMillis.toString()

@@ -43,6 +43,20 @@ export default function App() {
 
   useEffect(() => {
     void run(async () => {
+      const loginToken = new URLSearchParams(window.location.hash.slice(1)).get('token');
+      if (loginToken) {
+        // Fragments never reach HTTP servers. Erase the capability before exchanging it.
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+        const response = await fetch('/auth/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: loginToken }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({})) as { error?: string };
+          throw new Error(body.error || `Login failed (${response.status})`);
+        }
+      }
       const values = await api.worlds();
       setWorlds(values);
       if (values[0]) setWorld(values[0].id);

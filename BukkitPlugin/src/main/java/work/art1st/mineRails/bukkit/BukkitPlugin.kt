@@ -15,6 +15,7 @@ import work.art1st.mineRails.bukkit.debug.TrainDebugEventListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.http.TimetableHttpBridge
 import work.art1st.mineRails.bukkit.http.TimetableWebUiSidecar
+import work.art1st.mineRails.bukkit.http.WebUiLoginTokens
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackendFactory
@@ -52,6 +53,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var platformDispatcher: PlatformDispatcher
     lateinit var platformCapabilities: PlatformCapabilities
     lateinit var trainPacketBundles: TrainPacketBundleCoordinator
+    val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
     private var timetableHttpBridge: TimetableHttpBridge? = null

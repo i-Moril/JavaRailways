@@ -1,5 +1,8 @@
 package work.art1st.mineRails.bukkit.command
 
+import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.event.ClickEvent
+import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
@@ -28,6 +31,7 @@ import work.art1st.mineRails.basic.timetable.TimetableServiceStartResult
 import work.art1st.mineRails.basic.timetable.TimetableValidator
 import work.art1st.mineRails.basic.timetable.TimetableWaypointProgressListener
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.config.TimetableWebUiMode
 import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
 import work.art1st.mineRails.bukkit.debug.DepotResetDiagnostics
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
@@ -116,7 +120,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             if (args.size == 3) return BukkitPlugin.INSTANCE.worldManager.railWorlds.keys.map { it.name }
         }
         if (args[0].equals("timetable", ignoreCase = true) || args[0].equals("tt", ignoreCase = true)) {
-            if (args.size == 2) return listOf("load", "dump", "list", "start", "status", "stop", "replan")
+            if (args.size == 2) return listOf("edit", "dump", "list", "start", "status", "stop", "replan")
         }
         return emptyList()
     }
@@ -605,6 +609,35 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             return true
         }
         when (args.firstOrNull()?.lowercase()) {
+            "edit" -> {
+                if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
+                    sender.sendMessage(Component.text("没有权限编辑时刻表", NamedTextColor.RED))
+                    return true
+                }
+                val config = BukkitPlugin.INSTANCE.mineRailsConfig.timetableWebUi
+                if (config.mode == TimetableWebUiMode.DISABLED) {
+                    sender.sendMessage(Component.text("时刻表 WebUI 已禁用", NamedTextColor.RED))
+                    return true
+                }
+                val (token, grant) = BukkitPlugin.INSTANCE.webUiLoginTokens.issue(
+                    sender.uniqueId,
+                    sender.name,
+                    sender.world.name
+                )
+                // URL fragments are not sent in HTTP requests or Referer headers. The React
+                // client exchanges this one-time token with a same-origin POST, then erases it.
+                val url = "${config.publicUrl}/#token=$token"
+                sender.sendMessage(
+                    Component.text("[点击打开 MineRails 时刻表编辑器]", NamedTextColor.AQUA)
+                        .clickEvent(ClickEvent.openUrl(url))
+                )
+                sender.sendMessage(
+                    Component.text(
+                        "链接将在 ${(grant.expiresAtEpochMillis - System.currentTimeMillis()) / 1000} 秒内失效，且只能使用一次。",
+                        NamedTextColor.GRAY
+                    )
+                )
+            }
             "dump" -> {
                 if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
                     sender.sendMessage("没有权限查看时刻表完整配置")
@@ -800,7 +833,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     }
                 }
             }
-            else -> sender.sendMessage("用法: /mr timetable <dump|list|start|status|stop|replan>")
+            else -> sender.sendMessage("用法: /mr timetable <edit|dump|list|start|status|stop|replan>")
         }
         return true
     }
@@ -1048,6 +1081,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr depot assign|list ... - 登记和查看车辆段列车")
         sender.sendMessage("/mr depot reset <depot> confirm | reset-all confirm - Stall 中原子重置")
         sender.sendMessage("/mr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")
+        sender.sendMessage("/mr timetable edit - 获取短期有效的 WebUI 登录链接")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
         sender.sendMessage("/mr timetable start|status|stop <id> [service] - 管理显式列车 service")
         sender.sendMessage("/mr ato status [world] - 查看 World-local ATO 状态")

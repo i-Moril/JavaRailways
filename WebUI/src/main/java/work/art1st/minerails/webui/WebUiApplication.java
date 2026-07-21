@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
+import io.javalin.http.UnauthorizedResponse;
 import io.javalin.http.staticfiles.Location;
 
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 
 /** Standalone browser-facing service. The Bukkit bearer token never leaves this process. */
@@ -18,6 +20,7 @@ public final class WebUiApplication {
     private final ObjectMapper mapper;
     private final DraftRepository drafts;
     private final BridgeClient bridge;
+    private final WebUiSessions sessions = new WebUiSessions(Duration.ofMinutes(30));
 
     WebUiApplication(WebUiConfig config) {
         this(config, new ObjectMapper());
@@ -43,7 +46,10 @@ public final class WebUiApplication {
             settings.http.maxRequestSize = config.maxRequestBytes();
             settings.staticFiles.add("/public", Location.CLASSPATH);
         });
+        app.before(context -> context.header("Referrer-Policy", "no-referrer"));
         app.get("/health", context -> context.json(Map.of("status", "ok")));
+        app.post("/auth/exchange", this::exchangeLoginToken);
+        app.before("/api/v1/{path...}", this::requireSession);
 
         app.get("/api/v1/worlds", context -> proxyGet(context, "worlds"));
         app.get("/api/v1/worlds/{world}/metadata", this::metadata);
@@ -55,6 +61,8 @@ public final class WebUiApplication {
         app.post("/api/v1/worlds/{world}/validate", this::validate);
         app.post("/api/v1/worlds/{world}/publish", this::publish);
 
+        app.exception(UnauthorizedResponse.class,
+            (exception, context) -> error(context, 401, "login required or session expired"));
         app.exception(IllegalArgumentException.class,
             (exception, context) -> error(context, 400, exception.getMessage()));
         app.exception(IllegalStateException.class,
@@ -79,6 +87,36 @@ public final class WebUiApplication {
             }
         });
         return app;
+    }
+
+    private void exchangeLoginToken(Context context) throws IOException, InterruptedException {
+        JsonNode loginRequest = requestJson(context);
+        String token = loginRequest.path("token").asText();
+        if (token.isBlank() || token.length() > 256) {
+            error(context, 400, "login token is required");
+            return;
+        }
+        ObjectNode request = mapper.createObjectNode().put("token", token);
+        BridgeClient.Response response = bridge.post("auth/exchange", request);
+        if (response.status() != 200) {
+            respond(context, response);
+            return;
+        }
+        WebUiSessions.CreatedSession created = sessions.create(response.body());
+        long maxAge = Math.max(1L,
+            (created.session().expiresAtEpochMillis() - System.currentTimeMillis()) / 1000L);
+        String secure = config.secureCookies() ? "; Secure" : "";
+        context.header(
+            "Set-Cookie",
+            WebUiSessions.COOKIE_NAME + "=" + created.id() + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=" + maxAge + secure
+        );
+        context.status(204);
+    }
+
+    private void requireSession(Context context) {
+        String id = context.cookie(WebUiSessions.COOKIE_NAME);
+        WebUiSessions.Session session = sessions.find(id).orElseThrow(UnauthorizedResponse::new);
+        context.attribute("webUiSession", session);
     }
 
     private void metadata(Context context) throws IOException, InterruptedException {

@@ -7,13 +7,22 @@ Standalone Java service for the MineRails timetable editor. It serves the React/
 `BukkitPlugin` 内含独立的 WebUI sidecar JAR。插件启动时会把它提取到
 `plugins/MineRails/webui/MineRails-WebUI.jar`，生成临时 Bridge Token，并启动独立 JVM；
 插件关闭时先终止 sidecar，再关闭 Bridge。`runServer` 和 `runFolia` 因而会自动提供
-<http://127.0.0.1:8080>，无需手动启动第二个 Gradle 任务。
+WebUI，无需手动启动第二个 Gradle 任务。浏览器 API 默认拒绝匿名访问；管理员需在游戏内执行：
+
+```text
+/mr timetable edit
+```
+
+命令会返回一个可点击、约 60 秒有效且只能使用一次的登录链接。Token 放在 URL fragment
+中，不会发送到 HTTP 服务或 Referer；React 随即以同源 POST 交换并清除 fragment。登录后使用
+HttpOnly、SameSite=Strict 的短期会话 Cookie。
 
 ```yaml
 timetable-webui:
   mode: managed
   bind-address: 127.0.0.1
   port: 8080
+  public-url: http://127.0.0.1:8080
   shutdown-timeout-millis: 5000
 ```
 
@@ -24,6 +33,7 @@ timetable-webui:
 ```yaml
 timetable-webui:
   mode: external
+  public-url: https://rail.example.com
 ```
 
 ```bash
@@ -52,6 +62,7 @@ Configuration environment variables:
 | `MINERAILS_DRAFT_DIR` | `data/drafts` |
 | `MINERAILS_WEB_BIND` | `127.0.0.1`（首版只允许 loopback） |
 | `MINERAILS_WEB_PORT` | `8080` |
+| `MINERAILS_WEB_SECURE_COOKIE` | `false`；HTTPS 外部部署必须设为 `true`，managed 模式自动设置 |
 | `MINERAILS_MAX_REQUEST_BYTES` | `1048576` |
 | `MINERAILS_REQUEST_TIMEOUT_MS` | `10000` |
 

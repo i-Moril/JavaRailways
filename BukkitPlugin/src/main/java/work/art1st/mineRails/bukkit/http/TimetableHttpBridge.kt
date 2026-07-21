@@ -9,6 +9,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.bukkit.World as BukkitWorld
 import work.art1st.mineRails.basic.api.destination.DestinationRole
 import work.art1st.mineRails.basic.api.timetable.TimetableConditionProvider
@@ -78,6 +80,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             val parts = exchange.requestURI.path.trim('/').split('/').filter { it.isNotEmpty() }
             when {
                 exchange.requestMethod == "GET" && parts == listOf("health") -> exchange.respond(200, "{\"ok\":true}")
+                exchange.requestMethod == "POST" && parts == listOf("auth", "exchange") -> {
+                    exchange.respond(200, exchangeLoginToken(readBody(exchange)))
+                }
                 exchange.requestMethod == "GET" && parts == listOf("worlds") -> exchange.respond(200, await { worldsJson() })
                 parts.size >= 2 && parts[0] == "worlds" -> routeWorld(exchange, parts.drop(1))
                 else -> exchange.respond(404, error("not found"))
@@ -123,6 +128,19 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                 // outcome rather than reporting a timeout and allowing an apparently failed write.
                 future.get()
             }
+        }
+
+        private fun exchangeLoginToken(body: String): String {
+            val token = json.parseToJsonElement(body).jsonObject["token"]?.jsonPrimitive?.content
+                ?: throw HttpFailure(400, "token is required")
+            val grant = plugin.webUiLoginTokens.consume(token)
+                ?: throw HttpFailure(401, "login token is invalid, expired, or already used")
+            return json.encodeToString(buildJsonObject {
+                put("playerId", grant.playerId.toString())
+                put("playerName", grant.playerName)
+                put("worldId", grant.worldName)
+                put("expiresAtEpochMillis", grant.expiresAtEpochMillis)
+            })
         }
 
         private fun worldsJson() = json.encodeToString(JsonArray(

@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class WebUiConfigTest {
     @AfterEach void clearProperties() {
-        for (String key : new String[]{"minerails.bridge.url", "minerails.web.bind", "minerails.web.port", "minerails.max.request.bytes", "minerails.request.timeout.ms"}) System.clearProperty(key);
+        for (String key : new String[]{"minerails.bridge.url", "minerails.web.bind", "minerails.web.secure-cookie", "minerails.web.port", "minerails.max.request.bytes", "minerails.request.timeout.ms"}) System.clearProperty(key);
     }
     @Test void systemPropertiesOverrideDefaults() {
         System.setProperty("minerails.bridge.url", "https://bridge.example/api");
@@ -15,6 +15,7 @@ class WebUiConfigTest {
         WebUiConfig config = WebUiConfig.fromEnvironment();
         assertEquals("https://bridge.example/api/", config.bridgeUrl().toString());
         assertEquals(8181, config.port());
+        assertFalse(config.secureCookies());
     }
     @Test void rejectsNonLoopbackBind() {
         System.setProperty("minerails.web.bind", "0.0.0.0");

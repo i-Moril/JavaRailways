@@ -2,6 +2,8 @@ package work.art1st.mineRails.bukkit.render.model
 
 import org.bukkit.Bukkit
 import org.bukkit.Location
+import org.bukkit.entity.ArmorStand
+import org.bukkit.entity.Entity
 import org.bukkit.entity.Interaction
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -35,11 +37,12 @@ class SeatModel internal constructor(
     private val controlEnd: DriverControlEnd?
 ) : EntityModel(world, state, attachedModels, animation, null) {
     @Volatile
-    private var carrierEntity: Interaction? = null
+    private var carrierEntity: Entity? = null
     @Volatile
     private var seatBinding: SeatBinding? = null
-    private val visualLocationDelay: ArrayDeque<Location> = ArrayDeque()
-    private val activePlayers: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
+    @Volatile
+    private var latestCarrierLocation: Location? = null
+    private val activePlayers = ConcurrentHashMap<UUID, Player>()
     private val movementRevision = AtomicLong(0L)
     private val spawnScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile
@@ -76,7 +79,8 @@ class SeatModel internal constructor(
                         driverSeat = driverSeat,
                         controlEnd = controlEnd,
                         ensureCarrier = ::ensureCarrier,
-                        destroyCarrier = ::destroyCarrier
+                        destroyCarrier = ::destroyCarrier,
+                        alignAfterDismount = ::alignAfterDismount
                     ).also { binding ->
                         SeatInteractionListener.register(hitbox.uniqueId, binding)
                     }
@@ -93,17 +97,21 @@ class SeatModel internal constructor(
             return
         }
         val playerId = player.uniqueId
-        val radius = if (playerId in activePlayers) DEACTIVATE_DISTANCE else ACTIVATE_DISTANCE
+        val radius = if (activePlayers.containsKey(playerId)) DEACTIVATE_DISTANCE else ACTIVATE_DISTANCE
         if (!isWithinDistance(playerLocation, radius)) {
             deactivateFor(player)
             return
         }
-        activePlayers.add(playerId)
+        activePlayers[playerId] = player
         if (entity == null) spawnEntity()
     }
 
     fun deactivateFor(player: Player) {
-        if (!activePlayers.remove(player.uniqueId) || activePlayers.isNotEmpty()) return
+        if (activePlayers.remove(player.uniqueId) == null) return
+        val packetMotion = BukkitPlugin.INSTANCE.foliaPacketEntityMotion
+        entity?.let { packetMotion?.releaseViewer(it, player.uniqueId) }
+        carrierEntity?.let { packetMotion?.releaseViewer(it, player.uniqueId) }
+        if (activePlayers.isNotEmpty()) return
         destroyRuntimeEntities(force = false)
     }
 
@@ -125,16 +133,15 @@ class SeatModel internal constructor(
             if (activePlayers.isNotEmpty()) spawnEntity()
             return
         }
-        val visualLocation = delayedVisualLocation(entityLocation(hitbox))
+        val visualLocation = entityLocation(hitbox)
+        latestCarrierLocation = bottomCarrierLocation(visualLocation)
         val revision = movementRevision.incrementAndGet()
+        val carrier = carrierEntity
         moveInteraction(hitbox, visualLocation, revision) {
-            val carrier = carrierEntity
             configureSeatHitbox(hitbox, occupied = carrier != null)
-            if (carrier != null) {
-                moveInteraction(carrier, bottomCarrierLocation(visualLocation), revision) {
-                    configureSeatCarrier(carrier)
-                }
-            }
+        }
+        if (carrier != null) {
+            moveCarrier(carrier, bottomCarrierLocation(visualLocation), revision)
         }
     }
 
@@ -143,31 +150,43 @@ class SeatModel internal constructor(
         movementRevision.incrementAndGet()
         activePlayers.clear()
         destroyRuntimeEntities(force = true)
-        visualLocationDelay.clear()
         super.destroy()
     }
 
     @Synchronized
-    private fun ensureCarrier(): Interaction {
+    private fun ensureCarrier(): Entity {
         carrierEntity?.takeIf { it.isValid }?.let { return it }
         destroyCarrier()
         val hitbox = entity as? Interaction ?: error("Seat hitbox not initialized")
-        val carrier = world.bukkitWorldData.bukkitWorld.spawn(bottomCarrierLocation(hitbox.location), Interaction::class.java)
-        configureSeatCarrier(carrier)
+        val carrierLocation = latestCarrierLocation?.clone() ?: bottomCarrierLocation(hitbox.location)
+        val carrier: Entity = if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
+            world.bukkitWorldData.bukkitWorld.spawn(carrierLocation, ArmorStand::class.java) { armorStand ->
+                configureSeatCarrier(armorStand)
+            }
+        } else {
+            world.bukkitWorldData.bukkitWorld.spawn(carrierLocation, Interaction::class.java).also(::configureSeatCarrier)
+        }
         carrierEntity = carrier
         val binding = seatBinding ?: error("Seat binding not initialized")
         binding.carrier = carrier
         SeatInteractionListener.bindCarrier(binding, carrier)
+        if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
+            checkNotNull(BukkitPlugin.INSTANCE.foliaPacketEntityMotion) {
+                "Folia packet entity motion is not initialized"
+            }.registerSeatCarrier(carrier, carrierLocation, activePlayers.values)
+        }
         return carrier
     }
 
     @Synchronized
     private fun destroyCarrier() {
+        movementRevision.incrementAndGet()
         val binding = seatBinding
         val carrier = carrierEntity ?: binding?.carrier ?: return
         if (binding != null) SeatInteractionListener.unbindCarrier(binding)
         binding?.carrier = null
         carrierEntity = null
+        BukkitPlugin.INSTANCE.foliaPacketEntityMotion?.release(carrier)
         BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(carrier, action = {
             carrier.eject()
             carrier.remove()
@@ -181,6 +200,7 @@ class SeatModel internal constructor(
         destroyCarrier()
         (entity as? Interaction)?.let { hitbox ->
             SeatInteractionListener.unregister(hitbox.uniqueId)
+            BukkitPlugin.INSTANCE.foliaPacketEntityMotion?.release(hitbox)
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(hitbox, action = {
                 hitbox.eject()
                 hitbox.remove()
@@ -188,7 +208,18 @@ class SeatModel internal constructor(
         }
         entity = null
         seatBinding = null
-        visualLocationDelay.clear()
+        latestCarrierLocation = null
+    }
+
+    private fun alignAfterDismount(player: Player) {
+        val target = latestCarrierLocation?.clone() ?: return
+        BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(player, 1L, action = {
+            if (!player.isOnline) return@runForEntityLater
+            val current = player.location
+            target.yaw = current.yaw
+            target.pitch = current.pitch
+            player.teleportAsync(target)
+        })
     }
 
     private fun isEligible(player: Player): Boolean =
@@ -209,11 +240,28 @@ class SeatModel internal constructor(
         interaction.setInteractionHeight(if (occupied) 0.0f else 1.0f)
     }
 
-    private fun configureSeatCarrier(interaction: Interaction) {
-        configureCommonInteraction(interaction)
-        interaction.setResponsive(false)
-        interaction.setInteractionWidth(0.01f)
-        interaction.setInteractionHeight(0.01f)
+    private fun configureSeatCarrier(entity: Entity) {
+        when (entity) {
+            is Interaction -> {
+                configureCommonInteraction(entity)
+                entity.setResponsive(false)
+                entity.setInteractionWidth(0.01f)
+                entity.setInteractionHeight(0.01f)
+            }
+            is ArmorStand -> {
+                entity.isPersistent = false
+                entity.isSilent = true
+                entity.isInvisible = true
+                entity.isMarker = true
+                entity.isSmall = true
+                entity.setArms(false)
+                entity.setBasePlate(false)
+                entity.setGravity(false)
+                entity.setNoPhysics(true)
+                entity.isCollidable = false
+            }
+            else -> error("Unsupported Seat carrier type: ${entity.type}")
+        }
     }
 
     private fun configureCommonInteraction(interaction: Interaction) {
@@ -232,14 +280,15 @@ class SeatModel internal constructor(
         BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(interaction, action = entityTask@{
             if (revision != movementRevision.get() || !interaction.isValid) return@entityTask
             if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
-                interaction.teleportAsync(location).thenAccept { teleported ->
-                    if (teleported) {
-                        BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(interaction, action = movedTask@{
-                            if (revision != movementRevision.get()) return@movedTask
-                            afterMove()
-                        })
-                    }
+                val viewersById = LinkedHashMap<UUID, Player>()
+                activePlayers.values.forEach { viewersById[it.uniqueId] = it }
+                interaction.passengers.filterIsInstance<Player>().forEach {
+                    viewersById[it.uniqueId] = it
                 }
+                checkNotNull(BukkitPlugin.INSTANCE.foliaPacketEntityMotion) {
+                    "Folia packet entity motion is not initialized"
+                }.sync(interaction, location, viewersById.values)
+                afterMove()
             } else {
                 interaction.teleport(location)
                 afterMove()
@@ -247,24 +296,29 @@ class SeatModel internal constructor(
         })
     }
 
-    private fun delayedVisualLocation(current: Location): Location {
-        visualLocationDelay.addLast(current.clone())
-        while (visualLocationDelay.size > SEAT_VISUAL_DELAY_TICKS + 1) {
-            visualLocationDelay.removeFirst()
-        }
-        return if (visualLocationDelay.size > SEAT_VISUAL_DELAY_TICKS) {
-            visualLocationDelay.first().clone()
+    private fun moveCarrier(carrier: Entity, location: Location, revision: Long) {
+        if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
+            val packetMotion = checkNotNull(BukkitPlugin.INSTANCE.foliaPacketEntityMotion) {
+                "Folia packet entity motion is not initialized"
+            }
+            packetMotion.renderSeatCarrier(carrier, location, activePlayers.values)
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(carrier, action = entityTask@{
+                if (revision != movementRevision.get() || !carrier.isValid) return@entityTask
+                packetMotion.syncSeatAuthority(carrier, location)
+                configureSeatCarrier(carrier)
+            })
         } else {
-            current.clone()
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(carrier, action = entityTask@{
+                if (revision != movementRevision.get() || !carrier.isValid) return@entityTask
+                carrier.teleport(location)
+                configureSeatCarrier(carrier)
+            })
         }
     }
 
-    private fun bottomCarrierLocation(hitboxLocation: Location): Location {
-        return hitboxLocation.clone()
-    }
+    private fun bottomCarrierLocation(hitboxLocation: Location): Location = hitboxLocation.clone()
 
     companion object {
-        private const val SEAT_VISUAL_DELAY_TICKS = 1
         // Vanilla interaction reach is below this radius; the extra margin avoids pop-in while moving.
         private const val ACTIVATE_DISTANCE = 6.0
         private const val DEACTIVATE_DISTANCE = 8.0
@@ -272,12 +326,13 @@ class SeatModel internal constructor(
 
     data class SeatBinding(
         val hitbox: Interaction,
-        var carrier: Interaction?,
+        var carrier: Entity?,
         val ownerCar: Car?,
         val driverSeat: Boolean,
         val controlEnd: DriverControlEnd?,
-        val ensureCarrier: () -> Interaction,
-        val destroyCarrier: () -> Unit
+        val ensureCarrier: () -> Entity,
+        val destroyCarrier: () -> Unit,
+        val alignAfterDismount: (Player) -> Unit
     )
 
     object SeatInteractionListener : Listener {
@@ -302,7 +357,7 @@ class SeatModel internal constructor(
             binding.carrier?.let { seatsByCarrier.remove(it.uniqueId) }
         }
 
-        fun bindCarrier(binding: SeatBinding, carrier: Interaction) {
+        fun bindCarrier(binding: SeatBinding, carrier: Entity) {
             binding.carrier?.let { seatsByCarrier.remove(it.uniqueId) }
             binding.carrier = carrier
             seatsByCarrier[carrier.uniqueId] = binding
@@ -319,7 +374,7 @@ class SeatModel internal constructor(
         fun drivingTrainFor(player: Player): Train? = driverSeatFor(player)?.train
 
         fun driverSeatFor(player: Player): DriverSeatContext? {
-            val vehicle = player.vehicle as? Interaction ?: return null
+            val vehicle = player.vehicle ?: return null
             val binding = seatsByCarrier[vehicle.uniqueId] ?: return null
             if (!binding.driverSeat) return null
             val carrier = binding.carrier ?: return null
@@ -342,8 +397,9 @@ class SeatModel internal constructor(
         @EventHandler
         fun onPlayerDismountSeat(event: EntityDismountEvent) {
             val player = event.entity as? Player ?: return
-            val carrier = event.dismounted as? Interaction ?: return
+            val carrier = event.dismounted
             val binding = seatsByCarrier[carrier.uniqueId] ?: return
+            binding.alignAfterDismount(player)
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(carrier, 1L, action = {
                 restoreIfEmpty(binding)
             })
@@ -391,7 +447,7 @@ class SeatModel internal constructor(
         }
 
         private fun restoreSeatFor(player: Player) {
-            val carrier = player.vehicle as? Interaction ?: return
+            val carrier = player.vehicle ?: return
             val binding = seatsByCarrier[carrier.uniqueId] ?: return
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(carrier, 1L, action = {
                 carrier.passengers.firstOrNull { it.uniqueId == player.uniqueId }?.let(carrier::removePassenger)

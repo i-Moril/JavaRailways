@@ -12,6 +12,7 @@ import work.art1st.mineRails.basic.pathFinding.RailDestination
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
+import work.art1st.mineRails.core.api.util.annotation.Heavy
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -21,6 +22,43 @@ enum class DestinationRoleType(val displayName: String) {
     REGULAR("普通目的地"),
     STATION_BERTH("车站停车位"),
     DEPOT_STABLING_POINT("车辆段停车点")
+}
+
+/** Canonical WayPoint IDs for operational destinations whose identity is owned by a role. */
+object OperationalDestinationIds {
+    const val COMPONENT_SEPARATOR = '@'
+
+    fun stationBerth(stationId: StationId, berthId: String): String =
+        join(stationId.value, berthId, "stationId", "berthId")
+
+    fun depotStablingPoint(depotId: String, stablingPointId: String): String =
+        join(depotId, stablingPointId, "depotId", "stablingPointId")
+
+    fun parseStationBerth(value: String): StationBerthRef {
+        val (stationId, berthId) = split(value, "station berth")
+        return StationBerthRef(StationId(stationId), berthId)
+    }
+
+    private fun join(first: String, second: String, firstLabel: String, secondLabel: String): String {
+        requireComponent(firstLabel, first)
+        requireComponent(secondLabel, second)
+        return "$first$COMPONENT_SEPARATOR$second"
+    }
+
+    private fun split(value: String, label: String): Pair<String, String> {
+        require(value == value.trim()) { "$label destination ID must be trimmed" }
+        val separator = value.indexOf(COMPONENT_SEPARATOR)
+        require(separator > 0 && separator == value.lastIndexOf(COMPONENT_SEPARATOR) &&
+            separator < value.lastIndex
+        ) { "$label destination ID must use '<owner>@<point>'" }
+        return value.substring(0, separator) to value.substring(separator + 1)
+    }
+
+    private fun requireComponent(label: String, value: String) {
+        require(value.isNotBlank() && value == value.trim() &&
+            COMPONENT_SEPARATOR !in value && value.none(Char::isISOControl)
+        ) { "$label must be stable text without '@' or control characters" }
+    }
 }
 
 sealed interface DestinationRole {
@@ -101,6 +139,20 @@ data class OperationalDestination(
         requireStableId("destinationId", id)
         require(displayName.isNotBlank() && displayName == displayName.trim())
         require(arcLengthInAbMeters.isFinite() && arcLengthInAbMeters >= 0.0)
+        val canonicalRoleId = when (role) {
+            DestinationRole.Regular -> id
+            is DestinationRole.StationBerthRole -> OperationalDestinationIds.stationBerth(
+                role.stationId,
+                role.berthId
+            )
+            is DestinationRole.DepotStablingPointRole -> OperationalDestinationIds.depotStablingPoint(
+                role.depotId,
+                role.stablingPointId
+            )
+        }
+        require(id == canonicalRoleId) {
+            "${role.type} destination ID must be canonical: $canonicalRoleId"
+        }
     }
 
     fun toWayPoint(): WayPoint = WayPoint(id, displayName, railId, arcLengthInAbMeters)
@@ -189,6 +241,175 @@ class OperationalDestinationService(private val world: World) {
             if (depotRole != null) data.depots.removeStablingPoint(depotRole.pointRef)
             throw failure
         }
+    }
+
+    /** Remove every destination owned by a rail before that rail is permanently deleted. */
+    @MainThread
+    fun removeAllOnRail(railId: UUID): List<OperationalDestination> {
+        val attached = data.destinations.all().filter { it.railId == railId }
+        attached.forEach { destination ->
+            check(remove(destination.id) == destination) {
+                "Destination changed while deleting rail $railId: ${destination.id}"
+            }
+        }
+        data.wayPoints.all().filter { it.railId == railId }.forEach { wayPoint ->
+            data.wayPoints.remove(wayPoint.id)
+        }
+        return attached
+    }
+
+    /**
+     * Move every destination from an old rail onto its geometric position on a replacement rail.
+     * Directed destinations retain their physical approach direction even if the replacement's
+     * AB orientation is reversed. All role-owned station/depot records are rebuilt by [replace].
+     */
+    @MainThread
+    @OptIn(Heavy::class)
+    fun migrateAllOnRail(oldRailId: UUID, replacementRailId: UUID): List<OperationalDestination> =
+        migrateAllOnRails(mapOf(oldRailId to replacementRailId))
+
+    /** Atomically migrate destination references for a multi-rail rebuild. */
+    @MainThread
+    @OptIn(Heavy::class)
+    fun migrateAllOnRails(replacements: Map<UUID, UUID>): List<OperationalDestination> {
+        if (replacements.isEmpty()) return emptyList()
+        replacements.forEach { (oldRailId, replacementRailId) ->
+            require(oldRailId != replacementRailId) { "replacement rail must have a new ID" }
+            requireNotNull(world.getRail(oldRailId)) {
+                "Destination source rail not found: $oldRailId"
+            }
+            requireNotNull(world.getRail(replacementRailId)) {
+                "Destination replacement rail not found: $replacementRailId"
+            }
+        }
+        val originals = data.destinations.all().filter { it.railId in replacements }
+        val destinationIds = data.destinations.all().mapTo(HashSet()) { it.id }
+        val standaloneWayPoints = data.wayPoints.all().filter {
+            it.id !in destinationIds && it.railId in replacements
+        }
+        val plans = originals.map { original ->
+            val replacementRailId = requireNotNull(replacements[original.railId])
+            val oldRail = requireNotNull(world.getRail(original.railId))
+            val replacement = requireNotNull(world.getRail(replacementRailId))
+            val oldPoint = oldRail.curve.getPointAt(original.arcLengthInAbMeters)
+            val replacementPoint = replacement.curve.getNearestPoint(oldPoint.position)
+            val direction = original.approachDirection?.let { oldDirection ->
+                val sameAbOrientation = oldPoint.tangent.dot(replacementPoint.tangent) >= 0.0
+                if (sameAbOrientation) oldDirection else when (oldDirection) {
+                    ViewDirection.AB -> ViewDirection.BA
+                    ViewDirection.BA -> ViewDirection.AB
+                }
+            }
+            original to original.copy(
+                railId = replacementRailId,
+                arcLengthInAbMeters = replacementPoint.arcLength,
+                approachDirection = direction
+            )
+        }
+        val wayPointPlans = standaloneWayPoints.map { original ->
+            val replacementRailId = requireNotNull(replacements[original.railId])
+            val oldRail = requireNotNull(world.getRail(original.railId))
+            val replacement = requireNotNull(world.getRail(replacementRailId))
+            val oldPoint = oldRail.curve.getPointAt(original.arcLength)
+            val replacementPoint = replacement.curve.getNearestPoint(oldPoint.position)
+            original.copy(railId = replacementRailId, arcLength = replacementPoint.arcLength)
+        }
+        val migrated = ArrayList<OperationalDestination>(plans.size)
+        try {
+            plans.forEach { (original, next) ->
+                replace(original.id, next)
+                migrated += next
+            }
+            wayPointPlans.forEach(data.wayPoints::add)
+        } catch (failure: Exception) {
+            plans.asReversed().forEach { (original, next) ->
+                if (data.destinations[original.id] == next) {
+                    runCatching { replace(original.id, original) }
+                        .onFailure(failure::addSuppressed)
+                }
+            }
+            throw failure
+        }
+        return migrated
+    }
+
+    /** Rebind destinations after Core atomically replaced one rail with two same-direction pieces. */
+    @MainThread
+    fun migrateAfterRailSplit(
+        oldRailId: UUID,
+        beforeRailId: UUID,
+        afterRailId: UUID,
+        splitArcLengthInAbMeters: Double
+    ): List<OperationalDestination> {
+        require(splitArcLengthInAbMeters > 0.0 && splitArcLengthInAbMeters.isFinite())
+        requireNotNull(world.getRail(beforeRailId)) { "Split before rail not found: $beforeRailId" }
+        requireNotNull(world.getRail(afterRailId)) { "Split after rail not found: $afterRailId" }
+        val plans = data.destinations.all().filter { it.railId == oldRailId }.map { original ->
+            if (original.arcLengthInAbMeters <= splitArcLengthInAbMeters) {
+                original.copy(railId = beforeRailId)
+            } else {
+                original.copy(
+                    railId = afterRailId,
+                    arcLengthInAbMeters = original.arcLengthInAbMeters - splitArcLengthInAbMeters
+                )
+            }
+        }
+        plans.forEach { replace(it.id, it) }
+        data.wayPoints.all().filter {
+            it.railId == oldRailId && data.destinations[it.id] == null
+        }.forEach { original ->
+            data.wayPoints.add(
+                if (original.arcLength <= splitArcLengthInAbMeters) {
+                    original.copy(railId = beforeRailId)
+                } else {
+                    original.copy(
+                        railId = afterRailId,
+                        arcLength = original.arcLength - splitArcLengthInAbMeters
+                    )
+                }
+            )
+        }
+        return plans
+    }
+
+    /** Rebind destinations after Core atomically concatenated two same-direction rail pieces. */
+    @MainThread
+    fun migrateAfterRailMerge(
+        beforeRailId: UUID,
+        afterRailId: UUID,
+        mergedRailId: UUID,
+        beforeLengthMeters: Double
+    ): List<OperationalDestination> {
+        require(beforeLengthMeters > 0.0 && beforeLengthMeters.isFinite())
+        requireNotNull(world.getRail(mergedRailId)) { "Merged rail not found: $mergedRailId" }
+        val plans = data.destinations.all()
+            .filter { it.railId == beforeRailId || it.railId == afterRailId }
+            .map { original ->
+                original.copy(
+                    railId = mergedRailId,
+                    arcLengthInAbMeters = if (original.railId == beforeRailId) {
+                        original.arcLengthInAbMeters
+                    } else {
+                        beforeLengthMeters + original.arcLengthInAbMeters
+                    }
+                )
+            }
+        plans.forEach { replace(it.id, it) }
+        data.wayPoints.all().filter {
+            (it.railId == beforeRailId || it.railId == afterRailId) && data.destinations[it.id] == null
+        }.forEach { original ->
+            data.wayPoints.add(
+                original.copy(
+                    railId = mergedRailId,
+                    arcLength = if (original.railId == beforeRailId) {
+                        original.arcLength
+                    } else {
+                        beforeLengthMeters + original.arcLength
+                    }
+                )
+            )
+        }
+        return plans
     }
 
     @MainThread

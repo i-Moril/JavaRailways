@@ -38,11 +38,17 @@ class RailObjectWandDynamicUiTest {
             setOf(keys.name.id, keys.role.id, keys.approachDirection.id),
             visibleIds(registry, playerId)
         )
+        assertEquals(
+            setOf(keys.role.id),
+            registry.buildGroupForPlayer(
+                RailObjectWand.WayPointEditKeys.GROUP_ID,
+                playerId
+            ).triggerKeyIds
+        )
 
         session.setValue(keys.role, DestinationRoleType.STATION_BERTH)
         assertEquals(
             setOf(
-                keys.name.id,
                 keys.role.id,
                 keys.approachDirection.id,
                 keys.stationId.id,
@@ -55,7 +61,6 @@ class RailObjectWandDynamicUiTest {
         session.setValue(keys.role, DestinationRoleType.DEPOT_STABLING_POINT)
         assertEquals(
             setOf(
-                keys.name.id,
                 keys.role.id,
                 keys.approachDirection.id,
                 keys.depotId.id,

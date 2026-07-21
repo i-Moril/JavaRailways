@@ -161,6 +161,38 @@ class TrainExtension : CoreTrainExtension {
         return TrainModelOperationResult.Accepted(tracker.completionDelaySeconds)
     }
 
+    /** Execute a named behavior.js or actions.yml action and confirm its delayed effects. */
+    fun executeModelAction(name: String, onComplete: () -> Unit): TrainModelOperationResult {
+        val position = self.headLocation.position
+        BukkitThreadOwnership.ensureLocation(
+            Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z()),
+            "TrainExtension.executeModelAction"
+        )
+        if (name.isBlank() || name != name.trim()) {
+            return TrainModelOperationResult.Rejected("model action name is invalid")
+        }
+        if (actionExecutionTracker != null) {
+            return TrainModelOperationResult.Rejected("another tracked train action is executing")
+        }
+        val tracker = ActionExecutionTracker()
+        actionExecutionTracker = tracker
+        val applied = try {
+            val behaviorDefinesAction = behaviorActions().any { it.name == name }
+            if (behaviorDefinesAction) applyBehaviorAction(name) else applyAction(name)
+        } finally {
+            actionExecutionTracker = null
+        }
+        if (!applied || tracker.callCount == 0 || tracker.failedCount > 0) {
+            return TrainModelOperationResult.Rejected("train model action is unavailable or failed: $name")
+        }
+        if (tracker.completionDelaySeconds > 0.0) {
+            scheduleDelayed(tracker.completionDelaySeconds, onComplete)
+        } else {
+            onComplete()
+        }
+        return TrainModelOperationResult.Accepted(tracker.completionDelaySeconds)
+    }
+
     private fun applyActionAnimation(animation: TrainActionAnimationConfig): Boolean {
         return if (animation.scene == null) {
             applyAnimation(animation.name)

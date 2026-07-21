@@ -28,7 +28,7 @@ class RailObjectDestinationEditTest {
             releaseDistanceMetersAfter = 6.0
         )
         val original = OperationalDestination(
-            id = "central-one",
+            id = "central@one",
             displayName = "Central platform one",
             railId = railId,
             arcLengthInAbMeters = 42.0,
@@ -36,7 +36,7 @@ class RailObjectDestinationEditTest {
             role = originalRole
         )
         val edit = RailObjectDestinationEdit(
-            id = "central-one-renamed",
+            id = "ignored-for-station-role",
             roleType = DestinationRoleType.STATION_BERTH,
             approachDirection = ViewDirection.BA,
             stationId = "central",
@@ -51,6 +51,7 @@ class RailObjectDestinationEditTest {
         )
         val role = updated.role as DestinationRole.StationBerthRole
 
+        assertEquals("central@one", updated.id)
         assertEquals("Central platform one", updated.displayName)
         assertEquals("Central Station", role.stationDisplayName)
         assertEquals(2.5, role.stoppingOffsetMetersBefore)
@@ -90,7 +91,7 @@ class RailObjectDestinationEditTest {
     fun `editing a depot destination preserves its display name`() {
         val railId = UUID.randomUUID()
         val original = OperationalDestination(
-            id = "north-one",
+            id = "north@one",
             displayName = "North depot road one",
             railId = railId,
             arcLengthInAbMeters = 30.0,
@@ -120,6 +121,7 @@ class RailObjectDestinationEditTest {
         )
         val role = updated.role as DestinationRole.DepotStablingPointRole
 
+        assertEquals("north@one", updated.id)
         assertEquals("North depot road one", updated.displayName)
         assertEquals("North Depot", role.depotDisplayName)
         assertEquals(90.0, role.usableLengthMeters)

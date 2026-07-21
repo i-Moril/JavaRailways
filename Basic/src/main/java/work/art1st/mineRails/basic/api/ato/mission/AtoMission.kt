@@ -7,6 +7,7 @@ import work.art1st.mineRails.basic.route.PlannedRouteCompiler
 import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import java.util.Collections
 
@@ -38,14 +39,16 @@ data class AtoMissionRequest private constructor(
     val id: String,
     val revision: Long,
     val origin: WayPointRef,
-    val points: List<AtoMissionPoint>
+    val points: List<AtoMissionPoint>,
+    val requiredStartDirection: ViewDirection?
 ) {
     constructor(
         id: String,
         revision: Long,
         origin: WayPointRef,
-        points: Collection<AtoMissionPoint>
-    ) : this(id, revision, origin, immutableCopy(points))
+        points: Collection<AtoMissionPoint>,
+        requiredStartDirection: ViewDirection? = null
+    ) : this(id, revision, origin, immutableCopy(points), requiredStartDirection)
 
     init {
         require(id.isNotBlank() && id == id.trim())
@@ -149,7 +152,13 @@ class AtoMissionResolver(private val world: World) {
             if (wayPoints[to.id] == null) {
                 return AtoMissionResolutionResult.TargetUnresolved(to)
             }
-            val expanded = when (val result = routePlanner.buildRoute(from.id, to.id)) {
+            val fromWayPoint = requireNotNull(wayPoints[from.id])
+            val toWayPoint = requireNotNull(wayPoints[to.id])
+            val expanded = when (val result = routePlanner.buildRoute(
+                fromWayPoint,
+                toWayPoint,
+                requiredStartDirection = request.requiredStartDirection.takeIf { index == 0 }
+            )) {
                 is RouteBuildResult.Success -> result.route
                 is RouteBuildResult.Failure -> return AtoMissionResolutionResult.RouteUnavailable(
                     from,

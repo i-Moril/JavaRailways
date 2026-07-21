@@ -32,8 +32,8 @@
 
 ```yaml
 display-renderer:
-  # native | entitylib
-  backend: native
+  # entitylib | native
+  backend: entitylib
 
   player-distance:
     # player-view-distance：使用玩家客户端视距换算为方块
@@ -44,8 +44,8 @@ display-renderer:
 
 规则：
 
-1. `native` 是兼容默认值，保持原生追踪限制。
-2. `entitylib` 使用 packet-only Display，可超过原生实体追踪范围。
+1. `entitylib` 是 Paper/Folia 默认值，使用 packet-only Display，可超过原生实体追踪范围。
+2. `native` 保留为管理员显式兼容回退，受原生追踪限制。
 3. 后端只在启动时选择；不支持热切换。
 4. 无法初始化所选后端时必须明确阻止插件启用，不能静默回退并造成重复或缺失模型。
 5. 玩家距离必须在 `0..max-blocks` 内；未设置玩家使用 `min(clientViewDistance * 16, max-blocks)`。

@@ -33,6 +33,16 @@ class ReversedCurve(
 
     @Heavy
     override fun stream(): Stream<Curve.Point> = originalCurve.stream()
+        .map { point ->
+            Curve.Point(
+                position = point.position,
+                tangent = Vector3d(point.tangent).negate(),
+                normal = point.normal,
+                curve = this,
+                arcLength = totalArcLength - point.arcLength
+            )
+        }
+        .sorted(compareBy(Curve.Point::arcLength))
 
     override fun splitAt(arcLength: Double): Pair<PrimeCurve, PrimeCurve> {
         val (originalBefore, originalAfter) = originalCurve.splitAt(totalArcLength - arcLength)

@@ -6,9 +6,9 @@
 
 ## 结论
 
-当前分支已经完成核心 tick 解耦和首轮 entity/region affinity 改造，但在真实 Folia 跨 region smoke/stress test 完成前，MineRails **仍不能声明正式兼容 Folia**：
+当前分支已经完成核心 tick 解耦和首轮 entity/region affinity 改造，并统一生成可用于 Paper/Folia 的插件 artifact：
 
-- 生产 `plugin.yml` 继续生成 `folia-supported: false`；只有 `-PmineRailsFoliaSmoke=true` 的测试 artifact 会临时生成 `true`。
+- 所有构建固定生成 `folia-supported: true`，不再维护单独的 smoke artifact 开关。
 - 生产代码已移除传统 `BukkitScheduler` 和 Paper `ServerTickStartEvent/ServerTickEndEvent` 驱动链。
 - visual frame、generic commit、玩家受众以及原生 interaction/seat/platform entity 已进入 target-aware region/entity 调度；跨 region 原生实体移动使用 `teleportAsync`。
 - `ThreadGuard` 的遗留“main thread”语义现表示串行 simulation context；Bukkit 副作用另由 `BukkitThreadOwnership` 校验 target ownership。
@@ -20,7 +20,7 @@
 
 | 模块 | 复杂度 | 原因 |
 |---|---:|---|
-| 插件元数据与构建 | 低 | 只需生成 `folia-supported: true`，但必须等代码真实兼容后再开启。 |
+| 插件元数据与构建 | 低 | Paper/Folia 共用固定声明 `folia-supported: true` 的 Shadow JAR。 |
 | 调度器抽象 | 中 | 需要统一封装 Paper/Folia 的 sync、async、timer、entity、region 调度。 |
 | ThreadGuard 语义 | 高 | 当前只有 `MAIN_THREAD`；Folia 需要表达 entity/region/global ownership。 |
 | Core tick / 状态发布 / render commit | 高 | 当前 `TickManagerImpl.postTick()` 串行 commit，且 Core 状态发布与 Bukkit 渲染副作用耦合；需要改为分片计算、不可变快照发布和异步消费。 |
@@ -125,17 +125,17 @@ WorldManager.onTickEnd
 - visual frame 按 car frame 目标位置分发到 region scheduler；`LatestAffinityTaskDispatcher` 将每个 car 限制为一个 in-flight 和一个 latest pending frame。
 - generic `Synchronizable` commit 通过 `PlatformCommitAffinity` 获取 location，并使用相同的有界 affinity dispatcher；执行前会重新解析移动列车的 current affinity。
 - `CoreTrain.commitRenderState()` 已删除；显式 `CoreTrain.commit()` 只发布 Core immutable state。命令侧 frame 通过 `CoreWorld.publishCurrentTrainFrame()` 显式进入 visual mailbox。`CoreCar`/`CoreBogie` 也不再实现 generic `Synchronizable`，结构上不能误入 platform commit mailbox。
-- Folia 自动强制使用 EntityLib packet display backend。native interaction、seat carrier、platform collision 与 Wand marker entity 的 spawn/mutation/removal 使用 location/entity scheduler；跨 region movement 使用 `teleportAsync` 和 stale revision token。玩家距离判断先在 player entity task 形成 activation/snapshot，再由目标 location task 创建 native entity。
+- Paper/Folia 默认使用 EntityLib packet display backend，但都遵循管理员的显式 `native` 回退配置。native interaction、seat carrier、platform collision 与 Wand marker entity 的 spawn/mutation/removal 使用 location/entity scheduler；跨 region movement 使用 `teleportAsync` 和 stale revision token。玩家距离判断先在 player entity task 形成 activation/snapshot，再由目标 location task创建 native entity。
 - 删除未被使用、仍依赖单主线程 teleport 的旧 `SeatExtension`；实际座位实现为 `SeatModel`。
 - rail/car audience/model lifecycle 增加并发集合或对象级串行化，防止不同 player region 与 car region 同时 build/destroy/update；shutdown 会先设置 stopping 并标记所有 world unloading，使已提交 frame/commit task 在 teardown 时跳过。
 - `/mr perf` 增加 visual region dispatch 的 pending car、coalesced frame 和 task 计数。
-- 新增 `runFolia`：`./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia`。生产元数据仍保持 `folia-supported: false`。
+- 新增 `runFolia`：`./gradlew :BukkitPlugin:runFolia`；普通构建与测试运行均生成 `folia-supported: true`。
 - 新增 affinity coalescer、simulation lock/release-restore 及 Core car/bogie commit decoupling 单元测试；`./gradlew test` 通过。
 - 使用 `openai-codex/gpt-5.5` 多轮审查；修复了 legacy CoreCar generic commit、player-affine native spawn、shutdown queued task、seat passenger ownership 与 marker mutable-state capture 问题。
 
 启动验证：
 
-- `./gradlew -PmineRailsFoliaSmoke=true :BukkitPlugin:runFolia` 已在 Folia `26.1.2-8` 完成空服启动。
+- `./gradlew :BukkitPlugin:runFolia` 已在 Folia `26.1.2-8` 完成启动。
 - PacketEvents 从 `2.11.1` 更新到明确支持 Minecraft 26.1.2 的 `2.12.1`，修复 `NMS_ITEM_STACK_CLASS` 初始化失败。
 - Folia 测试 jar 先 staging 到独立 `build/folia-plugin` 目录，避免 Folia 在 Shadow 写入期间扫描 `build/libs` 产生损坏 jar 误报。
 - 日志确认 MineRails load/enable、Folia detection、EntityLib backend 选择、三个 world 注册以及 timeout 触发后的 disable/shutdown 均无异常。
@@ -146,7 +146,7 @@ WorldManager.onTickEnd
 - 逐项验证驾驶、乘坐/下车、collision platform、door behavior、声音以及跨 region split/link/remove。
 - 根据压力数据决定是否进一步按 region batch car frame task；当前按 car 有界调度优先保证 latest-wins 和迁移正确性。
 - 确认 EntityLib/PacketEvents 在目标 Folia build 上的实际线程安全边界与 shutdown 行为。
-- 全部验证通过前不得把生产 `folia-supported` 改为 `true`。
+- 持续验证默认 EntityLib 与显式 native 回退在 Paper/Folia 上的行为。
 
 ## 调度开销复审（2026-07-18，初始 T2 状态）
 

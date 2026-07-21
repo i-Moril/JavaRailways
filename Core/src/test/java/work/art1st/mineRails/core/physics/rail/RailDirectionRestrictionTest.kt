@@ -2,41 +2,51 @@ package work.art1st.mineRails.core.physics.rail
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
-import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import org.joml.Vector3d
 import work.art1st.mineRails.core.api.physics.curve.Curve
 import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
-import work.art1st.mineRails.core.api.physics.exception.BogieException
 import work.art1st.mineRails.core.api.physics.rail.RailMetadata
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.physics.train.CoreBogie
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTestWorld
+import work.art1st.mineRails.core.physics.train.createTrainWithConfig
+import work.art1st.mineRails.core.util.AsyncTickTestSupport
 
 class RailDirectionRestrictionTest {
     @Test
-    fun `active connection cannot enter rail in restricted direction`() {
+    fun `physical topology and bogie geometry ignore operational direction restriction`() {
         val world = createTestWorld()
-        val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(10.0, segmentCount = 1))
+        val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(40.0, segmentCount = 1))
         val secondCurve = PrimeCurve.fromPoints(listOf(
-            Curve.RawPoint(Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
-            Curve.RawPoint(Vector3d(20.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 10.0)
+            Curve.RawPoint(Vector3d(40.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
+            Curve.RawPoint(Vector3d(80.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 40.0)
         ))
         val second = CoreRail(world, secondCurve, mutableListOf(), mutableListOf())
         RailView.connect(first.viewAB, second.viewBA)
         assertEquals(second.viewAB, first.viewAB.activeRail)
 
         second.metadata = RailMetadata(allowedDirection = ViewDirection.BA)
-        assertNull(first.viewAB.activeRail)
-        val forbiddenBogie = CoreBogie.create(second.viewAB.getRailLocationAt(1.0))
-        val allowedBogie = CoreBogie.create(second.viewBA.getRailLocationAt(1.0))
-        assertThrows(BogieException::class.java) { forbiddenBogie.moveForward(1.0) }
-        assertDoesNotThrow { allowedBogie.moveForward(1.0) }
+        assertEquals(second.viewAB, first.viewAB.activeRail)
+        val operationallyForbiddenBogie = CoreBogie.create(second.viewAB.getRailLocationAt(1.0))
+        val operationallyAllowedBogie = CoreBogie.create(second.viewBA.getRailLocationAt(1.0))
+        assertDoesNotThrow { operationallyForbiddenBogie.moveForward(1.0) }
+        assertDoesNotThrow { operationallyAllowedBogie.moveForward(1.0) }
 
         second.metadata = second.metadata.copy(allowedDirection = ViewDirection.AB)
-        assertEquals(second.viewAB, first.viewAB.activeRail)
+        val behind = second.viewAB.getRailLocationAt(1.0).forward(-2.0)
+        assertEquals(first.id, behind?.rail?.id)
+        assertEquals(ViewDirection.AB, behind?.facing)
+        assertEquals(39.0, requireNotNull(behind).arcLength, 1.0e-9)
+
+        val train = createTrainWithConfig("one-way-boundary", first, world, listOf(17.2))
+        train.setLocation(second.viewAB.getRailLocationAt(5.0))
+        assertEquals(first.id, train.tailLocation.rail.id)
+        AsyncTickTestSupport.run { train.moveTrainForward(0.54) }
+        train.commit()
+        assertFalse(train.isDerailed)
     }
 }

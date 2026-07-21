@@ -337,6 +337,31 @@ class DepotStore {
         rollingStock[record.trainId] = RollingRuntime(record, RollingStockState.AVAILABLE, at)
     }
 
+    /** Restore a persisted logical record without recreating transient allocation/reservation objects. */
+    @MainThread
+    fun restoreRollingStock(snapshot: RollingStockSnapshot) = synchronized(lock) {
+        check(rollingStock[snapshot.record.trainId] == null) {
+            "RollingStock already registered: ${snapshot.record.trainId}"
+        }
+        val point = snapshot.stablingPointRef?.let { ref ->
+            points[ref] ?: throw IllegalArgumentException("StablingPoint not found: $ref")
+        }
+        require(snapshot.stablingPointRef == null ||
+            snapshot.stablingPointRef.depotId == snapshot.record.homeDepotId)
+        if (point != null) {
+            require(point.occupantTrainId == null && point.reservedByAssignmentId == null)
+            require(pointAccepts(point.point, snapshot.record))
+            point.occupantTrainId = snapshot.record.trainId
+            point.reservedByAssignmentId = snapshot.assignmentId
+        }
+        rollingStock[snapshot.record.trainId] = RollingRuntime(
+            snapshot.record,
+            snapshot.state,
+            snapshot.stablingPointRef,
+            snapshot.assignmentId
+        )
+    }
+
     @MainThread
     fun unregisterRollingStock(trainId: String): RollingStockRecord? = synchronized(lock) {
         val runtime = rollingStock[trainId] ?: return@synchronized null

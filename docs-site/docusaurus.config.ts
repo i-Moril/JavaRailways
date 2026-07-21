@@ -69,7 +69,6 @@ const config: Config = {
           title: '内容创作',
           items: [
             {label: '列车模型包', to: '/train-model'},
-            {label: 'JS 时刻表', to: '/timetable'},
           ],
         },
       ],

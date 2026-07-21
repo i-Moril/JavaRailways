@@ -19,6 +19,13 @@ sealed interface TrainOperation {
 
     data class SetCabLights(val enabled: Boolean) : TrainOperation
 
+    /** Execute a named action supplied by the active train model package. */
+    data class ExecuteModelAction(val actionName: String) : TrainOperation {
+        init {
+            requireStableText("actionName", actionName)
+        }
+    }
+
     data class Announce(val messageId: String) : TrainOperation {
         init {
             require(messageId.isNotBlank() && messageId == messageId.trim())

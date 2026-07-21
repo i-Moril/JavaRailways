@@ -12,8 +12,6 @@
   },
   "files": [
     "train-behavior.d.ts",
-    "timetable.d.ts",
-    "../models/s100/behavior.js",
-    "../examples/timetables/demo.js"
+    "../models/s100/behavior.js"
   ]
 }

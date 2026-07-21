@@ -31,8 +31,6 @@ dependencies {
     compileOnly("org.joml:joml:1.10.8")
     testImplementation("org.joml:joml:1.10.8")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    implementation("org.graalvm.polyglot:polyglot:24.2.2")
-    implementation("org.graalvm.polyglot:js-community:24.2.2")
 }
 
 tasks.test {

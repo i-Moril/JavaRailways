@@ -26,13 +26,6 @@ runPaper.folia.registerTask {
     dependsOn(prepareFoliaPlugin)
     pluginJars.from(foliaPluginJar)
     jvmArgs("-Dcom.mojang.eula.agree=true")
-    doFirst {
-        if (!providers.gradleProperty("mineRailsFoliaSmoke").map { it.toBoolean() }.getOrElse(false)) {
-            throw new GradleException(
-                "Folia smoke artifacts are opt-in; run with -PmineRailsFoliaSmoke=true"
-            )
-        }
-    }
 }
 
 def jomlShadow = configurations.detachedConfiguration(dependencies.create("org.joml:joml:1.10.8"))
@@ -168,9 +161,7 @@ bukkitPluginYaml {
     name = "MineRails"
     main = "work.art1st.mineRails.bukkit.BukkitPlugin"
     apiVersion = "1.21.11"
-    foliaSupported = providers.gradleProperty("mineRailsFoliaSmoke")
-        .map { it.toBoolean() }
-        .orElse(false)
+    foliaSupported = true
 
     authors.add("__ART1st__")
 

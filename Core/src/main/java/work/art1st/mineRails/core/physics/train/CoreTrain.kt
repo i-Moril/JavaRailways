@@ -159,7 +159,7 @@ open class CoreTrain @MainThread internal constructor(
             val previousLocations = currentRailLocations()
             val traversedSegments = head.location.peekCurve(deltaS).toList()
             headBogie.moveForward(deltaS)
-            updateAfterHeadBogie()
+            updateAfterHeadBogie(deltaS)
             pendingSweptSpans = mergeSweptSpans(
                 spansFromLocations(previousLocations + activeRailLocations()) +
                     traversedSegments.map(::spanFromSegment)
@@ -261,12 +261,32 @@ open class CoreTrain @MainThread internal constructor(
         updateAfterHeadBogie()
     }
 
-    private fun updateAfterHeadBogie() {
+    /** Rebuild derived car/end state without re-solving or moving exact persisted bogie locations. */
+    internal fun restorePersistedPlacement(reversed: Boolean) {
+        isReversed = reversed
+        cars.forEach { it.restorePersistedState(reversed) }
+        head.location = headBogie.location.forward(headCar.headBogieToEndPointOffset)
+            ?: throw CannotCreateTrainException()
+        tail.location = tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset)
+            ?: throw CannotCreateTrainException()
+        pendingSweptSpans = spansFromLocations(activeRailLocations())
+    }
+
+    /** Remove constructor side effects when persisted placement validation fails. */
+    internal fun discardFailedLoad() {
+        removeController()
+        head.destroy()
+        tail.destroy()
+        cars.forEach { it.destroy() }
+        world.removeTrain(this)
+    }
+
+    private fun updateAfterHeadBogie(deltaS: Double? = null) {
         val orderedCars = if (isReversed) cars.asReversed() else cars
         var prevCar = orderedCars.first()
-        prevCar.updateByHeadBogie(headBogie.activeLocation)
+        prevCar.updateByHeadBogie(headBogie.activeLocation, deltaS)
         for (car in orderedCars.drop(1)) {
-            car.updateByPrevCar(prevCar)
+            car.updateByPrevCar(prevCar, deltaS)
             prevCar = car
         }
         head.location =
@@ -292,6 +312,10 @@ open class CoreTrain @MainThread internal constructor(
     private fun reverseInternal() {
         isReversed = !isReversed
         cars.forEach { obj: CoreCar -> obj.reverse() }
+        head.location = headBogie.activeLocation.forward(headCar.headBogieToEndPointOffset)
+            ?: throw CannotMoveForwardException(this)
+        tail.location = tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset)
+            ?: throw CannotMoveForwardException(this)
     }
 
     /**
@@ -508,7 +532,7 @@ open class CoreTrain @MainThread internal constructor(
         extensionDataContainer.extensionData.forEach { ext ->
             ext?.save()?.let { savedExtension[it.first] = it.second }
         }
-        return SavedTrainV1(id, cars.map { it.save() }, savedExtension)
+        return SavedTrainV1(id, cars.map { it.save() }, isReversed, savedExtension)
     }
 
 

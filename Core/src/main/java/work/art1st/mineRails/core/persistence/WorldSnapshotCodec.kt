@@ -32,9 +32,15 @@ object WorldSnapshotCodec {
         serializersModule = extensionDataModule
     }
 
-    fun encodeToString(snapshot: CoreWorld.SavedWorldV1): String =
-        json.encodeToString(CoreWorld.SavedWorldV1.serializer(), snapshot)
+    fun encodeInfrastructure(snapshot: CoreWorld.SavedInfrastructureV1): String =
+        json.encodeToString(CoreWorld.SavedInfrastructureV1.serializer(), snapshot)
 
-    fun decodeFromString(data: String): CoreWorld.SavedWorldV1 =
-        json.decodeFromString(CoreWorld.SavedWorldV1.serializer(), data)
+    fun decodeInfrastructure(data: String): CoreWorld.SavedInfrastructureV1 =
+        json.decodeFromString(CoreWorld.SavedInfrastructureV1.serializer(), data)
+
+    fun encodeRuntime(snapshot: CoreWorld.SavedRuntimeV1): String =
+        json.encodeToString(CoreWorld.SavedRuntimeV1.serializer(), snapshot)
+
+    fun decodeRuntime(data: String): CoreWorld.SavedRuntimeV1 =
+        json.decodeFromString(CoreWorld.SavedRuntimeV1.serializer(), data)
 }

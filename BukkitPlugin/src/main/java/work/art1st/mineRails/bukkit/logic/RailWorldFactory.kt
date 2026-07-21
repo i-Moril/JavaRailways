@@ -13,6 +13,8 @@ import work.art1st.mineRails.basic.api.ato.AtoSafetyProfile
 import work.art1st.mineRails.basic.api.ato.AtoWorldCoordinator
 import work.art1st.mineRails.basic.api.ato.KinematicTrainActuator
 import work.art1st.mineRails.basic.BasicWorldData
+import work.art1st.mineRails.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.mineRails.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.mineRails.basic.controller.SimpleATO
 import work.art1st.mineRails.basic.safety.RailSpeedCalculator
 import work.art1st.mineRails.basic.safety.SpeedSafetyMonitor
@@ -36,7 +38,10 @@ object RailWorldFactory {
     @OptIn(Heavy::class)
     fun createForBukkit(
         bukkitWorld: BukkitWorld,
-        snapshot: CoreWorld.SavedWorldV1? = null
+        infrastructure: CoreWorld.SavedInfrastructureV1? = null,
+        runtime: CoreWorld.SavedRuntimeV1? = null,
+        basicInfrastructure: BasicInfrastructureSnapshotV1? = null,
+        basicRuntime: BasicRuntimeSnapshotV1? = null
     ): World {
         ThreadGuard.ensureMainThread("RailWorldFactory.createForBukkit")
         val tickManager = TickManagerImpl(
@@ -47,8 +52,9 @@ object RailWorldFactory {
             workerThreads = BukkitPlugin.INSTANCE.mineRailsConfig.physicsWorkerThreads
         )
         val worldParent = KoinWorldParentContext(mineRailsParentScope())
-        val coreWorld = if (snapshot != null) {
-            snapshot.load(CoreWorld.SavedWorldV1.Dependency(tickManager, worldParent, physicsCoordinator))
+        val dependency = CoreWorld.SnapshotDependency(tickManager, worldParent, physicsCoordinator)
+        val coreWorld = if (infrastructure != null) {
+            CoreWorld.load(infrastructure, runtime, dependency)
         } else {
             CoreWorld.createEmpty(tickManager, worldParent, physicsCoordinator)
         }
@@ -60,9 +66,7 @@ object RailWorldFactory {
         val plugin = BukkitPlugin.INSTANCE
         val atoLogger = plugin.logger
         val pluginDataFolder = plugin.dataFolder
-        coreWorld.registerExtensionData(
-            BasicPlugin.INSTANCE,
-            BasicWorldData(
+        val basicData = BasicWorldData(
                 dispatcher = TimetableDispatcher(
                     operationGateway = BukkitTrainOperationGateway(
                     coreWorld,
@@ -94,7 +98,9 @@ object RailWorldFactory {
                         }
                 }
             )
-        )
+        coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
+        basicInfrastructure?.restore(coreWorld)
+        basicRuntime?.restore(coreWorld)
         val safetyConfig = BukkitPlugin.INSTANCE.mineRailsConfig
         coreWorld.allRails.forEach { rail ->
             val requestedSpeed = rail.metadata.designSpeedMetersPerSecond ?: return@forEach

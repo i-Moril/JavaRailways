@@ -622,6 +622,20 @@ defineAction("door-left-open", {
 })
 ```
 
+时刻表 `halt()` 使用固定模型 action 名 `power-off`。模型包可以在 `behavior.js` 中定义它：
+
+```js
+defineAction("power-off", {
+  displayName: "车辆断电",
+  executable: false,
+  requiresControl: false
+}, function() {
+  return action("end-lights-off") && action("cabin-lights-off")
+})
+```
+
+如果不需要 JS 组合逻辑，也可以直接在 `actions.yml` 中声明 `actions.power-off`。`halt()` 会等待该 action 的延迟效果完成；缺失、失败或超时会进入 `TrainOperationFailure` Stall。
+
 编辑器类型声明位于 `types/train-behavior.d.ts`。模型包源码可以加入：
 
 ```js
@@ -641,7 +655,7 @@ defineAction("door-left-open", {
 
 ### 11.2 生命周期与调用 behavior
 
-`onReverse(trainId)` 会在列车换向事件后自动调用。带有效开门侧的 StationCall 会由 Phase C3 `TrainOperationGateway` 自动调用 `door(side, scene)`：开门时 `scene="open"`，关门时 `scene="closed"`。Gateway 会跟踪脚本调用的 `action(...)`，等所有声明的延迟效果到达最晚启动时刻后确认 operation ticket；任一 action 缺失或脚本失败都会触发所属 World 的 `TrainOperationFailure` Stall，并保持发车约束和已占用资源。`onStation(...)` 仍只是可通过调试命令或其他代码显式调用的自定义兼容方法。
+`onReverse(trainId)` 会在列车换向事件后自动调用，包括时刻表 DSL 的 `reverse()`。带有效开门侧的 StationCall 会由 Phase C3 `TrainOperationGateway` 自动调用 `door(side, scene)`：开门时 `scene="open"`，关门时 `scene="closed"`。Gateway 会跟踪脚本调用的 `action(...)`，等所有声明的延迟效果到达最晚启动时刻后确认 operation ticket；任一 action 缺失或脚本失败都会触发所属 World 的 `TrainOperationFailure` Stall，并保持发车约束和已占用资源。`onStation(...)` 仍只是可通过调试命令或其他代码显式调用的自定义兼容方法。
 
 调试命令：
 

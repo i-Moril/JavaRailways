@@ -4,6 +4,7 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.RailDisplayType
 import work.art1st.mineRails.bukkit.extension.rail.RailArcSegmentMeta
 import work.art1st.mineRails.bukkit.extension.rail.RailArcVisualSegment
+import work.art1st.mineRails.bukkit.extension.rail.RailDecorationLayout
 import work.art1st.mineRails.bukkit.extension.rail.RailElementTemplateSnapshot
 import work.art1st.mineRails.bukkit.extension.rail.RailExtension
 import work.art1st.mineRails.bukkit.extension.rail.RailTemplateSnapshot
@@ -15,7 +16,6 @@ import work.art1st.mineRails.core.util.ThreadGuard
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.ceil
 
 object RailVisualBootstrap {
     private val railSegments: MutableMap<UUID, MutableList<RailArcVisualSegment>> = ConcurrentHashMap()
@@ -45,16 +45,8 @@ object RailVisualBootstrap {
     fun fromPersisted(coreWorld: CoreWorld, persisted: PersistedRailRenderMeta): Boolean {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.fromPersisted")
         val rail = coreWorld.getRail(persisted.railId) ?: return false
-        val segments = persisted.segments.map { meta ->
-            RailArcVisualSegment(
-                rail = rail,
-                arcStart = meta.arcStart,
-                arcEnd = meta.arcEnd,
-                pointArcs = meta.pointArcs,
-                templateSnapshot = persisted.templateSnapshot
-            )
-        }
-        registerSegments(rail.id, segments)
+        val template = persisted.templateSnapshot ?: createTemplateSnapshot("standard")
+        registerSegments(rail.id, createSegments(rail, template))
         return true
     }
 
@@ -76,38 +68,30 @@ object RailVisualBootstrap {
     private fun createSegments(rail: CoreRail, templateSnapshot: RailTemplateSnapshot): List<RailArcVisualSegment> {
         val total = rail.curve.totalArcLength
         if (total <= 0.0) return emptyList()
-        val segmentCount = ceil(total / RailArcVisualSegment.SEGMENT_ARC_LENGTH).toInt()
-        val repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
-        return (0 until segmentCount).map { index ->
+        val segmentCount = kotlin.math.ceil(total / RailArcVisualSegment.SEGMENT_ARC_LENGTH).toInt()
+        val allArcs = RailDecorationLayout.endpointInclusiveArcs(
+            totalArcLength = total,
+            repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
+        )
+        return (0 until segmentCount).mapNotNull { index ->
             val arcStart = index * RailArcVisualSegment.SEGMENT_ARC_LENGTH
             val arcEnd = minOf((index + 1) * RailArcVisualSegment.SEGMENT_ARC_LENGTH, total)
-            val pointArcs = computePointArcs(rail, arcStart, arcEnd, repeatLength)
-            RailArcVisualSegment(
-                rail = rail,
-                arcStart = arcStart,
-                arcEnd = arcEnd,
-                pointArcs = pointArcs,
-                templateSnapshot = templateSnapshot
+            val pointArcs = RailDecorationLayout.arcsInSegment(
+                allArcs,
+                arcStart,
+                arcEnd,
+                includeEnd = index == segmentCount - 1
             )
+            pointArcs.takeIf { it.isNotEmpty() }?.let {
+                RailArcVisualSegment(
+                    rail = rail,
+                    arcStart = arcStart,
+                    arcEnd = arcEnd,
+                    pointArcs = it,
+                    templateSnapshot = templateSnapshot
+                )
+            }
         }
-    }
-
-    // 直接存弧长，不依赖整数索引
-    private fun computePointArcs(rail: CoreRail, arcStart: Double, arcEnd: Double, repeatLength: Double): List<Double> {
-        val arcs = LinkedHashSet<Double>()
-        var arcLength = ceil(arcStart / repeatLength) * repeatLength
-        if (arcLength < arcStart) {
-            arcLength += repeatLength
-        }
-        val epsilon = 1e-6
-        while (arcLength <= arcEnd + epsilon) {
-            arcs.add(arcLength)
-            arcLength += repeatLength
-        }
-        if (arcs.isEmpty()) {
-            arcs.add(arcStart)
-        }
-        return arcs.toList()
     }
 
     private fun createTemplateSnapshot(railType: String): RailTemplateSnapshot {

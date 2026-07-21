@@ -4,8 +4,17 @@ import org.bukkit.configuration.file.YamlConfiguration
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import java.io.InputStreamReader
 
 class MineRailsConfigTest {
+    @Test
+    fun `bundled config defaults to entitylib display renderer`() {
+        val stream = requireNotNull(javaClass.getResourceAsStream("/config.yml"))
+        val yaml = stream.use { YamlConfiguration.loadConfiguration(InputStreamReader(it)) }
+
+        assertEquals(DisplayRendererBackend.ENTITYLIB, MineRailsConfig.fromYaml(yaml).displayRenderer.backend)
+    }
+
     @Test
     fun `parses train key bind distance and native display renderer`() {
         val yaml = validYaml()

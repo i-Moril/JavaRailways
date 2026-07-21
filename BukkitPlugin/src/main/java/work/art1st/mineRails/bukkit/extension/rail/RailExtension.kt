@@ -20,7 +20,6 @@ import work.art1st.mineRails.bukkit.config.RailDisplayType
 import work.art1st.mineRails.bukkit.config.RotationConfig
 import work.art1st.mineRails.bukkit.config.ScaleConfig
 import work.art1st.mineRails.core.api.physics.curve.Curve
-import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.render.RenderableExtension
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
@@ -34,7 +33,6 @@ import work.art1st.mineRails.bukkit.render.backend.displayViewRangeForDistance
 import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
-import kotlin.math.ceil
 
 /**
  * 轨道分段渲染扩展：曲线静态时只在首次发送时构建实体。
@@ -90,7 +88,12 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         val pointArcs = if (self.pointArcs.isNotEmpty()) {
             self.pointArcs
         } else {
-            computePointArcs(curve, segmentStart, segmentEnd, repeatLength)
+            RailDecorationLayout.arcsInSegment(
+                RailDecorationLayout.endpointInclusiveArcs(totalLength, repeatLength),
+                segmentStart,
+                segmentEnd,
+                includeEnd = segmentEnd >= totalLength - 1.0e-9
+            )
         }
         val created = mutableListOf<DisplayVisual>()
         try {
@@ -112,29 +115,6 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
             created.forEach { it.destroy() }
             throw error
         }
-    }
-
-    // 直接存弧长，不再需要 getIdxAt
-    private fun computePointArcs(
-        curve: PrimeCurve,
-        segmentStart: Double,
-        segmentEnd: Double,
-        repeatLength: Double
-    ): List<Double> {
-        val arcs = LinkedHashSet<Double>()
-        var arcLength = ceil(segmentStart / repeatLength) * repeatLength
-        if (arcLength < segmentStart) {
-            arcLength += repeatLength
-        }
-        val epsilon = 1e-6
-        while (arcLength <= segmentEnd + epsilon) {
-            arcs.add(arcLength)
-            arcLength += repeatLength
-        }
-        if (arcs.isEmpty()) {
-            arcs.add(segmentStart)
-        }
-        return arcs.toList()
     }
 
     @MainThread

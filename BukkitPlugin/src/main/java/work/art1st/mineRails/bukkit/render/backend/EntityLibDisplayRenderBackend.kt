@@ -1,8 +1,12 @@
 package work.art1st.mineRails.bukkit.render.backend
 
+import com.github.retrooper.packetevents.protocol.entity.EntityPositionData
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes
 import com.github.retrooper.packetevents.util.Quaternion4f
+import com.github.retrooper.packetevents.util.Vector3d
 import com.github.retrooper.packetevents.util.Vector3f
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityMetadata
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityPositionSync
 import io.github.retrooper.packetevents.util.SpigotConversionUtil
 import me.tofaa.entitylib.meta.display.AbstractDisplayMeta
 import me.tofaa.entitylib.meta.display.BlockDisplayMeta
@@ -13,6 +17,7 @@ import org.bukkit.World
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
+import work.art1st.mineRails.bukkit.BukkitPlugin
 
 class EntityLibDisplayRenderBackend : DisplayRenderBackend {
     override fun create(world: World, descriptor: DisplayVisualDescriptor): DisplayVisual {
@@ -66,6 +71,10 @@ private class EntityLibDisplayVisual(
 ) : DisplayVisual {
     private var destroyed = false
 
+    init {
+        entity.entityMeta.setNotifyAboutChanges(false)
+    }
+
     override fun showTo(player: Player) {
         if (!destroyed) entity.addViewer(player.uniqueId)
     }
@@ -75,33 +84,52 @@ private class EntityLibDisplayVisual(
     }
 
     override fun teleport(location: Location) {
-        if (!destroyed) entity.teleport(SpigotConversionUtil.fromBukkitLocation(location))
+        if (destroyed) return
+        val packetLocation = SpigotConversionUtil.fromBukkitLocation(location)
+        entity.setLocation(packetLocation)
+        val position = packetLocation.position
+        val yaw = packetLocation.yaw
+        val pitch = packetLocation.pitch
+        queueToViewers {
+            WrapperPlayServerEntityPositionSync(
+                entity.entityId,
+                EntityPositionData(
+                    Vector3d(position.x, position.y, position.z),
+                    Vector3d.zero(),
+                    yaw,
+                    pitch
+                ),
+                false
+            )
+        }
     }
 
     override fun setTransformation(transformation: Transformation) {
         if (destroyed) return
         val meta = entity.entityMeta as AbstractDisplayMeta
-        meta.setNotifyAboutChanges(false)
-        try {
-            meta.setTranslation(transformation.translation.toPacketVector())
-            meta.setScale(transformation.scale.toPacketVector())
-            meta.setLeftRotation(transformation.leftRotation.toPacketQuaternion())
-            meta.setRightRotation(transformation.rightRotation.toPacketQuaternion())
-        } finally {
-            meta.setNotifyAboutChanges(true)
-        }
+        // Display interpolation only restarts when the start-delta metadata is updated.
+        // Resend it with every transform so curve rotations interpolate instead of snapping.
+        meta.setInterpolationDelay(0)
+        meta.setTranslation(transformation.translation.toPacketVector())
+        meta.setScale(transformation.scale.toPacketVector())
+        meta.setLeftRotation(transformation.leftRotation.toPacketQuaternion())
+        meta.setRightRotation(transformation.rightRotation.toPacketQuaternion())
+        queueMetadata(meta)
     }
 
     override fun setItemStack(itemStack: ItemStack) {
-        if (!destroyed) {
-            (entity.entityMeta as? ItemDisplayMeta)?.setItem(SpigotConversionUtil.fromBukkitItemStack(itemStack))
-        }
+        if (destroyed) return
+        val meta = entity.entityMeta as? ItemDisplayMeta ?: return
+        meta.setItem(SpigotConversionUtil.fromBukkitItemStack(itemStack))
+        queueMetadata(meta)
     }
 
     override fun setBrightness(blockLight: Int, skyLight: Int) {
         val packed = packDisplayBrightness(blockLight, skyLight)
         if (!destroyed) {
-            (entity.entityMeta as AbstractDisplayMeta).setBrightnessOverride(packed)
+            val meta = entity.entityMeta as AbstractDisplayMeta
+            meta.setBrightnessOverride(packed)
+            queueMetadata(meta)
         }
     }
 
@@ -120,6 +148,15 @@ private class EntityLibDisplayVisual(
         if (destroyed) return
         destroyed = true
         entity.remove()
+    }
+
+    private fun queueMetadata(meta: AbstractDisplayMeta) {
+        val entries = meta.createPacket().entityMetadata.toList()
+        queueToViewers { WrapperPlayServerEntityMetadata(entity.entityId, entries) }
+    }
+
+    private fun queueToViewers(packetFactory: () -> com.github.retrooper.packetevents.wrapper.PacketWrapper<*>) {
+        BukkitPlugin.INSTANCE.trainPacketBundles.enqueue(entity.viewers.toList(), packetFactory)
     }
 
     private fun org.joml.Vector3f.toPacketVector(): Vector3f = Vector3f(x(), y(), z())

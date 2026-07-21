@@ -6,35 +6,46 @@ import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
 import org.bukkit.command.TabCompleter
 import org.bukkit.entity.Player
+import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.depot.DepotResetCoordinator
 import work.art1st.mineRails.basic.api.depot.DepotResetResult
 import work.art1st.mineRails.basic.api.depot.RollingStockRecord
 import work.art1st.mineRails.basic.api.depot.StablingPointRef
+import work.art1st.mineRails.basic.api.destination.DestinationRole
+import work.art1st.mineRails.basic.api.destination.OperationalDestination
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
+import work.art1st.mineRails.basic.timetable.ManualNavigationParser
+import work.art1st.mineRails.basic.timetable.ManualNavigationTimetableFactory
 import work.art1st.mineRails.basic.timetable.TimetableDumper
 import work.art1st.mineRails.basic.timetable.TimetableEpochStartResult
 import work.art1st.mineRails.basic.timetable.TimetableReplanResult
 import work.art1st.mineRails.basic.timetable.TimetableServiceRunId
 import work.art1st.mineRails.basic.timetable.TimetableServiceStartResult
-import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoadResult
-import work.art1st.mineRails.basic.timetable.js.TimetableScriptLoader
+import work.art1st.mineRails.basic.timetable.TimetableValidator
+import work.art1st.mineRails.basic.timetable.TimetableWaypointProgressListener
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
 import work.art1st.mineRails.bukkit.debug.DepotResetDiagnostics
 import work.art1st.mineRails.bukkit.extension.renderChunkManager
+import work.art1st.mineRails.bukkit.control.TrainKeyItem
 import work.art1st.mineRails.bukkit.extension.train.rendererOrNull
+import work.art1st.mineRails.bukkit.render.backend.PacketPlatformDiagnostics
+import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.mineRails.core.api.physics.World as RailWorld
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
-import java.io.File
+import work.art1st.mineRails.core.physics.train.CoreTrain
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 class MineRailsCommand : CommandExecutor, TabCompleter {
+    private val navigationCounter = AtomicLong()
     override fun onCommand(
         sender: CommandSender,
         command: Command,
@@ -56,6 +67,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             "wand" -> return handleWand(sender, args.drop(1))
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
             "route" -> return handleRoute(sender, args.drop(1))
+            "navigate", "nav" -> return handleNavigate(sender, args.drop(1))
             "timetable", "tt" -> return handleTimetable(sender, args.drop(1))
             "depot" -> return handleDepot(sender, args.drop(1))
             "ato" -> return handleAto(sender, args.drop(1))
@@ -74,12 +86,30 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         alias: String,
         args: Array<out String>
     ): List<String> = BukkitThreadGuardBridge.runInSimulationContext {
-        completeCommand(args)
+        completeCommand(sender, args)
     }
 
-    private fun completeCommand(args: Array<out String>): List<String> {
+    private fun completeCommand(sender: CommandSender, args: Array<out String>): List<String> {
         if (args.size == 1) {
-            return listOf("rail", "train", "wand", "waypoint", "route", "timetable", "depot", "ato", "stop", "perf", "undo", "redo", "help")
+            return listOf("rail", "train", "wand", "waypoint", "route", "navigate", "timetable", "depot", "ato", "stop", "perf", "undo", "redo", "help")
+        }
+        if (args[0].equals("navigate", ignoreCase = true) ||
+            args[0].equals("nav", ignoreCase = true)
+        ) {
+            val candidates = ArrayList<String>()
+            if (args.none { it == "--measure" || it == "-m" }) {
+                candidates += "--measure"
+                candidates += "-m"
+            }
+            if (sender is Player) {
+                BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world]?.basicWorldData
+                    ?.wayPoints?.all()?.forEach { waypoint ->
+                        candidates += waypoint.id
+                        candidates += "+${waypoint.id}"
+                    }
+            }
+            val prefix = args.lastOrNull().orEmpty()
+            return candidates.filter { it.startsWith(prefix, ignoreCase = true) }
         }
         if (args[0].equals("ato", ignoreCase = true)) {
             if (args.size == 2) return listOf("status", "dump", "reset")
@@ -208,6 +238,188 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             }
             else -> sender.sendMessage("用法: /mr route validate <fromWaypoint> <toWaypoint>")
         }
+        return true
+    }
+
+    private fun handleNavigate(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要驾驶员执行")
+            return true
+        }
+        val measure = args.any { it == "--measure" || it == "-m" }
+        val waypointTokens = args.filterNot { it == "--measure" || it == "-m" }
+        if (waypointTokens.any { it.startsWith('-') }) {
+            sender.sendMessage("未知选项；用法: /mr navigate [--measure|-m] <waypoints...>")
+            return true
+        }
+        val points = try {
+            ManualNavigationParser.parse(waypointTokens)
+        } catch (failure: IllegalArgumentException) {
+            sender.sendMessage("导航参数错误: ${failure.message}")
+            return true
+        }
+        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] as? CoreWorld ?: run {
+            sender.sendMessage("错误: 无法获取 MineRails CoreWorld")
+            return true
+        }
+        val train = SeatModel.SeatInteractionListener.drivingTrainFor(sender) as? CoreTrain ?: run {
+            sender.sendMessage("导航失败：请坐在当前列车的驾驶座上")
+            return true
+        }
+        if (!TrainKeyItem.playerHasKey(sender)) {
+            sender.sendMessage("导航失败：需要持有当前列车钥匙")
+            return true
+        }
+        val head = train.headLocation as? RailLocationWithFacing ?: run {
+            sender.sendMessage("导航失败：无法确定列车当前方向")
+            return true
+        }
+        val data = world.basicWorldData
+        if (data.atoCoordinator.isStalled) {
+            sender.sendMessage("导航失败：当前世界 ATO 已 Stall，请先检查诊断并执行 ato reset")
+            return true
+        }
+        var sequence: Long
+        var originId: String
+        var timetableId: String
+        do {
+            sequence = navigationCounter.incrementAndGet()
+            originId = "__navigate_origin_$sequence"
+            timetableId = "manual-navigate-$sequence"
+        } while (data.wayPoints[originId] != null || data.destinations[originId] != null ||
+            data.timetables[timetableId] != null)
+        val serviceId = "navigate"
+        data.wayPoints.add(
+            WayPoint(
+                id = originId,
+                displayName = originId,
+                railId = head.rail.id,
+                arcLength = head.arcLengthIn(ViewDirection.AB)
+            )
+        )
+        data.destinations.add(
+            OperationalDestination(
+                id = originId,
+                displayName = originId,
+                railId = head.rail.id,
+                arcLengthInAbMeters = head.arcLengthIn(ViewDirection.AB),
+                approachDirection = head.facing,
+                role = DestinationRole.Regular
+            )
+        )
+        val timetable = try {
+            ManualNavigationTimetableFactory.create(
+                world = world,
+                timetableId = timetableId,
+                serviceId = serviceId,
+                trainId = train.id,
+                originWayPointId = originId,
+                points = points
+            )
+        } catch (failure: Exception) {
+            data.destinations.remove(originId)
+            data.wayPoints.remove(originId)
+            sender.sendMessage("导航构建失败: ${failure.message}")
+            return true
+        }
+        val validation = TimetableValidator(world).validate(timetable)
+        if (!validation.isSuccess) {
+            data.destinations.remove(originId)
+            data.wayPoints.remove(originId)
+            sender.sendMessage("导航验证失败:")
+            validation.errors.forEach { sender.sendMessage("- $it") }
+            return true
+        }
+        val trainControlManager = BukkitPlugin.INSTANCE.trainControlManager
+        val managedSession = trainControlManager.sessionFor(train)
+        if (managedSession != null && managedSession.playerId != sender.uniqueId) {
+            data.destinations.remove(originId)
+            data.wayPoints.remove(originId)
+            sender.sendMessage("导航失败：列车正由另一名驾驶员控制")
+            return true
+        }
+        if (managedSession != null) trainControlManager.releaseTrain(train)
+        data.dispatcher.discardReleasedManualNavigation(world, train.id)
+        val controlPreparation = TrainCommand.prepareForAtoNavigation(sender, train)
+        controlPreparation.failureReason?.let { reason ->
+            data.destinations.remove(originId)
+            data.wayPoints.remove(originId)
+            sender.sendMessage("导航失败: $reason")
+            return true
+        }
+        fun restorePreviousManualControl() {
+            TrainCommand.restoreAfterFailedAtoNavigation(
+                sender,
+                train,
+                controlPreparation.releasedController
+            )
+            if (managedSession != null && train.controller == null) {
+                train.setController(managedSession.controller)
+                trainControlManager.registerManualControl(
+                    sender,
+                    train,
+                    managedSession.controller,
+                    managedSession.controlEnd,
+                    managedSession.timetableMode
+                )
+            }
+        }
+        data.timetables.add(timetable)
+        val startAttempt = runCatching {
+            data.dispatcher.startService(world, timetableId, serviceId)
+        }
+        data.dispatcher.stopFutureCycles(timetableId)
+        data.timetables.remove(timetableId)
+        data.destinations.remove(originId)
+        data.wayPoints.remove(originId)
+        val start = startAttempt.getOrElse { failure ->
+            restorePreviousManualControl()
+            sender.sendMessage("导航启动异常: ${failure.message ?: failure::class.java.simpleName}")
+            return true
+        }
+        if (start !is TimetableServiceStartResult.Started) {
+            restorePreviousManualControl()
+            sender.sendMessage(
+                "导航启动失败: ${(start as TimetableServiceStartResult.Failure).reason}"
+            )
+            return true
+        }
+        val runId = start.run.id
+        if (measure) {
+            val labels = points.map { if (it.pass) "+${it.id}" else it.id }
+            val segments = ArrayList<String>()
+            var previousLabel = "current"
+            var previousTick = 0L
+            var reachedCount = 0
+            var subscription: AutoCloseable? = null
+            subscription = data.dispatcher.observeWaypointProgress(
+                runId,
+                start.run.cycleIndex,
+                TimetableWaypointProgressListener { progress ->
+                    if (reachedCount >= labels.size) return@TimetableWaypointProgressListener
+                    val label = labels[reachedCount]
+                    val duration = (progress.timetableElapsedTicks - previousTick).coerceAtLeast(0L)
+                    segments += "$previousLabel -> $label: $duration ticks (" +
+                        "${String.format(Locale.ROOT, "%.2f", duration / 20.0)} s)"
+                    previousLabel = label
+                    previousTick = progress.timetableElapsedTicks
+                    reachedCount++
+                    if (reachedCount == labels.size) {
+                        subscription?.close()
+                        BukkitPlugin.INSTANCE.platformDispatcher.runGlobal {
+                            if (sender.isOnline) {
+                                sender.sendMessage("导航实测耗时（可复制）:")
+                                sender.sendMessage(segments.joinToString("; "))
+                            }
+                        }
+                    }
+                }
+            )
+        }
+        sender.sendMessage(
+            "已启动 ATO 导航: ${points.joinToString(" ") { if (it.pass) "+${it.id}" else it.id }}" +
+                if (measure) "（正在实测分段耗时）" else ""
+        )
         return true
     }
 
@@ -393,27 +605,11 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             return true
         }
         when (args.firstOrNull()?.lowercase()) {
-            "load" -> {
-                val scriptPath = args.getOrNull(1)
-                val id = args.getOrNull(2)
-                if (scriptPath == null) {
-                    sender.sendMessage("用法: /mr timetable load <file.js> [id]")
+            "dump" -> {
+                if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
+                    sender.sendMessage("没有权限查看时刻表完整配置")
                     return true
                 }
-                val scriptFile = resolveTimetableScript(scriptPath)
-                when (val result = TimetableScriptLoader(world).load(scriptFile, id ?: scriptFile.nameWithoutExtension)) {
-                    is TimetableScriptLoadResult.Success -> {
-                        world.basicWorldData.timetables.add(result.timetable)
-                        sender.sendMessage("时刻表加载成功: ${result.timetable.id}")
-                        sender.sendMessage("services=${result.timetable.services.size}, routes=${result.validation.routes.size}")
-                    }
-                    is TimetableScriptLoadResult.Failure -> {
-                        sender.sendMessage("时刻表加载失败:")
-                        result.message.lines().forEach { sender.sendMessage(it) }
-                    }
-                }
-            }
-            "dump" -> {
                 val id = args.getOrNull(1)
                 if (id == null) {
                     sender.sendMessage("用法: /mr timetable dump <id>")
@@ -456,17 +652,21 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
                 if (requestedService == null) {
                     when (val epoch = world.basicWorldData.dispatcher.beginTimetable(world, timetableId)) {
-                        is TimetableEpochStartResult.Started -> sender.sendMessage(
-                            "已建立 timetable epoch=${epoch.epoch.epochDispatcherTick} " +
-                                "period=${epoch.epoch.periodTicks} ticks"
-                        )
+                        is TimetableEpochStartResult.Started -> {
+                            check(world.basicWorldData.dispatcher.scheduleInitialCycle(timetableId))
+                            sender.sendMessage(
+                                "已建立 timetable epoch=${epoch.epoch.epochDispatcherTick} " +
+                                    "period=${epoch.epoch.periodTicks} ticks；自动 service 将按启动条件调度"
+                            )
+                        }
                         is TimetableEpochStartResult.Failure -> {
                             sender.sendMessage("启动 timetable $timetableId 失败: ${epoch.reason}")
                             return true
                         }
                     }
+                    return true
                 }
-                val serviceIds = requestedService?.let(::listOf) ?: timetable.services.map { it.id }
+                val serviceIds = listOf(requestedService)
                 serviceIds.forEach { serviceId ->
                     when (val result = world.basicWorldData.dispatcher.startService(world, timetableId, serviceId)) {
                         is TimetableServiceStartResult.Started -> sender.sendMessage(
@@ -489,9 +689,22 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     it.id.timetableId == timetableId &&
                         (requestedService == null || it.id.serviceId == requestedService)
                 }
-                if (runs.isEmpty()) {
-                    sender.sendMessage("没有匹配的运行中或历史 service")
+                val recovery = world.basicWorldData.dispatcher.recoveryRequiredRuns().filter {
+                    it.timetableId == timetableId &&
+                        (requestedService == null || it.serviceId == requestedService)
+                }
+                if (runs.isEmpty() && recovery.isEmpty()) {
+                    sender.sendMessage("没有匹配的运行中、历史或待恢复 service")
                 } else {
+                    recovery.forEach { run ->
+                        sender.sendMessage(
+                            "${run.timetableId}/${run.serviceId}: state=RECOVERY_REQUIRED " +
+                                "originalState=${run.originalState} train=${run.trainId} " +
+                                "cycle=${run.cycleIndex} elapsed=${run.timetableElapsedTicks} " +
+                                "current=${run.currentWayPointId} target=${run.targetWayPointId} " +
+                                "nextStep=${run.nextStepIndex}"
+                        )
+                    }
                     runs.forEach { run ->
                         sender.sendMessage(
                             "${run.id}: state=${run.state} mode=${run.controlMode} train=${run.trainId} " +
@@ -587,17 +800,9 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     }
                 }
             }
-            else -> sender.sendMessage("用法: /mr timetable <load|dump|list|start|status|stop|replan>")
+            else -> sender.sendMessage("用法: /mr timetable <dump|list|start|status|stop|replan>")
         }
         return true
-    }
-
-    private fun resolveTimetableScript(path: String): File {
-        val requested = File(path)
-        if (requested.isAbsolute) return requested
-        val timetableDir = File(BukkitPlugin.INSTANCE.dataFolder, "timetables")
-        val inTimetableDir = File(timetableDir, path)
-        return if (inTimetableDir.exists()) inTimetableDir else File(BukkitPlugin.INSTANCE.dataFolder, path)
     }
 
     private fun handleAto(sender: CommandSender, args: List<String>): Boolean {
@@ -667,8 +872,13 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     return true
                 }
                 (selection.value as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
+                val discardedRuns = selection.value.basicWorldData.dispatcher
+                    .discardFailedRunsForAtoReset(selection.value)
                 coordinator.reset()
-                sender.sendMessage("已解除世界 ${selection.key.name} 的 ATO Stall；列车位置不会自动恢复")
+                sender.sendMessage(
+                    "已解除世界 ${selection.key.name} 的 ATO Stall；" +
+                        "已清理 $discardedRuns 个失败 service，列车位置不会自动恢复"
+                )
             }
             else -> sender.sendMessage("用法: /mr ato <status [world]|dump <world>|reset <world>>")
         }
@@ -740,6 +950,8 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
             sender.sendMessage(
                 "audience candidates=${metrics.candidateUpdates} coalesced=${metrics.coalescedUpdates} " +
                     "drains=${metrics.scheduledDrains} processed=${metrics.processedUpdates} " +
+                    "authorityRefreshes=${metrics.authoritativePassengerRefreshes}/" +
+                    "${metrics.authoritativePassengerRefreshRequests} " +
                     "pendingPlayers=${metrics.pendingPlayers}"
             )
         }
@@ -756,6 +968,51 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                     "direct=${metrics.directExecutions} globalRuns=${metrics.globalExecutions} " +
                     "asyncRuns=${metrics.asyncExecutions} retired=${metrics.retiredTasks}"
             )
+        }
+        PacketPlatformDiagnostics.snapshot().let { metrics ->
+            sender.sendMessage(
+                "packet platform active=${metrics.activeCarriers} created=${metrics.createdCarriers} " +
+                    "destroyed=${metrics.destroyedCarriers} viewers=+${metrics.viewerAdds}/-${metrics.viewerRemoves} " +
+                    "teleports=${metrics.teleportCalls} packets~=${metrics.estimatedTeleportPackets}"
+            )
+        }
+        plugin.trainPacketBundles.metrics().let { metrics ->
+            sender.sendMessage(
+                "train bundles sent=${metrics.bundlesSent} packets=${metrics.packetsBundled}"
+            )
+        }
+        plugin.foliaPacketEntityMotion?.let { packetMotion ->
+            packetMotion.metrics().let { metrics ->
+                sender.sendMessage(
+                    "folia packet motion managed=${metrics.managedEntities} " +
+                        "virtualSeats=${metrics.virtualSeats} " +
+                        "authorityUpdates=${metrics.seatAuthorityMoveUpdates} " +
+                        "authorityCorrections=${metrics.seatAuthorityCorrections} " +
+                        "maxAuthorityError=${"%.2f".format(Locale.ROOT, metrics.maxSeatAuthorityError)} " +
+                        "playerCorrectionsSuppressed=${metrics.suppressedPlayerCorrections}"
+                )
+            }
+            val seatTrace = packetMotion.recentSeatTrace()
+            val nativeTrace = packetMotion.recentPacketTrace()
+            val bundleTrace = plugin.trainPacketBundles.recentTrace()
+            if (seatTrace.isNotEmpty() || nativeTrace.isNotEmpty() || bundleTrace.isNotEmpty()) {
+                val traceFile = plugin.dataFolder.resolve("diagnostics/folia-seat-packet-trace.txt")
+                traceFile.parentFile.mkdirs()
+                traceFile.writeText(
+                    buildString {
+                        appendLine("Folia Seat authority trace (oldest -> newest)")
+                        seatTrace.forEach(::appendLine)
+                        appendLine()
+                        appendLine("Folia Seat native packet trace (oldest -> newest)")
+                        nativeTrace.forEach(::appendLine)
+                        appendLine()
+                        appendLine("MineRails Bundle trace (sampled, oldest -> newest)")
+                        bundleTrace.forEach(::appendLine)
+                    }
+                )
+                sender.sendMessage("folia seat packet trace: ${traceFile.absolutePath}")
+                nativeTrace.takeLast(30).forEach { sender.sendMessage("  $it") }
+            }
         }
         return true
     }
@@ -787,7 +1044,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr wand railobject - 获取 RailObjectWand")
         sender.sendMessage("/mr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/mr route validate <from> <to> - 验证路径点之间的展开经路")
-        sender.sendMessage("/mr timetable load <file.js> [id] - 加载 JS 时刻表")
+        sender.sendMessage("/mr navigate [--measure|-m] <waypoints...> - 为驾驶中的列车提交临时 ATO 导航")
         sender.sendMessage("/mr depot assign|list ... - 登记和查看车辆段列车")
         sender.sendMessage("/mr depot reset <depot> confirm | reset-all confirm - Stall 中原子重置")
         sender.sendMessage("/mr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")

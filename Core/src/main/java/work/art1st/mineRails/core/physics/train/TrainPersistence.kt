@@ -31,13 +31,20 @@ data class CarBuildDependency(
 data class SavedTrainV1(
     val id: String,
     val cars: List<SavedCarV1>,
+    val reversed: Boolean,
     val extension: Map<String, SerializableExtensionData>
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
         val train = CoreTrain(id, cars.map { it.load(dependency) }, dependency, extension)
-        train.setLocation(train.head.location)
-        train.commit()
-        return train
+        return try {
+            train.restorePersistedPlacement(reversed)
+            train.commit()
+            dependency.publishCurrentTrainFrame(train.id)
+            train
+        } catch (failure: Exception) {
+            train.discardFailedLoad()
+            throw failure
+        }
     }
 }
 

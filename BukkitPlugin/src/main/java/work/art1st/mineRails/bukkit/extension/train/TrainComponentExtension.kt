@@ -38,6 +38,7 @@ val Car.carRenderer: CarExtension
 abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, Destroyable {
     protected open lateinit var self: T
     private var modelBuilt: Boolean = false
+    private var retired: Boolean = false
     private val audience: MutableSet<UUID> = hashSetOf()
 
     override fun initialize(host: T, savedExtensionData: Map<String, SerializableExtensionData>) {
@@ -82,6 +83,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     /** Caller already owns [player]; fresh models must receive one complete frame before exposure. */
     @Synchronized
     internal fun sendToOwned(player: Player) {
+        if (retired) return
         audience.add(player.uniqueId)
         if (!modelBuilt) {
             buildModel()
@@ -105,7 +107,7 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     @Synchronized
     override fun commit() {
         BukkitThreadOwnership.ensureLocation(self.bukkitLocation, "TrainComponentExtension.commit")
-        if (!modelBuilt) return
+        if (retired || !modelBuilt) return
         if (audience.isEmpty()) {
             modelBuilt = false
             destroyModel()
@@ -117,6 +119,8 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     @MainThread
     @Synchronized
     override fun destroy() {
+        if (retired) return
+        retired = true
         audience.clear()
         modelBuilt = false
         destroyModel()

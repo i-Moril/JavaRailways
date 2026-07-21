@@ -89,6 +89,10 @@ object RailRenderMetaStore {
             it.parentFile?.mkdirs()
         }
 
+    fun decoratedRailIds(world: World): Set<UUID> =
+        (cache[world.uid]?.records ?: load(world)).mapTo(linkedSetOf()) { it.railId }
+
+    @Synchronized
     fun load(world: World): List<PersistedRailRenderMeta> {
         val f = file(world)
         if (!f.exists()) {
@@ -118,6 +122,7 @@ object RailRenderMetaStore {
         }
     }
 
+    @Synchronized
     fun saveAll(world: World, records: List<PersistedRailRenderMeta>) {
         if (!ensureWritable(world)) return
 
@@ -182,6 +187,7 @@ object RailRenderMetaStore {
         upsertRails(world, listOf(meta))
     }
 
+    @Synchronized
     fun upsertRails(world: World, metas: Collection<PersistedRailRenderMeta>) {
         if (metas.isEmpty()) return
         if (!ensureWritable(world)) return
@@ -190,6 +196,7 @@ object RailRenderMetaStore {
         saveAll(world, existing.values.toList())
     }
 
+    @Synchronized
     fun removeRail(world: World, railId: UUID) {
         if (!ensureWritable(world)) return
         val existing = load(world).filterNot { it.railId == railId }

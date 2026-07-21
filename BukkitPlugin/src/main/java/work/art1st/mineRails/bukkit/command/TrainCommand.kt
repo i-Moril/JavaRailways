@@ -4,6 +4,7 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.joml.Vector3d
 import org.joml.Vector3dc
+import work.art1st.mineRails.basic.controller.SimpleATO
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
@@ -20,6 +21,7 @@ import work.art1st.mineRails.bukkit.render.model.SeatModel
 import work.art1st.mineRails.bukkit.util.BukkitAsyncTasks
 import work.art1st.mineRails.bukkit.util.HeavyRailQueries
 import work.art1st.mineRails.bukkit.util.PlayerOperationGate
+import work.art1st.mineRails.core.api.control.TrainController
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.train.CoreBogie
@@ -803,6 +805,57 @@ object TrainCommand {
     }
 
     fun controllerFor(player: Player): RealisticManualController? = playerControllers[player.uniqueId]
+
+    data class AtoNavigationControlPreparation(
+        val releasedController: TrainController? = null,
+        val failureReason: String? = null
+    )
+
+    /** Release this driver's manual controller before an ad-hoc ATO navigation starts. */
+    fun prepareForAtoNavigation(
+        player: Player,
+        train: CoreTrain
+    ): AtoNavigationControlPreparation {
+        val controller = playerControllers[player.uniqueId]
+        if (controller != null) {
+            val controlledTrain = controller.controlledTrain as? CoreTrain
+            if (controlledTrain !== train) {
+                return AtoNavigationControlPreparation(
+                    failureReason =
+                        "驾驶员连接的是另一列车: ${controlledTrain?.id ?: "unknown"}"
+                )
+            }
+            controller.coast()
+            playerControllers.remove(player.uniqueId)
+            if (train.controller === controller) train.setController(null)
+        }
+        val activeController = train.controller
+        if (activeController is SimpleATO) {
+            return AtoNavigationControlPreparation(releasedController = controller)
+        }
+        if (activeController is RealisticManualController) {
+            activeController.coast()
+            train.setController(null)
+            return AtoNavigationControlPreparation(releasedController = activeController)
+        }
+        if (activeController != null) {
+            train.setController(null)
+            return AtoNavigationControlPreparation(releasedController = activeController)
+        }
+        return AtoNavigationControlPreparation(releasedController = controller)
+    }
+
+    fun restoreAfterFailedAtoNavigation(
+        player: Player,
+        train: CoreTrain,
+        controller: TrainController?
+    ) {
+        if (controller == null || train.controller != null) return
+        train.setController(controller)
+        if (controller is RealisticManualController) {
+            playerControllers[player.uniqueId] = controller
+        }
+    }
 
     fun controllerForKeyedDriver(player: Player): RealisticManualController? {
         val train = SeatModel.SeatInteractionListener.drivingTrainFor(player) as? CoreTrain ?: return null

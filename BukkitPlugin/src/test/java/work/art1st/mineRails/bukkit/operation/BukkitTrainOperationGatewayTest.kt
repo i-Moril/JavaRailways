@@ -32,6 +32,62 @@ class BukkitTrainOperationGatewayTest {
     }
 
     @Test
+    fun `returns pending ticket without waiting for region dispatch`() {
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        var scheduled: (() -> Unit)? = null
+        var executorCalled = false
+        val gateway = BukkitTrainOperationGateway(
+            world = world,
+            operationDispatcher = BukkitTrainOperationDispatcher { _, operation, onResult ->
+                scheduled = { onResult(runCatching(operation)) }
+            },
+            doorExecutor = BukkitDoorOperationExecutor { _, _, _, _ ->
+                executorCalled = true
+                TrainModelOperationResult.Accepted(0.0)
+            }
+        )
+
+        val accepted = gateway.execute(
+            request(train.id, TrainOperation.OpenDoors(DoorSide.LEFT))
+        ) as TrainOperationExecutionResult.Accepted
+
+        assertEquals(TrainOperationTicketState.PENDING, accepted.ticket.snapshot().state)
+        assertEquals(false, executorCalled)
+        scheduled!!.invoke()
+        assertEquals(true, executorCalled)
+        assertEquals(TrainOperationTicketState.PENDING, accepted.ticket.snapshot().state)
+    }
+
+    @Test
+    fun `asynchronous region rejection fails ticket`() {
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val gateway = BukkitTrainOperationGateway(
+            world = world,
+            operationDispatcher = BukkitTrainOperationDispatcher { _, _, onResult ->
+                onResult(Result.success(TrainModelOperationResult.Rejected("model rejected")))
+            }
+        )
+
+        val accepted = gateway.execute(
+            request(train.id, TrainOperation.OpenDoors(DoorSide.LEFT))
+        ) as TrainOperationExecutionResult.Accepted
+        val snapshot = accepted.ticket.snapshot()
+
+        assertEquals(TrainOperationTicketState.FAILED, snapshot.state)
+        assertEquals("model rejected", snapshot.message)
+    }
+
+    @Test
     fun `maps semantic door operation and confirms from model callback`() {
         val world = createTestWorld()
         val rail = createStraightRailFromSegments(
@@ -58,6 +114,36 @@ class BukkitTrainOperationGatewayTest {
 
         assertEquals(DoorSide.BOTH, observedSide)
         assertEquals(false, observedOpening)
+        assertEquals(TrainOperationTicketState.PENDING, result.ticket.snapshot().state)
+        completion!!.invoke()
+        assertEquals(TrainOperationTicketState.SUCCEEDED, result.ticket.snapshot().state)
+    }
+
+    @Test
+    fun `maps model action operation and confirms from package callback`() {
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        var observedAction: String? = null
+        var completion: (() -> Unit)? = null
+        val gateway = BukkitTrainOperationGateway(
+            world = world,
+            modelActionExecutor = BukkitModelActionExecutor { executedTrain, actionName, onComplete ->
+                assertEquals(train, executedTrain)
+                observedAction = actionName
+                completion = onComplete
+                TrainModelOperationResult.Accepted(0.4)
+            }
+        )
+
+        val result = gateway.execute(
+            request(train.id, TrainOperation.ExecuteModelAction("power-off"))
+        ) as TrainOperationExecutionResult.Accepted
+
+        assertEquals("power-off", observedAction)
         assertEquals(TrainOperationTicketState.PENDING, result.ticket.snapshot().state)
         completion!!.invoke()
         assertEquals(TrainOperationTicketState.SUCCEEDED, result.ticket.snapshot().state)

@@ -506,8 +506,10 @@ class SimpleATO(
             return
         }
         val resolved = active.resolved
-        check(currentMission == null || currentMission?.revision == resolved.call.missionRevision) {
-            "active StationCall revision does not match the active Mission"
+        check(currentMission == null || currentMission?.revision == resolved.call.missionRevision ||
+            active.departureGranted
+        ) {
+            "active StationCall revision does not match the active Mission before departure"
         }
         val berth = worldData.stations.berth(resolved.berthRef)
         check(berth != null && berth.lifecycleState == RailObjectLifecycleState.ACTIVE &&

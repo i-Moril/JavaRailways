@@ -40,8 +40,10 @@ class CoreTrainPersistenceStateTest {
         train.commit()
         val expected = Vector3d(train.cars.first().position)
 
-        val loaded = world.save().load(
-            CoreWorld.SavedWorldV1.Dependency(
+        val loaded = CoreWorld.load(
+            world.saveInfrastructure(1L),
+            world.saveRuntime(1L, 1L),
+            CoreWorld.SnapshotDependency(
                 TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), System.currentTimeMillis()),
                 NoOpWorldParentContext
             )

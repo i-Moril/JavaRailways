@@ -9,6 +9,9 @@ import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.UUID
 
 object HeavyRailQueries {
+    const val DEFAULT_TARGET_MAX_DISTANCE = 96.0
+    const val DEFAULT_TARGET_HIT_RADIUS = 1.5
+
     data class NearestRailMatch(
         val railId: UUID,
         val arcLength: Double,
@@ -45,10 +48,12 @@ object HeavyRailQueries {
     fun findNearestWayPoint(
         wayPoints: Collection<WayPoint>,
         railsById: Map<UUID, CoreRail>,
-        targetPosition: Vector3dc
+        targetPosition: Vector3dc,
+        requiredRailId: UUID? = null
     ): WayPointMatch? {
         ThreadGuard.ensureOffMainThread("HeavyRailQueries.findNearestWayPoint")
         return wayPoints.asSequence()
+            .filter { requiredRailId == null || it.railId == requiredRailId }
             .mapNotNull { wayPoint ->
                 val rail = railsById[wayPoint.railId] ?: return@mapNotNull null
                 val point = rail.curve.getPointAt(wayPoint.arcLength)

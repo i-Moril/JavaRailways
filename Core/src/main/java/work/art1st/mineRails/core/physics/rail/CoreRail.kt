@@ -159,6 +159,7 @@ class CoreRail @MainThread private constructor(
                 ?.takeIf { nextRailAtA.contains(it) }
                 ?.let { resolveRailView(pointA, it, dependency) }
                 ?.takeIf { nextAtA.contains(it) }
+                ?: nextAtA.singleOrNull()
             rail.viewAB.activeRail = null
             rail.viewAB.mutableNextRails.clear()
             rail.viewAB.mutableNextRails.addAll(nextAtB)
@@ -166,6 +167,7 @@ class CoreRail @MainThread private constructor(
                 ?.takeIf { nextRailAtB.contains(it) }
                 ?.let { resolveRailView(pointB, it, dependency) }
                 ?.takeIf { nextAtB.contains(it) }
+                ?: nextAtB.singleOrNull()
         }
 
         private fun resolveRailView(point: Curve.Point, railId: String, dependency: Dependency): RailView? {

@@ -224,6 +224,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             constraints = ConfigConstraints.StringLength(1, 64)
             group = GROUP_ID
             order = 0
+            dependsOn = listOf(ROLE_KEY_ID)
+            visibleWhen = roleVisible(DestinationRoleType.REGULAR)
         }
         val role = ConfigKey.build<DestinationRoleType>(ROLE_KEY_ID) {
             label = "waypoint.type.label"
@@ -418,10 +420,9 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             return
         }
 
-        val targetPosition = getTargetPosition(player, event) ?: run {
-            player.sendActionBar(Component.text("请右键轨道附近方块", NamedTextColor.RED))
-            return
-        }
+        val eye = player.eyeLocation
+        val rayOrigin = Vector3d(eye.x, eye.y, eye.z)
+        val rayDirection = Vector3d(eye.direction.x, eye.direction.y, eye.direction.z)
 
         val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "路径点查找")
         if (pendingOperation != null) {
@@ -430,19 +431,37 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         }
 
         val worldId = player.world.uid
-        val railSnapshot = coreWorld.allRails.toList()
+        val railSnapshot = coreWorld.getRailsAlongRay(
+            rayOrigin,
+            rayDirection,
+            HeavyRailQueries.DEFAULT_TARGET_MAX_DISTANCE,
+            HeavyRailQueries.DEFAULT_TARGET_HIT_RADIUS
+        ).toList()
         val railsById = railSnapshot.associateBy { it.id }
         val wayPointSnapshot = coreWorld.basicWorldData.wayPoints.all()
-        player.sendActionBar(Component.text("正在查找最近轨道...", NamedTextColor.GRAY))
+        player.sendActionBar(Component.text("正在查找指向的轨道点...", NamedTextColor.GRAY))
 
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
             operation = "RailObjectWand.handleCreateWayPoint",
             supplier = {
-                val existing = HeavyRailQueries.findNearestWayPoint(wayPointSnapshot, railsById, targetPosition)
-                val nearestRail = HeavyRailQueries.findNearestRail(railSnapshot, targetPosition)
-                CreateWayPointLookup(existing, nearestRail)
+                val pointedRail = HeavyRailQueries.findLookedAtRailPoint(
+                    railSnapshot,
+                    rayOrigin,
+                    rayDirection,
+                    HeavyRailQueries.DEFAULT_TARGET_MAX_DISTANCE,
+                    HeavyRailQueries.DEFAULT_TARGET_HIT_RADIUS
+                )
+                val existing = pointedRail?.let { target ->
+                    HeavyRailQueries.findNearestWayPoint(
+                        wayPointSnapshot,
+                        railsById,
+                        target.position,
+                        requiredRailId = target.railId
+                    )
+                }
+                CreateWayPointLookup(pointedRail, existing)
             },
             onSuccess = { result ->
                 heavyOperationGate.finish(player.uniqueId)
@@ -453,23 +472,17 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     return@supply
                 }
 
+                val pointedRail = result.pointedRail ?: run {
+                    livePlayer.sendActionBar(Component.text("尚未指向可创建路径点的轨道", NamedTextColor.RED))
+                    return@supply
+                }
                 val existing = result.existingWayPoint
                 if (existing != null && existing.distance <= MAX_SELECT_DISTANCE) {
                     showWayPointDialog(livePlayer, existing.wayPoint.id)
                     return@supply
                 }
 
-                val nearestRail = result.nearestRail ?: run {
-                    livePlayer.sendActionBar(Component.text("世界中没有轨道", NamedTextColor.RED))
-                    return@supply
-                }
-                if (nearestRail.distance > MAX_PLACE_DISTANCE) {
-                    livePlayer.sendActionBar(
-                        Component.text("离最近轨道太远: ${"%.2f".format(nearestRail.distance)}m", NamedTextColor.RED)
-                    )
-                    return@supply
-                }
-                val rail = liveCoreWorld.getRail(nearestRail.railId) ?: run {
+                val rail = liveCoreWorld.getRail(pointedRail.railId) ?: run {
                     livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.RED))
                     return@supply
                 }
@@ -480,7 +493,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     id = id,
                     displayName = id,
                     railId = rail.id,
-                    arcLengthInAbMeters = nearestRail.arcLength,
+                    arcLengthInAbMeters = pointedRail.arcLength,
                     approachDirection = null,
                     role = DestinationRole.Regular
                 )
@@ -504,7 +517,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                         "waypoint.created",
                         id,
                         rail.id,
-                        nearestRail.arcLength
+                        pointedRail.arcLength
                     ).color(NamedTextColor.GREEN)
                 )
                 showWayPointDialog(livePlayer, id, getState(livePlayer).defaultWayPointType)
@@ -824,11 +837,6 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val coreWorld = getCoreWorld(player) ?: return
         val session = configUI.getPlayerSession(player.uniqueId)
         val rawName = session.getValue(editKeys.name) ?: oldId
-        val newId = rawName.trim()
-        if (newId.isBlank()) {
-            player.sendActionBar(Component.text("Destination ID 不能为空", NamedTextColor.RED))
-            return
-        }
         val legacyWayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: return
         val original = coreWorld.basicWorldData.destinations[oldId]
         val updated = try {
@@ -836,7 +844,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 legacyWayPoint,
                 original,
                 RailObjectDestinationEdit(
-                    id = newId,
+                    id = rawName,
                     roleType = session.getValue(editKeys.role) ?: DestinationRoleType.REGULAR,
                     approachDirection = (session.getValue(editKeys.approachDirection)
                         ?: WayPointApproachOption.UNRESTRICTED).direction,
@@ -1036,8 +1044,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     )
 
     private data class CreateWayPointLookup(
-        val existingWayPoint: HeavyRailQueries.WayPointMatch?,
-        val nearestRail: HeavyRailQueries.NearestRailMatch?
+        val pointedRail: HeavyRailQueries.LookedAtRailMatch?,
+        val existingWayPoint: HeavyRailQueries.WayPointMatch?
     )
 
     companion object {

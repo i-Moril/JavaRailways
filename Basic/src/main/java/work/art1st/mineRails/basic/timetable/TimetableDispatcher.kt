@@ -12,6 +12,7 @@ import work.art1st.mineRails.basic.api.depot.DepotTrainAllocation
 import work.art1st.mineRails.basic.api.depot.DepotStorageReservation
 import work.art1st.mineRails.basic.api.depot.DepotStorageReservationResult
 import work.art1st.mineRails.basic.api.depot.DepotTrainAllocationResult
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationIds
 import work.art1st.mineRails.basic.api.operation.RejectingTrainOperationGateway
 import work.art1st.mineRails.basic.api.operation.TrainOperation
 import work.art1st.mineRails.basic.api.operation.TrainOperationExecutionResult
@@ -33,8 +34,20 @@ import work.art1st.mineRails.basic.api.station.StationCallRequest
 import work.art1st.mineRails.basic.api.station.StationCallResolutionResult
 import work.art1st.mineRails.basic.api.station.StationCallResolver
 import work.art1st.mineRails.basic.api.station.StationCallSubmissionResult
+import work.art1st.mineRails.basic.api.timetable.TimetableActivationFalseBehavior
+import work.art1st.mineRails.basic.api.timetable.TimetableConditionResult
+import work.art1st.mineRails.basic.api.timetable.TimetableConditionScope
+import work.art1st.mineRails.basic.api.timetable.TimetableExtensionActionState
+import work.art1st.mineRails.basic.api.timetable.TimetableExtensionActionTicket
+import work.art1st.mineRails.basic.api.timetable.TimetableExtensionActionStartResult
+import work.art1st.mineRails.basic.api.timetable.TimetableRuntimeContext
+import work.art1st.mineRails.basic.api.timetable.TimetableServiceActivation
+import work.art1st.mineRails.basic.api.timetable.TimetableTrainContext
 import work.art1st.mineRails.basic.controller.SimpleATO
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
+import work.art1st.mineRails.basic.persistence.SavedActiveRunCheckpointV1
+import work.art1st.mineRails.basic.persistence.SavedDispatcherV1
+import work.art1st.mineRails.basic.persistence.SavedTimetableClockV1
 import work.art1st.mineRails.basic.route.MissionRouteLayout
 import work.art1st.mineRails.basic.route.MissionRouteSection
 import work.art1st.mineRails.basic.route.RouteAllocationTiming
@@ -50,6 +63,7 @@ import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainSnapshot
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 import work.art1st.mineRails.core.physics.train.CoreTrain
+import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
@@ -86,6 +100,9 @@ enum class TimetableServiceRunState {
     DEPARTING,
     DEPARTED,
     STORING,
+    HALTING,
+    REVERSING,
+    WAITING_EXTENSION_ACTION,
     MANUAL_INTERVENTION,
     SUSPENDED,
     REPLAN_REQUIRED,
@@ -93,6 +110,18 @@ enum class TimetableServiceRunState {
     STOPPED,
     COMPLETED,
     FAILED
+}
+
+data class TimetableWaypointProgress(
+    val runId: TimetableServiceRunId,
+    val cycleIndex: Long,
+    val waypointId: String,
+    val pass: Boolean,
+    val timetableElapsedTicks: Long
+)
+
+fun interface TimetableWaypointProgressListener {
+    fun onReached(progress: TimetableWaypointProgress)
 }
 
 data class TimetableServiceRunSnapshot(
@@ -210,10 +239,87 @@ class TimetableDispatcher(
     private val missionRevision = AtomicLong(0L)
     private val runs = LinkedHashMap<TimetableServiceRunKey, ActiveRun>()
     private val timetableClocks = LinkedHashMap<String, TimetableClock>()
+    private val waypointProgressListeners =
+        LinkedHashMap<WaypointProgressKey, MutableList<TimetableWaypointProgressListener>>()
+    private val recoveryRequiredRuns = ArrayList<SavedActiveRunCheckpointV1>()
     private val berthAllocator = StationBerthAllocator()
     private var dispatcherTick = 0L
     private var allocatorWorld: World? = null
     private var allocator: RouteSectionAllocator? = null
+
+    /** Capture stable logical state only; live locks, tickets, queues and controller objects are excluded. */
+    fun saveCheckpoint(): SavedDispatcherV1 = SavedDispatcherV1(
+        dispatcherTick = dispatcherTick,
+        missionRevision = missionRevision.get(),
+        clocks = timetableClocks.entries.map { (id, clock) ->
+            SavedTimetableClockV1(
+                timetableId = id,
+                epochDispatcherTick = clock.epochDispatcherTick,
+                periodTicks = clock.periodTicks,
+                nextCycleIndex = clock.nextCycleIndex,
+                disabledServiceIds = clock.disabledServiceIds.toSet(),
+                pendingActivationCycles = clock.pendingActivationCycles.toMap()
+            )
+        }.sortedBy(SavedTimetableClockV1::timetableId),
+        runs = (recoveryRequiredRuns + runs.values.map { run ->
+            SavedActiveRunCheckpointV1(
+                timetableId = run.id.timetableId,
+                serviceId = run.id.serviceId,
+                cycleIndex = run.cycleIndex,
+                trainId = run.train.id,
+                nextStepIndex = run.nextStepIndex,
+                currentWayPointId = run.currentWayPointId,
+                targetWayPointId = run.currentRuntime.targetWayPointId,
+                originalState = run.state.name,
+                timetableElapsedTicks = timetableElapsedTicks(run),
+                dwellTicksRemaining = run.dwellTicksRemaining,
+                missionRevision = run.missionRevision,
+                lastScheduledActionTick = run.lastScheduledActionTick,
+                lastLatenessTicks = run.lastLatenessTicks,
+                controlMode = run.controlMode.name
+            )
+        }).distinctBy { Triple(it.timetableId, it.serviceId, it.cycleIndex) }
+    )
+
+    /** Restore clocks and retain former active runs as explicit RECOVERY_REQUIRED checkpoints. */
+    fun restoreCheckpoint(saved: SavedDispatcherV1) {
+        check(runs.isEmpty() && timetableClocks.isEmpty()) { "Dispatcher must be empty before restore" }
+        require(saved.dispatcherTick >= 0L && saved.missionRevision >= 0L)
+        dispatcherTick = saved.dispatcherTick
+        missionRevision.set(saved.missionRevision)
+        saved.clocks.forEach { clock ->
+            timetableClocks[clock.timetableId] = TimetableClock(
+                epochDispatcherTick = clock.epochDispatcherTick,
+                periodTicks = clock.periodTicks,
+                nextCycleIndex = clock.nextCycleIndex,
+                disabledServiceIds = LinkedHashSet(clock.disabledServiceIds),
+                pendingActivationCycles = LinkedHashMap(clock.pendingActivationCycles)
+            )
+        }
+        recoveryRequiredRuns.clear()
+        recoveryRequiredRuns.addAll(saved.runs)
+        saved.runs.forEach { run ->
+            timetableClocks[run.timetableId]?.disabledServiceIds?.add(run.serviceId)
+        }
+    }
+
+    fun recoveryRequiredRuns(): List<SavedActiveRunCheckpointV1> = recoveryRequiredRuns.toList()
+
+    @MainThread
+    fun observeWaypointProgress(
+        id: TimetableServiceRunId,
+        cycleIndex: Long = 0L,
+        listener: TimetableWaypointProgressListener
+    ): AutoCloseable {
+        val key = WaypointProgressKey(id, cycleIndex)
+        waypointProgressListeners.getOrPut(key, ::ArrayList).add(listener)
+        return AutoCloseable {
+            waypointProgressListeners[key]?.let { listeners ->
+                listeners.remove(listener)
+                if (listeners.isEmpty()) waypointProgressListeners.remove(key)
+            }
+        }
+    }
 
     /** Establish one shared cycle-zero epoch before an administrator starts timetable services. */
     @MainThread
@@ -253,6 +359,17 @@ class TimetableDispatcher(
         return TimetableEpochStartResult.Started(
             TimetableEpochSnapshot(timetableId, clock.epochDispatcherTick, clock.periodTicks)
         )
+    }
+
+    /** Queue automatic services in cycle zero; manual services remain explicit-only. */
+    @MainThread
+    fun scheduleInitialCycle(timetableId: String): Boolean {
+        val clock = timetableClocks[timetableId] ?: return false
+        check(clock.epochDispatcherTick == dispatcherTick) {
+            "initial cycle must be scheduled immediately after beginTimetable"
+        }
+        clock.nextCycleIndex = 0L
+        return true
     }
 
     @MainThread
@@ -369,7 +486,7 @@ class TimetableDispatcher(
         }
         val first = firstMovement(runId, service, selected.originWayPointId)
             ?: return startupFailure(
-                "service requires an initial Check/takeFromDepot followed by GoTo/GoVia before any Stop: $runId"
+                "service requires an initial check/takeFromDepot followed by destination before any stop: $runId"
             )
         val originFailure = validateAtWayPoint(world, train, first.origin.id)
         if (originFailure != null) return startupFailure(originFailure)
@@ -433,6 +550,9 @@ class TimetableDispatcher(
             depotAllocation = selected.depotAllocation,
             depotDepartureRuntime = runtime.takeIf { selected.depotAllocation != null }
         )
+        run.destinationStop = first.destinationOptions?.let { options ->
+            DispatcherDestinationStop(options, runtime)
+        }
         replaceableTrainRuns.filter(ActiveRun::isStoredTerminal).forEach { previous ->
             run.runtimes += previous.runtimes
             run.allocations.putAll(previous.allocations)
@@ -442,17 +562,16 @@ class TimetableDispatcher(
             runs.entries.removeIf { it.value === previous }
         }
         runs[runKey] = run
-        first.stationCallSpec?.let { spec ->
-            scheduleStationCallSpec(world, run, spec)?.let { reason ->
-                stallRun(world, run, "InfrastructureInvariantViolation", reason)
-            }
-        }
-        if (first.stationCallSpec == null) {
-            if (timetableElapsedTicks(run) < first.actionTick) {
-                waitForTimetableTick(run, first.actionTick, pendingStep = false)
-                run.ato.setSpeedLimit(scheduleHoldKey(run), 0.0)
-            } else {
-                recordScheduledAction(run, first.actionTick)
+        if (timetableElapsedTicks(run) < first.actionTick) {
+            run.pendingStationCallSpec = first.stationCallSpec
+            waitForTimetableTick(run, first.actionTick, pendingStep = false)
+            run.ato.setSpeedLimit(scheduleHoldKey(run), 0.0)
+        } else {
+            recordScheduledAction(run, first.actionTick)
+            first.stationCallSpec?.let { spec ->
+                scheduleStationCallSpec(world, run, spec)?.let { reason ->
+                    stallRun(world, run, "InfrastructureInvariantViolation", reason)
+                }
             }
         }
         return TimetableServiceStartResult.Started(run.snapshot())
@@ -548,27 +667,24 @@ class TimetableDispatcher(
             ?: return "station not found: ${berthRef.stationId}"
         val berth = world.basicWorldData.stations.berth(berthRef)
             ?: return "berth not found: $berthRef"
-        val plannedDepartureRelativeTick = spec.action.plannedDepartureTick
-            ?: spec.pairedDepartureTick
         val dwellPlan = DwellPlanResolver.resolve(
             station = station,
             berth = berth,
-            minimumDwellTicksOverride = spec.action.minimumDwellTicks,
-            plannedDepartureTick = absoluteTimetableTick(run, plannedDepartureRelativeTick)
+            minimumDwellTicksOverride = spec.action.minimumDwellTicks
         )
         val call = StationCall(
             callId = "${run.instanceId}/station/${spec.stepIndex}",
             missionRevision = run.missionRevision,
             stationId = berthRef.stationId,
             berthRef = berthRef,
-            plannedArrivalTick = absoluteTimetableTick(run, spec.plannedArrivalTick),
+            plannedArrivalTick = null,
             dwellPlan = dwellPlan,
             stoppingOffsetMetersBeforeOverride = spec.action.stoppingOffsetMetersBefore,
             doorSideOverride = spec.action.doorSideOverride
         )
         return when (val result = scheduleStationCall(world, run.id, call)) {
             is TimetableStationCallScheduleResult.Scheduled -> {
-                run.stationCall?.plannedDepartureTimetableTick = plannedDepartureRelativeTick
+                run.stationCall?.waitForNextTimetableAction = true
                 null
             }
             is TimetableStationCallScheduleResult.Failure -> result.reason
@@ -597,11 +713,19 @@ class TimetableDispatcher(
         ) {
             return TimetableControlTransferResult.ManualRouted(run.snapshot())
         }
-        if (run.controlMode == TimetableControlMode.FULL_MANUAL ||
-            run.state == TimetableServiceRunState.REPLAN_REQUIRED
+        if (run.state == TimetableServiceRunState.REPLAN_REQUIRED &&
+            run.controlTransferOwner == null
         ) {
+            run.controlTransferOwner = transferOwner
+            run.controlMode = TimetableControlMode.FULL_MANUAL
+            run.manualController = null
+            run.state = TimetableServiceRunState.SUSPENDED
+            run.message = "FULL_MANUAL reacquired by $transferOwner; explicit replan remains required for ATO"
+            return TimetableControlTransferResult.Suspended(run.snapshot())
+        }
+        if (run.controlMode == TimetableControlMode.FULL_MANUAL) {
             return TimetableControlTransferResult.Failure(
-                "service ${run.id} is suspended and requires explicit replan"
+                "service ${run.id} is suspended by ${run.controlTransferOwner ?: "unknown owner"}"
             )
         }
         cancelPendingOperation(run)?.let {
@@ -675,11 +799,19 @@ class TimetableDispatcher(
         ) {
             return TimetableControlTransferResult.Suspended(run.snapshot())
         }
-        if (run.state == TimetableServiceRunState.SUSPENDED ||
-            run.state == TimetableServiceRunState.REPLAN_REQUIRED
+        if (run.state == TimetableServiceRunState.REPLAN_REQUIRED &&
+            run.controlTransferOwner == null
         ) {
+            run.controlTransferOwner = transferOwner
+            run.controlMode = TimetableControlMode.FULL_MANUAL
+            run.manualController = null
+            run.state = TimetableServiceRunState.SUSPENDED
+            run.message = "FULL_MANUAL reacquired by $transferOwner; explicit replan remains required for ATO"
+            return TimetableControlTransferResult.Suspended(run.snapshot())
+        }
+        if (run.state == TimetableServiceRunState.SUSPENDED) {
             return TimetableControlTransferResult.Failure(
-                "service ${run.id} is already suspended by ${run.controlTransferOwner ?: "released transfer"}"
+                "service ${run.id} is already suspended by ${run.controlTransferOwner ?: "unknown owner"}"
             )
         }
         cancelPendingOperation(run)?.let {
@@ -788,7 +920,8 @@ class TimetableDispatcher(
             priorityTick = run.currentRuntime.priorityTick,
             actionTick = timetableElapsedTicks(run),
             nextStepIndex = run.nextStepIndex,
-            stationCallSpec = null
+            stationCallSpec = null,
+            destinationOptions = null
         )
         val submission = submitMission(world, replacementAto, run.id, plan)
         val accepted = submission.accepted
@@ -821,12 +954,21 @@ class TimetableDispatcher(
     fun tick(world: World) {
         dispatcherTick++
         val coordinator = world.basicWorldData.atoCoordinator
-        if (coordinator.isStalled) return
+        if (coordinator.isStalled) {
+            runs.values.filter { it.state.isTerminal() }.forEach {
+                waypointProgressListeners.remove(it.waypointProgressKey())
+            }
+            return
+        }
         val sectionAllocator = allocator(world)
         val candidates = ArrayList<AllocationCandidate>()
 
         runs.values.toList().forEach { run ->
             if (coordinator.isStalled) return
+            if (run.state.isTerminal()) {
+                waypointProgressListeners.remove(run.waypointProgressKey())
+                return@forEach
+            }
             run.lastObservedDispatcherTick = dispatcherTick
             val manualRouted = run.controlMode == TimetableControlMode.MANUAL_ROUTED
             val fullManual = run.controlMode == TimetableControlMode.FULL_MANUAL ||
@@ -849,11 +991,24 @@ class TimetableDispatcher(
                 return@forEach
             }
             releaseDepotDeparture(world, run)
+            if (run.state == TimetableServiceRunState.WAITING_EXTENSION_ACTION) {
+                pollExtensionAction(world, run)
+                return@forEach
+            }
             if (coordinator.isStalled) return
             releasePassedSections(run, sectionAllocator)
             if (coordinator.isStalled) return
             releasePassedBerth(run)
             if (coordinator.isStalled) return
+            if (run.stationCall == null) {
+                run.deferredStationCallSpec?.let { spec ->
+                    run.deferredStationCallSpec = null
+                    scheduleStationCallSpec(world, run, spec)?.let { reason ->
+                        stallRun(world, run, "InfrastructureInvariantViolation", reason)
+                        return@forEach
+                    }
+                }
+            }
 
             if (run.state.isTerminal()) {
                 finishControllerIfReleased(run, snapshot)
@@ -904,6 +1059,13 @@ class TimetableDispatcher(
                     return@forEach
                 }
                 recordScheduledAction(run, scheduledTick)
+                run.pendingStationCallSpec?.let { spec ->
+                    run.pendingStationCallSpec = null
+                    scheduleStationCallSpec(world, run, spec)?.let { reason ->
+                        stallRun(world, run, "InfrastructureInvariantViolation", reason)
+                        return@forEach
+                    }
+                }
             }
             if (run.state == TimetableServiceRunState.STOPPING) {
                 if (run.ato.isStopped(snapshot.speedMetersPerSecond)) {
@@ -926,6 +1088,21 @@ class TimetableDispatcher(
             ) {
                 if (processStationOperation(run, stationCall)) return@forEach
             }
+            val destinationStop = run.destinationStop
+            if (destinationStop != null &&
+                (run.state == TimetableServiceRunState.DOORS_OPENING ||
+                    run.state == TimetableServiceRunState.DOORS_CLOSING)
+            ) {
+                if (processDestinationOperation(world, run, destinationStop)) return@forEach
+            }
+            if (run.state == TimetableServiceRunState.HALTING) {
+                processHaltOperation(world, run)
+                return@forEach
+            }
+            if (run.state == TimetableServiceRunState.REVERSING) {
+                processReverse(world, run)
+                return@forEach
+            }
             if (run.state == TimetableServiceRunState.MANUAL_INTERVENTION) return@forEach
             if (run.state == TimetableServiceRunState.BERTHED &&
                 stationCall != null && dispatcherTick > stationCall.stateEnteredDispatcherTick
@@ -946,24 +1123,65 @@ class TimetableDispatcher(
                 stationCall != null && !stationCall.departed
             ) {
                 if (dispatcherTick >= stationCall.earliestDepartureDispatcherTick) {
-                    if (stationCall.resolved.doorSide == DoorSide.NONE) {
-                        enterReadyToDepart(run, stationCall)
+                    val nextTick = if (stationCall.waitForNextTimetableAction) {
+                        nextActionTick(run)
                     } else {
-                        beginStationOperation(
-                            run,
-                            stationCall,
-                            TrainOperation.CloseDoors(stationCall.resolved.doorSide),
-                            TimetableServiceRunState.DOORS_CLOSING
-                        )
+                        0L
+                    }
+                    if (nextTick == null) {
+                        completeOpenTerminalStation(run, stationCall)
+                    } else if (timetableElapsedTicks(run) >= nextTick) {
+                        if (stationCall.resolved.doorSide == DoorSide.NONE) {
+                            enterReadyToDepart(run, stationCall)
+                        } else {
+                            beginStationOperation(
+                                run,
+                                stationCall,
+                                TrainOperation.CloseDoors(stationCall.resolved.doorSide),
+                                TimetableServiceRunState.DOORS_CLOSING
+                            )
+                        }
                     }
                     return@forEach
                 }
+            } else if (run.state == TimetableServiceRunState.DWELLING && destinationStop != null) {
+                if (run.dwellTicksRemaining > 0L) run.dwellTicksRemaining--
+                if (run.dwellTicksRemaining == 0L) {
+                    val nextTick = nextActionTick(run)
+                    if (nextTick == null) {
+                        completeOpenTerminalDestination(run, destinationStop)
+                    } else if (timetableElapsedTicks(run) >= nextTick) {
+                        val side = destinationStop.options.doorSide ?: DoorSide.NONE
+                        if (side == DoorSide.NONE) {
+                            finishDestinationStop(world, run, destinationStop)
+                        } else {
+                            beginDestinationOperation(
+                                world,
+                                run,
+                                destinationStop,
+                                TrainOperation.CloseDoors(side),
+                                TimetableServiceRunState.DOORS_CLOSING
+                            )
+                        }
+                    }
+                }
+                return@forEach
             } else if (run.state == TimetableServiceRunState.DWELLING) {
                 if (run.dwellTicksRemaining > 0L) run.dwellTicksRemaining--
                 if (run.dwellTicksRemaining == 0L) advanceService(world, run)
                 return@forEach
             }
             if (run.state == TimetableServiceRunState.READY_TO_DEPART && stationCall != null) {
+                if (isTerminalStationCall(stationCall)) {
+                    run.currentWayPointId = stationCall.missionRuntime.targetWayPointId
+                    if (run.nextStepIndex >= run.service.steps.size) {
+                        run.state = TimetableServiceRunState.COMPLETED
+                        run.message = "service completed berthed at ${stationCall.resolved.berthRef}"
+                    } else {
+                        advanceService(world, run)
+                    }
+                    return@forEach
+                }
                 if (hasAuthorityBeyondStation(run, stationCall)) {
                     stationCall.plannedDepartureTimetableTick?.let {
                         recordScheduledAction(run, it)
@@ -1009,10 +1227,19 @@ class TimetableDispatcher(
             runtime.headProgressMeters = headProgress
             runtime.tailProgressMeters = runtime.layout.project(snapshot.tail, runtime.tailProgressMeters)
                 ?: runtime.tailProgressMeters
+            reportWaypointProgress(run, runtime, snapshot)
 
             releasePassedSections(run, sectionAllocator)
+            val completedDestinationStop = run.destinationStop?.takeIf {
+                it.missionRuntime === runtime && destinationStopCompleted(run, runtime, snapshot, it)
+            }
+            if (completedDestinationStop != null && !completedDestinationStop.started) {
+                beginDestinationStop(world, run, completedDestinationStop)
+                return@forEach
+            }
             if (missionCompleted(run, runtime, snapshot) &&
-                (run.stationCall == null || run.stationCall?.departed == true)
+                (run.stationCall == null || run.stationCall?.departed == true) &&
+                run.destinationStop == null
             ) {
                 if (runtime === run.storageRuntime) {
                     if (!tryCompleteStorage(world, run, runtime, sectionAllocator)) {
@@ -1068,37 +1295,146 @@ class TimetableDispatcher(
         startDueCycles(world)
     }
 
+    private fun evaluateAutomaticActivation(
+        world: World,
+        timetableId: String,
+        service: TimetableService,
+        cycleIndex: Long,
+        clock: TimetableClock
+    ): AutomaticActivation = when (val activation = service.activation) {
+        TimetableServiceActivation.Scheduled -> AutomaticActivation.START
+        TimetableServiceActivation.Manual -> AutomaticActivation.SKIP
+        is TimetableServiceActivation.Conditional -> {
+            val cycleStart = Math.addExact(
+                clock.epochDispatcherTick,
+                Math.multiplyExact(cycleIndex, clock.periodTicks)
+            )
+            val elapsed = (dispatcherTick - cycleStart).coerceAtLeast(0L)
+            val context = TimetableRuntimeContext(
+                timetableId = timetableId,
+                serviceId = service.id,
+                cycleIndex = cycleIndex,
+                timetableElapsedTicks = elapsed,
+                scheduledTick = null,
+                latenessTicks = 0L,
+                currentWayPointId = null,
+                train = null
+            )
+            when (val result = world.basicWorldData.timetableExtensions.evaluate(
+                activation.condition,
+                context,
+                TimetableConditionScope.SERVICE_ACTIVATION
+            )) {
+                TimetableConditionResult.True -> AutomaticActivation.START
+                TimetableConditionResult.False -> when (activation.falseBehavior) {
+                    TimetableActivationFalseBehavior.SKIP_CYCLE -> AutomaticActivation.SKIP
+                    TimetableActivationFalseBehavior.WAIT_UNTIL_TRUE ->
+                        AutomaticActivation.WAIT("activation condition is false")
+                }
+                is TimetableConditionResult.Unavailable -> when (activation.falseBehavior) {
+                    TimetableActivationFalseBehavior.WAIT_UNTIL_TRUE ->
+                        AutomaticActivation.WAIT(result.reason)
+                    TimetableActivationFalseBehavior.SKIP_CYCLE ->
+                        AutomaticActivation.ERROR(result.reason)
+                }
+                is TimetableConditionResult.Error -> AutomaticActivation.ERROR(result.message)
+            }
+        }
+    }
+
     private fun startDueCycles(world: World) {
         for ((timetableId, clock) in timetableClocks.toList().sortedBy { it.first }) {
+            val timetable = world.basicWorldData.timetables[timetableId]
+            if (timetable == null) {
+                stallTimetableRuntime(
+                    world,
+                    TimetableServiceRunId(timetableId, "<cycle-${clock.nextCycleIndex}>"),
+                    "TimetableDisappeared",
+                    "active timetable disappeared: $timetableId"
+                )
+                return
+            }
+
+            // A waiting service retains its original cycle, but does not block unrelated services
+            // or the timetable clock from creating later cycles.
+            for ((serviceId, cycleIndex) in clock.pendingActivationCycles.toMap()) {
+                if (serviceId in clock.disabledServiceIds) {
+                    clock.pendingActivationCycles.remove(serviceId)
+                    continue
+                }
+                val service = timetable.services.firstOrNull { it.id == serviceId }
+                if (service == null) {
+                    stallTimetableRuntime(
+                        world,
+                        TimetableServiceRunId(timetableId, serviceId),
+                        "TimetableDisappeared",
+                        "pending activation service disappeared: $timetableId/$serviceId"
+                    )
+                    return
+                }
+                val runId = TimetableServiceRunId(timetableId, serviceId)
+                val runKey = TimetableServiceRunKey(runId, clock.epochDispatcherTick, cycleIndex)
+                if (runs.containsKey(runKey)) {
+                    clock.pendingActivationCycles.remove(serviceId)
+                    continue
+                }
+                when (val activation = evaluateAutomaticActivation(
+                    world, timetableId, service, cycleIndex, clock
+                )) {
+                    AutomaticActivation.START -> when (val result = startServiceForCycle(
+                        world, timetableId, serviceId, cycleIndex
+                    )) {
+                        is TimetableServiceStartResult.Started -> {
+                            clock.pendingActivationCycles.remove(serviceId)
+                            clock.lastCycleStartFailure = null
+                        }
+                        is TimetableServiceStartResult.Failure -> {
+                            clock.lastCycleStartFailure = result.reason
+                            if (world.basicWorldData.atoCoordinator.isStalled) return
+                        }
+                    }
+                    AutomaticActivation.SKIP -> clock.pendingActivationCycles.remove(serviceId)
+                    is AutomaticActivation.WAIT -> clock.lastCycleStartFailure = activation.reason
+                    is AutomaticActivation.ERROR -> {
+                        stallTimetableRuntime(
+                            world, runId, "TimetableConditionFailure", activation.reason
+                        )
+                        return
+                    }
+                }
+            }
+
             val elapsed = (dispatcherTick - clock.epochDispatcherTick).coerceAtLeast(0L)
             val currentCycleIndex = elapsed / clock.periodTicks
             while (clock.nextCycleIndex <= currentCycleIndex) {
                 val cycleIndex = clock.nextCycleIndex
-                val timetable = world.basicWorldData.timetables[timetableId]
-                if (timetable == null) {
-                    stallTimetableRuntime(
-                        world,
-                        TimetableServiceRunId(timetableId, "<cycle-$cycleIndex>"),
-                        "TimetableDisappeared",
-                        "active timetable disappeared before cycle $cycleIndex: $timetableId"
-                    )
-                    return
-                }
                 var complete = true
                 for (service in timetable.services) {
-                    if (service.id in clock.disabledServiceIds) continue
+                    if (service.id in clock.disabledServiceIds ||
+                        service.id in clock.pendingActivationCycles
+                    ) continue
                     val runId = TimetableServiceRunId(timetableId, service.id)
-                    val runKey = TimetableServiceRunKey(
-                        runId,
-                        clock.epochDispatcherTick,
-                        cycleIndex
-                    )
+                    val runKey = TimetableServiceRunKey(runId, clock.epochDispatcherTick, cycleIndex)
                     if (runs.containsKey(runKey)) continue
+                    when (val activation = evaluateAutomaticActivation(
+                        world, timetableId, service, cycleIndex, clock
+                    )) {
+                        AutomaticActivation.START -> Unit
+                        AutomaticActivation.SKIP -> continue
+                        is AutomaticActivation.WAIT -> {
+                            clock.pendingActivationCycles[service.id] = cycleIndex
+                            clock.lastCycleStartFailure = activation.reason
+                            continue
+                        }
+                        is AutomaticActivation.ERROR -> {
+                            stallTimetableRuntime(
+                                world, runId, "TimetableConditionFailure", activation.reason
+                            )
+                            return
+                        }
+                    }
                     when (val result = startServiceForCycle(
-                        world,
-                        timetableId,
-                        service.id,
-                        cycleIndex
+                        world, timetableId, service.id, cycleIndex
                     )) {
                         is TimetableServiceStartResult.Started -> Unit
                         is TimetableServiceStartResult.Failure -> {
@@ -1109,8 +1445,8 @@ class TimetableDispatcher(
                     }
                 }
                 if (!complete) return
-                clock.lastCycleStartFailure = null
                 clock.nextCycleIndex = Math.incrementExact(cycleIndex)
+                if (clock.pendingActivationCycles.isEmpty()) clock.lastCycleStartFailure = null
             }
         }
     }
@@ -1151,6 +1487,68 @@ class TimetableDispatcher(
         runs.values
             .filter { it.id == id && (cycleIndex == null || it.cycleIndex == cycleIndex) }
             .maxByOrNull { it.cycleStartDispatcherTick }
+
+    /**
+     * Discard terminal failed runs while the World Stall is still latched. This prevents a failed
+     * SimpleATO, station hold, or resource allocation from surviving an administrator ATO reset.
+     * Healthy runs remain untouched and may resume after the world latch is reset.
+     */
+    @MainThread
+    fun discardFailedRunsForAtoReset(world: World): Int {
+        check(world.basicWorldData.atoCoordinator.isStalled) {
+            "failed runs may only be discarded while the World ATO is stalled"
+        }
+        val failedRuns = runs.values.filter { it.state == TimetableServiceRunState.FAILED }
+        if (failedRuns.isEmpty()) return 0
+        failedRuns.forEach { run -> discardRun(world, run) }
+        return failedRuns.size
+    }
+
+    /**
+     * Abandon a released ad-hoc navigation before another `/mr navigate` is started. Normal
+     * timetable services are deliberately excluded: they still require explicit replan/depot
+     * recovery. The caller has already released any managed manual-control session.
+     */
+    @MainThread
+    fun discardReleasedManualNavigation(world: World, trainId: String): Int {
+        require(trainId.isNotBlank())
+        val obsolete = runs.values.filter { run ->
+            run.train.id == trainId && run.id.timetableId.startsWith(MANUAL_NAVIGATION_PREFIX) &&
+                run.controlTransferOwner == null &&
+                (run.state == TimetableServiceRunState.REPLAN_REQUIRED ||
+                    run.state == TimetableServiceRunState.COMPLETED)
+        }
+        obsolete.forEach { run -> discardRun(world, run) }
+        return obsolete.size
+    }
+
+    private fun discardRun(world: World, run: ActiveRun) {
+        val sectionAllocator = allocator(world)
+        listOfNotNull(
+            run.stationCall?.operationTicket,
+            run.destinationStop?.operationTicket,
+            run.haltOperation?.ticket
+        ).distinct().forEach { ticket -> runCatching { ticket.cancel() } }
+        run.allocations.keys.toList().forEach { key ->
+            sectionAllocator.release(key)
+            run.ato.releaseRouteWindow(key)
+            run.allocations.remove(key)?.section?.status = SectionStatus.RELEASED
+        }
+        run.stationCall?.allocationKey?.let { key ->
+            berthAllocator.release(key)
+            run.stationCall?.allocationKey = null
+        }
+        run.storageReservation?.let { reservation ->
+            world.basicWorldData.depots.cancelStorage(reservation)
+            run.storageReservation = null
+        }
+        run.ato.removeSpeedLimit(stopKey(run))
+        run.ato.removeSpeedLimit(stationPendingHoldKey(run))
+        run.ato.removeSpeedLimit(scheduleHoldKey(run))
+        if (run.train.controller === run.ato) run.train.setController(null)
+        waypointProgressListeners.remove(run.waypointProgressKey())
+        runs.entries.removeIf { (_, candidate) -> candidate === run }
+    }
 
     /** Preflight forced resource cleanup used only by an administrator-confirmed Depot Reset. */
     @MainThread
@@ -1288,6 +1686,7 @@ class TimetableDispatcher(
     }
 
     private fun cancelStationCallForControlTransfer(run: ActiveRun) {
+        run.destinationStop = null
         val stationCall = run.stationCall ?: return
         stationCall.cancelledForControlTransfer = true
         run.ato.removeSpeedLimit(stationPendingHoldKey(run))
@@ -1306,6 +1705,7 @@ class TimetableDispatcher(
             is TrainOperation.OpenDoors -> "open-doors"
             is TrainOperation.CloseDoors -> "close-doors"
             is TrainOperation.SetCabLights -> "cab-lights"
+            is TrainOperation.ExecuteModelAction -> "model-action-${operation.actionName}"
             is TrainOperation.Announce -> "announce"
         }
         cancelPendingOperation(run)?.let { reason ->
@@ -1484,6 +1884,395 @@ class TimetableDispatcher(
         run.message = "ready to depart ${stationCall.resolved.berthRef}"
     }
 
+    private fun nextActionTick(run: ActiveRun): Long? =
+        run.service.steps.drop(run.nextStepIndex)
+            .filterIsInstance<TimetableStep.At>()
+            .firstOrNull()
+            ?.tick
+
+    private fun completeOpenTerminalStation(
+        run: ActiveRun,
+        stationCall: DispatcherStationCall
+    ) {
+        run.currentWayPointId = stationCall.missionRuntime.targetWayPointId
+        run.state = TimetableServiceRunState.COMPLETED
+        run.message = "service completed with doors open at ${stationCall.resolved.berthRef}"
+    }
+
+    private fun completeOpenTerminalDestination(
+        run: ActiveRun,
+        stop: DispatcherDestinationStop
+    ) {
+        run.currentWayPointId = stop.options.destinationId
+        run.destinationStop = null
+        run.state = TimetableServiceRunState.COMPLETED
+        run.message = "service completed with doors open at ${stop.options.destinationId}"
+    }
+
+    private fun destinationStopCompleted(
+        run: ActiveRun,
+        runtime: MissionRuntime,
+        snapshot: TrainSnapshot,
+        stop: DispatcherDestinationStop
+    ): Boolean {
+        val offset = stop.options.stoppingOffsetMetersBefore ?: 0.0
+        return runtime.headProgressMeters >=
+            runtime.layout.totalLengthMeters - offset - run.ato.missionStopToleranceMeters * 2.0 &&
+            run.ato.isStopped(snapshot.speedMetersPerSecond)
+    }
+
+    private fun beginDestinationStop(
+        world: World,
+        run: ActiveRun,
+        stop: DispatcherDestinationStop
+    ) {
+        stop.started = true
+        val side = stop.options.doorSide ?: DoorSide.NONE
+        if (side == DoorSide.NONE) {
+            enterDestinationDwelling(run, stop)
+        } else {
+            beginDestinationOperation(
+                world,
+                run,
+                stop,
+                TrainOperation.OpenDoors(side),
+                TimetableServiceRunState.DOORS_OPENING
+            )
+        }
+    }
+
+    private fun enterDestinationDwelling(run: ActiveRun, stop: DispatcherDestinationStop) {
+        run.dwellTicksRemaining = stop.options.minimumDwellTicks ?: 0L
+        run.state = TimetableServiceRunState.DWELLING
+        run.message = "dwelling at ${stop.options.destinationId}"
+    }
+
+    private fun finishDestinationStop(
+        world: World,
+        run: ActiveRun,
+        stop: DispatcherDestinationStop
+    ) {
+        check(run.destinationStop === stop)
+        run.currentWayPointId = stop.options.destinationId
+        run.destinationStop = null
+        run.state = TimetableServiceRunState.WAITING_MISSION
+        run.message = null
+        advanceService(world, run)
+    }
+
+    private fun beginDestinationOperation(
+        world: World,
+        run: ActiveRun,
+        stop: DispatcherDestinationStop,
+        operation: TrainOperation,
+        state: TimetableServiceRunState
+    ) {
+        val phase = when (operation) {
+            is TrainOperation.OpenDoors -> "open-doors"
+            is TrainOperation.CloseDoors -> "close-doors"
+            is TrainOperation.SetCabLights -> "cab-lights"
+            is TrainOperation.ExecuteModelAction -> "model-action-${operation.actionName}"
+            is TrainOperation.Announce -> "announce"
+        }
+        stop.operationTicket = null
+        stop.operationTicketId = null
+        stop.operationStartedDispatcherTick = Long.MAX_VALUE
+        val requestId = "${run.instanceId}/destination/${stop.options.destinationId}:$phase:${run.missionRevision}"
+        val request = TrainOperationRequest(
+            requestId = requestId,
+            serviceRunId = run.instanceId,
+            stationCallId = "${run.instanceId}/destination/${stop.options.destinationId}",
+            trainId = run.train.id,
+            missionRevision = run.missionRevision,
+            operation = operation
+        )
+        val result = try {
+            operationGateway.execute(request)
+        } catch (failure: Exception) {
+            stallRun(
+                world,
+                run,
+                "TrainOperationFailure",
+                "$phase gateway exception at ${stop.options.destinationId}: " +
+                    (failure.message ?: failure::class.java.simpleName)
+            )
+            return
+        }
+        when (result) {
+            is TrainOperationExecutionResult.Rejected -> stallRun(
+                world,
+                run,
+                "TrainOperationFailure",
+                "$phase rejected at ${stop.options.destinationId}: ${result.reason}"
+            )
+            is TrainOperationExecutionResult.Accepted -> {
+                if (result.ticket.request != request) {
+                    result.ticket.cancel()
+                    stallRun(
+                        world,
+                        run,
+                        "TrainOperationFailure",
+                        "$phase returned a ticket for another destination request"
+                    )
+                    return
+                }
+                val snapshot = try {
+                    result.ticket.snapshot()
+                } catch (failure: Exception) {
+                    result.ticket.cancel()
+                    stallRun(
+                        world,
+                        run,
+                        "TrainOperationFailure",
+                        "$phase ticket exception at ${stop.options.destinationId}: " +
+                            (failure.message ?: failure::class.java.simpleName)
+                    )
+                    return
+                }
+                if (snapshot.requestId != request.requestId) {
+                    result.ticket.cancel()
+                    stallRun(
+                        world,
+                        run,
+                        "TrainOperationFailure",
+                        "$phase ticket identity mismatch at ${stop.options.destinationId}"
+                    )
+                    return
+                }
+                stop.operationTicket = result.ticket
+                stop.operationTicketId = snapshot.ticketId
+                stop.operationStartedDispatcherTick = dispatcherTick
+                run.state = state
+                run.message = "$phase requested at ${stop.options.destinationId}"
+            }
+        }
+    }
+
+    private fun processDestinationOperation(
+        world: World,
+        run: ActiveRun,
+        stop: DispatcherDestinationStop
+    ): Boolean {
+        val ticket = stop.operationTicket
+        if (ticket == null) {
+            stallRun(world, run, "TrainOperationFailure", "destination door operation has no ticket")
+            return true
+        }
+        val snapshot = try {
+            ticket.snapshot()
+        } catch (failure: Exception) {
+            stallRun(
+                world,
+                run,
+                "TrainOperationFailure",
+                "destination operation ticket exception: " +
+                    (failure.message ?: failure::class.java.simpleName)
+            )
+            return true
+        }
+        if (snapshot.requestId != ticket.request.requestId ||
+            snapshot.ticketId != stop.operationTicketId
+        ) {
+            stallRun(world, run, "TrainOperationFailure", "destination operation ticket identity changed")
+            return true
+        }
+        return when (snapshot.state) {
+            TrainOperationTicketState.PENDING -> {
+                if (dispatcherTick - stop.operationStartedDispatcherTick >= operationTimeoutTicks) {
+                    ticket.cancel()
+                    stallRun(
+                        world,
+                        run,
+                        "TrainOperationFailure",
+                        "destination operation timed out after $operationTimeoutTicks ticks"
+                    )
+                    true
+                } else false
+            }
+            TrainOperationTicketState.SUCCEEDED -> {
+                stop.operationTicket = null
+                stop.operationTicketId = null
+                when (run.state) {
+                    TimetableServiceRunState.DOORS_OPENING -> enterDestinationDwelling(run, stop)
+                    TimetableServiceRunState.DOORS_CLOSING -> finishDestinationStop(world, run, stop)
+                    else -> stallRun(
+                        world,
+                        run,
+                        "TrainOperationFailure",
+                        "destination operation completed in invalid state ${run.state}"
+                    )
+                }
+                true
+            }
+            TrainOperationTicketState.FAILED,
+            TrainOperationTicketState.CANCELLED -> {
+                stallRun(
+                    world,
+                    run,
+                    "TrainOperationFailure",
+                    "destination operation ${snapshot.state.name.lowercase()}: ${snapshot.message.orEmpty()}"
+                )
+                true
+            }
+        }
+    }
+
+    private fun beginReverse(world: World, run: ActiveRun) {
+        val snapshot = capturePublishedTrainSnapshot(run)
+        if (!run.ato.isStopped(snapshot.speedMetersPerSecond)) {
+            stallRun(world, run, "InfrastructureInvariantViolation", "reverse requires a stopped train")
+            return
+        }
+        val reversedBefore = run.train.isReversed
+        val facingBefore =
+            (run.train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
+                ?.facing
+        run.train.reverse()
+        if (run.train.isReversed == reversedBefore) {
+            stallRun(world, run, "InfrastructureInvariantViolation", "train direction did not reverse")
+            return
+        }
+        run.requiredNextStartDirection = when (facingBefore) {
+            ViewDirection.AB -> ViewDirection.BA
+            ViewDirection.BA -> ViewDirection.AB
+            null -> null
+        }
+        run.reverseOperation = DispatcherReverseOperation(
+            reversedAfter = run.train.isReversed,
+            startedDispatcherTick = dispatcherTick
+        )
+        run.state = TimetableServiceRunState.REVERSING
+        run.message = "publishing reversed train direction"
+    }
+
+    private fun processReverse(world: World, run: ActiveRun) {
+        val reverse = run.reverseOperation
+        if (reverse == null) {
+            stallRun(world, run, "InfrastructureInvariantViolation", "REVERSING run has no reverse state")
+            return
+        }
+        if (dispatcherTick <= reverse.startedDispatcherTick) return
+        if (run.train.isReversed != reverse.reversedAfter) {
+            stallRun(world, run, "InfrastructureInvariantViolation", "reversed train state changed unexpectedly")
+            return
+        }
+        run.reverseOperation = null
+        run.state = TimetableServiceRunState.WAITING_MISSION
+        run.message = null
+        advanceService(world, run)
+    }
+
+    private fun beginHalt(world: World, run: ActiveRun) {
+        val operation = TrainOperation.ExecuteModelAction(POWER_OFF_ACTION)
+        val request = TrainOperationRequest(
+            requestId = "${run.instanceId}/halt:${run.missionRevision}",
+            serviceRunId = run.instanceId,
+            stationCallId = "${run.instanceId}/halt",
+            trainId = run.train.id,
+            missionRevision = run.missionRevision,
+            operation = operation
+        )
+        val result = try {
+            operationGateway.execute(request)
+        } catch (failure: Exception) {
+            stallRun(
+                world,
+                run,
+                "TrainOperationFailure",
+                "halt power-off gateway exception: " +
+                    (failure.message ?: failure::class.java.simpleName)
+            )
+            return
+        }
+        when (result) {
+            is TrainOperationExecutionResult.Rejected -> stallRun(
+                world,
+                run,
+                "TrainOperationFailure",
+                "halt power-off action rejected: ${result.reason}"
+            )
+            is TrainOperationExecutionResult.Accepted -> {
+                if (result.ticket.request != request) {
+                    result.ticket.cancel()
+                    stallRun(world, run, "TrainOperationFailure", "halt returned a ticket for another request")
+                    return
+                }
+                val snapshot = try {
+                    result.ticket.snapshot()
+                } catch (failure: Exception) {
+                    result.ticket.cancel()
+                    stallRun(
+                        world,
+                        run,
+                        "TrainOperationFailure",
+                        "halt ticket exception: ${failure.message ?: failure::class.java.simpleName}"
+                    )
+                    return
+                }
+                if (snapshot.requestId != request.requestId) {
+                    result.ticket.cancel()
+                    stallRun(world, run, "TrainOperationFailure", "halt ticket identity mismatch")
+                    return
+                }
+                run.haltOperation = DispatcherHaltOperation(
+                    ticket = result.ticket,
+                    ticketId = snapshot.ticketId,
+                    startedDispatcherTick = dispatcherTick
+                )
+                run.state = TimetableServiceRunState.HALTING
+                run.message = "executing train model action $POWER_OFF_ACTION"
+            }
+        }
+    }
+
+    private fun processHaltOperation(world: World, run: ActiveRun) {
+        val halt = run.haltOperation
+        if (halt == null) {
+            stallRun(world, run, "TrainOperationFailure", "HALTING run has no power-off operation")
+            return
+        }
+        val snapshot = try {
+            halt.ticket.snapshot()
+        } catch (failure: Exception) {
+            stallRun(
+                world,
+                run,
+                "TrainOperationFailure",
+                "halt ticket exception: ${failure.message ?: failure::class.java.simpleName}"
+            )
+            return
+        }
+        if (snapshot.requestId != halt.ticket.request.requestId || snapshot.ticketId != halt.ticketId) {
+            stallRun(world, run, "TrainOperationFailure", "halt ticket identity changed")
+            return
+        }
+        when (snapshot.state) {
+            TrainOperationTicketState.PENDING -> {
+                if (dispatcherTick - halt.startedDispatcherTick >= operationTimeoutTicks) {
+                    halt.ticket.cancel()
+                    stallRun(
+                        world,
+                        run,
+                        "TrainOperationFailure",
+                        "halt power-off action timed out after $operationTimeoutTicks ticks"
+                    )
+                }
+            }
+            TrainOperationTicketState.SUCCEEDED -> {
+                run.haltOperation = null
+                run.state = TimetableServiceRunState.COMPLETED
+                run.message = "halted after train model action $POWER_OFF_ACTION"
+            }
+            TrainOperationTicketState.FAILED,
+            TrainOperationTicketState.CANCELLED -> stallRun(
+                world,
+                run,
+                "TrainOperationFailure",
+                "halt power-off action ${snapshot.state.name.lowercase()}: ${snapshot.message.orEmpty()}"
+            )
+        }
+    }
+
     private fun enterManualIntervention(
         run: ActiveRun,
         stationCall: DispatcherStationCall,
@@ -1601,6 +2390,10 @@ class TimetableDispatcher(
             run.stationCall = null
         }
     }
+
+    private fun isTerminalStationCall(stationCall: DispatcherStationCall): Boolean =
+        abs(stationCall.missionDistanceMeters -
+            stationCall.missionRuntime.layout.totalLengthMeters) <= POSITION_TOLERANCE_METERS
 
     private fun hasAuthorityBeyondStation(
         run: ActiveRun,
@@ -1802,14 +2595,15 @@ class TimetableDispatcher(
         snapshot: TrainSnapshot = runCatching { capturePublishedTrainSnapshot(run) }
             .getOrDefault(run.ato.currentTrainSnapshot)
     ) {
-        val failure = IllegalStateException(reason)
+        val effectiveReason = cancelExtensionAction(run)?.let { "$reason; $it" } ?: reason
+        val failure = IllegalStateException(effectiveReason)
         world.basicWorldData.atoCoordinator.stall(
             AtoStallReport(
                 worldId = world.basicWorldData.atoCoordinator.worldId,
                 trainId = run.train.id,
                 tick = dispatcherTick,
                 errorType = errorType,
-                message = reason,
+                message = effectiveReason,
                 stackTrace = failure.stackTraceToString(),
                 initialTrain = world.basicWorldData.atoCoordinator.initialTrain(run.train.id),
                 currentTrain = snapshot,
@@ -1820,7 +2614,7 @@ class TimetableDispatcher(
             )
         )
         run.state = TimetableServiceRunState.FAILED
-        run.message = reason
+        run.message = effectiveReason
     }
 
     private fun allocate(candidate: AllocationCandidate, allocator: RouteSectionAllocator) {
@@ -2029,6 +2823,47 @@ class TimetableDispatcher(
         }
     }
 
+    private fun reportWaypointProgress(
+        run: ActiveRun,
+        runtime: MissionRuntime,
+        snapshot: TrainSnapshot
+    ) {
+        val listeners = waypointProgressListeners[run.waypointProgressKey()]?.toList().orEmpty()
+        if (listeners.isEmpty()) return
+        var cumulativeDistance = 0.0
+        runtime.mission.legs.forEachIndexed { index, leg ->
+            cumulativeDistance += leg.plannedRoute.expandedRoute.totalLength
+            if (index < runtime.reportedPointCount) return@forEachIndexed
+            val reached = when (val point = leg.point) {
+                is AtoMissionPoint.Via ->
+                    runtime.headProgressMeters >= cumulativeDistance - POSITION_TOLERANCE_METERS
+                is AtoMissionPoint.Stop -> {
+                    val stationOffset = run.stationCall?.takeIf {
+                        it.missionRuntime === runtime &&
+                            OperationalDestinationIds.stationBerth(
+                                it.resolved.berthRef.stationId,
+                                it.resolved.berthRef.berthId
+                            ) == point.target.id
+                    }?.resolved?.stoppingOffsetMetersBefore
+                    val offset = stationOffset ?: point.offsetMetersBefore
+                    runtime.headProgressMeters >= cumulativeDistance - offset -
+                        run.ato.missionStopToleranceMeters * 2.0 &&
+                        run.ato.isStopped(snapshot.speedMetersPerSecond)
+                }
+            }
+            if (!reached) return
+            runtime.reportedPointCount = index + 1
+            val event = TimetableWaypointProgress(
+                runId = run.id,
+                cycleIndex = run.cycleIndex,
+                waypointId = leg.point.target.id,
+                pass = leg.point is AtoMissionPoint.Via,
+                timetableElapsedTicks = timetableElapsedTicks(run)
+            )
+            listeners.forEach { listener -> runCatching { listener.onReached(event) } }
+        }
+    }
+
     private fun missionCompleted(
         run: ActiveRun,
         runtime: MissionRuntime,
@@ -2154,6 +2989,26 @@ class TimetableDispatcher(
                         )
                         return
                     }
+                    TimetableAction.Halt -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        recordScheduledAction(run, step.tick)
+                        run.nextStepIndex++
+                        beginHalt(world, run)
+                        return
+                    }
+                    TimetableAction.Reverse -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        recordScheduledAction(run, step.tick)
+                        run.nextStepIndex++
+                        beginReverse(world, run)
+                        return
+                    }
                     is TimetableAction.Stop -> {
                         if (run.controlMode == TimetableControlMode.MANUAL_ROUTED) {
                             recordScheduledAction(run, step.tick)
@@ -2172,6 +3027,16 @@ class TimetableDispatcher(
                         run.message = "dwell ${action.ticks} ticks"
                         return
                     }
+                    is TimetableAction.DestinationOptions -> {
+                        if (run.controlMode == TimetableControlMode.MANUAL_ROUTED) {
+                            run.pendingDestinationOptions = null
+                            run.nextStepIndex++
+                            run.message = "MANUAL_ROUTED skipped automatic destination options"
+                            continue
+                        }
+                        run.pendingDestinationOptions = action
+                        run.nextStepIndex++
+                    }
                     is TimetableAction.CallStation -> {
                         if (run.controlMode == TimetableControlMode.MANUAL_ROUTED) {
                             run.pendingStationCallSpec = null
@@ -2181,10 +3046,31 @@ class TimetableDispatcher(
                         }
                         run.pendingStationCallSpec = StationCallSpec(
                             action = action,
-                            plannedArrivalTick = step.tick,
                             stepIndex = run.nextStepIndex
                         )
                         run.nextStepIndex++
+                    }
+                    is TimetableAction.Extension -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        recordScheduledAction(run, step.tick)
+                        run.nextStepIndex++
+                        run.extensionActionQueue.addLast(action)
+                        startNextExtensionAction(world, run, step.tick)
+                        return
+                    }
+                    is TimetableAction.Conditional -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        recordScheduledAction(run, step.tick)
+                        run.nextStepIndex++
+                        run.extensionActionQueue.addLast(action)
+                        startNextExtensionAction(world, run, step.tick)
+                        return
                     }
                     is TimetableAction.GoTo,
                     is TimetableAction.GoVia -> {
@@ -2193,17 +3079,14 @@ class TimetableDispatcher(
                             WayPointRef(run.currentWayPointId),
                             step,
                             run.nextStepIndex + 1,
-                            run.pendingStationCallSpec
-                        )
-                        if (plan.stationCallSpec == null &&
-                            timetableElapsedTicks(run) < plan.actionTick
-                        ) {
+                            run.pendingStationCallSpec,
+                            run.pendingDestinationOptions
+                        ).copy(requiredStartDirection = run.requiredNextStartDirection)
+                        if (timetableElapsedTicks(run) < plan.actionTick) {
                             waitForTimetableTick(run, plan.actionTick, pendingStep = true)
                             return
                         }
-                        if (plan.stationCallSpec == null) {
-                            recordScheduledAction(run, plan.actionTick)
-                        }
+                        recordScheduledAction(run, plan.actionTick)
                         val submission = submitMissionForRun(world, run, plan)
                         val accepted = submission.accepted
                         if (accepted == null) {
@@ -2229,10 +3112,31 @@ class TimetableDispatcher(
                         run.state = TimetableServiceRunState.WAITING_MISSION
                         run.message = null
                         run.pendingStationCallSpec = null
+                        run.pendingDestinationOptions = null
+                        run.requiredNextStartDirection = null
+                        run.destinationStop = plan.destinationOptions?.let { options ->
+                            DispatcherDestinationStop(options, runtime)
+                        }
                         plan.stationCallSpec?.let { spec ->
-                            scheduleStationCallSpec(world, run, spec)?.let { reason ->
-                                stallRun(world, run, "InfrastructureInvariantViolation", reason)
+                            if (run.stationCall != null) {
+                                run.deferredStationCallSpec = spec
+                            } else {
+                                scheduleStationCallSpec(world, run, spec)?.let { reason ->
+                                    stallRun(world, run, "InfrastructureInvariantViolation", reason)
+                                }
                             }
+                        }
+                        run.stationCall?.takeIf {
+                            isTerminalStationCall(it) && it.berthed && !it.departureGranted
+                        }?.let { departing ->
+                            run.ato.grantStationDeparture(
+                                departing.resolved.call.callId,
+                                departing.resolved.call.missionRevision
+                            )
+                            departing.departureGranted = true
+                            departing.stateEnteredDispatcherTick = dispatcherTick
+                            run.state = TimetableServiceRunState.DEPARTING
+                            run.message = "departing ${departing.resolved.berthRef}"
                         }
                         return
                     }
@@ -2243,8 +3147,189 @@ class TimetableDispatcher(
         run.message = "service completed; route remains held until the tail clears"
     }
 
+    private fun startNextExtensionAction(world: World, run: ActiveRun, scheduledTick: Long) {
+        while (run.extensionActionQueue.isNotEmpty()) {
+            when (val action = run.extensionActionQueue.removeFirst()) {
+                is TimetableAction.Conditional -> {
+                    val selected = when (val result = world.basicWorldData.timetableExtensions.evaluate(
+                        action.condition,
+                        extensionContext(world, run, scheduledTick),
+                        TimetableConditionScope.RUNTIME_BRANCH
+                    )) {
+                        TimetableConditionResult.True -> action.thenActions
+                        TimetableConditionResult.False -> action.elseActions
+                        is TimetableConditionResult.Unavailable -> {
+                            stallRun(world, run, "TimetableConditionFailure", result.reason)
+                            return
+                        }
+                        is TimetableConditionResult.Error -> {
+                            stallRun(world, run, "TimetableConditionFailure", result.message)
+                            return
+                        }
+                    }
+                    selected.asReversed().forEach(run.extensionActionQueue::addFirst)
+                }
+                is TimetableAction.Extension -> {
+                    val call = action.call
+                    val provider = world.basicWorldData.timetableExtensions
+                        .action(call.typeId, call.version)
+                    if (provider == null) {
+                        stallRun(
+                            world,
+                            run,
+                            "TimetableExtensionFailure",
+                            "action provider is not registered: ${call.typeId}@${call.version}"
+                        )
+                        return
+                    }
+                    val result = runCatching {
+                        provider.start(call.parameters, extensionContext(world, run, scheduledTick))
+                    }.getOrElse {
+                        stallRun(
+                            world,
+                            run,
+                            "TimetableExtensionFailure",
+                            "action provider ${call.typeId}@${call.version} threw: " +
+                                (it.message ?: it::class.java.simpleName)
+                        )
+                        return
+                    }
+                    when (result) {
+                        is TimetableExtensionActionStartResult.Accepted -> {
+                            run.extensionAction = DispatcherExtensionAction(
+                                result.ticket,
+                                call.typeId,
+                                scheduledTick,
+                                dispatcherTick
+                            )
+                            run.state = TimetableServiceRunState.WAITING_EXTENSION_ACTION
+                            run.message = "waiting for extension action ${call.typeId}"
+                            return
+                        }
+                        is TimetableExtensionActionStartResult.Rejected -> {
+                            stallRun(world, run, "TimetableExtensionFailure", result.reason)
+                            return
+                        }
+                    }
+                }
+                else -> {
+                    stallRun(
+                        world,
+                        run,
+                        "TimetableExtensionFailure",
+                        "non-extension action appeared in a conditional branch: $action"
+                    )
+                    return
+                }
+            }
+        }
+        run.extensionAction = null
+        advanceService(world, run)
+    }
+
+    private fun pollExtensionAction(world: World, run: ActiveRun) {
+        val active = run.extensionAction ?: run {
+            stallRun(world, run, "TimetableExtensionFailure", "extension action ticket disappeared")
+            return
+        }
+        val snapshot = runCatching { active.ticket.snapshot() }.getOrElse {
+            stallRun(
+                world,
+                run,
+                "TimetableExtensionFailure",
+                "extension action ${active.typeId} snapshot failed: " +
+                    (it.message ?: it::class.java.simpleName)
+            )
+            return
+        }
+        when (snapshot.state) {
+            TimetableExtensionActionState.PENDING -> {
+                if (dispatcherTick - active.startedDispatcherTick >= operationTimeoutTicks) {
+                    val cancellationFailure = cancelPendingOperation(run)
+                    stallRun(
+                        world,
+                        run,
+                        "TimetableExtensionFailure",
+                        buildString {
+                            append("extension action ${active.typeId} timed out after ")
+                            append("$operationTimeoutTicks ticks")
+                            cancellationFailure?.let { append("; ").append(it) }
+                        }
+                    )
+                }
+            }
+            TimetableExtensionActionState.SUCCEEDED -> {
+                run.extensionAction = null
+                startNextExtensionAction(world, run, active.scheduledTick)
+            }
+            TimetableExtensionActionState.FAILED -> stallRun(
+                world,
+                run,
+                "TimetableExtensionFailure",
+                snapshot.message ?: "extension action ${active.typeId} failed"
+            )
+            TimetableExtensionActionState.CANCELLED -> stallRun(
+                world,
+                run,
+                "TimetableExtensionFailure",
+                "extension action ${active.typeId} was unexpectedly cancelled"
+            )
+        }
+    }
+
+    private fun extensionContext(
+        world: World,
+        run: ActiveRun,
+        scheduledTick: Long?
+    ): TimetableRuntimeContext {
+        val record = world.basicWorldData.depots.rollingStock(run.train.id)?.record
+        return TimetableRuntimeContext(
+            timetableId = run.id.timetableId,
+            serviceId = run.id.serviceId,
+            cycleIndex = run.cycleIndex,
+            timetableElapsedTicks = timetableElapsedTicks(run),
+            scheduledTick = scheduledTick,
+            latenessTicks = scheduledTick?.let { (timetableElapsedTicks(run) - it).coerceAtLeast(0L) }
+                ?: run.lastLatenessTicks,
+            currentWayPointId = run.currentWayPointId,
+            train = TimetableTrainContext(
+                trainId = run.train.id,
+                modelPackageId = record?.modelPackageId,
+                tags = record?.tags.orEmpty(),
+                capabilities = record?.capabilities.orEmpty(),
+                carCount = record?.carCount ?: run.train.cars.size
+            )
+        )
+    }
+
+    private fun cancelExtensionAction(run: ActiveRun): String? {
+        val active = run.extensionAction ?: return null
+        try {
+            active.ticket.cancel()
+        } catch (failure: Exception) {
+            return "extension action ${active.typeId} cancellation failed: " +
+                (failure.message ?: failure::class.java.simpleName)
+        }
+        val snapshot = try {
+            active.ticket.snapshot()
+        } catch (failure: Exception) {
+            return "extension action ${active.typeId} cancellation could not be confirmed: " +
+                (failure.message ?: failure::class.java.simpleName)
+        }
+        if (snapshot.state != TimetableExtensionActionState.CANCELLED) {
+            return "extension action ${active.typeId} remained ${snapshot.state} after cancellation"
+        }
+        run.extensionAction = null
+        run.extensionActionQueue.clear()
+        return null
+    }
+
     private fun cancelPendingOperation(run: ActiveRun): String? {
-        val ticket = run.stationCall?.operationTicket ?: return null
+        cancelExtensionAction(run)?.let { return it }
+        val ticket = run.stationCall?.operationTicket
+            ?: run.destinationStop?.operationTicket
+            ?: run.haltOperation?.ticket
+            ?: return null
         val before = try {
             ticket.snapshot()
         } catch (failure: Exception) {
@@ -2252,6 +3337,8 @@ class TimetableDispatcher(
                 (failure.message ?: failure::class.java.simpleName)
         }
         val expectedTicketId = run.stationCall?.operationTicketId
+            ?: run.destinationStop?.operationTicketId
+            ?: run.haltOperation?.ticketId
         if (before.requestId != ticket.request.requestId ||
             expectedTicketId != null && before.ticketId != expectedTicketId
         ) {
@@ -2261,10 +3348,9 @@ class TimetableDispatcher(
         }
         when (before.state) {
             TrainOperationTicketState.PENDING -> Unit
-            TrainOperationTicketState.SUCCEEDED -> return null
-            TrainOperationTicketState.FAILED -> return "operation ${before.ticketId} failed before cancellation: " +
-                before.message.orEmpty()
-            TrainOperationTicketState.CANCELLED -> return "operation ${before.ticketId} was cancelled before Dispatcher confirmation"
+            TrainOperationTicketState.SUCCEEDED,
+            TrainOperationTicketState.FAILED,
+            TrainOperationTicketState.CANCELLED -> return null
         }
         return cancelTicketAndConfirm(ticket, before.ticketId, before.requestId)
     }
@@ -2427,17 +3513,21 @@ class TimetableDispatcher(
     ): MovementPlan? {
         var origin: WayPointRef? = originWayPointId?.let(::WayPointRef)
         var stationCallSpec: StationCallSpec? = null
+        var destinationOptions: TimetableAction.DestinationOptions? = null
         service.steps.forEachIndexed { index, step ->
             when (step) {
                 is TimetableStep.Check -> origin = WayPointRef(step.wayPointId)
                 is TimetableStep.At -> when (val action = step.action) {
                     is TimetableAction.TakeFromDepot -> Unit
                     is TimetableAction.StoreAtDepot -> return null
+                    is TimetableAction.DestinationOptions -> {
+                        if (destinationOptions != null) return null
+                        destinationOptions = action
+                    }
                     is TimetableAction.CallStation -> {
                         if (stationCallSpec != null) return null
                         stationCallSpec = StationCallSpec(
                             action = action,
-                            plannedArrivalTick = step.tick,
                             stepIndex = index
                         )
                     }
@@ -2447,9 +3537,14 @@ class TimetableDispatcher(
                         origin ?: return null,
                         step,
                         index + 1,
-                        stationCallSpec
+                        stationCallSpec,
+                        destinationOptions
                     )
-                    is TimetableAction.Stop -> return null
+                    TimetableAction.Halt,
+                    TimetableAction.Reverse,
+                    is TimetableAction.Stop,
+                    is TimetableAction.Extension,
+                    is TimetableAction.Conditional -> return null
                 }
             }
         }
@@ -2461,29 +3556,39 @@ class TimetableDispatcher(
         origin: WayPointRef,
         step: TimetableStep.At,
         nextStepIndex: Int,
-        stationCallSpec: StationCallSpec? = null
+        stationCallSpec: StationCallSpec? = null,
+        destinationOptions: TimetableAction.DestinationOptions? = null
     ): MovementPlan {
+        val stopOffset = destinationOptions?.stoppingOffsetMetersBefore ?: 0.0
         val points = when (val action = step.action) {
-            is TimetableAction.GoTo -> listOf(AtoMissionPoint.Stop(WayPointRef(action.wayPointId)))
+            is TimetableAction.GoTo -> listOf(
+                AtoMissionPoint.Stop(WayPointRef(action.wayPointId), stopOffset)
+            )
             is TimetableAction.GoVia -> action.wayPointIds.mapIndexed { index, id ->
                 val target = WayPointRef(id)
-                if (index == action.wayPointIds.lastIndex) AtoMissionPoint.Stop(target)
+                if (index == action.wayPointIds.lastIndex) AtoMissionPoint.Stop(target, stopOffset)
                 else AtoMissionPoint.Via(target)
             }
             is TimetableAction.TakeFromDepot,
             is TimetableAction.StoreAtDepot,
+            is TimetableAction.DestinationOptions,
+            TimetableAction.Halt,
+            TimetableAction.Reverse,
             is TimetableAction.Stop,
-            is TimetableAction.CallStation -> error("action is not a movement action")
+            is TimetableAction.CallStation,
+            is TimetableAction.Extension,
+            is TimetableAction.Conditional -> error("action is not a movement action")
         }
         require(points.isNotEmpty()) { "movement action must contain a target: $runId" }
         return MovementPlan(
             origin = origin,
             points = points,
             target = points.last().target,
-            priorityTick = stationCallSpec?.plannedArrivalTick ?: step.tick,
+            priorityTick = step.tick,
             actionTick = step.tick,
             nextStepIndex = nextStepIndex,
-            stationCallSpec = stationCallSpec?.copy(pairedDepartureTick = step.tick)
+            stationCallSpec = stationCallSpec,
+            destinationOptions = destinationOptions
         )
     }
 
@@ -2500,7 +3605,8 @@ class TimetableDispatcher(
             id = run.instanceId,
             revision = revision,
             origin = plan.origin,
-            points = plan.points
+            points = plan.points,
+            requiredStartDirection = plan.requiredStartDirection
         )
         val resolved = when (val result = AtoMissionResolver(world).resolve(request)) {
             is AtoMissionResolutionResult.Success -> result.mission
@@ -2534,7 +3640,8 @@ class TimetableDispatcher(
             id = runId.toString(),
             revision = revision,
             origin = plan.origin,
-            points = plan.points
+            points = plan.points,
+            requiredStartDirection = plan.requiredStartDirection
         )
         val resolved = when (val result = AtoMissionResolver(world).resolve(request)) {
             is AtoMissionResolutionResult.Success -> result.mission
@@ -2548,7 +3655,11 @@ class TimetableDispatcher(
             )
         }
         val layout = MissionRouteLayout(world, resolved)
-        if (layout.project(ato.currentTrainSnapshot.head) == null) {
+        val currentFacing =
+            (ato.train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
+                ?.facing ?: ViewDirection.AB
+        val currentSnapshot = TrainSnapshot.capture(ato.train, dispatcherTick, currentFacing)
+        if (layout.project(currentSnapshot.head) == null) {
             return MissionSubmission(
                 null,
                 "train ${ato.train.id} is not facing the planned route from ${plan.origin.id}"
@@ -2632,6 +3743,8 @@ class TimetableDispatcher(
         const val DEFAULT_OPERATION_TIMEOUT_TICKS = 100L
         const val REPLAN_STOPPED_SPEED_METERS_PER_SECOND = 0.05
         const val MANUAL_PROTECTION_TOLERANCE_METERS = 0.5
+        const val MANUAL_NAVIGATION_PREFIX = "manual-navigate-"
+        const val POWER_OFF_ACTION = "power-off"
     }
 
     private data class TimetableServiceRunKey(
@@ -2645,19 +3758,26 @@ class TimetableDispatcher(
         }
     }
 
+    private data class WaypointProgressKey(
+        val runId: TimetableServiceRunId,
+        val cycleIndex: Long
+    )
+
+    private fun ActiveRun.waypointProgressKey(): WaypointProgressKey =
+        WaypointProgressKey(id, cycleIndex)
+
     private data class TimetableClock(
         val epochDispatcherTick: Long,
         val periodTicks: Long,
         var nextCycleIndex: Long = 1L,
         var lastCycleStartFailure: String? = null,
-        val disabledServiceIds: MutableSet<String> = LinkedHashSet()
+        val disabledServiceIds: MutableSet<String> = LinkedHashSet(),
+        val pendingActivationCycles: MutableMap<String, Long> = LinkedHashMap()
     )
 
     private data class StationCallSpec(
         val action: TimetableAction.CallStation,
-        val plannedArrivalTick: Long,
-        val stepIndex: Int,
-        val pairedDepartureTick: Long = Long.MAX_VALUE
+        val stepIndex: Int
     )
 
     private data class SelectedServiceTrain(
@@ -2673,7 +3793,9 @@ class TimetableDispatcher(
         val priorityTick: Long,
         val actionTick: Long,
         val nextStepIndex: Int,
-        val stationCallSpec: StationCallSpec?
+        val stationCallSpec: StationCallSpec?,
+        val destinationOptions: TimetableAction.DestinationOptions?,
+        val requiredStartDirection: ViewDirection? = null
     )
 
     private data class PreparedMission(
@@ -2705,7 +3827,8 @@ class TimetableDispatcher(
         var headProgressMeters: Double = 0.0,
         var tailProgressMeters: Double? = null,
         var publishedAuthorityMeters: Double = -1.0,
-        var lastOdometerMeters: Double
+        var lastOdometerMeters: Double,
+        var reportedPointCount: Int = 0
     ) {
         val sections = layout.sections.map(::RuntimeSection)
     }
@@ -2738,9 +3861,44 @@ class TimetableDispatcher(
         var operationTicketId: String? = null,
         var operationStartedDispatcherTick: Long = Long.MAX_VALUE,
         var plannedDepartureTimetableTick: Long? = null,
+        var waitForNextTimetableAction: Boolean = false,
         var cancelledForControlTransfer: Boolean = false,
         var lastNotificationEpoch: Long = -1L,
         var tailMissionProgressMeters: Double? = null
+    )
+
+    private data class DispatcherReverseOperation(
+        val reversedAfter: Boolean,
+        val startedDispatcherTick: Long
+    )
+
+    private data class DispatcherHaltOperation(
+        val ticket: TrainOperationTicket,
+        val ticketId: String,
+        val startedDispatcherTick: Long
+    )
+
+    private sealed interface AutomaticActivation {
+        data object START : AutomaticActivation
+        data object SKIP : AutomaticActivation
+        data class WAIT(val reason: String) : AutomaticActivation
+        data class ERROR(val reason: String) : AutomaticActivation
+    }
+
+    private data class DispatcherExtensionAction(
+        val ticket: TimetableExtensionActionTicket,
+        val typeId: String,
+        val scheduledTick: Long,
+        val startedDispatcherTick: Long
+    )
+
+    private data class DispatcherDestinationStop(
+        val options: TimetableAction.DestinationOptions,
+        val missionRuntime: MissionRuntime,
+        var started: Boolean = false,
+        var operationTicket: TrainOperationTicket? = null,
+        var operationTicketId: String? = null,
+        var operationStartedDispatcherTick: Long = Long.MAX_VALUE
     )
 
     private data class ActiveRun(
@@ -2764,7 +3922,15 @@ class TimetableDispatcher(
         var dwellTicksRemaining: Long = 0L,
         var message: String? = null,
         var stationCall: DispatcherStationCall? = null,
+        var destinationStop: DispatcherDestinationStop? = null,
+        var pendingDestinationOptions: TimetableAction.DestinationOptions? = null,
         var pendingStationCallSpec: StationCallSpec? = null,
+        var deferredStationCallSpec: StationCallSpec? = null,
+        var haltOperation: DispatcherHaltOperation? = null,
+        var reverseOperation: DispatcherReverseOperation? = null,
+        var extensionAction: DispatcherExtensionAction? = null,
+        val extensionActionQueue: ArrayDeque<TimetableAction> = ArrayDeque(),
+        var requiredNextStartDirection: ViewDirection? = null,
         var controlTransferOwner: String? = null,
         var controlMode: TimetableControlMode = TimetableControlMode.AUTOMATIC,
         var manualController: TrainController? = null,
@@ -2792,7 +3958,10 @@ class TimetableDispatcher(
 
         fun snapshot(): TimetableServiceRunSnapshot {
             var operationError: String? = null
-            val operation = stationCall?.operationTicket?.let { ticket ->
+            val operationTicket = stationCall?.operationTicket
+                ?: destinationStop?.operationTicket
+                ?: haltOperation?.ticket
+            val operation = operationTicket?.let { ticket ->
                 try {
                     ticket.snapshot()
                 } catch (failure: Exception) {
@@ -2819,7 +3988,10 @@ class TimetableDispatcher(
                 stationCallId = stationCall?.resolved?.call?.callId,
                 berthRef = stationCall?.resolved?.berthRef,
                 berthHeld = stationCall?.allocationKey != null,
-                operationTicketId = operation?.ticketId ?: stationCall?.operationTicketId,
+                operationTicketId = operation?.ticketId
+                    ?: stationCall?.operationTicketId
+                    ?: destinationStop?.operationTicketId
+                    ?: haltOperation?.ticketId,
                 operationTicketState = operation?.state,
                 operationTicketError = operationError,
                 controlTransferOwner = controlTransferOwner,

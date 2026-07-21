@@ -66,6 +66,57 @@ class PhysicsCoordinatorTest {
     }
 
     @Test
+    fun `stationary active train does not publish visual frames`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("stationary-render", rail, world, listOf(10.0))
+        train.setController(MutableSpeedController(train, world, requestedSpeed = 0.0))
+        coordinator.start()
+        try {
+            repeat(3) { coordinator.wakeFromMainThread().await() }
+
+            assertTrue(world.drainPublishedTrainFrames().isEmpty())
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `moving train publishes one terminal frame when speed reaches zero`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            maxStepMillis = 1_000_000L
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("stopping-render", rail, world, listOf(10.0))
+        val controller = MutableSpeedController(train, world, requestedSpeed = 10.0)
+        train.setController(controller)
+        coordinator.start()
+        try {
+            coordinator.wakeFromMainThread().await()
+            assertEquals(10.0, world.drainPublishedTrainFrames().single().speedMetersPerSecond)
+
+            controller.requestedSpeed = 0.0
+            coordinator.wakeFromMainThread().await()
+            assertEquals(0.0, world.drainPublishedTrainFrames().single().speedMetersPerSecond)
+
+            coordinator.wakeFromMainThread().await()
+            assertTrue(world.drainPublishedTrainFrames().isEmpty())
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
     fun `physics keeps publishing while visual frames are not consumed`() {
         val coordinator = PhysicsCoordinator(
             workerThreads = 1,
@@ -253,6 +304,17 @@ class PhysicsCoordinatorTest {
     private class ConstantSpeedController(train: CoreTrain, world: CoreWorld) : TrainController(train, world) {
         override fun tick(deltaT: Double) {
             speed = 10.0
+            train.moveTrainForward(activeSpeed * deltaT * 0.001)
+        }
+    }
+
+    private class MutableSpeedController(
+        train: CoreTrain,
+        world: CoreWorld,
+        @Volatile var requestedSpeed: Double
+    ) : TrainController(train, world) {
+        override fun tick(deltaT: Double) {
+            speed = requestedSpeed
             train.moveTrainForward(activeSpeed * deltaT * 0.001)
         }
     }

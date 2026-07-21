@@ -369,14 +369,6 @@ class TrainControlManager(
             TrainKeyItem.boundWorldId(this) == player.world.uid
     }
 
-    private fun alignTrainHeadToDriverSeat(train: CoreTrain, controlEnd: DriverControlEnd?) {
-        val targetEnd = controlEnd ?: return
-        val activeHeadEnd = if (train.isReversed) DriverControlEnd.TAIL else DriverControlEnd.HEAD
-        if (targetEnd != activeHeadEnd) {
-            train.controller?.reverse() ?: train.reverse()
-        }
-    }
-
     private fun resolveBoundTrain(item: ItemStack): Train? {
         val trainId = TrainKeyItem.boundTrainId(item) ?: return null
         val worldId = TrainKeyItem.boundWorldId(item) ?: return null
@@ -444,4 +436,15 @@ class TrainControlManager(
         return trainControl to carControls
     }
 
+}
+
+/**
+ * Make the cab selected by the driver the physical head before installing the new manual controller.
+ * Reversing through the outgoing controller is incorrect because it is detached immediately after
+ * this call, so its queued reverse request would never reach a physics tick.
+ */
+internal fun alignTrainHeadToDriverSeat(train: CoreTrain, controlEnd: DriverControlEnd?) {
+    val targetEnd = controlEnd ?: return
+    val activeHeadEnd = if (train.isReversed) DriverControlEnd.TAIL else DriverControlEnd.HEAD
+    if (targetEnd != activeHeadEnd) train.reverse()
 }

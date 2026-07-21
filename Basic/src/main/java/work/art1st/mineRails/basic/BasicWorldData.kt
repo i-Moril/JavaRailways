@@ -6,6 +6,7 @@ import work.art1st.mineRails.basic.api.ato.provider.RailObjectStore
 import work.art1st.mineRails.basic.api.depot.DepotStore
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationStore
 import work.art1st.mineRails.basic.api.station.StationStore
+import work.art1st.mineRails.basic.api.timetable.TimetableExtensionRegistry
 import work.art1st.mineRails.basic.pathFinding.RailMap
 import work.art1st.mineRails.basic.timetable.Timetable
 import work.art1st.mineRails.basic.timetable.TimetableDispatcher
@@ -28,6 +29,7 @@ data class BasicWorldData(
     val dispatcher: TimetableDispatcher = TimetableDispatcher(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
+    val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),
     val stations: StationStore = StationStore(railObjects)
 ) {
@@ -55,7 +57,12 @@ class WayPointStore {
     private val counter = AtomicLong(0L)
     private val wayPoints = ConcurrentHashMap<String, WayPoint>()
 
-    fun nextId(): String = "W${counter.incrementAndGet()}"
+    fun nextId(): String {
+        while (true) {
+            val candidate = "W${counter.incrementAndGet()}"
+            if (!wayPoints.containsKey(candidate)) return candidate
+        }
+    }
 
     fun add(wayPoint: WayPoint) {
         require(wayPoint.id.isNotBlank()) { "wayPoint id must not be blank" }

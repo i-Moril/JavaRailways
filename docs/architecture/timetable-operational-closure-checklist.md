@@ -16,7 +16,7 @@ slug: /architecture/timetable-operational-closure-checklist
 - [x] **T1-05** period 到达后创建下一 cycle run，不抢占前一 cycle 的列车或资源。
 - [x] **T1-06** `/time set` 和睡眠跳时不改变 timetable 逻辑时间轴。
 
-证据：`TimetableScriptLoaderTest` 覆盖周期声明和缺失周期；`TimetableValidatorTest` 覆盖周期边界；`TimetableDispatcherTest` 覆盖共同 epoch、not-before、lateness、周期边界自动创建 cycle，以及 storage route 转交后的 cycle-1 动态配车；`TimetableStationCallDispatcherTest` 覆盖配对 movement Tick 的发车下界。时钟只读取 Dispatcher 单调 Tick，不访问 Bukkit daylight time。
+证据：`TimetableSnapshotTest` 覆盖结构化周期和动作持久化；`TimetableValidatorTest` 覆盖周期边界；`TimetableDispatcherTest` 覆盖共同 epoch、not-before、lateness、周期边界自动创建 cycle，以及 storage route 转交后的 cycle-1 动态配车；`TimetableStationCallDispatcherTest` 覆盖配对 movement Tick 的发车下界。时钟只读取 Dispatcher 单调 Tick，不访问 Bukkit daylight time。
 
 ## T2 Destination 与 Station
 
@@ -40,7 +40,7 @@ slug: /architecture/timetable-operational-closure-checklist
 - [x] **T3-07** 列车停稳、整列进入边界且旧资源车尾释放后才变为 AVAILABLE。
 - [x] **T3-08** 无兼容存车位时 World Stall，不部分提交 occupancy。
 
-T3 证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛选、原子 reservation/cancel、离库释放、存车 handoff 和稳定 seed；`TimetableScriptLoaderTest` 覆盖严格 Depot options；`TimetableDispatcherTest` 覆盖动态绑定、从实际 directed StablingPoint 创建 Mission、完整取存车闭环，以及无匹配列车的 World-local Stall。旧 RouteSection/StationBerth 必须先自然车尾释放；最终 storage RouteSection 在存车期间保持确认，并转交给同车下一次离库 run，仍只在车尾越过原 release boundary 后释放。Depot Destination 会同步注册 StablingPoint，管理员可用 `/mr depot assign|list` 预解析并登记现有列车。
+T3 证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛选、原子 reservation/cancel、离库释放、存车 handoff 和稳定 seed；`TimetableValidatorTest` 覆盖严格 Depot action 校验；`TimetableDispatcherTest` 覆盖动态绑定、从实际 directed StablingPoint 创建 Mission、完整取存车闭环，以及无匹配列车的 World-local Stall。旧 RouteSection/StationBerth 必须先自然车尾释放；最终 storage RouteSection 在存车期间保持确认，并转交给同车下一次离库 run，仍只在车尾越过原 release boundary 后释放。Depot Destination 会同步注册 StablingPoint，管理员可用 `/mr depot assign|list` 预解析并登记现有列车。
 
 ## T4 管理员 Reset
 

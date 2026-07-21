@@ -49,6 +49,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var forceNextModelUpdate: Boolean = false
     private var latestFrameRevision: Long = -1L
     private var latestFrame: CarFrameSnapshot? = null
+    private var latestTrainSpeedMetersPerSecond: Double = 0.0
     private val detailAudience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
@@ -79,12 +80,20 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     /** Legacy synchronous entry point retained for explicit Core command paths. */
     override fun commit() {
-        applyFrame(captureLiveFrame(), latestFrameRevision + 1L)
+        applyFrame(
+            captureLiveFrame(),
+            latestFrameRevision + 1L,
+            latestTrainSpeedMetersPerSecond
+        )
     }
 
     /** Applies one value-only frame; stale revisions cannot move a model backwards. */
     @Synchronized
-    fun applyFrame(frame: CarFrameSnapshot, revision: Long) {
+    fun applyFrame(
+        frame: CarFrameSnapshot,
+        revision: Long,
+        trainSpeedMetersPerSecond: Double
+    ) {
         BukkitThreadOwnership.ensureLocation(
             Location(
                 self.world.bukkitWorldData.bukkitWorld,
@@ -95,18 +104,25 @@ class CarExtension : TrainComponentExtension<Car>() {
             "CarExtension.applyFrame"
         )
         if (revision <= latestFrameRevision) return
+        require(trainSpeedMetersPerSecond.isFinite() && trainSpeedMetersPerSecond >= 0.0)
         val oldPosition = latestFrame?.state?.positionVector() ?: self.lastState.position
         latestFrame = frame
         latestFrameRevision = revision
+        latestTrainSpeedMetersPerSecond = trainSpeedMetersPerSecond
         self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
         super.commit()
     }
 
     @Synchronized
     override fun destroy() {
-        val renderManager = self.world.renderChunkManager
-        renderManager.remove(self, latestFrame?.state?.positionVector() ?: self.position)
+        // Retire and tear down the model before removing audience-index entries. Their removal is
+        // dispatched per player and may race with an already queued visibility update; retirement
+        // prevents either task from rebuilding an orphaned model after the train has gone.
         super.destroy()
+        self.world.renderChunkManager.remove(
+            self,
+            latestFrame?.state?.positionVector() ?: self.position
+        )
     }
 
     override fun buildModel() {
@@ -145,13 +161,19 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun updateModel() {
+        BukkitPlugin.INSTANCE.trainPacketBundles.frame(::updateModelBundled)
+    }
+
+    private fun updateModelBundled() {
         val model = bodyModel ?: return
         val frame = renderFrame()
         val state = frame.state
         val position = state.positionVector()
         val direction = state.directionVector()
         val normal = state.normalVector()
-        val velocity = state.velocityVector()
+        val velocity = Vector3d(direction).mul(
+            latestTrainSpeedMetersPerSecond / SERVER_TICKS_PER_SECOND
+        )
         modelUpdateSequence += 1L
         val nearDetailAudience = detailAudience.isNotEmpty()
         val movingWithAudience = velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudience()
@@ -347,5 +369,6 @@ class CarExtension : TrainComponentExtension<Car>() {
         private const val NEAR_UPDATE_INTERVAL = 1
         private const val FAR_UPDATE_INTERVAL = 4
         private const val MOVING_EPSILON_SQUARED = 1.0e-6
+        private const val SERVER_TICKS_PER_SECOND = 20.0
     }
 }

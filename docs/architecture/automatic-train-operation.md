@@ -22,7 +22,7 @@ Phase B 已落地固定减速度约束计算、`AtoPlanner → ControlDemand →
 
 Phase C1 已完成弧长加权 Dijkstra、经路/Mission 契约和原子 `RouteSectionAllocator`。显式列车 TimetableDispatcher 会从已发布的 head/tail 快照计算 route progress，按动态触发距离和时刻表优先级分配 Section，以 movement authority 保护未确认入口，只在车尾越过 release point 后释放，并可推进 dwell 和后续 Mission。SimpleATO 负责停车曲线和 Confirmed Route Window 验证；Bukkit 提供 start/status/stop 命令。
 
-Phase C2.1 已增加 World-local StationStore、Station 聚合、被动 StationBerth RailObject、StationCall 和 DwellPlan 值。C2.2 已增加显式 berth/方向/长度解析、head-aligned Stop 与 DepartureHold，以及 physics 到主线程的 revisioned `APPROACHING`、`BERTHED`、`DEPARTED` 通知。C2.3 已接入 Dispatcher dwell/计划发车状态、后续经路确认、无抢占 berth 所有权和跨 Mission 车尾释放。C2.4 已增加严格 JS/TypeScript StationCall DSL，并把 call 与后续 goto Mission 自动配对。
+Phase C2.1 已增加 World-local StationStore、Station 聚合、被动 StationBerth RailObject、StationCall 和 DwellPlan 值。C2.2 已增加显式 berth/方向/长度解析、head-aligned Stop 与 DepartureHold，以及 physics 到主线程的 revisioned `APPROACHING`、`BERTHED`、`DEPARTED` 通知。C2.3 已接入 Dispatcher dwell/计划发车状态、后续经路确认、无抢占 berth 所有权和跨 Mission 车尾释放。JS/TypeScript 导航 DSL 使用 `[at(departureTick).]pass(...).destination(target, options?)`：显式计划 Tick 表示线路出发时刻，也可省略 `at()` 让 minimum dwell 决定最早发车。最终目标既可为普通 WayPoint，也可为 StationBerth Destination；两者都支持停车偏移、车门和 minimum dwell options，后者额外执行 StationCall。destination 到达后只开门，直到 minimum dwell 与下一次显式 `at` 都满足才关门；`reverse()` 保证先关门再交换运营头尾，`halt()` 在关门后执行模型包 `power-off` action。
 
 Phase C3 已增加主线程 `TrainOperationGateway`、稳定 operation request、可轮询/取消 ticket、开关门状态和 Bukkit 模型适配。开门确认后开始 minimum dwell；关门确认和后续经路授权都满足后才解除 DepartureHold。操作 rejected、failed、cancelled、身份错误、Gateway 异常或 100 Dispatcher Tick 超时进入 `TrainOperationFailure` World Stall，不自动发车、恢复或释放资源。
 

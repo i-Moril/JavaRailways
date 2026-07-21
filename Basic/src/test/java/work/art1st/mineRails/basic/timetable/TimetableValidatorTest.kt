@@ -97,7 +97,7 @@ class TimetableValidatorTest {
         assertFalse(result.isSuccess)
         assertTrue(result.errors.any { it.contains("takeFromDepot") })
         assertTrue(result.errors.any { it.contains("初始", ignoreCase = true) })
-        assertTrue(result.errors.any { it.contains("首次 movement 前不得 stop") })
+        assertTrue(result.errors.any { it.contains("首次 destination 前不得 stop") })
     }
 
     @Test
@@ -119,7 +119,7 @@ class TimetableValidatorTest {
         val destinations = OperationalDestinationService(world)
         destinations.register(
             OperationalDestination(
-                "north-metro",
+                "north@metro",
                 "North metro",
                 metroRail.id,
                 metroTrain.head.location.arcLength,
@@ -133,7 +133,7 @@ class TimetableValidatorTest {
         )
         destinations.register(
             OperationalDestination(
-                "north-freight",
+                "north@freight",
                 "North freight",
                 freightRail.id,
                 freightTrain.head.location.arcLength,
@@ -304,7 +304,7 @@ class TimetableValidatorTest {
         val start = dispatcher.startService(world, timetable.id, "service")
 
         assertFalse(validation.isSuccess)
-        assertTrue(validation.errors.any { it.contains("station call", ignoreCase = true) })
+        assertTrue(validation.errors.any { it.contains("车站 destination", ignoreCase = true) })
         assertTrue(start is TimetableServiceStartResult.Failure)
         assertFalse(coordinator.isStalled)
         assertEquals(null, dispatcher.status(TimetableServiceRunId(timetable.id, "service")))

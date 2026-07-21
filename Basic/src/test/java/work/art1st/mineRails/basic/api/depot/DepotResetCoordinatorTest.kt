@@ -73,7 +73,7 @@ class DepotResetCoordinatorTest {
         val depotId = DepotId("north")
         OperationalDestinationService(world).register(
             OperationalDestination(
-                "north-one",
+                "north@one",
                 "North one",
                 rail.id,
                 originArc,
@@ -162,7 +162,7 @@ class DepotResetCoordinatorTest {
         val depotId = DepotId("north")
         OperationalDestinationService(world).register(
             OperationalDestination(
-                "north-safe",
+                "north@safe",
                 "North safe",
                 rail.id,
                 100.0,
@@ -177,7 +177,7 @@ class DepotResetCoordinatorTest {
         )
         OperationalDestinationService(world).register(
             OperationalDestination(
-                "north-risky",
+                "north@risky",
                 "North risky",
                 rail.id,
                 6.0,
@@ -269,7 +269,7 @@ class DepotResetCoordinatorTest {
         val destinations = OperationalDestinationService(world)
         destinations.register(
             OperationalDestination(
-                "cross-first",
+                "cross@first",
                 "Cross first",
                 firstRail.id,
                 100.0,
@@ -284,7 +284,7 @@ class DepotResetCoordinatorTest {
         )
         destinations.register(
             OperationalDestination(
-                "cross-second",
+                "cross@second",
                 "Cross second",
                 secondRail.id,
                 5.0,
@@ -351,7 +351,7 @@ class DepotResetCoordinatorTest {
         val depotId = DepotId("north")
         OperationalDestinationService(world).register(
             OperationalDestination(
-                "north-one",
+                "north@one",
                 "North one",
                 rail.id,
                 40.0,

@@ -163,4 +163,16 @@ class PrimeCurveTest {
                 "For large arcLength=$arcLength (near totalArcLength=$totalArcLength), got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
         }
     }
+
+    @Test
+    @OptIn(work.art1st.mineRails.core.api.util.annotation.Heavy::class)
+    fun `reversed curve nearest point reports reversed arc and tangent`() {
+        val curve = PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1).single().reversed
+
+        val point = curve.getNearestPoint(Vector3d(25.0, 0.0, 0.0))
+
+        assertEquals(75.0, point.arcLength, tolerance)
+        assertEquals(-1.0, point.tangent.x(), 1.0e-9)
+        assertTrue(point.curve === curve)
+    }
 }

@@ -5,6 +5,7 @@ import org.bukkit.entity.Player
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
 import work.art1st.mineRails.basic.rail.RailAutoConnector
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.physics.rail.CoreRail
@@ -123,10 +124,7 @@ object RailCommand {
             return true
         }
         val tolerance = args.firstOrNull()?.toDoubleOrNull()?.coerceAtLeast(0.0) ?: Curve.TOLERANCE
-        val rails = RailRenderMetaStore.load(sender.world)
-            .mapNotNull { coreWorld.getRail(it.railId) }
-
-        val result = connectNearbyEndpoints(rails, tolerance)
+        val result = connectNearbyEndpoints(coreWorld.allRails.toList(), tolerance)
 
         sender.sendMessage("轨道自动连接完成: 新增 ${result.connected} 条连接，角度跳过 ${result.skippedByAngle} 条，候选失败 ${result.failed} 条，容差=${"%.4f".format(tolerance)}m")
         if (result.connected == 0) {
@@ -241,13 +239,19 @@ object RailCommand {
             sender.sendMessage("错误: 无法获取 CoreWorld")
             return true
         }
+        var removedDestinations = 0
         coreWorld.getRail(railId)?.let { rail ->
+            removedDestinations = OperationalDestinationService(coreWorld)
+                .removeAllOnRail(railId).size
             rail.destroy()
             coreWorld.removeRail(rail)
         }
         RailVisualBootstrap.unregisterRail(railId)
         RailRenderMetaStore.removeRail(sender.world, railId)
-        sender.sendMessage("删除轨道成功: $railId")
+        sender.sendMessage(
+            "删除轨道成功: $railId" +
+                if (removedDestinations > 0) "（同步删除 $removedDestinations 个 destination）" else ""
+        )
         return true
     }
 

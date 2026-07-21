@@ -28,14 +28,14 @@ RenderChunkManager
 
 | 后端 | 实体来源 | 使用场景 | 约束 |
 |---|---|---|---|
-| `native` | Bukkit/Paper 真实 Display | 默认兼容模式 | 受原生实体追踪和区块发送距离限制 |
-| `entitylib` | EntityLib + PacketEvents 虚拟 Display | 实验性超远逐玩家视觉 | 轨道、列车 root/body/bogie/LOD 为虚拟 Display；座位、交互与碰撞仍为 native |
+| `entitylib` | EntityLib + PacketEvents 虚拟 Display | Paper/Folia 默认逐玩家视觉 | 轨道、列车 root/body/bogie/LOD 为虚拟 Display；座位、交互与碰撞仍为 native |
+| `native` | Bukkit/Paper 真实 Display | 显式兼容回退 | 受原生实体追踪和区块发送距离限制 |
 
 配置：
 
 ```yaml
 display-renderer:
-  backend: native
+  backend: entitylib
   player-distance:
     default: player-view-distance
     max-blocks: 512.0
@@ -45,8 +45,8 @@ display-renderer:
 
 后端不支持热切换。管理员修改后必须重启，确保旧后端实体全部销毁后再重建。
 
-:::warning 实验性范围
-`entitylib` 已迁移轨道及列车视觉，但座位、Interaction 命中箱和碰撞平台仍按原生路径运行。远距离看到列车不代表可以远距离点击、乘坐或发生碰撞。
+:::warning 交互范围
+`entitylib` 只迁移轨道及列车视觉；座位、Interaction 命中箱和碰撞平台仍按原生路径运行。远距离看到列车不代表可以远距离点击、乘坐或发生碰撞。
 :::
 
 ## 稳定边界

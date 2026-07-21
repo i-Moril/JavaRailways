@@ -111,6 +111,7 @@ class PhysicsCoordinator(
 
     private val stateLock = Any()
     private val controllers = ConcurrentHashMap<String, TrainController>()
+    private val trainsPublishingMotionFrames = ConcurrentHashMap.newKeySet<String>()
     private val overloadTimesNanos = ArrayDeque<Long>()
     private val collisionClaims = ConcurrentHashMap.newKeySet<CollisionPair>()
     private val pendingCollisionDecisions = ConcurrentHashMap<CollisionPair, PendingCollisionDecision>()
@@ -172,6 +173,7 @@ class PhysicsCoordinator(
 
     fun unregister(controller: TrainController) {
         controllers.remove(controller.profileId, controller)
+        trainsPublishingMotionFrames.remove(controller.profileId)
     }
 
     fun wakeFromMainThread(): PhysicsTicket {
@@ -222,6 +224,14 @@ class PhysicsCoordinator(
             pendingCollisionDecisions[pair] = PendingCollisionDecision(runningEpoch, pair, event.resolution)
         }
         return true
+    }
+
+    private fun shouldPublishMotionFrame(train: CoreTrain): Boolean {
+        if (train.speed > 0.0) {
+            trainsPublishingMotionFrames.add(train.id)
+            return true
+        }
+        return trainsPublishingMotionFrames.remove(train.id)
     }
 
     private fun relativeSpeed(first: CoreTrain, second: CoreTrain): Double {
@@ -310,7 +320,7 @@ class PhysicsCoordinator(
             snapshot.forEach { controller ->
                 controller.publishPhysicsState()
                 val train = controller.train as? CoreTrain
-                if (train != null) {
+                if (train != null && shouldPublishMotionFrame(train)) {
                     world?.publishTrainFrame(train.publishFrame(ticket.epoch))
                 }
             }

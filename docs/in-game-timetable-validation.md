@@ -56,47 +56,26 @@ Depot Reset 会移动列车并重建运行期资源账本；door failure 项会�
 - [ ] 列车不在指定 directed StablingPoint、方向错误或仍在移动时，登记失败。
 - [ ] 两列车不能登记到同一个已占用 StablingPoint。
 
-## 3. 闭环 timetable 模板
+## 3. 闭环 timetable 准备
 
-按实际 ID 修改并保存到 `plugins/MineRails/timetables/closure.js`：
+通过结构化 Timetable API、持久化快照或后续 WebUI 准备 `closure` 时刻表。它至少应包含：
 
-```js
-function main(timetable) {
-  timetable.setPeriodDays(1)
+- 周期为 1 个逻辑游戏日；
+- `loop` service 在 Tick 0 从 `north` Depot 动态取车；
+- 筛选 `metro` tag、至少 1 节、最低速度 5 m/s 和 `doors` capability；
+- Tick 2000 经 `central-exit`、`line-end` 到达 `central@one`，最短停站 100 Tick并开左门；
+- Tick 22000 存回 `north-1` 或 `north-2`。
 
-  timetable.service("loop", function(t) {
-    t.at(0).takeFromDepot("north", {
-      tags: ["metro"],
-      minimumCars: 1,
-      minimumSpeedMetersPerSecond: 5,
-      capabilities: ["doors"]
-    })
-
-    t.at(2000).call("central", "one", {
-      minimumDwellTicks: 100,
-      plannedDepartureTick: 2400,
-      doorSide: "left"
-    })
-    t.at(2400).goto(["central-exit", "line-end"])
-
-    t.at(22000).storeAtDepot("north", {
-      stablingPoints: ["north-1", "north-2"]
-    })
-  })
-}
-```
-
-加载并检查：
+检查并启动：
 
 ```text
-/mr timetable load closure.js closure
 /mr timetable dump closure
 /mr timetable start closure
 /mr timetable status closure
 ```
 
-- [ ] 未声明 period、未知 option、周期外 tick、缺失 Destination/Berth 或不可达经路会在 loader 阶段失败，且 World 不 Stall。
-- [ ] 正确脚本显示共同 epoch、`cycle=0` 和已分配 train ID。
+- [ ] 缺失周期、未知扩展、周期外 Tick、缺失 Destination/Berth 或不可达经路会在结构化模型验证阶段失败，且 World 不 Stall。
+- [ ] 正确模型显示共同 epoch、`cycle=0` 和已分配 train ID。
 
 ## 4. 正常自动运营
 
@@ -104,8 +83,8 @@ function main(timetable) {
 - [ ] 列车离库后，原 StablingPoint 只在车尾进入 outbound route 后变为空闲。
 - [ ] RouteSection 冲突时列车进入 `WAITING_ROUTE`，不改变已确认道岔且 World 不 Stall。
 - [ ] StationBerth 冲突时列车进入 `WAITING_BERTH`，不抢占 berth 且 World 不 Stall。
-- [ ] 列车不早于 call/goto Tick 动作；晚点时立即继续，但不跳过动作。
-- [ ] BERTHED 后先开门，minimum dwell 完成后关门；关门确认且后续经路存在后才发车。
+- [ ] `destination` 的 Tick 作为线路出发下界；列车不会提前发车，晚点时立即继续且不跳过动作。
+- [ ] BERTHED 后只开门；minimum dwell 和下一次显式 `at` 都满足后才关门，关门确认后才执行下一条线路。
 - [ ] `status` 中 scheduled、late、head、tail、berthHeld、operation state 与 snapshot error 均与现场一致。
 - [ ] 到 Depot 后整列进入停车边界，RollingStock 才恢复 `AVAILABLE`。
 - [ ] 最终 storage RouteSection 在存车期间仍保持确认；下一次离库后由车尾越过原 release boundary 才释放。
@@ -214,7 +193,7 @@ Stall 后不要先执行 ATO reset。先执行：
 /mr ato reset <world>
 ```
 
-- [ ] ATO reset 只解除 Stall，不再次移动列车，也不自动恢复旧 epoch/run。
+- [ ] ATO reset 不移动列车、不修复脱轨，也不恢复旧 epoch/run；FAILED run、旧 controller 和遗留 operation/Section/Berth 资源会被清理，随后可重新导航或接管健康列车。
 - [ ] 重新 load/start timetable 后才建立新的共同 epoch。
 
 ## 9. 重启边界

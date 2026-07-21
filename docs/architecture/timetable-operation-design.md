@@ -7,7 +7,7 @@ slug: /architecture/timetable-operation-design
 
 本文固定 MineRails 当前优先目标：管理员启动一张已验证的时刻表后，系统在共同周期时间轴上动态取车、申请经路、执行停站和存车；不实现容量优化、晚点恢复或全局自动排图。异常采用保守的 World-local Stall，由管理员检查、重置车辆段并重新启动。
 
-> 本文描述已确认的目标契约。尚未落地的部分按 [运营闭环验收清单](./timetable-operational-closure-checklist.md) 分切片实施；当前运行行为仍以源码和 [JS 时刻表语法](../timetable_js_syntax.md) 的实施状态说明为准。
+> 本文描述已确认的目标契约。尚未落地的部分按 [运营闭环验收清单](./timetable-operational-closure-checklist.md) 分切片实施；当前运行行为以结构化 `Timetable` 模型及源码为准。
 
 ## 1. 范围
 
@@ -49,7 +49,7 @@ periodTicks = periodDays × 24000
 timetable.setPeriodDays(2)
 ```
 
-旧 `setPeriod(ticks)` 在迁移期只作为兼容入口；新脚本和类型声明使用 `setPeriodDays`。loader 必须拒绝缺失或非法周期以及周期外的 `at(tick)`。
+脚本和类型声明只提供 `setPeriodDays`。loader 必须拒绝缺失或非法周期以及周期外的 `at(tick)`。
 
 ### 2.2 启动 epoch 与 cycle
 
@@ -67,20 +67,26 @@ cycleStart = epochDispatcherTick + cycleIndex × periodTicks
 
 ### 2.3 `at(tick)` 与晚点
 
-- `at(tick)` 是相对当前 cycle start 的计划 Tick；
-- 可执行动作不得早于计划 Tick；
+- 显式 `at(tick)` 是相对当前 cycle start 的计划 Tick；
+- `stop()`、`storeAtDepot()` 等普通动作不得早于计划 Tick；
+- 以 `destination()` 收尾的线路把它解释为出发 Tick，列车不得提前发车；
+- `pass()` / `destination()` / `reverse()` / `halt()` 可省略 `at()`；第一条隐式线路使用 Tick 0，后续沿用最近显式 Tick，使 minimum dwell 成为主要发车下界；
 - 前序动作未完成时保持等待；
 - 条件满足但计划 Tick 已经过期时立即执行，并记录非负 lateness；
 - 晚点不跳过动作、不压缩安全 dwell、不触发 Stall。
 
-经路设置仍由实时位置、制动距离和安全余量触发。计划 Tick 只控制动作最早执行时刻和冲突优先级，不能成为道岔安全切换的唯一依据。
+经路设置仍由实时位置、制动距离和安全余量触发。计划 Tick 控制普通动作最早执行时刻、线路出发下界和冲突优先级，不能成为道岔安全切换的唯一依据。
 
-StationCall 是特殊的成对计划：
+线路导航由一个链式计划提交：
 
-- `at(arrivalTick).call(...)` 保存计划到达；
-- call 后配对的 movement Tick 表示该停站后的计划发车下界；
-- 显式 `plannedDepartureTick` 若存在必须与配对 movement 一致，避免两个事实来源；
-- 列车可以早到并保持，晚到后仍执行完整 minimum dwell；
+- `at(departureTick).pass(...)` 按顺序把不停车目的地加入导航队列；
+- `destination("target", options?)` 追加最终停车目的地并提交整条线路；
+- 最终目标可以是普通 WayPoint，也可以是 StationBerth Destination；
+- 每个 pass 目标经过后从当前导航队列推进移除，不产生停车业务；
+- 两类目标都可使用停车偏移、车门和 minimum dwell options；StationBerth 还执行 StationCall 与 berth 资源流程；
+- destination 到达后只开门；minimum dwell 与下一次显式 `at` 都满足后才关门，关门成功后才执行下一条线路；
+- `reverse()` 在关门成功且列车停稳后交换运营头尾，并把反向后的 facing 作为下一 Mission 的起始方向；
+- `halt()` 在关门成功后执行模型包 `power-off` action，并以 action ticket 成功作为 service 完成条件；
 - Dispatcher 不通过提高速度强求准点。
 
 ## 3. Destination 统一运营入口
@@ -194,7 +200,7 @@ Dispatcher 在筛选集合中原子选择一个兼容且未占用的 StablingPoi
 
 ## 5. 管理员车辆段 Reset
 
-`/mr ato reset` 继续只解除 Stall，不移动列车。物理重置使用独立破坏性命令：
+`/mr ato reset` 不移动列车或修复脱轨；它在解除 Stall 前清理 FAILED run、旧 controller 及其遗留 operation/Section/Berth 资源。物理重置使用独立破坏性命令：
 
 ```text
 /mr depot reset <depot> confirm
@@ -268,7 +274,7 @@ Stall 停止当前 World 的全部自动运营协调，不影响其他 World。�
 
 ### 7.2 不 Stall
 
-- timetable loader/dry-run 校验失败；
+- 结构化 timetable 模型校验失败；
 - 正常 RouteSection 或 StationBerth 冲突；
 - 列车早到、晚点或等待计划 Tick；
 - 管理员显式进入 MANUAL_ROUTED/FULL_MANUAL；

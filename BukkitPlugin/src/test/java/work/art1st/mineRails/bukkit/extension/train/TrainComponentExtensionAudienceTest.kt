@@ -23,6 +23,22 @@ class TrainComponentExtensionAudienceTest {
         )
     }
 
+    @Test
+    fun `late audience task cannot rebuild a destroyed model`() {
+        val calls = mutableListOf<String>()
+        val extension = RecordingExtension(calls)
+        val player = fakePlayer(UUID.randomUUID())
+
+        extension.sendToOwned(player)
+        extension.destroy()
+        extension.sendToOwned(player)
+
+        assertEquals(
+            listOf("build", "update", "refresh", "destroy"),
+            calls
+        )
+    }
+
     private class RecordingExtension(
         private val calls: MutableList<String>
     ) : TrainComponentExtension<Renderable>() {
@@ -38,7 +54,9 @@ class TrainComponentExtensionAudienceTest {
             calls += "refresh"
         }
 
-        override fun destroyModel() = Unit
+        override fun destroyModel() {
+            calls += "destroy"
+        }
     }
 
     private fun fakePlayer(id: UUID): Player = Proxy.newProxyInstance(

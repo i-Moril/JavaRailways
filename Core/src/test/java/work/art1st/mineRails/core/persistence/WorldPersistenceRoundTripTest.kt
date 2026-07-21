@@ -46,14 +46,21 @@ class WorldPersistenceRoundTripTest {
         )
         createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
 
-        val snapshot = world.save()
-        val json = WorldSnapshotCodec.encodeToString(snapshot)
-        val decoded = WorldSnapshotCodec.decodeFromString(json)
+        val infrastructure = world.saveInfrastructure(1L)
+        val runtime = world.saveRuntime(1L, 2L)
+        val decodedInfrastructure = WorldSnapshotCodec.decodeInfrastructure(
+            WorldSnapshotCodec.encodeInfrastructure(infrastructure)
+        )
+        val decodedRuntime = WorldSnapshotCodec.decodeRuntime(
+            WorldSnapshotCodec.encodeRuntime(runtime)
+        )
 
         val scheduler2 = Executors.newSingleThreadScheduledExecutor()
         val tickManager2 = TickManagerImpl(scheduler2, System.currentTimeMillis())
-        val loaded = decoded.load(
-            CoreWorld.SavedWorldV1.Dependency(
+        val loaded = CoreWorld.load(
+            decodedInfrastructure,
+            decodedRuntime,
+            CoreWorld.SnapshotDependency(
                 tickManager2,
                 KoinWorldParentContext(mineRailsParentScope())
             )
@@ -67,19 +74,20 @@ class WorldPersistenceRoundTripTest {
         assertEquals(0.09, loaded.getRail(rail.id)?.metadata?.geometry?.allowableCantDeficiencyMeters)
         assertEquals(300.0, loaded.getRail(rail.id)?.metadata?.geometry?.curveRadiusMeters)
         assertEquals("P1", loaded.getRail(rail.id)?.metadata?.geometry?.parallel?.groupId)
-        val roundAgain = loaded.save()
-        assertEquals(snapshot.rails.size, roundAgain.rails.size)
-        assertEquals(snapshot.trains.size, roundAgain.trains.size)
+        val roundInfrastructure = loaded.saveInfrastructure(1L)
+        val roundRuntime = loaded.saveRuntime(1L, 2L)
+        assertEquals(infrastructure.rails.size, roundInfrastructure.rails.size)
+        assertEquals(runtime.trains.size, roundRuntime.trains.size)
         assertEquals(
-            WorldSnapshotCodec.encodeToString(snapshot),
-            WorldSnapshotCodec.encodeToString(roundAgain)
+            WorldSnapshotCodec.encodeInfrastructure(infrastructure),
+            WorldSnapshotCodec.encodeInfrastructure(roundInfrastructure)
         )
     }
 
     @Test
     fun decodeInvalidJsonThrows() {
         assertThrows(SerializationException::class.java) {
-            WorldSnapshotCodec.decodeFromString("{")
+            WorldSnapshotCodec.decodeInfrastructure("{")
         }
     }
 }

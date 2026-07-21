@@ -8,6 +8,8 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
+import work.art1st.mineRails.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.mineRails.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.debug.AbnormalTrainMarker
 import work.art1st.mineRails.bukkit.debug.MineRailsServerTickMetrics
@@ -17,6 +19,7 @@ import work.art1st.mineRails.bukkit.extension.train.CarExtension
 import work.art1st.mineRails.bukkit.extension.train.carRendererOrNull
 import work.art1st.mineRails.bukkit.extension.train.TrainExtension
 import work.art1st.mineRails.bukkit.persistence.WorldPersistence
+import work.art1st.mineRails.bukkit.persistence.WorldSnapshotCapture
 import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.mineRails.bukkit.util.BukkitThreadOwnership
 import work.art1st.mineRails.bukkit.util.LatestAffinityTaskDispatcher
@@ -29,6 +32,9 @@ import work.art1st.mineRails.core.physics.train.CoreCar
 import work.art1st.mineRails.core.util.ThreadGuard
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import kotlin.system.measureNanoTime
 
 data class CarFrameDispatchMetrics(
@@ -51,6 +57,11 @@ class WorldManager(
     @Volatile
     private var latestServerTickMetricsSnapshot: MineRailsServerTickMetrics? = null
     private val recentServerTickMetrics: ArrayDeque<MineRailsServerTickMetrics> = ArrayDeque()
+    private val snapshotWriter: ExecutorService = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "MineRails-world-snapshot-writer").apply { isDaemon = true }
+    }
+    private val pendingPeriodicSnapshots = ConcurrentHashMap<BukkitWorld, WorldSnapshotCapture>()
+    private val snapshotWrites = ConcurrentHashMap<BukkitWorld, Future<*>>()
 
     fun start() {
         check(tickTask == null) { "WorldManager is already started" }
@@ -67,6 +78,11 @@ class WorldManager(
         tickTask = null
         carFrameDispatcher.clear()
         platformCommitDispatcher.clear()
+    }
+
+    fun finishStopping() {
+        snapshotWrites.values.forEach { runCatching { it.get() } }
+        snapshotWriter.shutdown()
     }
 
     fun latestServerTickMetrics(): MineRailsServerTickMetrics? = latestServerTickMetricsSnapshot
@@ -90,29 +106,40 @@ class WorldManager(
         if (railWorlds.containsKey(bukkitWorld)) return
         unloadingWorlds.remove(bukkitWorld)
 
-        val snapshot = when (val result = WorldPersistence.loadSnapshot(bukkitWorld)) {
-            WorldPersistence.SnapshotLoadResult.Missing -> null
-            is WorldPersistence.SnapshotLoadResult.Loaded -> result.snapshot
-            is WorldPersistence.SnapshotLoadResult.Corrupted -> {
+        val split = when (val result = WorldPersistence.loadSplitSnapshots(bukkitWorld)) {
+            WorldPersistence.SplitSnapshotLoadResult.Missing -> null
+            is WorldPersistence.SplitSnapshotLoadResult.Loaded -> result.snapshots
+            is WorldPersistence.SplitSnapshotLoadResult.Corrupted -> {
                 BukkitPlugin.INSTANCE.logger.severe(
-                    "Failed to load MineRails snapshot for world '${bukkitWorld.name}' from ${result.file.path}; " +
-                        "features are disabled for this world until the snapshot is fixed. " +
-                        "${result.error::class.simpleName}: ${result.error.message ?: ""}"
+                    "Failed to load split MineRails snapshots for world '${bukkitWorld.name}' from " +
+                        "${result.files.joinToString { it.path }}; features are disabled until fixed. " +
+                        "${result.error::class.simpleName}: ${result.error.message.orEmpty()}"
                 )
                 return
             }
         }
-
-        val railWorld = RailWorldFactory.createForBukkit(bukkitWorld, snapshot)
+        val splitInfrastructure = split?.infrastructure
+        val splitRuntime = split?.runtime
+        val railWorld = RailWorldFactory.createForBukkit(
+            bukkitWorld = bukkitWorld,
+            infrastructure = splitInfrastructure?.core(),
+            runtime = splitRuntime?.core(),
+            basicInfrastructure = splitInfrastructure?.basic(),
+            basicRuntime = splitRuntime?.basic()
+        )
         railWorlds[bukkitWorld] = railWorld
-        if (snapshot != null && railWorld is CoreWorld) {
-            restoreBukkitTrainExtensions(railWorld, snapshot)
-            markSkippedPersistedTrains(bukkitWorld, railWorld, snapshot)
+        val restoredTrains = split?.runtime?.core()?.trains.orEmpty()
+        if (restoredTrains.isNotEmpty() && railWorld is CoreWorld) {
+            restoreBukkitTrainExtensions(railWorld, restoredTrains)
+            markSkippedPersistedTrains(bukkitWorld, railWorld, restoredTrains)
         }
     }
 
-    private fun restoreBukkitTrainExtensions(coreWorld: CoreWorld, snapshot: CoreWorld.SavedWorldV1) {
-        for (savedTrain in snapshot.trains) {
+    private fun restoreBukkitTrainExtensions(
+        coreWorld: CoreWorld,
+        savedTrains: List<work.art1st.mineRails.core.physics.train.SavedTrainV1>
+    ) {
+        for (savedTrain in savedTrains) {
             val train = coreWorld.getTrain(savedTrain.id) ?: continue
             val trainExtension = TrainExtension()
             train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
@@ -126,25 +153,16 @@ class WorldManager(
                 carExtension.initialize(car, savedCar.config.extension)
             }
 
-            runCatching {
-                train.setLocation(train.head.location)
-            }.onFailure { error ->
-                BukkitPlugin.INSTANCE.logger.warning(
-                    "Failed to refresh restored train '${train.id}' render state: " +
-                        "${error::class.simpleName}: ${error.message ?: ""}"
-                )
-                AbnormalTrainMarker.markTrain(train, "restore failed: ${error::class.simpleName}")
-            }
         }
     }
 
     private fun markSkippedPersistedTrains(
         bukkitWorld: BukkitWorld,
         coreWorld: CoreWorld,
-        snapshot: CoreWorld.SavedWorldV1
+        savedTrains: List<work.art1st.mineRails.core.physics.train.SavedTrainV1>
     ) {
         val loadedIds = coreWorld.allTrains.map { it.id }.toSet()
-        snapshot.trains
+        savedTrains
             .filter { savedTrain -> savedTrain.id !in loadedIds }
             .forEach { savedTrain ->
                 BukkitPlugin.INSTANCE.logger.warning(
@@ -160,8 +178,16 @@ class WorldManager(
         railWorlds[bukkitWorld]?.let { rw ->
             val coreWorld = rw as? CoreWorld
             try {
-                coreWorld?.physicsCoordinator?.captureCurrentTicket()?.await()
-                coreWorld?.let { WorldPersistence.saveSnapshot(bukkitWorld, it) }
+                val ticket = coreWorld?.physicsCoordinator?.captureCurrentTicket()
+                ticket?.await()
+                coreWorld?.let {
+                    val snapshots = captureSnapshots(it, ticket?.epoch ?: 0L)
+                    snapshotWrites.remove(bukkitWorld)?.get()
+                    val worldId = bukkitWorld.uid
+                    snapshotWriter.submit {
+                        WorldPersistence.saveSplitSnapshots(worldId, snapshots)
+                    }.get()
+                }
             } finally {
                 coreWorld?.physicsCoordinator?.close()
                 try {
@@ -207,11 +233,13 @@ class WorldManager(
         var blockedWaitAsyncNanos = 0L
 
         railWorlds.forEach { (world, railWorld) ->
+            var publishedPhysicsEpoch = 0L
             (railWorld as? CoreWorld)?.let { coreWorld ->
                 // Capture once: if the fallback timer currently owns an epoch, TickEnd must wait
                 // for that exact ticket instead of rendering an older published state.
                 val physicsTicket = coreWorld.physicsCoordinator.captureCurrentTicket()
                 val physicsWaitNanos = measureNanoTime { physicsTicket.await() }
+                publishedPhysicsEpoch = physicsTicket.epoch
                 phaseBreakdown["world:${world.name}:physics_wait"] = physicsWaitNanos
                 blockedWaitAsyncNanos += physicsWaitNanos
 
@@ -294,6 +322,12 @@ class WorldManager(
             }
             phaseBreakdown["world:${world.name}:abnormal_train_marker"] = abnormalMarkerNanos
             computeNanos += abnormalMarkerNanos
+
+            if (serverTickIndex % PERIODIC_SNAPSHOT_TICKS == 0L) {
+                (railWorld as? CoreWorld)?.let { coreWorld ->
+                    enqueuePeriodicSnapshot(world, captureSnapshots(coreWorld, publishedPhysicsEpoch))
+                }
+            }
         }
 
         rememberServerTickMetrics(
@@ -319,7 +353,8 @@ class WorldManager(
                         bukkitWorld = bukkitWorld,
                         car = train.cars[index],
                         frame = trainFrame.cars[index],
-                        revision = trainFrame.revision
+                        revision = trainFrame.revision,
+                        trainSpeedMetersPerSecond = trainFrame.speedMetersPerSecond
                     )
                 )
             }
@@ -341,7 +376,11 @@ class WorldManager(
         BukkitPlugin.INSTANCE.platformDispatcher.runAt(location) {
             try {
                 if (!stopping && pending.bukkitWorld !in unloadingWorlds) {
-                    pending.car.carRendererOrNull?.applyFrame(frame, pending.revision)
+                    pending.car.carRendererOrNull?.applyFrame(
+                        frame,
+                        pending.revision,
+                        pending.trainSpeedMetersPerSecond
+                    )
                 }
             } finally {
                 complete.invoke()
@@ -373,14 +412,69 @@ class WorldManager(
         }
     }
 
+    private fun captureSnapshots(coreWorld: CoreWorld, physicsEpoch: Long): WorldSnapshotCapture {
+        val revision = serverTickIndex.coerceAtLeast(0L)
+        val coreInfrastructure = coreWorld.saveInfrastructure(revision)
+        val basicInfrastructure = BasicInfrastructureSnapshotV1.capture(coreWorld, revision)
+        val coreRuntime = coreWorld.saveRuntime(revision, physicsEpoch.coerceAtLeast(0L))
+        val basicRuntime = BasicRuntimeSnapshotV1.capture(
+            coreWorld,
+            revision,
+            physicsEpoch.coerceAtLeast(0L)
+        )
+        return WorldSnapshotCapture(
+            coreInfrastructure,
+            basicInfrastructure,
+            coreRuntime,
+            basicRuntime
+        )
+    }
+
+    @Synchronized
+    private fun enqueuePeriodicSnapshot(world: BukkitWorld, snapshots: WorldSnapshotCapture) {
+        pendingPeriodicSnapshots[world] = snapshots
+        if (snapshotWrites[world]?.isDone == false) return
+        startSnapshotWrite(world, world.uid, world.name)
+    }
+
+    @Synchronized
+    private fun startSnapshotWrite(world: BukkitWorld, worldId: java.util.UUID, worldName: String) {
+        snapshotWrites[world] = snapshotWriter.submit {
+            while (true) {
+                val latest = synchronized(this) { pendingPeriodicSnapshots.remove(world) }
+                if (latest == null) {
+                    synchronized(this) {
+                        snapshotWrites.remove(world)
+                        if (pendingPeriodicSnapshots.containsKey(world)) {
+                            startSnapshotWrite(world, worldId, worldName)
+                        }
+                    }
+                    return@submit
+                }
+                runCatching { WorldPersistence.saveSplitSnapshots(worldId, latest) }
+                    .onFailure { error ->
+                        BukkitPlugin.INSTANCE.logger.severe(
+                            "Failed to save periodic snapshot for '$worldName': " +
+                                "${error::class.simpleName}: ${error.message.orEmpty()}"
+                        )
+                    }
+            }
+        }
+    }
+
     private fun <T> withSimulationContext(action: () -> T): T =
         BukkitThreadGuardBridge.runInSimulationContext(action)
+
+    private companion object {
+        const val PERIODIC_SNAPSHOT_TICKS = 1_200L
+    }
 
     private data class PendingCarFrame(
         val bukkitWorld: BukkitWorld,
         val car: CoreCar,
         val frame: CarFrameSnapshot,
-        val revision: Long
+        val revision: Long,
+        val trainSpeedMetersPerSecond: Double
     )
 
     private data class PendingPlatformCommit(

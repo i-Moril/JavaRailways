@@ -4,8 +4,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.StationId
@@ -26,6 +28,25 @@ class OperationalDestinationTest {
     fun unregisterWorlds() {
         worlds.forEach(TestBasicWorldDataRegistry::unregister)
         worlds.clear()
+    }
+
+    @Test
+    fun `role-owned destination IDs use canonical owner at point format`() {
+        assertEquals(
+            "central@one",
+            OperationalDestinationIds.stationBerth(StationId("central"), "one")
+        )
+        assertEquals(
+            "north@track-1",
+            OperationalDestinationIds.depotStablingPoint("north", "track-1")
+        )
+        assertEquals(
+            "central/one",
+            OperationalDestinationIds.parseStationBerth("central@one").toString()
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            OperationalDestinationIds.parseStationBerth("central@one@extra")
+        }
     }
 
     @Test
@@ -78,7 +99,7 @@ class OperationalDestinationTest {
         )
         service.register(
             OperationalDestination(
-                id = "unrestricted-platform",
+                id = "unrestricted-station@platform",
                 displayName = "Unrestricted platform",
                 railId = rail.id,
                 arcLengthInAbMeters = 60.0,
@@ -115,7 +136,7 @@ class OperationalDestinationTest {
         )
         service.register(
             OperationalDestination(
-                "central-up",
+                "central@one-up",
                 "Central up",
                 rail.id,
                 40.0,
@@ -125,7 +146,7 @@ class OperationalDestinationTest {
         )
         service.register(
             OperationalDestination(
-                "central-down",
+                "central@one-down",
                 "Central down",
                 rail.id,
                 80.0,
@@ -142,7 +163,7 @@ class OperationalDestinationTest {
         assertEquals(DoorSide.RIGHT, down.doorSide)
         assertSame(down, world.basicWorldData.railObjects.get(down.ref))
 
-        service.remove("central-up")
+        service.remove("central@one-up")
 
         assertEquals(listOf(secondRole.berthRef), world.basicWorldData.stations[stationId]?.berthRefs)
         assertNull(world.basicWorldData.stations.berth(firstRole.berthRef))
@@ -166,7 +187,7 @@ class OperationalDestinationTest {
 
         service.register(
             OperationalDestination(
-                "north-one",
+                "north@one",
                 "North one",
                 rail.id,
                 30.0,
@@ -176,9 +197,138 @@ class OperationalDestinationTest {
         )
 
         val point = world.basicWorldData.depots.stablingPoints(DepotId("north")).single()
-        assertEquals("north-one", point.point.destinationId)
+        assertEquals("north@one", point.point.destinationId)
         assertEquals(90.0, point.point.usableLengthMeters)
         assertEquals(setOf("metro"), point.point.allowedTags)
+    }
+
+    @Test
+    fun `rail deletion removes destinations and derived station and waypoint records`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val service = OperationalDestinationService(world)
+        val role = DestinationRole.StationBerthRole(
+            StationId("station"),
+            berthId = "platform",
+            doorSide = DoorSide.LEFT
+        )
+        service.register(
+            OperationalDestination(
+                "station@platform",
+                "Platform",
+                rail.id,
+                40.0,
+                ViewDirection.AB,
+                role
+            )
+        )
+        service.register(destination("regular", rail.id, 60.0, ViewDirection.BA))
+        world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", rail.id, 70.0))
+
+        assertEquals(
+            setOf("station@platform", "regular"),
+            service.removeAllOnRail(rail.id).mapTo(linkedSetOf()) { it.id }
+        )
+
+        assertNull(world.basicWorldData.destinations["station@platform"])
+        assertNull(world.basicWorldData.wayPoints["regular"])
+        assertNull(world.basicWorldData.wayPoints["legacy"])
+        assertNull(world.basicWorldData.stations.berth(role.berthRef))
+    }
+
+    @Test
+    fun `rail replacement migrates destination position direction and derived records`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val oldRail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val replacement = work.art1st.mineRails.core.physics.rail.CoreRail(
+            world,
+            oldRail.curve.reversed,
+            mutableListOf(),
+            mutableListOf()
+        )
+        val service = OperationalDestinationService(world)
+        val role = DestinationRole.StationBerthRole(
+            StationId("station"),
+            berthId = "platform",
+            doorSide = DoorSide.RIGHT
+        )
+        service.register(
+            OperationalDestination(
+                "station@platform",
+                "Platform",
+                oldRail.id,
+                25.0,
+                ViewDirection.AB,
+                role
+            )
+        )
+        world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", oldRail.id, 20.0))
+
+        val migrated = service.migrateAllOnRail(oldRail.id, replacement.id)
+
+        assertEquals(listOf("station@platform"), migrated.map { it.id })
+        val destination = world.basicWorldData.destinations["station@platform"]!!
+        assertEquals(replacement.id, destination.railId)
+        assertEquals(75.0, destination.arcLengthInAbMeters, 0.01)
+        assertEquals(ViewDirection.BA, destination.approachDirection)
+        val berth = world.basicWorldData.stations.berth(role.berthRef)!!
+        assertEquals(replacement.id, berth.location.rail.id)
+        assertEquals(ViewDirection.BA, berth.approachDirection)
+        assertEquals(replacement.id, world.basicWorldData.wayPoints["legacy"]?.railId)
+        assertEquals(80.0, requireNotNull(world.basicWorldData.wayPoints["legacy"]).arcLength, 0.01)
+    }
+
+    @Test
+    fun `split and merge migration preserve destination arc coordinates`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val original = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val service = OperationalDestinationService(world)
+        service.register(destination("before", original.id, 25.0, ViewDirection.AB))
+        service.register(destination("after", original.id, 75.0, ViewDirection.BA))
+        world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", original.id, 75.0))
+        val splitCurves = original.curve.splitAt(50.0)
+        world.removeRail(original)
+        val beforeRail = work.art1st.mineRails.core.physics.rail.CoreRail(
+            world, splitCurves.first, mutableListOf(), mutableListOf()
+        )
+        val afterRail = work.art1st.mineRails.core.physics.rail.CoreRail(
+            world, splitCurves.second, mutableListOf(), mutableListOf()
+        )
+
+        service.migrateAfterRailSplit(original.id, beforeRail.id, afterRail.id, 50.0)
+
+        assertEquals(beforeRail.id, world.basicWorldData.destinations["before"]?.railId)
+        assertEquals(25.0, world.basicWorldData.destinations["before"]?.arcLengthInAbMeters)
+        assertEquals(afterRail.id, world.basicWorldData.destinations["after"]?.railId)
+        assertEquals(25.0, world.basicWorldData.destinations["after"]?.arcLengthInAbMeters)
+        assertEquals(afterRail.id, world.basicWorldData.wayPoints["legacy"]?.railId)
+        assertEquals(25.0, world.basicWorldData.wayPoints["legacy"]?.arcLength)
+        val mergedCurve = beforeRail.curve.concatenate(afterRail.curve)
+        world.removeRail(beforeRail)
+        world.removeRail(afterRail)
+        val merged = work.art1st.mineRails.core.physics.rail.CoreRail(
+            world, mergedCurve, mutableListOf(), mutableListOf()
+        )
+
+        service.migrateAfterRailMerge(beforeRail.id, afterRail.id, merged.id, 50.0)
+
+        assertEquals(25.0, world.basicWorldData.destinations["before"]?.arcLengthInAbMeters)
+        assertEquals(75.0, world.basicWorldData.destinations["after"]?.arcLengthInAbMeters)
+        assertEquals(75.0, world.basicWorldData.wayPoints["legacy"]?.arcLength)
+        assertEquals(merged.id, world.basicWorldData.wayPoints["legacy"]?.railId)
+        assertEquals(setOf(merged.id), world.basicWorldData.destinations.all().map { it.railId }.toSet())
     }
 
     @Test
@@ -200,7 +350,7 @@ class OperationalDestinationTest {
         service.replace(
             "old",
             OperationalDestination(
-                "new",
+                "station@platform",
                 "New station",
                 rail.id,
                 30.0,
@@ -211,7 +361,7 @@ class OperationalDestinationTest {
 
         assertNull(world.basicWorldData.destinations["old"])
         assertNull(world.basicWorldData.wayPoints["old"])
-        assertEquals("new", world.basicWorldData.wayPoints["new"]?.id)
+        assertEquals("station@platform", world.basicWorldData.wayPoints["station@platform"]?.id)
         assertTrue(world.basicWorldData.stations.berth(stationRole.berthRef) != null)
     }
 

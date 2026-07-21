@@ -78,7 +78,6 @@ object RailAutoConnector {
 
     fun selectSmoothestActiveRail(view: RailView): Boolean {
         val best = view.mutableNextRails
-            .filter(::isDirectionAllowed)
             .mapNotNull { next ->
                 RailConnectionPolicy.activeSelectionScoreDegrees(view, next)?.let { angle -> angle to next }
             }
@@ -97,14 +96,11 @@ object RailAutoConnector {
         } else {
             false
         }
-        if (fromView.activeRail == null && isDirectionAllowed(nextView)) {
+        if (fromView.activeRail == null) {
             fromView.activeRail = nextView
         }
         return added
     }
-
-    private fun isDirectionAllowed(view: RailView): Boolean =
-        view.rail.metadata.allowedDirection?.let { it == view.viewDirection } ?: true
 
     private fun closestJoint(first: CoreRail, second: CoreRail): Joint {
         val candidates = listOf(

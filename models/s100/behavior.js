@@ -71,6 +71,12 @@ defineAction("cabin-lights-off", { displayName: "关闭车内灯", executable: t
   action("cabin-lights-off")
 })
 
+defineAction("power-off", { displayName: "车辆断电", executable: false, requiresControl: false }, function() {
+  const endLightsOff = action("end-lights-off")
+  const cabinLightsOff = action("cabin-lights-off")
+  return endLightsOff && cabinLightsOff
+})
+
 function onReverse() {
   refreshLights()
 }

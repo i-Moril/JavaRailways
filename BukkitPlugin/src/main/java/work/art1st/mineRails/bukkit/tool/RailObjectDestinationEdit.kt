@@ -4,6 +4,7 @@ import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.destination.DestinationRole
 import work.art1st.mineRails.basic.api.destination.DestinationRoleType
 import work.art1st.mineRails.basic.api.destination.OperationalDestination
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationIds
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
@@ -31,8 +32,6 @@ internal fun applyRailObjectDestinationEdit(
     original: OperationalDestination?,
     edit: RailObjectDestinationEdit
 ): OperationalDestination {
-    val id = edit.id.trim()
-    require(id.isNotBlank()) { "Destination ID must not be blank" }
     val role = when (edit.roleType) {
         DestinationRoleType.REGULAR -> DestinationRole.Regular
         DestinationRoleType.STATION_BERTH -> {
@@ -68,6 +67,19 @@ internal fun applyRailObjectDestinationEdit(
                 allowedTags = edit.stablingAllowedTags
             )
         }
+    }
+    val id = when (role) {
+        DestinationRole.Regular -> edit.id.trim().also {
+            require(it.isNotBlank()) { "Destination ID must not be blank" }
+        }
+        is DestinationRole.StationBerthRole -> OperationalDestinationIds.stationBerth(
+            role.stationId,
+            role.berthId
+        )
+        is DestinationRole.DepotStablingPointRole -> OperationalDestinationIds.depotStablingPoint(
+            role.depotId,
+            role.stablingPointId
+        )
     }
     return OperationalDestination(
         id = id,

@@ -8,8 +8,6 @@ import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.mineRails.core.api.util.annotation.MainThread
-import work.art1st.configLib.persistence.Loads
-import work.art1st.configLib.persistence.PersistentBy
 import work.art1st.mineRails.core.api.util.plugin.Extendable
 import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.tick.TickManager
@@ -29,7 +27,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 物理世界：由 [createEmpty] 或 [SavedWorldV1.load] 创建；Bukkit 等平台在创建后通过
+ * 物理世界：由 [createEmpty] 或分离的 infrastructure/runtime 快照创建；Bukkit 等平台在创建后通过
  * [Extendable.registerExtensionData] 注册各插件的扩展数据。
  */
 class CoreWorld(
@@ -40,7 +38,7 @@ class CoreWorld(
     val physicsCoordinator: PhysicsCoordinator,
     worldParent: WorldParentContext,
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
-) : World, Extendable<Any> by extensionDataContainer, PersistentBy<CoreWorld.SavedWorldV1> {
+) : World, Extendable<Any> by extensionDataContainer {
     private val railSpatialIndex = RailSpatialIndex()
     val runtimeId: String = UUID.randomUUID().toString()
 
@@ -67,6 +65,33 @@ class CoreWorld(
             worldParent: WorldParentContext,
             physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1)
         ): CoreWorld = CoreWorld(tickManager, physicsCoordinator, worldParent)
+
+        fun load(
+            infrastructure: SavedInfrastructureV1,
+            runtime: SavedRuntimeV1?,
+            dependency: SnapshotDependency
+        ): CoreWorld {
+            if (runtime != null) {
+                require(runtime.infrastructureRevision == infrastructure.infrastructureRevision) {
+                    "runtime infrastructure revision ${runtime.infrastructureRevision} does not match " +
+                        infrastructure.infrastructureRevision
+                }
+            }
+            val world = CoreWorld(
+                dependency.tickManager,
+                dependency.physicsCoordinator,
+                dependency.worldParent
+            )
+            val railDependency = CoreRail.SavedRailV1.Dependency(world)
+            val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
+            infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
+                savedRail.restoreConnections(rail, railDependency)
+            }
+            runtime?.trains.orEmpty().forEach { savedTrain ->
+                runCatching { world.addTrain(savedTrain.load(world)) }
+            }
+            return world
+        }
     }
 
     @MainThread
@@ -154,42 +179,41 @@ class CoreWorld(
 
     fun trainFrameMailboxMetrics(): LatestTrainFrameMailbox.Metrics = publishedTrainFrames.metrics()
 
-    override fun save(): SavedWorldV1 {
-        return SavedWorldV1(
-            rails.values.map { it.save() },
-            trains.values.map { it.save() }
+    fun saveInfrastructure(infrastructureRevision: Long): SavedInfrastructureV1 {
+        require(infrastructureRevision >= 0L)
+        return SavedInfrastructureV1(
+            infrastructureRevision = infrastructureRevision,
+            rails = rails.values.map { it.save() }
+        )
+    }
+
+    fun saveRuntime(infrastructureRevision: Long, physicsEpoch: Long): SavedRuntimeV1 {
+        require(infrastructureRevision >= 0L && physicsEpoch >= 0L)
+        return SavedRuntimeV1(
+            infrastructureRevision = infrastructureRevision,
+            physicsEpoch = physicsEpoch,
+            trains = trains.values.map { it.save() }
         )
     }
 
     @Serializable
-    data class SavedWorldV1(
-        val rails: List<CoreRail.SavedRailV1>,
-        val trains: List<SavedTrainV1>
-    ) : Loads<CoreWorld, SavedWorldV1.Dependency> {
-        data class Dependency(
-            val tickManager: TickManager,
-            val worldParent: WorldParentContext,
-            val physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1)
-        )
+    data class SavedInfrastructureV1(
+        val formatVersion: Int = 1,
+        val infrastructureRevision: Long,
+        val rails: List<CoreRail.SavedRailV1>
+    )
 
-        override fun load(dependency: Dependency): CoreWorld {
-            val world = CoreWorld(dependency.tickManager, dependency.physicsCoordinator, dependency.worldParent)
-            val railDependency = CoreRail.SavedRailV1.Dependency(world)
-            val loadedRails = rails.map { it.loadDisconnected(railDependency) }
-            rails.zip(loadedRails).forEach { (savedRail, rail) ->
-                savedRail.restoreConnections(rail, railDependency)
-            }
-            trains.forEach { savedTrain ->
-                try {
-                    world.addTrain(savedTrain.load(world))
-                } catch (t: Throwable) {
-                    System.err.println(
-                        "[MineRails] Skipping invalid persisted train '${savedTrain.id}' while loading world: " +
-                            "${t::class.simpleName}: ${t.message ?: ""}"
-                    )
-                }
-            }
-            return world
-        }
-    }
+    @Serializable
+    data class SavedRuntimeV1(
+        val formatVersion: Int = 1,
+        val infrastructureRevision: Long,
+        val physicsEpoch: Long,
+        val trains: List<SavedTrainV1>
+    )
+
+    data class SnapshotDependency(
+        val tickManager: TickManager,
+        val worldParent: WorldParentContext,
+        val physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1)
+    )
 }

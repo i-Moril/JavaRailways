@@ -86,7 +86,7 @@ slug: /architecture/station-validation-checklist
 - [x] **C2-I04** 一个 World 的 StationCall 失败或 Stall 不影响其他 World、手动列车或 Core 物理。
 - [x] **C2-I05** 现有 WayPoint Mission、Route Section 分配、车尾释放和 C1 命令行为无回归。
 
-证据：Dispatcher 集成测试覆盖完整状态链；`/mr timetable status` 输出 call、berth 和 ownership；`TimetableScriptLoaderTest`、TypeScript 检查和自动 StationCall 调度测试覆盖 C2-I03；完整 Gradle 测试持续覆盖 C1 回归。
+证据：Dispatcher 集成测试覆盖完整状态链；`/mr timetable status` 输出 call、berth 和 ownership；`TimetableSnapshotTest`、`TimetableValidatorTest` 和自动 StationCall 调度测试覆盖 C2-I03；完整 Gradle 测试持续覆盖 C1 回归。
 
 ## 完成条件
 

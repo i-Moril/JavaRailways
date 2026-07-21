@@ -45,6 +45,8 @@ class RenderChunkManager(
     private val coalescedUpdates = AtomicLong()
     private val scheduledDrains = AtomicLong()
     private val processedUpdates = AtomicLong()
+    private val authoritativePassengerRefreshRequests = AtomicLong()
+    private val authoritativePassengerRefreshes = AtomicLong()
 
     init {
         Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
@@ -124,10 +126,17 @@ class RenderChunkManager(
         }
     }
 
-    private fun refreshPlayer(player: Player, force: Boolean = false) {
+    /** Refreshes packet-render audiences after server-side passenger positioning, which emits no PlayerMoveEvent. */
+    internal fun refreshAuthoritativePassenger(player: Player) {
+        BukkitThreadOwnership.ensureEntity(player, "RenderChunkManager.refreshAuthoritativePassenger")
+        authoritativePassengerRefreshRequests.incrementAndGet()
+        if (refreshPlayer(player)) authoritativePassengerRefreshes.incrementAndGet()
+    }
+
+    private fun refreshPlayer(player: Player, force: Boolean = false): Boolean {
         if (player.world != world) {
             clearPlayer(player)
-            return
+            return false
         }
         val location = player.location
         val position = location.asVector3d()
@@ -137,10 +146,15 @@ class RenderChunkManager(
         if (!force && previous != null && previous.chunk == chunk &&
             previous.viewDistance == settings.viewDistance && previous.lodThreshold == settings.lodThreshold
         ) {
-            val dx = location.x - previous.x
-            val dy = location.y - previous.y
-            val dz = location.z - previous.z
-            if (dx * dx + dy * dy + dz * dz < PLAYER_REFRESH_DISTANCE_SQ) return
+            if (!PlayerAudienceRefreshPolicy.movedEnough(
+                    previous.x,
+                    previous.y,
+                    previous.z,
+                    location.x,
+                    location.y,
+                    location.z
+                )
+            ) return false
         }
 
         val watchedChunks = RenderChunk.getChunksAround(position, settings.viewDistance).toSet()
@@ -155,6 +169,7 @@ class RenderChunkManager(
             viewDistance = settings.viewDistance,
             lodThreshold = settings.lodThreshold
         )
+        return true
     }
 
     private fun reconcilePlayerVisibility(player: Player, newVisible: Set<Renderable>) {
@@ -358,6 +373,8 @@ class RenderChunkManager(
         coalescedUpdates = coalescedUpdates.get(),
         scheduledDrains = scheduledDrains.get(),
         processedUpdates = processedUpdates.get(),
+        authoritativePassengerRefreshRequests = authoritativePassengerRefreshRequests.get(),
+        authoritativePassengerRefreshes = authoritativePassengerRefreshes.get(),
         pendingPlayers = pendingAudienceUpdates.count { (_, pending) ->
             pending.scheduled.get() || pending.updates.isNotEmpty()
         }
@@ -368,6 +385,8 @@ class RenderChunkManager(
         val coalescedUpdates: Long,
         val scheduledDrains: Long,
         val processedUpdates: Long,
+        val authoritativePassengerRefreshRequests: Long,
+        val authoritativePassengerRefreshes: Long,
         val pendingPlayers: Int
     )
 
@@ -385,7 +404,22 @@ class RenderChunkManager(
         val lodThreshold: Double
     )
 
-    companion object {
-        private const val PLAYER_REFRESH_DISTANCE_SQ = 1.0
+}
+
+internal object PlayerAudienceRefreshPolicy {
+    private const val REFRESH_DISTANCE_SQUARED = 1.0
+
+    fun movedEnough(
+        previousX: Double,
+        previousY: Double,
+        previousZ: Double,
+        currentX: Double,
+        currentY: Double,
+        currentZ: Double
+    ): Boolean {
+        val dx = currentX - previousX
+        val dy = currentY - previousY
+        val dz = currentZ - previousZ
+        return dx * dx + dy * dy + dz * dz >= REFRESH_DISTANCE_SQUARED
     }
 }

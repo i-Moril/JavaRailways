@@ -1,5 +1,6 @@
 package work.art1st.mineRails.basic.timetable
 
+import kotlinx.serialization.json.JsonObject
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -27,6 +28,7 @@ import work.art1st.mineRails.basic.api.station.Station
 import work.art1st.mineRails.basic.api.station.StationBerth
 import work.art1st.mineRails.basic.api.station.StationBerthRef
 import work.art1st.mineRails.basic.api.station.StationId
+import work.art1st.mineRails.basic.api.timetable.*
 import work.art1st.mineRails.basic.controller.ManualController
 import work.art1st.mineRails.basic.controller.SimpleATO
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
@@ -152,7 +154,7 @@ class TimetableDispatcherTest {
         val depotId = DepotId("north")
         OperationalDestinationService(world).register(
             OperationalDestination(
-                id = "north-one",
+                id = "north@one",
                 displayName = "North one",
                 railId = rail.id,
                 arcLengthInAbMeters = originArc,
@@ -225,7 +227,7 @@ class TimetableDispatcherTest {
         val destinations = OperationalDestinationService(world)
         destinations.register(
             OperationalDestination(
-                "north-out",
+                "north@out",
                 "North outbound",
                 rail.id,
                 originArc,
@@ -239,7 +241,7 @@ class TimetableDispatcherTest {
         )
         destinations.register(
             OperationalDestination(
-                "north-in",
+                "north@in",
                 "North inbound",
                 rail.id,
                 originArc + 100.0,
@@ -368,7 +370,7 @@ class TimetableDispatcherTest {
         val destinations = OperationalDestinationService(world)
         destinations.register(
             OperationalDestination(
-                "north-out",
+                "north@out",
                 "North out",
                 outboundRail.id,
                 originArc,
@@ -382,7 +384,7 @@ class TimetableDispatcherTest {
         )
         destinations.register(
             OperationalDestination(
-                "north-in",
+                "north@in",
                 "North in",
                 outboundRail.id,
                 originArc + 100.0,
@@ -493,7 +495,7 @@ class TimetableDispatcherTest {
         val destinations = OperationalDestinationService(world)
         destinations.register(
             OperationalDestination(
-                "north-one",
+                "north@one",
                 "North one",
                 outboundRail.id,
                 originArc,
@@ -507,7 +509,7 @@ class TimetableDispatcherTest {
         )
         destinations.register(
             OperationalDestination(
-                "north-two",
+                "north@two",
                 "North two",
                 outboundRail.id,
                 originArc + 100.0,
@@ -568,8 +570,7 @@ class TimetableDispatcherTest {
                                 TimetableAction.CallStation(
                                     stationId = "central",
                                     berthId = "one",
-                                    minimumDwellTicks = 3L,
-                                    plannedDepartureTick = 0L
+                                    minimumDwellTicks = 3L
                                 )
                             ),
                             TimetableStep.At(0L, TimetableAction.GoTo("B")),
@@ -632,7 +633,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         OperationalDestinationService(world).register(
             OperationalDestination(
-                "north-one",
+                "north@one",
                 "North one",
                 rail.id,
                 originArc,
@@ -701,7 +702,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         OperationalDestinationService(world).register(
             OperationalDestination(
-                "north-one",
+                "north@one",
                 "North one",
                 rail.id,
                 originArc,
@@ -1004,6 +1005,55 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `released ad hoc navigation can be discarded before replacement`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-navigation-replace", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
+        data.timetables.add(
+            Timetable(
+                "manual-navigate-99",
+                services = listOf(
+                    TimetableService(
+                        "navigate",
+                        TrainSelector.TrainId(train.id),
+                        listOf(
+                            TimetableStep.Check("A"),
+                            TimetableStep.At(0L, TimetableAction.GoTo("B"))
+                        )
+                    )
+                )
+            )
+        )
+        val id = TimetableServiceRunId("manual-navigate-99", "navigate")
+        assertTrue(
+            dispatcher.startService(world, id.timetableId, id.serviceId) is
+                TimetableServiceStartResult.Started
+        )
+        assertTrue(
+            dispatcher.suspendForControlTransfer(world, train.id, "driver") is
+                TimetableControlTransferResult.Suspended
+        )
+        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver"))
+        assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, dispatcher.status(id)?.state)
+
+        assertEquals(1, dispatcher.discardReleasedManualNavigation(world, train.id))
+        assertNull(dispatcher.status(id))
+        assertNull(train.controller)
+    }
+
+    @Test
     fun `manual control transfer suspends ATO and requires explicit released replan`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
@@ -1038,6 +1088,11 @@ class TimetableDispatcherTest {
         assertFalse(dispatcher.releaseControlTransfer(train.id, "other-driver"))
         assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-1"))
         assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, dispatcher.status(id)?.state)
+        val reacquired = dispatcher.enterManualRoutedControl(world, train.id, "driver-2")
+        assertTrue(reacquired is TimetableControlTransferResult.Suspended)
+        assertEquals(TimetableControlMode.FULL_MANUAL, dispatcher.status(id)?.controlMode)
+        assertEquals("driver-2", dispatcher.status(id)?.controlTransferOwner)
+        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-2"))
 
         val replanned = dispatcher.replanService(world, id, "A") as TimetableReplanResult.Resumed
 
@@ -1436,6 +1491,148 @@ class TimetableDispatcherTest {
             dispatcher.status(TimetableServiceRunId("tt", "late"))?.state
         )
         assertSame(earlyBranch.viewAB, approach.viewAB.nextActiveRail)
+    }
+
+    @Test
+    fun `wait-until-true activation starts a future cycle only after provider becomes true`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-activation", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        var enabled = false
+        var evaluations = 0
+        data.timetableExtensions.registerCondition(object : TimetableConditionProvider {
+            override val typeId = "test:demand"
+            override val version = 1
+            override val descriptor = TimetableExtensionDescriptor("Demand", "Test demand")
+            override fun evaluate(parameters: JsonObject, context: TimetableRuntimeContext): TimetableConditionResult {
+                evaluations++
+                assertNull(context.train)
+                return if (enabled) TimetableConditionResult.True else TimetableConditionResult.False
+            }
+        })
+        data.timetables.add(Timetable(
+            "tt-activation",
+            services = listOf(service("service", train.id, "A", "B").copy(
+                activation = TimetableServiceActivation.Conditional(
+                    TimetableCondition.Predicate(TimetableExtensionCall("test:demand")),
+                    TimetableActivationFalseBehavior.WAIT_UNTIL_TRUE
+                )
+            ))
+        ))
+
+        assertTrue(dispatcher.beginTimetable(world, "tt-activation") is TimetableEpochStartResult.Started)
+        assertTrue(dispatcher.scheduleInitialCycle("tt-activation"))
+        dispatcher.tick(world)
+        assertNull(dispatcher.status(TimetableServiceRunId("tt-activation", "service")))
+        assertEquals(1, evaluations)
+
+        enabled = true
+        dispatcher.tick(world)
+
+        val started = dispatcher.status(TimetableServiceRunId("tt-activation", "service"))
+        assertNotNull(started)
+        assertEquals(0L, started?.cycleIndex)
+        assertEquals(2, evaluations)
+    }
+
+    @Test
+    fun `evaluates runtime condition once and waits for registered extension action ticket`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-extension", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+
+        var evaluations = 0
+        var actionStarts = 0
+        val extensionDescriptor = TimetableExtensionDescriptor("Test", "Test extension")
+        data.timetableExtensions.registerCondition(object : TimetableConditionProvider {
+            override val typeId = "test:enabled"
+            override val version = 1
+            override val descriptor = extensionDescriptor
+            override fun evaluate(parameters: JsonObject, context: TimetableRuntimeContext): TimetableConditionResult {
+                evaluations++
+                assertEquals("B", context.currentWayPointId)
+                assertEquals(train.id, context.train?.trainId)
+                return TimetableConditionResult.True
+            }
+        })
+        data.timetableExtensions.registerAction(object : TimetableActionProvider {
+            override val typeId = "test:record"
+            override val version = 1
+            override val descriptor = extensionDescriptor
+            override fun start(
+                parameters: JsonObject,
+                context: TimetableRuntimeContext
+            ): TimetableExtensionActionStartResult {
+                actionStarts++
+                return TimetableExtensionActionStartResult.Accepted(object : TimetableExtensionActionTicket {
+                    override fun snapshot() = TimetableExtensionActionSnapshot(
+                        TimetableExtensionActionState.SUCCEEDED
+                    )
+                    override fun cancel() = Unit
+                })
+            }
+        })
+        data.timetables.add(Timetable(
+            "tt-extension",
+            services = listOf(TimetableService(
+                id = "service",
+                trainSelector = TrainSelector.TrainId(train.id),
+                steps = listOf(
+                    TimetableStep.Check("A"),
+                    TimetableStep.At(0L, TimetableAction.GoTo("B")),
+                    TimetableStep.At(0L, TimetableAction.Conditional(
+                        condition = TimetableCondition.Predicate(
+                            TimetableExtensionCall("test:enabled")
+                        ),
+                        thenActions = listOf(TimetableAction.Extension(
+                            TimetableExtensionCall("test:record")
+                        ))
+                    ))
+                )
+            ))
+        ))
+
+        assertTrue(dispatcher.startService(world, "tt-extension", "service") is TimetableServiceStartResult.Started)
+        val ato = train.controller as SimpleATO
+        tickAndPublish(ato)
+        dispatcher.tick(world)
+        repeat(600) { tickAndPublish(ato) }
+        dispatcher.tick(world)
+
+        assertEquals(TimetableServiceRunState.WAITING_EXTENSION_ACTION,
+            dispatcher.status(TimetableServiceRunId("tt-extension", "service"))?.state)
+        assertEquals(1, evaluations)
+        assertEquals(1, actionStarts)
+
+        dispatcher.tick(world)
+        assertEquals(TimetableServiceRunState.COMPLETED,
+            dispatcher.status(TimetableServiceRunId("tt-extension", "service"))?.state)
+        assertEquals(1, evaluations)
+        assertEquals(1, actionStarts)
     }
 
     private fun dispatcher(): TimetableDispatcher = TimetableDispatcher { train, world ->

@@ -167,13 +167,70 @@ class CoreCar @MainThread internal constructor(
     // 弧长 forward 的弦长误差 s³/(24R²)：bogieDistance=1.2m, R=5m → ~0.003m < TOLERANCE。
     // 外层 searchRailLocation 会消化此误差（见 updateByPrevCar），不会积累。
     @Throws(BogieException::class)
-    private fun findTailBogieByHead(headBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
+    /** Explicit-placement fallback; runtime movement uses forward search from the published tail. */
+    private fun placeTailBogieBehindHead(headBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
         return headBogieNewLocation.forward(-bogieDistance) ?: throw BogieException(tailBogie)
     }
 
     @Throws(BogieException::class)
     private fun findHeadBogieByTail(tailBogieNewLocation: RailLocationWithFacing): RailLocationWithFacing {
         return tailBogieNewLocation.forward(bogieDistance) ?: throw BogieException(headBogie)
+    }
+
+    private fun forwardDistanceTo(
+        from: RailLocationWithFacing,
+        target: RailLocationWithFacing,
+        maximumDistance: Double
+    ): Double? {
+        var traversed = 0.0
+        for (segment in from.peekCurve(maximumDistance)) {
+            if (segment.railView === target.railView &&
+                target.arcLength >= segment.startArcLength - Curve.TOLERANCE &&
+                target.arcLength <= segment.endArcLength + Curve.TOLERANCE
+            ) {
+                return traversed + (target.arcLength - segment.startArcLength)
+            }
+            traversed += segment.totalArcLength
+        }
+        return null
+    }
+
+    private fun searchForwardFromPreviousTail(
+        deltaS: Double,
+        condition: (RailLocationWithFacing, IntermediateResult, Double) -> Double
+    ): IntermediateResult {
+        require(deltaS >= 0.0 && deltaS.isFinite())
+        val lowerDistance = (deltaS - FORWARD_SEARCH_RADIUS_METERS).coerceAtLeast(
+            -tailBogie.location.arcLength
+        )
+        val requestedUpperDistance = deltaS + FORWARD_SEARCH_RADIUS_METERS
+        val reachableDistance = tailBogie.location
+            .peekCurve(requestedUpperDistance + bogieDistance)
+            .sumOf { it.totalArcLength }
+        val upperDistance = requestedUpperDistance.coerceAtMost(
+            (reachableDistance - bogieDistance - Curve.TOLERANCE).coerceAtLeast(0.0)
+        )
+        if (upperDistance < lowerDistance) throw BogieException(tailBogie)
+        val searchStart = tailBogie.location.forward(lowerDistance)
+            ?: throw BogieException(tailBogie)
+        val searchLength = upperDistance - lowerDistance
+        return searchStart.peekCurve(searchLength)
+            .searchRailLocation(
+                Curve.TOLERANCE,
+                { location ->
+                    val offsetFromSearchStart = forwardDistanceTo(
+                        searchStart,
+                        location,
+                        searchLength
+                    ) ?: throw BogieException(tailBogie)
+                    Triple(
+                        location,
+                        calculatePositionByTailBogie(location),
+                        lowerDistance + offsetFromSearchStart
+                    )
+                },
+                { (location, result, distance) -> condition(location, result, distance) }
+            )?.second ?: throw BogieException(tailBogie)
     }
 
 
@@ -183,10 +240,25 @@ class CoreCar @MainThread internal constructor(
      * @return
      */
     @Throws(BogieException::class)
-    protected fun calculatePositionByHeadBogie(headBogieNewLocation: RailLocationWithFacing): IntermediateResult {
+    protected fun calculatePositionByHeadBogie(
+        headBogieNewLocation: RailLocationWithFacing,
+        deltaS: Double? = null
+    ): IntermediateResult {
+        if (deltaS != null) {
+            val previousTail = tailBogie.location
+            val targetHeadDistance = forwardDistanceTo(
+                previousTail,
+                headBogieNewLocation,
+                deltaS + FORWARD_SEARCH_RADIUS_METERS + bogieDistance
+            ) ?: throw BogieException(headBogie)
+            val targetTailDistance = targetHeadDistance - bogieDistance
+            return searchForwardFromPreviousTail(deltaS) { _, _, candidateDistance ->
+                targetTailDistance - candidateDistance
+            }
+        }
         physicsDirty = true
         val headBogieConnectorPosition = connectorPosition(headBogieNewLocation)
-        val tailBogieNewLocation = findTailBogieByHead(headBogieNewLocation)
+        val tailBogieNewLocation = placeTailBogieBehindHead(headBogieNewLocation)
         val tailBogieConnectorPosition = connectorPosition(tailBogieNewLocation)
         // 必然指向前方：tail -> head
         val tailToHeadDirection = (headBogieConnectorPosition - tailBogieConnectorPosition).normalize()
@@ -218,8 +290,12 @@ class CoreCar @MainThread internal constructor(
      * 此时bogieA已经被更新，根据新值计算下一个bogie的position
      */
     @Throws(BogieException::class)
-    fun updateByHeadBogie(headBogieNewLocation: RailLocationWithFacing) {
-        val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) = calculatePositionByHeadBogie(headBogieNewLocation)
+    fun updateByHeadBogie(
+        headBogieNewLocation: RailLocationWithFacing,
+        deltaS: Double? = null
+    ) {
+        val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) =
+            calculatePositionByHeadBogie(headBogieNewLocation, deltaS)
         tailBogie.updateLocation(tailBogieLocation)
         this.position = carPosition
         val carDirection = if (isReversed) -tailToHeadDirection else tailToHeadDirection
@@ -229,7 +305,7 @@ class CoreCar @MainThread internal constructor(
     }
 
     @Throws(BogieException::class)
-    fun updateByPrevCar(prevCar: CoreCar) {
+    fun updateByPrevCar(prevCar: CoreCar, deltaS: Double? = null) {
         val prevCarTailToHeadDirection = if (prevCar.isReversed) -prevCar.activeDirection else prevCar.activeDirection
         val prevCarTailPosition = getTailPosition(prevCar.activePositon, prevCarTailToHeadDirection, prevCar.length)
         val couplerLength = headConnectorLength + prevCar.tailConnectorLength
@@ -237,20 +313,37 @@ class CoreCar @MainThread internal constructor(
         val tailBogieSearchDistance =
             prevCar.tailBogieToEndPointOffset + couplerLength + currentHeadEndToTailBogieDistance
 
-        // 从前车尾转向架向后查找到本车尾转向架。
-        val intermediateResult = if (tailBogieSearchDistance > 0) {
-            val railSegments = prevCar.tailBogie.activeLocation.peekCurve(-tailBogieSearchDistance * 2)
-            railSegments.searchRailLocation(Curve.TOLERANCE, {
-                calculatePositionByTailBogie(it.reversed)
-            }, {
-                val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) = it
-                val headPosition = getHeadPosition(carPosition, tailToHeadDirection, length)
-                val connectorVector = prevCarTailPosition - headPosition
-                val connectorDistance = connectorVector dot tailToHeadDirection
+        // Runtime searches forward from this car's published tail; explicit placement retains the
+        // backward fallback because it has no previous-tick movement interval.
+        val couplerError: (IntermediateResult) -> Double = { candidate ->
+            val headPosition = getHeadPosition(
+                candidate.carNewPosition,
+                candidate.carNewDirection,
+                length
+            )
+            val connectorVector = prevCarTailPosition - headPosition
+            // Coupler length is a 3D distance. The longitudinal projection only supplies the
+            // bisection sign after a candidate crosses to the wrong side of the leading car.
+            val connectorDistance = connectorVector.length()
+            val isOnExpectedSide = connectorVector dot candidate.carNewDirection >= 0.0
+            if (isOnExpectedSide) {
                 connectorDistance - couplerLength
-            }) ?: throw BogieException(tailBogie)
-        } else {
-            calculatePositionByTailBogie(prevCar.tailBogie.activeLocation)
+            } else {
+                -connectorDistance - couplerLength
+            }
+        }
+        val intermediateResult = when {
+            tailBogieSearchDistance <= 0 ->
+                calculatePositionByTailBogie(prevCar.tailBogie.activeLocation)
+            deltaS != null -> searchForwardFromPreviousTail(deltaS) { _, candidate, _ ->
+                couplerError(candidate)
+            }
+            else -> {
+                val railSegments = prevCar.tailBogie.activeLocation.peekCurve(-tailBogieSearchDistance * 2)
+                railSegments.searchRailLocation(Curve.TOLERANCE, {
+                    calculatePositionByTailBogie(it.reversed)
+                }, couplerError) ?: throw BogieException(tailBogie)
+            }
         }
         val (headBogieLocation, tailBogieLocation, carPosition, tailToHeadDirection) = intermediateResult
         headBogie.updateLocation(headBogieLocation)
@@ -315,6 +408,22 @@ class CoreCar @MainThread internal constructor(
         bogies.forEach { it.reverse() }
     }
 
+    /** Restore derived car state without moving the exact persisted bogie locations. */
+    internal fun restorePersistedState(reversed: Boolean) {
+        isReversed = reversed
+        physicsDirty = true
+        val headLocation = headBogie.location
+        val tailLocation = tailBogie.location
+        val headConnectorPosition = connectorPosition(headLocation)
+        val tailConnectorPosition = connectorPosition(tailLocation)
+        val tailToHeadDirection = (headConnectorPosition - tailConnectorPosition).normalize()
+        val headOffset = if (reversed) -bogieBOffset else bogieAOffset
+        position = headConnectorPosition - tailToHeadDirection * headOffset
+        direction = if (reversed) -tailToHeadDirection else tailToHeadDirection
+        normal = (headLocation.normal + tailLocation.normal).projection(direction)
+        updateMotionStateByHeadBogie()
+    }
+
     override fun destroy() {
         bogies.forEach { it.destroy() }
         super.destroy()
@@ -332,6 +441,8 @@ class CoreCar @MainThread internal constructor(
     }
 
     companion object {
+        private const val FORWARD_SEARCH_RADIUS_METERS = 1.0
+
         @JvmStatic
         fun create(
             id: String,

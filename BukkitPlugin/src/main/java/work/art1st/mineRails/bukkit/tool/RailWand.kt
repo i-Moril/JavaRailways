@@ -22,6 +22,7 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.util.Transformation
 import org.joml.Vector3d
 import org.joml.Vector3dc
+import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
 import work.art1st.mineRails.basic.api.ui.config.*
 import work.art1st.mineRails.basic.curve.Anchor
 import work.art1st.mineRails.basic.curve.AnchorGeometry
@@ -37,6 +38,7 @@ import work.art1st.mineRails.basic.rail.RailAutoConnector
 import work.art1st.mineRails.basic.safety.RailSpeedCalculator
 import work.art1st.mineRails.basic.safety.RailSpeedLimits
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.extension.rail.RailDecorationLayout
 import work.art1st.mineRails.bukkit.logic.RailVisualBootstrap
 import work.art1st.mineRails.bukkit.persistence.PersistedRailRenderMeta
 import work.art1st.mineRails.bukkit.persistence.RailRenderMetaStore
@@ -91,7 +93,7 @@ enum class WandMode(override val displayName: String, override val description: 
     EDIT("编辑模式", "右键编辑锚点/轨道 | 左键选择 | Shift+F 切换模式"),
     SPLIT("分割模式", "右键选择/确认分割 | 左键分割锚点合并 | Shift+F 切换模式"),
     DELETE("删除模式", "左键锚点/轨道进入待删除 | 再次左键确认 | Shift+F 切换模式"),
-    DECORATE("装饰模式", "填充展示实体 | Shift+F 切换模式");
+    DECORATE("装饰模式", "右键添加装饰 | 左键两次清除装饰 | Shift+F 切换模式");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -175,6 +177,8 @@ data class WandPlayerState(
     var pendingSplitRail: UUID? = null,
     /** 分割点在轨道 AB 曲线上的弧长。 */
     var pendingSplitArcLength: Double? = null,
+    /** 装饰模式下等待第二次左键确认清除装饰的轨道。 */
+    var pendingDecorationDeleteRail: UUID? = null,
     // 模式设置
     /** 并行轨道数量 */
     var parallelCount: Int = 1,
@@ -188,6 +192,8 @@ data class WandPlayerState(
     var openConfigAfterCreate: Boolean = false,
     /** 是否自动装饰轨道 */
     var autoDecorate: Boolean = true,
+    /** 新增装饰和自动装饰使用的已加载轨道模型名。 */
+    var decorationModel: String = "standard",
     /** 曲线半径 (m)。0 = 自动选择 */
     var curveRadius: Double = 0.0,
     /** 曲线模板。AUTO 会按端点几何自动分类；STRAIGHT 沿起点切线投影终点。 */
@@ -213,12 +219,14 @@ internal data class SavedRailWandStateV1(
     val pendingDeleteRail: String? = null,
     val pendingSplitRail: String? = null,
     val pendingSplitArcLength: Double? = null,
+    val pendingDecorationDeleteRail: String? = null,
     val parallelCount: Int = 1,
     val parallelSpacing: Double = 4.5,
     val snapToAngle: Boolean = true,
     val snapToBlock: Boolean = true,
     val openConfigAfterCreate: Boolean = false,
     val autoDecorate: Boolean = true,
+    val decorationModel: String = "standard",
     val curveRadius: Double = 0.0,
     val curveTemplate: String = RailCurveTemplateType.AUTO.name,
     val turnoutStandard: String = StandardTurnout.N9.name,
@@ -240,12 +248,14 @@ internal object RailWandStateCodec {
             pendingDeleteRail = state.pendingDeleteRail?.toString(),
             pendingSplitRail = state.pendingSplitRail?.toString(),
             pendingSplitArcLength = state.pendingSplitArcLength,
+            pendingDecorationDeleteRail = state.pendingDecorationDeleteRail?.toString(),
             parallelCount = state.parallelCount,
             parallelSpacing = state.parallelSpacing,
             snapToAngle = state.snapToAngle,
             snapToBlock = state.snapToBlock,
             openConfigAfterCreate = state.openConfigAfterCreate,
             autoDecorate = state.autoDecorate,
+            decorationModel = state.decorationModel,
             curveRadius = state.curveRadius,
             curveTemplate = state.curveTemplate.name,
             turnoutStandard = state.turnoutStandard.name,
@@ -266,12 +276,16 @@ internal object RailWandStateCodec {
             pendingDeleteRail = saved.pendingDeleteRail?.let { runCatching { UUID.fromString(it) }.getOrNull() },
             pendingSplitRail = saved.pendingSplitRail?.let { runCatching { UUID.fromString(it) }.getOrNull() },
             pendingSplitArcLength = saved.pendingSplitArcLength?.takeIf { it.isFinite() && it > 0.0 },
+            pendingDecorationDeleteRail = saved.pendingDecorationDeleteRail?.let {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            },
             parallelCount = saved.parallelCount.coerceIn(1, 10),
             parallelSpacing = saved.parallelSpacing.coerceIn(1.0, 20.0),
             snapToAngle = saved.snapToAngle,
             snapToBlock = saved.snapToBlock,
             openConfigAfterCreate = saved.openConfigAfterCreate,
             autoDecorate = saved.autoDecorate,
+            decorationModel = saved.decorationModel.trim().takeIf(String::isNotEmpty) ?: "standard",
             curveRadius = saved.curveRadius.coerceAtLeast(0.0),
             curveTemplate = enumValueOrDefault(saved.curveTemplate, RailCurveTemplateType.AUTO),
             turnoutStandard = enumValueOrDefault(saved.turnoutStandard, StandardTurnout.N9),
@@ -349,6 +363,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private val splitPreviewTargets = ConcurrentHashMap<UUID, SplitPreviewTarget>()
     private val splitPreviewRequests = ConcurrentHashMap.newKeySet<UUID>()
     private val splitPreviewViewers = ConcurrentHashMap.newKeySet<UUID>()
+    private val decorationPreviewViewers = ConcurrentHashMap.newKeySet<UUID>()
     private val anchorViewers = ConcurrentHashMap.newKeySet<UUID>()
 
     private val createMode = RailWandCreateMode(this)
@@ -357,7 +372,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private val editMode = RailWandEditMode(this)
     private val splitMode = RailWandSplitMode(this)
     private val deleteMode = RailWandDeleteMode(this)
-    private val decorateMode = RailWandDecorateMode()
+    private val decorateMode = RailWandDecorateMode(this)
 
     override fun createDefaultState(): WandPlayerState = WandPlayerState()
 
@@ -371,7 +386,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     override fun onAfterRegisterEvents() {
         plugin.platformDispatcher.runGlobalAtFixedRate(1L, 4L) {
-            BukkitThreadGuardBridge.runInSimulationContext(::updateSplitPreviews)
+            BukkitThreadGuardBridge.runInSimulationContext {
+                updateSplitPreviews()
+                updateDecorationPreviews()
+            }
         }
         plugin.logger.info("RailWand initialized")
     }
@@ -581,7 +599,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
         configUI.register(ConfigGroup(
             "wand.settings.general",
-            "RailWand 设置 1/2",
+            "RailWand 设置 1/3",
             description = "锚点吸附、并行线路与显示设置",
             items = mutableListOf(
                 ConfigItemImpl(wandKeys.parallelCount),
@@ -594,7 +612,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         ))
         configUI.register(ConfigGroup(
             "wand.settings.geometry",
-            "RailWand 设置 2/2",
+            "RailWand 设置 2/3",
             description = "普通曲线、标准道岔与基础设施参数",
             items = mutableListOf(
                 ConfigItemImpl(wandKeys.curveRadius),
@@ -692,7 +710,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     override fun clearSelection(player: Player, state: WandPlayerState) {
         clearSelection(state)
-        updateSplitPreviewSubscription(player, state)
+        updatePreviewSubscriptions(player, state)
         updateAnchorDisplay(player)
     }
 
@@ -710,6 +728,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         splitPreviewTargets.remove(player.uniqueId)
         splitPreviewRequests.remove(player.uniqueId)
         splitPreviewViewers.remove(player.uniqueId)
+        decorationPreviewViewers.remove(player.uniqueId)
         anchorViewers.remove(player.uniqueId)
         heavyOperationGate.clear(player.uniqueId)
         configUI.removePlayerSession(player.uniqueId)
@@ -842,7 +861,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val designSpeedKmH: Double,
         val allowableCantDeficiencyMm: Double,
         val automaticSuperelevation: Boolean,
-        val maxSuperelevationMm: Double
+        val maxSuperelevationMm: Double,
+        val autoDecorate: Boolean = true,
+        val decorationModel: String = "standard"
     )
 
     private data class BuiltCurve(
@@ -865,12 +886,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("玩家与锚点的水平方向不明确", NamedTextColor.RED))
             return
         }
+        val decorationModel = if (state.autoDecorate) selectedDecorationModel(player, state) ?: return else null
         val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "道岔创建")
         if (pendingOperation != null) {
             player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
             return
         }
-
         val worldId = player.world.uid
         val standard = state.turnoutStandard
         val cantDeficiencyMeters = state.allowableCantDeficiencyMm / 1000.0
@@ -899,8 +920,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
                 val (result, speedLimits) = builtTurnout
                 val coreWorld = getCoreWorld(livePlayer) ?: return@supply
-                val existingRails = RailRenderMetaStore.load(livePlayer.world)
-                    .mapNotNull { coreWorld.getRail(it.railId) }
+                val existingRails = coreWorld.allRails.toList()
                 val rail = CoreRail(
                     coreWorld,
                     result.curve,
@@ -918,10 +938,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         )
                     )
                 )
-                val renderMeta = RailVisualBootstrap.registerRail(rail)
-                RailRenderMetaStore.upsertRail(livePlayer.world, renderMeta)
+                decorationModel?.let { modelName ->
+                    val renderMeta = RailVisualBootstrap.registerRail(rail, modelName)
+                    RailRenderMetaStore.upsertRail(livePlayer.world, renderMeta)
+                }
                 val autoConnected = connectCreatedRailsToExisting(listOf(rail), existingRails)
-                pushUndo(livePlayer, WandAction.CreateRail(livePlayer.world.uid, rail.id, "standard"))
+                pushUndo(livePlayer, WandAction.CreateRail(livePlayer.world.uid, rail.id, decorationModel ?: "none"))
                 val liveState = getState(livePlayer)
                 liveState.selectedAnchors.clear()
                 liveState.selectedAnchors.add(railEndpointAnchorId(rail.id, 'B'))
@@ -959,7 +981,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             designSpeedKmH = state.designSpeedKmH,
             allowableCantDeficiencyMm = state.allowableCantDeficiencyMm,
             automaticSuperelevation = state.automaticSuperelevation,
-            maxSuperelevationMm = state.maxSuperelevationMm
+            maxSuperelevationMm = state.maxSuperelevationMm,
+            autoDecorate = state.autoDecorate,
+            decorationModel = state.decorationModel
         )
     }
 
@@ -991,6 +1015,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text(validationError, NamedTextColor.RED))
             return
         }
+        if (state.autoDecorate && selectedDecorationModel(player, state) == null) return
 
         val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道连接")
         if (pendingOperation != null) {
@@ -1034,8 +1059,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val existingRails = RailRenderMetaStore.load(livePlayer.world)
-                    .mapNotNull { liveCoreWorld.getRail(it.railId) }
+                val existingRails = liveCoreWorld.allRails.toList()
                 val createdRails = mutableListOf<CoreRail>()
                 val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
                 val undoActions = mutableListOf<WandAction>()
@@ -1058,10 +1082,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             mutableListOf(),
                             railMetadata(settingsSnapshot, builtCurve.speedLimits, parallel)
                         )
-                        val meta = RailVisualBootstrap.registerRail(rail)
-                        persistedMetas.add(meta)
+                        if (settingsSnapshot.autoDecorate) {
+                            persistedMetas.add(RailVisualBootstrap.registerRail(rail, settingsSnapshot.decorationModel))
+                        }
                         createdRails.add(rail)
-                        undoActions.add(WandAction.CreateRail(livePlayer.world.uid, rail.id, "standard"))
+                        undoActions.add(WandAction.CreateRail(
+                            livePlayer.world.uid,
+                            rail.id,
+                            settingsSnapshot.decorationModel.takeIf { settingsSnapshot.autoDecorate } ?: "none"
+                        ))
                     }
 
                     val autoConnected = connectCreatedRailsToExisting(createdRails, existingRails)
@@ -1123,9 +1152,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
         val movedPoint = if (editedEnd == 'A') editedRail.viewAB.startPoint.position else editedRail.viewAB.endPoint.position
-        val existingMetas = RailRenderMetaStore.load(player.world)
-        val allPersistedRails = existingMetas.mapNotNull { coreWorld.getRail(it.railId) }
-        val affectedRails = allPersistedRails.filter { rail ->
+        val affectedRails = coreWorld.allRails.filter { rail ->
             rail.viewAB.startPoint.position.distance(movedPoint) <= Curve.TOLERANCE ||
                 rail.viewAB.endPoint.position.distance(movedPoint) <= Curve.TOLERANCE
         }
@@ -1222,8 +1249,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
 
                 val liveExistingMetas = RailRenderMetaStore.load(livePlayer.world)
-                val liveAllPersistedRails = liveExistingMetas.mapNotNull { liveCoreWorld.getRail(it.railId) }
-                val snapshots = liveAllPersistedRails.map { snapshotRailConnections(it) }
+                val liveExistingMetaByRail = liveExistingMetas.associateBy { it.railId }
+                val liveAllRails = liveCoreWorld.allRails.toList()
+                val snapshots = liveAllRails.map { snapshotRailConnections(it) }
                 val createdRails = mutableListOf<CoreRail>()
                 val createdMetas = mutableListOf<PersistedRailRenderMeta>()
                 val oldIds = rebuildInputs.map { it.railId }.toSet()
@@ -1243,21 +1271,25 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 input.oldMetadata.allowedDirection
                             )
                         )
-                        val meta = RailVisualBootstrap.registerRail(newRail)
                         createdRails.add(newRail)
-                        createdMetas.add(meta)
+                        liveExistingMetaByRail[input.railId]?.let { oldMeta ->
+                            createdMetas.add(registerRailWithTemplate(newRail, oldMeta.templateSnapshot))
+                        }
                         oldToNew[input.railId] = newRail
                     }
 
                     val nextMetas = liveExistingMetas.filterNot { it.railId in oldIds } + createdMetas
                     RailRenderMetaStore.saveAll(livePlayer.world, nextMetas)
 
-                    detachRailReferences(oldIds, liveAllPersistedRails.filter { it.id !in oldIds })
+                    detachRailReferences(oldIds, liveAllRails.filter { it.id !in oldIds })
                     connectCreatedRailsToExisting(
                         createdRails,
-                        liveAllPersistedRails.filter { it.id !in oldIds } + createdRails
+                        liveAllRails.filter { it.id !in oldIds } + createdRails
                     )
 
+                    OperationalDestinationService(liveCoreWorld).migrateAllOnRails(
+                        oldToNew.mapValues { (_, replacement) -> replacement.id }
+                    )
                     liveAffectedRails.forEach { rail ->
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
@@ -1634,7 +1666,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
 
                 val persisted = RailRenderMetaStore.load(livePlayer.world)
-                val allRails = persisted.mapNotNull { liveWorld.getRail(it.railId) }
+                val renderMetaByRail = persisted.associateBy { it.railId }
+                val allRails = liveWorld.allRails.toList()
                 val connectionSnapshots = allRails.map(::snapshotRailConnections)
                 val created = mutableListOf<CoreRail>()
                 val createdRenderMeta = mutableListOf<PersistedRailRenderMeta>()
@@ -1651,7 +1684,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         )
                         val newRail = CoreRail(liveWorld, builtCurve.curve, mutableListOf(), mutableListOf(), metadata)
                         created += newRail
-                        createdRenderMeta += RailVisualBootstrap.registerRail(newRail)
+                        renderMetaByRail[oldRails[index].id]?.let { oldMeta ->
+                            createdRenderMeta += registerRailWithTemplate(newRail, oldMeta.templateSnapshot)
+                        }
                     }
 
                     RailRenderMetaStore.saveAll(
@@ -1660,6 +1695,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     )
                     detachRailReferences(oldIds, allRails.filter { it.id !in oldIds })
                     connectCreatedRailsToExisting(created, allRails.filter { it.id !in oldIds } + created)
+                    OperationalDestinationService(liveWorld).migrateAllOnRails(
+                        liveOldRails.zip(created).associate { (old, replacement) ->
+                            old.id to replacement.id
+                        }
+                    )
                     liveOldRails.forEach { old ->
                         RailVisualBootstrap.unregisterRail(old.id)
                         old.destroy()
@@ -1828,6 +1868,55 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         requestSplitPreview(player)
     }
 
+    private fun updateDecorationPreviews() {
+        decorationPreviewViewers.forEach { playerId ->
+            val player = plugin.server.getPlayer(playerId)
+            if (player == null) {
+                decorationPreviewViewers.remove(playerId)
+            } else {
+                plugin.platformDispatcher.runForEntity(player, action = { updateDecorationPreview(player) })
+            }
+        }
+    }
+
+    private fun updateDecorationPreview(player: Player) {
+        if (!isWandItem(player.inventory.itemInMainHand)) {
+            decorationPreviewViewers.remove(player.uniqueId)
+            return
+        }
+        val state = getState(player)
+        if (state.mode != WandMode.DECORATE) {
+            decorationPreviewViewers.remove(player.uniqueId)
+            return
+        }
+        val coreWorld = getCoreWorld(player) ?: return
+        val decoratedRailIds = RailRenderMetaStore.decoratedRailIds(player.world)
+        val pendingRailId = state.pendingDecorationDeleteRail
+        val playerPosition = Vector3d(player.location.x, player.location.y, player.location.z)
+        val rails = coreWorld.getRailsNear(playerPosition, 64.0)
+            .asSequence()
+            .filter { it.id !in decoratedRailIds || it.id == pendingRailId }
+            .sortedWith(
+                compareBy<CoreRail> { it.id != pendingRailId }
+                    .thenBy { it.curve.getPointAt(it.curve.totalArcLength / 2.0).position.distanceSquared(playerPosition) }
+            )
+            .toList()
+
+        var remainingParticles = 320
+        for (rail in rails) {
+            if (remainingParticles <= 0) break
+            val pendingDelete = rail.id == pendingRailId
+            val spacing = if (pendingDelete) 0.75 else 2.5
+            val color = if (pendingDelete) Color.RED else Color.fromRGB(255, 190, 0)
+            val size = if (pendingDelete) 1.0f else 0.65f
+            for (arc in RailDecorationLayout.endpointInclusiveArcs(rail.curve.totalArcLength, spacing)) {
+                if (remainingParticles-- <= 0) break
+                val point = rail.curve.getPointAt(arc)
+                spawnRailParticle(player, point.position, color, size)
+            }
+        }
+    }
+
     private fun requestSplitPreview(player: Player) {
         if (!splitPreviewRequests.add(player.uniqueId)) return
         val coreWorld = getCoreWorld(player)
@@ -1839,12 +1928,25 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val origin = Vector3d(eye.x, eye.y, eye.z)
         val direction = Vector3d(eye.direction.x, eye.direction.y, eye.direction.z)
         val worldId = player.world.uid
-        val candidates = coreWorld.getRailsAlongRay(origin, direction, 96.0, 1.5).toList()
+        val candidates = coreWorld.getRailsAlongRay(
+            origin,
+            direction,
+            HeavyRailQueries.DEFAULT_TARGET_MAX_DISTANCE,
+            HeavyRailQueries.DEFAULT_TARGET_HIT_RADIUS
+        ).toList()
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.updateSplitPreview",
-            supplier = { HeavyRailQueries.findLookedAtRailPoint(candidates, origin, direction, 96.0, 1.5) },
+            supplier = {
+                HeavyRailQueries.findLookedAtRailPoint(
+                    candidates,
+                    origin,
+                    direction,
+                    HeavyRailQueries.DEFAULT_TARGET_MAX_DISTANCE,
+                    HeavyRailQueries.DEFAULT_TARGET_HIT_RADIUS
+                )
+            },
             onSuccess = { match ->
                 splitPreviewRequests.remove(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
@@ -1867,6 +1969,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun spawnSplitParticle(player: Player, position: Vector3dc, color: Color, size: Float) {
+        spawnRailParticle(player, position, color, size)
+    }
+
+    private fun spawnRailParticle(player: Player, position: Vector3dc, color: Color, size: Float) {
         player.spawnParticle(
             Particle.DUST,
             Location(player.world, position.x(), position.y(), position.z()),
@@ -1959,12 +2065,22 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val originalRenderMeta = renderMetas.firstOrNull { it.railId == railId }
                 try {
                     val result = RailTopologyEditor.splitWithPreparedCurves(liveRail, curves.first, curves.second)
+                    OperationalDestinationService(liveWorld).migrateAfterRailSplit(
+                        oldRailId = railId,
+                        beforeRailId = result.before.id,
+                        afterRailId = result.after.id,
+                        splitArcLengthInAbMeters = arcLength
+                    )
                     RailVisualBootstrap.unregisterRail(railId)
-                    val beforeMeta = registerRailWithTemplate(result.before, originalRenderMeta?.templateSnapshot)
-                    val afterMeta = registerRailWithTemplate(result.after, originalRenderMeta?.templateSnapshot)
+                    val replacementMetas = originalRenderMeta?.let { oldMeta ->
+                        listOf(
+                            registerRailWithTemplate(result.before, oldMeta.templateSnapshot),
+                            registerRailWithTemplate(result.after, oldMeta.templateSnapshot)
+                        )
+                    }.orEmpty()
                     RailRenderMetaStore.saveAll(
                         livePlayer.world,
-                        renderMetas.filterNot { it.railId == railId } + beforeMeta + afterMeta
+                        renderMetas.filterNot { it.railId == railId } + replacementMetas
                     )
                     val liveState = getState(livePlayer)
                     clearPendingSplit(liveState)
@@ -2009,7 +2125,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val renderMetas = RailRenderMetaStore.load(player.world)
         val beforeRender = renderMetas.firstOrNull { it.railId == before.id }
         val afterRender = renderMetas.firstOrNull { it.railId == after.id }
-        if (beforeRender?.templateSnapshot != afterRender?.templateSnapshot) {
+        if ((beforeRender == null) != (afterRender == null) ||
+            beforeRender?.templateSnapshot != afterRender?.templateSnapshot
+        ) {
             player.sendActionBar(Component.text("两段轨道的渲染元数据不一致", NamedTextColor.RED))
             return
         }
@@ -2047,13 +2165,26 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
 
                 try {
+                    val beforeRailId = livePair.first.id
+                    val afterRailId = livePair.second.id
+                    val beforeLengthMeters = livePair.first.curve.totalArcLength
                     val merged = RailTopologyEditor.mergeWithPreparedCurve(livePair.first, livePair.second, mergedCurve)
+                    OperationalDestinationService(liveWorld).migrateAfterRailMerge(
+                        beforeRailId = beforeRailId,
+                        afterRailId = afterRailId,
+                        mergedRailId = merged.id,
+                        beforeLengthMeters = beforeLengthMeters
+                    )
                     RailVisualBootstrap.unregisterRail(livePair.first.id)
                     RailVisualBootstrap.unregisterRail(livePair.second.id)
-                    val mergedMeta = registerRailWithTemplate(merged, beforeRender?.templateSnapshot)
+                    val mergedMeta = beforeRender?.let { oldMeta ->
+                        registerRailWithTemplate(merged, oldMeta.templateSnapshot)
+                    }
                     RailRenderMetaStore.saveAll(
                         livePlayer.world,
-                        renderMetas.filterNot { it.railId == livePair.first.id || it.railId == livePair.second.id } + mergedMeta
+                        renderMetas.filterNot {
+                            it.railId == livePair.first.id || it.railId == livePair.second.id
+                        } + listOfNotNull(mergedMeta)
                     )
                     val liveState = getState(livePlayer)
                     clearPendingSplit(liveState)
@@ -2153,8 +2284,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
 
-        val persistedRails = RailRenderMetaStore.load(player.world).mapNotNull { coreWorld.getRail(it.railId) }
-        detachRailReferences(setOf(railId), persistedRails.filter { it.id != railId })
+        val allRails = coreWorld.allRails.toList()
+        detachRailReferences(setOf(railId), allRails.filter { it.id != railId })
+        val removedDestinations = OperationalDestinationService(coreWorld)
+            .removeAllOnRail(railId).size
         RailVisualBootstrap.unregisterRail(railId)
         RailRenderMetaStore.removeRail(player.world, railId)
         rail.destroy()
@@ -2166,7 +2299,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         removeAnchorDisplay(player, railEndpointAnchorId(railId, 'B'))
         refreshAllAnchorsForPlayer(player)
         pushUndo(player, WandAction.DeleteRail(player.world.uid, railId))
-        player.sendActionBar(Component.text("已删除轨道 $railId", NamedTextColor.GREEN))
+        player.sendActionBar(Component.text(
+            "已删除轨道 $railId" +
+                if (removedDestinations > 0) "（同步删除 $removedDestinations 个 destination）" else "",
+            NamedTextColor.GREEN
+        ))
     }
 
     internal fun findLookedAtRailAsync(
@@ -2517,20 +2654,26 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         removeAllAnchorDisplays(player)
         if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) {
             splitPreviewViewers.remove(player.uniqueId)
+            decorationPreviewViewers.remove(player.uniqueId)
             anchorViewers.remove(player.uniqueId)
             return
         }
         anchorViewers.add(player.uniqueId)
-        updateSplitPreviewSubscription(player, getState(player))
+        updatePreviewSubscriptions(player, getState(player))
         getAllAnchors(player.world).forEach { spawnAnchorDisplay(player, it) }
         updateAnchorDisplay(player)
     }
 
-    private fun updateSplitPreviewSubscription(player: Player, state: WandPlayerState) {
+    private fun updatePreviewSubscriptions(player: Player, state: WandPlayerState) {
         if (state.mode == WandMode.SPLIT && isWandItem(player.inventory.itemInMainHand)) {
             splitPreviewViewers.add(player.uniqueId)
         } else {
             splitPreviewViewers.remove(player.uniqueId)
+        }
+        if (state.mode == WandMode.DECORATE && isWandItem(player.inventory.itemInMainHand)) {
+            decorationPreviewViewers.add(player.uniqueId)
+        } else {
+            decorationPreviewViewers.remove(player.uniqueId)
         }
     }
 
@@ -2676,6 +2819,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val coreWorld = getCoreWorld(player) ?: return
         val rail = coreWorld.getRail(action.railId)
         if (rail != null) {
+            OperationalDestinationService(coreWorld).removeAllOnRail(action.railId)
             RailVisualBootstrap.unregisterRail(action.railId)
             RailRenderMetaStore.removeRail(player.world, action.railId)
             rail.destroy()
@@ -2698,6 +2842,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val coreWorld = getCoreWorld(player) ?: return
         val rail = coreWorld.getRail(action.railId)
         if (rail != null) {
+            OperationalDestinationService(coreWorld).removeAllOnRail(action.railId)
             RailVisualBootstrap.unregisterRail(action.railId)
             RailRenderMetaStore.removeRail(player.world, action.railId)
             rail.destroy()
@@ -2708,6 +2853,59 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // ═══════════════════════════════════════════
     // 模式设置 (使用 ConfigAPI + Paper Dialog)
     // ═══════════════════════════════════════════
+
+    private data class RailModelMenuOption(val name: String, val displayName: String)
+
+    private fun loadedRailModelOptions(): List<RailModelMenuOption> = plugin.modelManager.railPackages.values
+        .map { loaded ->
+            RailModelMenuOption(
+                name = loaded.manifest.name,
+                displayName = loaded.manifest.displayName?.takeIf(String::isNotBlank) ?: loaded.manifest.name
+            )
+        }
+        .sortedBy { it.displayName.lowercase() }
+
+    internal fun selectedDecorationModel(player: Player, state: WandPlayerState): String? {
+        val models = loadedRailModelOptions()
+        if (models.isEmpty()) {
+            player.sendActionBar(Component.text("没有已加载的轨道模型", NamedTextColor.RED))
+            return null
+        }
+        if (models.none { it.name == state.decorationModel }) {
+            state.decorationModel = models.first().name
+            persistState(player, state)
+        }
+        return state.decorationModel
+    }
+
+    private fun showDecorationModelSettings(player: Player, state: WandPlayerState) {
+        val models = loadedRailModelOptions()
+        if (models.isEmpty()) {
+            player.sendActionBar(Component.text("没有已加载的轨道模型", NamedTextColor.RED))
+            return
+        }
+        val selectedName = selectedDecorationModel(player, state) ?: return
+        dialogRenderer.showMenu(
+            player,
+            "RailWand 装饰模型",
+            "当前：$selectedName；用于右键装饰及自动装饰",
+            models.map { model ->
+                val marker = if (model.name == selectedName) "✓ " else ""
+                DialogRenderer.MenuEntry("$marker${model.displayName}") { selectedPlayer ->
+                    val liveState = getState(selectedPlayer)
+                    liveState.decorationModel = model.name
+                    persistState(selectedPlayer, liveState)
+                    selectedPlayer.sendActionBar(Component.text(
+                        "装饰模型已设为 ${model.displayName}",
+                        NamedTextColor.GREEN
+                    ))
+                    showDecorationModelSettings(selectedPlayer, liveState)
+                }
+            } + DialogRenderer.MenuEntry("← 返回设置") { selectedPlayer ->
+                showModeSettings(selectedPlayer, getState(selectedPlayer))
+            }
+        )
+    }
 
     /** Shift+右键 → 打开分页设置界面。 */
     private fun showModeSettings(player: Player, state: WandPlayerState) {
@@ -2724,8 +2922,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "RailWand 设置",
             "请选择设置分页",
             listOf(
-                DialogRenderer.MenuEntry("1/2 锚点与并行线路") { openPage(it, "wand.settings.general") },
-                DialogRenderer.MenuEntry("2/2 曲线、道岔与限速") { openPage(it, "wand.settings.geometry") }
+                DialogRenderer.MenuEntry("1/3 锚点与并行线路") { openPage(it, "wand.settings.general") },
+                DialogRenderer.MenuEntry("2/3 曲线、道岔与限速") { openPage(it, "wand.settings.geometry") },
+                DialogRenderer.MenuEntry("3/3 装饰模型：${state.decorationModel}") {
+                    showDecorationModelSettings(it, getState(it))
+                }
             )
         )
     }
@@ -2741,6 +2942,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         state.pendingDeleteRail = null
         state.pendingSplitRail = null
         state.pendingSplitArcLength = null
+        state.pendingDecorationDeleteRail = null
     }
 
     internal fun persistPlayerState(player: Player, state: WandPlayerState) {

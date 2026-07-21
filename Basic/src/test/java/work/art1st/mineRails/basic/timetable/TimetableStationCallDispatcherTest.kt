@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.basic.BasicWorldData
 import work.art1st.mineRails.basic.WayPoint
@@ -39,6 +40,8 @@ import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTestWorld
 import work.art1st.mineRails.core.physics.train.createTrainWithConfig
 import work.art1st.mineRails.core.util.AsyncTickTestSupport
+import work.art1st.mineRails.core.util.ThreadGuard
+import work.art1st.mineRails.core.util.ThreadGuardPlatformBridge
 
 class TimetableStationCallDispatcherTest {
     private val worlds = mutableListOf<work.art1st.mineRails.core.physics.CoreWorld>()
@@ -52,10 +55,18 @@ class TimetableStationCallDispatcherTest {
         stoppedSpeedThresholdMetersPerSecond = 0.05
     )
 
+    @BeforeEach
+    fun installMainThreadBridge() {
+        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+            override fun isMainThread(): Boolean = true
+        })
+    }
+
     @AfterEach
     fun unregisterWorlds() {
         worlds.forEach(TestBasicWorldDataRegistry::unregister)
         worlds.clear()
+        ThreadGuard.clearPlatformBridge()
     }
 
     @Test
@@ -123,6 +134,57 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `terminal station navigation completes while remaining berthed`() {
+        val fixture = fixture(includeStationAction = true, firstTargetOffsetMeters = 40.0)
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+
+        val observed = linkedSetOf<TimetableServiceRunState>()
+        for (tick in 0 until 2_000) {
+            fixture.tick()
+            val state = fixture.dispatcher.status(id)!!.state
+            observed += state
+            if (state == TimetableServiceRunState.COMPLETED) break
+        }
+
+        assertTrue(TimetableServiceRunState.BERTHED in observed)
+        assertTrue(TimetableServiceRunState.DWELLING in observed)
+        assertFalse(TimetableServiceRunState.DEPARTING in observed)
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
+        assertEquals(fixture.berth.location.arcLengthIn(ViewDirection.AB),
+            fixture.train.head.location.arcLengthIn(ViewDirection.AB), 0.4)
+    }
+
+    @Test
+    fun `terminal station navigation starts the following queued movement after dwell`() {
+        val fixture = fixture(
+            includeStationAction = true,
+            firstTargetOffsetMeters = 40.0,
+            nextTargetOffsetMeters = 100.0
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+
+        val observed = linkedSetOf<TimetableServiceRunState>()
+        for (tick in 0 until 2_500) {
+            fixture.tick()
+            val state = fixture.dispatcher.status(id)!!.state
+            observed += state
+            if (state == TimetableServiceRunState.COMPLETED) break
+        }
+
+        assertTrue(TimetableServiceRunState.BERTHED in observed)
+        assertTrue(TimetableServiceRunState.DEPARTING in observed)
+        val finalStatus = fixture.dispatcher.status(id)
+        assertEquals(TimetableServiceRunState.COMPLETED, finalStatus?.state, finalStatus.toString())
+        assertFalse(finalStatus?.berthHeld == true)
+        assertEquals(fixture.targetArc, fixture.train.head.location.arcLengthIn(ViewDirection.AB), 0.4)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `timetable station action schedules the call with its following movement`() {
         val fixture = fixture(includeStationAction = true)
         val id = TimetableServiceRunId("tt", "service")
@@ -141,40 +203,57 @@ class TimetableStationCallDispatcherTest {
         }
         assertTrue(TimetableServiceRunState.BERTHED in observed)
         assertTrue(TimetableServiceRunState.DWELLING in observed)
-        assertTrue(TimetableServiceRunState.DEPARTED in observed)
+        assertFalse(TimetableServiceRunState.DEPARTED in observed)
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
         assertFalse(fixture.data.atoCoordinator.isStalled)
     }
 
     @Test
-    fun `paired movement tick is the station departure lower bound`() {
+    fun `waypoint progress observer reports actual stop time`() {
+        val fixture = fixture(firstTargetOffsetMeters = 40.0)
+        val id = TimetableServiceRunId("tt", "service")
+        val observed = ArrayList<TimetableWaypointProgress>()
+        val subscription = fixture.dispatcher.observeWaypointProgress(id) { observed += it }
+        try {
+            fixture.dispatcher.startService(fixture.world, "tt", "service") as
+                TimetableServiceStartResult.Started
+            for (tick in 0 until 1_000) {
+                fixture.tick()
+                if (observed.isNotEmpty()) break
+            }
+        } finally {
+            subscription.close()
+        }
+
+        assertEquals(1, observed.size)
+        assertEquals("C", observed.single().waypointId)
+        assertFalse(observed.single().pass)
+        assertTrue(observed.single().timetableElapsedTicks > 0L)
+    }
+
+    @Test
+    fun `destination tick is the route departure time`() {
         val fixture = fixture(
             includeStationAction = true,
             stationMovementTick = 300L
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        val started = fixture.dispatcher.startService(fixture.world, "tt", "service") as
             TimetableServiceStartResult.Started
-        var berthed = false
-        var departedBeforePlan = false
-        for (tick in 0 until 1_500) {
+        assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, started.run.state)
+
+        var status = fixture.dispatcher.status(id)!!
+        while (status.timetableElapsedTicks < 300L) {
+            assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, status.state)
+            assertEquals(0.0, fixture.train.speed, 1.0e-9)
             fixture.tick()
-            val status = fixture.dispatcher.status(id)!!
-            if (status.state == TimetableServiceRunState.BERTHED ||
-                status.state == TimetableServiceRunState.DWELLING ||
-                status.state == TimetableServiceRunState.READY_TO_DEPART
-            ) berthed = true
-            if (status.timetableElapsedTicks < 300L &&
-                (status.state == TimetableServiceRunState.DEPARTING ||
-                    status.state == TimetableServiceRunState.DEPARTED)
-            ) departedBeforePlan = true
-            if (status.state == TimetableServiceRunState.DEPARTING) break
+            status = fixture.dispatcher.status(id)!!
         }
 
-        assertTrue(berthed)
-        assertFalse(departedBeforePlan)
-        assertTrue(fixture.dispatcher.status(id)!!.timetableElapsedTicks >= 300L)
-        assertEquals(300L, fixture.dispatcher.status(id)?.scheduledActionTick)
+        val departedOnSchedule = status
+        assertEquals(300L, departedOnSchedule.timetableElapsedTicks)
+        assertEquals(300L, departedOnSchedule.scheduledActionTick)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
     }
 
     @Test
@@ -182,6 +261,8 @@ class TimetableStationCallDispatcherTest {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
             includeStationAction = true,
+            firstTargetOffsetMeters = 40.0,
+            nextTargetOffsetMeters = 100.0,
             doorSide = DoorSide.LEFT,
             operationGateway = gateway
         )
@@ -225,6 +306,170 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `destination keeps doors open until minimum dwell and next at`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            firstTargetOffsetMeters = 40.0,
+            nextTargetOffsetMeters = 100.0,
+            nextMovementTick = 300L,
+            doorSide = DoorSide.LEFT,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        var openingCompleted = false
+        var closeTick: Long? = null
+
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            val status = fixture.dispatcher.status(id)!!
+            if (status.state == TimetableServiceRunState.DOORS_OPENING && !openingCompleted) {
+                gateway.tickets.single().succeed()
+                openingCompleted = true
+            }
+            if (openingCompleted && status.timetableElapsedTicks < 300L) {
+                assertFalse(status.state == TimetableServiceRunState.DOORS_CLOSING)
+                assertEquals(1, gateway.requests.size)
+            }
+            if (status.state == TimetableServiceRunState.DOORS_CLOSING) {
+                closeTick = status.timetableElapsedTicks
+                break
+            }
+        }
+
+        assertTrue(openingCompleted)
+        assertEquals(300L, closeTick)
+        assertTrue(gateway.requests.last().operation is TrainOperation.CloseDoors)
+    }
+
+    @Test
+    fun `ordinary waypoint destination options run doors and minimum dwell`() {
+        val gateway = ControllableOperationGateway()
+        val options = TimetableAction.DestinationOptions(
+            destinationId = "C",
+            minimumDwellTicks = 5L,
+            stoppingOffsetMetersBefore = 0.0,
+            doorSide = DoorSide.BOTH
+        )
+        val fixture = fixture(
+            includeStationAction = false,
+            destinationOptions = options,
+            firstTargetOffsetMeters = 40.0,
+            nextTargetOffsetMeters = 100.0,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        var openingCompleted = false
+        var closingCompleted = false
+        var dwellingStartedAt: Long? = null
+        var closingStartedAt: Long? = null
+
+        for (tick in 0 until 2_000) {
+            fixture.tick()
+            val status = fixture.dispatcher.status(id)!!
+            if (status.state == TimetableServiceRunState.DOORS_OPENING && !openingCompleted) {
+                assertTrue(gateway.requests.single().operation is TrainOperation.OpenDoors)
+                gateway.tickets.single().succeed()
+                openingCompleted = true
+            }
+            if (status.state == TimetableServiceRunState.DWELLING && dwellingStartedAt == null) {
+                dwellingStartedAt = status.timetableElapsedTicks
+            }
+            if (status.state == TimetableServiceRunState.DOORS_CLOSING && !closingCompleted) {
+                closingStartedAt = status.timetableElapsedTicks
+                assertTrue(gateway.requests.last().operation is TrainOperation.CloseDoors)
+                gateway.tickets.last().succeed()
+                closingCompleted = true
+            }
+            if (status.state == TimetableServiceRunState.COMPLETED) break
+        }
+
+        assertTrue(openingCompleted)
+        assertTrue(closingCompleted)
+        assertTrue(closingStartedAt!! >= dwellingStartedAt!! + 5L)
+        assertEquals(2, gateway.requests.size)
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
+        assertEquals(fixture.targetArc, fixture.train.head.location.arcLengthIn(ViewDirection.AB), 0.4)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `reverse closes open doors before changing train direction`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            destinationOptions = TimetableAction.DestinationOptions(
+                destinationId = "C",
+                minimumDwellTicks = 3L,
+                doorSide = DoorSide.LEFT
+            ),
+            reverseAfterDestination = true,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        var reversedWhenCloseRequested: Boolean? = null
+
+        for (tick in 0 until 2_000) {
+            fixture.tick()
+            val pending = gateway.tickets.lastOrNull()
+            if (pending != null && pending.snapshot().state == TrainOperationTicketState.PENDING) {
+                if (pending.request.operation is TrainOperation.CloseDoors) {
+                    reversedWhenCloseRequested = fixture.train.isReversed
+                }
+                pending.succeed()
+            }
+            if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.COMPLETED) break
+        }
+
+        assertEquals(2, gateway.requests.size)
+        assertTrue(gateway.requests[0].operation is TrainOperation.OpenDoors)
+        assertTrue(gateway.requests[1].operation is TrainOperation.CloseDoors)
+        assertEquals(false, reversedWhenCloseRequested)
+        assertTrue(fixture.train.isReversed)
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `halt closes doors before executing model power off action`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            destinationOptions = TimetableAction.DestinationOptions(
+                destinationId = "C",
+                minimumDwellTicks = 3L,
+                doorSide = DoorSide.LEFT
+            ),
+            haltAfterDestination = true,
+            operationGateway = gateway
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+
+        for (tick in 0 until 2_000) {
+            fixture.tick()
+            val pending = gateway.tickets.lastOrNull()
+            if (pending != null && pending.snapshot().state == TrainOperationTicketState.PENDING) {
+                pending.succeed()
+            }
+            if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.COMPLETED) break
+        }
+
+        assertEquals(3, gateway.requests.size)
+        assertTrue(gateway.requests[0].operation is TrainOperation.OpenDoors)
+        assertTrue(gateway.requests[1].operation is TrainOperation.CloseDoors)
+        val powerOff = gateway.requests[2].operation as TrainOperation.ExecuteModelAction
+        assertEquals("power-off", powerOff.actionName)
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `door operation timeout stalls world and keeps departure hold`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
@@ -257,6 +502,57 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `ato reset cleanup discards failed run resources and controller`() {
+        val gateway = ControllableOperationGateway()
+        val fixture = fixture(
+            includeStationAction = true,
+            doorSide = DoorSide.RIGHT,
+            operationGateway = gateway,
+            operationTimeoutTicks = 3L
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+        for (tick in 0 until 1_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.FAILED) break
+        }
+
+        assertTrue(fixture.data.atoCoordinator.isStalled)
+        assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
+        assertEquals(1, fixture.dispatcher.discardFailedRunsForAtoReset(fixture.world))
+
+        assertNull(fixture.dispatcher.status(id))
+        assertNull(fixture.train.controller)
+        fixture.data.atoCoordinator.reset()
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+        val current = fixture.train.head.location
+        fixture.data.wayPoints.add(
+            WayPoint("reset-origin", "reset-origin", current.rail.id, current.arcLengthIn(ViewDirection.AB))
+        )
+        fixture.data.wayPoints.add(
+            WayPoint("E", "E", current.rail.id, current.arcLengthIn(ViewDirection.AB) + 20.0)
+        )
+        fixture.data.timetables.add(
+            Timetable(
+                id = "restart",
+                services = listOf(
+                    TimetableService(
+                        id = "navigate",
+                        trainSelector = TrainSelector.TrainId(fixture.train.id),
+                        steps = listOf(
+                            TimetableStep.Check("reset-origin"),
+                            TimetableStep.At(0L, TimetableAction.GoTo("E"))
+                        )
+                    )
+                )
+            )
+        )
+        val restarted = fixture.dispatcher.startService(fixture.world, "restart", "navigate")
+        assertTrue(restarted is TimetableServiceStartResult.Started, restarted.toString())
+    }
+
+    @Test
     fun `door operation timeout reports cancellation failure`() {
         val fixture = fixture(
             includeStationAction = true,
@@ -286,6 +582,8 @@ class TimetableStationCallDispatcherTest {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
             includeStationAction = true,
+            firstTargetOffsetMeters = 40.0,
+            nextTargetOffsetMeters = 100.0,
             doorSide = DoorSide.BOTH,
             operationGateway = gateway
         )
@@ -422,7 +720,7 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
-    fun `manual transfer cannot mask a failed door operation before the next tick`() {
+    fun `manual transfer may abandon a failed door operation before dispatcher poll`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
             includeStationAction = true,
@@ -439,7 +737,6 @@ class TimetableStationCallDispatcherTest {
             ) break
         }
         gateway.tickets.single().fail("door failed before dispatcher poll")
-        val ato = fixture.train.controller
 
         val transfer = fixture.dispatcher.suspendForControlTransfer(
             fixture.world,
@@ -447,13 +744,12 @@ class TimetableStationCallDispatcherTest {
             "driver-1"
         )
 
-        assertTrue(transfer is TimetableControlTransferResult.Failure)
-        assertTrue((transfer as TimetableControlTransferResult.Failure).reason.contains("failed"))
-        assertSame(ato, fixture.train.controller)
-        assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
-        fixture.tick()
-        assertTrue(fixture.data.atoCoordinator.isStalled)
-        assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
+        assertTrue(transfer is TimetableControlTransferResult.Suspended)
+        assertNull(fixture.train.controller)
+        assertEquals(TimetableServiceRunState.SUSPENDED, fixture.dispatcher.status(id)?.state)
+        fixture.dispatcher.tick(fixture.world)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertEquals(TimetableServiceRunState.SUSPENDED, fixture.dispatcher.status(id)?.state)
     }
 
     @Test
@@ -760,12 +1056,16 @@ class TimetableStationCallDispatcherTest {
         firstTargetOffsetMeters: Double = 100.0,
         nextTargetOffsetMeters: Double? = null,
         includeStationAction: Boolean = false,
+        destinationOptions: TimetableAction.DestinationOptions? = null,
+        haltAfterDestination: Boolean = false,
+        reverseAfterDestination: Boolean = false,
         doorSide: DoorSide = DoorSide.NONE,
         operationGateway: TrainOperationGateway = TrainOperationGateway {
             TrainOperationExecutionResult.Rejected("not configured in this fixture")
         },
         operationTimeoutTicks: Long = 100L,
-        stationMovementTick: Long = 1L
+        stationMovementTick: Long = 0L,
+        nextMovementTick: Long = 1L
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
@@ -814,9 +1114,18 @@ class TimetableStationCallDispatcherTest {
                                     )
                                 )
                             }
+                            destinationOptions?.let {
+                                add(TimetableStep.At(stationMovementTick, it))
+                            }
                             add(TimetableStep.At(stationMovementTick, TimetableAction.GoTo("C")))
-                            if (nextTargetOffsetMeters != null) {
-                                add(TimetableStep.At(1L, TimetableAction.GoTo("D")))
+                            if (reverseAfterDestination) {
+                                add(TimetableStep.At(stationMovementTick, TimetableAction.Reverse))
+                            }
+                            when {
+                                nextTargetOffsetMeters != null ->
+                                    add(TimetableStep.At(nextMovementTick, TimetableAction.GoTo("D")))
+                                haltAfterDestination ->
+                                    add(TimetableStep.At(stationMovementTick, TimetableAction.Halt))
                             }
                         }
                     )

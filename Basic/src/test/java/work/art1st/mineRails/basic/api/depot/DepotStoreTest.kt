@@ -109,7 +109,7 @@ class DepotStoreTest {
             "North",
             DepotStablingPoint(
                 StablingPointRef(depot, "one"),
-                "north-one",
+                "north@one",
                 100.0,
                 setOf("express")
             )
@@ -119,7 +119,7 @@ class DepotStoreTest {
             "North",
             DepotStablingPoint(
                 StablingPointRef(depot, "two"),
-                "north-two",
+                "north@two",
                 100.0,
                 emptySet()
             )
@@ -201,12 +201,12 @@ class DepotStoreTest {
         addStablingPoint(
             depot,
             "North",
-            DepotStablingPoint(StablingPointRef(depot, "one"), "north-one", 120.0)
+            DepotStablingPoint(StablingPointRef(depot, "one"), "north@one", 120.0)
         )
         addStablingPoint(
             depot,
             "North",
-            DepotStablingPoint(StablingPointRef(depot, "two"), "north-two", 120.0)
+            DepotStablingPoint(StablingPointRef(depot, "two"), "north@two", 120.0)
         )
         registerRollingStock(
             RollingStockRecord(

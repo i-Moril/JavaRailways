@@ -34,16 +34,13 @@ class RailView(
     private var activeRailValue: RailView? = nextActiveRail
 
     var activeRail: RailView?
-        get() = activeRailValue?.takeIf(::isDirectionAllowed)
+        get() = activeRailValue
         set(value) {
-            if (value != null && (!mutableNextRails.contains(value) || !isDirectionAllowed(value))) {
+            if (value != null && !mutableNextRails.contains(value)) {
                 throw InvalidActiveRailException(this, value)
             }
             activeRailValue = value
         }
-
-    private fun isDirectionAllowed(view: RailView): Boolean =
-        view.rail.metadata.allowedDirection?.let { it == view.viewDirection } ?: true
 
     override val nextActiveRail: ApiRailView?
         get() = activeRail

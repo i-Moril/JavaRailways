@@ -30,9 +30,8 @@ import work.art1st.mineRails.basic.api.ui.config.*
  * | VECTOR3D | 3 个 [DialogInput.numberRange] (X/Y/Z) |
  *
  * ## 条件可见
- * 所有项始终包含在 Dialog 中（Paper Dialog 不支持动态显隐）。
- * [ConfigKey.visibleWhen] 仅在首次 [buildGroupForPlayer] 时过滤。
- * 若需运行时联动，提交后重建 Dialog 重开。
+ * [ConfigKey.visibleWhen] 在每次构建 Dialog 时过滤。被其他字段依赖的 ENUM 会渲染为
+ * action buttons；点击后立即保存当前输入并重建 Dialog，因此角色相关字段会即时更新。
  */
 class DialogRenderer(
     private val configUI: ConfigUI
@@ -145,6 +144,12 @@ class DialogRenderer(
         )
             .action(confirmAction)
             .build()
+        val buttons = buildTriggerButtons(
+            builtGroup,
+            session,
+            textResolver,
+            onConfirmed
+        ) + confirmButton
 
         // 构建 Dialog
         val dialog = Dialog.create { factory ->
@@ -156,15 +161,69 @@ class DialogRenderer(
                         .canCloseWithEscape(true)
                         .build()
                 )
-                .type(DialogType.notice(confirmButton))
+                .type(DialogType.multiAction(buttons, null, 1))
         }
 
         player.showDialog(dialog)
     }
 
-    /**
-     * 处理确认按钮回调：读取所有 Dialog 输入值并写入 session。
-     */
+    private fun buildTriggerButtons(
+        builtGroup: BuiltGroup,
+        session: PlayerConfigSession,
+        textResolver: (String) -> String,
+        onConfirmed: ((Player) -> Unit)?
+    ): List<ActionButton> {
+        val allItems = builtGroup.effectiveItems +
+            builtGroup.effectiveSubGroups.flatMap { it.items }
+        return allItems.flatMap { item ->
+            val key = item.key
+            if (key.id !in builtGroup.triggerKeyIds || key.valueType != ConfigValueType.ENUM) {
+                return@flatMap emptyList()
+            }
+            val constraints = key.constraints as? ConfigConstraints.EnumOptions<*>
+                ?: return@flatMap emptyList()
+            val current = session.getValue(key as ConfigKey<Any?>) ?: key.defaultValue
+            constraints.options.map { option ->
+                val selected = option == current
+                val label = buildString {
+                    if (selected) append("✓ ")
+                    append(textResolver(key.label))
+                    append(": ")
+                    val displayName = constraints.displayNames.entries
+                        .firstOrNull { it.key == option }?.value ?: option.name
+                    append(textResolver(displayName))
+                }
+                val action = DialogAction.customClick(
+                    { view, audience ->
+                        if (audience is Player) {
+                            captureInputs(view, builtGroup, session, setOf(key.id))
+                            @Suppress("UNCHECKED_CAST")
+                            session.setValue(key as ConfigKey<Any?>, option)
+                            session.commit()
+                            val rebuilt = configUI.buildGroupForPlayer(
+                                builtGroup.group.id,
+                                audience.uniqueId,
+                                emptyMap()
+                            )
+                            showNativeDialog(
+                                audience,
+                                rebuilt,
+                                configUI.getPlayerSession(audience.uniqueId),
+                                textResolver,
+                                onConfirmed
+                            )
+                        }
+                    },
+                    ClickCallback.Options.builder().uses(1).lifetime(DEFAULT_LIFETIME).build()
+                )
+                ActionButton.builder(
+                    Component.text(label, if (selected) NamedTextColor.GREEN else NamedTextColor.YELLOW)
+                ).action(action).build()
+            }
+        }
+    }
+
+    /** 处理确认按钮回调：读取所有 Dialog 输入值并写入 session。 */
     private fun onConfirm(
         view: io.papermc.paper.dialog.DialogResponseView,
         builtGroup: BuiltGroup,
@@ -173,78 +232,7 @@ class DialogRenderer(
         textResolver: (String) -> String,
         onConfirmed: ((Player) -> Unit)? = null
     ) {
-        val allItems = builtGroup.effectiveItems +
-            builtGroup.effectiveSubGroups.flatMap { it.items }
-
-        var needsRebuild = false
-
-        allItems.forEach { item ->
-            val key = item.key
-            val inputKey = toInputKey(key.id)
-            val oldValue = session.getValue(key as ConfigKey<Any?>)
-
-            when (key.valueType) {
-                ConfigValueType.BOOLEAN -> {
-                    val value = view.getBoolean(inputKey)
-                    if (value != null) {
-                        @Suppress("UNCHECKED_CAST")
-                        session.setValue(key as ConfigKey<Boolean>, value)
-                    }
-                }
-                ConfigValueType.NUMBER -> {
-                    val value = view.getFloat(inputKey)
-                    if (value != null) {
-                        @Suppress("UNCHECKED_CAST")
-                        session.setValue(key as ConfigKey<Double>, value.toDouble())
-                    }
-                }
-                ConfigValueType.INTEGER -> {
-                    val value = view.getFloat(inputKey)
-                    if (value != null) {
-                        @Suppress("UNCHECKED_CAST")
-                        session.setValue(key as ConfigKey<Int>, value.toInt())
-                    }
-                }
-                ConfigValueType.STRING -> {
-                    val value = view.getText(inputKey)
-                    if (value != null) {
-                        @Suppress("UNCHECKED_CAST")
-                        session.setValue(key as ConfigKey<String>, value)
-                    }
-                }
-                ConfigValueType.ENUM -> {
-                    val optionId = view.getText(inputKey)
-                    if (optionId != null) {
-                        val constraints = key.constraints as? ConfigConstraints.EnumOptions<*>
-                        val enumValue = constraints?.options?.find {
-                            it.name == optionId
-                        }
-                        if (enumValue != null) {
-                            @Suppress("UNCHECKED_CAST")
-                            session.setValue(key as ConfigKey<Any?>, enumValue)
-                        }
-                    }
-                }
-                ConfigValueType.VECTOR3D -> {
-                    val x = view.getFloat(toInputKey("${key.id}.x"))
-                    val y = view.getFloat(toInputKey("${key.id}.y"))
-                    val z = view.getFloat(toInputKey("${key.id}.z"))
-                    if (x != null && y != null && z != null) {
-                        val vec = org.joml.Vector3d(x.toDouble(), y.toDouble(), z.toDouble())
-                        @Suppress("UNCHECKED_CAST")
-                        session.setValue(key as ConfigKey<org.joml.Vector3d>, vec)
-                    }
-                }
-            }
-
-            // 检查是否修改了触发键（使用原始 key.id）
-            val newValue = session.getValue(key as ConfigKey<Any?>)
-            if (oldValue != newValue && key.id in builtGroup.triggerKeyIds) {
-                needsRebuild = true
-            }
-        }
-
-        // 提交；触发键变化时先重建 Dialog，最终确认时才调用业务回调。
+        val needsRebuild = captureInputs(view, builtGroup, session)
         session.commit()
         if (needsRebuild) {
             val newGroup = configUI.buildGroupForPlayer(
@@ -259,8 +247,58 @@ class DialogRenderer(
             )
             return
         }
-
         onConfirmed?.invoke(player)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun captureInputs(
+        view: io.papermc.paper.dialog.DialogResponseView,
+        builtGroup: BuiltGroup,
+        session: PlayerConfigSession,
+        ignoredKeyIds: Set<String> = emptySet()
+    ): Boolean {
+        val allItems = builtGroup.effectiveItems +
+            builtGroup.effectiveSubGroups.flatMap { it.items }
+        var needsRebuild = false
+        allItems.filterNot { it.key.id in ignoredKeyIds }.forEach { item ->
+            val key = item.key
+            val inputKey = toInputKey(key.id)
+            val oldValue = session.getValue(key as ConfigKey<Any?>)
+            when (key.valueType) {
+                ConfigValueType.BOOLEAN -> view.getBoolean(inputKey)?.let {
+                    session.setValue(key as ConfigKey<Boolean>, it)
+                }
+                ConfigValueType.NUMBER -> view.getFloat(inputKey)?.let {
+                    session.setValue(key as ConfigKey<Double>, it.toDouble())
+                }
+                ConfigValueType.INTEGER -> view.getFloat(inputKey)?.let {
+                    session.setValue(key as ConfigKey<Int>, it.toInt())
+                }
+                ConfigValueType.STRING -> view.getText(inputKey)?.let {
+                    session.setValue(key as ConfigKey<String>, it)
+                }
+                ConfigValueType.ENUM -> view.getText(inputKey)?.let { optionId ->
+                    val constraints = key.constraints as? ConfigConstraints.EnumOptions<*>
+                    constraints?.options?.find { it.name == optionId }?.let {
+                        session.setValue(key as ConfigKey<Any?>, it)
+                    }
+                }
+                ConfigValueType.VECTOR3D -> {
+                    val x = view.getFloat(toInputKey("${key.id}.x"))
+                    val y = view.getFloat(toInputKey("${key.id}.y"))
+                    val z = view.getFloat(toInputKey("${key.id}.z"))
+                    if (x != null && y != null && z != null) {
+                        session.setValue(
+                            key as ConfigKey<org.joml.Vector3d>,
+                            org.joml.Vector3d(x.toDouble(), y.toDouble(), z.toDouble())
+                        )
+                    }
+                }
+            }
+            val newValue = session.getValue(key as ConfigKey<Any?>)
+            if (oldValue != newValue && key.id in builtGroup.triggerKeyIds) needsRebuild = true
+        }
+        return needsRebuild
     }
 
     /**
@@ -274,7 +312,9 @@ class DialogRenderer(
         val allItems = builtGroup.effectiveItems +
             builtGroup.effectiveSubGroups.flatMap { it.items }
 
-        return allItems.mapNotNull { item -> toDialogInput(item, session, textResolver) }
+        return allItems
+            .filterNot { it.key.id in builtGroup.triggerKeyIds && it.key.valueType == ConfigValueType.ENUM }
+            .mapNotNull { item -> toDialogInput(item, session, textResolver) }
     }
 
     /**
@@ -331,11 +371,13 @@ class DialogRenderer(
                 builder.build()
             }
             ConfigValueType.ENUM -> {
-                val constraints = key.constraints as? ConfigConstraints.EnumOptions<Enum<*>>
+                val constraints = key.constraints as? ConfigConstraints.EnumOptions<*>
                     ?: return null
                 val currentEnum = current as? Enum<*>
                 val options = constraints.options.map { option ->
-                    val displayName = textResolver(constraints.displayName(option))
+                    val displayKey = constraints.displayNames.entries
+                        .firstOrNull { it.key == option }?.value ?: option.name
+                    val displayName = textResolver(displayKey)
                     SingleOptionDialogInput.OptionEntry.create(
                         option.name,                  // id (used as return value)
                         Component.text(displayName),   // display text

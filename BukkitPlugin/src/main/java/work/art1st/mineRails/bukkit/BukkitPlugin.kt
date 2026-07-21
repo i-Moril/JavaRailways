@@ -15,7 +15,9 @@ import work.art1st.mineRails.bukkit.debug.TrainDebugLog
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackendFactory
+import work.art1st.mineRails.bukkit.render.backend.FoliaPacketEntityMotion
 import work.art1st.mineRails.bukkit.render.backend.PacketEntityRuntime
+import work.art1st.mineRails.bukkit.render.backend.TrainPacketBundleCoordinator
 import work.art1st.mineRails.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.mineRails.bukkit.tool.RailObjectWand
 import work.art1st.mineRails.bukkit.tool.RailWand
@@ -46,8 +48,11 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var worldManager: WorldManager
     lateinit var platformDispatcher: PlatformDispatcher
     lateinit var platformCapabilities: PlatformCapabilities
+    lateinit var trainPacketBundles: TrainPacketBundleCoordinator
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
+    var foliaPacketEntityMotion: FoliaPacketEntityMotion? = null
+        private set
 
     /** 全局插件配置，从 config.yml 加载 */
     lateinit var mineRailsConfig: MineRailsConfig
@@ -84,16 +89,22 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         platformCapabilities = PlatformCapabilities.detect(javaClass.classLoader)
         platformDispatcher = PaperPlatformDispatcher(this)
         mineRailsConfig = MineRailsConfig.load(this)
-        if (
-            platformCapabilities.folia ||
-            mineRailsConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB
-        ) {
+        if (platformCapabilities.folia || mineRailsConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB) {
             packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }
         }
     }
 
     override fun onEnable() {
         packetEntityRuntime?.enable()
+        trainPacketBundles = TrainPacketBundleCoordinator()
+        if (platformCapabilities.folia) {
+            foliaPacketEntityMotion = checkNotNull(packetEntityRuntime) {
+                "Folia packet entity runtime was not loaded"
+            }.enableFoliaEntityMotion(platformDispatcher, trainPacketBundles)
+            logger.warning(
+                "Folia packet motion is active: bundled train frames, packet Seats, and ArmorStand authority carriers"
+            )
+        }
         displayRenderBackend = DisplayRenderBackendFactory.create(this)
         ensureMineRailsKoinStarted()
         BasicPlugin.INSTANCE = BasicPlugin(0)
@@ -118,14 +129,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             TrainDebugLog.enabled = true
         }
         logger.info("Train model update policy: ${mineRailsConfig.trainModelUpdatePolicy.name.lowercase().replace('_', '-')}")
-        val effectiveDisplayBackend = if (platformCapabilities.folia) {
-            DisplayRendererBackend.ENTITYLIB
-        } else {
-            mineRailsConfig.displayRenderer.backend
-        }
-        logger.info("Display renderer backend: ${effectiveDisplayBackend.name.lowercase()}")
-        if (effectiveDisplayBackend == DisplayRendererBackend.ENTITYLIB) {
-            logger.warning("EntityLib display backend is experimental; interaction, seat and collision entities remain native")
+        val displayBackend = mineRailsConfig.displayRenderer.backend
+        logger.info("Display renderer backend: ${displayBackend.name.lowercase()}")
+        if (displayBackend == DisplayRendererBackend.ENTITYLIB) {
+            logger.info("EntityLib renders Display visuals; interaction, seat and collision entities remain native")
         }
         logger.info("Physics worker threads per world: ${mineRailsConfig.physicsWorkerThreads}")
         val availableProcessors = Runtime.getRuntime().availableProcessors()
@@ -178,6 +185,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 BukkitThreadGuardBridge.runInSimulationContext {
                     worlds.forEach { worldManager.unregisterRailWorld(it) }
                 }
+                worldManager.finishStopping()
             }
             if (::trainHandleInputListener.isInitialized) runCatching { trainHandleInputListener.stop() }
             if (::trainControlManager.isInitialized) runCatching { trainControlManager.stop() }
@@ -189,6 +197,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         } finally {
             runCatching { packetEntityRuntime?.close() }
                 .onFailure { logger.severe("Failed to close packet entity runtime: ${it.message}") }
+            foliaPacketEntityMotion = null
             packetEntityRuntime = null
             ThreadGuard.clearPlatformBridge()
         }

@@ -3,6 +3,7 @@ package work.art1st.mineRails.basic.timetable
 import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
 import work.art1st.mineRails.basic.api.station.DoorSide
+import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.timetable.TimetableCondition
 import work.art1st.mineRails.basic.api.timetable.TimetableConditionScope
 import work.art1st.mineRails.basic.api.timetable.TimetableExtensionCall
@@ -45,7 +46,8 @@ data class TimetableService(
     val id: String,
     val trainSelector: TrainSelector = TrainSelector.AnyTrain,
     val steps: List<TimetableStep> = emptyList(),
-    val activation: TimetableServiceActivation = TimetableServiceActivation.Scheduled
+    val activation: TimetableServiceActivation = TimetableServiceActivation.Scheduled,
+    val lineId: LineId? = null
 )
 
 sealed class TrainSelector {
@@ -173,6 +175,9 @@ class TimetableValidator(private val world: World) {
     ) {
         val prefix = "[$timetableId/${service.id}]"
         if (service.id.isBlank()) errors.add("$prefix service id 不能为空")
+        service.lineId?.let { lineId ->
+            if (world.basicWorldData.lines[lineId] == null) errors.add("$prefix 线路不存在: $lineId")
+        }
         when (val activation = service.activation) {
             TimetableServiceActivation.Scheduled,
             TimetableServiceActivation.Manual -> Unit

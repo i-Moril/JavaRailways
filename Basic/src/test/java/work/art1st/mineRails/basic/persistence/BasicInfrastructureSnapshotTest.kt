@@ -10,6 +10,8 @@ import work.art1st.mineRails.basic.WayPoint
 import work.art1st.mineRails.basic.api.destination.DestinationRole
 import work.art1st.mineRails.basic.api.destination.OperationalDestination
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
+import work.art1st.mineRails.basic.api.line.Line
+import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.pathFinding.TestBasicWorldDataRegistry
@@ -85,6 +87,25 @@ class BasicInfrastructureSnapshotTest {
         )
         service.register(
             OperationalDestination(
+                id = "south@one",
+                displayName = "South one",
+                railId = rail.id,
+                arcLengthInAbMeters = 60.0,
+                approachDirection = ViewDirection.AB,
+                role = DestinationRole.StationBerthRole(
+                    stationId = StationId("south"),
+                    stationDisplayName = "South",
+                    berthId = "one",
+                    doorSide = DoorSide.RIGHT
+                )
+            )
+        )
+        source.basicWorldData.lines.put(
+            Line(LineId("metro"), "Metro", listOf(StationId("central"), StationId("south"))),
+            expectedRevision = 0L
+        )
+        service.register(
+            OperationalDestination(
                 id = "north@road-1",
                 displayName = "North road 1",
                 railId = rail.id,
@@ -110,7 +131,7 @@ class BasicInfrastructureSnapshotTest {
         snapshot.restore(restored)
 
         assertEquals(7L, snapshot.infrastructureRevision)
-        assertEquals(setOf("central@one", "north@road-1"),
+        assertEquals(setOf("central@one", "south@one", "north@road-1"),
             restored.basicWorldData.wayPoints.all().map { it.id }.toSet())
         val stationRole = restored.basicWorldData.destinations["central@one"]?.role as
             DestinationRole.StationBerthRole
@@ -119,5 +140,8 @@ class BasicInfrastructureSnapshotTest {
         val depotRole = restored.basicWorldData.destinations["north@road-1"]?.role as
             DestinationRole.DepotStablingPointRole
         assertEquals(setOf("metro"), depotRole.allowedTags)
+        val restoredLines = restored.basicWorldData.lines.snapshot()
+        assertEquals(1L, restoredLines.revision)
+        assertEquals(listOf("central", "south"), restoredLines.lines.single().stationIds.map { it.value })
     }
 }

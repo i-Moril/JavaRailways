@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
+import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.timetable.*
 import work.art1st.mineRails.basic.timetable.*
@@ -279,16 +280,18 @@ data class SavedTimetableServiceV1(
     val selectorType: SavedTrainSelectorTypeV1,
     val trainId: String? = null,
     val steps: List<SavedTimetableStepV1>,
-    val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1()
+    val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(),
+    val lineId: String? = null
 ) {
     fun restore(): TimetableService = TimetableService(
-        id,
-        when (selectorType) {
+        id = id,
+        trainSelector = when (selectorType) {
             SavedTrainSelectorTypeV1.ANY -> TrainSelector.AnyTrain
             SavedTrainSelectorTypeV1.TRAIN_ID -> TrainSelector.TrainId(requireNotNull(trainId))
         },
-        steps.map(SavedTimetableStepV1::restore),
-        activation.restore()
+        steps = steps.map(SavedTimetableStepV1::restore),
+        activation = activation.restore(),
+        lineId = lineId?.let(::LineId)
     )
 
     companion object {
@@ -299,7 +302,8 @@ data class SavedTimetableServiceV1(
             } else SavedTrainSelectorTypeV1.ANY,
             trainId = (value.trainSelector as? TrainSelector.TrainId)?.trainId,
             steps = value.steps.map(SavedTimetableStepV1::capture),
-            activation = SavedTimetableActivationV1.capture(value.activation)
+            activation = SavedTimetableActivationV1.capture(value.activation),
+            lineId = value.lineId?.value
         )
     }
 }

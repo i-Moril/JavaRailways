@@ -53,6 +53,11 @@ public final class WebUiApplication {
 
         app.get("/api/v1/worlds", context -> proxyGet(context, "worlds"));
         app.get("/api/v1/worlds/{world}/metadata", this::metadata);
+        app.get("/api/v1/worlds/{world}/lines", this::lines);
+        app.post("/api/v1/worlds/{world}/lines/preview", this::previewLine);
+        app.post("/api/v1/worlds/{world}/lines/{line}/simulate", this::simulateLine);
+        app.put("/api/v1/worlds/{world}/lines/{line}", this::putLine);
+        app.delete("/api/v1/worlds/{world}/lines/{line}", this::deleteLine);
         app.get("/api/v1/worlds/{world}/drafts", this::listDrafts);
         app.post("/api/v1/worlds/{world}/drafts", this::createDraft);
         app.get("/api/v1/worlds/{world}/drafts/{draft}", this::getDraft);
@@ -134,6 +139,39 @@ public final class WebUiApplication {
         ObjectNode merged = metadata.body().deepCopy();
         merged.set("extensions", extensions.body());
         context.json(merged);
+    }
+
+    private void lines(Context context) throws IOException, InterruptedException {
+        respond(context, bridge.get(lineCollectionPath(context)));
+    }
+
+    private void previewLine(Context context) throws IOException, InterruptedException {
+        respond(context, bridge.post(lineCollectionPath(context) + "/preview", requestJson(context)));
+    }
+
+    private void simulateLine(Context context) throws IOException, InterruptedException {
+        respond(context, bridge.post(
+            lineCollectionPath(context) + "/" + segment(context.pathParam("line")) + "/simulate",
+            requestJson(context)
+        ));
+    }
+
+    private void putLine(Context context) throws IOException, InterruptedException {
+        respond(context, bridge.put(
+            lineCollectionPath(context) + "/" + segment(context.pathParam("line")),
+            requestJson(context)
+        ));
+    }
+
+    private void deleteLine(Context context) throws IOException, InterruptedException {
+        respond(context, bridge.delete(
+            lineCollectionPath(context) + "/" + segment(context.pathParam("line")),
+            requestJson(context)
+        ));
+    }
+
+    private String lineCollectionPath(Context context) {
+        return "worlds/" + segment(context.pathParam("world")) + "/lines";
     }
 
     private void listDrafts(Context context) throws IOException {

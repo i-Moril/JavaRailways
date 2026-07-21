@@ -5,6 +5,7 @@ import work.art1st.mineRails.basic.api.ato.provider.AtoProviderRegistry
 import work.art1st.mineRails.basic.api.ato.provider.RailObjectStore
 import work.art1st.mineRails.basic.api.depot.DepotStore
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationStore
+import work.art1st.mineRails.basic.api.line.LineStore
 import work.art1st.mineRails.basic.api.station.StationStore
 import work.art1st.mineRails.basic.api.timetable.TimetableExtensionRegistry
 import work.art1st.mineRails.basic.pathFinding.RailMap
@@ -25,6 +26,7 @@ data class BasicWorldData(
     val wayPoints: WayPointStore = WayPointStore(),
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val depots: DepotStore = DepotStore(),
+    val lines: LineStore = LineStore(),
     val timetables: TimetableStore = TimetableStore(),
     val dispatcher: TimetableDispatcher = TimetableDispatcher(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),

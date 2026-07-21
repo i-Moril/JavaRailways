@@ -561,6 +561,9 @@ class DepotStore {
 
     fun depot(id: DepotId): Depot? = synchronized(lock) { depots[id] }
 
+    /** Deterministic immutable snapshot for discovery APIs such as WebUI metadata. */
+    fun allDepots(): List<Depot> = synchronized(lock) { depots.values.sortedBy { it.id.value } }
+
     fun stablingPoint(ref: StablingPointRef): StablingPointSnapshot? = synchronized(lock) {
         points[ref]?.let { StablingPointSnapshot(it.point, it.occupantTrainId, it.reservedByAssignmentId) }
     }

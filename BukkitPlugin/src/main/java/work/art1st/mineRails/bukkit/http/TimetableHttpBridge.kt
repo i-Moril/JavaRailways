@@ -13,6 +13,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.bukkit.World as BukkitWorld
 import work.art1st.mineRails.basic.api.destination.DestinationRole
+import work.art1st.mineRails.basic.api.line.Line
+import work.art1st.mineRails.basic.api.line.LineCompileResult
+import work.art1st.mineRails.basic.api.line.LineId
+import work.art1st.mineRails.basic.api.line.LinePlanner
+import work.art1st.mineRails.basic.api.line.LineRevisionConflict
+import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.api.timetable.TimetableConditionProvider
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.persistence.SavedTimetableV1
@@ -23,16 +29,35 @@ import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
+
+private data class LineSimulationSnapshot(
+    val revision: Long,
+    val profile: SimulationTrainProfile,
+    val legs: List<SimulationLeg>
+)
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) {
     private val json = Json { encodeDefaults = true; prettyPrint = true; ignoreUnknownKeys = true }
     private var server: HttpServer? = null
     private val executor = Executors.newCachedThreadPool { Thread(it, "MineRails-timetable-http").apply { isDaemon = true } }
+    private val simulationExecutor = ThreadPoolExecutor(
+        2,
+        2,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(8),
+        { task -> Thread(task, "MineRails-webui-simulation").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy()
+    )
 
     fun start(managedToken: String? = null) {
         val config = plugin.mineRailsConfig.timetableHttpBridge
@@ -52,6 +77,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
         server?.stop(0)
         server = null
         executor.shutdownNow()
+        simulationExecutor.shutdownNow()
     }
 
     private inner class Handler(
@@ -94,6 +120,23 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             when {
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "metadata" -> exchange.respond(200, await { metadataJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "extensions" -> exchange.respond(200, await { extensionsJson(worldName) })
+                exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "lines" -> exchange.respond(200, await { linesJson(worldName) })
+                exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "lines" && parts[2] == "preview" -> {
+                    val body = readBody(exchange)
+                    exchange.respond(200, await { previewLineJson(worldName, body) })
+                }
+                exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "lines" && parts[3] == "simulate" -> {
+                    val body = readBody(exchange)
+                    exchange.respond(200, simulateLineJson(worldName, decode(parts[2]), body))
+                }
+                exchange.requestMethod == "PUT" && parts.size == 3 && parts[1] == "lines" -> {
+                    val body = readBody(exchange)
+                    exchange.respond(200, await { putLineJson(worldName, decode(parts[2]), body) })
+                }
+                exchange.requestMethod == "DELETE" && parts.size == 3 && parts[1] == "lines" -> {
+                    val body = readBody(exchange)
+                    exchange.respond(200, await { deleteLineJson(worldName, decode(parts[2]), body) })
+                }
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "timetables" -> exchange.respond(200, await { timetablesJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "timetables" -> exchange.respond(200, await { timetableJson(worldName, decode(parts[2])) })
                 exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "timetables" && parts[3] == "validate" -> {
@@ -108,8 +151,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             }
         }
 
-        private fun await(action: () -> String): String {
-            val future = CompletableFuture<String>()
+        private fun <T> await(action: () -> T): T {
+            val future = CompletableFuture<T>()
             val state = AtomicReference(RequestState.PENDING)
             plugin.platformDispatcher.runGlobal {
                 if (!state.compareAndSet(RequestState.PENDING, RequestState.RUNNING)) return@runGlobal
@@ -119,6 +162,13 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             }
             return try {
                 future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+            } catch (failure: ExecutionException) {
+                val cause = failure.cause ?: failure
+                when (cause) {
+                    is RuntimeException -> throw cause
+                    is Error -> throw cause
+                    else -> throw IllegalStateException(cause)
+                }
             } catch (_: TimeoutException) {
                 if (state.compareAndSet(RequestState.PENDING, RequestState.CANCELLED)) {
                     future.cancel(false)
@@ -160,6 +210,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                 destinations.mapNotNullTo(this) {
                     (it.role as? DestinationRole.DepotStablingPointRole)?.depotId
                 }
+                data.depots.allDepots().mapTo(this) { it.id.value }
                 data.depots.allRollingStock().mapTo(this) { it.record.homeDepotId.value }
             }.sorted()
             json.encodeToString(buildJsonObject {
@@ -178,6 +229,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                     }
                 }))
                 put("depots", JsonArray(depotIds.map(::JsonPrimitive)))
+                put("depotDetails", JsonArray(data.depots.allDepots().map { depot -> buildJsonObject {
+                    put("id", depot.id.value)
+                    put("displayName", depot.displayName)
+                    put("stablingPoints", JsonArray(data.depots.stablingPoints(depot.id).map { point -> buildJsonObject {
+                        put("id", point.point.ref.pointId)
+                        put("destinationId", point.point.destinationId)
+                    } }))
+                } }))
                 put("trains", JsonArray(world.allTrains.map { JsonPrimitive(it.id) }.sortedBy { it.content }))
                 put("destinations", JsonArray(destinations.map { destination ->
                     buildJsonObject {
@@ -210,6 +269,196 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                 ))
             })
         }
+        private fun linesJson(worldName: String) = withWorld(worldName) { _, world ->
+            val snapshot = world.basicWorldData.lines.snapshot()
+            json.encodeToString(buildJsonObject {
+                put("revision", snapshot.revision)
+                put("lines", JsonArray(snapshot.lines.map(::lineJson)))
+            })
+        }
+
+        private fun previewLineJson(worldName: String, body: String) = withWorld(worldName) { _, world ->
+            compileLineJson(LinePlanner(world).compile(parseLine(json.parseToJsonElement(body).jsonObject)))
+        }
+
+        private fun putLineJson(worldName: String, pathId: String, body: String) = withWorld(worldName) { _, world ->
+            val root = json.parseToJsonElement(body).jsonObject
+            val line = parseLine(root["line"]?.jsonObject ?: root)
+            require(line.id.value == pathId) { "path line id does not match body id" }
+            val compilation = LinePlanner(world).compile(line)
+            if (compilation is LineCompileResult.Failure) {
+                throw HttpFailure(422, compilation.reason)
+            }
+            val expected = root["expectedRevision"]?.jsonPrimitive?.content?.toLongOrNull()
+                ?: throw HttpFailure(400, "expectedRevision is required")
+            val revision = try {
+                world.basicWorldData.lines.put(line, expected)
+            } catch (conflict: LineRevisionConflict) {
+                throw HttpFailure(409, conflict.message ?: "line revision conflict")
+            }
+            json.encodeToString(buildJsonObject {
+                put("revision", revision)
+                put("line", lineJson(line))
+                put("preview", json.parseToJsonElement(compileLineJson(compilation)))
+            })
+        }
+
+        private fun simulateLineJson(worldName: String, lineId: String, body: String): String {
+            val request = json.parseToJsonElement(body).jsonObject
+            val snapshot = await {
+                withWorld(worldName) { _, world ->
+                    val data = world.basicWorldData
+                    val line = data.lines[LineId(lineId)] ?: throw HttpFailure(404, "line not found: $lineId")
+                    val compilation = LinePlanner(world).compile(line)
+                    if (compilation !is LineCompileResult.Success) {
+                        val failure = compilation as LineCompileResult.Failure
+                        throw HttpFailure(422, failure.reason)
+                    }
+                    val profile = SimulationTrainProfile(
+                        maxSpeedMetersPerSecond = request.double("maxSpeedKmh", 72.0) / 3.6,
+                        carCount = request.int("carCount", 6),
+                        poweredCars = request.int("poweredCars", 4),
+                        carMassKilograms = request.double("carMassKilograms", 32_000.0),
+                        tractionForcePerPoweredCarNewtons = request.double("tractionForceNewtons", 40_000.0),
+                        tractionPowerPerPoweredCarWatts = request.double("tractionPowerWatts", 500_000.0),
+                        brakeForcePerCarNewtons = request.double("brakeForceNewtons", 45_000.0)
+                    )
+                    LineSimulationSnapshot(
+                        revision = data.lines.snapshot().revision,
+                        profile = profile,
+                        legs = compilation.legs.map { leg ->
+                            val weightedGrade = leg.route.segments.sumOf { segment ->
+                                val rail = world.getRail(segment.railViewRef.railId)
+                                    ?: throw HttpFailure(409, "route rail disappeared: ${segment.railViewRef.railId}")
+                                val view = rail.getView(segment.railViewRef.direction)
+                                val midpoint = (segment.startArcLength + segment.endArcLength) * 0.5
+                                view.curve.getPointAt(midpoint).tangent.y() * segment.length
+                            } / leg.route.totalLength
+                            SimulationLeg(
+                                leg.fromStationId,
+                                leg.toStationId,
+                                leg.route.totalLength,
+                                weightedGrade
+                            )
+                        }
+                    )
+                }
+            }
+            val task = try {
+                simulationExecutor.submit<IsolatedLineSimulationResult> {
+                    IsolatedLineSimulator.simulate(snapshot.legs, snapshot.profile)
+                }
+            } catch (_: RejectedExecutionException) {
+                throw HttpFailure(429, "line simulation queue is full; retry later")
+            }
+            val result = try {
+                task.get(60, TimeUnit.SECONDS)
+            } catch (failure: ExecutionException) {
+                val cause = failure.cause ?: failure
+                if (cause is IllegalArgumentException) throw HttpFailure(400, cause.message ?: "invalid simulation profile")
+                if (cause is SimulationComputationLimitException) throw HttpFailure(422, cause.message ?: "simulation limit reached")
+                throw cause
+            } catch (_: TimeoutException) {
+                task.cancel(true)
+                throw HttpFailure(504, "line simulation timed out")
+            } catch (interrupted: InterruptedException) {
+                task.cancel(true)
+                Thread.currentThread().interrupt()
+                throw interrupted
+            }
+            val currentRevision = await {
+                withWorld(worldName) { _, world -> world.basicWorldData.lines.snapshot().revision }
+            }
+            if (currentRevision != snapshot.revision) {
+                throw HttpFailure(409, "lines changed while simulation was running; retry")
+            }
+            return json.encodeToString(buildJsonObject {
+                put("lineRevision", currentRevision)
+                put("totalTravelSeconds", result.totalTravelSeconds)
+                put("legs", JsonArray(result.legs.map { leg -> buildJsonObject {
+                    put("fromStationId", leg.fromStationId)
+                    put("toStationId", leg.toStationId)
+                    put("lengthMeters", leg.lengthMeters)
+                    put("travelSeconds", leg.travelSeconds)
+                    put("peakSpeedKmh", leg.peakSpeedMetersPerSecond * 3.6)
+                    put("stoppingErrorMeters", leg.stoppingErrorMeters)
+                } }))
+            })
+        }
+
+        private fun JsonObject.double(name: String, default: Double): Double =
+            this[name]?.jsonPrimitive?.content?.toDoubleOrNull() ?: default
+
+        private fun JsonObject.int(name: String, default: Int): Int =
+            this[name]?.jsonPrimitive?.content?.toIntOrNull() ?: default
+
+        private fun deleteLineJson(worldName: String, pathId: String, body: String) = withWorld(worldName) { _, world ->
+            val root = json.parseToJsonElement(body).jsonObject
+            val expected = root["expectedRevision"]?.jsonPrimitive?.content?.toLongOrNull()
+                ?: throw HttpFailure(400, "expectedRevision is required")
+            val data = world.basicWorldData
+            val references = data.timetables.all().flatMap { timetable ->
+                timetable.services.filter { it.lineId?.value == pathId }
+                    .map { service -> "${timetable.id}/${service.id}" }
+            }
+            if (references.isNotEmpty()) {
+                throw HttpFailure(409, "line is referenced by timetable services: ${references.joinToString()}")
+            }
+            val result = try {
+                data.lines.remove(LineId(pathId), expected)
+            } catch (conflict: LineRevisionConflict) {
+                throw HttpFailure(409, conflict.message ?: "line revision conflict")
+            }
+            json.encodeToString(buildJsonObject {
+                put("revision", result.second)
+                put("removed", result.first != null)
+            })
+        }
+
+        private fun parseLine(value: JsonObject): Line {
+            val id = value["id"]?.jsonPrimitive?.content ?: throw HttpFailure(400, "line id is required")
+            val displayName = value["displayName"]?.jsonPrimitive?.content
+                ?: throw HttpFailure(400, "line displayName is required")
+            val stations = value["stationIds"] as? JsonArray
+                ?: throw HttpFailure(400, "line stationIds is required")
+            val color = value["color"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            return Line(LineId(id), displayName, stations.map { StationId(it.jsonPrimitive.content) }, color)
+        }
+
+        private fun lineJson(line: Line) = buildJsonObject {
+            put("id", line.id.value)
+            put("displayName", line.displayName)
+            put("stationIds", JsonArray(line.stationIds.map { JsonPrimitive(it.value) }))
+            line.color?.let { put("color", it) }
+        }
+
+        private fun compileLineJson(result: LineCompileResult): String = json.encodeToString(
+            when (result) {
+                is LineCompileResult.Failure -> buildJsonObject {
+                    put("valid", false)
+                    put("legIndex", result.legIndex)
+                    put("error", result.reason)
+                }
+                is LineCompileResult.Success -> buildJsonObject {
+                    put("valid", true)
+                    put("totalLengthMeters", result.totalLengthMeters)
+                    put("legs", JsonArray(result.legs.map { leg -> buildJsonObject {
+                        put("fromStationId", leg.fromStationId)
+                        put("toStationId", leg.toStationId)
+                        put("fromDestinationId", leg.fromDestinationId)
+                        put("toDestinationId", leg.toDestinationId)
+                        put("lengthMeters", leg.route.totalLength)
+                        put("segments", JsonArray(leg.route.segments.map { segment -> buildJsonObject {
+                            put("railId", segment.railViewRef.railId.toString())
+                            put("direction", segment.railViewRef.direction.name)
+                            put("startArcLength", segment.startArcLength)
+                            put("endArcLength", segment.endArcLength)
+                        } }))
+                    } }))
+                }
+            }
+        )
+
         private fun timetablesJson(worldName: String) = withWorld(worldName) { _, world ->
             json.encodeToString(JsonArray(world.basicWorldData.timetables.all().map { JsonPrimitive(it.id) }))
         }
@@ -248,7 +497,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             json.encodeToString(buildJsonObject { put("published", true); put("etag", etag(TimetableSnapshotCodec.encode(saved))) })
         }
 
-        private fun withWorld(name: String, action: (BukkitWorld, work.art1st.mineRails.core.api.physics.World) -> String): String {
+        private fun <T> withWorld(name: String, action: (BukkitWorld, work.art1st.mineRails.core.api.physics.World) -> T): T {
             val entry = plugin.worldManager.railWorlds.entries.firstOrNull { it.key.name == name }
                 ?: throw IllegalArgumentException("world not found: $name")
             return action(entry.key, entry.value)

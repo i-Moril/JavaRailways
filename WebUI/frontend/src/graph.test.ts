@@ -28,6 +28,16 @@ describe('graph layout', () => {
     expect(layout.xToTick(layout.tickToX(80))).toBeCloseTo(80);
   });
 
+  it('uses line station order and resolves berth destinations to station lanes', () => {
+    const layout = layoutGraph(value, 1000, 58, 600, {
+      stations:[{ stationId:'central', berthId:'one', destinationId:'beta' }],
+    }, {
+      id:'line', displayName:'Line', stationIds:['central','terminus'],
+    });
+    expect(layout.height).toBe(600);
+    expect(layout.lanes.slice(0,2).map((lane) => lane.id)).toEqual(['central','terminus']);
+  });
+
   it('snaps and clamps ticks', () => {
     expect(snapTick(31, 20)).toBe(40);
     expect(snapTick(-9, 20)).toBe(0);

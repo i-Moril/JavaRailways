@@ -7,6 +7,8 @@ import work.art1st.mineRails.basic.api.destination.DestinationRole
 import work.art1st.mineRails.basic.api.destination.DestinationRoleType
 import work.art1st.mineRails.basic.api.destination.OperationalDestination
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationService
+import work.art1st.mineRails.basic.api.line.Line
+import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.station.StationId
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
@@ -122,11 +124,32 @@ data class SavedOperationalDestinationV1(
 }
 
 @Serializable
+data class SavedLineV1(
+    val id: String,
+    val displayName: String,
+    val stationIds: List<String>,
+    val color: String? = null
+) {
+    fun restore(): Line = Line(LineId(id), displayName, stationIds.map(::StationId), color)
+
+    companion object {
+        fun capture(value: Line): SavedLineV1 = SavedLineV1(
+            value.id.value,
+            value.displayName,
+            value.stationIds.map { it.value },
+            value.color
+        )
+    }
+}
+
+@Serializable
 data class BasicInfrastructureSnapshotV1(
     val formatVersion: Int = 1,
     val infrastructureRevision: Long,
     val destinations: List<SavedOperationalDestinationV1>,
-    val legacyWayPoints: List<SavedWayPointV1> = emptyList()
+    val legacyWayPoints: List<SavedWayPointV1> = emptyList(),
+    val lines: List<SavedLineV1> = emptyList(),
+    val lineRevision: Long = 0L
 ) {
     fun restore(world: World) {
         check(world.basicWorldData.wayPoints.all().isEmpty())
@@ -148,6 +171,13 @@ data class BasicInfrastructureSnapshotV1(
         val service = OperationalDestinationService(world)
         destinations.forEach { service.register(it.restore()) }
         legacyWayPoints.forEach { world.basicWorldData.wayPoints.add(it.restore()) }
+        val restoredLines = lines.map(SavedLineV1::restore)
+        val stationIds = world.basicWorldData.stations.all().mapTo(HashSet()) { it.id }
+        val missingStations = restoredLines.flatMap { it.stationIds }.filterNot { it in stationIds }.distinct()
+        check(missingStations.isEmpty()) {
+            "Infrastructure snapshot contains lines with missing stations: ${missingStations.joinToString()}"
+        }
+        world.basicWorldData.lines.restore(restoredLines, lineRevision)
     }
 
     companion object {
@@ -167,10 +197,13 @@ data class BasicInfrastructureSnapshotV1(
                 "Cannot capture WayPoints on missing rails: " +
                     missingWayPointRails.joinToString { "${it.id}@${it.railId}" }
             }
+            val lineSnapshot = data.lines.snapshot()
             return BasicInfrastructureSnapshotV1(
                 infrastructureRevision = infrastructureRevision,
                 destinations = destinations.map(SavedOperationalDestinationV1::capture),
-                legacyWayPoints = legacyWayPoints.map(SavedWayPointV1::capture)
+                legacyWayPoints = legacyWayPoints.map(SavedWayPointV1::capture),
+                lines = lineSnapshot.lines.map(SavedLineV1::capture),
+                lineRevision = lineSnapshot.revision
             )
         }
     }

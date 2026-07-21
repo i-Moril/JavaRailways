@@ -68,6 +68,19 @@ Configuration environment variables:
 
 Remote plaintext HTTP is supported when explicitly configured. It preserves short-token authentication but does not protect tokens or session traffic from network interception.
 
+## 线路与隔离模拟
+
+WebUI 会从 Bukkit 运营基础设施自动读取车站、站台、车辆段和列车。线路保存为有 revision
+保护的有序 `stationId` 列表；保存前由 `RoutePlanner` 尝试所有可用站台组合，并选择每一区间
+最短的合法有向路径。时刻表车次可以绑定线路，运行图据此分线路显示车站顺序。
+
+“模拟”页面创建的列车只是一组不可变动力参数。Bukkit/Folia simulation context 负责捕获线路长度、
+坡度采样和基础设施 revision；随后专用线程调用与真实列车相同的 `TrainDynamics`，不会创建实体、
+注册控制器或修改世界。若计算期间线路 revision 变化，结果会被拒绝。
+
+车站停靠编辑器可配置停站时间、停车偏移、开门侧，并可把换向、停车或关机动作插入到到站关门后、
+下一次发车前的现有结构化时刻表步骤中。
+
 ## Development
 
 ```bash

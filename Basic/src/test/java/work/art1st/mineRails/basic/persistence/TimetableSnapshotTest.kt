@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
 import work.art1st.mineRails.basic.api.station.DoorSide
+import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.timetable.*
 import work.art1st.mineRails.basic.timetable.*
 
@@ -53,7 +54,8 @@ class TimetableSnapshotTest {
                     activation = TimetableServiceActivation.Conditional(
                         TimetableCondition.Predicate(TimetableExtensionCall("example:demand")),
                         TimetableActivationFalseBehavior.SKIP_CYCLE
-                    )
+                    ),
+                    lineId = LineId("metro")
                 )
             )
         )

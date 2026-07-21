@@ -1,4 +1,4 @@
-import type { SavedTimetableV1, TimetableActionV1 } from './types';
+import type { LineV1, SavedTimetableV1, TimetableActionV1, WorldMetadata } from './types';
 
 export interface GraphPoint {
   serviceIndex: number;
@@ -36,7 +36,14 @@ function destination(action?: TimetableActionV1 | null): string | undefined {
 }
 
 /** Builds a conventional running graph: time on X, operational locations on Y. */
-export function layoutGraph(value: SavedTimetableV1, width: number, rowHeight = 58): GraphLayout {
+export function layoutGraph(
+  value: SavedTimetableV1,
+  width: number,
+  rowHeight = 58,
+  minimumHeight = 170,
+  metadata?: WorldMetadata,
+  line?: LineV1,
+): GraphLayout {
   const left = 150;
   const right = 28;
   const usable = Math.max(1, width - left - right);
@@ -44,6 +51,8 @@ export function layoutGraph(value: SavedTimetableV1, width: number, rowHeight = 
   const tickToX = (tick: number) => left + Math.min(periodTicks, Math.max(0, tick)) / periodTicks * usable;
   const xToTick = (x: number) => Math.min(periodTicks - 1, Math.max(0, (x - left) / usable * periodTicks));
 
+  const destinationStations = new Map((metadata?.stations || []).map((berth) => [berth.destinationId, berth.stationId]));
+  const normalizeLocation = (id:string) => destinationStations.get(id) || id;
   const serviceLocations = value.services.map((service) => {
     let current = service.steps.find((step) => step.type === 'CHECK')?.wayPointId || `${service.id}: origin`;
     return service.steps.map((step) => {
@@ -51,12 +60,15 @@ export function layoutGraph(value: SavedTimetableV1, width: number, rowHeight = 
       const locationAtAction = current;
       const target = step.type === 'AT' ? destination(step.action) : undefined;
       if (target) current = target;
-      return locationAtAction;
+      return normalizeLocation(locationAtAction);
     });
   });
   const declaredTargets = value.services.flatMap((service) => service.steps.map((step) =>
     step.type === 'AT' ? destination(step.action) : undefined));
-  const locationIds = Array.from(new Set([...serviceLocations.flat(), ...declaredTargets].filter((id): id is string => Boolean(id))));
+  const discovered = [...serviceLocations.flat(), ...declaredTargets.map((id) => id ? normalizeLocation(id) : id)]
+    .filter((id): id is string => Boolean(id));
+  const preferred = line?.stationIds || [];
+  const locationIds = Array.from(new Set([...preferred, ...discovered]));
   if (locationIds.length === 0) locationIds.push('No locations');
   const lanes = locationIds.map((id, index) => ({ id, y: 54 + index * rowHeight }));
   const laneById = new Map(lanes.map((lane) => [lane.id, lane.y]));
@@ -81,7 +93,7 @@ export function layoutGraph(value: SavedTimetableV1, width: number, rowHeight = 
   const points = paths.flatMap((path) => path.points);
   return {
     width,
-    height: Math.max(170, 95 + lanes.length * rowHeight),
+    height: Math.max(minimumHeight, 95 + lanes.length * rowHeight),
     left,
     right,
     lanes,

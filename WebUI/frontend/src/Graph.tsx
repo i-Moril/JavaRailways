@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { layoutGraph, snapTick } from './graph';
-import type { SavedTimetableV1 } from './types';
+import type { LineV1, SavedTimetableV1, WorldMetadata } from './types';
 
 const COLORS = ['#56c5ff', '#ffb454', '#8bd17c', '#d28cff', '#ff718b', '#54d6c5'];
 
@@ -8,20 +8,27 @@ export function Graph({
   value,
   onTick,
   onSelect,
+  metadata,
+  line,
 }: {
   value: SavedTimetableV1;
+  metadata?: WorldMetadata;
+  line?: LineV1;
   onTick: (service: number, step: number, tick: number) => void;
   onSelect?: (service: number, step: number) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [width, setWidth] = useState(900);
+  const [size, setSize] = useState({ width: 900, height: 500 });
   const drag = useRef<{ service: number; step: number } | null>(null);
-  const layout = layoutGraph(value, width);
+  const layout = layoutGraph(value, size.width, 58, size.height, metadata, line);
 
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
-    const resize = () => setWidth(element.parentElement?.clientWidth || 900);
+    const resize = () => setSize({
+      width: element.parentElement?.clientWidth || 900,
+      height: element.parentElement?.clientHeight || 500,
+    });
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(element.parentElement!);
@@ -58,7 +65,7 @@ export function Graph({
       context.strokeStyle = '#30445f';
       context.beginPath();
       context.moveTo(layout.left, lane.y);
-      context.lineTo(width - layout.right, lane.y);
+      context.lineTo(size.width - layout.right, lane.y);
       context.stroke();
     }
 
@@ -83,7 +90,7 @@ export function Graph({
         context.fillText(`${path.serviceId} · ${point.tick}`, point.x + 9, point.y - 9);
       }
     }
-  }, [layout, value, width]);
+  }, [layout, value, size.width]);
 
   const position = (event: React.PointerEvent) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -108,5 +115,6 @@ export function Graph({
       onTick(drag.current.service, drag.current.step, snapTick(layout.xToTick(pointer.x)));
     }}
     onPointerUp={() => { drag.current = null; }}
+    onPointerCancel={() => { drag.current = null; }}
   />;
 }

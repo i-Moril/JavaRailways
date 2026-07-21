@@ -1,0 +1,43 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.gradleup.shadow' version '8.3.6'
+}
+
+group = 'work.art1st.minerails'
+version = '1.0-SNAPSHOT'
+
+repositories { mavenCentral() }
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+application { mainClass = 'work.art1st.minerails.webui.WebUiApplication' }
+
+dependencies {
+    implementation 'io.javalin:javalin:6.7.0'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+def frontendDir = layout.projectDirectory.dir('frontend')
+def frontendBuildDir = frontendDir.dir('dist')
+tasks.register('buildFrontend', Exec) {
+    onlyIf { frontendDir.file('package.json').asFile.exists() }
+    workingDir frontendDir
+    commandLine 'npm', 'run', 'build'
+    inputs.file(frontendDir.file('package.json'))
+    inputs.dir(frontendDir.dir('src')).optional()
+    outputs.dir(frontendBuildDir)
+}
+tasks.named('processResources') {
+    dependsOn tasks.named('buildFrontend')
+    from(frontendBuildDir) { into 'public' }
+}
+tasks.named('shadowJar') {
+    archiveClassifier.set('')
+    mergeServiceFiles()
+}
+tasks.named('build') { dependsOn tasks.named('shadowJar') }

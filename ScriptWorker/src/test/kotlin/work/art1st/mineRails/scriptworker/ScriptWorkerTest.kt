@@ -12,7 +12,7 @@ class ScriptWorkerTest {
         val result = run("""
             timetable.setPeriodDays(1);
             timetable.service('s1', 'train-1', function(t) {
-              t.check('depot'); t.at(10).pass('a').destination('b'); t.at(20).stop(5);
+              t.check('depot'); t.at(10).pass('a').destination('b'); t.at(20).wait(5);
               t.at(30).reverse(); t.at(40).halt();
             });
         """)
@@ -58,12 +58,15 @@ class ScriptWorkerTest {
         }
     }
 
-    @Test fun `legacy goto and call route API are not exposed`() {
+    @Test fun `legacy goto call and stop APIs are not exposed`() {
         assertThrows(Throwable::class.java) {
             run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).goto('a'));")
         }
         assertThrows(Throwable::class.java) {
             run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).call('station','one'));")
+        }
+        assertThrows(Throwable::class.java) {
+            run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).stop(20));")
         }
     }
 

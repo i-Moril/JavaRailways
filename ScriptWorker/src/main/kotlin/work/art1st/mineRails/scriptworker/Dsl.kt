@@ -61,7 +61,7 @@ class ServiceBuilder {
     @HostAccess.Export fun pass(target: Value): ServiceBuilder = passAt(currentTick, target)
     @HostAccess.Export fun destination(target: String): ServiceBuilder = destinationAt(currentTick, target, Value.asValue(null))
     @HostAccess.Export fun destination(target: String, options: Value): ServiceBuilder = destinationAt(currentTick, target, options)
-    @HostAccess.Export fun stop(ticks: Long): ServiceBuilder = addStop(currentTick, ticks)
+    @HostAccess.Export fun wait(ticks: Value): ServiceBuilder = addWait(currentTick, ticks)
     @HostAccess.Export fun reverse(): ServiceBuilder = add(currentTick, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
     @HostAccess.Export fun halt(): ServiceBuilder = add(currentTick, SavedTimetableActionV1(SavedTimetableActionTypeV1.HALT))
 
@@ -105,9 +105,11 @@ class ServiceBuilder {
         return this
     }
 
-    internal fun addStop(tick: Long, ticks: Long): ServiceBuilder {
-        require(ticks > 0)
-        return add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STOP, stopTicks = ticks))
+    internal fun addWait(tick: Long, ticks: Value): ServiceBuilder {
+        require(ticks.isNumber && ticks.fitsInLong()) { "wait ticks must be an integer" }
+        val duration = ticks.asLong()
+        require(duration > 0) { "wait ticks must be greater than zero" }
+        return add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.STOP, stopTicks = duration))
     }
 
     internal fun add(tick: Long, action: SavedTimetableActionV1): ServiceBuilder {
@@ -131,7 +133,7 @@ class TimedActionBuilder(private val service: ServiceBuilder, private val tick: 
     @HostAccess.Export fun pass(target: Value): ServiceBuilder = service.passAt(tick, target)
     @HostAccess.Export fun destination(target: String): ServiceBuilder = service.destinationAt(tick, target, Value.asValue(null))
     @HostAccess.Export fun destination(target: String, options: Value): ServiceBuilder = service.destinationAt(tick, target, options)
-    @HostAccess.Export fun stop(ticks: Long): ServiceBuilder = service.addStop(tick, ticks)
+    @HostAccess.Export fun wait(ticks: Value): ServiceBuilder = service.addWait(tick, ticks)
     @HostAccess.Export fun reverse(): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
     @HostAccess.Export fun halt(): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.HALT))
     @HostAccess.Export fun depot(depotId: String): ServiceBuilder = takeFromDepot(depotId)

@@ -68,7 +68,7 @@ cycleStart = epochDispatcherTick + cycleIndex × periodTicks
 ### 2.3 `at(tick)` 与晚点
 
 - 显式 `at(tick)` 是相对当前 cycle start 的计划 Tick；
-- `stop()`、`storeAtDepot()` 等普通动作不得早于计划 Tick；
+- `wait()`、`storeAtDepot()` 等普通动作不得早于计划 Tick；
 - 以 `destination()` 收尾的线路把它解释为出发 Tick，列车不得提前发车；
 - `pass()` / `destination()` / `reverse()` / `halt()` 可省略 `at()`；第一条隐式线路使用 Tick 0，后续沿用最近显式 Tick，使 minimum dwell 成为主要发车下界；
 - 前序动作未完成时保持等待；

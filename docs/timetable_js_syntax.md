@@ -53,7 +53,7 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable replan <id> <service> <current-waypoint> [cycle]
 ```
 
-service 可以使用字符串 `trainId` selector，并在第一条线路前通过 `check()` 指定初始位置；也可以省略 selector，并把 `takeFromDepot` 作为第一步。线路使用 `[at(departureTick).]pass(...).destination(target, options?)` 一次提交，不能用逐段 `goto + stop` 拼接运营语义。
+service 可以使用字符串 `trainId` selector，并在第一条线路前通过 `check()` 指定初始位置；也可以省略 selector，并把 `takeFromDepot` 作为第一步。线路使用 `[at(departureTick).]pass(...).destination(target, options?)` 一次提交，不能用逐段移动与独立等待拼接运营语义。
 
 `stop` 命令先禁用匹配 timetable/service 的后续自动 cycle，再对当前所有匹配 cycle run 请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。重新显式 start service 会重新启用该 service 的周期调度。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。`status` 会显式输出 operation ticket 的 snapshot 错误。一般 `at(tick)` 是 not-before 时间；StationCall 的最短停站由 `minimumDwellTicks` 控制，下一条定时动作可以继续延长发车保持。
 
@@ -288,15 +288,15 @@ t.pass("a1").destination("central@platform-1", {
 
 内部持久化仍可能把这条线路规范化为 `DESTINATION_OPTIONS + DESTINATION`，这是结构化运行模型，不是面向脚本作者的 `goto/call` API。
 
-### `t.at(tick).stop(ticks)`（非线路 hold）
+### `[t.at(tick).]wait(ticks)`
 
-`stop()` 只保留为不带 Destination、StationBerth、开门或停车偏移语义的普通停留动作；它不能代替 `destination(..., { minimumDwellTicks })`：
+`wait()` 只等待指定时长，不带 Destination、StationBerth、开门或停车偏移语义；它不能代替 `destination(..., { minimumDwellTicks })`：
 
 ```js
-t.at(2000).stop(100)
+t.at(2000).wait(100)
 ```
 
-新线路脚本不应使用 `goto + stop + goto` 表达车站停靠。车站和普通终点停站必须使用 `pass(...).destination(...)`。
+它也可以省略 `at()` 并沿用最近一次显式 Tick。车站和普通终点停站必须使用 `pass(...).destination(...)`，不能用逐段移动与 `wait()` 拼接。
 
 ### `[t.at(tick).]reverse()` 与 `[t.at(tick).]halt()`
 

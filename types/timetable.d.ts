@@ -25,8 +25,8 @@ interface MineRailsServiceBuilder {
   at(departureTick: number): MineRailsTimedActionBuilder;
   pass(target: string | readonly string[]): this;
   destination(target: string, options?: MineRailsDestinationOptions): this;
-  /** Non-route operational hold. Destination dwell belongs in destination options. */
-  stop(ticks: number): this;
+  /** Wait for a duration without destination, station, or door semantics. */
+  wait(ticks: number): this;
   reverse(): this;
   halt(): this;
 }
@@ -42,8 +42,8 @@ interface MineRailsRuntimeActions { action(typeId: string, parameters: Readonly<
 interface MineRailsTimedActionBuilder {
   pass(target: string | readonly string[]): MineRailsServiceBuilder;
   destination(target: string, options?: MineRailsDestinationOptions): MineRailsServiceBuilder;
-  /** Non-route operational hold. Destination dwell belongs in destination options. */
-  stop(ticks: number): MineRailsServiceBuilder;
+  /** Wait for a duration without destination, station, or door semantics. */
+  wait(ticks: number): MineRailsServiceBuilder;
   reverse(): MineRailsServiceBuilder; halt(): MineRailsServiceBuilder;
   /** Compatibility alias for takeFromDepot. */ depot(depotId: string, options?: MineRailsDepotSelectorOptions): MineRailsServiceBuilder;
   takeFromDepot(depotId: string, options?: MineRailsDepotSelectorOptions): MineRailsServiceBuilder;

@@ -149,9 +149,8 @@ data class MineRailsConfig(
                 optionalString(yaml, "timetable-webui.mode", "managed")
             )
             val webUiBindAddress = optionalString(yaml, "timetable-webui.bind-address", "127.0.0.1")
-            require(webUiBindAddress == "127.0.0.1" || webUiBindAddress == "localhost" || webUiBindAddress == "::1") {
-                "timetable-webui.bind-address must be loopback only, actual='$webUiBindAddress'; " +
-                    "use 127.0.0.1 with an authenticated reverse proxy for remote access"
+            require(webUiBindAddress.isNotBlank() && webUiBindAddress.none(Char::isWhitespace)) {
+                "timetable-webui.bind-address must be a non-blank host or IP address"
             }
             val webUiPort = optionalInt(yaml, "timetable-webui.port", 8080)
             require(webUiPort in 1..65535) { "timetable-webui.port must be in 1..65535" }
@@ -167,11 +166,6 @@ data class MineRailsConfig(
             require(publicUri.isAbsolute && publicUri.host != null && publicUri.scheme in setOf("http", "https") &&
                 publicUri.rawQuery == null && publicUri.rawFragment == null
             ) { "timetable-webui.public-url must be an absolute http(s) URL without query or fragment" }
-            val publicHostIsLoopback = publicUri.host == "localhost" || publicUri.host == "::1" ||
-                publicUri.host == "127.0.0.1"
-            require(publicHostIsLoopback || publicUri.scheme == "https") {
-                "timetable-webui.public-url must use https for non-loopback hosts"
-            }
             val webUiShutdownTimeout = optionalLong(
                 yaml,
                 "timetable-webui.shutdown-timeout-millis",

@@ -17,9 +17,9 @@ class WebUiConfigTest {
         assertEquals(8181, config.port());
         assertFalse(config.secureCookies());
     }
-    @Test void rejectsNonLoopbackBind() {
+    @Test void acceptsNonLoopbackBind() {
         System.setProperty("minerails.web.bind", "0.0.0.0");
-        assertThrows(IllegalArgumentException.class, WebUiConfig::fromEnvironment);
+        assertEquals("0.0.0.0", WebUiConfig.fromEnvironment().bindAddress());
     }
     @Test void rejectsInvalidPort() {
         System.setProperty("minerails.web.port", "0");

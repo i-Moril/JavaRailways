@@ -41,7 +41,7 @@ export MINERAILS_TIMETABLE_HTTP_TOKEN='replace-with-a-long-random-token'
 export MINERAILS_BRIDGE_TOKEN="$MINERAILS_TIMETABLE_HTTP_TOKEN"
 ```
 
-Bridge 与 WebUI 首版都强制绑定 loopback；远程访问应通过带 TLS 和身份认证的反向代理。
+Bridge 仍强制绑定 loopback。WebUI 可监听 `0.0.0.0` 并通过 HTTP 直接访问，但服务器会输出明文传输警告；需要传输保密性时使用 HTTPS 反向代理。
 
 ## 独立构建和运行 WebUI
 
@@ -60,13 +60,13 @@ Configuration environment variables:
 | `MINERAILS_BRIDGE_URL` | `http://127.0.0.1:8765/` |
 | `MINERAILS_BRIDGE_TOKEN` | empty; bridge calls fail until set |
 | `MINERAILS_DRAFT_DIR` | `data/drafts` |
-| `MINERAILS_WEB_BIND` | `127.0.0.1`（首版只允许 loopback） |
+| `MINERAILS_WEB_BIND` | `127.0.0.1`；可设为 `0.0.0.0` |
 | `MINERAILS_WEB_PORT` | `8080` |
 | `MINERAILS_WEB_SECURE_COOKIE` | `false`；HTTPS 外部部署必须设为 `true`，managed 模式自动设置 |
 | `MINERAILS_MAX_REQUEST_BYTES` | `1048576` |
 | `MINERAILS_REQUEST_TIMEOUT_MS` | `10000` |
 
-For remote access, keep both processes on loopback and put TLS/authentication in a reverse proxy in front of WebUI.
+Remote plaintext HTTP is supported when explicitly configured. It preserves short-token authentication but does not protect tokens or session traffic from network interception.
 
 ## Development
 

@@ -4,6 +4,7 @@ import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.config.TimetableWebUiMode
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.net.URI
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.TimeUnit
@@ -34,6 +35,17 @@ class TimetableWebUiSidecar(private val plugin: BukkitPlugin) {
         ).toString()
         val bridge = plugin.mineRailsConfig.timetableHttpBridge
         val bridgeHost = if (bridge.bindAddress == "::1") "[::1]" else bridge.bindAddress
+        val loopbackHosts = setOf("127.0.0.1", "localhost", "::1")
+        if (config.bindAddress !in loopbackHosts) {
+            plugin.logger.warning(
+                "Timetable WebUI is listening on non-loopback address '${config.bindAddress}'; " +
+                    "login and session traffic may be exposed without HTTPS"
+            )
+        }
+        val publicUri = URI.create(config.publicUrl)
+        if (publicUri.scheme == "http" && publicUri.host !in loopbackHosts) {
+            plugin.logger.warning("Timetable WebUI public URL uses plaintext HTTP: ${config.publicUrl}")
+        }
         val child = ProcessBuilder(javaExecutable, "-jar", jar.toString())
             .directory(runtimeDirectory.toFile())
             .redirectErrorStream(true)

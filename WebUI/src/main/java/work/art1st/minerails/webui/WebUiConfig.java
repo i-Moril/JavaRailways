@@ -13,8 +13,8 @@ public record WebUiConfig(URI bridgeUrl, String bridgeToken, Path draftDirectory
         String token = value("MINERAILS_BRIDGE_TOKEN", "minerails.bridge.token", "");
         String drafts = value("MINERAILS_DRAFT_DIR", "minerails.draft.dir", "data/drafts");
         String bindAddress = value("MINERAILS_WEB_BIND", "minerails.web.bind", "127.0.0.1");
-        if (!(bindAddress.equals("127.0.0.1") || bindAddress.equals("localhost") || bindAddress.equals("::1"))) {
-            throw new IllegalArgumentException("WebUI bind address must be loopback; use a secured reverse proxy for remote access");
+        if (bindAddress.isBlank() || bindAddress.chars().anyMatch(Character::isWhitespace)) {
+            throw new IllegalArgumentException("WebUI bind address must be a non-blank host or IP address");
         }
         boolean secureCookies = bool(
             "MINERAILS_WEB_SECURE_COOKIE",

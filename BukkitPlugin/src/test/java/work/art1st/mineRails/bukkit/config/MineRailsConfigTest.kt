@@ -121,20 +121,15 @@ class MineRailsConfigTest {
     }
 
     @Test
-    fun `remote WebUI public URL requires https`() {
-        val plaintext = validYaml().apply {
-            set("timetable-webui.public-url", "http://rail.example.com")
-        }
-        val deceptiveHostname = validYaml().apply {
-            set("timetable-webui.public-url", "http://127.attacker.example")
-        }
-        val tls = validYaml().apply {
-            set("timetable-webui.public-url", "https://rail.example.com")
+    fun `WebUI permits explicitly configured remote HTTP listener`() {
+        val yaml = validYaml().apply {
+            set("timetable-webui.bind-address", "0.0.0.0")
+            set("timetable-webui.public-url", "http://rail.example.com:8080")
         }
 
-        assertThrows(IllegalArgumentException::class.java) { MineRailsConfig.fromYaml(plaintext) }
-        assertThrows(IllegalArgumentException::class.java) { MineRailsConfig.fromYaml(deceptiveHostname) }
-        assertEquals("https://rail.example.com", MineRailsConfig.fromYaml(tls).timetableWebUi.publicUrl)
+        val config = MineRailsConfig.fromYaml(yaml).timetableWebUi
+        assertEquals("0.0.0.0", config.bindAddress)
+        assertEquals("http://rail.example.com:8080", config.publicUrl)
     }
 
     @Test

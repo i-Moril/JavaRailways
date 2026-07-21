@@ -148,7 +148,8 @@ data class MineRailsConfig(
             )
             val webUiBindAddress = optionalString(yaml, "timetable-webui.bind-address", "127.0.0.1")
             require(webUiBindAddress == "127.0.0.1" || webUiBindAddress == "localhost" || webUiBindAddress == "::1") {
-                "timetable-webui.bind-address must be loopback only"
+                "timetable-webui.bind-address must be loopback only, actual='$webUiBindAddress'; " +
+                    "use 127.0.0.1 with an authenticated reverse proxy for remote access"
             }
             val webUiPort = optionalInt(yaml, "timetable-webui.port", 8080)
             require(webUiPort in 1..65535) { "timetable-webui.port must be in 1..65535" }

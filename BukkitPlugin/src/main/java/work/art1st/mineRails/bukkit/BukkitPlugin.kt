@@ -12,6 +12,7 @@ import work.art1st.mineRails.bukkit.control.TrainControlManager
 import work.art1st.mineRails.bukkit.control.TrainHandleInputListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugEventListener
 import work.art1st.mineRails.bukkit.debug.TrainDebugLog
+import work.art1st.mineRails.bukkit.http.TimetableHttpBridge
 import work.art1st.mineRails.bukkit.logic.WorldManager
 import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.mineRails.bukkit.render.backend.DisplayRenderBackendFactory
@@ -51,6 +52,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var trainPacketBundles: TrainPacketBundleCoordinator
 
     private var packetEntityRuntime: PacketEntityRuntime? = null
+    private var timetableHttpBridge: TimetableHttpBridge? = null
     var foliaPacketEntityMotion: FoliaPacketEntityMotion? = null
         private set
 
@@ -174,11 +176,14 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         BukkitThreadGuardBridge.runInSimulationContext {
             server.worlds.forEach { worldManager.registerRailWorld(it) }
         }
+        timetableHttpBridge = TimetableHttpBridge(this).also { it.start() }
         worldManager.start()
     }
 
     override fun onDisable() {
         try {
+            runCatching { timetableHttpBridge?.stop() }
+            timetableHttpBridge = null
             if (::worldManager.isInitialized) {
                 worldManager.stop()
                 val worlds = worldManager.railWorlds.keys.toList()

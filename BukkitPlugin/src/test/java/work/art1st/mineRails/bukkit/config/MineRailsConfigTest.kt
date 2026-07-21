@@ -12,7 +12,10 @@ class MineRailsConfigTest {
         val stream = requireNotNull(javaClass.getResourceAsStream("/config.yml"))
         val yaml = stream.use { YamlConfiguration.loadConfiguration(InputStreamReader(it)) }
 
-        assertEquals(DisplayRendererBackend.ENTITYLIB, MineRailsConfig.fromYaml(yaml).displayRenderer.backend)
+        val config = MineRailsConfig.fromYaml(yaml)
+        assertEquals(DisplayRendererBackend.ENTITYLIB, config.displayRenderer.backend)
+        assertEquals(false, config.timetableHttpBridge.enabled)
+        assertEquals("127.0.0.1", config.timetableHttpBridge.bindAddress)
     }
 
     @Test
@@ -40,6 +43,8 @@ class MineRailsConfigTest {
         assertEquals(DisplayRendererBackend.NATIVE, config.displayRenderer.backend)
         assertEquals(PlayerDisplayDistanceDefault.PLAYER_VIEW_DISTANCE, config.displayRenderer.playerDistance.default)
         assertEquals(512.0, config.displayRenderer.playerDistance.maxBlocks)
+        assertEquals(false, config.timetableHttpBridge.enabled)
+        assertEquals("MINERAILS_TIMETABLE_HTTP_TOKEN", config.timetableHttpBridge.bearerTokenEnvironmentVariable)
     }
 
     @Test
@@ -78,6 +83,17 @@ class MineRailsConfigTest {
     }
 
     @Test
+    fun `timetable http bridge requires loopback bind and sane limits`() {
+        val publicBind = validYaml().apply { set("timetable-http-bridge.bind-address", "0.0.0.0") }
+        val badTokenEnv = validYaml().apply { set("timetable-http-bridge.bearer-token-env", "bad-name") }
+        val badLimit = validYaml().apply { set("timetable-http-bridge.body-limit-bytes", 0) }
+
+        assertThrows(IllegalArgumentException::class.java) { MineRailsConfig.fromYaml(publicBind) }
+        assertThrows(IllegalArgumentException::class.java) { MineRailsConfig.fromYaml(badTokenEnv) }
+        assertThrows(IllegalArgumentException::class.java) { MineRailsConfig.fromYaml(badLimit) }
+    }
+
+    @Test
     fun `physics worker threads must be positive`() {
         val yaml = validYaml()
         yaml.set("physics-worker-threads", 0)
@@ -106,5 +122,11 @@ class MineRailsConfigTest {
         set("display-renderer.backend", "native")
         set("display-renderer.player-distance.default", "player-view-distance")
         set("display-renderer.player-distance.max-blocks", 512.0)
+        set("timetable-http-bridge.enabled", false)
+        set("timetable-http-bridge.bind-address", "127.0.0.1")
+        set("timetable-http-bridge.port", 8765)
+        set("timetable-http-bridge.bearer-token-env", "MINERAILS_TIMETABLE_HTTP_TOKEN")
+        set("timetable-http-bridge.body-limit-bytes", 1048576)
+        set("timetable-http-bridge.timeout-millis", 5000)
     }
 }

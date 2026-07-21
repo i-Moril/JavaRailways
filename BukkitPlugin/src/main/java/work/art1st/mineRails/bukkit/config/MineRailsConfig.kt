@@ -9,6 +9,15 @@ data class DisplayRendererConfig(
     val playerDistance: PlayerDisplayDistanceConfig
 )
 
+data class TimetableHttpBridgeConfig(
+    val enabled: Boolean,
+    val bindAddress: String,
+    val port: Int,
+    val bearerTokenEnvironmentVariable: String,
+    val bodyLimitBytes: Int,
+    val timeoutMillis: Long
+)
+
 data class PlayerDisplayDistanceConfig(
     val default: PlayerDisplayDistanceDefault,
     val maxBlocks: Double
@@ -52,7 +61,8 @@ data class MineRailsConfig(
     val derailLateralAccelerationMetersPerSecondSquared: Double,
     val overspeedToleranceKmH: Double,
     val overspeedGraceTicks: Int,
-    val displayRenderer: DisplayRendererConfig
+    val displayRenderer: DisplayRendererConfig,
+    val timetableHttpBridge: TimetableHttpBridgeConfig
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): MineRailsConfig {
@@ -90,6 +100,20 @@ data class MineRailsConfig(
             require(maxDisplayDistance <= MAX_DISPLAY_DISTANCE_BLOCKS) {
                 "display-renderer.player-distance.max-blocks must be <= $MAX_DISPLAY_DISTANCE_BLOCKS"
             }
+            val bridgePort = requireInt(yaml, "timetable-http-bridge.port")
+            require(bridgePort in 1..65535) { "timetable-http-bridge.port must be in 1..65535" }
+            val bridgeBodyLimit = requireInt(yaml, "timetable-http-bridge.body-limit-bytes")
+            require(bridgeBodyLimit in 1..10_485_760) { "timetable-http-bridge.body-limit-bytes must be in 1..10485760" }
+            val bridgeTimeoutMillis = requireLong(yaml, "timetable-http-bridge.timeout-millis")
+            require(bridgeTimeoutMillis in 1L..60_000L) { "timetable-http-bridge.timeout-millis must be in 1..60000" }
+            val bridgeBindAddress = requireString(yaml, "timetable-http-bridge.bind-address")
+            require(bridgeBindAddress == "127.0.0.1" || bridgeBindAddress == "localhost" || bridgeBindAddress == "::1") {
+                "timetable-http-bridge.bind-address must be loopback only"
+            }
+            val tokenEnv = requireString(yaml, "timetable-http-bridge.bearer-token-env")
+            require(tokenEnv.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) {
+                "timetable-http-bridge.bearer-token-env must be an environment variable name"
+            }
             return MineRailsConfig(
                 trainModelUpdatePolicy = policy,
                 trainKeyBindDistance = bindDistance,
@@ -105,6 +129,14 @@ data class MineRailsConfig(
                         default = playerDistanceDefault,
                         maxBlocks = maxDisplayDistance
                     )
+                ),
+                timetableHttpBridge = TimetableHttpBridgeConfig(
+                    enabled = requireBoolean(yaml, "timetable-http-bridge.enabled"),
+                    bindAddress = bridgeBindAddress,
+                    port = bridgePort,
+                    bearerTokenEnvironmentVariable = tokenEnv,
+                    bodyLimitBytes = bridgeBodyLimit,
+                    timeoutMillis = bridgeTimeoutMillis
                 )
             )
         }
@@ -137,6 +169,16 @@ data class MineRailsConfig(
             val raw = yaml.get(path)
             return raw as? Boolean
                 ?: throw IllegalArgumentException("Config key '$path' must be a boolean")
+        }
+
+        private fun requireLong(yaml: YamlConfiguration, path: String): Long {
+            require(yaml.contains(path, true)) { "Missing required config key '$path'" }
+            val raw = yaml.get(path)
+            val number = raw as? Number
+                ?: throw IllegalArgumentException("Config key '$path' must be an integer")
+            val value = number.toLong()
+            require(number.toDouble() == value.toDouble()) { "Config key '$path' must be an integer" }
+            return value
         }
 
         private const val MAX_DISPLAY_DISTANCE_BLOCKS = 4096.0

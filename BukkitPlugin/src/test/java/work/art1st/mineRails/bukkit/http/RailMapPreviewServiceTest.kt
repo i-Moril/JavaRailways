@@ -25,7 +25,8 @@ class RailMapPreviewServiceTest {
         val world=createTestWorld()
         val plugin=BasicPlugin.instanceOrNull()?:BasicPlugin(0).also{BasicPlugin.INSTANCE=it}
         world.registerExtensionData(plugin,BasicWorldData())
-        createStraightRailFromSegments(world,PrimeCurveGenerator.buildStraight(2_000.0,1))
+        // Regression: multiplying the final sample index used to round one ULP past this length.
+        createStraightRailFromSegments(world,PrimeCurveGenerator.buildStraight(53.18068377346187,1))
         RailMapPreviewService(directory).use { service ->
             val source=service.capture("world",world)
             val content=service.render(source)

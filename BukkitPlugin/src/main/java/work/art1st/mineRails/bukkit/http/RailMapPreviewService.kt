@@ -118,7 +118,9 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
             val points=ArrayList<MapPoint>(count)
             repeat(count) { index ->
                 if(index%64==0) ensureActive()
-                val arc=source.curve.totalArcLength*index/(count-1).coerceAtLeast(1)
+                val totalArcLength=source.curve.totalArcLength
+                val arc=if(index==count-1) totalArcLength else
+                    (totalArcLength*index/(count-1).coerceAtLeast(1)).coerceIn(0.0,totalArcLength)
                 val point=source.curve.getPointAt(arc).position
                 points+=MapPoint(arc,point.x(),point.y(),point.z())
             }

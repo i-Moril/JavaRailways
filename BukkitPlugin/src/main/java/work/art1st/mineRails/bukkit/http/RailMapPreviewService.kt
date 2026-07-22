@@ -36,7 +36,9 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
         val rails=liveRails.map { RailSource(it.id.toString(),it.curve) }
         val destinations=world.basicWorldData.destinations.all().map { destination ->
             val role=destination.role
-            MarkerSource(boundedText(destination.id),boundedText(destination.displayName),when(role){
+            // Operational roles own canonical IDs (station@berth / depot@stabling); do not leak the
+            // transient W<n> display name assigned before the role dialog was saved.
+            MarkerSource(boundedText(destination.id),boundedText(destination.id),when(role){
                 is DestinationRole.StationBerthRole->"STATION"
                 is DestinationRole.DepotStablingPointRole->"DEPOT"
                 DestinationRole.Regular->"DESTINATION"

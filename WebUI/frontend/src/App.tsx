@@ -8,6 +8,7 @@ import {
   moveServiceRow, updateGeneratedDeparture, updateRowAction, updateServiceRow,
 } from './schedule';
 import { useI18n } from './i18n';
+import { useTheme } from './theme';
 import type {
   ActionType,
   DraftSummary,
@@ -37,6 +38,7 @@ type View = 'graph' | 'map' | 'lines' | 'services' | 'scripts' | 'simulation';
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
+  const { theme, setTheme } = useTheme();
   const [state, dispatch] = useReducer(reducer, undefined, emptyTimetable);
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [world, setWorld] = useState('');
@@ -145,6 +147,9 @@ export default function App() {
         </select></label>
         <label>{t('common.language')}<select value={locale} onChange={(event) => setLocale(event.target.value as 'zh-CN'|'en-US')}>
           <option value="zh-CN">中文</option><option value="en-US">English</option>
+        </select></label>
+        <label>{t('common.theme')}<select value={theme} onChange={(event)=>setTheme(event.target.value as 'dark'|'light')}>
+          <option value="dark">{t('theme.dark')}</option><option value="light">{t('theme.light')}</option>
         </select></label>
       </div>
     </header>

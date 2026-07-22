@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
-import { clampMapZoom, interpolateTrainPosition, railMapBounds, railSegmentsByVisualHeight, type MapViewport } from './railMap';
+import { clampMapZoom, interpolateTrainPosition, layoutMapLabels, railMapBounds, railSegmentsByVisualHeight, type MapLabelInput, type MapViewport } from './railMap';
 import { useI18n } from './i18n';
+import { useTheme } from './theme';
 import type { RailMapFile, RailMapTrain } from './types';
 
 export function RailMap({world,onError}:{world:string;onError:(message:string)=>void}) {
   const {t}=useI18n();
+  const {theme}=useTheme();
   const canvas=useRef<HTMLCanvasElement>(null);
   const [map,setMap]=useState<RailMapFile>();
   const [trains,setTrains]=useState<RailMapTrain[]>([]);
@@ -34,8 +36,10 @@ export function RailMap({world,onError}:{world:string;onError:(message:string)=>
     const element=canvas.current;if(!element)return;
     const density=devicePixelRatio||1;element.width=size.width*density;element.height=size.height*density;
     const context=element.getContext('2d')!;context.scale(density,density);context.clearRect(0,0,size.width,size.height);
-    context.fillStyle='#07101d';context.fillRect(0,0,size.width,size.height);
-    if(!map){context.fillStyle='#8195af';context.fillText(t('map.loading'),20,30);return;}
+    const styles=getComputedStyle(document.documentElement),color=(name:string,fallback:string)=>styles.getPropertyValue(name).trim()||fallback;
+    const background=color('--canvas-bg','#07101d'),labelColor=color('--canvas-text','#dbe8f7'),railColor=color('--canvas-rail','#7893ad');
+    context.fillStyle=background;context.fillRect(0,0,size.width,size.height);
+    if(!map){context.fillStyle=color('--canvas-label','#8195af');context.fillText(t('map.loading'),20,30);return;}
     const bounds=railMapBounds(map);const spanX=Math.max(1,bounds.maxX-bounds.minX);const spanZ=Math.max(1,bounds.maxZ-bounds.minZ);
     const fit=Math.min((size.width-80)/spanX,(size.height-80)/spanZ);const scale=fit*viewport.zoom;
     const project=(x:number,z:number)=>({x:40+(x-bounds.minX)*scale+viewport.offsetX,y:40+(z-bounds.minZ)*scale+viewport.offsetY});
@@ -43,20 +47,27 @@ export function RailMap({world,onError}:{world:string;onError:(message:string)=>
     for(const segment of railSegmentsByVisualHeight(map)){
       const from=project(segment.from.x,segment.from.z),to=project(segment.to.x,segment.to.z);
       context.beginPath();context.moveTo(from.x,from.y);context.lineTo(to.x,to.y);
-      context.strokeStyle='#07101d';context.lineWidth=9;context.stroke();
+      context.strokeStyle=background;context.lineWidth=9;context.stroke();
       context.beginPath();context.moveTo(from.x,from.y);context.lineTo(to.x,to.y);
-      context.strokeStyle='#7893ad';context.lineWidth=3;context.stroke();
+      context.strokeStyle=railColor;context.lineWidth=3;context.stroke();
     }
+    const labels:MapLabelInput[]=[];
     for(const marker of map.markers){
       const point=project(marker.x,marker.z);context.beginPath();context.arc(point.x,point.y,marker.kind==='STATION'?5:3,0,Math.PI*2);
-      context.fillStyle=marker.kind==='STATION'?'#56c5ff':marker.kind==='DEPOT'?'#ffb454':'#b8c6d8';context.fill();
-      if(viewport.zoom>=1.2||marker.kind==='STATION'){context.fillStyle='#dbe8f7';context.font='11px system-ui';context.fillText(marker.label||marker.id,point.x+7,point.y-5);}
+      const markerColor=marker.kind==='STATION'?'#087caf':marker.kind==='DEPOT'?'#d68117':'#7b8fa4';context.fillStyle=markerColor;context.fill();
+      if(viewport.zoom>=1.2||marker.kind==='STATION')labels.push({id:`marker:${marker.id}`,text:marker.label||marker.id,x:point.x,y:point.y,priority:marker.kind==='STATION'?0:marker.kind==='DEPOT'?1:2,color:labelColor});
     }
     for(const train of trains){const location=interpolateTrainPosition(map,train);if(!location)continue;const point=project(location.x,location.z);
-      context.beginPath();context.arc(point.x,point.y,6,0,Math.PI*2);context.fillStyle=train.derailed?'#ff718b':'#8bd17c';context.fill();
-      context.fillStyle='#fff';context.font='bold 11px system-ui';context.fillText(train.id,point.x+8,point.y+4);
+      context.beginPath();context.arc(point.x,point.y,6,0,Math.PI*2);context.fillStyle=train.derailed?'#d9364f':'#43a65d';context.fill();
+      labels.push({id:`train:${train.id}`,text:train.id,x:point.x,y:point.y,priority:0,color:labelColor});
     }
-  },[map,trains,size,viewport,t]);
+    context.font='11px system-ui';context.lineWidth=1;
+    for(const label of layoutMapLabels(labels,size.width,size.height,(text)=>context.measureText(text).width)){
+      context.strokeStyle=color('--canvas-grid','#30445f');context.beginPath();context.moveTo(label.x,label.y);context.lineTo(label.labelX,label.labelY+label.height/2);context.stroke();
+      context.fillStyle=background;context.fillRect(label.labelX-2,label.labelY-1,label.width+4,label.height+2);
+      context.fillStyle=label.color;context.fillText(label.text,label.labelX+3,label.labelY+11);
+    }
+  },[map,trains,size,viewport,t,theme]);
 
   const position=(event:React.PointerEvent|React.WheelEvent)=>{const bounds=event.currentTarget.getBoundingClientRect();return{x:event.clientX-bounds.left,y:event.clientY-bounds.top};};
   return <section className="rail-map-page"><div className="map-overlay"><strong>{t('map.title')}</strong><span>{t('map.hint')}</span><button onClick={()=>setViewport({zoom:1,offsetX:0,offsetY:0})}>{t('map.reset')}</button></div>

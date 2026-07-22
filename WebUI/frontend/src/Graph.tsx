@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { graphScreenXToTick, layoutGraph, snapTick, zoomGraphViewport, type GraphViewport } from './graph';
+import { graphScreenXToTick, graphServiceColors, layoutGraph, snapTick, zoomGraphViewport, type GraphViewport } from './graph';
 import { useI18n } from './i18n';
+import { useTheme } from './theme';
 import type { LineV1, SavedTimetableV1, WorldMetadata } from './types';
 
-const COLORS = ['#56c5ff', '#ffb454', '#8bd17c', '#d28cff', '#ff718b', '#54d6c5'];
 type DragState =
   | { kind:'point'; service:number; step:number }
   | { kind:'pan'; axis:'x'|'y'|'both'; x:number; y:number; offsetX:number; offsetY:number };
@@ -24,6 +24,7 @@ export function Graph({
   onSelect?: (service: number, step: number) => void;
 }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ width: 900, height: 500 });
   const [viewport, setViewport] = useState<GraphViewport>({ scaleX:1, scaleY:1, offsetX:0, offsetY:0 });
@@ -58,6 +59,10 @@ export function Graph({
     context.scale(density, density);
     context.clearRect(0, 0, size.width, size.height);
     context.font = '12px system-ui';
+    const styles=getComputedStyle(document.documentElement);
+    const color=(name:string,fallback:string)=>styles.getPropertyValue(name).trim()||fallback;
+    const grid=color('--canvas-grid','#30445f'),minorGrid=color('--canvas-grid-minor','#24364d');
+    const label=color('--canvas-label','#a9bad0'),text=color('--canvas-text','#dbe8f7'),serviceColors=graphServiceColors(theme);
     context.save();
     context.beginPath();
     context.rect(0, 0, size.width, size.height);
@@ -68,21 +73,21 @@ export function Graph({
     for (let tick = 0; tick <= period; tick += tickInterval) {
       const x = transformX(layout.tickToX(tick));
       if (x < layout.left || x > size.width) continue;
-      context.strokeStyle = '#24364d';
+      context.strokeStyle = minorGrid;
       context.beginPath();
       context.moveTo(x, 25);
       context.lineTo(x, size.height);
       context.stroke();
-      context.fillStyle = '#8296ad';
+      context.fillStyle = label;
       context.fillText(String(tick), x + 3, 18);
     }
 
     for (const lane of layout.lanes) {
       const y = transformY(lane.y);
       if (y < 30 || y > size.height) continue;
-      context.fillStyle = '#a9bad0';
+      context.fillStyle = label;
       context.fillText(lane.id, 8, y + 4);
-      context.strokeStyle = '#30445f';
+      context.strokeStyle = grid;
       context.beginPath();
       context.moveTo(layout.left, y);
       context.lineTo(size.width, y);
@@ -90,7 +95,7 @@ export function Graph({
     }
 
     for (const path of layout.paths) {
-      const color = COLORS[path.serviceIndex % COLORS.length];
+      const color = serviceColors[path.serviceIndex % serviceColors.length];
       const points = path.points.map((point) => ({ ...point, x:transformX(point.x), y:transformY(point.y) }));
       if (points.length > 1) {
         context.strokeStyle = color;
@@ -105,12 +110,12 @@ export function Graph({
         context.beginPath();
         context.arc(point.x, point.y, 7, 0, Math.PI * 2);
         context.fill();
-        context.fillStyle = '#dbe8f7';
+        context.fillStyle = text;
         context.fillText(`${path.serviceId} · ${point.tick}`, point.x + 9, point.y - 9);
       }
     }
     context.restore();
-  }, [layout, size.width, size.height, value, viewport]);
+  }, [layout, size.width, size.height, value, viewport, theme]);
 
   const position = (event: React.PointerEvent | React.WheelEvent) => {
     const bounds = event.currentTarget.getBoundingClientRect();

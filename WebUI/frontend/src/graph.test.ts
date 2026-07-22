@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { graphScreenXToTick, layoutGraph, snapTick, zoomGraphViewport } from './graph';
+import { graphScreenXToTick, graphServiceColors, layoutGraph, snapTick, zoomGraphViewport } from './graph';
 import type { SavedTimetableV1 } from './types';
 
 const value: SavedTimetableV1 = {
@@ -20,6 +20,11 @@ const value: SavedTimetableV1 = {
 };
 
 describe('graph layout', () => {
+  it('uses light-theme service colors with graphical contrast',()=>{
+    const luminance=(hex:string)=>{const channels=[1,3,5].map((offset)=>parseInt(hex.slice(offset,offset+2),16)/255).map((value)=>value<=.04045?value/12.92:((value+.055)/1.055)**2.4);return .2126*channels[0]+.7152*channels[1]+.0722*channels[2];};
+    const background=luminance('#f7fafc');
+    expect(graphServiceColors('light').every((color)=>(background+.05)/(luminance(color)+.05)>=3)).toBe(true);
+  });
   it('maps time to X and operational locations to Y', () => {
     const layout = layoutGraph(value, 1000);
     expect(layout.lanes.map((lane) => lane.id)).toEqual(['alpha', 'beta']);

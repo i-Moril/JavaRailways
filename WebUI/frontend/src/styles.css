@@ -52,6 +52,12 @@ h1, h2, p { margin-top: 0; }
 .graph:active { cursor: grabbing; }
 .graph-viewport-controls { position: absolute; z-index: 3; top: 9px; right: 10px; display: flex; gap: 4px; }
 .graph-viewport-controls button { min-width: 34px; padding: 4px 7px; background: rgb(13 24 40 / 88%); }
+.rail-map-page { min-width: 0; min-height: 0; height: 100%; position: relative; overflow: hidden; background: #07101d; }
+.rail-map-canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.rail-map-canvas:active { cursor: grabbing; }
+.map-overlay { position: absolute; z-index: 2; top: 10px; left: 12px; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 7px; background: rgb(7 16 29 / 82%); }
+.map-overlay span { color: #8195af; font-size: 11px; }
+.map-overlay button { padding: 4px 7px; }
 .sidebar-toggle { z-index: 3; width: 28px; padding: 0; border-radius: 0; border-block: 0; }
 .sidebar-toggle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
 .editor-sidebar { min-width: 0; overflow: auto; background: #101c2e; border-left: 1px solid #263853; }

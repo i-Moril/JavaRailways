@@ -2,6 +2,7 @@ import { useEffect, useReducer, useState } from 'react';
 import { api } from './api';
 import { emptyAction, emptyTimetable, reducer } from './editor';
 import { Graph } from './Graph';
+import { RailMap } from './RailMap';
 import {
   actionLabel, addRowAction, assignLineToService, canInitializeServiceRows, deleteRowAction, deleteServiceRow, insertServiceRow,
   moveServiceRow, updateGeneratedDeparture, updateRowAction, updateServiceRow,
@@ -32,7 +33,7 @@ const actionTypes = [
   'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'STORE_AT_DEPOT',
   'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS', 'EXTENSION',
 ] as const satisfies readonly ActionType[];
-type View = 'graph' | 'lines' | 'services' | 'scripts' | 'simulation';
+type View = 'graph' | 'map' | 'lines' | 'services' | 'scripts' | 'simulation';
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
@@ -135,7 +136,7 @@ export default function App() {
     <header className="topbar">
       <div className="brand"><h1>{t('app.title')}</h1><span>{t('app.subtitle')}</span></div>
       <nav aria-label={t('nav.primary')}>
-        {(['graph', 'lines', 'services', 'scripts', 'simulation'] as View[]).map((item) =>
+        {(['graph', 'map', 'lines', 'services', 'scripts', 'simulation'] as View[]).map((item) =>
           <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{t(`nav.${item}`)}</button>)}
       </nav>
       <div className="top-controls">
@@ -234,6 +235,7 @@ export default function App() {
       </aside>
     </section>}
 
+    {view === 'map' && <RailMap world={world} onError={setError} />}
     {view === 'services' && <ServicesPage state={state} metadata={metadata} lines={lineCollection.lines} selected={selected} dispatch={dispatch}
       replaceStep={replaceStep} setSelected={setSelected} />}
     {view === 'lines' && <LinesPage world={world} metadata={metadata} collection={lineCollection}

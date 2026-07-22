@@ -12,6 +12,10 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.bukkit.World as BukkitWorld
+import org.bukkit.event.EventHandler
+import org.bukkit.event.HandlerList
+import org.bukkit.event.Listener
+import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.mineRails.basic.api.destination.DestinationRole
 import work.art1st.mineRails.basic.api.line.Line
 import work.art1st.mineRails.basic.api.line.LineCompileResult
@@ -40,16 +44,19 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 
+internal class HttpFailure(val status: Int, message: String) : RuntimeException(message)
+
 private data class LineSimulationSnapshot(
     val revision: Long,
     val profile: SimulationControlProfile,
     val legs: List<SimulationLeg>
 )
 
-class TimetableHttpBridge(private val plugin: BukkitPlugin) {
+class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
     private val json = Json { encodeDefaults = true; prettyPrint = true; ignoreUnknownKeys = true }
     private var server: HttpServer? = null
     private val executor = Executors.newCachedThreadPool { Thread(it, "MineRails-timetable-http").apply { isDaemon = true } }
+    private val railMapPreview = RailMapPreviewService(java.io.File(plugin.dataFolder, "webui-maps"))
     private val simulationExecutor = ThreadPoolExecutor(
         2,
         2,
@@ -71,14 +78,20 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             http.createContext("/", Handler(config.bodyLimitBytes, config.timeoutMillis, token))
             http.start()
         }
+        plugin.server.pluginManager.registerEvents(this,plugin)
         plugin.logger.info("Timetable HTTP bridge listening on ${config.bindAddress}:${config.port}")
     }
 
+    @EventHandler
+    fun onWorldUnload(event:WorldUnloadEvent)=railMapPreview.invalidate(event.world.name)
+
     fun stop() {
+        HandlerList.unregisterAll(this)
         server?.stop(0)
         server = null
         executor.shutdownNow()
         simulationExecutor.shutdownNow()
+        railMapPreview.close()
     }
 
     private inner class Handler(
@@ -121,6 +134,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             when {
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "metadata" -> exchange.respond(200, await { metadataJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "extensions" -> exchange.respond(200, await { extensionsJson(worldName) })
+                exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "rail-map" -> {
+                    val snapshot = await { withWorld(worldName) { _, world ->
+                        railMapPreview.capture(worldName, world as work.art1st.mineRails.core.physics.CoreWorld)
+                    } }
+                    exchange.respond(200, railMapPreview.render(snapshot))
+                }
+                exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "rail-map" && parts[2] == "trains" ->
+                    exchange.respond(200, railMapPreview.trains(worldName))
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "scripts" ->
                     exchange.respond(200, scriptsJson())
                 exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "scripts" -> {
@@ -611,7 +632,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
     }
 
     private enum class RequestState { PENDING, RUNNING, COMPLETED, CANCELLED }
-    private class HttpFailure(val status: Int, message: String) : RuntimeException(message)
 
     private fun HttpExchange.respond(status: Int, body: String) {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)

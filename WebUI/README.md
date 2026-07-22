@@ -68,6 +68,14 @@ Configuration environment variables:
 
 Remote plaintext HTTP is supported when explicitly configured. It preserves short-token authentication but does not protect tokens or session traffic from network interception.
 
+## 世界轨道地图
+
+轨道地图由 Bukkit 的专用、有限队列 worker 生成。simulation context 只快速复制轨道曲线和标记引用；曲线采样、JSON 序列化和原子文件写入全部在线程外完成。地图文件保存在 `plugins/MineRails/webui-maps/`，世界卸载时会立即清除引用、缓存和文件。
+
+列车位置通过共享的认证 SSE 流以 2 Hz 同步。Bukkit 只读取原子发布的不可变 train frame，不会在 HTTP/SSE 线程访问 Bukkit 实体或执行列车物理。同步采用每世界 latest-only 请求，并限制全局/单世界订阅数、worker 队列、轨道数、标记数、总采样点数和序列化大小。浏览器地图最大缩放比例为 8×。
+
+地图按 X/Z 平面绘制并保留 Y 高程。交叉处按局部轨道段高程从低到高绘制；较高轨道先以背景色宽线擦除较低轨道，再绘制自身，从视觉上明确表示两条轨道没有连接。
+
 ## JS 时刻表只读预览
 
 服务器管理员可把脚本放入 `plugins/MineRails/timetables/*.js`，并执行：
@@ -87,7 +95,7 @@ WebUI 的“JS 时刻表”页面只能列出服务器文件、显示只读源�
 ## 线路与隔离模拟
 
 WebUI 会从 Bukkit 运营基础设施自动读取车站、站台、车辆段和列车。线路保存为有 revision
-保护的有序 `stationId` 列表；保存前由 `RoutePlanner` 尝试所有可用站台组合，并选择每一区间
+保护、相互独立的上行/下行有序 `stationId` 列表；保存前由 `RoutePlanner` 尝试所有可用站台组合，并选择每一区间
 最短的合法有向路径。时刻表车次可以绑定线路，运行图据此分线路显示车站顺序。
 
 “模拟”页面只能选择世界中已有列车或已加载车辆模板，不接受手工填写动力参数。Bukkit/Folia

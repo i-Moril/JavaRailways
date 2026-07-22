@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.UnauthorizedResponse;
+import io.javalin.http.sse.SseClient;
 import io.javalin.http.staticfiles.Location;
 
 import java.io.IOException;
@@ -13,6 +14,18 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Standalone browser-facing service. The Bukkit bearer token never leaves this process. */
 public final class WebUiApplication {
@@ -21,6 +34,37 @@ public final class WebUiApplication {
     private final DraftRepository drafts;
     private final BridgeClient bridge;
     private final WebUiSessions sessions = new WebUiSessions(Duration.ofMinutes(30));
+    private final ConcurrentHashMap<String, Queue<TrainSubscriber>> trainStreamClients = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService trainStreamExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "MineRails-webui-train-stream");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final AtomicBoolean trainStreamStarted = new AtomicBoolean();
+    private final ConcurrentHashMap<String, AtomicBoolean> trainPollsInFlight = new ConcurrentHashMap<>();
+    private final ThreadPoolExecutor trainStreamWorkers = new ThreadPoolExecutor(
+        4, 4, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32), runnable -> {
+            Thread thread = new Thread(runnable, "MineRails-webui-train-poll");
+            thread.setDaemon(true);
+            return thread;
+        }, new ThreadPoolExecutor.AbortPolicy()
+    );
+    private final ThreadPoolExecutor trainDeliveryWorkers = new ThreadPoolExecutor(
+        0, 64, 60L, TimeUnit.SECONDS, new SynchronousQueue<>(), runnable -> {
+            Thread thread = new Thread(runnable, "MineRails-webui-train-delivery");
+            thread.setDaemon(true);
+            return thread;
+        }, new ThreadPoolExecutor.AbortPolicy()
+    );
+    private static final int MAX_STREAM_CLIENTS = 64;
+    private static final int MAX_STREAM_CLIENTS_PER_WORLD = 16;
+    private static final class TrainSubscriber {
+        final SseClient client;
+        final String sessionId;
+        final AtomicReference<String> latest = new AtomicReference<>();
+        final AtomicBoolean delivering = new AtomicBoolean();
+        TrainSubscriber(SseClient client, String sessionId) { this.client = client; this.sessionId = sessionId; }
+    }
 
     WebUiApplication(WebUiConfig config) {
         this(config, new ObjectMapper());
@@ -53,6 +97,8 @@ public final class WebUiApplication {
 
         app.get("/api/v1/worlds", context -> proxyGet(context, "worlds"));
         app.get("/api/v1/worlds/{world}/metadata", this::metadata);
+        app.get("/api/v1/worlds/{world}/rail-map", context -> proxyGet(context, worldPath(context) + "/rail-map"));
+        app.sse("/api/v1/worlds/{world}/rail-map/trains", this::trainStream);
         app.get("/api/v1/worlds/{world}/scripts", this::scripts);
         app.get("/api/v1/worlds/{world}/scripts/{script}", this::renderScript);
         app.get("/api/v1/worlds/{world}/lines", this::lines);
@@ -68,6 +114,11 @@ public final class WebUiApplication {
         app.post("/api/v1/worlds/{world}/validate", this::validate);
         app.post("/api/v1/worlds/{world}/publish", this::publish);
 
+        app.events(events -> events.serverStopping(() -> {
+            trainStreamExecutor.shutdownNow();
+            trainStreamWorkers.shutdownNow();
+            trainDeliveryWorkers.shutdownNow();
+        }));
         app.exception(UnauthorizedResponse.class,
             (exception, context) -> error(context, 401, "login required or session expired"));
         app.exception(IllegalArgumentException.class,
@@ -124,6 +175,99 @@ public final class WebUiApplication {
         String id = context.cookie(WebUiSessions.COOKIE_NAME);
         WebUiSessions.Session session = sessions.find(id).orElseThrow(UnauthorizedResponse::new);
         context.attribute("webUiSession", session);
+    }
+
+    private void trainStream(SseClient client) {
+        requireSession(client.ctx());
+        String world = segment(client.ctx().pathParam("world"));
+        Queue<TrainSubscriber> clients = trainStreamClients.computeIfAbsent(world, ignored -> new ConcurrentLinkedQueue<>());
+        synchronized (trainStreamClients) {
+            int totalClients = trainStreamClients.values().stream().mapToInt(Queue::size).sum();
+            if (clients.size() >= MAX_STREAM_CLIENTS_PER_WORLD || totalClients >= MAX_STREAM_CLIENTS) {
+                client.close();
+                return;
+            }
+            client.keepAlive();
+            TrainSubscriber subscriber = new TrainSubscriber(client, client.ctx().cookie(WebUiSessions.COOKIE_NAME));
+            clients.add(subscriber);
+            client.onClose(() -> clients.remove(subscriber));
+        }
+        if (trainStreamStarted.compareAndSet(false, true)) {
+            trainStreamExecutor.scheduleWithFixedDelay(this::broadcastTrainFrames, 0L, 500L, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void broadcastTrainFrames() {
+        trainStreamClients.forEach((world, clients) -> {
+            if (clients.isEmpty()) return;
+            AtomicBoolean inFlight = trainPollsInFlight.computeIfAbsent(world, ignored -> new AtomicBoolean());
+            if (!inFlight.compareAndSet(false, true)) return; // latest-only: skip instead of queueing stale polls
+            try {
+                trainStreamWorkers.execute(() -> pollAndBroadcastWorld(world, clients, inFlight));
+            } catch (RejectedExecutionException rejected) {
+                inFlight.set(false); // bounded pool is busy; the next interval retries
+            }
+        });
+    }
+
+    private void pollAndBroadcastWorld(String world, Queue<TrainSubscriber> clients, AtomicBoolean inFlight) {
+        try {
+            BridgeClient.Response response = bridge.get("worlds/" + world + "/rail-map/trains");
+            if (response.status() >= 400) return;
+            String payload = response.body().toString();
+            clients.removeIf(subscriber -> {
+                SseClient client = subscriber.client;
+                if (client.terminated() || sessions.find(subscriber.sessionId).isEmpty()) {
+                    if (!client.terminated()) client.close();
+                    return true;
+                }
+                subscriber.latest.set(payload); // one latest-only slot per client
+                scheduleTrainDelivery(clients, subscriber);
+                return false;
+            });
+        } catch (IOException ignored) {
+            // The next bounded interval retries; browser clients keep their existing positions.
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        } catch (RuntimeException ignored) {
+            // Keep the shared stream workers alive across transient bridge/configuration failures.
+        } finally {
+            inFlight.set(false);
+            if (clients.isEmpty()) {
+                trainStreamClients.remove(world, clients);
+                trainPollsInFlight.remove(world, inFlight);
+            }
+        }
+    }
+
+    private void scheduleTrainDelivery(Queue<TrainSubscriber> clients, TrainSubscriber subscriber) {
+        if (!subscriber.delivering.compareAndSet(false, true)) return;
+        try {
+            trainDeliveryWorkers.execute(() -> deliverLatestTrainFrame(clients, subscriber));
+        } catch (RejectedExecutionException rejected) {
+            subscriber.delivering.set(false);
+            subscriber.latest.set(null);
+            clients.remove(subscriber);
+            subscriber.client.close();
+        }
+    }
+
+    private void deliverLatestTrainFrame(Queue<TrainSubscriber> clients, TrainSubscriber subscriber) {
+        try {
+            while (!subscriber.client.terminated()) {
+                String payload = subscriber.latest.getAndSet(null);
+                if (payload == null) break;
+                subscriber.client.sendEvent("trains", payload);
+            }
+        } catch (RuntimeException failure) {
+            clients.remove(subscriber);
+            if (!subscriber.client.terminated()) subscriber.client.close();
+        } finally {
+            subscriber.delivering.set(false);
+            if (subscriber.latest.get() != null && clients.contains(subscriber)) {
+                scheduleTrainDelivery(clients, subscriber);
+            }
+        }
     }
 
     private void metadata(Context context) throws IOException, InterruptedException {

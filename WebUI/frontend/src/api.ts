@@ -1,8 +1,9 @@
-import type { DraftSummary, LineCollection, LinePreview, LineSimulationResult, LineV1, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, ValidationResult, WorldMetadata, WorldSummary } from './types';
+import type { DraftSummary, LineCollection, LinePreview, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, ValidationResult, WorldMetadata, WorldSummary } from './types';
 async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...init?.headers }, ...init }); if (!response.ok) throw new Error((await response.text()) || `${response.status} ${response.statusText}`); return response.status === 204 ? undefined as T : response.json(); }
 const base = (worldId: string) => `/api/v1/worlds/${encodeURIComponent(worldId)}`;
 export const api = {
  worlds: () => request<WorldSummary[]>('/api/v1/worlds'), metadata: (worldId: string) => request<WorldMetadata>(`${base(worldId)}/metadata`),
+ railMap: (worldId:string) => request<RailMapFile>(`${base(worldId)}/rail-map`),
  scripts: (worldId: string) => request<TimetableScriptSummary[]>(`${base(worldId)}/scripts`),
  renderScript: (worldId: string, name: string, id?: string) => request<RenderedTimetableScript>(`${base(worldId)}/scripts/${encodeURIComponent(name)}${id ? `?id=${encodeURIComponent(id)}` : ''}`),
  lines: (worldId: string) => request<LineCollection>(`${base(worldId)}/lines`),

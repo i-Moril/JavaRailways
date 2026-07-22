@@ -16,6 +16,11 @@ export interface ServiceEditorRowV1 {
 export interface TimetableServiceV1 { id: string; lineId?:string|null; lineDirection?:LineDirection|null; rows?:ServiceEditorRowV1[]|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
 export interface SavedTimetableV1 { id: string; periodDays: number; services: TimetableServiceV1[] }
 export interface WorldSummary { id: string; name?: string }
+export interface RailMapPoint { arc:number;x:number;y:number;z:number }
+export interface RailMapRail { id:string;elevation:number;points:RailMapPoint[] }
+export interface RailMapMarker { id:string;label:string;kind:'STATION'|'WAYPOINT'|'DEPOT'|'DESTINATION';railId:string;arcLengthMeters:number;x:number;y:number;z:number }
+export interface RailMapFile { formatVersion:number;world:string;runtimeId:string;generatedAtEpochMillis:number;rails:RailMapRail[];markers:RailMapMarker[] }
+export interface RailMapTrain { id:string;revision:number;speedMetersPerSecond:number;derailed:boolean;reversed:boolean;railId:string;arcLengthMeters:number;facing:'AB'|'BA' }
 export interface StationBerthMetadata { stationId:string; stationDisplayName?:string; berthId:string; destinationId:string }
 export interface DepotMetadata { id:string; displayName?:string; stablingPoints:{id:string;destinationId:string}[] }
 export interface SimulationProfileDescriptor { type:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; id:string; displayName:string; carCount:number }

@@ -23,6 +23,13 @@ import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTestWorld
 
 class BasicInfrastructureSnapshotTest {
+    @Test
+    fun `legacy line station list migrates to up and reversed down`() {
+        val line = SavedLineV1("legacy", "Legacy", listOf("a", "b", "c")).restore()
+        assertEquals(listOf("a", "b", "c"), line.upStationIds.map { it.value })
+        assertEquals(listOf("c", "b", "a"), line.downStationIds.map { it.value })
+    }
+
     private val worlds = mutableListOf<work.art1st.mineRails.core.physics.CoreWorld>()
 
     @AfterEach
@@ -142,6 +149,7 @@ class BasicInfrastructureSnapshotTest {
         assertEquals(setOf("metro"), depotRole.allowedTags)
         val restoredLines = restored.basicWorldData.lines.snapshot()
         assertEquals(1L, restoredLines.revision)
-        assertEquals(listOf("central", "south"), restoredLines.lines.single().stationIds.map { it.value })
+        assertEquals(listOf("central", "south"), restoredLines.lines.single().upStationIds.map { it.value })
+        assertEquals(listOf("south", "central"), restoredLines.lines.single().downStationIds.map { it.value })
     }
 }

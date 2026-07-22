@@ -7,11 +7,31 @@ import org.junit.jupiter.api.Test
 import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
 import work.art1st.mineRails.basic.api.station.DoorSide
+import work.art1st.mineRails.basic.api.line.LineDirection
 import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.timetable.*
 import work.art1st.mineRails.basic.timetable.*
 
 class TimetableSnapshotTest {
+    @Test
+    fun `round trips directional WebUI row metadata`() {
+        val saved = SavedTimetableV1(
+            "rows", 1, listOf(SavedTimetableServiceV1(
+                id = "S1", selectorType = SavedTrainSelectorTypeV1.TRAIN_ID, trainId = "T1", steps = emptyList(),
+                lineId = "metro", lineDirection = LineDirection.DOWN,
+                rows = listOf(SavedServiceEditorRowV1(
+                    id = "station-1", type = SavedServiceRowTypeV1.STATION,
+                    status = SavedServiceStopStatusV1.STOP, stationId = "central", berthId = "two",
+                    arrivalTick = 100, departureTick = 140,
+                    actions = listOf(SavedTimetableActionV1(SavedTimetableActionTypeV1.STOP, stopTicks = 20))
+                ))
+            ))
+        )
+        val decoded = TimetableSnapshotCodec.decode(TimetableSnapshotCodec.encode(saved))
+        assertEquals(saved, decoded)
+        assertEquals(saved, SavedTimetableV1.capture(decoded.restore()))
+    }
+
     @Test
     fun `round trips normalized timetable actions`() {
         val timetable = Timetable(
@@ -55,7 +75,8 @@ class TimetableSnapshotTest {
                         TimetableCondition.Predicate(TimetableExtensionCall("example:demand")),
                         TimetableActivationFalseBehavior.SKIP_CYCLE
                     ),
-                    lineId = LineId("metro")
+                    lineId = LineId("metro"),
+                    lineDirection = LineDirection.DOWN
                 )
             )
         )

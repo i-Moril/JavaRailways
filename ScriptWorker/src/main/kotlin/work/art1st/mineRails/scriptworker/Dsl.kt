@@ -25,10 +25,14 @@ class TimetableBuilder(private val id: String) {
         val trainId = selector?.takeUnless { it.isNull }?.let { require(it.isString) { "selector must be a train id or null" }; it.asString() }
         val builder = ServiceBuilder()
         callback.executeVoid(builder)
-        options?.requireOnly(setOf("activation", "lineId"), "service options")
+        options?.requireOnly(setOf("activation", "lineId", "lineDirection"), "service options")
         val activation = options?.member("activation")?.takeUnless { it.isNull }?.let { activation(it) } ?: SavedTimetableActivationV1()
         val lineId = options?.string("lineId")?.also { require(it.isNotBlank()) { "lineId must not be blank" } }
-        services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.buildSteps(), activation, lineId)
+        val lineDirection = options?.string("lineDirection")?.uppercase()?.let {
+            runCatching { SavedLineDirectionV1.valueOf(it) }.getOrElse { error("lineDirection must be UP or DOWN") }
+        }
+        require(lineId != null || lineDirection == null) { "lineDirection requires lineId" }
+        services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.buildSteps(), activation, lineId, lineDirection)
         return this
     }
 

@@ -13,27 +13,56 @@ data class LineId(val value: String) {
     override fun toString(): String = value
 }
 
-/** A reusable ordered station pattern. Berths and physical routes are resolved from live infrastructure. */
+enum class LineDirection { UP, DOWN }
+
+/** A reusable line with independently editable UP and DOWN station patterns. */
 @ConsistentCopyVisibility
 data class Line private constructor(
     val id: LineId,
     val displayName: String,
-    val stationIds: List<StationId>,
+    val upStationIds: List<StationId>,
+    val downStationIds: List<StationId>,
     val color: String? = null
 ) {
+    /** Backward-compatible source alias. New code must select an explicit direction. */
+    val stationIds: List<StationId> get() = upStationIds
+
     constructor(
         id: LineId,
         displayName: String,
         stationIds: Collection<StationId>,
         color: String? = null
-    ) : this(id, displayName, Collections.unmodifiableList(ArrayList(stationIds)), color)
+    ) : this(id, displayName, immutable(stationIds), immutable(stationIds.reversed()), color)
+
+    constructor(
+        id: LineId,
+        displayName: String,
+        upStationIds: Collection<StationId>,
+        downStationIds: Collection<StationId>,
+        color: String? = null
+    ) : this(id, displayName, immutable(upStationIds), immutable(downStationIds), color)
 
     init {
         require(displayName.isNotBlank() && displayName == displayName.trim())
-        require(stationIds.size in 2..128) { "Line must contain between 2 and 128 stations" }
-        require(stationIds.distinct().size == stationIds.size) { "Line stations must not repeat" }
+        validatePattern("UP", upStationIds)
+        validatePattern("DOWN", downStationIds)
         require(color == null || color.matches(Regex("#[0-9a-fA-F]{6}"))) {
             "Line color must be #RRGGBB"
+        }
+    }
+
+    fun stations(direction: LineDirection): List<StationId> = when (direction) {
+        LineDirection.UP -> upStationIds
+        LineDirection.DOWN -> downStationIds
+    }
+
+    companion object {
+        private fun immutable(values: Collection<StationId>): List<StationId> =
+            Collections.unmodifiableList(ArrayList(values))
+
+        private fun validatePattern(name: String, values: List<StationId>) {
+            require(values.size in 2..128) { "$name line pattern must contain between 2 and 128 stations" }
+            require(values.distinct().size == values.size) { "$name line pattern stations must not repeat" }
         }
     }
 }

@@ -32,7 +32,7 @@ describe('graph layout', () => {
     const layout = layoutGraph(value, 1000, 58, 600, {
       stations:[{ stationId:'central', berthId:'one', destinationId:'beta' }],
     }, {
-      id:'line', displayName:'Line', stationIds:['central','terminus'],
+      id:'line', displayName:'Line', upStationIds:['central','terminus'], downStationIds:['terminus','central'],
     });
     expect(layout.height).toBe(600);
     expect(layout.lanes.slice(0,2).map((lane) => lane.id)).toEqual(['central','terminus']);

@@ -25,6 +25,18 @@ class LineStoreTest {
     }
 
     @Test
+    fun `line keeps independent directional station patterns`() {
+        val line = Line(
+            LineId("L1"), "Line",
+            listOf(StationId("A"), StationId("B"), StationId("C")),
+            listOf(StationId("C"), StationId("X"), StationId("A")),
+            "#56c5ff"
+        )
+        assertEquals(listOf("A", "B", "C"), line.stations(LineDirection.UP).map { it.value })
+        assertEquals(listOf("C", "X", "A"), line.stations(LineDirection.DOWN).map { it.value })
+    }
+
+    @Test
     fun `line requires unique ordered stations`() {
         assertThrows(IllegalArgumentException::class.java) {
             Line(LineId("L1"), "Line", listOf(StationId("A"), StationId("A")))

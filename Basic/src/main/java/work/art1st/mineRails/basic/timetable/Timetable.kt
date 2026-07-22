@@ -3,6 +3,7 @@ package work.art1st.mineRails.basic.timetable
 import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
 import work.art1st.mineRails.basic.api.station.DoorSide
+import work.art1st.mineRails.basic.api.line.LineDirection
 import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.timetable.TimetableCondition
 import work.art1st.mineRails.basic.api.timetable.TimetableConditionScope
@@ -47,8 +48,37 @@ data class TimetableService(
     val trainSelector: TrainSelector = TrainSelector.AnyTrain,
     val steps: List<TimetableStep> = emptyList(),
     val activation: TimetableServiceActivation = TimetableServiceActivation.Scheduled,
-    val lineId: LineId? = null
+    val lineId: LineId? = null,
+    val lineDirection: LineDirection? = null,
+    val editorRows: List<TimetableServiceEditorRow>? = null
 )
+
+enum class TimetableServiceRowType { STATION, SPECIAL_DESTINATION, DEPOT_OPERATION, ACTION_ONLY }
+enum class TimetableServiceStopStatus { ORIGIN, STOP, PASS, TERMINAL, DISABLED }
+enum class TimetableServiceDepotOperation { TAKE_FROM_DEPOT, STORE_AT_DEPOT }
+
+/** Authoring metadata persisted with the runtime timetable; generated steps remain execution-authoritative. */
+data class TimetableServiceEditorRow(
+    val id: String,
+    val type: TimetableServiceRowType,
+    val status: TimetableServiceStopStatus? = null,
+    val stationId: String? = null,
+    val berthId: String? = null,
+    val destinationId: String? = null,
+    val tick: Long? = null,
+    val arrivalTick: Long? = null,
+    val departureTick: Long? = null,
+    val depotOperation: TimetableServiceDepotOperation? = null,
+    val depotId: String? = null,
+    val actions: List<TimetableAction> = emptyList()
+) {
+    init {
+        require(id.isNotBlank())
+        require(tick == null || tick >= 0L)
+        require(arrivalTick == null || arrivalTick >= 0L)
+        require(departureTick == null || departureTick >= 0L)
+    }
+}
 
 sealed class TrainSelector {
     data object AnyTrain : TrainSelector()

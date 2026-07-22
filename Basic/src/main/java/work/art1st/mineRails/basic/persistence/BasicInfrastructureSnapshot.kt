@@ -127,17 +127,26 @@ data class SavedOperationalDestinationV1(
 data class SavedLineV1(
     val id: String,
     val displayName: String,
-    val stationIds: List<String>,
-    val color: String? = null
+    /** Legacy UP pattern retained for backward-compatible snapshots. */
+    val stationIds: List<String> = emptyList(),
+    val color: String? = null,
+    val upStationIds: List<String> = emptyList(),
+    val downStationIds: List<String> = emptyList()
 ) {
-    fun restore(): Line = Line(LineId(id), displayName, stationIds.map(::StationId), color)
+    fun restore(): Line {
+        val up = (upStationIds.ifEmpty { stationIds }).map(::StationId)
+        val down = (downStationIds.ifEmpty { up.map { it.value }.reversed() }).map(::StationId)
+        return Line(LineId(id), displayName, up, down, color)
+    }
 
     companion object {
         fun capture(value: Line): SavedLineV1 = SavedLineV1(
-            value.id.value,
-            value.displayName,
-            value.stationIds.map { it.value },
-            value.color
+            id = value.id.value,
+            displayName = value.displayName,
+            stationIds = value.upStationIds.map { it.value },
+            color = value.color,
+            upStationIds = value.upStationIds.map { it.value },
+            downStationIds = value.downStationIds.map { it.value }
         )
     }
 }
@@ -173,7 +182,7 @@ data class BasicInfrastructureSnapshotV1(
         legacyWayPoints.forEach { world.basicWorldData.wayPoints.add(it.restore()) }
         val restoredLines = lines.map(SavedLineV1::restore)
         val stationIds = world.basicWorldData.stations.all().mapTo(HashSet()) { it.id }
-        val missingStations = restoredLines.flatMap { it.stationIds }.filterNot { it in stationIds }.distinct()
+        val missingStations = restoredLines.flatMap { it.upStationIds + it.downStationIds }.filterNot { it in stationIds }.distinct()
         check(missingStations.isEmpty()) {
             "Infrastructure snapshot contains lines with missing stations: ${missingStations.joinToString()}"
         }

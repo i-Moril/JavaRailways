@@ -82,7 +82,7 @@ export function layoutGraph(
     step.type === 'AT' ? destination(step.action) : undefined));
   const discovered = [...serviceLocations.flat(), ...declaredTargets.map((id) => id ? normalizeLocation(id) : id)]
     .filter((id): id is string => Boolean(id));
-  const preferred = line?.stationIds || [];
+  const preferred = line ? Array.from(new Set([...line.upStationIds,...line.downStationIds])) : [];
   const locationIds = Array.from(new Set([...preferred, ...discovered]));
   if (locationIds.length === 0) locationIds.push('No locations');
   const lanes = locationIds.map((id, index) => ({ id, y: 54 + index * rowHeight }));

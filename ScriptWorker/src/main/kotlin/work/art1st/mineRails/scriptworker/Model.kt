@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 @Serializable enum class SavedTrainSelectorTypeV1 { ANY, TRAIN_ID }
+@Serializable enum class SavedLineDirectionV1 { UP, DOWN }
 @Serializable enum class SavedTimetableStepTypeV1 { CHECK, AT }
 @Serializable enum class SavedTimetableConditionTypeV1 { PREDICATE, ALL, ANY, NOT }
 @Serializable enum class SavedTimetableActivationTypeV1 { SCHEDULED, MANUAL, CONDITIONAL }
@@ -25,5 +26,5 @@ import kotlinx.serialization.json.JsonObject
     val elseActions: List<SavedTimetableActionV1> = emptyList()
 )
 @Serializable data class SavedTimetableStepV1(val type: SavedTimetableStepTypeV1, val tick: Long? = null, val wayPointId: String? = null, val action: SavedTimetableActionV1? = null)
-@Serializable data class SavedTimetableServiceV1(val id: String, val selectorType: SavedTrainSelectorTypeV1, val trainId: String? = null, val steps: List<SavedTimetableStepV1>, val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(), val lineId: String? = null)
+@Serializable data class SavedTimetableServiceV1(val id: String, val selectorType: SavedTrainSelectorTypeV1, val trainId: String? = null, val steps: List<SavedTimetableStepV1>, val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(), val lineId: String? = null, val lineDirection: SavedLineDirectionV1? = null)
 @Serializable data class SavedTimetableV1(val id: String, val periodDays: Long, val services: List<SavedTimetableServiceV1>)

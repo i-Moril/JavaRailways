@@ -26,14 +26,14 @@ data class CompiledLineLeg(
 class LinePlanner(private val world: World) {
     private val routePlanner = RoutePlanner(world)
 
-    fun compile(line: Line): LineCompileResult {
+    fun compile(line: Line, direction: LineDirection = LineDirection.UP): LineCompileResult {
         val destinationsByStation = world.basicWorldData.destinations.all().mapNotNull { destination ->
             val role = destination.role as? DestinationRole.StationBerthRole ?: return@mapNotNull null
             role.stationId to destination
         }.groupBy({ it.first }, { it.second })
 
         val legs = ArrayList<CompiledLineLeg>()
-        line.stationIds.zipWithNext().forEachIndexed { index, (fromStation, toStation) ->
+        line.stations(direction).zipWithNext().forEachIndexed { index, (fromStation, toStation) ->
             val starts = destinationsByStation[fromStation].orEmpty()
             val goals = destinationsByStation[toStation].orEmpty()
             if (starts.isEmpty()) return LineCompileResult.Failure(line, index, "Station has no berth: $fromStation")

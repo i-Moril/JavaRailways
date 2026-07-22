@@ -47,5 +47,12 @@ class LinePlannerTest {
         assertTrue(LinePlanner(world).compile(
             Line(LineId("L2"), "Wrong direction", listOf(StationId("a"), StationId("wrong")))
         ) is LineCompileResult.Failure)
+        val directional = Line(
+            LineId("L3"), "Directional",
+            listOf(StationId("a"), StationId("b")),
+            listOf(StationId("a"), StationId("wrong"))
+        )
+        assertTrue(LinePlanner(world).compile(directional, LineDirection.UP) is LineCompileResult.Success)
+        assertTrue(LinePlanner(world).compile(directional, LineDirection.DOWN) is LineCompileResult.Failure)
     }
 }

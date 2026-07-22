@@ -50,6 +50,11 @@ class ScriptWorkerTest {
         assertEquals("SKIP_CYCLE", activation.falseBehavior)
     }
 
+    @Test fun `service line direction is serialized explicitly`() {
+        val result = run("timetable.setPeriodDays(1); timetable.service('s','train',{lineId:'metro',lineDirection:'down'},t=>t.at(1).destination('a'));")
+        assertEquals(SavedLineDirectionV1.DOWN, result.services.single().lineDirection)
+    }
+
     @Test fun `options reject unknown fields and normalize door side`() {
         val result = run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).destination('central@one',{doorSide:'left'}));")
         assertEquals("LEFT", result.services.single().steps.first().action?.doorSideOverride)

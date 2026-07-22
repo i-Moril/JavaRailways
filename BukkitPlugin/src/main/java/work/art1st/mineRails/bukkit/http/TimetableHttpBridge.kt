@@ -15,6 +15,7 @@ import org.bukkit.World as BukkitWorld
 import work.art1st.mineRails.basic.api.destination.DestinationRole
 import work.art1st.mineRails.basic.api.line.Line
 import work.art1st.mineRails.basic.api.line.LineCompileResult
+import work.art1st.mineRails.basic.api.line.LineDirection
 import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.line.LinePlanner
 import work.art1st.mineRails.basic.api.line.LineRevisionConflict
@@ -327,16 +328,17 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
         }
 
         private fun previewLineJson(worldName: String, body: String) = withWorld(worldName) { _, world ->
-            compileLineJson(LinePlanner(world).compile(parseLine(json.parseToJsonElement(body).jsonObject)))
+            compileDirectionalLineJson(LinePlanner(world), parseLine(json.parseToJsonElement(body).jsonObject))
         }
 
         private fun putLineJson(worldName: String, pathId: String, body: String) = withWorld(worldName) { _, world ->
             val root = json.parseToJsonElement(body).jsonObject
             val line = parseLine(root["line"]?.jsonObject ?: root)
             require(line.id.value == pathId) { "path line id does not match body id" }
-            val compilation = LinePlanner(world).compile(line)
-            if (compilation is LineCompileResult.Failure) {
-                throw HttpFailure(422, compilation.reason)
+            val planner = LinePlanner(world)
+            val compilations = LineDirection.entries.associateWith { planner.compile(line, it) }
+            compilations.values.filterIsInstance<LineCompileResult.Failure>().firstOrNull()?.let {
+                throw HttpFailure(422, "${it.line.id} ${compilations.entries.first { entry -> entry.value === it }.key}: ${it.reason}")
             }
             val expected = root["expectedRevision"]?.jsonPrimitive?.content?.toLongOrNull()
                 ?: throw HttpFailure(400, "expectedRevision is required")
@@ -348,7 +350,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             json.encodeToString(buildJsonObject {
                 put("revision", revision)
                 put("line", lineJson(line))
-                put("preview", json.parseToJsonElement(compileLineJson(compilation)))
+                put("preview", json.parseToJsonElement(compileDirectionalLineJson(planner, line)))
             })
         }
 
@@ -358,7 +360,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
                 withWorld(worldName) { _, world ->
                     val data = world.basicWorldData
                     val line = data.lines[LineId(lineId)] ?: throw HttpFailure(404, "line not found: $lineId")
-                    val compilation = LinePlanner(world).compile(line)
+                    val direction = request["direction"]?.jsonPrimitive?.content?.let {
+                        runCatching { LineDirection.valueOf(it.uppercase()) }.getOrElse { throw HttpFailure(400, "direction must be UP or DOWN") }
+                    } ?: LineDirection.UP
+                    val compilation = LinePlanner(world).compile(line, direction)
                     if (compilation !is LineCompileResult.Success) {
                         val failure = compilation as LineCompileResult.Failure
                         throw HttpFailure(422, failure.reason)
@@ -463,17 +468,40 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) {
             val id = value["id"]?.jsonPrimitive?.content ?: throw HttpFailure(400, "line id is required")
             val displayName = value["displayName"]?.jsonPrimitive?.content
                 ?: throw HttpFailure(400, "line displayName is required")
-            val stations = value["stationIds"] as? JsonArray
-                ?: throw HttpFailure(400, "line stationIds is required")
+            val legacy = value["stationIds"] as? JsonArray
+            val up = value["upStationIds"] as? JsonArray ?: legacy
+                ?: throw HttpFailure(400, "line upStationIds is required")
+            val down = value["downStationIds"] as? JsonArray
+            val upIds = up.map { StationId(it.jsonPrimitive.content) }
+            val downIds = down?.map { StationId(it.jsonPrimitive.content) } ?: upIds.reversed()
             val color = value["color"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-            return Line(LineId(id), displayName, stations.map { StationId(it.jsonPrimitive.content) }, color)
+            return Line(LineId(id), displayName, upIds, downIds, color)
         }
 
         private fun lineJson(line: Line) = buildJsonObject {
             put("id", line.id.value)
             put("displayName", line.displayName)
-            put("stationIds", JsonArray(line.stationIds.map { JsonPrimitive(it.value) }))
+            put("stationIds", JsonArray(line.upStationIds.map { JsonPrimitive(it.value) }))
+            put("upStationIds", JsonArray(line.upStationIds.map { JsonPrimitive(it.value) }))
+            put("downStationIds", JsonArray(line.downStationIds.map { JsonPrimitive(it.value) }))
             line.color?.let { put("color", it) }
+        }
+
+        private fun compileDirectionalLineJson(planner: LinePlanner, line: Line): String {
+            val results = LineDirection.entries.associateWith { planner.compile(line, it) }
+            val failures = results.values.filterIsInstance<LineCompileResult.Failure>()
+            return json.encodeToString(buildJsonObject {
+                put("valid", failures.isEmpty())
+                json.parseToJsonElement(compileLineJson(requireNotNull(results[LineDirection.UP]))).jsonObject
+                    .filterKeys { it != "valid" && it != "error" }
+                    .forEach { (key, value) -> put(key, value) }
+                put("directions", buildJsonObject {
+                    results.forEach { (direction, result) ->
+                        put(direction.name, json.parseToJsonElement(compileLineJson(result)))
+                    }
+                })
+                failures.firstOrNull()?.let { put("error", it.reason) }
+            })
         }
 
         private fun compileLineJson(result: LineCompileResult): String = json.encodeToString(

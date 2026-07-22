@@ -16,6 +16,7 @@ type MineRailsServiceCallback = (service: MineRailsServiceBuilder) => void;
 interface MineRailsCondition { readonly __mineRailsCondition: unique symbol }
 interface MineRailsServiceOptions {
   readonly lineId?: string;
+  readonly lineDirection?: 'UP' | 'DOWN';
   readonly activation?:
     | { readonly type: 'scheduled' | 'manual' }
     | { readonly type: 'conditional'; readonly condition: MineRailsCondition; readonly falseBehavior?: 'SKIP_CYCLE' | 'WAIT_UNTIL_TRUE' };

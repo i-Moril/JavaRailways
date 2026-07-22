@@ -2,18 +2,23 @@ import { useEffect, useReducer, useState } from 'react';
 import { api } from './api';
 import { emptyAction, emptyTimetable, reducer } from './editor';
 import { Graph } from './Graph';
-import { assignLineToService, availableStationStatuses, serviceStationRows, updateStationStatus, type ServiceStationRow, type StationStopStatus } from './schedule';
+import {
+  actionLabel, addRowAction, assignLineToService, canInitializeServiceRows, deleteRowAction, deleteServiceRow, insertServiceRow,
+  moveServiceRow, updateGeneratedDeparture, updateRowAction, updateServiceRow,
+} from './schedule';
 import { useI18n } from './i18n';
 import type {
   ActionType,
   DraftSummary,
   LineCollection,
+  LineDirection,
   LinePreview,
   LineSimulationResult,
   LineV1,
   SimulationProfile,
   RenderedTimetableScript,
   SavedTimetableV1,
+  ServiceEditorRowV1,
   TimetableScriptSummary,
   TimetableActionV1,
   TimetableStepV1,
@@ -44,7 +49,6 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState('');
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
-  const [arrivalTimes, setArrivalTimes] = useState<Record<string,number>>({});
   const [busy, setBusy] = useState(false);
 
   const run = async <T,>(operation: () => Promise<T>) => {
@@ -171,7 +175,12 @@ export default function App() {
           <span>{t('editor.graphHint')}</span></div>
         <Graph value={graphValue} metadata={metadata} line={graphLine}
           onSelect={(service, step) => { setSelected({ service:graphServiceIndices[service], step }); setSidebarOpen(true); }}
-          onTick={(service, step, tick) => dispatch({ type: 'PATCH_STEP', service:graphServiceIndices[service], step, tick })} />
+          onTick={(service, step, tick) => {
+            const serviceIndex=graphServiceIndices[service];
+            const current=state.services[serviceIndex];
+            if(current.rows) dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:updateGeneratedDeparture(current,step,tick,metadata)});
+            else dispatch({ type:'PATCH_STEP', service:serviceIndex, step, tick });
+          }} />
       </div>
       <button className="sidebar-toggle" aria-expanded={sidebarOpen} aria-controls="editor-sidebar"
         onClick={() => setSidebarOpen((open) => !open)}>{sidebarOpen ? '›' : '‹'}<span>{sidebarOpen ? t('editor.sidebarHide') : t('editor.sidebarShow')}</span></button>
@@ -190,32 +199,24 @@ export default function App() {
           <label>{t('editor.serviceId')}<input value={selectedService.id} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: selected.service, patch: { id: event.target.value } })} /></label>
           <label>{t('lines.title')}<select value={selectedService.lineId || ''} onChange={(event) => {
             const line=lineCollection.lines.find((item) => item.id===event.target.value);
-            const updated=line ? assignLineToService(selectedService,line,metadata) : { ...selectedService,lineId:null };
-            dispatch({ type:'PATCH_SERVICE', service:selected.service, patch:{ lineId:updated.lineId,steps:updated.steps } });
+            if(line&&selectedService.rows&&!window.confirm(t('editor.confirmResetRows'))) return;
+            const updated=line ? (canInitializeServiceRows(selectedService) ? assignLineToService(selectedService,line,selectedService.lineDirection || 'UP',metadata) : {...selectedService,lineId:line.id}) : { ...selectedService,lineId:null,lineDirection:null,rows:null };
+            dispatch({ type:'PATCH_SERVICE', service:selected.service, patch:updated });
           }}>
             <option value="">{t('common.none')}</option>{lineCollection.lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
           </select></label>
-          <ServiceScheduleTable service={selectedService} serviceIndex={selected.service} line={lineCollection.lines.find((line) => line.id === selectedService.lineId)}
-            metadata={metadata} selectedStep={selected.step} arrivals={arrivalTimes}
-            onArrival={(stationId,tick) => setArrivalTimes((values) => ({ ...values, [`${selectedService.id}:${stationId}`]:tick }))}
-            onSelect={(step) => setSelected({ service:selected.service, step })}
-            onDeparture={(step,tick) => dispatch({ type:'PATCH_STEP', service:selected.service, step, tick })}
-            onStatus={(stationId,status) => {
-              const updated=updateStationStatus(selectedService,stationId,status,metadata);
-              dispatch({ type:'PATCH_SERVICE', service:selected.service, patch:{ steps:updated.steps } });
-              setSelected({ service:selected.service, step:0 });
-            }}
-            onAddAction={(row,typeId) => {
-              const step=row.departureStepIndex ?? selectedService.steps.length;
-              const action=typeId.startsWith('extension|') ? emptyAction('EXTENSION') : emptyAction(typeId as ActionType);
-              if (typeId.startsWith('extension|')) {
-                const [,id,version]=typeId.split('|');
-                action.extensionCall={ typeId:id, version:+version, parameters:{} };
-              }
-              dispatch({ type:'INSERT_STEP', service:selected.service, step, value:{ type:'AT', tick:row.departureTick ?? 0, action } });
-              setSelected({ service:selected.service, step });
-            }} />
-          {selectedStep && <ActionInspector step={selectedStep} metadata={metadata}
+          {selectedService.lineId && <label>{t('editor.lineDirection')}<select value={selectedService.lineDirection || ''} onChange={(event) => {
+            const line=lineCollection.lines.find((item) => item.id===selectedService.lineId);
+            if(!line) return;
+            if(!selectedService.rows) { dispatch({type:'PATCH_SERVICE',service:selected.service,patch:{lineDirection:event.target.value as LineDirection}}); return; }
+            if(!window.confirm(t('editor.confirmResetRows'))) return;
+            const updated=assignLineToService(selectedService,line,event.target.value as LineDirection,metadata);
+            dispatch({type:'PATCH_SERVICE',service:selected.service,patch:updated});
+          }}><option value="" disabled>{t('common.select')}</option><option value="UP">{t('direction.UP')}</option><option value="DOWN">{t('direction.DOWN')}</option></select></label>}
+          {selectedService.rows ? <ServiceScheduleTable service={selectedService} metadata={metadata}
+            onChange={(updated) => dispatch({type:'PATCH_SERVICE',service:selected.service,patch:updated})} />
+            : selectedService.lineId && <p className="empty">{t('editor.legacyRouteNote')}</p>}
+          {!selectedService.rows && selectedStep && <ActionInspector step={selectedStep} metadata={metadata}
             onReplace={(kind) => replaceStep(selected.service, selected.step, kind)}
             onTick={(tick) => dispatch({ type: 'PATCH_STEP', service: selected.service, step: selected.step, tick })}
             onAction={(action) => dispatch({ type: 'PATCH_STEP', service: selected.service, step: selected.step, action })}
@@ -244,46 +245,54 @@ export default function App() {
   </main>;
 }
 
-function ServiceScheduleTable({ service, serviceIndex, line, metadata, selectedStep, arrivals, onArrival, onSelect, onDeparture, onStatus, onAddAction }: {
-  service:SavedTimetableV1['services'][number]; serviceIndex:number; line?:LineV1; metadata:WorldMetadata; selectedStep:number;
-  arrivals:Record<string,number>; onArrival:(stationId:string,tick:number)=>void; onSelect:(step:number)=>void;
-  onDeparture:(step:number,tick:number)=>void; onStatus:(stationId:string,status:StationStopStatus)=>void;
-  onAddAction:(row:ServiceStationRow,typeId:string)=>void;
+function ServiceScheduleTable({ service, metadata, onChange }: {
+  service:SavedTimetableV1['services'][number]; metadata:WorldMetadata; onChange:(value:SavedTimetableV1['services'][number])=>void;
 }) {
   const { t } = useI18n();
-  const rows=serviceStationRows(service,metadata,line);
+  const rows=service.rows || [];
   const extensions=metadata.extensions?.actions || [];
-  if (!line) return <p className="empty">{t('editor.selectLineForSchedule')}</p>;
-  return <div className="schedule-editor">
-    <div className="schedule-header"><span>{t('editor.station')}</span><span>{t('editor.stopStatus')}</span><span>{t('editor.arrivalTime')}</span><span>{t('editor.departureTime')}</span><span>{t('editor.rowActions')}</span></div>
-    {rows.map((row) => {
-      const arrivalKey=`${service.id}:${row.stationId}`;
-      const available=availableStationStatuses(service,row,metadata);
-      return <div className="schedule-row" key={`${serviceIndex}:${row.stationId}`}>
-        <strong title={row.stationId}>{row.displayName}</strong>
-        <select aria-label={`${row.displayName} ${t('editor.stopStatus')}`} value={row.status} onChange={(event) => onStatus(row.stationId,event.target.value as StationStopStatus)}>
-          <option value="ORIGIN" disabled={!available.includes('ORIGIN')}>{t('status.origin')}</option><option value="STOP" disabled={!available.includes('STOP')}>{t('status.stop')}</option>
-          <option value="PASS" disabled={!available.includes('PASS')}>{t('status.pass')}</option><option value="TERMINAL" disabled={!available.includes('TERMINAL')}>{t('status.terminal')}</option>
-        </select>
-        <input aria-label={`${row.displayName} ${t('editor.arrivalTime')}`} type="number" min="0" value={arrivals[arrivalKey] ?? row.arrivalTick ?? ''}
-          placeholder="—" onChange={(event) => onArrival(row.stationId,Math.max(0,+event.target.value))} />
-        <input aria-label={`${row.displayName} ${t('editor.departureTime')}`} type="number" min="0" value={row.departureTick ?? ''} placeholder="—"
-          disabled={row.departureStepIndex == null} onChange={(event) => row.departureStepIndex != null && onDeparture(row.departureStepIndex,Math.max(0,+event.target.value))} />
-        <div className="schedule-actions">
-          {row.departureStepIndex != null && <button className={selectedStep===row.departureStepIndex?'active':''} onClick={() => onSelect(row.departureStepIndex!)}>{t('actions.DESTINATION')}</button>}
-          {row.actionStepIndices.map((stepIndex) => {
-            const action=service.steps[stepIndex].action;
-            const label=action?.type==='EXTENSION' ? action.extensionCall?.typeId || 'EXTENSION' : action?.type==='STOP' ? t('actions.WAIT') : t(`actions.${action?.type || 'DESTINATION'}` as Parameters<typeof t>[0]);
-            return <button key={stepIndex} className={selectedStep===stepIndex?'active':''} onClick={() => onSelect(stepIndex)}>{label}</button>;
-          })}
-          <select aria-label={`${row.displayName} ${t('editor.addAction')}`} value="" onChange={(event) => { if(event.target.value) onAddAction(row,event.target.value); }}>
-            <option value="">＋</option><option value="REVERSE">{t('actions.REVERSE')}</option><option value="STOP">{t('actions.WAIT')}</option><option value="HALT">{t('actions.HALT')}</option>
-            {extensions.map((extension) => <option key={`${extension.typeId}@${extension.version}`} value={`extension|${extension.typeId}|${extension.version}`}>{extension.title}</option>)}
-          </select>
-        </div>
-      </div>;
-    })}
-    <p className="schedule-note">{t('editor.arrivalVisualOnly')}</p>
+  const hasTake=rows.some((row)=>row.depotOperation==='TAKE_FROM_DEPOT');
+  const hasStore=rows.some((row)=>row.depotOperation==='STORE_AT_DEPOT');
+  const patch=(row:ServiceEditorRowV1,value:Partial<ServiceEditorRowV1>)=>onChange(updateServiceRow(service,row.id,value,metadata));
+  const addAction=(row:ServiceEditorRowV1,value:string) => {
+    if(!value) return;
+    const action=value.startsWith('extension|') ? emptyAction('EXTENSION') : emptyAction(value as ActionType);
+    if(value.startsWith('extension|')) { const [,typeId,version]=value.split('|'); action.extensionCall={typeId,version:+version,parameters:{}}; }
+    onChange(addRowAction(service,row.id,action,metadata));
+  };
+  return <div className="schedule-editor row-backed">
+    <div className="schedule-header"><span>{t('editor.rowType')}</span><span>{t('editor.stopStatus')}</span><span>{t('editor.platformOrTarget')}</span><span>{t('editor.arrivalTime')}</span><span>{t('editor.departureTime')}</span><span>{t('editor.rowActions')}</span><span /></div>
+    {rows.map((row,index) => <div className={`schedule-row ${row.status==='DISABLED'?'disabled':''}`} key={row.id}>
+      <strong>{row.type==='STATION' ? (metadata.stations?.find((item)=>item.stationId===row.stationId)?.stationDisplayName || row.stationId) : t(`rowType.${row.type}` as Parameters<typeof t>[0])}</strong>
+      {row.type==='STATION'||row.type==='SPECIAL_DESTINATION' ? <select value={row.status || 'STOP'} onChange={(event)=>patch(row,{status:event.target.value as ServiceEditorRowV1['status']})}>
+        <option value="ORIGIN">{t('status.origin')}</option><option value="STOP">{t('status.stop')}</option><option value="PASS">{t('status.pass')}</option><option value="TERMINAL">{t('status.terminal')}</option><option value="DISABLED">{t('status.disabled')}</option>
+      </select> : row.type==='DEPOT_OPERATION' ? <span>{t(`actions.${row.depotOperation || 'TAKE_FROM_DEPOT'}` as Parameters<typeof t>[0])}</span> : <span>—</span>}
+      {row.type==='STATION' ? <select value={row.berthId || ''} disabled={row.status==='DISABLED'} onChange={(event)=>patch(row,{berthId:event.target.value})}>
+        {(metadata.stations||[]).filter((item)=>item.stationId===row.stationId).map((berth)=><option key={berth.destinationId} value={berth.berthId}>{berth.berthId}</option>)}
+      </select> : row.type==='SPECIAL_DESTINATION' ? <input list="points" value={row.destinationId || ''} onChange={(event)=>patch(row,{destinationId:event.target.value})} />
+        : row.type==='DEPOT_OPERATION' ? <input list="depots" value={row.depotId || ''} disabled={row.depotOperation==='STORE_AT_DEPOT'} onChange={(event)=>patch(row,{depotId:event.target.value})} /> : <span>—</span>}
+      {row.type==='STATION'||row.type==='SPECIAL_DESTINATION' ? <input type="number" min="0" value={row.arrivalTick ?? ''} placeholder="—" onChange={(event)=>patch(row,{arrivalTick:event.target.value===''?null:Math.max(0,+event.target.value)})} /> : <span>—</span>}
+      <input type="number" min="0" disabled={row.depotOperation==='TAKE_FROM_DEPOT'} value={(row.type==='ACTION_ONLY'||row.type==='DEPOT_OPERATION'?row.tick:row.departureTick) ?? ''} placeholder="—" onChange={(event)=>patch(row,row.type==='ACTION_ONLY'||row.type==='DEPOT_OPERATION'?{tick:Math.max(0,+event.target.value)}:{departureTick:Math.max(0,+event.target.value)})} />
+      <div className="schedule-actions">
+        {row.actions.map((action,actionIndex)=><span className="action-chip" key={actionIndex}>{actionLabel(action)}
+          {action.type==='STOP'&&<input type="number" min="1" value={action.stopTicks || 20} onChange={(event)=>onChange(updateRowAction(service,row.id,actionIndex,{...action,stopTicks:Math.max(1,+event.target.value)},metadata))}/>}
+          {action.type==='EXTENSION'&&<textarea aria-label={t('editor.extensionParameters')} defaultValue={JSON.stringify(action.extensionCall?.parameters||{})} onBlur={(event)=>{try{onChange(updateRowAction(service,row.id,actionIndex,{...action,extensionCall:{...action.extensionCall!,parameters:JSON.parse(event.target.value) as Record<string,unknown>}},metadata));}catch{event.currentTarget.setCustomValidity(t('editor.invalidJson'));event.currentTarget.reportValidity();}}} onInput={(event)=>event.currentTarget.setCustomValidity('')}/>}
+          <button className="danger" title={t('editor.deleteAction')} onClick={()=>onChange(deleteRowAction(service,row.id,actionIndex,metadata))}>×</button></span>)}
+        {row.type!=='DEPOT_OPERATION'&&row.status!=='PASS'&&row.status!=='DISABLED'&&<select value="" onChange={(event)=>addAction(row,event.target.value)}><option value="">＋</option>
+          <option value="REVERSE">{t('actions.REVERSE')}</option><option value="STOP">{t('actions.WAIT')}</option><option value="HALT">{t('actions.HALT')}</option>
+          {extensions.map((item)=><option key={`${item.typeId}@${item.version}`} value={`extension|${item.typeId}|${item.version}`}>{item.title}</option>)}
+        </select>}
+      </div>
+      <div className="row-controls"><button disabled={index===0||row.type==='DEPOT_OPERATION'} onClick={()=>onChange(moveServiceRow(service,row.id,-1,metadata))}>↑</button><button disabled={index===rows.length-1||row.type==='DEPOT_OPERATION'} onClick={()=>onChange(moveServiceRow(service,row.id,1,metadata))}>↓</button>
+        <select value="" title={t('editor.insertRow')} onChange={(event)=>{if(event.target.value)onChange(insertServiceRow(service,index+1,event.target.value as ServiceEditorRowV1['type'],metadata));}}><option value="">＋</option><option value="SPECIAL_DESTINATION">{t('rowType.SPECIAL_DESTINATION')}</option><option value="DEPOT_OPERATION" disabled={hasTake&&hasStore}>{t('rowType.DEPOT_OPERATION')}</option><option value="ACTION_ONLY">{t('rowType.ACTION_ONLY')}</option></select>
+        {row.type!=='STATION'&&<button className="danger" onClick={()=>onChange(deleteServiceRow(service,row.id,metadata))}>×</button>}</div>
+    </div>)}
+    <div className="custom-row-buttons"><span>{t('editor.insertRow')}</span>
+      <button onClick={()=>onChange(insertServiceRow(service,rows.length,'SPECIAL_DESTINATION',metadata))}>{t('rowType.SPECIAL_DESTINATION')}</button>
+      <button disabled={hasTake&&hasStore} onClick={()=>onChange(insertServiceRow(service,rows.length,'DEPOT_OPERATION',metadata))}>{t('rowType.DEPOT_OPERATION')}</button>
+      <button onClick={()=>onChange(insertServiceRow(service,rows.length,'ACTION_ONLY',metadata))}>{t('rowType.ACTION_ONLY')}</button>
+    </div>
+    <p className="schedule-note">{t('editor.generatedRouteNote')} {t('editor.arrivalVisualOnly')}</p>
   </div>;
 }
 
@@ -302,11 +311,13 @@ function ServicesPage({ state, metadata, lines, selected, dispatch, replaceStep,
         <input aria-label={t('editor.serviceId')} value={service.id} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: serviceIndex, patch: { id: event.target.value } })} />
         <select aria-label={t('lines.title')} value={service.lineId || ''} onChange={(event) => {
           const line=lines.find((item) => item.id===event.target.value);
-          const updated=line ? assignLineToService(service,line,metadata) : { ...service,lineId:null };
-          dispatch({ type:'PATCH_SERVICE', service:serviceIndex, patch:{ lineId:updated.lineId,steps:updated.steps } });
+          if(line&&service.rows&&!window.confirm(t('editor.confirmResetRows'))) return;
+          const updated=line ? (canInitializeServiceRows(service) ? assignLineToService(service,line,service.lineDirection||'UP',metadata) : {...service,lineId:line.id}) : { ...service,lineId:null,lineDirection:null,rows:null };
+          dispatch({ type:'PATCH_SERVICE', service:serviceIndex, patch:updated });
         }}>
           <option value="">{t('common.none')}</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
         </select>
+        {service.lineId&&<select aria-label={t('editor.lineDirection')} value={service.lineDirection||'UP'} onChange={(event)=>{const line=lines.find((item)=>item.id===service.lineId);if(!line)return;if(!service.rows){dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:{lineDirection:event.target.value as LineDirection}});return;}if(window.confirm(t('editor.confirmResetRows')))dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:assignLineToService(service,line,event.target.value as LineDirection,metadata)});}}><option value="UP">{t('direction.UP')}</option><option value="DOWN">{t('direction.DOWN')}</option></select>}
         <select value={service.selectorType} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: serviceIndex, patch: { selectorType: event.target.value as 'ANY'|'TRAIN_ID', trainId: event.target.value === 'ANY' ? null : service.trainId } })}>
           <option value="ANY">{t('editor.dynamicTrain')}</option><option value="TRAIN_ID">{t('editor.fixedTrain')}</option>
         </select>
@@ -314,10 +325,10 @@ function ServicesPage({ state, metadata, lines, selected, dispatch, replaceStep,
         <select value={service.activation.type} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: serviceIndex, patch: { activation: { type: event.target.value as 'SCHEDULED'|'MANUAL' } } })}>
           <option value="SCHEDULED">{t('editor.scheduled')}</option><option value="MANUAL">{t('editor.manual')}</option>
         </select>
-        <button onClick={() => dispatch({ type: 'ADD_STEP', service: serviceIndex })}>+ {t('editor.addAction')}</button>
+        {!service.rows&&<button onClick={() => dispatch({ type: 'ADD_STEP', service: serviceIndex })}>+ {t('editor.addAction')}</button>}
         <button className="danger" onClick={() => { dispatch({ type: 'DELETE_SERVICE', service: serviceIndex }); setSelected(undefined); }}>{t('common.delete')}</button>
       </div>
-      <table><thead><tr><th>{t('editor.tick')}</th><th>{t('editor.actionType')}</th><th>{t('editor.target')}</th><th>{t('editor.value')}</th><th /></tr></thead>
+      {service.rows?<p className="empty">{t('editor.generatedRouteNote')}</p>:<table><thead><tr><th>{t('editor.tick')}</th><th>{t('editor.actionType')}</th><th>{t('editor.target')}</th><th>{t('editor.value')}</th><th /></tr></thead>
         <tbody>{service.steps.map((step, stepIndex) => <ActionRow key={stepIndex} step={step}
           selected={selected?.service === serviceIndex && selected.step === stepIndex} metadata={metadata}
           onSelect={() => setSelected({ service: serviceIndex, step: stepIndex })}
@@ -326,7 +337,7 @@ function ServicesPage({ state, metadata, lines, selected, dispatch, replaceStep,
           onAction={(action) => dispatch({ type: 'PATCH_STEP', service: serviceIndex, step: stepIndex, action })}
           onCheck={(wayPointId) => dispatch({ type: 'REPLACE_STEP', service: serviceIndex, step: stepIndex, value: { type: 'CHECK', wayPointId } })}
           onDelete={() => dispatch({ type: 'DELETE_STEP', service: serviceIndex, step: stepIndex })} />)}</tbody>
-      </table>
+      </table>}
     </article>)}
   </section>;
 }
@@ -338,19 +349,21 @@ function LinesPage({ world, metadata, collection, onCollection, run }: {
 }) {
   const { t } = useI18n();
   const [selectedId, setSelectedId] = useState('');
-  const [editing, setEditing] = useState<LineV1>({ id:'', displayName:'', stationIds:[], color:'#56c5ff' });
+  const [editing, setEditing] = useState<LineV1>({ id:'', displayName:'', upStationIds:[], downStationIds:[], color:'#56c5ff' });
   const [preview, setPreview] = useState<LinePreview>();
   const stations = Array.from(new Map((metadata.stations || []).map((station) => [station.stationId, station])).values());
   const select = (id:string) => {
     setSelectedId(id); setPreview(undefined);
     const line = collection.lines.find((item) => item.id === id);
-    setEditing(line ? { ...line, stationIds:[...line.stationIds] } : {
+    setEditing(line ? { ...line, upStationIds:[...line.upStationIds], downStationIds:[...line.downStationIds] } : {
       id:`line-${collection.lines.length + 1}`,
       displayName:`Line ${collection.lines.length + 1}`,
-      stationIds:[], color:'#56c5ff',
+      upStationIds:[], downStationIds:[], color:'#56c5ff',
     });
   };
-  const updateStations = (stationIds:string[]) => { setEditing({ ...editing, stationIds }); setPreview(undefined); };
+  const updateStations = (direction:LineDirection,stationIds:string[]) => {
+    setEditing({ ...editing,[direction==='UP'?'upStationIds':'downStationIds']:stationIds }); setPreview(undefined);
+  };
   const saveLine = async () => {
     const result = await run(() => api.saveLine(world, editing, collection.revision));
     if (!result) return;
@@ -363,7 +376,7 @@ function LinesPage({ world, metadata, collection, onCollection, run }: {
     const result = await run(() => api.deleteLine(world, selectedId, collection.revision));
     if (!result) return;
     onCollection({ revision:result.revision, lines:collection.lines.filter((line) => line.id !== selectedId) });
-    setSelectedId(''); setEditing({ id:'', displayName:'', stationIds:[], color:'#56c5ff' }); setPreview(undefined);
+    setSelectedId(''); setEditing({ id:'', displayName:'', upStationIds:[], downStationIds:[], color:'#56c5ff' }); setPreview(undefined);
   };
   return <section className="page-scroll line-page">
     <aside className="line-list card">
@@ -378,26 +391,23 @@ function LinesPage({ world, metadata, collection, onCollection, run }: {
         <label>{t('lines.name')}<input value={editing.displayName} onChange={(event) => setEditing({ ...editing, displayName:event.target.value })} /></label>
         <label>{t('lines.color')}<input type="color" value={editing.color || '#56c5ff'} onChange={(event) => setEditing({ ...editing, color:event.target.value })} /></label>
       </div>
-      <div className="section-title"><h3>{t('lines.orderedStations')}</h3><select value="" onChange={(event) => {
-        if (event.target.value && !editing.stationIds.includes(event.target.value)) updateStations([...editing.stationIds, event.target.value]);
-      }}><option value="">+ {t('lines.addStation')}</option>{stations.filter((station) => !editing.stationIds.includes(station.stationId)).map((station) =>
-        <option key={station.stationId} value={station.stationId}>{station.stationDisplayName || station.stationId}</option>)}</select></div>
-      <ol className="station-order">{editing.stationIds.map((stationId,index) => {
-        const station = stations.find((item) => item.stationId === stationId);
-        return <li key={stationId}><span>{station?.stationDisplayName || stationId}<small>{stationId}</small></span>
-          <button disabled={index===0} onClick={() => updateStations(move(editing.stationIds,index,index-1))}>↑</button>
-          <button disabled={index===editing.stationIds.length-1} onClick={() => updateStations(move(editing.stationIds,index,index+1))}>↓</button>
-          <button className="danger" onClick={() => updateStations(editing.stationIds.filter((id) => id !== stationId))}>×</button></li>;
-      })}</ol>
+      <div className="direction-patterns">{(['UP','DOWN'] as LineDirection[]).map((direction) => {
+        const values=direction==='UP'?editing.upStationIds:editing.downStationIds;
+        return <section className="direction-pattern" key={direction}><div className="section-title"><h3>{t(`direction.${direction}`)}</h3><select value="" onChange={(event) => {
+          if(event.target.value&&!values.includes(event.target.value)) updateStations(direction,[...values,event.target.value]);
+        }}><option value="">+ {t('lines.addStation')}</option>{stations.filter((station)=>!values.includes(station.stationId)).map((station)=><option key={station.stationId} value={station.stationId}>{station.stationDisplayName||station.stationId}</option>)}</select></div>
+        <ol className="station-order">{values.map((stationId,index)=>{const station=stations.find((item)=>item.stationId===stationId);return <li key={stationId}><span>{station?.stationDisplayName||stationId}<small>{stationId}</small></span>
+          <button disabled={index===0} onClick={()=>updateStations(direction,move(values,index,index-1))}>↑</button><button disabled={index===values.length-1} onClick={()=>updateStations(direction,move(values,index,index+1))}>↓</button>
+          <button className="danger" onClick={()=>updateStations(direction,values.filter((id)=>id!==stationId))}>×</button></li>;})}</ol></section>;
+      })}</div>
       <div className="line-actions">
-        <button disabled={editing.stationIds.length < 2} onClick={async () => setPreview(await run(() => api.previewLine(world, editing)))}>{t('lines.preview')}</button>
-        <button className="primary" disabled={editing.stationIds.length < 2 || !editing.id || !editing.displayName} onClick={() => void saveLine()}>{t('common.save')}</button>
+        <button disabled={editing.upStationIds.length < 2 || editing.downStationIds.length < 2} onClick={async () => setPreview(await run(() => api.previewLine(world, editing)))}>{t('lines.preview')}</button>
+        <button className="primary" disabled={editing.upStationIds.length < 2 || editing.downStationIds.length < 2 || !editing.id || !editing.displayName} onClick={() => void saveLine()}>{t('common.save')}</button>
         <button className="danger" disabled={!selectedId} onClick={() => void deleteLine()}>{t('common.delete')}</button>
       </div>
       {preview && <div className={preview.valid ? 'line-preview valid' : 'line-preview invalid'}>
-        {preview.valid ? <><strong>{t('lines.routeValid')}</strong><span>{Math.round(preview.totalLengthMeters || 0)} m</span>
-          <ul>{preview.legs?.map((leg,index) => <li key={index}>{leg.fromStationId} → {leg.toStationId}: {Math.round(leg.lengthMeters)} m</li>)}</ul></>
-          : <><strong>{t('lines.routeInvalid')}</strong><span>{preview.error}</span></>}
+        <strong>{preview.valid?t('lines.routeValid'):t('lines.routeInvalid')}</strong>{preview.error&&<span>{preview.error}</span>}
+        {(['UP','DOWN'] as LineDirection[]).map((direction)=>{const result=preview.directions?.[direction];return result&&<section key={direction}><b>{t(`direction.${direction}`)}</b>{result.valid?<><span>{Math.round(result.totalLengthMeters||0)} m</span><ul>{result.legs?.map((leg,index)=><li key={index}>{leg.fromStationId} → {leg.toStationId}: {Math.round(leg.lengthMeters)} m</li>)}</ul></>:<span>{result.error}</span>}</section>;})}
       </div>}
     </article>
   </section>;
@@ -450,6 +460,7 @@ function SimulationPage({ world, lines, metadata, run }: {
   const { t } = useI18n();
   const [lineId,setLineId] = useState('');
   const [profileKey,setProfileKey] = useState('');
+  const [direction,setDirection] = useState<LineDirection>('UP');
   const [result,setResult] = useState<LineSimulationResult>();
   const profiles = metadata.simulationProfiles || [];
   const selectedProfile = profiles.find((candidate) => `${candidate.type}:${candidate.id}` === profileKey);
@@ -458,6 +469,7 @@ function SimulationPage({ world, lines, metadata, run }: {
       <label>{t('simulation.line')}<select value={lineId} onChange={(event) => { setLineId(event.target.value); setResult(undefined); }}>
         <option value="">{t('common.select')}</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
       </select></label>
+      <label>{t('editor.lineDirection')}<select value={direction} onChange={(event)=>{setDirection(event.target.value as LineDirection);setResult(undefined);}}><option value="UP">{t('direction.UP')}</option><option value="DOWN">{t('direction.DOWN')}</option></select></label>
       <label>{t('simulation.profile')}<select value={profileKey} onChange={(event) => { setProfileKey(event.target.value); setResult(undefined); }}>
         <option value="">{t('common.select')}</option>
         <optgroup label={t('simulation.worldTrains')}>{profiles.filter((profile) => profile.type === 'WORLD_TRAIN').map((profile) =>
@@ -467,7 +479,7 @@ function SimulationPage({ world, lines, metadata, run }: {
       </select></label>
       <button className="primary" disabled={!lineId || !selectedProfile} onClick={async () => {
         if (!selectedProfile) return;
-        const profile:SimulationProfile = { profileType:selectedProfile.type, profileId:selectedProfile.id };
+        const profile:SimulationProfile = { profileType:selectedProfile.type, profileId:selectedProfile.id, direction };
         setResult(await run(() => api.simulateLine(world,lineId,profile)));
       }}>{t('simulation.run')}</button>
     </article>

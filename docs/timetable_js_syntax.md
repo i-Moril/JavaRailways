@@ -173,6 +173,7 @@ const demand = timetable.predicate("operator:demand", { minimum: 2 })
 
 timetable.service("001", "train-001", {
   lineId: "metro",
+  lineDirection: "UP",
   activation: {
     type: "conditional",
     condition: demand,
@@ -183,6 +184,8 @@ timetable.service("001", "train-001", {
   t.at(1000).destination("central@one")
 })
 ```
+
+`lineDirection` 在设置 `lineId` 时可选 `UP` 或 `DOWN`，对应线路中独立维护的上行/下行站序。旧脚本可以省略，但新脚本应显式指定；单独设置 `lineDirection` 而没有 `lineId` 会失败。
 
 `activation.type` 支持：
 

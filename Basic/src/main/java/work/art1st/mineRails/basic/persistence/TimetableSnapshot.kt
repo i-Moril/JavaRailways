@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import work.art1st.mineRails.basic.api.depot.DepotId
 import work.art1st.mineRails.basic.api.depot.DepotTrainSelector
+import work.art1st.mineRails.basic.api.line.LineDirection
 import work.art1st.mineRails.basic.api.line.LineId
 import work.art1st.mineRails.basic.api.station.DoorSide
 import work.art1st.mineRails.basic.api.timetable.*
@@ -275,13 +276,81 @@ data class SavedTimetableStepV1(
 }
 
 @Serializable
+enum class SavedServiceRowTypeV1 { STATION, SPECIAL_DESTINATION, DEPOT_OPERATION, ACTION_ONLY }
+
+@Serializable
+enum class SavedServiceStopStatusV1 { ORIGIN, STOP, PASS, TERMINAL, DISABLED }
+
+/** WebUI authoring metadata. Runtime remains authoritative through the generated steps list. */
+@Serializable
+data class SavedServiceEditorRowV1(
+    val id: String,
+    val type: SavedServiceRowTypeV1,
+    val status: SavedServiceStopStatusV1? = null,
+    val stationId: String? = null,
+    val berthId: String? = null,
+    val destinationId: String? = null,
+    val tick: Long? = null,
+    val arrivalTick: Long? = null,
+    val departureTick: Long? = null,
+    val depotOperation: SavedTimetableActionTypeV1? = null,
+    val depotId: String? = null,
+    val actions: List<SavedTimetableActionV1> = emptyList()
+) {
+    fun restore() = TimetableServiceEditorRow(
+        id = id,
+        type = TimetableServiceRowType.valueOf(type.name),
+        status = status?.let { TimetableServiceStopStatus.valueOf(it.name) },
+        stationId = stationId,
+        berthId = berthId,
+        destinationId = destinationId,
+        tick = tick,
+        arrivalTick = arrivalTick,
+        departureTick = departureTick,
+        depotOperation = depotOperation?.let {
+            when (it) {
+                SavedTimetableActionTypeV1.TAKE_FROM_DEPOT -> TimetableServiceDepotOperation.TAKE_FROM_DEPOT
+                SavedTimetableActionTypeV1.STORE_AT_DEPOT -> TimetableServiceDepotOperation.STORE_AT_DEPOT
+                else -> error("Invalid depot row operation: $it")
+            }
+        },
+        depotId = depotId,
+        actions = actions.map(SavedTimetableActionV1::restore)
+    )
+
+    companion object {
+        fun capture(value: TimetableServiceEditorRow) = SavedServiceEditorRowV1(
+            id = value.id,
+            type = SavedServiceRowTypeV1.valueOf(value.type.name),
+            status = value.status?.let { SavedServiceStopStatusV1.valueOf(it.name) },
+            stationId = value.stationId,
+            berthId = value.berthId,
+            destinationId = value.destinationId,
+            tick = value.tick,
+            arrivalTick = value.arrivalTick,
+            departureTick = value.departureTick,
+            depotOperation = value.depotOperation?.let {
+                when (it) {
+                    TimetableServiceDepotOperation.TAKE_FROM_DEPOT -> SavedTimetableActionTypeV1.TAKE_FROM_DEPOT
+                    TimetableServiceDepotOperation.STORE_AT_DEPOT -> SavedTimetableActionTypeV1.STORE_AT_DEPOT
+                }
+            },
+            depotId = value.depotId,
+            actions = value.actions.map(SavedTimetableActionV1::capture)
+        )
+    }
+}
+
+@Serializable
 data class SavedTimetableServiceV1(
     val id: String,
     val selectorType: SavedTrainSelectorTypeV1,
     val trainId: String? = null,
     val steps: List<SavedTimetableStepV1>,
     val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(),
-    val lineId: String? = null
+    val lineId: String? = null,
+    val lineDirection: LineDirection? = null,
+    val rows: List<SavedServiceEditorRowV1>? = null
 ) {
     fun restore(): TimetableService = TimetableService(
         id = id,
@@ -291,7 +360,9 @@ data class SavedTimetableServiceV1(
         },
         steps = steps.map(SavedTimetableStepV1::restore),
         activation = activation.restore(),
-        lineId = lineId?.let(::LineId)
+        lineId = lineId?.let(::LineId),
+        lineDirection = lineDirection,
+        editorRows = rows?.map(SavedServiceEditorRowV1::restore)
     )
 
     companion object {
@@ -303,7 +374,9 @@ data class SavedTimetableServiceV1(
             trainId = (value.trainSelector as? TrainSelector.TrainId)?.trainId,
             steps = value.steps.map(SavedTimetableStepV1::capture),
             activation = SavedTimetableActivationV1.capture(value.activation),
-            lineId = value.lineId?.value
+            lineId = value.lineId?.value,
+            lineDirection = value.lineDirection,
+            rows = value.editorRows?.map(SavedServiceEditorRowV1::capture)
         )
     }
 }

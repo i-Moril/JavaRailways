@@ -14,7 +14,6 @@ import work.art1st.mineRails.basic.timetable.TimetableDispatcher
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Basic 模块挂在每个 World 上的运营层数据容器。
@@ -56,15 +55,7 @@ data class WayPoint(
 )
 
 class WayPointStore {
-    private val counter = AtomicLong(0L)
     private val wayPoints = ConcurrentHashMap<String, WayPoint>()
-
-    fun nextId(): String {
-        while (true) {
-            val candidate = "W${counter.incrementAndGet()}"
-            if (!wayPoints.containsKey(candidate)) return candidate
-        }
-    }
 
     fun add(wayPoint: WayPoint) {
         require(wayPoint.id.isNotBlank()) { "wayPoint id must not be blank" }

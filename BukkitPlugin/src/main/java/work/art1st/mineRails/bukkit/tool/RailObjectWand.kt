@@ -156,6 +156,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private val markerEntities =
         ConcurrentHashMap<UUID, ConcurrentHashMap<String, MarkerHandle>>()
     private val editingWayPoint = mutableMapOf<UUID, String>()
+    /** Unsaved clicks stay private to the dialog; no synthetic W<n> destination is registered or rendered. */
+    private val pendingWayPoints = mutableMapOf<UUID, WayPoint>()
     private val heavyOperationGate = PlayerOperationGate()
     private val visibleDirectionRails = ConcurrentHashMap<UUID, MutableSet<UUID>>()
     private val visibleApproachWayPoints = ConcurrentHashMap<UUID, MutableSet<String>>()
@@ -487,40 +489,15 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     return@supply
                 }
 
-                val store = liveCoreWorld.basicWorldData.wayPoints
-                val id = store.nextId()
-                val destination = OperationalDestination(
-                    id = id,
-                    displayName = id,
+                val pendingId = "pending:${livePlayer.uniqueId}:${System.nanoTime()}"
+                val wayPoint = WayPoint(
+                    id = pendingId,
+                    displayName = "",
                     railId = rail.id,
-                    arcLengthInAbMeters = pointedRail.arcLength,
-                    approachDirection = null,
-                    role = DestinationRole.Regular
+                    arcLength = pointedRail.arcLength
                 )
-                try {
-                    OperationalDestinationService(liveCoreWorld).register(destination)
-                } catch (failure: Exception) {
-                    livePlayer.sendActionBar(
-                        Component.text(
-                            "Destination 创建失败: ${failure.message ?: failure::class.java.simpleName}",
-                            NamedTextColor.RED
-                        )
-                    )
-                    return@supply
-                }
-                val wayPoint = destination.toWayPoint()
-                spawnOrReplaceMarker(livePlayer, wayPoint)
-
-                livePlayer.sendMessage(
-                    RailObjectWandI18n.component(
-                        livePlayer,
-                        "waypoint.created",
-                        id,
-                        rail.id,
-                        pointedRail.arcLength
-                    ).color(NamedTextColor.GREEN)
-                )
-                showWayPointDialog(livePlayer, id, getState(livePlayer).defaultWayPointType)
+                pendingWayPoints[livePlayer.uniqueId] = wayPoint
+                showWayPointDialog(livePlayer, pendingId, getState(livePlayer).defaultWayPointType)
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
@@ -803,12 +780,13 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         preferredRole: DestinationRoleType? = null
     ) {
         val coreWorld = getCoreWorld(player) ?: return
-        val wayPoint = coreWorld.basicWorldData.wayPoints[wayPointId] ?: return
+        val pending = pendingWayPoints[player.uniqueId]?.takeIf { it.id == wayPointId }
+        val wayPoint = coreWorld.basicWorldData.wayPoints[wayPointId] ?: pending ?: return
         editingWayPoint[player.uniqueId] = wayPointId
         val destination = coreWorld.basicWorldData.destinations[wayPointId]
         val role = destination?.role ?: DestinationRole.Regular
         val session = configUI.getPlayerSession(player.uniqueId)
-        session.setValue(editKeys.name, wayPoint.id)
+        session.setValue(editKeys.name, if (pending != null) "" else wayPoint.id)
         session.setValue(editKeys.role, preferredRole ?: role.type)
         session.setValue(
             editKeys.approachDirection,
@@ -837,7 +815,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val coreWorld = getCoreWorld(player) ?: return
         val session = configUI.getPlayerSession(player.uniqueId)
         val rawName = session.getValue(editKeys.name) ?: oldId
-        val legacyWayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: return
+        val pending = pendingWayPoints.remove(player.uniqueId)?.takeIf { it.id == oldId }
+        val legacyWayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: pending ?: return
         val original = coreWorld.basicWorldData.destinations[oldId]
         val updated = try {
             applyRailObjectDestinationEdit(
@@ -871,8 +850,10 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         }
         try {
             val destinationService = OperationalDestinationService(coreWorld)
-            if (coreWorld.basicWorldData.destinations[oldId] != null) {
+            if (original != null) {
                 destinationService.replace(oldId, updated)
+            } else if (pending != null) {
+                destinationService.register(updated)
             } else {
                 coreWorld.basicWorldData.wayPoints.remove(oldId)
                 try {
@@ -888,7 +869,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             )
             return
         }
-        renameMarker(oldId, updated.id, updated.displayName)
+        if (pending == null) renameMarker(oldId, updated.id, updated.id)
+        spawnOrReplaceMarker(player, updated.toWayPoint())
         player.sendMessage(
             RailObjectWandI18n.component(
                 player,
@@ -1016,6 +998,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     override fun onPlayerQuit(player: Player, state: RailObjectWandState) {
         clearMarkersForPlayer(player)
         editingWayPoint.remove(player.uniqueId)
+        pendingWayPoints.remove(player.uniqueId)
         heavyOperationGate.clear(player.uniqueId)
         visibleDirectionRails.remove(player.uniqueId)
         visibleApproachWayPoints.remove(player.uniqueId)

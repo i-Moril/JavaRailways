@@ -64,30 +64,6 @@ class RailObjectDestinationEditTest {
     }
 
     @Test
-    fun `station role replaces a legacy synthetic W display name with its canonical id`() {
-        val railId = UUID.randomUUID()
-        val original = OperationalDestination(
-            id = "W7",
-            displayName = "W7",
-            railId = railId,
-            arcLengthInAbMeters = 10.0
-        )
-        val updated = applyRailObjectDestinationEdit(
-            WayPoint("W7", "W7", railId, 10.0),
-            original,
-            RailObjectDestinationEdit(
-                id = "",
-                roleType = DestinationRoleType.STATION_BERTH,
-                approachDirection = null,
-                stationId = "central",
-                berthId = "one"
-            )
-        )
-        assertEquals("central@one", updated.id)
-        assertEquals("central@one", updated.displayName)
-    }
-
-    @Test
     fun `editing can remove a destination approach restriction`() {
         val railId = UUID.randomUUID()
         val original = OperationalDestination(

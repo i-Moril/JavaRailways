@@ -156,7 +156,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private val markerEntities =
         ConcurrentHashMap<UUID, ConcurrentHashMap<String, MarkerHandle>>()
     private val editingWayPoint = mutableMapOf<UUID, String>()
-    /** Unsaved clicks stay private to the dialog; no synthetic W<n> destination is registered or rendered. */
+    /** Unsaved clicks stay private to the dialog and are never registered or rendered. */
     private val pendingWayPoints = mutableMapOf<UUID, WayPoint>()
     private val heavyOperationGate = PlayerOperationGate()
     private val visibleDirectionRails = ConcurrentHashMap<UUID, MutableSet<UUID>>()

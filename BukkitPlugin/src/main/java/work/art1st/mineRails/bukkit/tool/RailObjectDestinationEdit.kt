@@ -81,12 +81,7 @@ internal fun applyRailObjectDestinationEdit(
             role.stablingPointId
         )
     }
-    val syntheticId = Regex("W\\d+")
-    val displayName = original?.displayName
-        ?.takeUnless(syntheticId::matches)
-        ?.takeIf(String::isNotBlank)
-        ?: wayPoint.displayName.takeUnless(syntheticId::matches)?.takeIf(String::isNotBlank)
-        ?: id
+    val displayName = original?.displayName ?: wayPoint.displayName.ifBlank { id }
     return OperationalDestination(
         id = id,
         displayName = displayName,

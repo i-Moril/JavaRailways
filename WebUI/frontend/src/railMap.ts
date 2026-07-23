@@ -1,6 +1,13 @@
 import type { RailMapFile, RailMapPoint, RailMapTrain } from './types';
 
 export const MAX_RAIL_MAP_ZOOM=8;
+export const MAP_PADDING=40;
+export const RAIL_STROKE_WIDTH=3;
+export const RAIL_CASING_WIDTH=9;
+export const STATION_MARKER_RADIUS=5;
+export const DESTINATION_MARKER_RADIUS=3;
+export const TRAIN_MARKER_RADIUS=6;
+export const CONNECTED_ELEVATION_TOLERANCE_METERS=2;
 export interface MapViewport { zoom:number;offsetX:number;offsetY:number }
 export interface MapBounds { minX:number;maxX:number;minZ:number;maxZ:number }
 
@@ -11,6 +18,10 @@ export function railMapBounds(map:RailMapFile):MapBounds {
 }
 
 export function clampMapZoom(value:number):number{return Math.max(0.5,Math.min(MAX_RAIL_MAP_ZOOM,value));}
+export function zoomMapViewport(viewport:MapViewport,zoom:number,anchor:{x:number;y:number},origin=MAP_PADDING):MapViewport{
+  const next=clampMapZoom(zoom),ratio=next/viewport.zoom;
+  return {zoom:next,offsetX:anchor.x-origin-(anchor.x-origin-viewport.offsetX)*ratio,offsetY:anchor.y-origin-(anchor.y-origin-viewport.offsetY)*ratio};
+}
 
 export function interpolateTrainPosition(map:RailMapFile,train:RailMapTrain):RailMapPoint|undefined {
   const points=map.rails.find((rail)=>rail.id===train.railId)?.points;
@@ -80,4 +91,13 @@ export interface RailMapSegment { railId:string; elevation:number; from:RailMapP
 export function railSegmentsByVisualHeight(map:RailMapFile):RailMapSegment[]{
   return map.rails.flatMap((rail)=>rail.points.slice(1).map((to,index)=>({railId:rail.id,from:rail.points[index],to,elevation:(rail.points[index].y+to.y)/2})))
     .sort((a,b)=>a.elevation-b.elevation);
+}
+export function railSegmentVisualLayers(map:RailMapFile,tolerance=CONNECTED_ELEVATION_TOLERANCE_METERS):RailMapSegment[][]{
+  const layers:RailMapSegment[][]=[];
+  for(const segment of railSegmentsByVisualHeight(map)){
+    const layer=layers.at(-1);
+    if(!layer||segment.elevation-layer[0].elevation>tolerance)layers.push([segment]);
+    else layer.push(segment);
+  }
+  return layers;
 }

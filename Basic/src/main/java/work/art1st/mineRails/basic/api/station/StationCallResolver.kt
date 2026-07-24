@@ -10,6 +10,7 @@ import work.art1st.mineRails.basic.route.RouteBuildResult
 import work.art1st.mineRails.basic.route.RoutePlanner
 import work.art1st.mineRails.core.api.physics.World
 import work.art1st.mineRails.core.api.physics.rail.RailObjectLifecycleState
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.util.annotation.MainThread
 
 data class StationCallRequest(
@@ -71,7 +72,8 @@ class StationCallResolver(private val world: World) {
     @MainThread
     fun resolve(
         request: StationCallRequest,
-        trainLengthMeters: Double? = null
+        trainLengthMeters: Double? = null,
+        requiredStartDirection: ViewDirection? = null
     ): StationCallResolutionResult {
         require(trainLengthMeters == null || trainLengthMeters.isFinite() && trainLengthMeters > 0.0)
         val data = world.basicWorldData
@@ -123,12 +125,17 @@ class StationCallResolver(private val world: World) {
         val expanded = when (val result = routePlanner.buildRoute(
             origin,
             target,
-            requiredGoalDirection = berth.approachDirection
+            requiredGoalDirection = berth.approachDirection,
+            requiredStartDirection = requiredStartDirection
         )) {
             is RouteBuildResult.Success -> result.route
             is RouteBuildResult.Failure -> {
                 val reachableWithoutDirection = berth.approachDirection != null &&
-                    routePlanner.buildRoute(origin, target) is RouteBuildResult.Success
+                    routePlanner.buildRoute(
+                        origin,
+                        target,
+                        requiredStartDirection = requiredStartDirection
+                    ) is RouteBuildResult.Success
                 val type = if (reachableWithoutDirection) {
                     StationCallResolutionFailure.BERTH_DIRECTION_UNAVAILABLE
                 } else {

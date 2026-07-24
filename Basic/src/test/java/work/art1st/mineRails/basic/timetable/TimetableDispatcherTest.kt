@@ -42,6 +42,8 @@ import work.art1st.mineRails.core.physics.train.createTestWorld
 import work.art1st.mineRails.core.physics.train.createTrainWithConfig
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.mineRails.core.util.AsyncTickTestSupport
+import work.art1st.mineRails.core.util.ThreadGuard
+import work.art1st.mineRails.core.util.ThreadGuardPlatformBridge
 
 class TimetableDispatcherTest {
     @Test
@@ -184,7 +186,7 @@ class TimetableDispatcherTest {
                         "s1",
                         steps = listOf(
                             TimetableStep.At(
-                                0L,
+                                5L,
                                 TimetableAction.TakeFromDepot(
                                     DepotTrainSelector(
                                         depotId,
@@ -193,20 +195,227 @@ class TimetableDispatcherTest {
                                     )
                                 )
                             ),
-                            TimetableStep.At(0L, TimetableAction.GoTo("B"))
+                            TimetableStep.At(5L, TimetableAction.GoTo("B"))
                         )
                     )
                 )
             )
         )
 
-        val started = dispatcher.startService(world, "tt", "s1") as
-            TimetableServiceStartResult.Started
+        assertTrue(dispatcher.beginTimetable(world, "tt") is TimetableEpochStartResult.Started)
+        assertTrue(dispatcher.scheduleInitialCycle("tt"))
+        repeat(4) { dispatcher.tick(world) }
+        assertEquals(RollingStockState.AVAILABLE, data.depots.rollingStock(train.id)?.state)
+        assertEquals(null, dispatcher.status(TimetableServiceRunId("tt", "s1")))
+        dispatcher.tick(world)
+        val started = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
 
-        assertEquals(train.id, started.run.trainId)
+        assertEquals(train.id, started.trainId)
         assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
         assertEquals("tt/s1@cycle-0", data.depots.rollingStock(train.id)?.assignmentId)
         assertTrue(train.controller is SimpleATO)
+    }
+
+    @Test
+    fun `takeFromWaypoint acquires a stopped unassigned train at the scheduled tick`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-waypoint", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("platform-train", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("platform@1", "Platform 1", rail.id, originArc))
+        data.wayPoints.add(WayPoint("next", "Next", rail.id, originArc + 30.0))
+        data.timetables.add(
+            Timetable(
+                "waypoint-tt",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(
+                                3L,
+                                TimetableAction.TakeFromWaypoint(
+                                    listOf("empty-siding", "platform@1")
+                                )
+                            ),
+                            TimetableStep.At(3L, TimetableAction.GoTo("next"))
+                        )
+                    )
+                )
+            )
+        )
+        data.wayPoints.add(WayPoint("empty-siding", "Empty siding", rail.id, 5.0))
+
+        val early = dispatcher.startService(world, "waypoint-tt", "s1")
+        assertTrue(early is TimetableServiceStartResult.Failure)
+        assertEquals(null, train.controller)
+        repeat(3) { dispatcher.tick(world) }
+        val started = dispatcher.startService(world, "waypoint-tt", "s1") as
+            TimetableServiceStartResult.Started
+
+        assertEquals(train.id, started.run.trainId)
+        assertTrue(train.controller is SimpleATO)
+        assertFalse(data.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `takeFromWaypoint failure stalls the world`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-waypoint-failure", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        data.wayPoints.add(WayPoint("empty", "Empty", rail.id, 10.0))
+        data.wayPoints.add(WayPoint("next", "Next", rail.id, 40.0))
+        data.timetables.add(
+            Timetable(
+                "waypoint-failure",
+                services = listOf(
+                    TimetableService(
+                        "s1",
+                        steps = listOf(
+                            TimetableStep.At(0L, TimetableAction.TakeFromWaypoint(listOf("empty"))),
+                            TimetableStep.At(0L, TimetableAction.GoTo("next"))
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = dispatcher.startService(world, "waypoint-failure", "s1")
+
+        assertTrue(result is TimetableServiceStartResult.Failure)
+        assertTrue(data.atoCoordinator.isStalled)
+        assertEquals("TrainAcquisitionFailure", data.atoCoordinator.lastStall?.errorType)
+    }
+
+    @Test
+    fun `takeFromDepot selects an unregistered train physically stopped at a stabling point`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("physical-depot-selection", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
+        val train = createTrainWithConfig("T-physical", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        OperationalDestinationService(world).register(
+            OperationalDestination(
+                "north@1",
+                "North 1",
+                rail.id,
+                originArc,
+                ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole("north", "1", usableLengthMeters = 20.0)
+            )
+        )
+        data.wayPoints.add(WayPoint("next", "Next", rail.id, originArc + 80.0))
+        data.timetables.add(Timetable(
+            "physical-depot",
+            services = listOf(TimetableService(
+                "s1",
+                steps = listOf(
+                    TimetableStep.At(
+                        0L,
+                        TimetableAction.TakeFromDepot(DepotTrainSelector(DepotId("north")))
+                    ),
+                    TimetableStep.At(0L, TimetableAction.GoTo("next"))
+                )
+            ))
+        ))
+
+        val result = dispatcher.startService(world, "physical-depot", "s1")
+
+        assertTrue(result is TimetableServiceStartResult.Started, result.toString())
+        assertEquals(train.id, (result as TimetableServiceStartResult.Started).run.trainId)
+        assertEquals(null, data.depots.rollingStock(train.id))
+        assertTrue(!data.atoCoordinator.isStalled)
+
+        assertEquals(1, dispatcher.forceDiscardTimetable(world, "physical-depot"))
+        assertEquals(null, dispatcher.status(TimetableServiceRunId("physical-depot", "s1")))
+        assertEquals(null, train.controller)
+    }
+
+    @Test
+    fun `leading reverse enters the normal reversing state before the first Mission`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("leading-reverse", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
+        val train = createTrainWithConfig("T-reverse", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        OperationalDestinationService(world).register(OperationalDestination(
+            "north@1",
+            "North 1",
+            rail.id,
+            originArc,
+            ViewDirection.AB,
+            DestinationRole.DepotStablingPointRole("north", "1", usableLengthMeters = 20.0)
+        ))
+        data.wayPoints.add(WayPoint("next", "Next", rail.id, originArc + 80.0))
+        data.timetables.add(Timetable(
+            "reverse-start",
+            services = listOf(TimetableService(
+                "s1",
+                steps = listOf(
+                    TimetableStep.At(
+                        0L,
+                        TimetableAction.TakeFromDepot(DepotTrainSelector(DepotId("north")))
+                    ),
+                    TimetableStep.At(0L, TimetableAction.Reverse),
+                    TimetableStep.At(0L, TimetableAction.GoTo("next"))
+                )
+            ))
+        ))
+
+        val result = try {
+            ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+                override fun isMainThread(): Boolean = true
+            })
+            dispatcher.startService(world, "reverse-start", "s1")
+        } finally {
+            ThreadGuard.clearPlatformBridge()
+        }
+
+        assertTrue(result is TimetableServiceStartResult.Started, result.toString())
+        val status = (result as TimetableServiceStartResult.Started).run
+        assertEquals(TimetableServiceRunState.REVERSING, status.state)
+        assertEquals(0L, status.missionRevision)
+        assertFalse(train.isReversed)
+        val stagedAto = train.controller as SimpleATO
+        tickAndPublish(stagedAto, 1_000.0)
+        try {
+            ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+                override fun isMainThread(): Boolean = true
+            })
+            dispatcher.tick(world)
+        } finally {
+            ThreadGuard.clearPlatformBridge()
+        }
+        assertTrue(train.isReversed)
+        assertEquals(0.0, train.speed, 1.0e-9)
+        assertEquals(0.0, stagedAto.lifetimeTravelDistanceMeters, 1.0e-9)
+        assertTrue(!data.atoCoordinator.isStalled)
     }
 
     @Test
@@ -330,7 +539,10 @@ class TimetableDispatcherTest {
             )
         )
         val departure = dispatcher.startService(world, "tt-depart-again", "s1")
-        assertTrue(departure is TimetableServiceStartResult.Started, departure.toString())
+        assertTrue(
+            departure is TimetableServiceStartResult.Started,
+            "$departure stall=${data.atoCoordinator.lastStall?.message}"
+        )
         val departureAto = train.controller as SimpleATO
         repeat(2_000) {
             tickAndPublish(departureAto)

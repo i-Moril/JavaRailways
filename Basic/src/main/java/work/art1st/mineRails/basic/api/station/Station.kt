@@ -57,7 +57,7 @@ class StationBerth(
     override val location: RailLocation,
     val approachDirection: ViewDirection? = null,
     val stoppingOffsetMetersBefore: Double = 0.0,
-    val positionToleranceMeters: Double = 0.25,
+    val positionToleranceMeters: Double = DEFAULT_POSITION_TOLERANCE_METERS,
     val usableLengthMeters: Double? = null,
     val defaultDwellTicks: Long? = null,
     val releaseDistanceMetersAfter: Double = 0.0,
@@ -80,6 +80,10 @@ class StationBerth(
 
     internal fun markRemoved() {
         lifecycleState = RailObjectLifecycleState.REMOVED
+    }
+
+    companion object {
+        const val DEFAULT_POSITION_TOLERANCE_METERS = 1.0
     }
 }
 

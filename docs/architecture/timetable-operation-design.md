@@ -159,12 +159,16 @@ RollingStockRecord
 目标 DSL 语义：
 
 ```js
-t.at(0).takeFromDepot("north", {
-  tags: ["metro"],
-  minimumCars: 4,
-  maximumCars: 8,
-  capabilities: ["doors"]
-})
+timetable.service(
+  "morning-departure",
+  timetable.takeFromDepot("north", {
+    tags: ["metro"],
+    minimumCars: 4,
+    maximumCars: 8,
+    capabilities: ["doors"]
+  }, 6000),
+  t => t.at(6200).destination("central@1")
+)
 ```
 
 到达计划 Tick 后：

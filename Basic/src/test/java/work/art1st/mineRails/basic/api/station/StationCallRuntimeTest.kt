@@ -25,6 +25,18 @@ import work.art1st.mineRails.core.physics.train.createTrainWithConfig
 import work.art1st.mineRails.core.util.AsyncTickTestSupport
 
 class StationCallRuntimeTest {
+    @Test
+    fun `station call without an accepted mission is rejected`() {
+        val fixture = fixture("no-mission")
+
+        val result = fixture.ato.submitStationCall(fixture.request(1L))
+
+        assertEquals(
+            StationCallResolutionFailure.MISSION_REVISION_MISMATCH,
+            (result as StationCallSubmissionResult.ResolutionFailure).reason
+        )
+    }
+
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
@@ -136,6 +148,12 @@ class StationCallRuntimeTest {
     fun `removing an active observed berth stalls only its world`() {
         val fixture = fixture("removed")
         val otherCoordinator = AtoWorldCoordinator("other", reportSink = {})
+        assertTrue(fixture.ato.submitMission(AtoMissionRequest(
+            id = "tt/service",
+            revision = 1L,
+            origin = WayPointRef("A"),
+            points = listOf(AtoMissionPoint.Stop(WayPointRef("C")))
+        )) is AtoMissionSubmissionResult.Accepted)
         assertTrue(fixture.ato.submitStationCall(fixture.request(1L)) is StationCallSubmissionResult.Accepted)
         fixture.tick()
         assertEquals(

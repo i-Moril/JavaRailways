@@ -33,6 +33,23 @@ class PhaseBConstraintTest {
     }
 
     @Test
+    fun `stop constraint can override the profile stopping margin for precise berthing`() {
+        val berthProfile = AtoSafetyProfile(reactionTimeSeconds = 0.0, stopToleranceMeters = 0.5)
+        val defaultStop = StopConstraint(
+            ConstraintKey("test", "default-stop"),
+            remainingDistanceMeters = 0.25
+        )
+        val preciseStop = StopConstraint(
+            ConstraintKey("test", "precise-stop"),
+            remainingDistanceMeters = 0.25,
+            stoppingMarginMeters = 0.0
+        )
+
+        assertEquals(0.0, defaultStop.permittedSpeedMetersPerSecond(0.0, berthProfile))
+        assertTrue(preciseStop.permittedSpeedMetersPerSecond(0.0, berthProfile) > 0.0)
+    }
+
+    @Test
     fun `route speed constraint creates a braking curve before the lower limit`() {
         val constraint = RouteSpeedLimitConstraint(
             ConstraintKey("test", "route-speed"),

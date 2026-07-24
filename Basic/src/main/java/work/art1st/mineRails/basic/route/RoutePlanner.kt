@@ -71,11 +71,16 @@ sealed class RouteBuildResult {
 }
 
 class RoutePlanner(private val world: World) {
-    fun buildRoute(fromWayPointId: String, toWayPointId: String): RouteBuildResult {
+    fun buildRoute(
+        fromWayPointId: String,
+        toWayPointId: String,
+        requiredGoalDirection: ViewDirection? = null,
+        requiredStartDirection: ViewDirection? = null
+    ): RouteBuildResult {
         val store = world.basicWorldData.wayPoints
         val from = store[fromWayPointId] ?: return RouteBuildResult.Failure("路径点不存在: $fromWayPointId")
         val to = store[toWayPointId] ?: return RouteBuildResult.Failure("路径点不存在: $toWayPointId")
-        return buildRoute(from, to)
+        return buildRoute(from, to, requiredGoalDirection, requiredStartDirection)
     }
 
     /**

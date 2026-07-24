@@ -6,7 +6,7 @@ data class AtoSafetyProfile(
     val serviceDecelerationMetersPerSecondSquared: Double = 1.0,
     val reactionTimeSeconds: Double = 0.1,
     val safetyDistanceMeters: Double = 5.0,
-    val stopToleranceMeters: Double = 0.25,
+    val stopToleranceMeters: Double = 0.1,
     val stoppedSpeedThresholdMetersPerSecond: Double = 0.05
 ) {
     init {

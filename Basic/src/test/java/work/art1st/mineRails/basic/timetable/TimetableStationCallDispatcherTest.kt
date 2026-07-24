@@ -436,6 +436,30 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `terminal station reverse receives departure grant before retiring station call`() {
+        val fixture = fixture(
+            releaseDistanceMetersAfter = 0.0,
+            firstTargetOffsetMeters = 40.0,
+            includeStationAction = true,
+            reverseAfterDestination = true
+        )
+        val id = TimetableServiceRunId("tt", "service")
+        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            TimetableServiceStartResult.Started
+
+        repeat(2_000) {
+            fixture.tick()
+            if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.COMPLETED) {
+                return@repeat
+            }
+        }
+
+        assertTrue(fixture.train.isReversed)
+        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
+        assertFalse(fixture.data.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `halt closes doors before executing model power off action`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(

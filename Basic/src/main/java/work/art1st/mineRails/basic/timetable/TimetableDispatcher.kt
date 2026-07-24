@@ -12,6 +12,8 @@ import work.art1st.mineRails.basic.api.depot.DepotTrainAllocation
 import work.art1st.mineRails.basic.api.depot.DepotStorageReservation
 import work.art1st.mineRails.basic.api.depot.DepotStorageReservationResult
 import work.art1st.mineRails.basic.api.depot.DepotTrainAllocationResult
+import work.art1st.mineRails.basic.api.depot.RollingStockState
+import work.art1st.mineRails.basic.api.depot.StablingPointRef
 import work.art1st.mineRails.basic.api.destination.OperationalDestinationIds
 import work.art1st.mineRails.basic.api.operation.RejectingTrainOperationGateway
 import work.art1st.mineRails.basic.api.operation.TrainOperation
@@ -57,6 +59,9 @@ import work.art1st.mineRails.basic.route.RouteSectionAllocator
 import work.art1st.mineRails.basic.route.RouteSectionOwner
 import work.art1st.mineRails.core.api.control.TrainController
 import work.art1st.mineRails.core.api.physics.World
+import work.art1st.mineRails.core.api.physics.rail.IntervalOccupancyState
+import work.art1st.mineRails.core.api.physics.rail.RailInterval
+import work.art1st.mineRails.core.api.physics.rail.RailIntervalReleaseDetector
 import work.art1st.mineRails.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.api.physics.train.Train
@@ -242,6 +247,7 @@ class TimetableDispatcher(
     private val waypointProgressListeners =
         LinkedHashMap<WaypointProgressKey, MutableList<TimetableWaypointProgressListener>>()
     private val recoveryRequiredRuns = ArrayList<SavedActiveRunCheckpointV1>()
+    private val physicalStorageReservations = LinkedHashMap<StablingPointRef, String>()
     private val berthAllocator = StationBerthAllocator()
     private var dispatcherTick = 0L
     private var allocatorWorld: World? = null
@@ -261,7 +267,8 @@ class TimetableDispatcher(
                 pendingActivationCycles = clock.pendingActivationCycles.toMap()
             )
         }.sortedBy(SavedTimetableClockV1::timetableId),
-        runs = (recoveryRequiredRuns + runs.values.map { run ->
+        runs = (runs.values.map { run ->
+            val diagnostics = run.ato.runtimeDiagnostics
             SavedActiveRunCheckpointV1(
                 timetableId = run.id.timetableId,
                 serviceId = run.id.serviceId,
@@ -269,16 +276,35 @@ class TimetableDispatcher(
                 trainId = run.train.id,
                 nextStepIndex = run.nextStepIndex,
                 currentWayPointId = run.currentWayPointId,
-                targetWayPointId = run.currentRuntime.targetWayPointId,
+                targetWayPointId = run.currentRuntimeOrNull?.targetWayPointId
+                    ?: run.currentWayPointId,
                 originalState = run.state.name,
                 timetableElapsedTicks = timetableElapsedTicks(run),
                 dwellTicksRemaining = run.dwellTicksRemaining,
                 missionRevision = run.missionRevision,
                 lastScheduledActionTick = run.lastScheduledActionTick,
                 lastLatenessTicks = run.lastLatenessTicks,
-                controlMode = run.controlMode.name
+                controlMode = run.controlMode.name,
+                message = run.message,
+                headProgressMeters = run.currentRuntimeOrNull?.headProgressMeters,
+                tailProgressMeters = run.currentRuntimeOrNull?.tailProgressMeters,
+                missionTotalLengthMeters = run.currentRuntimeOrNull?.layout?.totalLengthMeters,
+                atoMissionRevision = diagnostics.missionRevision,
+                atoOdometerProgressMeters = diagnostics.odometerProgressMeters,
+                atoProjectedProgressMeters = diagnostics.projectedProgressMeters,
+                movementAuthorityRevision = diagnostics.movementAuthorityRevision,
+                movementAuthorityLimitMeters = diagnostics.movementAuthorityLimitMeters,
+                activeStationCallId = diagnostics.activeStationCallId,
+                stationTargetProgressMeters = diagnostics.stationTargetProgressMeters,
+                stationPositionErrorMeters = diagnostics.stationPositionErrorMeters,
+                atoPermittedSpeedMetersPerSecond = diagnostics.permittedSpeedMetersPerSecond,
+                atoConstraints = diagnostics.constraints,
+                stationCallSubmittedToAto = run.stationCall?.submittedToAto,
+                berthHeld = run.stationCall?.allocationKey != null
             )
-        }).distinctBy { Triple(it.timetableId, it.serviceId, it.cycleIndex) }
+        } + recoveryRequiredRuns).distinctBy {
+            Triple(it.timetableId, it.serviceId, it.cycleIndex)
+        }
     )
 
     /** Restore clocks and retain former active runs as explicit RECOVERY_REQUIRED checkpoints. */
@@ -349,6 +375,12 @@ class TimetableDispatcher(
         }
         runs.entries.removeIf { (key, run) ->
             key.id.timetableId == timetableId && run.canBeReplaced()
+        }
+        when (val initialPositions = TimetableInitialPositioner(world).apply(timetable, dispatcherTick)) {
+            is TimetableInitialPositionResult.Applied -> Unit
+            is TimetableInitialPositionResult.Failure -> return TimetableEpochStartResult.Failure(
+                "initial position reset failed: ${initialPositions.reason}"
+            )
         }
         val clock = TimetableClock(
             epochDispatcherTick = dispatcherTick,
@@ -435,19 +467,32 @@ class TimetableDispatcher(
             clock.epochDispatcherTick,
             Math.multiplyExact(cycleIndex, clock.periodTicks)
         )
+        val acquisitionStep = service.steps.firstOrNull() as? TimetableStep.At
+        val acquisitionTick = acquisitionStep?.takeIf {
+            it.action is TimetableAction.TakeFromDepot || it.action is TimetableAction.TakeFromWaypoint
+        }?.tick
+        if (acquisitionTick != null &&
+            dispatcherTick - cycleStartDispatcherTick < acquisitionTick
+        ) {
+            return TimetableServiceStartResult.Failure(
+                "waiting for train acquisition tick $acquisitionTick: $runId"
+            )
+        }
         val selected = selectTrainForService(world, timetable, cycleIndex, runId, service)
             ?: return TimetableServiceStartResult.Failure(
                 if (world.basicWorldData.atoCoordinator.isStalled) {
-                    "world stalled because Depot allocation failed: $runId"
+                    "world stalled because train acquisition failed: $runId"
                 } else {
-                    "service requires TrainSelector.TrainId or a first takeFromDepot action: $runId"
+                    "service requires TrainSelector.TrainId, takeFromDepot, or takeFromWaypoint: $runId"
                 }
             )
         val trainId = selected.trainId
         fun startupFailure(reason: String): TimetableServiceStartResult.Failure {
-            selected.depotAllocation?.let { allocation ->
-                world.basicWorldData.depots.cancelReservation(allocation)
+            if (selected.depotReservationPending) {
+                selected.depotAllocation?.let(world.basicWorldData.depots::cancelReservation)
                 stallDepotAllocation(world, runId, reason)
+            } else if (selected.dynamicAcquisition) {
+                stallTimetableRuntime(world, runId, "TrainAcquisitionFailure", reason)
             }
             return TimetableServiceStartResult.Failure(reason)
         }
@@ -484,11 +529,13 @@ class TimetableDispatcher(
                 existingController.removeSpeedLimit(scheduleHoldKey(it))
             }
         }
-        val first = firstMovement(runId, service, selected.originWayPointId)
-            ?: return startupFailure(
-                "service requires an initial check/takeFromDepot followed by destination before any stop: $runId"
-            )
-        val originFailure = validateAtWayPoint(world, train, first.origin.id)
+        val initialOriginWayPointId = selected.originWayPointId
+            ?: service.steps.asSequence()
+                .filterIsInstance<TimetableStep.Check>()
+                .firstOrNull()
+                ?.wayPointId
+            ?: return startupFailure("validated service has no initial check/acquisition origin: $runId")
+        val originFailure = validateAtWayPoint(world, train, initialOriginWayPointId)
         if (originFailure != null) return startupFailure(originFailure)
 
         val ato = existingController ?: run {
@@ -503,76 +550,47 @@ class TimetableDispatcher(
                 )
             }
         }
-        val submission = try {
-            submitMission(world, ato, runId, first)
-        } catch (failure: Exception) {
-            return startupFailure(
-                "failed to submit initial Mission: " +
-                    (failure.message ?: failure::class.java.simpleName)
-            )
-        }
-        val accepted = submission.accepted
-            ?: return startupFailure(submission.failure!!)
-        selected.depotAllocation?.let { allocation ->
-            if (!world.basicWorldData.depots.confirmInService(allocation)) {
-                val reason = "Depot allocation disappeared before service confirmation: $allocation"
-                stallDepotAllocation(world, runId, reason)
-                return TimetableServiceStartResult.Failure(reason)
-            }
-        }
         val controllerOwned = existingController == null || replaceableTrainRuns.any {
             it.ato === ato && it.controllerOwned
         }
         if (existingController == null) train.setController(ato)
-
-        val runtime = MissionRuntime(
-            mission = accepted.mission,
-            layout = accepted.layout,
-            priorityTick = first.priorityTick,
-            targetWayPointId = first.target.id,
-            lastOdometerMeters = ato.lifetimeTravelDistanceMeters
-        )
-
+        val acquisitionConsumed = service.steps.firstOrNull().let { step ->
+            step is TimetableStep.At &&
+                (step.action is TimetableAction.TakeFromDepot ||
+                    step.action is TimetableAction.TakeFromWaypoint)
+        }
         val run = ActiveRun(
             id = runId,
             service = service,
             train = train,
             ato = ato,
             controllerOwned = controllerOwned,
-            missionRevision = accepted.mission.revision,
-            nextStepIndex = first.nextStepIndex,
-            currentWayPointId = first.origin.id,
-            currentRuntime = runtime,
+            missionRevision = 0L,
+            nextStepIndex = if (acquisitionConsumed) 1 else 0,
+            currentWayPointId = initialOriginWayPointId,
+            currentRuntime = null,
             state = TimetableServiceRunState.WAITING_MISSION,
             cycleIndex = cycleIndex,
             cycleStartDispatcherTick = cycleStartDispatcherTick,
             lastObservedDispatcherTick = dispatcherTick,
             depotAllocation = selected.depotAllocation,
-            depotDepartureRuntime = runtime.takeIf { selected.depotAllocation != null }
+            depotReservationPending = selected.depotReservationPending,
+            depotDepartureRuntime = null,
+            depotDepartureReleased = selected.depotAllocation == null || !selected.depotReservationPending
         )
-        run.destinationStop = first.destinationOptions?.let { options ->
-            DispatcherDestinationStop(options, runtime)
-        }
         replaceableTrainRuns.filter(ActiveRun::isStoredTerminal).forEach { previous ->
             run.runtimes += previous.runtimes
             run.allocations.putAll(previous.allocations)
         }
-        run.runtimes += runtime
         replaceableTrainRuns.forEach { previous ->
             runs.entries.removeIf { it.value === previous }
         }
         runs[runKey] = run
-        if (timetableElapsedTicks(run) < first.actionTick) {
-            run.pendingStationCallSpec = first.stationCallSpec
-            waitForTimetableTick(run, first.actionTick, pendingStep = false)
-            run.ato.setSpeedLimit(scheduleHoldKey(run), 0.0)
-        } else {
-            recordScheduledAction(run, first.actionTick)
-            first.stationCallSpec?.let { spec ->
-                scheduleStationCallSpec(world, run, spec)?.let { reason ->
-                    stallRun(world, run, "InfrastructureInvariantViolation", reason)
-                }
-            }
+        advanceService(world, run)
+        if (run.state == TimetableServiceRunState.FAILED) {
+            return TimetableServiceStartResult.Failure(
+                run.message ?: "failed to start service: $runId"
+            )
         }
         return TimetableServiceStartResult.Started(run.snapshot())
     }
@@ -594,21 +612,20 @@ class TimetableDispatcher(
                 "StationCall revision ${call.missionRevision} does not match Mission ${run.missionRevision}"
             )
         }
-        if (run.currentRuntime.headProgressMeters > ORIGIN_TOLERANCE_METERS ||
-            !run.ato.isStopped(run.ato.currentTrainSnapshot.speedMetersPerSecond)
-        ) {
-            return TimetableStationCallScheduleResult.Failure(
-                "StationCall must be scheduled before the train departs its Mission origin"
-            )
-        }
         val request = StationCallRequest(
             serviceRunId = run.instanceId,
             origin = WayPointRef(run.currentWayPointId),
             call = call
         )
+        val missionStartDirection = run.currentRuntime.mission.legs.firstOrNull()
+            ?.plannedRoute?.expandedRoute?.segments?.firstOrNull()?.railViewRef?.direction
+            ?: return TimetableStationCallScheduleResult.Failure(
+                "active Mission has no directed route for StationCall ${call.callId}"
+            )
         val resolved = when (val result = StationCallResolver(world).resolve(
             request,
-            trainLengthMeters = run.train.cars.sumOf { it.length }
+            trainLengthMeters = run.train.cars.sumOf { it.length },
+            requiredStartDirection = missionStartDirection
         )) {
             is StationCallResolutionResult.Success -> result.resolved
             is StationCallResolutionResult.Failure -> {
@@ -634,16 +651,34 @@ class TimetableDispatcher(
                 "StationCall route is not the active Mission prefix for ${call.berthRef}"
             )
         }
+        if (run.currentRuntime.headProgressMeters >
+            missionDistance + run.ato.missionStopToleranceMeters
+        ) {
+            return TimetableStationCallScheduleResult.Failure(
+                "StationCall berth ${call.berthRef} was already passed on the active Mission"
+            )
+        }
         if (run.waitingUntilTimetableTick != null && !run.waitingStepPending) {
             run.waitingUntilTimetableTick = null
             run.ato.removeSpeedLimit(scheduleHoldKey(run))
         }
         run.ato.setSpeedLimit(stationPendingHoldKey(run), 0.0)
+        val berthArcAb = berth.location.arcLengthIn(ViewDirection.AB)
+        val berthRailLength = berth.location.rail.getView(ViewDirection.AB).curve.totalArcLength
+        val clearance = resolved.positionToleranceMeters + resolved.releaseDistanceMetersAfter
         run.stationCall = DispatcherStationCall(
             resolved = resolved,
             missionRuntime = run.currentRuntime,
             missionDistanceMeters = missionDistance,
-            lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
+            releaseDetector = RailIntervalReleaseDetector(
+                listOf(
+                    RailInterval(
+                        berth.location.rail.id,
+                        (berthArcAb - clearance).coerceAtLeast(0.0),
+                        (berthArcAb + clearance).coerceAtMost(berthRailLength)
+                    )
+                )
+            )
         )
         run.state = TimetableServiceRunState.WAITING_BERTH
         run.message = "waiting for berth ${call.berthRef}"
@@ -985,7 +1020,6 @@ class TimetableDispatcher(
                 if (coordinator.isStalled) return
             }
             updateTailProgress(run, snapshot)
-            updateStationTailProgress(run, snapshot)
             if (manualRouted && !validateManualConfirmedTurnouts(world, run, snapshot)) {
                 if (coordinator.isStalled) return
                 return@forEach
@@ -1065,6 +1099,7 @@ class TimetableDispatcher(
                         stallRun(world, run, "InfrastructureInvariantViolation", reason)
                         return@forEach
                     }
+                    run.requiredNextStartDirection = null
                 }
             }
             if (run.state == TimetableServiceRunState.STOPPING) {
@@ -1076,11 +1111,14 @@ class TimetableDispatcher(
                 return@forEach
             }
             val stationCall = run.stationCall
-            if (run.state == TimetableServiceRunState.WAITING_BERTH &&
-                stationCall != null && !stationCall.submittedToAto
-            ) {
+            if (stationCall != null && !stationCall.submittedToAto) {
                 tryAllocateStationCall(run)
-                return@forEach
+                if (!stationCall.submittedToAto) return@forEach
+                if (run.waitingUntilTimetableTick?.let { timetableElapsedTicks(run) < it } == true) {
+                    run.state = TimetableServiceRunState.WAITING_TIMETABLE_TIME
+                    run.message = "StationCall active; waiting for timetable tick ${run.waitingUntilTimetableTick}"
+                    return@forEach
+                }
             }
             if (stationCall != null &&
                 (run.state == TimetableServiceRunState.DOORS_OPENING ||
@@ -1505,6 +1543,23 @@ class TimetableDispatcher(
     }
 
     /**
+     * Destructively discard every run and clock owned by one timetable. This is the backend for an
+     * administrator-confirmed force reset: controllers, route windows, berth locks, operations and
+     * storage reservations are released immediately without waiting for train-tail progression.
+     */
+    @MainThread
+    fun forceDiscardTimetable(world: World, timetableId: String): Int {
+        require(timetableId.isNotBlank())
+        allocator(world)
+        val selected = runs.values.filter { it.id.timetableId == timetableId }
+        selected.forEach { run -> discardRun(world, run) }
+        val recovered = recoveryRequiredRuns.count { it.timetableId == timetableId }
+        recoveryRequiredRuns.removeIf { it.timetableId == timetableId }
+        timetableClocks.remove(timetableId)
+        return selected.size + recovered
+    }
+
+    /**
      * Abandon a released ad-hoc navigation before another `/mr navigate` is started. Normal
      * timetable services are deliberately excluded: they still require explicit replan/depot
      * recovery. The caller has already released any managed manual-control session.
@@ -1539,7 +1594,11 @@ class TimetableDispatcher(
             run.stationCall?.allocationKey = null
         }
         run.storageReservation?.let { reservation ->
-            world.basicWorldData.depots.cancelStorage(reservation)
+            if (run.physicalStorageOnly) {
+                physicalStorageReservations.remove(reservation.stablingPointRef, run.instanceId)
+            } else {
+                world.basicWorldData.depots.cancelStorage(reservation)
+            }
             run.storageReservation = null
         }
         run.ato.removeSpeedLimit(stopKey(run))
@@ -1640,7 +1699,7 @@ class TimetableDispatcher(
         return when (val result = berthAllocator.allocate(key)) {
             is StationBerthAllocationResult.Confirmed -> {
                 stationCall.allocationKey = result.key
-                when (val submission = run.ato.submitStationCall(stationCall.resolved.request)) {
+                when (val submission = run.ato.submitStationCall(stationCall.resolved)) {
                     is StationCallSubmissionResult.Accepted -> {
                         stationCall.resolved = submission.resolved
                         stationCall.submittedToAto = true
@@ -1678,6 +1737,7 @@ class TimetableDispatcher(
                 }
             }
             is StationBerthAllocationResult.Conflict -> {
+                relinquishUnoccupiedRouteReservations(run)
                 run.state = TimetableServiceRunState.WAITING_BERTH
                 run.message = "berth ${result.berthRef} held by ${result.heldBy.owner.serviceRunId}"
                 null
@@ -2123,26 +2183,16 @@ class TimetableDispatcher(
             stallRun(world, run, "InfrastructureInvariantViolation", "reverse requires a stopped train")
             return
         }
-        val reversedBefore = run.train.isReversed
-        val facingBefore =
-            (run.train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
-                ?.facing
-        run.train.reverse()
-        if (run.train.isReversed == reversedBefore) {
-            stallRun(world, run, "InfrastructureInvariantViolation", "train direction did not reverse")
-            return
-        }
-        run.requiredNextStartDirection = when (facingBefore) {
-            ViewDirection.AB -> ViewDirection.BA
-            ViewDirection.BA -> ViewDirection.AB
-            null -> null
-        }
+        val stationCall = run.stationCall?.takeIf { it.berthed && !it.departed }
+        val preparationRevision = run.ato.prepareForReverse(
+            callId = stationCall?.resolved?.call?.callId,
+            missionRevision = stationCall?.resolved?.call?.missionRevision
+        )
         run.reverseOperation = DispatcherReverseOperation(
-            reversedAfter = run.train.isReversed,
-            startedDispatcherTick = dispatcherTick
+            preparationRevision = preparationRevision
         )
         run.state = TimetableServiceRunState.REVERSING
-        run.message = "publishing reversed train direction"
+        run.message = "waiting for atomic ATO reverse preparation"
     }
 
     private fun processReverse(world: World, run: ActiveRun) {
@@ -2151,8 +2201,30 @@ class TimetableDispatcher(
             stallRun(world, run, "InfrastructureInvariantViolation", "REVERSING run has no reverse state")
             return
         }
-        if (dispatcherTick <= reverse.startedDispatcherTick) return
-        if (run.train.isReversed != reverse.reversedAfter) {
+        val reversedAfter = reverse.reversedAfter
+        if (reversedAfter == null) {
+            if (run.ato.preparedReverseRevision < reverse.preparationRevision) return
+            val reversedBefore = run.train.isReversed
+            val facingBefore =
+                (run.train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
+                    ?.facing
+            run.train.reverse()
+            if (run.train.isReversed == reversedBefore) {
+                stallRun(world, run, "InfrastructureInvariantViolation", "train direction did not reverse")
+                return
+            }
+            run.requiredNextStartDirection = when (facingBefore) {
+                ViewDirection.AB -> ViewDirection.BA
+                ViewDirection.BA -> ViewDirection.AB
+                null -> null
+            }
+            reverse.reversedAfter = run.train.isReversed
+            reverse.reversedAtDispatcherTick = dispatcherTick
+            run.message = "publishing atomically prepared reversed train direction"
+            return
+        }
+        if (dispatcherTick <= requireNotNull(reverse.reversedAtDispatcherTick)) return
+        if (run.train.isReversed != reversedAfter) {
             stallRun(world, run, "InfrastructureInvariantViolation", "reversed train state changed unexpectedly")
             return
         }
@@ -2320,8 +2392,10 @@ class TimetableDispatcher(
                     if (!stationCall.approaching) {
                         stationCall.approaching = true
                         stationCall.stateEnteredDispatcherTick = dispatcherTick
-                        run.state = TimetableServiceRunState.APPROACHING
-                        run.message = "approaching ${notification.berthRef}"
+                        if (run.state != TimetableServiceRunState.WAITING_TIMETABLE_TIME) {
+                            run.state = TimetableServiceRunState.APPROACHING
+                            run.message = "approaching ${notification.berthRef}"
+                        }
                     }
                 }
                 StationCallNotificationType.BERTHED -> {
@@ -2338,6 +2412,13 @@ class TimetableDispatcher(
                     run.state = TimetableServiceRunState.DEPARTED
                     run.message = "departed ${notification.berthRef}"
                 }
+                StationCallNotificationType.REVERSE_READY -> {
+                    if (stationCall.departed) return@forEach
+                    stationCall.departureGranted = true
+                    stationCall.departed = true
+                    stationCall.stateEnteredDispatcherTick = dispatcherTick
+                    run.message = "StationCall ready for reverse at ${notification.berthRef}"
+                }
             }
         }
     }
@@ -2348,32 +2429,11 @@ class TimetableDispatcher(
         return TrainSnapshot.capture(run.train, dispatcherTick, facing)
     }
 
-    private fun updateStationTailProgress(run: ActiveRun, snapshot: TrainSnapshot) {
-        val stationCall = run.stationCall ?: return
-        val odometerDelta = (run.ato.lifetimeTravelDistanceMeters - stationCall.lastOdometerMeters)
-            .coerceAtLeast(0.0)
-        stationCall.lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
-        val projected = stationCall.missionRuntime.layout.project(
-            snapshot.tail,
-            stationCall.tailMissionProgressMeters
-        )
-        stationCall.tailMissionProgressMeters = when {
-            projected != null -> projected
-            stationCall.tailMissionProgressMeters != null &&
-                stationCall.tailMissionProgressMeters!! >=
-                stationCall.missionRuntime.layout.totalLengthMeters - POSITION_TOLERANCE_METERS ->
-                stationCall.tailMissionProgressMeters!! + odometerDelta
-            else -> stationCall.tailMissionProgressMeters
-        }
-    }
-
     private fun releasePassedBerth(run: ActiveRun) {
         val stationCall = run.stationCall ?: return
         val key = stationCall.allocationKey ?: return
-        val tailProgress = stationCall.tailMissionProgressMeters ?: return
-        val releaseDistance = stationCall.missionDistanceMeters +
-            stationCall.resolved.releaseDistanceMetersAfter
-        if (tailProgress + RELEASE_EPSILON_METERS < releaseDistance) return
+        val occupancyState = stationCall.releaseDetector.update(run.train.occupiedRailIntervals)
+        if (occupancyState != IntervalOccupancyState.RELEASED) return
         if (!berthAllocator.release(key)) {
             stallRun(
                 requireNotNull(allocatorWorld),
@@ -2596,6 +2656,10 @@ class TimetableDispatcher(
             .getOrDefault(run.ato.currentTrainSnapshot)
     ) {
         val effectiveReason = cancelExtensionAction(run)?.let { "$reason; $it" } ?: reason
+        if (run.depotReservationPending) {
+            run.depotAllocation?.let(world.basicWorldData.depots::cancelReservation)
+            run.depotReservationPending = false
+        }
         val failure = IllegalStateException(effectiveReason)
         world.basicWorldData.atoCoordinator.stall(
             AtoStallReport(
@@ -2782,7 +2846,12 @@ class TimetableDispatcher(
             )
             return false
         }
-        if (!world.basicWorldData.depots.completeStorage(reservation)) {
+        val storageCommitted = if (run.physicalStorageOnly) {
+            physicalStorageReservations.remove(reservation.stablingPointRef, run.instanceId)
+        } else {
+            world.basicWorldData.depots.completeStorage(reservation)
+        }
+        if (!storageCommitted) {
             stallRun(
                 world,
                 run,
@@ -2795,6 +2864,41 @@ class TimetableDispatcher(
         run.storageCompleted = true
         run.message = "stored at ${reservation.stablingPointRef}; terminal route remains tail-held"
         return true
+    }
+
+    private fun relinquishUnoccupiedRouteReservations(run: ActiveRun) {
+        if (!run.ato.isStopped(run.ato.currentTrainSnapshot.speedMetersPerSecond)) return
+        val runtime = run.currentRuntimeOrNull ?: return
+        val occupiedRailIds = run.train.occupiedRailIntervals.mapTo(HashSet()) { it.railId }
+        val owningWorld = allocatorWorld ?: return
+        val sectionAllocator = allocator(owningWorld)
+        val iterator = run.allocations.entries.iterator()
+        var changed = false
+        while (iterator.hasNext()) {
+            val (key, allocation) = iterator.next()
+            if (allocation.runtime !== runtime) continue
+            val protectedRails = allocation.section.routeSection.section.turnoutRequirements
+                .mapTo(HashSet()) { it.from.railId }
+            if (protectedRails.any { it in occupiedRailIds }) continue
+            check(sectionAllocator.release(key)) {
+                "unoccupied RouteSection allocation disappeared before relinquish: $key"
+            }
+            run.ato.releaseRouteWindow(key)
+            allocation.section.status = if (
+                allocation.section.routeSection.releaseDistanceMeters <=
+                runtime.headProgressMeters + RELEASE_EPSILON_METERS
+            ) {
+                SectionStatus.RELEASED
+            } else {
+                SectionStatus.PENDING
+            }
+            iterator.remove()
+            changed = true
+        }
+        if (changed) {
+            runtime.publishedAuthorityMeters = -1.0
+            publishMovementAuthority(run, runtime)
+        }
     }
 
     private fun releasePassedSections(run: ActiveRun, allocator: RouteSectionAllocator) {
@@ -2893,16 +2997,53 @@ class TimetableDispatcher(
                         }
                         recordScheduledAction(run, step.tick)
                         val allocation = run.depotAllocation
-                        if (allocation == null || !run.depotDepartureReleased) {
+                        if (allocation != null && !run.depotDepartureReleased) {
                             stallRun(
                                 world,
                                 run,
                                 "ResourceIdentityViolation",
-                                "storeAtDepot requires a tail-released takeFromDepot assignment"
+                                "storeAtDepot requires the physical departure envelope to be released"
                             )
                             return
                         }
-                        val reservation = when (val result = world.basicWorldData.depots.reserveStorage(
+                        val reservation = if (allocation == null) {
+                            val trainLength = run.train.cars.sumOf { it.length }
+                            val point = world.basicWorldData.depots.stablingPoints(action.depotId)
+                                .asSequence()
+                                .filter {
+                                    action.stablingPointIds.isEmpty() ||
+                                        it.point.ref.pointId in action.stablingPointIds
+                                }
+                                .filter {
+                                    it.point.usableLengthMeters == null ||
+                                        it.point.usableLengthMeters + POSITION_TOLERANCE_METERS >= trainLength
+                                }
+                                .filter { it.point.ref !in physicalStorageReservations }
+                                .filter { candidate ->
+                                    world.allTrains.filterIsInstance<CoreTrain>().none { other ->
+                                        other.id != run.train.id &&
+                                            validateAtWayPoint(world, other, candidate.point.destinationId) == null
+                                    }
+                                }
+                                .sortedBy { it.point.ref.pointId }
+                                .firstOrNull()
+                            if (point == null) {
+                                stallRun(
+                                    world,
+                                    run,
+                                    "DepotAllocationFailure",
+                                    "no physically empty compatible StablingPoint in ${action.depotId}"
+                                )
+                                return
+                            }
+                            physicalStorageReservations[point.point.ref] = run.instanceId
+                            run.physicalStorageOnly = true
+                            DepotStorageReservation(
+                                "physical:${run.instanceId}",
+                                run.train.id,
+                                point.point.ref
+                            )
+                        } else when (val result = world.basicWorldData.depots.reserveStorage(
                             trainId = run.train.id,
                             depotId = action.depotId,
                             requestedPointIds = action.stablingPointIds,
@@ -2927,7 +3068,11 @@ class TimetableDispatcher(
                             .stablingPoint(reservation.stablingPointRef)
                         val target = point?.point?.destinationId
                         if (target == null) {
-                            world.basicWorldData.depots.cancelStorage(reservation)
+                            if (run.physicalStorageOnly) {
+                                physicalStorageReservations.remove(reservation.stablingPointRef, run.instanceId)
+                            } else {
+                                world.basicWorldData.depots.cancelStorage(reservation)
+                            }
                             stallRun(
                                 world,
                                 run,
@@ -2946,7 +3091,15 @@ class TimetableDispatcher(
                         val submission = submitMissionForRun(world, run, plan)
                         val accepted = submission.accepted
                         if (accepted == null) {
-                            if (!world.basicWorldData.depots.cancelStorage(reservation)) {
+                            val cancelled = if (run.physicalStorageOnly) {
+                                physicalStorageReservations.remove(
+                                    reservation.stablingPointRef,
+                                    run.instanceId
+                                )
+                            } else {
+                                world.basicWorldData.depots.cancelStorage(reservation)
+                            }
+                            if (!cancelled) {
                                 stallRun(
                                     world,
                                     run,
@@ -2980,12 +3133,13 @@ class TimetableDispatcher(
                         run.message = "storing at ${reservation.stablingPointRef}"
                         return
                     }
-                    is TimetableAction.TakeFromDepot -> {
+                    is TimetableAction.TakeFromDepot,
+                    is TimetableAction.TakeFromWaypoint -> {
                         stallRun(
                             world,
                             run,
                             "ResourceIdentityViolation",
-                            "takeFromDepot is only valid as the first service step"
+                            "train acquisition is only valid as the first service step"
                         )
                         return
                     }
@@ -3074,6 +3228,9 @@ class TimetableDispatcher(
                     }
                     is TimetableAction.GoTo,
                     is TimetableAction.GoVia -> {
+                        val physicalStartDirection =
+                            (run.train.headLocation as
+                                work.art1st.mineRails.core.physics.rail.RailLocationWithFacing).facing
                         val plan = movement(
                             run.id,
                             WayPointRef(run.currentWayPointId),
@@ -3081,12 +3238,18 @@ class TimetableDispatcher(
                             run.nextStepIndex + 1,
                             run.pendingStationCallSpec,
                             run.pendingDestinationOptions
-                        ).copy(requiredStartDirection = run.requiredNextStartDirection)
-                        if (timetableElapsedTicks(run) < plan.actionTick) {
+                        ).copy(
+                            requiredStartDirection =
+                                run.requiredNextStartDirection ?: physicalStartDirection
+                        )
+                        val firstMissionPending = run.currentRuntimeOrNull == null
+                        val waitingForFirstDeparture = firstMissionPending &&
+                            timetableElapsedTicks(run) < plan.actionTick
+                        if (!firstMissionPending && timetableElapsedTicks(run) < plan.actionTick) {
                             waitForTimetableTick(run, plan.actionTick, pendingStep = true)
                             return
                         }
-                        recordScheduledAction(run, plan.actionTick)
+                        if (!waitingForFirstDeparture) recordScheduledAction(run, plan.actionTick)
                         val submission = submitMissionForRun(world, run, plan)
                         val accepted = submission.accepted
                         if (accepted == null) {
@@ -3105,6 +3268,22 @@ class TimetableDispatcher(
                             targetWayPointId = plan.target.id,
                             lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
                         )
+                        if (run.depotReservationPending) {
+                            val allocation = run.depotAllocation
+                            if (allocation == null ||
+                                !world.basicWorldData.depots.confirmInService(allocation)
+                            ) {
+                                stallRun(
+                                    world,
+                                    run,
+                                    "ResourceIdentityViolation",
+                                    "Depot allocation disappeared before first Mission confirmation"
+                                )
+                                return
+                            }
+                            run.depotReservationPending = false
+                            run.depotDepartureRuntime = runtime
+                        }
                         run.runtimes += runtime
                         run.currentRuntime = runtime
                         run.missionRevision = accepted.mission.revision
@@ -3113,11 +3292,20 @@ class TimetableDispatcher(
                         run.message = null
                         run.pendingStationCallSpec = null
                         run.pendingDestinationOptions = null
-                        run.requiredNextStartDirection = null
                         run.destinationStop = plan.destinationOptions?.let { options ->
                             DispatcherDestinationStop(options, runtime)
                         }
-                        plan.stationCallSpec?.let { spec ->
+                        if (waitingForFirstDeparture) {
+                            plan.stationCallSpec?.let { spec ->
+                                scheduleStationCallSpec(world, run, spec)?.let { reason ->
+                                    stallRun(world, run, "InfrastructureInvariantViolation", reason)
+                                    return
+                                }
+                            }
+                            run.requiredNextStartDirection = null
+                            waitForTimetableTick(run, plan.actionTick, pendingStep = false)
+                            run.ato.setSpeedLimit(scheduleHoldKey(run), 0.0)
+                        } else plan.stationCallSpec?.let { spec ->
                             if (run.stationCall != null) {
                                 run.deferredStationCallSpec = spec
                             } else {
@@ -3125,6 +3313,9 @@ class TimetableDispatcher(
                                     stallRun(world, run, "InfrastructureInvariantViolation", reason)
                                 }
                             }
+                            run.requiredNextStartDirection = null
+                        } ?: run {
+                            run.requiredNextStartDirection = null
                         }
                         run.stationCall?.takeIf {
                             isTerminalStationCall(it) && it.berthed && !it.departureGranted
@@ -3424,55 +3615,170 @@ class TimetableDispatcher(
         runId: TimetableServiceRunId,
         service: TimetableService
     ): SelectedServiceTrain? {
-        val take = service.steps.firstOrNull()
-            ?.let { it as? TimetableStep.At }
-            ?.action as? TimetableAction.TakeFromDepot
+        val take = (service.steps.firstOrNull() as? TimetableStep.At)?.action
         if (take == null) {
             val trainId = (service.trainSelector as? TrainSelector.TrainId)?.trainId ?: return null
-            return SelectedServiceTrain(trainId, null, null)
+            return SelectedServiceTrain(
+                trainId, null, null, dynamicAcquisition = false, depotReservationPending = false
+            )
         }
-        val assignmentId = "${runId}@cycle-$cycleIndex"
-        return when (val result = world.basicWorldData.depots.allocate(
-            selector = take.selector,
-            assignmentId = assignmentId,
-            stableSeed = "${timetable.id}|$cycleIndex|${service.id}"
-        )) {
-            is DepotTrainAllocationResult.Allocated -> {
-                val point = world.basicWorldData.depots
-                    .stablingPoint(result.allocation.stablingPointRef)
-                if (point == null) {
-                    world.basicWorldData.depots.cancelReservation(result.allocation)
-                    stallDepotAllocation(
-                        world,
-                        runId,
-                        "allocated StablingPoint disappeared: ${result.allocation.stablingPointRef}"
-                    )
-                    return null
-                }
+        return when (take) {
+            is TimetableAction.TakeFromDepot -> selectTrainFromDepot(
+                world, timetable, cycleIndex, runId, service, take
+            )
+            is TimetableAction.TakeFromWaypoint -> selectTrainFromWaypoints(
+                world, cycleIndex, runId, take
+            )
+            else -> {
+                val trainId = (service.trainSelector as? TrainSelector.TrainId)?.trainId ?: return null
                 SelectedServiceTrain(
-                    trainId = result.allocation.trainId,
-                    originWayPointId = point.point.destinationId,
-                    depotAllocation = result.allocation
+                    trainId, null, null, dynamicAcquisition = false, depotReservationPending = false
                 )
-            }
-            is DepotTrainAllocationResult.NoMatchingTrain -> {
-                stallDepotAllocation(
-                    world,
-                    runId,
-                    "no compatible AVAILABLE train in Depot ${result.depotId} for cycle $cycleIndex; " +
-                        "available=${result.availableTrainCount}, selector=${result.selector}"
-                )
-                null
-            }
-            is DepotTrainAllocationResult.AssignmentConflict -> {
-                stallDepotAllocation(
-                    world,
-                    runId,
-                    "Depot assignment identity conflict: ${result.assignmentId}"
-                )
-                null
             }
         }
+    }
+
+    private fun selectTrainFromDepot(
+        world: World,
+        timetable: Timetable,
+        cycleIndex: Long,
+        runId: TimetableServiceRunId,
+        service: TimetableService,
+        take: TimetableAction.TakeFromDepot
+    ): SelectedServiceTrain? {
+        val store = world.basicWorldData.depots
+        val points = store.stablingPoints(take.selector.depotId)
+            .sortedBy { it.point.ref.pointId }
+        if (points.isEmpty()) {
+            stallDepotAllocation(
+                world,
+                runId,
+                "Depot ${take.selector.depotId} has no StablingPoint destinations"
+            )
+            return null
+        }
+        val rejected = ArrayList<String>()
+        points.forEach { point ->
+            val wayPointId = point.point.destinationId
+            val candidate = world.allTrains.asSequence()
+                .filterIsInstance<CoreTrain>()
+                .sortedWith(compareBy<CoreTrain>({ it.name }, { it.id }))
+                .firstOrNull { train ->
+                    val locationFailure = validateAtWayPoint(world, train, wayPointId)
+                    val metadata = store.rollingStock(train.id)?.record
+                    val metadataFailure = when {
+                        train.cars.size < (take.selector.minimumCars ?: 0) -> "too few cars"
+                        take.selector.maximumCars != null && train.cars.size > take.selector.maximumCars ->
+                            "too many cars"
+                        take.selector.requiredTags.isNotEmpty() &&
+                            metadata?.tags?.containsAll(take.selector.requiredTags) != true -> "missing tags"
+                        take.selector.requiredCapabilities.isNotEmpty() &&
+                            metadata?.capabilities?.containsAll(take.selector.requiredCapabilities) != true ->
+                            "missing capabilities"
+                        take.selector.minimumSpeedMetersPerSecond != null &&
+                            (metadata?.maximumSpeedMetersPerSecond ?: 0.0) <
+                            take.selector.minimumSpeedMetersPerSecond -> "maximum speed too low or unknown"
+                        else -> null
+                    }
+                    val operationalFailure = when {
+                        train.isDerailed -> "derailed"
+                        train.publishedFrame.speedMetersPerSecond >
+                            REPLAN_STOPPED_SPEED_METERS_PER_SECOND -> "moving"
+                        runs.values.any {
+                            it.train.id == train.id && !it.canBeReplaced() && !it.isStoredTerminal()
+                        } -> "assigned to another service"
+                        train.controller != null && runs.values.none {
+                            it.train.id == train.id && (it.canBeReplaced() || it.isStoredTerminal())
+                        } -> "controlled outside a replaceable service"
+                        else -> null
+                    }
+                    val failure = locationFailure ?: metadataFailure ?: operationalFailure
+                    if (failure != null) rejected += "$wayPointId/${train.name}: $failure"
+                    failure == null
+                }
+            if (candidate != null) {
+                val assignmentId = "${runId}@cycle-$cycleIndex"
+                val legacyAllocation = store.reservePhysicallySelected(
+                    candidate.id,
+                    point.point.ref,
+                    take.selector,
+                    assignmentId
+                )
+                return SelectedServiceTrain(
+                    trainId = candidate.id,
+                    originWayPointId = wayPointId,
+                    depotAllocation = legacyAllocation,
+                    dynamicAcquisition = true,
+                    depotReservationPending = legacyAllocation != null
+                )
+            }
+        }
+        stallDepotAllocation(
+            world,
+            runId,
+            "no eligible stopped physical train in Depot ${take.selector.depotId} for cycle " +
+                "$cycleIndex; rejected=${rejected.ifEmpty { listOf("none present") }}"
+        )
+        return null
+    }
+
+    private fun selectTrainFromWaypoints(
+        world: World,
+        cycleIndex: Long,
+        runId: TimetableServiceRunId,
+        take: TimetableAction.TakeFromWaypoint
+    ): SelectedServiceTrain? {
+        val rejected = ArrayList<String>()
+        take.wayPointIds.forEach { wayPointId ->
+            val candidates = world.allTrains.asSequence()
+                .filterIsInstance<CoreTrain>()
+                .sortedBy { it.id }
+                .mapNotNull { train ->
+                    if (validateAtWayPoint(world, train, wayPointId) != null) return@mapNotNull null
+                    val replaceableRun = runs.values.firstOrNull {
+                        it.train.id == train.id && (it.canBeReplaced() || it.isStoredTerminal())
+                    }
+                    when {
+                        train.isDerailed -> {
+                            rejected += "$wayPointId/${train.id}: derailed"
+                            null
+                        }
+                        train.publishedFrame.speedMetersPerSecond > REPLAN_STOPPED_SPEED_METERS_PER_SECOND -> {
+                            rejected += "$wayPointId/${train.id}: moving"
+                            null
+                        }
+                        runs.values.any {
+                            it.train.id == train.id && !it.canBeReplaced() && !it.isStoredTerminal()
+                        } -> {
+                            rejected += "$wayPointId/${train.id}: assigned to another service"
+                            null
+                        }
+                        train.controller != null && replaceableRun == null -> {
+                            rejected += "$wayPointId/${train.id}: controlled outside a replaceable service"
+                            null
+                        }
+                        else -> train to replaceableRun?.depotAllocation
+                    }
+                }
+                .toList()
+            candidates.firstOrNull()?.let { (train, inheritedAllocation) ->
+                return SelectedServiceTrain(
+                    train.id,
+                    wayPointId,
+                    inheritedAllocation,
+                    dynamicAcquisition = true,
+                    depotReservationPending = false
+                )
+            }
+        }
+        stallTimetableRuntime(
+            world,
+            runId,
+            "TrainAcquisitionFailure",
+            "no eligible stopped train at waypoints ${take.wayPointIds} for cycle $cycleIndex; " +
+                "rejected=${rejected.ifEmpty { listOf("none present") }}"
+        )
+        return null
     }
 
     private fun stallDepotAllocation(
@@ -3506,51 +3812,6 @@ class TimetableDispatcher(
         )
     }
 
-    private fun firstMovement(
-        runId: TimetableServiceRunId,
-        service: TimetableService,
-        originWayPointId: String? = null
-    ): MovementPlan? {
-        var origin: WayPointRef? = originWayPointId?.let(::WayPointRef)
-        var stationCallSpec: StationCallSpec? = null
-        var destinationOptions: TimetableAction.DestinationOptions? = null
-        service.steps.forEachIndexed { index, step ->
-            when (step) {
-                is TimetableStep.Check -> origin = WayPointRef(step.wayPointId)
-                is TimetableStep.At -> when (val action = step.action) {
-                    is TimetableAction.TakeFromDepot -> Unit
-                    is TimetableAction.StoreAtDepot -> return null
-                    is TimetableAction.DestinationOptions -> {
-                        if (destinationOptions != null) return null
-                        destinationOptions = action
-                    }
-                    is TimetableAction.CallStation -> {
-                        if (stationCallSpec != null) return null
-                        stationCallSpec = StationCallSpec(
-                            action = action,
-                            stepIndex = index
-                        )
-                    }
-                    is TimetableAction.GoTo,
-                    is TimetableAction.GoVia -> return movement(
-                        runId,
-                        origin ?: return null,
-                        step,
-                        index + 1,
-                        stationCallSpec,
-                        destinationOptions
-                    )
-                    TimetableAction.Halt,
-                    TimetableAction.Reverse,
-                    is TimetableAction.Stop,
-                    is TimetableAction.Extension,
-                    is TimetableAction.Conditional -> return null
-                }
-            }
-        }
-        return null
-    }
-
     private fun movement(
         runId: TimetableServiceRunId,
         origin: WayPointRef,
@@ -3570,6 +3831,7 @@ class TimetableDispatcher(
                 else AtoMissionPoint.Via(target)
             }
             is TimetableAction.TakeFromDepot,
+            is TimetableAction.TakeFromWaypoint,
             is TimetableAction.StoreAtDepot,
             is TimetableAction.DestinationOptions,
             TimetableAction.Halt,
@@ -3656,8 +3918,8 @@ class TimetableDispatcher(
         }
         val layout = MissionRouteLayout(world, resolved)
         val currentFacing =
-            (ato.train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
-                ?.facing ?: ViewDirection.AB
+            (ato.train.headLocation as work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
+                .facing
         val currentSnapshot = TrainSnapshot.capture(ato.train, dispatcherTick, currentFacing)
         if (layout.project(currentSnapshot.head) == null) {
             return MissionSubmission(
@@ -3665,7 +3927,7 @@ class TimetableDispatcher(
                 "train ${ato.train.id} is not facing the planned route from ${plan.origin.id}"
             )
         }
-        return when (val result = ato.submitMission(request)) {
+        return when (val result = ato.submitMission(resolved)) {
             is AtoMissionSubmissionResult.Accepted -> MissionSubmission(
                 PreparedMission(result.mission, MissionRouteLayout(world, result.mission)),
                 null
@@ -3783,7 +4045,9 @@ class TimetableDispatcher(
     private data class SelectedServiceTrain(
         val trainId: String,
         val originWayPointId: String?,
-        val depotAllocation: DepotTrainAllocation?
+        val depotAllocation: DepotTrainAllocation?,
+        val dynamicAcquisition: Boolean,
+        val depotReservationPending: Boolean
     )
 
     private data class MovementPlan(
@@ -3848,7 +4112,6 @@ class TimetableDispatcher(
         var resolved: ResolvedStationCall,
         val missionRuntime: MissionRuntime,
         val missionDistanceMeters: Double,
-        var lastOdometerMeters: Double,
         var allocationKey: StationBerthAllocationKey? = null,
         var submittedToAto: Boolean = false,
         var approaching: Boolean = false,
@@ -3864,12 +4127,13 @@ class TimetableDispatcher(
         var waitForNextTimetableAction: Boolean = false,
         var cancelledForControlTransfer: Boolean = false,
         var lastNotificationEpoch: Long = -1L,
-        var tailMissionProgressMeters: Double? = null
+        val releaseDetector: RailIntervalReleaseDetector
     )
 
     private data class DispatcherReverseOperation(
-        val reversedAfter: Boolean,
-        val startedDispatcherTick: Long
+        val preparationRevision: Long,
+        var reversedAfter: Boolean? = null,
+        var reversedAtDispatcherTick: Long? = null
     )
 
     private data class DispatcherHaltOperation(
@@ -3901,7 +4165,7 @@ class TimetableDispatcher(
         var operationStartedDispatcherTick: Long = Long.MAX_VALUE
     )
 
-    private data class ActiveRun(
+    private class ActiveRun(
         val id: TimetableServiceRunId,
         val service: TimetableService,
         val train: CoreTrain,
@@ -3910,7 +4174,7 @@ class TimetableDispatcher(
         var missionRevision: Long,
         var nextStepIndex: Int,
         var currentWayPointId: String,
-        var currentRuntime: MissionRuntime,
+        currentRuntime: MissionRuntime?,
         var state: TimetableServiceRunState,
         val cycleIndex: Long,
         val cycleStartDispatcherTick: Long,
@@ -3935,14 +4199,21 @@ class TimetableDispatcher(
         var controlMode: TimetableControlMode = TimetableControlMode.AUTOMATIC,
         var manualController: TrainController? = null,
         val depotAllocation: DepotTrainAllocation? = null,
-        val depotDepartureRuntime: MissionRuntime? = null,
+        var depotReservationPending: Boolean = false,
+        var depotDepartureRuntime: MissionRuntime? = null,
         var depotDepartureReleased: Boolean = depotAllocation == null,
         var storageReservation: DepotStorageReservation? = null,
+        var physicalStorageOnly: Boolean = false,
         var storageRuntime: MissionRuntime? = null,
         var storageCompleted: Boolean = false,
         val runtimes: MutableList<MissionRuntime> = ArrayList(),
         val allocations: MutableMap<RouteSectionAllocationKey, AllocatedSection> = LinkedHashMap()
     ) {
+        var currentRuntimeOrNull: MissionRuntime? = currentRuntime
+        var currentRuntime: MissionRuntime
+            get() = checkNotNull(currentRuntimeOrNull) { "service $id has not submitted its first Mission" }
+            set(value) { currentRuntimeOrNull = value }
+
         val instanceId: String = "$id@cycle-$cycleIndex/start-$cycleStartDispatcherTick"
         val owner = RouteSectionOwner(instanceId, train.id)
 
@@ -3983,8 +4254,8 @@ class TimetableDispatcher(
                     ?: stationCall?.plannedDepartureTimetableTick
                     ?: lastScheduledActionTick,
                 lastLatenessTicks = lastLatenessTicks,
-                headProgressMeters = currentRuntime.headProgressMeters,
-                tailProgressMeters = currentRuntime.tailProgressMeters,
+                headProgressMeters = currentRuntimeOrNull?.headProgressMeters,
+                tailProgressMeters = currentRuntimeOrNull?.tailProgressMeters,
                 stationCallId = stationCall?.resolved?.call?.callId,
                 berthRef = stationCall?.resolved?.berthRef,
                 berthHeld = stationCall?.allocationKey != null,

@@ -28,7 +28,23 @@ data class SavedActiveRunCheckpointV1(
     val missionRevision: Long = 0L,
     val lastScheduledActionTick: Long? = null,
     val lastLatenessTicks: Long = 0L,
-    val controlMode: String = "AUTOMATIC"
+    val controlMode: String = "AUTOMATIC",
+    val message: String? = null,
+    val headProgressMeters: Double? = null,
+    val tailProgressMeters: Double? = null,
+    val missionTotalLengthMeters: Double? = null,
+    val atoMissionRevision: Long? = null,
+    val atoOdometerProgressMeters: Double? = null,
+    val atoProjectedProgressMeters: Double? = null,
+    val movementAuthorityRevision: Long? = null,
+    val movementAuthorityLimitMeters: Double? = null,
+    val activeStationCallId: String? = null,
+    val stationTargetProgressMeters: Double? = null,
+    val stationPositionErrorMeters: Double? = null,
+    val atoPermittedSpeedMetersPerSecond: Double? = null,
+    val atoConstraints: List<String> = emptyList(),
+    val stationCallSubmittedToAto: Boolean? = null,
+    val berthHeld: Boolean? = null
 )
 
 @Serializable

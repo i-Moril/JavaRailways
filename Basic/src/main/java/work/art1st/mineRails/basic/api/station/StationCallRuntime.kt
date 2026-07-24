@@ -35,7 +35,8 @@ object StationBerthDetector {
 enum class StationCallNotificationType {
     APPROACHING,
     BERTHED,
-    DEPARTED
+    DEPARTED,
+    REVERSE_READY
 }
 
 /** Immutable physics-to-main notification for one monotonic StationCall transition. */

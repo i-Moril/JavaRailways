@@ -50,12 +50,14 @@ class SimpleATOTest {
     )
 
     @Test
-    fun `rail without configured limit uses actuator maximum speed`() {
-        val fixture = fixture("max-speed")
+    fun `ATO without a Mission remains stopped on an unconstrained rail`() {
+        val fixture = fixture("no-mission")
 
-        tickAndPublish(fixture.ato, 1_000.0)
+        repeat(5) { tickAndPublish(fixture.ato, 1_000.0) }
 
-        assertEquals(1.0, fixture.train.speed, 1.0e-9)
+        assertEquals(null, fixture.ato.currentMission)
+        assertEquals(0.0, fixture.train.speed, 1.0e-9)
+        assertEquals(0.0, fixture.ato.lifetimeTravelDistanceMeters, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
         assertEquals(fixture.train.id, fixture.coordinator.initialTrain(fixture.train.id)?.trainId)
     }
@@ -177,6 +179,7 @@ class SimpleATOTest {
     @Test
     fun `following constraint holds behind a nearby stopped train`() {
         val fixture = fixture("following")
+        authorizeMovement(fixture)
         val front = createTrainWithConfig("front", fixture.train.head.location.rail, fixture.world, listOf(10.0))
         front.setLocation(fixture.train.head.location.forward(11.0)!!)
         front.commit()
@@ -196,6 +199,7 @@ class SimpleATOTest {
     @Test
     fun `stopAt brakes to the observed RailObject`() {
         val fixture = fixture("stop-target")
+        authorizeMovement(fixture)
         val head = fixture.train.head.location
         val targetArc = head.arcLength + 20.0
         val target = object : RailObject {
@@ -318,6 +322,7 @@ class SimpleATOTest {
     @Test
     fun `route end is treated as a stop target`() {
         val fixture = fixture("route-end", railLengthMeters = 30.0)
+        authorizeMovement(fixture)
 
         repeat(600) { tickAndPublish(fixture.ato, 50.0) }
 
@@ -350,7 +355,7 @@ class SimpleATOTest {
         )
         secondTrain.setController(secondAto)
         tickAndPublish(secondAto, 1_000.0)
-        assertEquals(1.0, secondTrain.speed, 1.0e-9)
+        assertEquals(0.0, secondTrain.speed, 1.0e-9)
 
         fixture.ato.setProvider("missing")
         tickAndPublish(fixture.ato, 50.0)
@@ -366,6 +371,7 @@ class SimpleATOTest {
     @Test
     fun `passing provider deactivation boundary removes its constraints`() {
         val fixture = fixture("provider-deactivation")
+        authorizeMovement(fixture)
         fixture.data.atoProviders.register("slow-provider") {
             object : AtoProvider {
                 override val id = "slow-provider"
@@ -444,6 +450,7 @@ class SimpleATOTest {
     @Test
     fun `passing provider boundary activates its constraints`() {
         val fixture = fixture("provider-boundary")
+        authorizeMovement(fixture)
         fixture.data.atoProviders.register("stop-provider") {
             object : AtoProvider {
                 override val id: String = "stop-provider"
@@ -469,6 +476,42 @@ class SimpleATOTest {
 
         assertEquals(0.0, fixture.train.speed, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
+    }
+
+    private fun authorizeMovement(fixture: Fixture) {
+        val rail = fixture.train.head.location.rail
+        val originArc = fixture.train.head.location.arcLength
+        val originId = "${fixture.train.id}-mission-origin"
+        val targetId = "${fixture.train.id}-mission-target"
+        fixture.data.wayPoints.add(WayPoint(originId, originId, rail.id, originArc))
+        fixture.data.wayPoints.add(WayPoint(
+            targetId,
+            targetId,
+            rail.id,
+            rail.curve.totalArcLength
+        ))
+        val accepted = fixture.ato.submitMission(AtoMissionRequest(
+            id = "${fixture.train.id}-mission",
+            revision = 1L,
+            origin = WayPointRef(originId),
+            points = listOf(AtoMissionPoint.Stop(WayPointRef(targetId)))
+        )) as AtoMissionSubmissionResult.Accepted
+        val route = accepted.mission.legs.single().plannedRoute
+        val window = ConfirmedRouteWindow(
+            RouteSectionAllocationKey(
+                RouteSectionOwner("${fixture.train.id}-mission", fixture.train.id),
+                route.routeId,
+                route.revision,
+                sectionIndex = 0
+            ),
+            route.sections.single()
+        )
+        fixture.ato.confirmRouteWindow(window)
+        fixture.ato.setMovementAuthority(
+            accepted.mission.revision,
+            fixture.ato.terminalMovementAuthorityLimitMeters(route.expandedRoute.totalLength)
+        )
+        tickAndPublish(fixture.ato, 0.0)
     }
 
     private fun fixture(id: String, railLengthMeters: Double = 500.0): Fixture {

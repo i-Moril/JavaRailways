@@ -67,10 +67,13 @@ data class RouteSpeedLimitConstraint(
 
 data class StopConstraint(
     override val key: ConstraintKey,
-    val remainingDistanceMeters: Double
+    val remainingDistanceMeters: Double,
+    val stoppingMarginMeters: Double? = null
 ) : AtoConstraint {
     init {
         require(remainingDistanceMeters >= 0.0 && remainingDistanceMeters.isFinite())
+        require(stoppingMarginMeters == null ||
+            stoppingMarginMeters >= 0.0 && stoppingMarginMeters.isFinite())
     }
 
     override fun permittedSpeedMetersPerSecond(
@@ -80,7 +83,7 @@ data class StopConstraint(
         targetSpeed = 0.0,
         distance = remainingDistanceMeters -
             currentSpeedMetersPerSecond * profile.reactionTimeSeconds -
-            profile.stopToleranceMeters,
+            (stoppingMarginMeters ?: profile.stopToleranceMeters),
         deceleration = profile.serviceDecelerationMetersPerSecondSquared
     )
 }

@@ -74,7 +74,7 @@ sealed interface DestinationRole {
         val berthId: String,
         val doorSide: DoorSide,
         val stoppingOffsetMetersBefore: Double = 0.0,
-        val positionToleranceMeters: Double = DEFAULT_POSITION_TOLERANCE_METERS,
+        val positionToleranceMeters: Double = 1.0,
         val usableLengthMeters: Double? = null,
         val defaultDwellTicks: Long = 0L,
         val releaseDistanceMetersAfter: Double = 0.0

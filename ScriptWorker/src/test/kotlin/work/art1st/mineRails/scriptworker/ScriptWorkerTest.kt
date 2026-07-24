@@ -21,6 +21,55 @@ class ScriptWorkerTest {
         assertEquals(SavedTimetableActionTypeV1.REVERSE, result.services.single().steps[4].action!!.type)
     }
 
+    @Test fun `waypoint acquisition accepts a string or ordered list at a nonzero tick`() {
+        val single = run("timetable.setPeriodDays(1); timetable.service('s', timetable.takeFromWaypoint('station@1', 600), t => { t.at(700).destination('next'); });")
+        val singleAction = single.services.single().steps.first().action!!
+        assertEquals(SavedTimetableActionTypeV1.TAKE_FROM_WAYPOINT, singleAction.type)
+        assertEquals(listOf("station@1"), singleAction.wayPointIds)
+        assertEquals(600L, single.services.single().steps.first().tick)
+
+        val list = run("timetable.setPeriodDays(1); timetable.service('s', timetable.takeFromWaypoint(['station@1', 'siding'], 600), t => { t.at(700).destination('next'); });")
+        assertEquals(listOf("station@1", "siding"), list.services.single().steps.first().action!!.wayPointIds)
+    }
+
+    @Test fun `depot acquisition is a service selector rather than a callback action`() {
+        val result = run("timetable.setPeriodDays(1); timetable.service('s', timetable.takeFromDepot('north', {tags:['metro']}, 500), t => t.at(700).destination('next'));")
+        val first = result.services.single().steps.first()
+        assertEquals(500L, first.tick)
+        assertEquals(SavedTimetableActionTypeV1.TAKE_FROM_DEPOT, first.action?.type)
+        assertEquals(setOf("metro"), first.action?.requiredTags)
+        assertThrows(Throwable::class.java) {
+            run("timetable.setPeriodDays(1); timetable.service('s', t => t.at(500).takeFromDepot('north'));")
+        }
+    }
+
+    @Test fun `initial position selectors serialize full-match regex combinators`() {
+        val result = run("""
+          timetable.setPeriodDays(1);
+          timetable.setInitialPosition(
+            timetable.and('s100-.*', timetable.not('.*-maintenance')),
+            timetable.or('yard@1', 'yard@2')
+          );
+          timetable.service('s', 's100-1', t => { t.check('yard@1'); t.at(1).destination('next'); });
+        """)
+        val initial = result.initialPositions.single()
+        assertEquals(SavedObjectSelectorTypeV1.AND, initial.trainSelector.type)
+        assertEquals("s100-.*", initial.trainSelector.selectors.first().pattern)
+        assertEquals(SavedObjectSelectorTypeV1.NOT, initial.trainSelector.selectors.last().type)
+        assertEquals(SavedObjectSelectorTypeV1.OR, initial.wayPointSelector.type)
+    }
+
+    @Test fun `selector not overload does not replace condition not`() {
+        val result = run("""
+          timetable.setPeriodDays(1);
+          const blocked = timetable.predicate('demo:blocked', {});
+          timetable.service('s', 'train', {
+            activation: { type: 'conditional', condition: timetable.not(blocked) }
+          }, t => t.at(1).destination('next'));
+        """)
+        assertEquals(SavedTimetableConditionTypeV1.NOT, result.services.single().activation.condition?.type)
+    }
+
     @Test fun `normal JavaScript if is evaluated while building`() {
         val result = run("timetable.setPeriodDays(1); const express = true; timetable.service('s','train', t => { if (express) t.at(1).destination('fast'); else t.at(1).destination('slow'); });")
         assertEquals(listOf("fast"), result.services.single().steps.last().action!!.wayPointIds)
@@ -53,6 +102,17 @@ class ScriptWorkerTest {
     @Test fun `service line direction is serialized explicitly`() {
         val result = run("timetable.setPeriodDays(1); timetable.service('s','train',{lineId:'metro',lineDirection:'down'},t=>t.at(1).destination('a'));")
         assertEquals(SavedLineDirectionV1.DOWN, result.services.single().lineDirection)
+    }
+
+    @Test fun `diagram lines and visual arrival ticks are serialized`() {
+        val result = run("""
+          timetable.setPeriodDays(1);
+          timetable.diagramLine('metro', { upStations: ['a', 'b'], downStations: ['b', 'a'] });
+          timetable.service('s','train',{lineId:'metro'},t=>t.at(100).destination('b@1',{arrivalTick:900}));
+        """)
+        assertEquals(listOf("a", "b"), result.diagramLines.single().upStationIds)
+        assertEquals(listOf("b", "a"), result.diagramLines.single().downStationIds)
+        assertEquals(900L, result.services.single().steps.first().action?.arrivalTick)
     }
 
     @Test fun `options reject unknown fields and normalize door side`() {

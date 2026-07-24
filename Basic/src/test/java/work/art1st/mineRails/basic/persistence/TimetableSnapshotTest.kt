@@ -53,9 +53,12 @@ class TimetableSnapshotTest {
                                 requiredCapabilities = setOf("doors")
                             )
                         )),
+                        TimetableStep.At(50L, TimetableAction.TakeFromWaypoint(
+                            listOf("platform@one", "siding")
+                        )),
                         TimetableStep.At(100L, TimetableAction.GoVia(listOf("via", "central@one"))),
                         TimetableStep.At(200L, TimetableAction.CallStation(
-                            "central", "one", 40L, 1.5, DoorSide.LEFT
+                            "central", "one", 40L, 1.5, DoorSide.LEFT, arrivalTick = 180L
                         )),
                         TimetableStep.At(300L, TimetableAction.Stop(20L)),
                         TimetableStep.At(350L, TimetableAction.Conditional(
@@ -78,7 +81,22 @@ class TimetableSnapshotTest {
                     lineId = LineId("metro"),
                     lineDirection = LineDirection.DOWN
                 )
-            )
+            ),
+            diagramLines = listOf(TimetableDiagramLine(
+                "metro",
+                upStationIds = listOf("central", "terminus"),
+                downStationIds = listOf("terminus", "central")
+            )),
+            initialPositions = listOf(TimetableInitialPosition(
+                TimetableObjectSelector.And(listOf(
+                    TimetableObjectSelector.Regex("T.*"),
+                    TimetableObjectSelector.Not(TimetableObjectSelector.Regex(".*-disabled"))
+                )),
+                TimetableObjectSelector.Or(listOf(
+                    TimetableObjectSelector.Regex("north@.*"),
+                    TimetableObjectSelector.Regex("south@.*")
+                ))
+            ))
         )
 
         val encoded = TimetableSnapshotCodec.encode(SavedTimetableV1.capture(timetable))

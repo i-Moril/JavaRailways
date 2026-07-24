@@ -6,7 +6,7 @@ slug: /timetable/
 # MineRails JS 时刻表语法说明
 
 :::warning 实验性能力
-本文档完整描述当前 JS 时刻表 DSL。运行时支持显式 `TrainId` 或 Depot 动态配车、`pass(...).destination(...)` 链式线路、`takeFromDepot`/`storeAtDepot`、非线路 hold、`Reverse`、`Halt`、Station/Berth 运营流程、扩展动作、结构化条件，以及共同 epoch 下的 not-before 计划时间和 period 自动 cycle。运营闭环仍以 [设计](architecture/timetable-operation-design.md) 和 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
+本文档完整描述当前 JS 时刻表 DSL。运行时支持显式 `TrainId`、Depot 动态配车或普通路径点取车、`pass(...).destination(...)` 链式线路、`takeFromDepot`/`takeFromWaypoint`/`storeAtDepot`、非线路 hold、`Reverse`、`Halt`、Station/Berth 运营流程、扩展动作、结构化条件，以及共同 epoch 下的 not-before 计划时间和 period 自动 cycle。运营闭环仍以 [设计](architecture/timetable-operation-design.md) 和 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
 :::
 
 JS 只负责生成 `SavedTimetableV1`，不会成为运行时脚本。每次编译都在独立 Worker JVM 的受限 GraalJS Context 中完成；Bukkit 随后恢复内部 `Timetable`、针对命令发起时所在世界执行 dry-run，通过后才替换运行期 store 中的同 ID 时刻表。加载不会自动启动 service。
@@ -53,7 +53,7 @@ plugins/MineRails/timetables/<name>.js
 /mr timetable replan <id> <service> <current-waypoint> [cycle]
 ```
 
-service 可以使用字符串 `trainId` selector，并在第一条线路前通过 `check()` 指定初始位置；也可以省略 selector，并把 `takeFromDepot` 作为第一步。线路使用 `[at(departureTick).]pass(...).destination(target, options?)` 一次提交，不能用逐段移动与独立等待拼接运营语义。
+service 的第二参数可以是玩家指定的列车名、`timetable.takeFromDepot(...)` 或 `timetable.takeFromWaypoint(...)` selector。显式列车名需在第一条线路前通过 `check()` 指定初始位置；动态 selector 会生成内部取车步骤。线路使用 `[at(departureTick).]pass(...).destination(target, options?)` 一次提交，不能用逐段移动与独立等待拼接运营语义。
 
 `stop` 命令先禁用匹配 timetable/service 的后续自动 cycle，再对当前所有匹配 cycle run 请求受控制动；已确认经路不会被强制释放，必须等列车尾部越过 release point。重新显式 start service 会重新启用该 service 的周期调度。人工接管会让车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`；管理员只能在列车停止、位于指定 WayPoint 且旧资源已由车尾释放后使用 `replan` 创建新 Mission。`status` 会显式输出 operation ticket 的 snapshot 错误。一般 `at(tick)` 是 not-before 时间；StationCall 的最短停站由 `minimumDwellTicks` 控制，下一条定时动作可以继续延长发车保持。
 
@@ -129,24 +129,40 @@ timetable.setPeriodDays(2)
 - 所有显式 `at(departureTick)` 必须小于 `periodDays × 24000`；
 - 管理员启动整张 timetable 时建立全部 service 共享的 cycle-zero epoch；
 - period 边界为全部 service 自动创建使用同一 cycle 起点的下一 cycle run；
-- 前一 cycle 仍活动时不会被抢占，动态服务必须取得另一列兼容 AVAILABLE 列车，否则按 Depot 规则 Stall。
+- 前一 cycle 仍活动时不会被抢占；动态服务必须取得另一列实际停止且未被控制的列车，否则 Stall。
 
 `setPeriod(ticks)` 暂时作为兼容入口保留，但 ticks 必须是 `24000` 的正整数倍；新脚本应使用 `setPeriodDays`。
 
-### `timetable.service(id, builder)`
+### `timetable.diagramLine(lineId, options)`
 
-定义动态配车 service。未指定列车时必须以 `t.at(0).takeFromDepot(...)` 开始。
+声明仅供 WebUI 运行图使用的线路站序，不参与 Dispatcher、寻路、资源申请或运行时调度：
 
 ```js
-timetable.service("001", function(t) {
-  t.at(0).takeFromDepot("north")
-  t.at(1000).destination("a0")
+timetable.diagramLine("metro", {
+  upStations: ["south", "central", "north"],
+  downStations: ["north", "central", "south"]
 })
+```
+
+上下行数组必须非空且各自不能包含重复站 ID。运行图按站 ID 合并不同站台，因此同一张图中每个车站只占一条横线。service 仍通过 `lineId` 关联到对应运行图。
+
+### `timetable.service(id, builder)`
+
+定义动态取车 service。取车来源是 `service` 的第二参数，而不是 callback 内的普通动作；取车可以安排在周期内任意非负 tick，到点前不会提前占用列车。
+
+```js
+timetable.service(
+  "001",
+  timetable.takeFromDepot("north", 800),
+  function(t) {
+    t.at(1000).destination("a0")
+  }
+)
 ```
 
 ### `timetable.service(id, trainSelector, builder)`
 
-定义一个 service，并指定列车选择器。
+定义一个 service，并指定玩家命名的列车。列车名在世界内区分大小写且唯一；UUID 仅作为内部持久化身份。
 
 ```js
 timetable.service("001", "train-001", function(t) {
@@ -159,10 +175,12 @@ timetable.service("001", "train-001", function(t) {
 
 | 写法 | 约束 |
 |---|---|
-| 省略或 `null` | 动态配车；第一步必须是 `takeFromDepot` |
-| 字符串 | 指定列车 id；第一次移动前必须有 `check()` |
+| 省略或 `null` | 无列车 selector；包含列车动作的 service 将验证失败 |
+| `timetable.takeFromDepot(...)` | 在指定 tick 从 Depot 动态配车 |
+| `timetable.takeFromWaypoint(...)` | 在指定 tick 从一个或多个普通路径点接管停车列车 |
+| 字符串 | 指定玩家列车名；第一次移动前必须有 `check()` |
 
-字符串数组 selector 已移除，并会在 DSL 解析边界直接报错；请使用字符串 `trainId` + `check()` 或省略 selector + `takeFromDepot`。
+裸字符串数组 selector 已移除，并会在 DSL 解析边界直接报错；多个取车路径点必须通过 `timetable.takeFromWaypoint([...], tick)` 声明。
 
 ### `timetable.service(id, trainSelector, options, builder)`
 
@@ -197,37 +215,106 @@ timetable.service("001", "train-001", {
 
 条件激活的 `falseBehavior` 支持 `SKIP_CYCLE`（本周期跳过）和 `WAIT_UNTIL_TRUE`（本周期等待条件成立）。条件 provider 必须声明支持 `SERVICE_ACTIVATION` scope；否则 Bukkit 世界验证会拒绝加载。
 
+## 初始位置约束
+
+`timetable.setInitialPosition(trainSelector, positionSelector)` 为当前 timetable epoch 声明一对列车/初始位置。位置 selector 可匹配 WayPoint ID，也可匹配 Depot ID；匹配 Depot 时会展开为该 Depot 下尚未使用的 StablingPoint。字符串是全长正则表达式，不需要手写 `^` 和 `$`：
+
+```js
+timetable.setInitialPosition(
+  timetable.and("s100-.*", timetable.not(".*-maintenance")),
+  timetable.or("yard@1", "yard@2")
+)
+```
+
+规则：
+
+- 每次调用从尚未被前面约束选中的列车名和 WayPoint ID 中确定性匹配一对；
+- `and(...)`、`or(...)`、`not(...)` 用于组合 selector；
+- 已经位于合法目标的配对优先，否则按列车名/UUID和 WayPoint ID 排序选择；
+- WayPoint 方向优先使用其 OperationalDestination `approachDirection`，否则使用下方 Rail 的 `allowedDirection`；两者都缺失会 Stall；
+- timetable start/reset 时全量应用；任一放置或占用检查失败会回滚全部移动并触发 `TimetableInitialPositionFailure`；
+- tags selector 已在持久化模型中预留，但当前 DSL 尚未开放。
+
+重置命令：
+
+```text
+/mr timetable reset <id> confirm
+```
+
+若 active/resource-holding run 无法安全完成停车，可由管理员显式执行破坏性的强制重置：
+
+```text
+/mr timetable reset <id> force confirm
+```
+
+强制重置会立即撤销人工/ATO controller，取消操作票，释放 RouteSection、StationBerth 和停车位 reservation，丢弃该 timetable 的全部 run/clock，然后应用原子初始位置并启动新 epoch；不会等待车尾通过释放点。
+
 ## Service 内 API
 
 在 `service(..., function(t) { ... })` 中，`t` 是 service builder。
 
-### `t.at(tick).takeFromDepot(depotId, options?)`
+### `timetable.takeFromDepot(depotId, options?, tick)`
 
-从 home depot 中原子选择并保留一列兼容的 `AVAILABLE` 列车。它必须是 service 的第一步，并且不能同时声明 `trainSelector`。
+构造一个 service train selector，在指定 tick 从 Depot 的 StablingPoint 中选择一列物理上实际停准、停止且未被其他 service 控制的列车。DepotStore 的 RollingStock 登记状态不参与车辆是否可取的判断。
 
 ```js
-timetable.service("001", function(t) {
-  t.at(0).takeFromDepot("north", {
+timetable.service(
+  "001",
+  timetable.takeFromDepot("north", {
     tags: ["metro"],
     minimumCars: 4,
     maximumCars: 8,
     minimumSpeedMetersPerSecond: 16.5,
     capabilities: ["doors"]
-  })
-  t.at(1000).destination("central-1")
-})
+  }, 800),
+  function(t) {
+    t.at(1000).destination("central-1")
+  }
+)
 ```
+
+无筛选 options 时可写为 `timetable.takeFromDepot("north", 800)`。
 
 规则：
 
-- 当前必须声明为 `t.at(0).takeFromDepot(...)`，并作为 service 的第一步；
+- 只能作为 `service` 第二参数，不能在 callback 内调用；运行时只在到达指定 tick 后分配车辆；
 - `tags` 和 `capabilities` 是必须全部满足的字符串数组；
 - 编组上下界和最低速度均为严格筛选条件，不会退化选择不兼容车辆；
 - 候选先按稳定 train ID 排序，再使用 timetable/cycle/service 派生 seed 可复现选择；
 - 被选列车必须仍停在其 directed StablingPoint；
-- 无匹配 `AVAILABLE` 列车会触发当前 World 的 ATO Stall；
+- Depot 内没有物理上停准且可用的列车会触发当前 World 的 ATO Stall；
 - dry-run 只从满足 selector 的 RollingStock 及其兼容 StablingPoint 展开候选路线，不会因不兼容停车点产生伪失败；
 - 未知 option、非法范围、缺失 Depot/StablingPoint 会导致 loader 失败。
+
+### `timetable.takeFromWaypoint(wayPointIdOrList, tick)`
+
+构造一个 service train selector，从普通路径点接管一列已停车、未被其他 service 占用的列车，适用于车站站台、折返线和普通存车线。
+
+```js
+timetable.service(
+  "platform-start",
+  timetable.takeFromWaypoint("central@platform-1", 6000),
+  t => t.at(6200).destination("next-station@1")
+)
+
+timetable.service(
+  "siding-start",
+  timetable.takeFromWaypoint([
+    "central@siding-1",
+    "central@siding-2"
+  ], 8000),
+  t => t.at(8200).destination("central@platform-1")
+)
+```
+
+规则：
+
+- 参数必须是非空字符串或非空字符串数组，数组顺序是路径点优先级；
+- 只能作为 `service` 第二参数，tick 不要求为 0；
+- 候选列车必须停在 directed waypoint、处于停止状态、未脱轨且未被活动 service 或外部 controller 占用；
+- DepotStore 中 `AVAILABLE`/`RESERVED` 的 RollingStock 不能绕过 Depot 状态机，应使用 `takeFromDepot`；已由前一 completed service 带到站台且仍为 `IN_SERVICE` 的车辆可以连同原 assignment 一起接管；
+- 同一路径点有多个候选时按稳定 train ID 选择；
+- 到点后没有合格列车会触发当前 World 的 `TrainAcquisitionFailure` Stall，不会等待或回退到其他未声明路径点。
 
 ### `t.at(tick).storeAtDepot(depotId, options?)`
 
@@ -264,6 +351,7 @@ t.at(1000)
   .pass("a1")
   .pass(["a2", "junction"])
   .destination("central@platform-1", {
+    arrivalTick: 1880, // 仅供 WebUI 绘图
     minimumDwellTicks: 100,
     stoppingOffsetMetersBefore: 1.5,
     doorSide: "LEFT"
@@ -284,6 +372,7 @@ t.pass("a1").destination("central@platform-1", {
 - `pass()` 接受一个稳定 Destination/WayPoint ID 或非空 ID 数组；列车经过这些点但不产生停车业务。
 - `destination()` 接受恰好一个最终停车目标，并立即提交此前累计的全部 pass。
 - 有未提交 pass 时不能开始另一条 `at()` 或执行其他动作；脚本结束时仍有 pass 也会失败。
+- `arrivalTick` 是可选的绘图到达时刻，必须不早于本段 `departureTick`；它只控制 WebUI 运行图斜线终点，不参与运行时调度。
 - `minimumDwellTicks`、`stoppingOffsetMetersBefore` 不能为负；`doorSide` 接受大小写形式的 `none/left/right/both`。
 - 若 target 是 StationBerth Destination，Bukkit 在 Worker 结束后根据当前世界角色把统一 destination options 解析为 StationCall，执行 berth 分配、停准、开关门、dwell 和车尾释放。
 - 普通 Destination 使用同一停车偏移、开门和 minimum dwell 语义，但不申请 StationBerth 资源。

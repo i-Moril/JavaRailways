@@ -375,6 +375,33 @@ class DepotStore {
         runtime.record
     }
 
+    /**
+     * Reserve an exact train only after the dispatcher has selected it from physical occupancy.
+     * DepotStore is not an availability/selection authority; this only preserves optional legacy
+     * rolling-stock lifecycle metadata for an already registered train.
+     */
+    @MainThread
+    fun reservePhysicallySelected(
+        trainId: String,
+        pointRef: StablingPointRef,
+        selector: DepotTrainSelector,
+        assignmentId: String
+    ): DepotTrainAllocation? = synchronized(lock) {
+        if (assignments[assignmentId] != null) return@synchronized null
+        val runtime = rollingStock[trainId] ?: return@synchronized null
+        val point = points[pointRef] ?: return@synchronized null
+        if (runtime.state != RollingStockState.AVAILABLE || runtime.assignmentId != null ||
+            runtime.stablingPointRef != pointRef || point.occupantTrainId != trainId ||
+            !selector.matches(runtime.record)
+        ) return@synchronized null
+        val allocation = DepotTrainAllocation(assignmentId, trainId, pointRef, selector)
+        runtime.state = RollingStockState.RESERVED
+        runtime.assignmentId = assignmentId
+        point.reservedByAssignmentId = assignmentId
+        assignments[assignmentId] = allocation
+        allocation
+    }
+
     @MainThread
     fun allocate(
         selector: DepotTrainSelector,

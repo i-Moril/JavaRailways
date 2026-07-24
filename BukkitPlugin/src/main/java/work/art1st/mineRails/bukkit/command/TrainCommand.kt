@@ -5,6 +5,8 @@ import org.bukkit.entity.Player
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.mineRails.basic.controller.SimpleATO
+import work.art1st.mineRails.basic.api.depot.RollingStockState
+import work.art1st.mineRails.basic.pathFinding.basicWorldDataOrNull
 import work.art1st.mineRails.bukkit.BukkitPlugin
 import work.art1st.mineRails.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.mineRails.bukkit.config.model.CarControlConfig
@@ -46,12 +48,13 @@ object TrainCommand {
 
     fun onCommand(sender: CommandSender, args: List<String>): Boolean {
         if (args.isEmpty()) {
-            sender.sendMessage("用法: /mr train <create|key|anim|action|behavior|info|list|delete|sit|stand>")
+            sender.sendMessage("用法: /mr train <create|rename|key|anim|action|behavior|info|list|delete|sit|stand>")
             return true
         }
 
         when (args[0].lowercase()) {
             "create" -> return handleCreate(sender, args.drop(1))
+            "rename" -> return handleRename(sender, args.drop(1))
             "key" -> return handleKey(sender)
             "anim", "animation" -> return handleAnim(sender, args.drop(1))
             "action" -> return handleAction(sender, args.drop(1))
@@ -92,7 +95,23 @@ object TrainCommand {
             return true
         }
 
-        val trainTypeName = args.firstOrNull() ?: "s100"
+        if (args.size < 2) {
+            heavyOperationGate.finish(sender.uniqueId)
+            sender.sendMessage("用法: /mr train create <type> <name>")
+            return true
+        }
+        val trainTypeName = args[0]
+        val trainName = args[1]
+        if (trainName.isBlank() || trainName != trainName.trim() || trainName.any(Char::isISOControl)) {
+            heavyOperationGate.finish(sender.uniqueId)
+            sender.sendMessage("错误: 列车名必须是非空、无控制字符且首尾无空格的文本")
+            return true
+        }
+        if (coreWorld.allTrains.any { it.name == trainName }) {
+            heavyOperationGate.finish(sender.uniqueId)
+            sender.sendMessage("错误: 当前世界已存在列车名 '$trainName'")
+            return true
+        }
         val modelManager = BukkitPlugin.INSTANCE.modelManager
 
         val trainDef = modelManager.getTrain(trainTypeName)
@@ -133,7 +152,9 @@ object TrainCommand {
                     livePlayer.sendMessage("错误: 无法获取 CoreWorld")
                     return@supply
                 }
-                completeCreateOnMainThread(livePlayer, liveWorld, trainTypeName, trainDef, carDefs, playerPos, nearestRail)
+                completeCreateOnMainThread(
+                    livePlayer, liveWorld, trainTypeName, trainName, trainDef, carDefs, playerPos, nearestRail
+                )
             },
             onFailure = { error ->
                 heavyOperationGate.finish(sender.uniqueId)
@@ -145,6 +166,43 @@ object TrainCommand {
             onRetired = { heavyOperationGate.finish(sender.uniqueId) }
         )
         return true
+    }
+
+    private fun handleRename(sender: CommandSender, args: List<String>): Boolean {
+        if (sender !is Player) {
+            sender.sendMessage("此命令需要玩家执行")
+            return true
+        }
+        if (args.size != 2) {
+            sender.sendMessage("用法: /mr train rename <current-name> <new-name>")
+            return true
+        }
+        val world = getPlayerWorld(sender) as? CoreWorld ?: return true
+        val train = world.getTrain(args[0]) ?: run {
+            sender.sendMessage("错误: 找不到列车 '${args[0]}'")
+            return true
+        }
+        val newName = args[1]
+        if (train.controller != null) {
+            sender.sendMessage("错误: 列车 ${train.name} 正被控制或分配给 service，不能重命名")
+            return true
+        }
+        val rollingStock = world.basicWorldDataOrNull?.depots?.rollingStock(train.id)
+        if (rollingStock?.state == RollingStockState.RESERVED ||
+            rollingStock?.state == RollingStockState.IN_SERVICE
+        ) {
+            sender.sendMessage("错误: 列车 ${train.name} 当前 Depot 状态为 ${rollingStock.state}，不能重命名")
+            return true
+        }
+        return try {
+            val oldName = train.name
+            world.renameTrain(train, newName)
+            sender.sendMessage("列车已重命名: $oldName -> ${train.name}")
+            true
+        } catch (failure: IllegalArgumentException) {
+            sender.sendMessage("错误: ${failure.message}")
+            true
+        }
     }
 
     private fun handleKey(sender: CommandSender): Boolean {
@@ -161,6 +219,7 @@ object TrainCommand {
         sender: Player,
         coreWorld: CoreWorld,
         trainTypeName: String,
+        trainName: String,
         trainDef: work.art1st.mineRails.bukkit.config.model.TrainDefinition,
         carDefs: List<CarDefinition>,
         playerPos: Vector3dc,
@@ -219,13 +278,19 @@ object TrainCommand {
             carExtension.carModelName = carModelName
         }
 
-        val trainId = "train-${UUID.randomUUID().toString().take(8)}"
+        if (coreWorld.allTrains.any { it.name == trainName }) {
+            sender.sendMessage("错误: 当前世界已存在列车名 '$trainName'")
+            cars.forEach { it.destroy() }
+            return
+        }
+        val trainId = UUID.randomUUID().toString()
         var createdTrain: CoreTrain? = null
         val train = try {
             val newTrain = CoreTrain.create(
                 id = trainId,
                 cars = cars,
-                world = coreWorld
+                world = coreWorld,
+                name = trainName
             )
             createdTrain = newTrain
             newTrain.setLocation(headLocation)
@@ -248,7 +313,7 @@ object TrainCommand {
         coreWorld.publishCurrentTrainFrame(train.id)
         cars.forEach { it.renderer.sendTo(sender) }
 
-        sender.sendMessage("创建列车成功: ${train.id} (类型: $trainTypeName)")
+        sender.sendMessage("创建列车成功: ${train.name} [${train.id}] (类型: $trainTypeName)")
         sender.sendMessage("手持通用列车钥匙坐在驾驶座上驾驶，可用 /mr train key 获取。")
         sender.sendMessage("车厢数量: ${cars.size}")
         sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
@@ -740,7 +805,7 @@ object TrainCommand {
         val train = controller?.controlledTrain ?: nearestTrain
         if (train != null) {
             sender.sendMessage("=== 列车状态 ===")
-            sender.sendMessage("列车: ${train.id}")
+            sender.sendMessage("列车: ${train.name} [${train.id}]")
             if (controller != null) {
                 sender.sendMessage("速度: ${"%.2f".format(controller.speed)} m/s")
                 sender.sendMessage("加速度: ${"%.3f".format(controller.acceleration)} m/s²")
@@ -771,7 +836,7 @@ object TrainCommand {
 
         sender.sendMessage("=== 列车列表 ===")
         for (train in world.allTrains) {
-            sender.sendMessage("  ${train.id} - ${train.length} 节车厢")
+            sender.sendMessage("  ${train.name} [${train.id}] - ${train.length} 节车厢")
         }
         return true
     }

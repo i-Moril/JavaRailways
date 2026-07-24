@@ -4,26 +4,140 @@ import kotlinx.serialization.json.*
 import org.graalvm.polyglot.HostAccess
 import org.graalvm.polyglot.Value
 
+class TimetableObjectSelectorValue internal constructor(val saved: SavedObjectSelectorV1)
+
+class ServiceTrainAcquisition internal constructor(
+    val tick: Long,
+    val action: SavedTimetableActionV1
+)
+
 class TimetableBuilder(private val id: String) {
     private var periodDays: Long? = null
     private val services = mutableListOf<SavedTimetableServiceV1>()
+    private val diagramLines = mutableListOf<SavedDiagramLineV1>()
+    private val initialPositions = mutableListOf<SavedInitialPositionV1>()
 
     @HostAccess.Export fun setPeriodDays(days: Long): TimetableBuilder { require(days > 0); Math.multiplyExact(days, 24_000); periodDays = days; return this }
     @HostAccess.Export fun setPeriod(ticks: Long): TimetableBuilder { require(ticks > 0 && ticks % 24_000 == 0L) { "period ticks must be a positive multiple of 24000" }; return setPeriodDays(ticks / 24_000) }
+    @HostAccess.Export
+    fun diagramLine(lineId: String, options: Value): TimetableBuilder {
+        require(lineId.isNotBlank()) { "diagram line id must not be blank" }
+        require(diagramLines.none { it.id == lineId }) { "duplicate diagram line id: $lineId" }
+        options.requireOnly(setOf("upStations", "downStations"), "diagramLine options")
+        val up = options.member("upStations")?.let(::strings).orEmpty()
+        val down = options.member("downStations")?.let(::strings).orEmpty()
+        require(up.isNotEmpty() && down.isNotEmpty()) { "diagramLine directions must not be empty" }
+        require(up.distinct().size == up.size && down.distinct().size == down.size) {
+            "diagramLine directions must not contain duplicate stations"
+        }
+        diagramLines += SavedDiagramLineV1(lineId, up, down)
+        return this
+    }
+
     @HostAccess.Export fun service(serviceId: String, callback: Value): TimetableBuilder = addService(serviceId, null, null, callback)
     @HostAccess.Export fun service(serviceId: String, selector: Value, callback: Value): TimetableBuilder = addService(serviceId, selector, null, callback)
     @HostAccess.Export fun service(serviceId: String, selector: Value, options: Value, callback: Value): TimetableBuilder = addService(serviceId, selector, options, callback)
+
+    @HostAccess.Export
+    fun takeFromDepot(depotId: String, tick: Long): ServiceTrainAcquisition =
+        takeFromDepot(depotId, Value.asValue(null), tick)
+
+    @HostAccess.Export
+    fun takeFromDepot(depotId: String, options: Value, tick: Long): ServiceTrainAcquisition {
+        require(depotId.isNotBlank()) { "depotId must not be blank" }
+        require(tick >= 0L) { "takeFromDepot tick must not be negative" }
+        options.requireOnly(
+            setOf("tags", "minimumCars", "maximumCars", "minimumSpeedMetersPerSecond", "capabilities"),
+            "takeFromDepot options"
+        )
+        return ServiceTrainAcquisition(
+            tick,
+            SavedTimetableActionV1(
+                SavedTimetableActionTypeV1.TAKE_FROM_DEPOT,
+                depotId = depotId,
+                requiredTags = options.strings("tags"),
+                minimumCars = options.int("minimumCars"),
+                maximumCars = options.int("maximumCars"),
+                minimumSpeedMetersPerSecond = options.double("minimumSpeedMetersPerSecond"),
+                requiredCapabilities = options.strings("capabilities")
+            )
+        )
+    }
+
+    @HostAccess.Export
+    fun takeFromWaypoint(target: Value, tick: Long): ServiceTrainAcquisition {
+        require(tick >= 0L) { "takeFromWaypoint tick must not be negative" }
+        return ServiceTrainAcquisition(
+            tick,
+            SavedTimetableActionV1(
+                SavedTimetableActionTypeV1.TAKE_FROM_WAYPOINT,
+                wayPointIds = strings(target).distinct()
+            )
+        )
+    }
+
+    @HostAccess.Export
+    fun setInitialPosition(trainSelector: Value, wayPointSelector: Value): TimetableBuilder {
+        initialPositions += SavedInitialPositionV1(
+            objectSelector(trainSelector),
+            objectSelector(wayPointSelector)
+        )
+        return this
+    }
+
+    @HostAccess.Export fun and(vararg selectors: Value) = TimetableObjectSelectorValue(
+        SavedObjectSelectorV1(
+            SavedObjectSelectorTypeV1.AND,
+            selectors = selectors.map(::objectSelector).also { require(it.isNotEmpty()) }
+        )
+    )
+    @HostAccess.Export fun or(vararg selectors: Value) = TimetableObjectSelectorValue(
+        SavedObjectSelectorV1(
+            SavedObjectSelectorTypeV1.OR,
+            selectors = selectors.map(::objectSelector).also { require(it.isNotEmpty()) }
+        )
+    )
+    @HostAccess.Export fun not(value: Value): Any {
+        if (value.isHostObject) {
+            val host = value.asHostObject<Any>()
+            if (host is SavedTimetableConditionV1) {
+                return SavedTimetableConditionV1(
+                    SavedTimetableConditionTypeV1.NOT,
+                    conditions = listOf(host)
+                )
+            }
+        }
+        return TimetableObjectSelectorValue(
+            SavedObjectSelectorV1(
+                SavedObjectSelectorTypeV1.NOT,
+                selectors = listOf(objectSelector(value))
+            )
+        )
+    }
 
     @HostAccess.Export fun predicate(typeId: String, parameters: Value): SavedTimetableConditionV1 = predicate(typeId, 1, parameters)
     @HostAccess.Export fun predicate(typeId: String, version: Int, parameters: Value): SavedTimetableConditionV1 = SavedTimetableConditionV1(SavedTimetableConditionTypeV1.PREDICATE, call = extension(typeId, version, parameters))
     @HostAccess.Export fun all(vararg conditions: SavedTimetableConditionV1) = SavedTimetableConditionV1(SavedTimetableConditionTypeV1.ALL, conditions = conditions.toList())
     @HostAccess.Export fun any(vararg conditions: SavedTimetableConditionV1) = SavedTimetableConditionV1(SavedTimetableConditionTypeV1.ANY, conditions = conditions.toList())
-    @HostAccess.Export fun not(condition: SavedTimetableConditionV1) = SavedTimetableConditionV1(SavedTimetableConditionTypeV1.NOT, conditions = listOf(condition))
 
     private fun addService(serviceId: String, selector: Value?, options: Value?, callback: Value): TimetableBuilder {
         require(serviceId.isNotBlank()); require(callback.canExecute()) { "service builder must be a function" }
-        val trainId = selector?.takeUnless { it.isNull }?.let { require(it.isString) { "selector must be a train id or null" }; it.asString() }
+        var acquisition: ServiceTrainAcquisition? = null
+        val trainId = selector?.takeUnless { it.isNull }?.let { value ->
+            when {
+                value.isString -> value.asString()
+                value.isHostObject -> {
+                    acquisition = value.asHostObject<ServiceTrainAcquisition>()
+                    null
+                }
+                else -> error(
+                    "selector must be a train id, timetable.takeFromDepot(...), " +
+                        "timetable.takeFromWaypoint(...), or null"
+                )
+            }
+        }
         val builder = ServiceBuilder()
+        acquisition?.let { builder.add(it.tick, it.action) }
         callback.executeVoid(builder)
         options?.requireOnly(setOf("activation", "lineId", "lineDirection"), "service options")
         val activation = options?.member("activation")?.takeUnless { it.isNull }?.let { activation(it) } ?: SavedTimetableActivationV1()
@@ -39,7 +153,13 @@ class TimetableBuilder(private val id: String) {
     fun build(): SavedTimetableV1 {
         require(id.isNotBlank()) { "timetable id must not be blank" }
         require(services.map { it.id }.distinct().size == services.size) { "duplicate service id" }
-        return SavedTimetableV1(id, requireNotNull(periodDays) { "setPeriodDays() is required" }, services.toList())
+        return SavedTimetableV1(
+            id,
+            requireNotNull(periodDays) { "setPeriodDays() is required" },
+            services.toList(),
+            diagramLines.toList(),
+            initialPositions.toList()
+        )
     }
 }
 
@@ -78,9 +198,13 @@ class ServiceBuilder {
     internal fun destinationAt(tick: Long, target: String, options: Value): ServiceBuilder {
         require(tick == currentTick)
         require(target.isNotBlank()) { "destination target must not be blank" }
-        options.requireOnly(setOf("minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide"), "destination options")
+        options.requireOnly(setOf("arrivalTick", "minimumDwellTicks", "stoppingOffsetMetersBefore", "doorSide"), "destination options")
+        val arrivalTick = options.long("arrivalTick")
         val dwell = options.long("minimumDwellTicks")
         val offset = options.double("stoppingOffsetMetersBefore")
+        require(arrivalTick == null || arrivalTick >= tick) {
+            "arrivalTick must not be earlier than departure tick"
+        }
         require(dwell == null || dwell >= 0L) { "minimumDwellTicks must not be negative" }
         require(offset == null || offset >= 0.0) { "stoppingOffsetMetersBefore must not be negative" }
         val doorSide = options.string("doorSide")?.uppercase()?.also {
@@ -92,6 +216,7 @@ class ServiceBuilder {
             action = SavedTimetableActionV1(
                 SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
                 wayPointIds = listOf(target),
+                arrivalTick = arrivalTick,
                 minimumDwellTicks = dwell,
                 stoppingOffsetMetersBefore = offset,
                 doorSideOverride = doorSide
@@ -140,14 +265,6 @@ class TimedActionBuilder(private val service: ServiceBuilder, private val tick: 
     @HostAccess.Export fun wait(ticks: Value): ServiceBuilder = service.addWait(tick, ticks)
     @HostAccess.Export fun reverse(): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.REVERSE))
     @HostAccess.Export fun halt(): ServiceBuilder = service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.HALT))
-    @HostAccess.Export fun depot(depotId: String): ServiceBuilder = takeFromDepot(depotId)
-    @HostAccess.Export fun depot(depotId: String, options: Value): ServiceBuilder = takeFromDepot(depotId, options)
-    @HostAccess.Export fun takeFromDepot(depotId: String): ServiceBuilder = takeFromDepot(depotId, Value.asValue(null))
-    @HostAccess.Export fun takeFromDepot(depotId: String, options: Value): ServiceBuilder {
-        require(depotId.isNotBlank()) { "depotId must not be blank" }
-        options.requireOnly(setOf("tags", "minimumCars", "maximumCars", "minimumSpeedMetersPerSecond", "capabilities"), "takeFromDepot options")
-        return service.add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.TAKE_FROM_DEPOT, depotId = depotId, requiredTags = options.strings("tags"), minimumCars = options.int("minimumCars"), maximumCars = options.int("maximumCars"), minimumSpeedMetersPerSecond = options.double("minimumSpeedMetersPerSecond"), requiredCapabilities = options.strings("capabilities")))
-    }
     @HostAccess.Export fun storeAtDepot(depotId: String): ServiceBuilder = storeAtDepot(depotId, Value.asValue(null))
     @HostAccess.Export fun storeAtDepot(depotId: String, options: Value): ServiceBuilder {
         require(depotId.isNotBlank()) { "depotId must not be blank" }
@@ -165,6 +282,17 @@ class TimedActionBuilder(private val service: ServiceBuilder, private val tick: 
 }
 
 class RuntimeActions { internal val actions = mutableListOf<SavedTimetableActionV1>(); @HostAccess.Export fun action(typeId: String, parameters: Value): RuntimeActions { actions += SavedTimetableActionV1(SavedTimetableActionTypeV1.EXTENSION, extensionCall = extension(typeId, 1, parameters)); return this } }
+
+private fun objectSelector(value: Value): SavedObjectSelectorV1 = when {
+    value.isString -> {
+        val pattern = value.asString()
+        require(pattern.isNotBlank()) { "selector regex must not be blank" }
+        kotlin.text.Regex(pattern)
+        SavedObjectSelectorV1(SavedObjectSelectorTypeV1.REGEX, pattern = pattern)
+    }
+    value.isHostObject -> value.asHostObject<TimetableObjectSelectorValue>().saved
+    else -> error("selector must be a regex string or and/or/not selector")
+}
 
 private fun extension(typeId: String, version: Int, parameters: Value) = SavedTimetableExtensionCallV1(typeId, version, (toJson(parameters) as? JsonObject) ?: JsonObject(emptyMap()))
 private fun activation(value: Value): SavedTimetableActivationV1 {

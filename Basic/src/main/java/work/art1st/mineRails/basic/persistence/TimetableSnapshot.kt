@@ -106,6 +106,7 @@ data class SavedTimetableActivationV1(
 @Serializable
 enum class SavedTimetableActionTypeV1 {
     TAKE_FROM_DEPOT,
+    TAKE_FROM_WAYPOINT,
     STORE_AT_DEPOT,
     DESTINATION,
     DESTINATION_OPTIONS,
@@ -131,6 +132,7 @@ data class SavedTimetableActionV1(
     val stopTicks: Long? = null,
     val stationId: String? = null,
     val berthId: String? = null,
+    val arrivalTick: Long? = null,
     val minimumDwellTicks: Long? = null,
     val stoppingOffsetMetersBefore: Double? = null,
     val doorSideOverride: DoorSide? = null,
@@ -150,6 +152,8 @@ data class SavedTimetableActionV1(
                 requiredCapabilities = requiredCapabilities
             )
         )
+        SavedTimetableActionTypeV1.TAKE_FROM_WAYPOINT ->
+            TimetableAction.TakeFromWaypoint(wayPointIds)
         SavedTimetableActionTypeV1.STORE_AT_DEPOT -> TimetableAction.StoreAtDepot(
             DepotId(requireNotNull(depotId)),
             stablingPointIds
@@ -161,6 +165,7 @@ data class SavedTimetableActionV1(
         }
         SavedTimetableActionTypeV1.DESTINATION_OPTIONS -> TimetableAction.DestinationOptions(
             destinationId = wayPointIds.single(),
+            arrivalTick = arrivalTick,
             minimumDwellTicks = minimumDwellTicks,
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
             doorSide = doorSideOverride
@@ -171,6 +176,7 @@ data class SavedTimetableActionV1(
         SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS -> TimetableAction.CallStation(
             stationId = requireNotNull(stationId),
             berthId = requireNotNull(berthId),
+            arrivalTick = arrivalTick,
             minimumDwellTicks = minimumDwellTicks,
             stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
             doorSideOverride = doorSideOverride
@@ -196,6 +202,10 @@ data class SavedTimetableActionV1(
                 minimumSpeedMetersPerSecond = value.selector.minimumSpeedMetersPerSecond,
                 requiredCapabilities = value.selector.requiredCapabilities
             )
+            is TimetableAction.TakeFromWaypoint -> SavedTimetableActionV1(
+                type = SavedTimetableActionTypeV1.TAKE_FROM_WAYPOINT,
+                wayPointIds = value.wayPointIds
+            )
             is TimetableAction.StoreAtDepot -> SavedTimetableActionV1(
                 type = SavedTimetableActionTypeV1.STORE_AT_DEPOT,
                 depotId = value.depotId.value,
@@ -212,6 +222,7 @@ data class SavedTimetableActionV1(
             is TimetableAction.DestinationOptions -> SavedTimetableActionV1(
                 type = SavedTimetableActionTypeV1.DESTINATION_OPTIONS,
                 wayPointIds = listOf(value.destinationId),
+                arrivalTick = value.arrivalTick,
                 minimumDwellTicks = value.minimumDwellTicks,
                 stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
                 doorSideOverride = value.doorSide
@@ -230,6 +241,7 @@ data class SavedTimetableActionV1(
                 type = SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS,
                 stationId = value.stationId,
                 berthId = value.berthId,
+                arrivalTick = value.arrivalTick,
                 minimumDwellTicks = value.minimumDwellTicks,
                 stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
                 doorSideOverride = value.doorSideOverride
@@ -382,18 +394,98 @@ data class SavedTimetableServiceV1(
 }
 
 @Serializable
+data class SavedDiagramLineV1(
+    val id: String,
+    val upStationIds: List<String>,
+    val downStationIds: List<String>
+) {
+    fun restore() = TimetableDiagramLine(id, upStationIds, downStationIds)
+
+    companion object {
+        fun capture(value: TimetableDiagramLine) = SavedDiagramLineV1(
+            value.id,
+            value.upStationIds,
+            value.downStationIds
+        )
+    }
+}
+
+@Serializable
+enum class SavedObjectSelectorTypeV1 { REGEX, AND, OR, NOT, TAGS }
+
+@Serializable
+data class SavedObjectSelectorV1(
+    val type: SavedObjectSelectorTypeV1,
+    val pattern: String? = null,
+    val selectors: List<SavedObjectSelectorV1> = emptyList(),
+    val tags: Set<String> = emptySet()
+) {
+    fun restore(): TimetableObjectSelector = when (type) {
+        SavedObjectSelectorTypeV1.REGEX -> TimetableObjectSelector.Regex(requireNotNull(pattern))
+        SavedObjectSelectorTypeV1.AND -> TimetableObjectSelector.And(selectors.map { it.restore() })
+        SavedObjectSelectorTypeV1.OR -> TimetableObjectSelector.Or(selectors.map { it.restore() })
+        SavedObjectSelectorTypeV1.NOT -> TimetableObjectSelector.Not(selectors.single().restore())
+        SavedObjectSelectorTypeV1.TAGS -> TimetableObjectSelector.Tags(tags)
+    }
+
+    companion object {
+        fun capture(value: TimetableObjectSelector): SavedObjectSelectorV1 = when (value) {
+            is TimetableObjectSelector.Regex -> SavedObjectSelectorV1(
+                SavedObjectSelectorTypeV1.REGEX, pattern = value.pattern
+            )
+            is TimetableObjectSelector.And -> SavedObjectSelectorV1(
+                SavedObjectSelectorTypeV1.AND, selectors = value.selectors.map(::capture)
+            )
+            is TimetableObjectSelector.Or -> SavedObjectSelectorV1(
+                SavedObjectSelectorTypeV1.OR, selectors = value.selectors.map(::capture)
+            )
+            is TimetableObjectSelector.Not -> SavedObjectSelectorV1(
+                SavedObjectSelectorTypeV1.NOT, selectors = listOf(capture(value.selector))
+            )
+            is TimetableObjectSelector.Tags -> SavedObjectSelectorV1(
+                SavedObjectSelectorTypeV1.TAGS, tags = value.required
+            )
+        }
+    }
+}
+
+@Serializable
+data class SavedInitialPositionV1(
+    val trainSelector: SavedObjectSelectorV1,
+    val wayPointSelector: SavedObjectSelectorV1
+) {
+    fun restore() = TimetableInitialPosition(trainSelector.restore(), wayPointSelector.restore())
+    companion object {
+        fun capture(value: TimetableInitialPosition) = SavedInitialPositionV1(
+            SavedObjectSelectorV1.capture(value.trainSelector),
+            SavedObjectSelectorV1.capture(value.wayPointSelector)
+        )
+    }
+}
+
+@Serializable
 data class SavedTimetableV1(
     val id: String,
     val periodDays: Long,
-    val services: List<SavedTimetableServiceV1>
+    val services: List<SavedTimetableServiceV1>,
+    val diagramLines: List<SavedDiagramLineV1> = emptyList(),
+    val initialPositions: List<SavedInitialPositionV1> = emptyList()
 ) {
-    fun restore(): Timetable = Timetable(id, periodDays, services.map(SavedTimetableServiceV1::restore))
+    fun restore(): Timetable = Timetable(
+        id,
+        periodDays,
+        services.map(SavedTimetableServiceV1::restore),
+        diagramLines.map(SavedDiagramLineV1::restore),
+        initialPositions.map(SavedInitialPositionV1::restore)
+    )
 
     companion object {
         fun capture(value: Timetable): SavedTimetableV1 = SavedTimetableV1(
             value.id,
             value.periodDays,
-            value.services.map(SavedTimetableServiceV1::capture)
+            value.services.map(SavedTimetableServiceV1::capture),
+            value.diagramLines.map(SavedDiagramLineV1::capture),
+            value.initialPositions.map(SavedInitialPositionV1::capture)
         )
     }
 }

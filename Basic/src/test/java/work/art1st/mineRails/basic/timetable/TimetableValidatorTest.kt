@@ -179,12 +179,12 @@ class TimetableValidatorTest {
                     "service",
                     steps = listOf(
                         TimetableStep.At(
-                            0L,
+                            500L,
                             TimetableAction.TakeFromDepot(
                                 DepotTrainSelector(depotId, requiredTags = setOf("metro"))
                             )
                         ),
-                        TimetableStep.At(0L, TimetableAction.GoTo("B"))
+                        TimetableStep.At(600L, TimetableAction.GoTo("B"))
                     )
                 )
             )

@@ -19,9 +19,36 @@ object TimetableDumper {
             "id" to JsonPrimitive(id),
             "periodDays" to JsonPrimitive(periodDays),
             "periodTicks" to JsonPrimitive(periodTicks),
-            "services" to JsonArray(services.map { it.toJson() })
+            "services" to JsonArray(services.map { it.toJson() }),
+            "initialPositions" to JsonArray(initialPositions.map { position -> JsonObject(mapOf(
+                "trainSelector" to position.trainSelector.toJson(),
+                "wayPointSelector" to position.wayPointSelector.toJson()
+            )) }),
+            "diagramLines" to JsonArray(diagramLines.map { line -> JsonObject(mapOf(
+                "id" to JsonPrimitive(line.id),
+                "upStationIds" to JsonArray(line.upStationIds.map(::JsonPrimitive)),
+                "downStationIds" to JsonArray(line.downStationIds.map(::JsonPrimitive))
+            )) })
         )
     )
+
+    private fun TimetableObjectSelector.toJson(): JsonObject = when (this) {
+        is TimetableObjectSelector.Regex -> JsonObject(mapOf(
+            "type" to JsonPrimitive("regex"), "pattern" to JsonPrimitive(pattern)
+        ))
+        is TimetableObjectSelector.And -> JsonObject(mapOf(
+            "type" to JsonPrimitive("and"), "selectors" to JsonArray(selectors.map { it.toJson() })
+        ))
+        is TimetableObjectSelector.Or -> JsonObject(mapOf(
+            "type" to JsonPrimitive("or"), "selectors" to JsonArray(selectors.map { it.toJson() })
+        ))
+        is TimetableObjectSelector.Not -> JsonObject(mapOf(
+            "type" to JsonPrimitive("not"), "selector" to selector.toJson()
+        ))
+        is TimetableObjectSelector.Tags -> JsonObject(mapOf(
+            "type" to JsonPrimitive("tags"), "tags" to JsonArray(required.sorted().map(::JsonPrimitive))
+        ))
+    }
 
     private fun TimetableService.toJson(): JsonObject = JsonObject(
         mapOf(
@@ -101,6 +128,12 @@ object TimetableDumper {
                     JsonArray(selector.requiredCapabilities.sorted().map(::JsonPrimitive))
             )
         )
+        is TimetableAction.TakeFromWaypoint -> JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("takeFromWaypoint"),
+                "wayPointIds" to JsonArray(wayPointIds.map(::JsonPrimitive))
+            )
+        )
         is TimetableAction.StoreAtDepot -> JsonObject(
             mapOf(
                 "type" to JsonPrimitive("storeAtDepot"),
@@ -134,6 +167,7 @@ object TimetableDumper {
             mapOf(
                 "type" to JsonPrimitive("destinationOptions"),
                 "destinationId" to JsonPrimitive(destinationId),
+                "arrivalTick" to (arrivalTick?.let(::JsonPrimitive) ?: JsonNull),
                 "minimumDwellTicks" to (minimumDwellTicks?.let(::JsonPrimitive) ?: JsonNull),
                 "stoppingOffsetMetersBefore" to
                     (stoppingOffsetMetersBefore?.let(::JsonPrimitive) ?: JsonNull),
@@ -155,6 +189,7 @@ object TimetableDumper {
             mapOf(
                 "type" to JsonPrimitive("stationDestinationOptions"),
                 "destinationId" to JsonPrimitive("$stationId@$berthId"),
+                "arrivalTick" to (arrivalTick?.let(::JsonPrimitive) ?: JsonNull),
                 "minimumDwellTicks" to (minimumDwellTicks?.let(::JsonPrimitive) ?: JsonNull),
                 "stoppingOffsetMetersBefore" to
                     (stoppingOffsetMetersBefore?.let(::JsonPrimitive) ?: JsonNull),

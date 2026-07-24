@@ -39,6 +39,7 @@ import work.art1st.mineRails.bukkit.util.PaperPlatformDispatcher
 import work.art1st.mineRails.bukkit.util.PlatformCapabilities
 import work.art1st.mineRails.bukkit.util.PlatformDispatcher
 import java.io.File
+import java.util.logging.Level
 
 class BukkitPlugin : Plugin, JavaPlugin() {
     companion object {
@@ -197,34 +198,47 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     override fun onDisable() {
-        try {
-            runCatching { timetableWebUiSidecar?.stop() }
-                .onFailure { logger.severe("Failed to stop Timetable WebUI sidecar: ${it.message}") }
-            timetableWebUiSidecar = null
-            runCatching { timetableHttpBridge?.stop() }
-            timetableHttpBridge = null
-            if (::timetableScriptSandbox.isInitialized) runCatching { timetableScriptSandbox.close() }
-            if (::worldManager.isInitialized) {
-                worldManager.stop()
-                val worlds = worldManager.railWorlds.keys.toList()
-                BukkitThreadGuardBridge.runInSimulationContext {
-                    worlds.forEach { worldManager.unregisterRailWorld(it) }
+        runShutdownStep("Timetable WebUI sidecar") { timetableWebUiSidecar?.stop() }
+        timetableWebUiSidecar = null
+        runShutdownStep("timetable HTTP bridge") { timetableHttpBridge?.stop() }
+        timetableHttpBridge = null
+        if (::timetableScriptSandbox.isInitialized) {
+            runShutdownStep("timetable script sandbox") { timetableScriptSandbox.close() }
+        }
+        if (::worldManager.isInitialized) {
+            runShutdownStep("world manager stop") { worldManager.stop() }
+            val worlds = worldManager.railWorlds.keys.toList()
+            worlds.forEach { world ->
+                runShutdownStep("world ${world.uid} unregister") {
+                    BukkitThreadGuardBridge.runInSimulationContext {
+                        worldManager.unregisterRailWorld(world)
+                    }
                 }
-                worldManager.finishStopping()
             }
-            if (::trainHandleInputListener.isInitialized) runCatching { trainHandleInputListener.stop() }
-            if (::trainControlManager.isInitialized) runCatching { trainControlManager.stop() }
-            runCatching { trainReverseEventRegistration?.close() }
-            trainReverseEventRegistration = null
-            runCatching { trainDebugEventRegistration?.close() }
-            trainDebugEventRegistration = null
-            runCatching { TrainDebugLog.close() }
-        } finally {
-            runCatching { packetEntityRuntime?.close() }
-                .onFailure { logger.severe("Failed to close packet entity runtime: ${it.message}") }
-            foliaPacketEntityMotion = null
-            packetEntityRuntime = null
-            ThreadGuard.clearPlatformBridge()
+            runShutdownStep("world snapshot writer") { worldManager.finishStopping() }
+        }
+        if (::trainHandleInputListener.isInitialized) {
+            runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }
+        }
+        if (::trainControlManager.isInitialized) {
+            runShutdownStep("train control manager") { trainControlManager.stop() }
+        }
+        runShutdownStep("train reverse event registration") { trainReverseEventRegistration?.close() }
+        trainReverseEventRegistration = null
+        runShutdownStep("train debug event registration") { trainDebugEventRegistration?.close() }
+        trainDebugEventRegistration = null
+        runShutdownStep("train debug log") { TrainDebugLog.close() }
+        runShutdownStep("packet entity runtime") { packetEntityRuntime?.close() }
+        foliaPacketEntityMotion = null
+        packetEntityRuntime = null
+        runShutdownStep("thread guard bridge") { ThreadGuard.clearPlatformBridge() }
+    }
+
+    private inline fun runShutdownStep(component: String, action: () -> Unit) {
+        try {
+            action()
+        } catch (failure: Exception) {
+            logger.log(Level.SEVERE, "Failed to close $component", failure)
         }
     }
 

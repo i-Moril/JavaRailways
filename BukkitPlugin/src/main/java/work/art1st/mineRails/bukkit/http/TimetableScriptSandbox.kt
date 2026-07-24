@@ -16,8 +16,9 @@ class TimetableScriptFailure(message: String) : IllegalArgumentException(message
 data class TimetableScriptDescriptor(val name: String, val sizeBytes: Long, val modifiedAtEpochMillis: Long)
 /** Launches one memory-limited GraalJS worker process for every compilation. */
 class TimetableScriptSandbox(private val plugin: BukkitPlugin) : AutoCloseable {
-    private val scriptsDirectory = plugin.dataFolder.toPath().resolve("timetables")
-    private val runtimeDirectory = plugin.dataFolder.toPath().resolve("timetable-js")
+    private val dataDirectory = plugin.dataFolder.toPath().toAbsolutePath()
+    private val scriptsDirectory = dataDirectory.resolve("timetables")
+    private val runtimeDirectory = dataDirectory.resolve("timetable-js")
     private val workerJar = runtimeDirectory.resolve("MineRails-ScriptWorker.jar")
     private val permits = Semaphore(2)
     private val streamExecutor = Executors.newCachedThreadPool { task ->

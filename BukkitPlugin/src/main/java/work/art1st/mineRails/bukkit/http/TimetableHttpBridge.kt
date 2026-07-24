@@ -269,7 +269,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         put("destinationId", point.point.destinationId)
                     } }))
                 } }))
-                put("trains", JsonArray(world.allTrains.map { JsonPrimitive(it.id) }.sortedBy { it.content }))
+                put("trains", JsonArray(world.allTrains.map { JsonPrimitive(it.name) }.sortedBy { it.content }))
                 put("simulationProfiles", JsonArray(
                     SimulationControlProfileCatalog(plugin).descriptors(world).map { profile -> buildJsonObject {
                         put("type", profile.type.name)

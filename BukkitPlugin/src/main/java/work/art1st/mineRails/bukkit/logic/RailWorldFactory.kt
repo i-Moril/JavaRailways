@@ -2,6 +2,7 @@ package work.art1st.mineRails.bukkit.logic
 
 import org.bukkit.World as BukkitWorld
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.diagnostics.PluginDiagnosticLog
 import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
 import work.art1st.mineRails.bukkit.extension.BukkitWorldData
 import work.art1st.mineRails.bukkit.render.chunk.RenderChunkManager
@@ -86,6 +87,7 @@ object RailWorldFactory {
                 ),
                 atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
                     atoLogger.severe(report.format())
+                    PluginDiagnosticLog.ato("WORLD_STALLED", report.format())
                     runCatching { AtoStallDiagnostics.write(pluginDataFolder, report) }
                         .onSuccess { file ->
                             atoLogger.warning("ATO Stall diagnostics written to ${file.absolutePath}")

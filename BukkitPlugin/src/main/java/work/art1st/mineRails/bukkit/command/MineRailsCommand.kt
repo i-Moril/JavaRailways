@@ -31,6 +31,7 @@ import work.art1st.mineRails.basic.timetable.TimetableServiceStartResult
 import work.art1st.mineRails.basic.timetable.TimetableValidator
 import work.art1st.mineRails.basic.timetable.TimetableWaypointProgressListener
 import work.art1st.mineRails.bukkit.BukkitPlugin
+import work.art1st.mineRails.bukkit.diagnostics.PluginDiagnosticLog
 import work.art1st.mineRails.bukkit.config.TimetableWebUiMode
 import work.art1st.mineRails.bukkit.http.TimetableScriptNormalizer
 import work.art1st.mineRails.bukkit.debug.AtoStallDiagnostics
@@ -57,7 +58,19 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         label: String,
         args: Array<out String>
     ): Boolean = BukkitThreadGuardBridge.runInSimulationContext {
-        executeCommand(sender, args)
+        try {
+            executeCommand(sender, args)
+        } catch (failure: Throwable) {
+            val path = PluginDiagnosticLog.command(
+                "COMMAND_FAILED",
+                "sender=${sender.name}\ncommand=/$label ${args.joinToString(" ")}",
+                failure
+            )
+            sender.sendMessage(
+                "MineRails 命令执行失败；诊断已写入 ${path?.toString() ?: "服务器日志"}"
+            )
+            true
+        }
     }
 
     private fun executeCommand(sender: CommandSender, args: Array<out String>): Boolean {
@@ -625,6 +638,10 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                 val timetableId = args.getOrNull(2) ?: scriptName.removeSuffix(".js")
                 val playerId = sender.uniqueId
                 val sourceWorldId = sender.world.uid
+                PluginDiagnosticLog.timetable(
+                    "LOAD_REQUESTED",
+                    "player=${sender.name}\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId"
+                )
                 sender.sendMessage(Component.text("正在沙盒 Worker 中编译 $scriptName ...", NamedTextColor.GRAY))
                 BukkitPlugin.INSTANCE.timetableScriptSandbox.compileScriptAsync(scriptName, timetableId)
                     .whenComplete { saved, failure ->
@@ -637,11 +654,24 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                                 }
                                 if (failure != null) {
                                     val cause = generateSequence(failure) { it.cause }.last()
-                                    messageTarget(Component.text("JS 时刻表编译失败: ${cause.message}", NamedTextColor.RED))
+                                    val path = PluginDiagnosticLog.timetable(
+                                        "LOAD_COMPILE_FAILED",
+                                        "player=${player?.name ?: playerId}\nworld=$sourceWorldId\n" +
+                                            "script=$scriptName\ntimetable=$timetableId",
+                                        cause
+                                    )
+                                    messageTarget(Component.text(
+                                        "JS 时刻表编译失败；详见 ${path?.toString() ?: "服务器日志"}",
+                                        NamedTextColor.RED
+                                    ))
                                     return@runInSimulationContext
                                 }
                                 if (player == null) {
-                                    plugin.logger.warning("JS timetable compiled after player disconnected: $scriptName")
+                                    PluginDiagnosticLog.timetable(
+                                        "LOAD_DISCARDED",
+                                        "player=$playerId disconnected\nworld=$sourceWorldId\n" +
+                                            "script=$scriptName\ntimetable=$timetableId"
+                                    )
                                     return@runInSimulationContext
                                 }
                                 val sourceWorld = Bukkit.getWorld(sourceWorldId)
@@ -651,18 +681,45 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                                 }
                                 val normalized = TimetableScriptNormalizer.normalize(saved, world)
                                 val timetable = runCatching(normalized::restore).getOrElse { invalid ->
-                                    messageTarget(Component.text("JS 输出无效: ${invalid.message}", NamedTextColor.RED))
+                                    val path = PluginDiagnosticLog.timetable(
+                                        "LOAD_RESTORE_FAILED",
+                                        "player=${player.name}\nworld=$sourceWorldId\n" +
+                                            "script=$scriptName\ntimetable=$timetableId",
+                                        invalid
+                                    )
+                                    messageTarget(Component.text(
+                                        "JS 输出无效；详见 ${path?.toString() ?: "服务器日志"}",
+                                        NamedTextColor.RED
+                                    ))
                                     return@runInSimulationContext
                                 }
                                 val validation = TimetableValidator(world).validate(timetable)
                                 if (!validation.isSuccess) {
-                                    messageTarget(Component.text("JS 时刻表验证失败:", NamedTextColor.RED))
-                                    validation.errors.take(20).forEach { error ->
-                                        messageTarget(Component.text("- $error", NamedTextColor.RED))
-                                    }
+                                    val path = PluginDiagnosticLog.timetable(
+                                        "LOAD_VALIDATION_FAILED",
+                                        buildString {
+                                            append("player=${player.name}\nworld=$sourceWorldId\n")
+                                            append("script=$scriptName\ntimetable=$timetableId\n")
+                                            append("errors=${validation.errors.size}\n")
+                                            validation.errors.forEachIndexed { index, error ->
+                                                append(index + 1).append(". ").append(error).append('\n')
+                                            }
+                                        }
+                                    )
+                                    messageTarget(Component.text(
+                                        "JS 时刻表验证失败（${validation.errors.size} 项）；详见 " +
+                                            (path?.toString() ?: "服务器日志"),
+                                        NamedTextColor.RED
+                                    ))
                                     return@runInSimulationContext
                                 }
                                 world.basicWorldData.timetables.add(timetable)
+                                PluginDiagnosticLog.timetable(
+                                    "LOAD_SUCCEEDED",
+                                    "player=${player.name}\nworld=$sourceWorldId\nscript=$scriptName\n" +
+                                        "timetable=${timetable.id}\nservices=${timetable.services.size}\n" +
+                                        "initialPositions=${timetable.initialPositions.size}"
+                                )
                                 messageTarget(Component.text("已加载 JS 时刻表 ${timetable.id}", NamedTextColor.GREEN))
                             }
                         }
@@ -766,6 +823,89 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
                         )
                         is TimetableServiceStartResult.Failure -> sender.sendMessage(
                             "启动 $timetableId/$serviceId 失败: ${result.reason}"
+                        )
+                    }
+                }
+            }
+            "reset" -> {
+                if (!sender.isOp && !sender.hasPermission("minerails.admin")) {
+                    sender.sendMessage("没有权限重置时刻表")
+                    return true
+                }
+                val timetableId = args.getOrNull(1)
+                val force = args.getOrNull(2) == "force" && args.getOrNull(3) == "confirm"
+                val confirmed = args.getOrNull(2) == "confirm"
+                if (timetableId == null || (!confirmed && !force)) {
+                    sender.sendMessage(
+                        "用法: /mr timetable reset <id> confirm | " +
+                            "/mr timetable reset <id> force confirm"
+                    )
+                    return true
+                }
+                val timetable = world.basicWorldData.timetables[timetableId]
+                if (timetable == null) {
+                    sender.sendMessage("时刻表不存在: $timetableId")
+                    return true
+                }
+                PluginDiagnosticLog.timetable(
+                    "RESET_REQUESTED",
+                    "player=${sender.name}\nworld=${sender.world.uid}\ntimetable=$timetableId\nforce=$force"
+                )
+                (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
+                val dispatcher = world.basicWorldData.dispatcher
+                val coordinator = world.basicWorldData.atoCoordinator
+                val discarded = if (force) {
+                    val selectedTrainIds = dispatcher.statuses().asSequence()
+                        .filter { it.id.timetableId == timetableId }
+                        .map { it.trainId }
+                        .toMutableSet()
+                    world.allTrains.filterIsInstance<CoreTrain>()
+                        .filter { train ->
+                            timetable.initialPositions.any { it.trainSelector.matches(train.name) }
+                        }
+                        .forEach { selectedTrainIds += it.id }
+                    selectedTrainIds.forEach { trainId ->
+                        world.getTrain(trainId)?.let { train ->
+                            BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
+                            (train as? CoreTrain)?.setController(null)
+                        }
+                    }
+                    dispatcher.forceDiscardTimetable(world, timetableId).also {
+                        if (coordinator.isStalled) coordinator.reset()
+                    }
+                } else if (coordinator.isStalled) {
+                    dispatcher.discardFailedRunsForAtoReset(world).also { coordinator.reset() }
+                } else {
+                    0
+                }
+                when (val result = dispatcher.beginTimetable(world, timetableId)) {
+                    is TimetableEpochStartResult.Started -> {
+                        check(dispatcher.scheduleInitialCycle(timetableId))
+                        PluginDiagnosticLog.timetable(
+                            "RESET_SUCCEEDED",
+                            "player=${sender.name}\nworld=${sender.world.uid}\ntimetable=$timetableId\n" +
+                                "force=$force\ndiscardedRuns=$discarded\n" +
+                                "epoch=${result.epoch.epochDispatcherTick}"
+                        )
+                        sender.sendMessage(
+                            if (force) {
+                                "时刻表 $timetableId 已强制释放控制器/运行资源，丢弃 $discarded 个 run，" +
+                                    "并原子重置初始位置、建立新 epoch"
+                            } else {
+                                "时刻表 $timetableId 已原子重置初始位置并建立新 epoch；" +
+                                    "清理 $discarded 个失败 run"
+                            }
+                        )
+                    }
+                    is TimetableEpochStartResult.Failure -> {
+                        val path = PluginDiagnosticLog.timetable(
+                            "RESET_FAILED",
+                            "player=${sender.name}\nworld=${sender.world.uid}\ntimetable=$timetableId\n" +
+                                "force=$force\ndiscardedRuns=$discarded\nreason=${result.reason}"
+                        )
+                        sender.sendMessage(
+                            "重置时刻表 $timetableId 失败；详见 " +
+                                (path?.toString() ?: "服务器日志")
                         )
                     }
                 }
@@ -1143,6 +1283,7 @@ class MineRailsCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/mr timetable edit - 获取短期有效的 WebUI 登录链接")
         sender.sendMessage("/mr timetable load <file.js> [id] - 在隔离 Worker 中编译并加载 JS 时刻表")
         sender.sendMessage("/mr timetable dump <id> - 输出时刻表内部结构")
+        sender.sendMessage("/mr timetable reset <id> confirm | reset <id> force confirm - 安全/强制重置")
         sender.sendMessage("/mr timetable start|status|stop <id> [service] - 管理显式列车 service")
         sender.sendMessage("/mr ato status [world] - 查看 World-local ATO 状态")
         sender.sendMessage("/mr ato dump <world> - 写出最近一次 ATO Stall 报告")

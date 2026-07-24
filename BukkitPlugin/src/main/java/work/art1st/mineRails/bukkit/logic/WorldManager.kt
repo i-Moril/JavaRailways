@@ -35,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.logging.Level
 import kotlin.system.measureNanoTime
 
 data class CarFrameDispatchMetrics(
@@ -81,7 +82,17 @@ class WorldManager(
     }
 
     fun finishStopping() {
-        snapshotWrites.values.forEach { runCatching { it.get() } }
+        snapshotWrites.forEach { (world, write) ->
+            try {
+                write.get()
+            } catch (failure: Exception) {
+                BukkitPlugin.INSTANCE.logger.log(
+                    Level.SEVERE,
+                    "Failed to finish snapshot write for world ${world.uid} (${world.name})",
+                    failure
+                )
+            }
+        }
         snapshotWriter.shutdown()
     }
 

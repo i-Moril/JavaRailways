@@ -4,8 +4,10 @@ import kotlinx.serialization.SerializationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.core.di.KoinWorldParentContext
+import work.art1st.mineRails.core.di.NoOpWorldParentContext
 import work.art1st.mineRails.core.di.ensureMineRailsKoinStarted
 import work.art1st.mineRails.core.di.mineRailsParentScope
 import work.art1st.mineRails.core.api.physics.rail.ParallelRailMetadata
@@ -15,6 +17,7 @@ import work.art1st.mineRails.core.api.physics.rail.RailMetadata
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.mineRails.core.physics.train.SavedTrainV1
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTrainWithConfig
 import work.art1st.mineRails.core.util.TickManagerImpl
@@ -44,7 +47,8 @@ class WorldPersistenceRoundTripTest {
                 parallel = ParallelRailMetadata("P1", index = 0, count = 2, spacingMeters = 4.5)
             )
         )
-        createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
+        val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
+        world.renameTrain(sourceTrain, "Player Express")
 
         val infrastructure = world.saveInfrastructure(1L)
         val runtime = world.saveRuntime(1L, 2L)
@@ -66,7 +70,8 @@ class WorldPersistenceRoundTripTest {
             )
         )
 
-        assertNotNull(loaded.getTrain("persist-t1"))
+        assertEquals("Player Express", loaded.getTrain("persist-t1")?.name)
+        assertEquals("persist-t1", loaded.getTrain("Player Express")?.id)
         assertEquals(22.0, loaded.getRail(rail.id)?.metadata?.designSpeedMetersPerSecond)
         assertEquals(20.0, loaded.getRail(rail.id)?.metadata?.speedLimitMetersPerSecond)
         assertEquals(31.0, loaded.getRail(rail.id)?.metadata?.derailSpeedMetersPerSecond)
@@ -82,6 +87,44 @@ class WorldPersistenceRoundTripTest {
             WorldSnapshotCodec.encodeInfrastructure(infrastructure),
             WorldSnapshotCodec.encodeInfrastructure(roundInfrastructure)
         )
+    }
+
+    @Test
+    fun worldLoadReportsTheTrainThatFailedToRestore() {
+        val infrastructure = CoreWorld.SavedInfrastructureV1(
+            infrastructureRevision = 7L,
+            rails = emptyList()
+        )
+        val runtime = CoreWorld.SavedRuntimeV1(
+            infrastructureRevision = 7L,
+            physicsEpoch = 1L,
+            trains = listOf(
+                SavedTrainV1(
+                    id = "00000000-0000-0000-0000-000000000001",
+                    name = "broken-train",
+                    cars = emptyList(),
+                    reversed = false,
+                    extension = emptyMap()
+                )
+            )
+        )
+        val scheduler = Executors.newSingleThreadScheduledExecutor()
+        try {
+            val failure = assertThrows(IllegalStateException::class.java) {
+                CoreWorld.load(
+                    infrastructure,
+                    runtime,
+                    CoreWorld.SnapshotDependency(
+                        TickManagerImpl(scheduler, System.currentTimeMillis()),
+                        NoOpWorldParentContext
+                    )
+                )
+            }
+            assertTrue(failure.message!!.contains("broken-train"))
+            assertNotNull(failure.cause)
+        } finally {
+            scheduler.shutdownNow()
+        }
     }
 
     @Test

@@ -6,10 +6,21 @@ package work.art1st.mineRails.core.api.util.plugin
  */
 object PluginRegistry {
     private val _plugins = mutableListOf<Plugin>()
-    val plugins: List<Plugin> get() = _plugins
+    val plugins: List<Plugin>
+        @Synchronized get() = _plugins.toList()
 
+    /**
+     * Registers one extension namespace per plugin implementation class.
+     * Re-registering after a host lifecycle restart reuses the stable slot and replaces the stale instance.
+     */
+    @Synchronized
     fun register(plugin: Plugin) {
-        require(_plugins.none { it === plugin }) { "Plugin already registered" }
+        val existingIndex = _plugins.indexOfFirst { it::class == plugin::class }
+        if (existingIndex >= 0) {
+            plugin.identifier = existingIndex
+            _plugins[existingIndex] = plugin
+            return
+        }
         plugin.identifier = _plugins.size
         _plugins.add(plugin)
     }

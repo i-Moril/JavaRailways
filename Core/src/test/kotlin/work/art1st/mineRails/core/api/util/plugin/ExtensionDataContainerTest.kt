@@ -28,6 +28,18 @@ class ExtensionDataContainerTest {
     }
 
     @Test
+    fun `registry reuses the slot when the same plugin implementation is registered again`() {
+        val first = TestPlugin(-1)
+        PluginRegistry.register(first)
+        val second = TestPlugin(-1)
+
+        PluginRegistry.register(second)
+
+        assertEquals(first.identifier, second.identifier)
+        assertEquals(second, PluginRegistry.plugins[second.identifier])
+    }
+
+    @Test
     fun `registered extension data can be read through both access paths`() {
         val container = ExtensionDataContainer<Any>()
         val plugin = TestPlugin(0)

@@ -8,19 +8,22 @@ import java.util.UUID
 @ConsistentCopyVisibility
 data class CarFrameSnapshot private constructor(
     val carId: String,
+    val lengthMeters: Double,
     val state: RenderableFrameSnapshot,
     val bogies: List<RenderableFrameSnapshot>
 ) {
     init {
         require(carId.isNotBlank()) { "CarFrameSnapshot carId must not be blank" }
+        require(lengthMeters.isFinite() && lengthMeters > 0.0) { "CarFrameSnapshot lengthMeters must be finite and positive" }
     }
 
     companion object {
         fun create(
             carId: String,
+            lengthMeters: Double,
             state: RenderableFrameSnapshot,
             bogies: Collection<RenderableFrameSnapshot>
-        ): CarFrameSnapshot = CarFrameSnapshot(carId, state, java.util.List.copyOf(bogies))
+        ): CarFrameSnapshot = CarFrameSnapshot(carId, lengthMeters, state, java.util.List.copyOf(bogies))
     }
 }
 
@@ -45,6 +48,7 @@ data class SweptRailSpanSnapshot(
 @ConsistentCopyVisibility
 data class TrainFrameSnapshot private constructor(
     val trainId: String,
+    val trainName: String,
     /** Per-train monotonic publication revision used for stale-frame rejection. */
     val revision: Long,
     /** Physics epoch that produced this state, or zero for the initial frame. */
@@ -59,6 +63,7 @@ data class TrainFrameSnapshot private constructor(
 ) {
     init {
         require(trainId.isNotBlank()) { "TrainFrameSnapshot trainId must not be blank" }
+        require(trainName.isNotBlank()) { "TrainFrameSnapshot trainName must not be blank" }
         require(revision >= 0L) { "TrainFrameSnapshot revision must be non-negative" }
         require(physicsEpoch >= 0L) { "TrainFrameSnapshot physicsEpoch must be non-negative" }
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0) {
@@ -69,6 +74,7 @@ data class TrainFrameSnapshot private constructor(
     companion object {
         fun create(
             trainId: String,
+            trainName: String,
             revision: Long,
             physicsEpoch: Long,
             speedMetersPerSecond: Double,
@@ -80,6 +86,7 @@ data class TrainFrameSnapshot private constructor(
             sweptSpans: Collection<SweptRailSpanSnapshot>
         ): TrainFrameSnapshot = TrainFrameSnapshot(
             trainId = trainId,
+            trainName = trainName,
             revision = revision,
             physicsEpoch = physicsEpoch,
             speedMetersPerSecond = speedMetersPerSecond,

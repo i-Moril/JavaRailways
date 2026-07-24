@@ -21,6 +21,7 @@ import work.art1st.mineRails.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.mineRails.core.physics.CoreWorld
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.logging.Level
 
 interface WandModeSpec {
     val displayName: String
@@ -72,9 +73,32 @@ abstract class AbstractWand<S, M>(
         if (current?.itemId == itemId) return current.state
         if (current != null) persistBoundState(player, current)
         val encoded = item.itemMeta?.persistentDataContainer?.get(itemStateKey, PersistentDataType.STRING)
-        val state = encoded?.let { runCatching { decodeState(it) }.getOrNull() } ?: createDefaultState()
+        var corrupted = false
+        val decoded = if (encoded == null) {
+            null
+        } else {
+            try {
+                decodeState(encoded).also { state ->
+                    if (state == null) corrupted = true
+                }
+            } catch (failure: Exception) {
+                corrupted = true
+                plugin.logger.log(
+                    Level.WARNING,
+                    "Failed to decode wand state for player ${player.uniqueId}, item $itemId; preserving stored data",
+                    failure
+                )
+                null
+            }
+        }
+        if (corrupted && decoded == null) {
+            plugin.logger.warning(
+                "Invalid wand state for player ${player.uniqueId}, item $itemId; using an in-memory default without overwriting stored data"
+            )
+        }
+        val state = decoded ?: createDefaultState()
         playerStates[player.uniqueId] = BoundState(itemId, state)
-        persistState(player, state)
+        if (!corrupted) persistState(player, state)
         return state
     }
 

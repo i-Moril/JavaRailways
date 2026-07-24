@@ -20,7 +20,7 @@ interface World : Extendable<Any> {
     /** Currently loaded trains. Treat the collection as a live view unless an implementation says otherwise. */
     val allTrains: Collection<Train>
 
-    /** Find a train by its stable runtime ID. */
+    /** Find a train by its world-unique player-assigned name; implementations may also accept an internal ID. */
     fun getTrain(name: String): Train?
 
     /** Remove [train] from this world. Platform adapters may impose a main-thread requirement. */

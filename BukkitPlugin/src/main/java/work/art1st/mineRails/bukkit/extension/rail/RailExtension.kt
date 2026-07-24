@@ -4,7 +4,6 @@ import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.block.data.BlockData
 import org.bukkit.entity.Player
-import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
 import org.joml.Matrix3d
 import org.joml.Quaterniond
@@ -152,15 +151,20 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         )
         val content = when (element.type) {
             RailDisplayType.BLOCK -> {
-                val material = runCatching {
-                    Material.valueOf((element.blockMaterial ?: "STONE").uppercase())
-                }.getOrElse { Material.STONE }
+                val materialName = requireNotNull(element.blockMaterial) {
+                    "BLOCK rail display element requires blockMaterial"
+                }
+                val material = try {
+                    Material.valueOf(materialName.uppercase())
+                } catch (failure: IllegalArgumentException) {
+                    throw IllegalArgumentException("Unknown rail block material '$materialName'", failure)
+                }
                 val data: BlockData = material.createBlockData()
                 DisplayVisualContent.Block(data)
             }
 
             RailDisplayType.ITEM -> DisplayVisualContent.Item(
-                element.item?.toItemStack() ?: ItemStack(Material.RAIL)
+                requireNotNull(element.item) { "ITEM rail display element requires item configuration" }.toItemStack()
             )
         }
         return BukkitPlugin.INSTANCE.displayRenderBackend.create(

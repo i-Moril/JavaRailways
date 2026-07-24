@@ -57,7 +57,8 @@ class WorldSnapshotExtensionDataTest {
             physicsEpoch = 1L,
             trains = listOf(
                 SavedTrainV1(
-                    id = "train-a",
+                    id = "00000000-0000-0000-0000-00000000000a",
+                    name = "train-a",
                     cars = emptyList(),
                     reversed = false,
                     extension = mapOf("BUKKIT" to SavedCarRenderState("s100/passenger"))

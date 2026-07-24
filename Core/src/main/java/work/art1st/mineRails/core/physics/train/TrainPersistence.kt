@@ -30,12 +30,13 @@ data class CarBuildDependency(
 @Serializable
 data class SavedTrainV1(
     val id: String,
+    val name: String,
     val cars: List<SavedCarV1>,
     val reversed: Boolean,
     val extension: Map<String, SerializableExtensionData>
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
-        val train = CoreTrain(id, cars.map { it.load(dependency) }, dependency, extension)
+        val train = CoreTrain(id, cars.map { it.load(dependency) }, dependency, extension, name)
         return try {
             train.restorePersistedPlacement(reversed)
             train.commit()
@@ -122,7 +123,7 @@ data class CarConfigV1(
             throw CannotCreateTrainException()
         }
         val bogieAConfig = dependency.trainDependency.trainFactory.getBogieConfig(bogieAType)
-        val bogieBConfig = dependency.trainDependency.trainFactory.getBogieConfig(bogieAType)
+        val bogieBConfig = dependency.trainDependency.trainFactory.getBogieConfig(bogieBType)
         if (bogieAConfig == null || bogieBConfig == null) {
             throw CannotCreateTrainException()
         }
@@ -133,7 +134,7 @@ data class CarConfigV1(
         )
         val bogieB = CoreBogie(
             location = dependency.trainDependency.headLocation,
-            savedExtensionData = bogieAConfig.extension
+            savedExtensionData = bogieBConfig.extension
         )
         return buildCar(dependency.carId, dependency.trainDependency.world, bogieA, bogieB)
     }

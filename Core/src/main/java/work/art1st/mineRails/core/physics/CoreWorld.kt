@@ -40,6 +40,7 @@ class CoreWorld(
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
 ) : World, Extendable<Any> by extensionDataContainer {
     private val railSpatialIndex = RailSpatialIndex()
+    private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
 
     @Volatile
@@ -47,6 +48,11 @@ class CoreWorld(
     private val publishedTrainFrames = LatestTrainFrameMailbox(DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY)
 
     init {
+        trains.values.forEach { train ->
+            check(trainsByName.putIfAbsent(train.name, train) == null) {
+                "duplicate train name: ${train.name}"
+            }
+        }
         worldParent.attachWorld(this)
         physicsCoordinator.attachWorld(this)
     }
@@ -88,7 +94,15 @@ class CoreWorld(
                 savedRail.restoreConnections(rail, railDependency)
             }
             runtime?.trains.orEmpty().forEach { savedTrain ->
-                runCatching { world.addTrain(savedTrain.load(world)) }
+                val train = try {
+                    savedTrain.load(world)
+                } catch (failure: Exception) {
+                    throw IllegalStateException(
+                        "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
+                        failure
+                    )
+                }
+                world.addTrain(train)
             }
             return world
         }
@@ -96,10 +110,41 @@ class CoreWorld(
 
     @MainThread
     internal fun addTrain(train: CoreTrain) {
-        trains[train.id] = train
+        if (trains[train.id] === train && trainsByName[train.name] === train) return
+        require(trains[train.name] == null && trainsByName[train.id] == null) {
+            "train name and technical ID namespaces must not overlap: ${train.name}"
+        }
+        require(trainsByName.putIfAbsent(train.name, train).let { it == null || it === train }) {
+            "duplicate train name in world: ${train.name}"
+        }
+        val previous = trains.putIfAbsent(train.id, train)
+        if (previous != null && previous !== train) {
+            trainsByName.remove(train.name, train)
+            throw IllegalArgumentException("duplicate train id in world: ${train.id}")
+        }
     }
 
-    override fun getTrain(name: String): CoreTrain? = trains[name]
+    /** Player-facing lookup prefers the world-unique train name, then accepts the technical ID internally. */
+    override fun getTrain(name: String): CoreTrain? = trainsByName[name] ?: trains[name]
+
+    @MainThread
+    fun renameTrain(train: CoreTrain, newName: String) {
+        require(trains[train.id] === train) { "train is not registered in this world: ${train.id}" }
+        if (newName == train.name) return
+        require(trains[newName] == null) { "train name conflicts with a technical ID: $newName" }
+        require(trainsByName.putIfAbsent(newName, train) == null) {
+            "duplicate train name in world: $newName"
+        }
+        val oldName = train.name
+        try {
+            train.rename(newName)
+            trainsByName.remove(oldName, train)
+            publishTrainFrame(train.publishMetadataFrame())
+        } catch (failure: Exception) {
+            trainsByName.remove(newName, train)
+            throw failure
+        }
+    }
 
     override val allTrains: Collection<CoreTrain>
         get() = trains.values
@@ -108,6 +153,7 @@ class CoreWorld(
     override fun removeTrain(train: Train) {
         publishedTrainFrames.remove(train.id)
         trains.remove(train.id)
+        trainsByName.remove(train.name, train)
     }
 
     @MainThread

@@ -6,6 +6,7 @@ import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.logging.Level
 
 /**
  * 将分离的世界快照保存到插件数据目录下，按 Bukkit 世界 [World.getUID] 区分文件。
@@ -35,31 +36,94 @@ object WorldPersistence {
             )
         }
         return try {
-            val infrastructureCandidates = listOf(infrastructure, backupFile(infrastructure))
-                .filter(File::isFile)
-                .mapNotNull { file -> runCatching {
-                    SplitWorldSnapshotCodec.decodeInfrastructure(file.readText())
-                }.getOrNull() }
-            val runtimeCandidates = listOf(runtime, backupFile(runtime))
-                .filter(File::isFile)
-                .mapNotNull { file -> runCatching {
-                    SplitWorldSnapshotCodec.decodeRuntime(file.readText())
-                }.getOrNull() }
-            val pair = infrastructureCandidates.flatMap { infra ->
-                runtimeCandidates.mapNotNull { run ->
-                    if (infra.infrastructureRevision == run.infrastructureRevision) {
-                        CapturedWorldSnapshots(infra, run)
+            val failures = mutableListOf<Pair<File, Exception>>()
+            val infrastructureCandidates = decodeCandidates(
+                listOf(infrastructure, backupFile(infrastructure)),
+                SplitWorldSnapshotCodec::decodeInfrastructure,
+                failures
+            )
+            val runtimeCandidates = decodeCandidates(
+                listOf(runtime, backupFile(runtime)),
+                SplitWorldSnapshotCodec::decodeRuntime,
+                failures
+            )
+            val selected = infrastructureCandidates.flatMap { infra ->
+                runtimeCandidates.mapNotNull { runtimeCandidate ->
+                    if (infra.value.infrastructureRevision == runtimeCandidate.value.infrastructureRevision) {
+                        SnapshotCandidatePair(
+                            CapturedWorldSnapshots(infra.value, runtimeCandidate.value),
+                            infra.file,
+                            runtimeCandidate.file
+                        )
                     } else null
                 }
-            }.maxByOrNull { it.infrastructure.infrastructureRevision }
-                ?: error("no matching infrastructure/runtime snapshot revision")
-            pair.infrastructure.core()
-            pair.infrastructure.basic()
-            pair.runtime.core()
-            pair.runtime.basic()
-            SplitSnapshotLoadResult.Loaded(pair)
-        } catch (failure: Throwable) {
+            }.maxByOrNull { it.snapshots.infrastructure.infrastructureRevision }
+
+            val pair = selected ?: throw noMatchingRevisionFailure(
+                infrastructureCandidates,
+                runtimeCandidates,
+                failures
+            )
+            if (pair.infrastructureFile != infrastructure || pair.runtimeFile != runtime) {
+                BukkitPlugin.INSTANCE.logger.warning(
+                    "Recovered world ${world.uid} snapshots from backup files: " +
+                        "infrastructure=${pair.infrastructureFile.name}, runtime=${pair.runtimeFile.name}"
+                )
+            }
+            failures.forEach { (file, failure) ->
+                BukkitPlugin.INSTANCE.logger.log(
+                    Level.WARNING,
+                    "Ignored invalid snapshot candidate ${file.path} while restoring world ${world.uid}",
+                    failure
+                )
+            }
+            pair.snapshots.infrastructure.core()
+            pair.snapshots.infrastructure.basic()
+            pair.snapshots.runtime.core()
+            pair.snapshots.runtime.basic()
+            SplitSnapshotLoadResult.Loaded(pair.snapshots)
+        } catch (failure: Exception) {
             SplitSnapshotLoadResult.Corrupted(listOf(infrastructure, runtime), failure)
+        }
+    }
+
+    private data class DecodedCandidate<T>(val file: File, val value: T)
+
+    private data class SnapshotCandidatePair(
+        val snapshots: CapturedWorldSnapshots,
+        val infrastructureFile: File,
+        val runtimeFile: File
+    )
+
+    private fun <T> decodeCandidates(
+        files: List<File>,
+        decode: (String) -> T,
+        failures: MutableList<Pair<File, Exception>>
+    ): List<DecodedCandidate<T>> = files.filter(File::isFile).mapNotNull { file ->
+        try {
+            DecodedCandidate(file, decode(file.readText()))
+        } catch (failure: Exception) {
+            failures += file to failure
+            null
+        }
+    }
+
+    private fun noMatchingRevisionFailure(
+        infrastructureCandidates: List<DecodedCandidate<InfrastructureFileV1>>,
+        runtimeCandidates: List<DecodedCandidate<RuntimeFileV1>>,
+        failures: List<Pair<File, Exception>>
+    ): IllegalStateException {
+        val infrastructureRevisions = infrastructureCandidates.map { it.value.infrastructureRevision }
+        val runtimeRevisions = runtimeCandidates.map { it.value.infrastructureRevision }
+        return IllegalStateException(
+            "No matching infrastructure/runtime snapshot revision; " +
+                "infrastructure revisions=$infrastructureRevisions, runtime revisions=$runtimeRevisions"
+        ).also { aggregate ->
+            failures.forEach { (file, failure) ->
+                aggregate.addSuppressed(
+                    IllegalStateException("Failed to decode snapshot candidate ${file.path}", failure)
+                )
+            }
         }
     }
 

@@ -1,7 +1,8 @@
 package work.art1st.mineRails.core.physics.train
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
@@ -99,14 +100,16 @@ class CoreTrainReversedPersistenceTest {
         )
         val restoredTickManager = TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L)
         val restoredPhysics = PhysicsCoordinator(1)
-        val restored = CoreWorld.load(
-            infrastructure,
-            runtime,
-            CoreWorld.SnapshotDependency(restoredTickManager, NoOpWorldParentContext, restoredPhysics)
-        )
-
         try {
-            assertNull(restored.getTrain("invalid"))
+            val failure = assertThrows(IllegalStateException::class.java) {
+                CoreWorld.load(
+                    infrastructure,
+                    runtime,
+                    CoreWorld.SnapshotDependency(restoredTickManager, NoOpWorldParentContext, restoredPhysics)
+                )
+            }
+            assertTrue(failure.message!!.contains("invalid"))
+            assertNotNull(failure.cause)
         } finally {
             restoredPhysics.close()
             restoredTickManager.close()

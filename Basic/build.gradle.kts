@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    id("java-test-fixtures")
     kotlin("jvm")
     kotlin("plugin.serialization") version "2.3.0"
     id("org.jetbrains.dokka")
@@ -26,6 +27,8 @@ dependencies {
     testImplementation(project(":Core"))
     testImplementation(testFixtures(project(":Core")))
     testImplementation(project(":ConfigLib"))
+    testFixturesImplementation(project(":Core"))
+    testFixturesImplementation(project(":ConfigLib"))
     implementation(kotlin("stdlib-jdk8"))
     implementation("net.jcip:jcip-annotations:1.0")
     compileOnly("org.joml:joml:1.10.8")

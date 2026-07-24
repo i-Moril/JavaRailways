@@ -1,6 +1,7 @@
 package work.art1st.mineRails.bukkit.render.persistence
 
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
@@ -99,7 +100,7 @@ object BukkitItemStackSerializer : KSerializer<ItemStack> {
     }
 
     override fun deserialize(decoder: Decoder): ItemStack {
-        var material = Material.STONE
+        var material: Material? = null
         var customModelData: Int? = null
         decoder.decodeStructure(descriptor) {
             while (true) {
@@ -107,14 +108,20 @@ object BukkitItemStackSerializer : KSerializer<ItemStack> {
                     CompositeDecoder.DECODE_DONE -> break
                     0 -> {
                         val matName = decodeStringElement(descriptor, 0)
-                        material = runCatching { Material.valueOf(matName) }.getOrElse { Material.STONE }
+                        material = try {
+                            Material.valueOf(matName)
+                        } catch (failure: IllegalArgumentException) {
+                            throw SerializationException("Unknown Bukkit material '$matName'", failure)
+                        }
                     }
                     1 -> customModelData = decodeIntElement(descriptor, 1)
                     else -> error("Unexpected index: $index")
                 }
             }
         }
-        val itemStack = ItemStack(material)
+        val itemStack = ItemStack(
+            material ?: throw SerializationException("Missing required BukkitItemStack.material")
+        )
         if (customModelData != null) {
             val meta = itemStack.itemMeta
             meta.setCustomModelData(customModelData)

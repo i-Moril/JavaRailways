@@ -1,6 +1,7 @@
 package work.art1st.mineRails.core.api.physics.train
 
 import work.art1st.mineRails.core.api.physics.WorldElement
+import work.art1st.mineRails.core.api.physics.rail.RailInterval
 import work.art1st.mineRails.core.api.physics.rail.RailLocation
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.mineRails.core.api.util.annotation.MainThread
@@ -14,8 +15,11 @@ import work.art1st.mineRails.core.api.util.tick.Synchronizable
  * visible entities later on its main thread.
  */
 interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExtension> {
-    /** Stable runtime and persistence ID. */
+    /** Stable runtime and persistence identity. */
     val id: String
+
+    /** World-unique, player-assigned name used by timetable selectors. */
+    val name: String
 
     /** Cars from head to tail in the current operating direction. */
     val cars: List<Car>
@@ -34,6 +38,9 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
 
     /** Published location at the current tail end. */
     val tailLocation: RailLocation
+
+    /** Direction-independent physical intervals occupied during the latest published physics step. */
+    val occupiedRailIntervals: List<RailInterval>
 
     /** Move along the selected rail path by [deltaS] metres. Called by the owning physics worker. */
     fun moveTrainForward(deltaS: Double)

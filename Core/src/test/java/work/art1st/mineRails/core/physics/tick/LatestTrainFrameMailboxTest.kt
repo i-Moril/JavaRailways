@@ -62,12 +62,14 @@ class LatestTrainFrameMailboxTest {
             normal = Vector3Snapshot(0.0, 1.0, 0.0),
             velocity = Vector3Snapshot(0.0, 0.0, 0.0)
         )
-        val sourceCars = mutableListOf(CarFrameSnapshot.create("car-a", state, emptyList()))
+        val sourceCars = mutableListOf(CarFrameSnapshot.create("car-a", 20.0, state, emptyList()))
         val frame = frame("train-a", revision = 1L, cars = sourceCars)
 
         sourceCars.clear()
 
+        assertEquals("Name of train-a", frame.trainName)
         assertEquals(1, frame.cars.size)
+        assertEquals(20.0, frame.cars.single().lengthMeters)
         assertThrows(UnsupportedOperationException::class.java) {
             (frame.cars as MutableList).clear()
         }
@@ -96,6 +98,7 @@ class LatestTrainFrameMailboxTest {
         val position = RailPositionSnapshot(railId, ViewDirection.AB, revision.toDouble())
         return TrainFrameSnapshot.create(
             trainId = trainId,
+            trainName = "Name of $trainId",
             revision = revision,
             physicsEpoch = revision,
             speedMetersPerSecond = 0.0,

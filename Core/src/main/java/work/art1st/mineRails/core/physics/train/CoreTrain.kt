@@ -27,6 +27,7 @@ import work.art1st.mineRails.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.mineRails.core.api.util.plugin.PluginRegistry
 import work.art1st.mineRails.core.api.util.plugin.SerializableExtensionData
 import work.art1st.mineRails.core.api.util.tick.Synchronizable
+import work.art1st.mineRails.core.api.physics.rail.RailInterval
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.rail.RailSegment
 import work.art1st.mineRails.core.physics.rail.RailView
@@ -50,8 +51,18 @@ open class CoreTrain @MainThread internal constructor(
     cars: List<CoreCar>,
     override val world: CoreWorld,
     savedExtensionData: Map<String, SerializableExtensionData>,
+    initialName: String = id,
     val extensionDataContainer: ExtensionDataContainer<TrainExtension> = ExtensionDataContainer(),
 ) : Train, TrainComponentTrait<Train, TrainExtension>, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
+    @Volatile
+    private var _name: String = validateTrainName(initialName)
+    override val name: String
+        get() = _name
+
+    internal fun rename(newName: String) {
+        _name = validateTrainName(newName)
+    }
+
     @Volatile
     private var _controller: TrainController? = null
     val controller: TrainController?
@@ -94,6 +105,10 @@ open class CoreTrain @MainThread internal constructor(
         get() = head.location
     override val tailLocation: RailLocation
         get() = tail.location
+    override val occupiedRailIntervals: List<RailInterval>
+        get() = publishedSweptSpans.map { span ->
+            RailInterval(span.railId, span.minArcAB, span.maxArcAB)
+        }
 
     init {
         head = TrainEnd(
@@ -392,8 +407,12 @@ open class CoreTrain @MainThread internal constructor(
         }
     }
 
+    /** Republishes committed geometry with changed metadata without waiting for another physics epoch. */
+    internal fun publishMetadataFrame(): TrainFrameSnapshot = publishFrame(publishedFrame.physicsEpoch)
+
     private fun captureFrame(revision: Long, physicsEpoch: Long): TrainFrameSnapshot = TrainFrameSnapshot.create(
         trainId = id,
+        trainName = name,
         revision = revision,
         physicsEpoch = physicsEpoch,
         speedMetersPerSecond = speed,
@@ -402,6 +421,7 @@ open class CoreTrain @MainThread internal constructor(
         cars = cars.map { car ->
             CarFrameSnapshot.create(
                 carId = car.id,
+                lengthMeters = car.length,
                 state = RenderableFrameSnapshot.capture(car),
                 bogies = car.bogies.map(RenderableFrameSnapshot::capture)
             )
@@ -522,8 +542,16 @@ open class CoreTrain @MainThread internal constructor(
             id: String,
             cars: List<CoreCar>,
             world: CoreWorld,
+            name: String = id,
             extensionData: Map<String, SerializableExtensionData> = emptyMap()
-        ): CoreTrain = CoreTrain(id, cars, world, extensionData)
+        ): CoreTrain = CoreTrain(id, cars, world, extensionData, name)
+
+        private fun validateTrainName(value: String): String {
+            require(value.isNotBlank() && value == value.trim() && value.none(Char::isISOControl)) {
+                "train name must be non-blank trimmed text without control characters"
+            }
+            return value
+        }
 
     }
 
@@ -532,7 +560,7 @@ open class CoreTrain @MainThread internal constructor(
         extensionDataContainer.extensionData.forEach { ext ->
             ext?.save()?.let { savedExtension[it.first] = it.second }
         }
-        return SavedTrainV1(id, cars.map { it.save() }, isReversed, savedExtension)
+        return SavedTrainV1(id, name, cars.map { it.save() }, isReversed, savedExtension)
     }
 
 

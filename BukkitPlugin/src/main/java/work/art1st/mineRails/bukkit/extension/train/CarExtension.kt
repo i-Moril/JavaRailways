@@ -273,6 +273,13 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     override fun applyAnimation(name: String, sceneName: String): Boolean {
+        if (bodyModel == null && bogieModels.isEmpty()) {
+            // A held scene is semantic vehicle state, not merely an update to currently spawned
+            // display entities. Keep the latest target so reverse/lights/doors remain correct when
+            // the model is outside every player's render distance and is rebuilt later.
+            pendingHeldScenes = pendingHeldScenes + (name to sceneName)
+            return true
+        }
         var applied = bodyModel?.applyAnimation(name, sceneName) ?: false
         bogieModels.forEach { model ->
             applied = model.applyAnimation(name, sceneName) || applied
@@ -358,6 +365,7 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     private fun captureLiveFrame(): CarFrameSnapshot = CarFrameSnapshot.create(
         carId = (self as? CoreCar)?.id ?: self.hashCode().toString(),
+        lengthMeters = self.length,
         state = RenderableFrameSnapshot.capture(self),
         bogies = self.bogies.map(RenderableFrameSnapshot::capture)
     )

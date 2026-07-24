@@ -2,6 +2,7 @@ import { useEffect, useReducer, useState } from 'react';
 import { api } from './api';
 import { emptyAction, emptyTimetable, reducer } from './editor';
 import { Graph } from './Graph';
+import { filterTimetableForDiagramLine } from './graph';
 import { RailMap } from './RailMap';
 import {
   actionLabel, addRowAction, assignLineToService, canInitializeServiceRows, deleteRowAction, deleteServiceRow, insertServiceRow,
@@ -31,7 +32,7 @@ import type {
 import './styles.css';
 
 const actionTypes = [
-  'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'STORE_AT_DEPOT',
+  'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'TAKE_FROM_WAYPOINT', 'STORE_AT_DEPOT',
   'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS', 'EXTENSION',
 ] as const satisfies readonly ActionType[];
 type View = 'graph' | 'map' | 'lines' | 'services' | 'scripts' | 'simulation';
@@ -179,7 +180,7 @@ export default function App() {
           <select value={graphLineId} onChange={(event) => setGraphLineId(event.target.value)}><option value="">{t('lines.all')}</option>
             {lineCollection.lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}</select>
           <span>{t('editor.graphHint')}</span></div>
-        <Graph value={graphValue} metadata={metadata} line={graphLine}
+        <Graph value={graphValue} metadata={metadata} line={graphLine} graphLineId={graphLineId || undefined}
           onSelect={(service, step) => { setSelected({ service:graphServiceIndices[service], step }); setSidebarOpen(true); }}
           onTick={(service, step, tick) => {
             const serviceIndex=graphServiceIndices[service];
@@ -279,7 +280,7 @@ function ServiceScheduleTable({ service, metadata, onChange }: {
       </select> : row.type==='SPECIAL_DESTINATION' ? <input list="points" value={row.destinationId || ''} onChange={(event)=>patch(row,{destinationId:event.target.value})} />
         : row.type==='DEPOT_OPERATION' ? <input list="depots" value={row.depotId || ''} disabled={row.depotOperation==='STORE_AT_DEPOT'} onChange={(event)=>patch(row,{depotId:event.target.value})} /> : <span>—</span>}
       {row.type==='STATION'||row.type==='SPECIAL_DESTINATION' ? <input type="number" min="0" value={row.arrivalTick ?? ''} placeholder="—" onChange={(event)=>patch(row,{arrivalTick:event.target.value===''?null:Math.max(0,+event.target.value)})} /> : <span>—</span>}
-      <input type="number" min="0" disabled={row.depotOperation==='TAKE_FROM_DEPOT'} value={(row.type==='ACTION_ONLY'||row.type==='DEPOT_OPERATION'?row.tick:row.departureTick) ?? ''} placeholder="—" onChange={(event)=>patch(row,row.type==='ACTION_ONLY'||row.type==='DEPOT_OPERATION'?{tick:Math.max(0,+event.target.value)}:{departureTick:Math.max(0,+event.target.value)})} />
+      <input type="number" min="0" value={(row.type==='ACTION_ONLY'||row.type==='DEPOT_OPERATION'?row.tick:row.departureTick) ?? ''} placeholder="—" onChange={(event)=>patch(row,row.type==='ACTION_ONLY'||row.type==='DEPOT_OPERATION'?{tick:Math.max(0,+event.target.value)}:{departureTick:Math.max(0,+event.target.value)})} />
       <div className="schedule-actions">
         {row.actions.map((action,actionIndex)=><span className="action-chip" key={actionIndex}>{actionLabel(action)}
           {action.type==='STOP'&&<input type="number" min="1" value={action.stopTicks || 20} onChange={(event)=>onChange(updateRowAction(service,row.id,actionIndex,{...action,stopTicks:Math.max(1,+event.target.value)},metadata))}/>}
@@ -431,14 +432,19 @@ function ScriptsPage({ world, metadata, run }: {
   const [scripts,setScripts] = useState<TimetableScriptSummary[]>([]);
   const [selected,setSelected] = useState('');
   const [rendered,setRendered] = useState<RenderedTimetableScript>();
+  const [diagramLineId,setDiagramLineId] = useState('');
   useEffect(() => {
     if (!world) return;
-    void run(() => api.scripts(world)).then((items) => { setScripts(items || []); setSelected(''); setRendered(undefined); });
+    void run(() => api.scripts(world)).then((items) => {
+      setScripts(items || []); setSelected(''); setRendered(undefined); setDiagramLineId('');
+    });
   }, [world]);
   const select = async (name:string) => {
-    setSelected(name); setRendered(undefined);
+    setSelected(name); setRendered(undefined); setDiagramLineId('');
     if (!name) return;
-    setRendered(await run(() => api.renderScript(world,name)));
+    const result=await run(() => api.renderScript(world,name));
+    setRendered(result);
+    setDiagramLineId(result?.timetable.diagramLines?.[0]?.id||'');
   };
   return <section className="page-scroll scripts-page">
     <aside className="card script-list"><h2>{t('scripts.title')}</h2>
@@ -454,7 +460,16 @@ function ScriptsPage({ world, metadata, run }: {
         </span>{rendered.validation.errors.map((error,index) => <p key={index}>{error}</p>)}</div>
         <div className="script-columns">
           <section className="card source-view"><h3>{t('scripts.source')}</h3><pre>{rendered.source}</pre></section>
-          <section className="card readonly-graph"><h3>{t('scripts.rendered')}</h3><Graph value={rendered.timetable} metadata={metadata} readOnly onTick={() => {}} /></section>
+          <section className="card readonly-graph"><div className="readonly-graph-header"><h3>{t('scripts.rendered')}</h3>
+            {!!rendered.timetable.diagramLines?.length&&<label>{t('lines.title')}<select value={diagramLineId} onChange={(event)=>setDiagramLineId(event.target.value)}>
+              {rendered.timetable.diagramLines.map((line)=><option key={line.id} value={line.id}>{line.id}</option>)}
+            </select></label>}
+          </div>
+            <Graph
+              value={diagramLineId?filterTimetableForDiagramLine(rendered.timetable,diagramLineId):rendered.timetable}
+              metadata={metadata} graphLineId={diagramLineId||undefined} readOnly onTick={() => {}}
+            />
+          </section>
         </div>
       </>}
     </article>
@@ -554,6 +569,7 @@ function ActionFields({ step, metadata, onAction, onCheck, onStationOperation }:
       }} onInput={(event) => event.currentTarget.setCustomValidity('')} /></label>
     </>;
   }
+  if (action.type === 'TAKE_FROM_WAYPOINT') return <label>{t('editor.target')}<input list="points" value={action.wayPointIds.join(', ')} onChange={(event) => onAction({ wayPointIds: splitList(event.target.value) })} /></label>;
   if (action.type === 'TAKE_FROM_DEPOT' || action.type === 'STORE_AT_DEPOT') {
     const points = metadata.depotDetails?.find((depot) => depot.id === action.depotId)?.stablingPoints || [];
     return <>

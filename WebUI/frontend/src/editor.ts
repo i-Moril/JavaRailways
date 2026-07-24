@@ -5,7 +5,7 @@ export const emptyAction = (type: ActionType = 'DESTINATION'): TimetableActionV1
  requiredTags: [],
  requiredCapabilities: [],
  stablingPointIds: [],
- wayPointIds: type === 'DESTINATION' || type === 'DESTINATION_OPTIONS' ? [''] : [],
+ wayPointIds: type === 'DESTINATION' || type === 'DESTINATION_OPTIONS' || type === 'TAKE_FROM_WAYPOINT' ? [''] : [],
  stopTicks: type === 'STOP' ? 20 : null,
  stationId: type === 'STATION_DESTINATION_OPTIONS' ? '' : null,
  berthId: type === 'STATION_DESTINATION_OPTIONS' ? '' : null,

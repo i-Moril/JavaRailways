@@ -14,37 +14,47 @@ export function Graph({
   onSelect,
   metadata,
   line,
+  graphLineId,
   readOnly = false,
 }: {
   value: SavedTimetableV1;
   metadata?: WorldMetadata;
   line?: LineV1;
+  graphLineId?: string;
   readOnly?: boolean;
   onTick: (service: number, step: number, tick: number) => void;
   onSelect?: (service: number, step: number) => void;
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
+  const surface = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ width: 900, height: 500 });
   const [viewport, setViewport] = useState<GraphViewport>({ scaleX:1, scaleY:1, offsetX:0, offsetY:0 });
+  const [hoveredPoint,setHoveredPoint] = useState<string|null>(null);
   const drag = useRef<DragState | null>(null);
-  const layout = layoutGraph(value, size.width, 58, size.height, metadata, line);
+  const layout = layoutGraph(value, size.width, 58, size.height, metadata, line, graphLineId);
   const top = 54;
   const transformX = (x:number) => layout.left + (x - layout.left) * viewport.scaleX + viewport.offsetX;
   const transformY = (y:number) => top + (y - top) * viewport.scaleY + viewport.offsetY;
   const transformedPoints = layout.points.map((point) => ({ ...point, x:transformX(point.x), y:transformY(point.y) }));
+  const pointKey=(point:{serviceIndex:number;stepIndex:number;tick:number;location:string})=>
+    `${point.serviceIndex}:${point.stepIndex}:${point.tick}:${point.location}`;
 
   useEffect(() => {
-    const element = canvas.current;
+    const element = surface.current;
     if (!element) return;
-    const resize = () => setSize({
-      width: element.parentElement?.clientWidth || 900,
-      height: element.parentElement?.clientHeight || 500,
-    });
+    const resize = () => {
+      const density=devicePixelRatio||1;
+      const maximumCssSize=Math.floor(8192/density);
+      setSize({
+        width:Math.max(1,Math.min(maximumCssSize,element.clientWidth||900)),
+        height:Math.max(1,Math.min(maximumCssSize,element.clientHeight||500)),
+      });
+    };
     resize();
     const observer = new ResizeObserver(resize);
-    observer.observe(element.parentElement!);
+    observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
@@ -110,12 +120,14 @@ export function Graph({
         context.beginPath();
         context.arc(point.x, point.y, 7, 0, Math.PI * 2);
         context.fill();
-        context.fillStyle = text;
-        context.fillText(`${path.serviceId} · ${point.tick}`, point.x + 9, point.y - 9);
+        if(hoveredPoint===pointKey(point)){
+          context.fillStyle = text;
+          context.fillText(`${path.serviceId} · ${point.location} · ${point.tick}`, point.x + 9, point.y - 9);
+        }
       }
     }
     context.restore();
-  }, [layout, size.width, size.height, value, viewport, theme]);
+  }, [layout, size.width, size.height, value, viewport, theme, hoveredPoint]);
 
   const position = (event: React.PointerEvent | React.WheelEvent) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -124,7 +136,7 @@ export function Graph({
   const zoom = (axis:'x'|'y', factor:number, anchor?:{x:number;y:number}) => setViewport((current) =>
     zoomGraphViewport(current,axis,factor,axis==='x' ? anchor?.x ?? (layout.left+size.width)/2 : anchor?.y ?? (top+size.height)/2,axis==='x' ? layout.left : top));
 
-  return <>
+  return <div ref={surface} className="graph-surface">
     <div className="graph-viewport-controls" aria-label={t('editor.graphViewport')}>
       <button title={t('editor.zoomXOut')} onClick={() => zoom('x', 0.8)}>X−</button>
       <button title={t('editor.zoomXIn')} onClick={() => zoom('x', 1.25)}>X+</button>
@@ -161,8 +173,12 @@ export function Graph({
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerMove={(event) => {
-        if (!drag.current) return;
         const pointer = position(event);
+        if(!drag.current){
+          const hit=transformedPoints.find((point)=>Math.hypot(point.x-pointer.x,point.y-pointer.y)<13);
+          setHoveredPoint(hit?pointKey(hit):null);
+          return;
+        }
         if (drag.current.kind === 'point') {
           onTick(drag.current.service, drag.current.step, snapTick(graphScreenXToTick(layout,viewport,pointer.x)));
           return;
@@ -175,7 +191,8 @@ export function Graph({
         }));
       }}
       onPointerUp={() => { drag.current = null; }}
-      onPointerCancel={() => { drag.current = null; }}
+      onPointerCancel={() => { drag.current = null; setHoveredPoint(null); }}
+      onPointerLeave={() => { if(!drag.current)setHoveredPoint(null); }}
     />
-  </>;
+  </div>;
 }

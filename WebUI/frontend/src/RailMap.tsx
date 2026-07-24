@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
-import { DESTINATION_MARKER_RADIUS, MAP_PADDING, RAIL_CASING_WIDTH, RAIL_STROKE_WIDTH, STATION_MARKER_RADIUS, TRAIN_MARKER_RADIUS, interpolateTrainPosition, layoutMapLabels, railMapBounds, railSegmentVisualLayers, zoomMapViewport, type MapLabelInput, type MapViewport, type RailMapSegment } from './railMap';
+import { DESTINATION_MARKER_RADIUS, MAP_PADDING, RAIL_CASING_WIDTH, RAIL_STROKE_WIDTH, STATION_MARKER_RADIUS, layoutMapLabels, railMapBounds, railSegmentVisualLayers, trainCarRectangle, zoomMapViewport, type MapLabelInput, type MapViewport, type RailMapSegment } from './railMap';
 import { useI18n } from './i18n';
 import { useTheme } from './theme';
 import type { RailMapFile, RailMapTrain } from './types';
@@ -60,9 +60,16 @@ export function RailMap({world,onError}:{world:string;onError:(message:string)=>
       const markerColor=marker.kind==='STATION'?'#087caf':marker.kind==='DEPOT'?'#d68117':'#7b8fa4';context.fillStyle=markerColor;context.fill();
       if(viewport.zoom>=1.2||marker.kind==='STATION')labels.push({id:`marker:${marker.id}`,text:marker.label||marker.id,x:point.x,y:point.y,priority:marker.kind==='STATION'?0:marker.kind==='DEPOT'?1:2,color:labelColor});
     }
-    for(const train of trains){const location=interpolateTrainPosition(map,train);if(!location)continue;const point=project(location.x,location.z);
-      context.beginPath();context.arc(point.x,point.y,TRAIN_MARKER_RADIUS,0,Math.PI*2);context.fillStyle=train.derailed?'#d9364f':'#43a65d';context.fill();
-      labels.push({id:`train:${train.id}`,text:train.id,x:point.x,y:point.y,priority:0,color:labelColor});
+    for(const train of trains){
+      const carColor=train.derailed?'#d9364f':'#43a65d';
+      for(const car of train.cars){
+        const polygon=trainCarRectangle(car,project,scale);context.beginPath();context.moveTo(polygon[0].x,polygon[0].y);
+        for(const point of polygon.slice(1))context.lineTo(point.x,point.y);context.closePath();context.fillStyle=carColor;context.fill();
+        context.strokeStyle=background;context.lineWidth=1;context.stroke();
+      }
+      const firstCar=train.cars[0];if(!firstCar)continue;
+      const point=project(firstCar.x,firstCar.z);
+      labels.push({id:`train:${train.id}`,text:train.name,x:point.x,y:point.y,priority:0,color:labelColor});
     }
     context.font='11px system-ui';context.lineWidth=1;
     for(const label of layoutMapLabels(labels,size.width,size.height,(text)=>context.measureText(text).width)){

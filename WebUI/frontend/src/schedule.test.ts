@@ -105,5 +105,6 @@ describe('row-backed service schedule',()=>{
     const reverse={id:'action',type:'ACTION_ONLY' as const,tick:20,actions:[emptyAction('REVERSE')]};
     const compiled=compileServiceRows({...service,lineId:'line',lineDirection:'UP',rows:[depot,reverse,...rows]},metadata);
     expect(compiled.steps.slice(0,3).map((step)=>step.action?.type||step.type)).toEqual(['TAKE_FROM_DEPOT','REVERSE','STATION_DESTINATION_OPTIONS']);
+    expect(compiled.steps[0].tick).toBe(10);
   });
 });

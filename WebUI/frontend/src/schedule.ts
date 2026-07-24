@@ -41,7 +41,7 @@ export function updateServiceRow(
   const selected=rows[selectedIndex];
   if(selected?.type==='DEPOT_OPERATION') {
     const operation=current[selectedIndex]?.depotOperation;
-    rows[selectedIndex]={...selected,depotOperation:operation,tick:operation==='TAKE_FROM_DEPOT'?0:selected.tick};
+    rows[selectedIndex]={...selected,depotOperation:operation};
     if(operation==='TAKE_FROM_DEPOT'&&patch.depotId!==undefined) rows=rows.map((row)=>row.type==='DEPOT_OPERATION'&&row.depotOperation==='STORE_AT_DEPOT'?{...row,depotId:patch.depotId}:row);
   }
   const isTarget=(row:ServiceEditorRowV1)=>row.type==='STATION'||row.type==='SPECIAL_DESTINATION';
@@ -132,7 +132,7 @@ export function compileServiceRows(service:TimetableServiceV1,metadata:WorldMeta
   if(take) {
     const middle=normalizedRows.filter((row)=>row.id!==take.id&&row.id!==store?.id);
     const minimumStoreTick=middle.reduce((maximum,row)=>Math.max(maximum,row.type==='ACTION_ONLY'||row.type==='DEPOT_OPERATION'?row.tick??0:row.departureTick??0),0);
-    normalizedRows=[{...take,tick:0},...middle,...(store?[{...store,depotId:take.depotId||'',tick:Math.max(store.tick??0,minimumStoreTick)}]:[])];
+    normalizedRows=[take,...middle,...(store?[{...store,depotId:take.depotId||'',tick:Math.max(store.tick??0,minimumStoreTick)}]:[])];
   }
   service={...service,rows:normalizedRows};
   const steps:TimetableStepV1[]=[];

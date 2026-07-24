@@ -95,16 +95,33 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
 
     fun trains(worldName:String):String {
         val world=worlds[worldName] ?: throw HttpFailure(409,"rail map must be loaded before train streaming")
-        val values=world.allTrains.asSequence().take(MAX_TRAINS).map { train ->
+        val values=ArrayList<kotlinx.serialization.json.JsonObject>()
+        var remainingCars=MAX_TOTAL_LIVE_CARS
+        var remainingEstimatedBytes=MAX_LIVE_FRAME_BYTES
+        for(train in world.allTrains.asSequence().take(MAX_TRAINS)) {
             val frame=train.publishedFrame
-            buildJsonObject {
-                put("id",frame.trainId);put("revision",frame.revision);put("speedMetersPerSecond",frame.speedMetersPerSecond)
+            if(remainingCars<=0)break
+            val cars=frame.cars.take(minOf(MAX_CARS_PER_TRAIN,remainingCars))
+            val trainId=boundedText(frame.trainId);val trainName=boundedText(frame.trainName)
+            val estimatedBytes=512+encodedJsonStringBytes(trainId)+encodedJsonStringBytes(trainName)+
+                cars.sumOf { 256+encodedJsonStringBytes(boundedText(it.carId)) }
+            if(estimatedBytes>remainingEstimatedBytes)break
+            remainingCars-=cars.size;remainingEstimatedBytes-=estimatedBytes
+            values+=buildJsonObject {
+                put("id",trainId);put("name",trainName);put("revision",frame.revision);put("speedMetersPerSecond",frame.speedMetersPerSecond)
                 put("derailed",frame.derailed);put("reversed",frame.reversed)
                 put("railId",frame.head.railId.toString());put("arcLengthMeters",frame.head.arcLengthInAbMeters)
                 put("facing",frame.head.facing.name)
+                put("cars",JsonArray(cars.map { car -> buildJsonObject {
+                    put("id",boundedText(car.carId));put("lengthMeters",car.lengthMeters)
+                    put("x",car.state.positionX);put("y",car.state.positionY);put("z",car.state.positionZ)
+                    put("directionX",car.state.directionX);put("directionZ",car.state.directionZ)
+                } }))
             }
-        }.toList()
-        return JsonArray(values).toString()
+        }
+        val content=JsonArray(values).toString()
+        if(content.toByteArray().size>MAX_LIVE_FRAME_BYTES)throw HttpFailure(413,"live rail map train frame exceeds $MAX_LIVE_FRAME_BYTES bytes")
+        return content
     }
 
     private fun buildMap(snapshot:SourceSnapshot):String {
@@ -162,6 +179,7 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
 
     override fun close(){executor.shutdownNow();synchronized(lifecycleLock){worlds.clear();maps.clear()}}
     private fun boundedText(value:String)=value.take(MAX_TEXT_CHARS)
+    private fun encodedJsonStringBytes(value:String)=JsonPrimitive(value).toString().toByteArray().size
     private fun ensureActive(){if(Thread.currentThread().isInterrupted)throw java.util.concurrent.CancellationException("rail map generation cancelled")}
     private fun safeName(value:String)=value.replace(Regex("[^A-Za-z0-9._-]"),"_")
     private data class MapPoint(val arc:Double,val x:Double,val y:Double,val z:Double)
@@ -169,6 +187,9 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
         private const val MAX_RAILS=20_000
         private const val MAX_MARKERS=50_000
         private const val MAX_TRAINS=10_000
+        private const val MAX_CARS_PER_TRAIN=256
+        private const val MAX_TOTAL_LIVE_CARS=20_000
+        private const val MAX_LIVE_FRAME_BYTES=8*1024*1024
         private const val MAX_TOTAL_POINTS=100_000
         private const val MAX_POINTS_PER_RAIL=512
         private const val MAX_SERIALIZED_BYTES=32*1024*1024

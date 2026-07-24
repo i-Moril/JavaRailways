@@ -1,11 +1,11 @@
 import {describe,expect,it} from 'vitest';
-import {CONNECTED_ELEVATION_TOLERANCE_METERS,DESTINATION_MARKER_RADIUS,RAIL_CASING_WIDTH,RAIL_STROKE_WIDTH,STATION_MARKER_RADIUS,TRAIN_MARKER_RADIUS,clampMapZoom,interpolateTrainPosition,layoutMapLabels,railMapBounds,railSegmentVisualLayers,railSegmentsByVisualHeight,zoomMapViewport,MAX_MAP_LABELS,MAX_RAIL_MAP_ZOOM} from './railMap';
+import {CONNECTED_ELEVATION_TOLERANCE_METERS,DESTINATION_MARKER_RADIUS,RAIL_CASING_WIDTH,RAIL_STROKE_WIDTH,STATION_MARKER_RADIUS,TRAIN_CAR_WIDTH_PIXELS,clampMapZoom,interpolateTrainPosition,layoutMapLabels,railMapBounds,railSegmentVisualLayers,railSegmentsByVisualHeight,trainCarRectangle,zoomMapViewport,MAX_MAP_LABELS,MAX_RAIL_MAP_ZOOM} from './railMap';
 import type {RailMapFile,RailMapTrain} from './types';
 const map:RailMapFile={formatVersion:1,world:'w',runtimeId:'r',generatedAtEpochMillis:0,markers:[],rails:[
   {id:'low',elevation:0,points:[{arc:0,x:0,y:0,z:0},{arc:10,x:10,y:0,z:0}]},
   {id:'high',elevation:10,points:[{arc:0,x:5,y:10,z:-5},{arc:10,x:5,y:10,z:5}]},
 ]};
-const train:RailMapTrain={id:'t',revision:1,speedMetersPerSecond:1,derailed:false,reversed:false,railId:'low',arcLengthMeters:5,facing:'AB'};
+const train:RailMapTrain={id:'uuid',name:'Airport Express',revision:1,speedMetersPerSecond:1,derailed:false,reversed:false,railId:'low',arcLengthMeters:5,facing:'AB',cars:[{id:'c1',lengthMeters:20,x:5,y:0,z:0,directionX:1,directionZ:0}]};
 describe('rail map projection',()=>{
   it('sorts lower segments first so higher segment casing erases crossings',()=>expect(railSegmentsByVisualHeight(map).map((segment)=>segment.railId)).toEqual(['low','high']));
   it('renders close elevations as one connected layer and distinct elevations as overpasses',()=>{
@@ -14,10 +14,18 @@ describe('rail map projection',()=>{
     expect(railSegmentVisualLayers(map).map((layer)=>layer.map((segment)=>segment.railId))).toEqual([['low'],['high']]);
   });
   it('keeps rail, marker, and train sizes in screen pixels independent of zoom',()=>{
-    expect([RAIL_CASING_WIDTH,RAIL_STROKE_WIDTH,STATION_MARKER_RADIUS,DESTINATION_MARKER_RADIUS,TRAIN_MARKER_RADIUS]).toEqual([9,3,5,3,6]);
+    expect([RAIL_CASING_WIDTH,RAIL_STROKE_WIDTH,STATION_MARKER_RADIUS,DESTINATION_MARKER_RADIUS,TRAIN_CAR_WIDTH_PIXELS]).toEqual([9,3,5,3,7]);
     expect(zoomMapViewport({zoom:1,offsetX:0,offsetY:0},2,{x:100,y:100})).toEqual({zoom:2,offsetX:-60,offsetY:-60});
   });
   it('interpolates train positions on sampled arc lengths',()=>expect(interpolateTrainPosition(map,train)).toMatchObject({x:5,z:0}));
+  it('renders a carriage at its published position with its plan-projected physical length',()=>{
+    const rectangle=trainCarRectangle(train.cars[0],(x,z)=>({x:x*2,y:z*2}),2);
+    expect(Math.hypot(rectangle[0].x-rectangle[3].x,rectangle[0].y-rectangle[3].y)).toBeCloseTo(40);
+    expect(Math.hypot(rectangle[0].x-rectangle[1].x,rectangle[0].y-rectangle[1].y)).toBeCloseTo(TRAIN_CAR_WIDTH_PIXELS);
+    expect((rectangle[0].x+rectangle[2].x)/2).toBeCloseTo(10);
+    const inclined=trainCarRectangle({...train.cars[0],directionX:.6,directionZ:0},(x,z)=>({x:x*2,y:z*2}),2);
+    expect(Math.hypot(inclined[0].x-inclined[3].x,inclined[0].y-inclined[3].y)).toBeCloseTo(24);
+  });
   it('caps wheel zoom',()=>{expect(clampMapZoom(100)).toBe(MAX_RAIL_MAP_ZOOM);expect(clampMapZoom(0)).toBe(.5);});
   it('computes world bounds',()=>expect(railMapBounds(map)).toEqual({minX:0,maxX:10,minZ:-5,maxZ:5}));
   it('caps label work on large live maps',()=>{

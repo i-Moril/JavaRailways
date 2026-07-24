@@ -46,6 +46,10 @@ export function snapTick(tick: number, snap = 20) {
   return Math.max(0, Math.round(tick / snap) * snap);
 }
 
+export function filterTimetableForDiagramLine(value:SavedTimetableV1,lineId:string):SavedTimetableV1 {
+  return {...value,services:value.services.filter((service)=>service.lineId===lineId)};
+}
+
 function destination(action?: TimetableActionV1 | null): string | undefined {
   if (!action) return undefined;
   if (action.type === 'DESTINATION') return action.wayPointIds.at(-1) || undefined;
@@ -61,6 +65,7 @@ export function layoutGraph(
   minimumHeight = 170,
   metadata?: WorldMetadata,
   line?: LineV1,
+  graphLineId?: string,
 ): GraphLayout {
   const left = 150;
   const right = 28;
@@ -70,43 +75,50 @@ export function layoutGraph(
   const xToTick = (x: number) => Math.min(periodTicks - 1, Math.max(0, (x - left) / usable * periodTicks));
 
   const destinationStations = new Map((metadata?.stations || []).map((berth) => [berth.destinationId, berth.stationId]));
+  const stationIds=new Set((metadata?.stations||[]).map((berth)=>berth.stationId));
   const normalizeLocation = (id:string) => destinationStations.get(id) || id;
-  const serviceLocations = value.services.map((service) => {
-    let current = service.steps.find((step) => step.type === 'CHECK')?.wayPointId || `${service.id}: origin`;
-    return service.steps.map((step) => {
-      if (step.type === 'CHECK' && step.wayPointId) current = step.wayPointId;
-      const locationAtAction = current;
-      const target = step.type === 'AT' ? destination(step.action) : undefined;
-      if (target) current = target;
-      return normalizeLocation(locationAtAction);
-    });
-  });
-  const declaredTargets = value.services.flatMap((service) => service.steps.map((step) =>
-    step.type === 'AT' ? destination(step.action) : undefined));
-  const discovered = [...serviceLocations.flat(), ...declaredTargets.map((id) => id ? normalizeLocation(id) : id)]
-    .filter((id): id is string => Boolean(id));
-  const preferred = line ? Array.from(new Set([...line.upStationIds,...line.downStationIds])) : [];
-  const locationIds = Array.from(new Set([...preferred, ...discovered]));
+  const diagramLine=value.diagramLines?.find((item)=>item.id===(graphLineId||line?.id));
+  const preferred = diagramLine
+    ? Array.from(new Set([...diagramLine.upStationIds,...diagramLine.downStationIds]))
+    : line ? Array.from(new Set([...line.upStationIds,...line.downStationIds])) : [];
+  const discovered=value.services.flatMap((service)=>service.steps.flatMap((step)=>{
+    const id=step.type==='CHECK'&&step.wayPointId
+      ? normalizeLocation(step.wayPointId)
+      : step.type==='AT'&&destination(step.action) ? normalizeLocation(destination(step.action)!) : undefined;
+    return id&&stationIds.has(id)?[id]:[];
+  }));
+  const locationIds=diagramLine ? preferred : Array.from(new Set([...preferred,...discovered]));
   if (locationIds.length === 0) locationIds.push('No locations');
   const lanes = locationIds.map((id, index) => ({ id, y: 54 + index * rowHeight }));
   const laneById = new Map(lanes.map((lane) => [lane.id, lane.y]));
 
-  const paths = value.services.map((service, serviceIndex) => {
-    const points = service.steps.flatMap((step, stepIndex): GraphPoint[] => {
-      if (step.type !== 'AT') return [];
-      const location = serviceLocations[serviceIndex][stepIndex] || `${service.id}: origin`;
-      const tick = step.tick ?? 0;
-      return [{
-        serviceIndex,
-        stepIndex,
-        tick,
-        x: tickToX(tick),
-        y: laneById.get(location) ?? lanes[0].y,
-        label: step.action?.type === 'DESTINATION' ? location : step.action?.type || 'Action',
-        location,
-      }];
+  const paths = value.services.flatMap((service, serviceIndex) => {
+    let current=normalizeLocation(service.steps.find((step)=>step.type==='CHECK')?.wayPointId||`${service.id}: origin`);
+    let pendingArrivalTick:number|null=null;
+    const segments:GraphPath[]=[];
+    service.steps.forEach((step,stepIndex)=>{
+      if(step.type==='CHECK'&&step.wayPointId){current=normalizeLocation(step.wayPointId);return;}
+      if(step.type!=='AT')return;
+      const action=step.action;
+      if(action?.type==='DESTINATION_OPTIONS'||action?.type==='STATION_DESTINATION_OPTIONS'){
+        pendingArrivalTick=action.arrivalTick??null;
+        return;
+      }
+      const target=destination(action);
+      if(!target)return;
+      const next=normalizeLocation(target);
+      const departureY=laneById.get(current),arrivalY=laneById.get(next);
+      if(pendingArrivalTick!=null&&departureY!=null&&arrivalY!=null){
+        const departureTick=step.tick??0;
+        segments.push({serviceIndex,serviceId:service.id,points:[
+          {serviceIndex,stepIndex,tick:departureTick,x:tickToX(departureTick),y:departureY,label:current,location:current},
+          {serviceIndex,stepIndex,tick:pendingArrivalTick,x:tickToX(pendingArrivalTick),y:arrivalY,label:next,location:next},
+        ]});
+      }
+      current=next;
+      pendingArrivalTick=null;
     });
-    return { serviceIndex, serviceId: service.id, points };
+    return segments;
   });
   const points = paths.flatMap((path) => path.points);
   return {

@@ -1,4 +1,4 @@
-import type { RailMapFile, RailMapPoint, RailMapTrain } from './types';
+import type { RailMapFile, RailMapPoint, RailMapTrain, RailMapTrainCar } from './types';
 
 export const MAX_RAIL_MAP_ZOOM=8;
 export const MAP_PADDING=40;
@@ -6,7 +6,7 @@ export const RAIL_STROKE_WIDTH=3;
 export const RAIL_CASING_WIDTH=9;
 export const STATION_MARKER_RADIUS=5;
 export const DESTINATION_MARKER_RADIUS=3;
-export const TRAIN_MARKER_RADIUS=6;
+export const TRAIN_CAR_WIDTH_PIXELS=7;
 export const CONNECTED_ELEVATION_TOLERANCE_METERS=2;
 export interface MapViewport { zoom:number;offsetX:number;offsetY:number }
 export interface MapBounds { minX:number;maxX:number;minZ:number;maxZ:number }
@@ -21,6 +21,19 @@ export function clampMapZoom(value:number):number{return Math.max(0.5,Math.min(M
 export function zoomMapViewport(viewport:MapViewport,zoom:number,anchor:{x:number;y:number},origin=MAP_PADDING):MapViewport{
   const next=clampMapZoom(zoom),ratio=next/viewport.zoom;
   return {zoom:next,offsetX:anchor.x-origin-(anchor.x-origin-viewport.offsetX)*ratio,offsetY:anchor.y-origin-(anchor.y-origin-viewport.offsetY)*ratio};
+}
+
+export interface MapScreenPoint { x:number;y:number }
+export function trainCarRectangle(car:RailMapTrainCar,project:(x:number,z:number)=>MapScreenPoint,mapScale:number,widthPixels=TRAIN_CAR_WIDTH_PIXELS):MapScreenPoint[]{
+  const center=project(car.x,car.z),magnitude=Math.hypot(car.directionX,car.directionZ);
+  const direction=magnitude>1e-9?{x:car.directionX/magnitude,y:car.directionZ/magnitude}:{x:1,y:0};
+  const side={x:-direction.y,y:direction.x},halfLength=car.lengthMeters*mapScale*magnitude/2,halfWidth=widthPixels/2;
+  return [
+    {x:center.x+direction.x*halfLength+side.x*halfWidth,y:center.y+direction.y*halfLength+side.y*halfWidth},
+    {x:center.x+direction.x*halfLength-side.x*halfWidth,y:center.y+direction.y*halfLength-side.y*halfWidth},
+    {x:center.x-direction.x*halfLength-side.x*halfWidth,y:center.y-direction.y*halfLength-side.y*halfWidth},
+    {x:center.x-direction.x*halfLength+side.x*halfWidth,y:center.y-direction.y*halfLength+side.y*halfWidth},
+  ];
 }
 
 export function interpolateTrainPosition(map:RailMapFile,train:RailMapTrain):RailMapPoint|undefined {

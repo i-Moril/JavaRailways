@@ -1,9 +1,9 @@
 export type TrainSelectorType = 'ANY' | 'TRAIN_ID';
 export type StepType = 'CHECK' | 'AT';
-export type ActionType = 'TAKE_FROM_DEPOT' | 'STORE_AT_DEPOT' | 'DESTINATION' | 'DESTINATION_OPTIONS' | 'STOP' | 'HALT' | 'REVERSE' | 'STATION_DESTINATION_OPTIONS' | 'EXTENSION' | 'CONDITIONAL';
+export type ActionType = 'TAKE_FROM_DEPOT' | 'TAKE_FROM_WAYPOINT' | 'STORE_AT_DEPOT' | 'DESTINATION' | 'DESTINATION_OPTIONS' | 'STOP' | 'HALT' | 'REVERSE' | 'STATION_DESTINATION_OPTIONS' | 'EXTENSION' | 'CONDITIONAL';
 export interface ExtensionCallV1 { typeId: string; version: number; parameters: Record<string, unknown> }
 export interface TimetableConditionV1 { type: 'PREDICATE'|'ALL'|'ANY'|'NOT'; call?: ExtensionCallV1|null; conditions: TimetableConditionV1[] }
-export interface TimetableActionV1 { type: ActionType; depotId?: string|null; requiredTags: string[]; minimumCars?: number|null; maximumCars?: number|null; minimumSpeedMetersPerSecond?: number|null; requiredCapabilities: string[]; stablingPointIds: string[]; wayPointIds: string[]; stopTicks?: number|null; stationId?: string|null; berthId?: string|null; minimumDwellTicks?: number|null; stoppingOffsetMetersBefore?: number|null; doorSideOverride?: 'LEFT'|'RIGHT'|'BOTH'|null; extensionCall?: ExtensionCallV1|null; condition?: TimetableConditionV1|null; thenActions: TimetableActionV1[]; elseActions: TimetableActionV1[] }
+export interface TimetableActionV1 { type: ActionType; depotId?: string|null; arrivalTick?:number|null; requiredTags: string[]; minimumCars?: number|null; maximumCars?: number|null; minimumSpeedMetersPerSecond?: number|null; requiredCapabilities: string[]; stablingPointIds: string[]; wayPointIds: string[]; stopTicks?: number|null; stationId?: string|null; berthId?: string|null; minimumDwellTicks?: number|null; stoppingOffsetMetersBefore?: number|null; doorSideOverride?: 'LEFT'|'RIGHT'|'BOTH'|null; extensionCall?: ExtensionCallV1|null; condition?: TimetableConditionV1|null; thenActions: TimetableActionV1[]; elseActions: TimetableActionV1[] }
 export interface TimetableStepV1 { type: StepType; tick?: number|null; wayPointId?: string|null; action?: TimetableActionV1|null }
 export type LineDirection = 'UP'|'DOWN';
 export type ServiceRowType = 'STATION'|'SPECIAL_DESTINATION'|'DEPOT_OPERATION'|'ACTION_ONLY';
@@ -14,13 +14,18 @@ export interface ServiceEditorRowV1 {
   depotOperation?:'TAKE_FROM_DEPOT'|'STORE_AT_DEPOT'|null; depotId?:string|null; actions:TimetableActionV1[];
 }
 export interface TimetableServiceV1 { id: string; lineId?:string|null; lineDirection?:LineDirection|null; rows?:ServiceEditorRowV1[]|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
-export interface SavedTimetableV1 { id: string; periodDays: number; services: TimetableServiceV1[] }
+export interface DiagramLineV1 { id:string; upStationIds:string[]; downStationIds:string[] }
+export type ObjectSelectorType = 'REGEX'|'AND'|'OR'|'NOT'|'TAGS';
+export interface ObjectSelectorV1 { type:ObjectSelectorType; pattern?:string|null; selectors:ObjectSelectorV1[]; tags:string[] }
+export interface InitialPositionV1 { trainSelector:ObjectSelectorV1; wayPointSelector:ObjectSelectorV1 }
+export interface SavedTimetableV1 { id: string; periodDays: number; services: TimetableServiceV1[]; diagramLines?:DiagramLineV1[]; initialPositions?:InitialPositionV1[] }
 export interface WorldSummary { id: string; name?: string }
 export interface RailMapPoint { arc:number;x:number;y:number;z:number }
 export interface RailMapRail { id:string;elevation:number;points:RailMapPoint[] }
 export interface RailMapMarker { id:string;label:string;kind:'STATION'|'WAYPOINT'|'DEPOT'|'DESTINATION';railId:string;arcLengthMeters:number;x:number;y:number;z:number }
 export interface RailMapFile { formatVersion:number;world:string;runtimeId:string;generatedAtEpochMillis:number;rails:RailMapRail[];markers:RailMapMarker[] }
-export interface RailMapTrain { id:string;revision:number;speedMetersPerSecond:number;derailed:boolean;reversed:boolean;railId:string;arcLengthMeters:number;facing:'AB'|'BA' }
+export interface RailMapTrainCar { id:string;lengthMeters:number;x:number;y:number;z:number;directionX:number;directionZ:number }
+export interface RailMapTrain { id:string;name:string;revision:number;speedMetersPerSecond:number;derailed:boolean;reversed:boolean;railId:string;arcLengthMeters:number;facing:'AB'|'BA';cars:RailMapTrainCar[] }
 export interface StationBerthMetadata { stationId:string; stationDisplayName?:string; berthId:string; destinationId:string }
 export interface DepotMetadata { id:string; displayName?:string; stablingPoints:{id:string;destinationId:string}[] }
 export interface SimulationProfileDescriptor { type:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; id:string; displayName:string; carCount:number }

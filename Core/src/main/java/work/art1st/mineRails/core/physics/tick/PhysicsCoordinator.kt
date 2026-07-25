@@ -226,12 +226,17 @@ class PhysicsCoordinator(
         return true
     }
 
-    private fun shouldPublishMotionFrame(train: CoreTrain): Boolean {
+    private fun shouldPublishMotionFrame(
+        train: CoreTrain,
+        previousFrame: work.art1st.mineRails.core.api.physics.train.TrainFrameSnapshot
+    ): Boolean {
         if (train.speed > 0.0) {
             trainsPublishingMotionFrames.add(train.id)
             return true
         }
-        return trainsPublishingMotionFrames.remove(train.id)
+        return trainsPublishingMotionFrames.remove(train.id) ||
+            previousFrame.derailed != train.isDerailed ||
+            previousFrame.reversed != train.isReversed
     }
 
     private fun relativeSpeed(first: CoreTrain, second: CoreTrain): Double {
@@ -304,8 +309,9 @@ class PhysicsCoordinator(
                         batch.forEach { controller ->
                             if (controller.profileId !in trainsPendingCollision) {
                                 val controllerStart = nanoTime()
-                                controller.preparePhysicsTick()
-                                controller.tick(deltaMillis)
+                                if (controller.preparePhysicsTick()) {
+                                    controller.tick(deltaMillis)
+                                }
                                 controllerDurations[controller.profileId] = nanoTime() - controllerStart
                             }
                         }
@@ -317,11 +323,21 @@ class PhysicsCoordinator(
 
             val coordinatorStart = nanoTime()
             // Publish only after every worker has finished reading the previous epoch.
+            val publishedTrains = LinkedHashSet<CoreTrain>()
             snapshot.forEach { controller ->
                 controller.publishPhysicsState()
-                val train = controller.train as? CoreTrain
-                if (train != null && shouldPublishMotionFrame(train)) {
-                    world?.publishTrainFrame(train.publishFrame(ticket.epoch))
+                (controller.train as? CoreTrain)?.let(publishedTrains::add)
+            }
+            // Collision decisions can mutate a stationary train without a controller. Its pending
+            // state belongs to this epoch and must cross the same publication boundary.
+            world?.allTrains?.filterIsInstance<CoreTrain>()?.forEach { train ->
+                if (publishedTrains.add(train)) train.publishPhysicsState()
+            }
+            publishedTrains.forEach { train ->
+                val previousFrame = train.publishedFrame
+                val frame = train.publishFrame(ticket.epoch)
+                if (shouldPublishMotionFrame(train, previousFrame)) {
+                    world?.publishTrainFrame(frame)
                 }
             }
             world?.rebuildSweptOccupancyIndex()

@@ -92,7 +92,14 @@ class SimpleATOTest {
         fixture.ato.confirmRouteWindow(window)
         assertEquals(null, fixture.ato.currentMission)
 
-        tickAndPublish(fixture.ato, 50.0)
+        val beforePublication = fixture.ato.publishedState
+        AsyncTickTestSupport.run { fixture.ato.tick(50.0) }
+
+        assertEquals(beforePublication, fixture.ato.publishedState)
+        assertEquals(null, fixture.ato.currentMission)
+        assertEquals(0.0, fixture.ato.lifetimeTravelDistanceMeters, 1.0e-9)
+
+        fixture.ato.commit()
 
         assertEquals(2L, fixture.ato.currentMission?.revision)
         assertEquals(listOf(window), fixture.ato.currentConfirmedRouteWindows)

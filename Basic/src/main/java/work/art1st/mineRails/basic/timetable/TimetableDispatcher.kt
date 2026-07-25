@@ -1013,10 +1013,11 @@ class TimetableDispatcher(
                 run.state == TimetableServiceRunState.SUSPENDED ||
                 run.state == TimetableServiceRunState.REPLAN_REQUIRED
             val controlTransferred = manualRouted || fullManual
+            val publishedAtoState = run.ato.publishedState
             val snapshot = if (controlTransferred) {
                 capturePublishedTrainSnapshot(run)
             } else {
-                run.ato.currentTrainSnapshot
+                publishedAtoState.trainSnapshot
             }
             if (!controlTransferred) {
                 processStationNotifications(run)
@@ -1259,7 +1260,7 @@ class TimetableDispatcher(
                 if (stationCall.allocationKey == null) run.stationCall = null
             }
 
-            val mission = run.ato.currentMission
+            val mission = publishedAtoState.currentMission
             if (mission?.revision != run.missionRevision) {
                 setRouteState(run, TimetableServiceRunState.WAITING_MISSION, null)
                 return@forEach
@@ -2198,7 +2199,7 @@ class TimetableDispatcher(
     }
 
     private fun beginReverse(world: World, run: ActiveRun) {
-        val snapshot = capturePublishedTrainSnapshot(run)
+        val snapshot = run.ato.publishedState.trainSnapshot
         if (!run.ato.isStopped(snapshot.speedMetersPerSecond)) {
             stallRun(world, run, "InfrastructureInvariantViolation", "reverse requires a stopped train")
             return
@@ -2673,7 +2674,7 @@ class TimetableDispatcher(
         errorType: String,
         reason: String,
         snapshot: TrainSnapshot = runCatching { capturePublishedTrainSnapshot(run) }
-            .getOrDefault(run.ato.currentTrainSnapshot)
+            .getOrDefault(run.ato.publishedState.trainSnapshot)
     ) {
         val effectiveReason = cancelExtensionAction(run)?.let { "$reason; $it" } ?: reason
         if (run.depotReservationPending) {
@@ -2790,9 +2791,9 @@ class TimetableDispatcher(
 
     private fun updateTailProgress(run: ActiveRun, snapshot: TrainSnapshot) {
         run.runtimes.forEach { runtime ->
-            val odometerDelta = (run.ato.lifetimeTravelDistanceMeters - runtime.lastOdometerMeters)
-                .coerceAtLeast(0.0)
-            runtime.lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
+            val publishedOdometer = run.ato.publishedState.lifetimeTravelDistanceMeters
+            val odometerDelta = (publishedOdometer - runtime.lastOdometerMeters).coerceAtLeast(0.0)
+            runtime.lastOdometerMeters = publishedOdometer
             val projected = runtime.layout.project(snapshot.tail, runtime.tailProgressMeters)
             runtime.tailProgressMeters = when {
                 projected != null -> projected
@@ -4246,12 +4247,12 @@ class TimetableDispatcher(
         fun canBeReplaced(): Boolean =
             state.isTerminal() && allocations.isEmpty() &&
                 stationCall?.allocationKey == null && storageReservation == null &&
-                ato.isStopped(ato.currentTrainSnapshot.speedMetersPerSecond)
+                ato.isStopped(ato.publishedState.trainSnapshot.speedMetersPerSecond)
 
         fun isStoredTerminal(): Boolean =
             state == TimetableServiceRunState.COMPLETED && storageCompleted &&
                 storageReservation == null && stationCall?.allocationKey == null &&
-                ato.isStopped(ato.currentTrainSnapshot.speedMetersPerSecond)
+                ato.isStopped(ato.publishedState.trainSnapshot.speedMetersPerSecond)
 
         fun snapshot(): TimetableServiceRunSnapshot {
             var operationError: String? = null

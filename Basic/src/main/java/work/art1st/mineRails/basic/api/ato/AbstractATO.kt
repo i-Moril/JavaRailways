@@ -10,6 +10,12 @@ import work.art1st.mineRails.core.api.physics.train.Train
 import work.art1st.mineRails.core.api.physics.train.TrainSnapshot
 import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 
+internal data class AtoPublishedState(
+    val trainSnapshot: TrainSnapshot,
+    val lifetimeTravelDistanceMeters: Double,
+    val controllerState: Any?
+)
+
 /** Fixed ATO Tick boundary: plan, actuate, move, or freeze the world-local ATO subsystem. */
 abstract class AbstractATO(
     train: Train,
@@ -26,19 +32,27 @@ abstract class AbstractATO(
     protected var latestRouteSnapshot: RouteSnapshot? = null
     protected var latestPerceptionSnapshot: PerceptionSnapshot? = null
 
-    @Volatile
-    var currentTrainSnapshot: TrainSnapshot
-        private set
-
-    @Volatile
-    var lifetimeTravelDistanceMeters: Double = 0.0
-        private set
-
+    private var activeLifetimeTravelDistanceMeters: Double = 0.0
     private var atoTick: Long = 0L
 
+    @Volatile
+    private var publishedState = AtoPublishedState(
+        trainSnapshot = captureTrainSnapshot(0L),
+        lifetimeTravelDistanceMeters = 0.0,
+        controllerState = null
+    )
+
+    val currentTrainSnapshot: TrainSnapshot
+        get() = publishedState.trainSnapshot
+
+    val lifetimeTravelDistanceMeters: Double
+        get() = publishedState.lifetimeTravelDistanceMeters
+
+    protected val activeLifetimeTravelDistance: Double
+        get() = activeLifetimeTravelDistanceMeters
+
     init {
-        currentTrainSnapshot = captureTrainSnapshot(0L)
-        atoCoordinator.recordInitialTrain(currentTrainSnapshot)
+        atoCoordinator.recordInitialTrain(publishedState.trainSnapshot)
     }
 
     final override fun tick(deltaT: Double) {
@@ -61,8 +75,7 @@ abstract class AbstractATO(
             train.moveTrainForward(step.distanceMeters)
             speed = step.speedMetersPerSecond
             lastTravelDistanceMeters = step.distanceMeters
-            lifetimeTravelDistanceMeters += step.distanceMeters
-            currentTrainSnapshot = captureTrainSnapshot(atoTick, step.speedMetersPerSecond)
+            activeLifetimeTravelDistanceMeters += step.distanceMeters
         } catch (failure: Exception) {
             atoCoordinator.stall(createStallReport(failure))
             freeze()
@@ -83,10 +96,22 @@ abstract class AbstractATO(
         val frozen = actuator.freeze()
         speed = frozen.speedMetersPerSecond
         lastTravelDistanceMeters = 0.0
-        currentTrainSnapshot = runCatching {
-            captureTrainSnapshot(atoTick, frozen.speedMetersPerSecond)
-        }.getOrDefault(currentTrainSnapshot)
     }
+
+    final override fun onPhysicsStatePublished() {
+        publishedState = AtoPublishedState(
+            trainSnapshot = captureTrainSnapshot(atoTick),
+            lifetimeTravelDistanceMeters = activeLifetimeTravelDistanceMeters,
+            controllerState = capturePublishedControllerState()
+        )
+        afterPhysicsStatePublished()
+    }
+
+    protected open fun capturePublishedControllerState(): Any? = null
+
+    protected open fun afterPhysicsStatePublished() = Unit
+
+    internal fun publishedAtoState(): AtoPublishedState = publishedState
 
     private fun createStallReport(failure: Exception): AtoStallReport = AtoStallReport(
         worldId = atoCoordinator.worldId,

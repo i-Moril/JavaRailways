@@ -34,10 +34,10 @@ import work.art1st.mineRails.core.physics.rail.RailView
 import work.art1st.mineRails.core.physics.rail.SweptRailSpan
 import work.art1st.mineRails.core.api.util.Destroyable
 import work.art1st.configLib.persistence.PersistentBy
+import work.art1st.mineRails.core.util.CommitBuffer
 import work.art1st.mineRails.core.util.ThreadGuard
 import work.art1st.mineRails.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
@@ -71,9 +71,14 @@ open class CoreTrain @MainThread internal constructor(
         get() = _controller
     override var cars: List<CoreCar> = cars
         protected set
-    // 使用AtomicBoolean防止fire两遍Collision, 见下面fire
-    private var _isDerailed: AtomicBoolean = AtomicBoolean(false)
-    @Volatile private var _derailReason: String? = null
+    private data class DerailState(val derailed: Boolean, val reason: String?)
+
+    private val derailStateBuffer = CommitBuffer(DerailState(false, null))
+    private val derailStateLock = Any()
+    private var derailPhysicsDirty = false
+    private var removeControllerOnPhysicsPublish = false
+    private val activeDerailState: DerailState
+        get() = if (derailPhysicsDirty) derailStateBuffer.getActive() else derailStateBuffer.get()
 
     @Volatile
     internal var publishedSweptSpans: List<SweptRailSpan> = emptyList()
@@ -96,12 +101,22 @@ open class CoreTrain @MainThread internal constructor(
         internal val publishedSweptSpans: List<SweptRailSpan>
     )
     override val isDerailed: Boolean
-        get() = _isDerailed.get()
+        get() = derailStateBuffer.get().derailed
     override val derailReason: String?
-        get() = _derailReason
-    @Volatile
-    var isReversed: Boolean = false
-        protected set
+        get() = derailStateBuffer.get().reason
+
+    private val reversedBuffer = CommitBuffer(false)
+    private var reversedPhysicsDirty = false
+    var isReversed: Boolean
+        get() = reversedBuffer.get()
+        protected set(value) {
+            reversedBuffer.set(value)
+            reversedBuffer.commit()
+            reversedBuffer.set(value)
+            reversedPhysicsDirty = false
+        }
+    private val activeIsReversed: Boolean
+        get() = if (reversedPhysicsDirty) reversedBuffer.getActive() else reversedBuffer.get()
     override val length
         get() = cars.size
     var head: TrainEnd
@@ -149,6 +164,14 @@ open class CoreTrain @MainThread internal constructor(
             return if (isReversed) cars.first().bogieA
             else cars.last().bogieB
         }
+    private val activeHeadCar: CoreCar
+        get() = if (activeIsReversed) cars.last() else cars.first()
+    private val activeTailCar: CoreCar
+        get() = if (activeIsReversed) cars.first() else cars.last()
+    private val activeHeadBogie: CoreBogie
+        get() = activeHeadCar.activeHeadBogie
+    private val activeTailBogie: CoreBogie
+        get() = activeTailCar.activeTailBogie
     /* >=0 */
     override val speed: Double
         get() = controller?.speed ?: 0.0
@@ -163,7 +186,7 @@ open class CoreTrain @MainThread internal constructor(
      */
     @OptIn(AsyncEventApi::class)
     override fun moveTrainForward(deltaS: Double) {
-        if (isDerailed) return
+        if (activeDerailState.derailed) return
 
         require(deltaS >= 0.0) { "deltaS must >= 0" }
 
@@ -192,7 +215,7 @@ open class CoreTrain @MainThread internal constructor(
                         .map(::spanFromSegment)
             )
         } catch (e: PhysicsException) {
-            derail(e.toString())
+            markDerailedFromPhysics(e.toString())
         }
     }
 
@@ -208,18 +231,17 @@ open class CoreTrain @MainThread internal constructor(
         try {
             clearDerailed()
             // 正面面朝此location；成功后才发布方向事件。
-            if (directionChanged) reverseInternal()
+            if (directionChanged) reverseOnMainThread()
             applyHeadLocation(headLocation)
             pendingSweptSpans = spansFromLocations(previousLocations + activeRailLocations())
             if (directionChanged) MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
         } catch (failure: Exception) {
             runCatching {
-                if (isReversed != wasReversed) reverseInternal()
+                if (isReversed != wasReversed) reverseOnMainThread()
                 applyHeadLocation(previousHeadLocation)
                 pendingSweptSpans = previousPendingSweptSpans
             }.exceptionOrNull()?.let(failure::addSuppressed)
-            _isDerailed.set(wasDerailed)
-            _derailReason = previousDerailReason
+            publishDerailState(DerailState(wasDerailed, previousDerailReason))
             throw failure
         }
     }
@@ -245,10 +267,9 @@ open class CoreTrain @MainThread internal constructor(
     fun restorePlacementSnapshot(snapshot: PlacementSnapshot) {
         require(snapshot.trainId == id) { "placement snapshot belongs to ${snapshot.trainId}, not $id" }
         val directionChanged = isReversed != snapshot.reversed
-        if (directionChanged) reverseInternal()
+        if (directionChanged) reverseOnMainThread()
         applyHeadLocation(snapshot.headLocation)
-        _isDerailed.set(snapshot.derailed)
-        _derailReason = snapshot.derailReason
+        publishDerailState(DerailState(snapshot.derailed, snapshot.derailReason))
         pendingSweptSpans = snapshot.publishedSweptSpans
         commit()
         if (directionChanged) MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
@@ -322,19 +343,20 @@ open class CoreTrain @MainThread internal constructor(
     }
 
     private fun updateAfterHeadBogie(deltaS: Double? = null) {
-        val orderedCars = if (isReversed) cars.asReversed() else cars
+        val orderedCars = if (activeIsReversed) cars.asReversed() else cars
         var prevCar = orderedCars.first()
-        prevCar.updateByHeadBogie(headBogie.activeLocation, deltaS)
+        prevCar.updateByHeadBogie(activeHeadBogie.activeLocation, deltaS)
         for (car in orderedCars.drop(1)) {
             car.updateByPrevCar(prevCar, deltaS)
             prevCar = car
         }
-        head.location =
-            headBogie.activeLocation.forward(headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
+        head.location = activeHeadBogie.activeLocation.forward(
+            activeHeadCar.activeHeadBogieToEndPointOffset
+        ) ?: throw CannotMoveForwardException(this)
         tail.location = if (deltaS != null) {
-            findTailEndForward(tail.activeLocation, tailBogie.activeLocation, deltaS)
+            findTailEndForward(tail.activeLocation, activeTailBogie.activeLocation, deltaS)
         } else {
-            tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset)
+            activeTailBogie.activeLocation.forward(-activeTailCar.activeTailBogieToEndPointOffset)
                 ?: throw CannotMoveForwardException(this)
         }
     }
@@ -352,7 +374,7 @@ open class CoreTrain @MainThread internal constructor(
         solvedTailBogie: RailLocationWithFacing,
         deltaS: Double
     ): RailLocationWithFacing {
-        val endOffset = tailCar.tailBogieToEndPointOffset
+        val endOffset = activeTailCar.activeTailBogieToEndPointOffset
         val maximumBogieDistance = deltaS + endOffset + TAIL_END_SEARCH_MARGIN_METERS
         val bogieDistance = forwardDistanceTo(previousTail, solvedTailBogie, maximumBogieDistance)
             ?: throw CannotMoveForwardException(
@@ -398,20 +420,30 @@ open class CoreTrain @MainThread internal constructor(
     @MainThread
     override fun reverse() {
         ThreadGuard.ensureMainThread("CoreTrain.reverse")
-        reverseInternal()
+        reverseOnMainThread()
+        publishPhysicsState()
+        publishMetadataFrame()
         MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
     }
 
     internal fun reverseFromPhysics() {
-        reverseInternal()
+        reversedBuffer.set(!activeIsReversed)
+        reversedPhysicsDirty = true
+        cars.forEach(CoreCar::reverseFromPhysics)
+        head.location = activeHeadBogie.activeLocation.forward(
+            activeHeadCar.activeHeadBogieToEndPointOffset
+        ) ?: throw CannotMoveForwardException(this)
+        tail.location = activeTailBogie.activeLocation.forward(
+            -activeTailCar.activeTailBogieToEndPointOffset
+        ) ?: throw CannotMoveForwardException(this)
         world.tickManager.scheduleMainThreadPostTickTask {
             MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
         }
     }
 
-    private fun reverseInternal() {
+    private fun reverseOnMainThread() {
         isReversed = !isReversed
-        cars.forEach { obj: CoreCar -> obj.reverse() }
+        cars.forEach(CoreCar::reverse)
         head.location = headBogie.activeLocation.forward(headCar.headBogieToEndPointOffset)
             ?: throw CannotMoveForwardException(this)
         tail.location = tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset)
@@ -472,10 +504,22 @@ open class CoreTrain @MainThread internal constructor(
         cars.forEach { it.publishPhysicsState() }
         head.publishPhysicsState()
         tail.publishPhysicsState()
+        if (reversedPhysicsDirty) {
+            reversedBuffer.commit()
+            reversedPhysicsDirty = false
+        }
+        val shouldRemoveController = synchronized(derailStateLock) {
+            if (derailPhysicsDirty) {
+                derailStateBuffer.commit()
+                derailPhysicsDirty = false
+            }
+            removeControllerOnPhysicsPublish.also { removeControllerOnPhysicsPublish = false }
+        }
         pendingSweptSpans?.let {
             publishedSweptSpans = it
             pendingSweptSpans = null
         }
+        if (shouldRemoveController) removeController()
     }
 
     /** Publishes one complete frame after this train's physics buffers have been flipped. */
@@ -618,24 +662,36 @@ open class CoreTrain @MainThread internal constructor(
     @OptIn(AsyncEventApi::class)
     override fun derail(reason: String) {
         require(reason.isNotBlank())
-        if (_isDerailed.compareAndSet(false, true)) {
-            _derailReason = reason
-            removeController()
-            PhysicsRailEventBus.publish(DerailEvent(this, reason))
+        val changed = synchronized(derailStateLock) {
+            if (activeDerailState.derailed) return@synchronized false
+            publishDerailState(DerailState(true, reason))
+            true
         }
+        if (!changed) return
+        removeController()
+        PhysicsRailEventBus.publish(DerailEvent(this, reason))
     }
 
     internal fun markDerailedFromPhysics(reason: String) {
         require(reason.isNotBlank())
-        if (_isDerailed.compareAndSet(false, true)) {
-            _derailReason = reason
-            removeController()
+        synchronized(derailStateLock) {
+            if (activeDerailState.derailed) return
+            derailStateBuffer.set(DerailState(true, reason))
+            derailPhysicsDirty = true
+            removeControllerOnPhysicsPublish = true
         }
     }
 
     protected fun clearDerailed() {
-        _isDerailed.set(false)
-        _derailReason = null
+        publishDerailState(DerailState(false, null))
+    }
+
+    private fun publishDerailState(state: DerailState) = synchronized(derailStateLock) {
+        derailStateBuffer.set(state)
+        derailStateBuffer.commit()
+        derailStateBuffer.set(state)
+        derailPhysicsDirty = false
+        removeControllerOnPhysicsPublish = false
     }
 
     companion object {

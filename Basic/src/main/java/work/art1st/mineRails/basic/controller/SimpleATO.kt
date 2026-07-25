@@ -75,6 +75,24 @@ data class SimpleAtoRuntimeDiagnostics(
     val constraints: List<String>
 )
 
+data class SimpleAtoPublishedState(
+    val trainSnapshot: TrainSnapshot,
+    val lifetimeTravelDistanceMeters: Double,
+    val preparedReverseRevision: Long,
+    val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics,
+    val currentMission: AtoMission?,
+    val currentConfirmedRouteWindows: List<ConfirmedRouteWindow>,
+    val currentStationCall: ResolvedStationCall?
+)
+
+private data class SimpleAtoControllerPublishedState(
+    val preparedReverseRevision: Long,
+    val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics,
+    val currentMission: AtoMission?,
+    val currentConfirmedRouteWindows: List<ConfirmedRouteWindow>,
+    val currentStationCall: ResolvedStationCall?
+)
+
 /** Basic ATO with line-speed, fixed-stop, following, and one optional signalling provider. */
 class SimpleATO(
     train: Train,
@@ -131,7 +149,8 @@ class SimpleATO(
     private val stationCallCommands = RevisionedCommandQueue<ResolvedStationCall>()
     private val missionResolver = AtoMissionResolver(world)
     private val stationCallResolver = StationCallResolver(world)
-    private val stationNotifications = ConcurrentLinkedQueue<StationCallNotification>()
+    private val publishedStationNotifications = ConcurrentLinkedQueue<StationCallNotification>()
+    private val pendingStationNotifications = ArrayList<StationCallNotification>()
     private val constraintManager = ConstraintManager()
     private val speedLimits = LinkedHashMap<String, Double>()
     private val stopTargets = LinkedHashMap<String, StopTarget>()
@@ -146,40 +165,41 @@ class SimpleATO(
     private var missionRouteLayout: MissionRouteLayout? = null
     private var missionProjectedProgressMeters: Double? = null
 
-    @Volatile
-    var preparedReverseRevision: Long = 0L
-        private set
+    private var activePreparedReverseRevision: Long = 0L
     private var movementAuthorityRevision = -1L
     private var movementAuthorityLimitMeters = 0.0
     private var activeStationCall: ActiveStationCall? = null
     private var stationPositionErrorMeters: Double? = null
 
-    @Volatile
-    var runtimeDiagnostics = SimpleAtoRuntimeDiagnostics(
-        missionRevision = null,
-        odometerProgressMeters = 0.0,
-        projectedProgressMeters = null,
-        movementAuthorityRevision = -1L,
-        movementAuthorityLimitMeters = 0.0,
-        activeStationCallId = null,
-        stationTargetProgressMeters = null,
-        stationPositionErrorMeters = null,
-        permittedSpeedMetersPerSecond = 0.0,
-        constraints = emptyList()
-    )
+    private var activeRuntimeDiagnostics = INITIAL_RUNTIME_DIAGNOSTICS
         private set
 
-    @Volatile
-    var currentMission: AtoMission? = null
-        private set
+    private var activeMission: AtoMission? = null
+    private var activeConfirmedRouteWindows: List<ConfirmedRouteWindow> = emptyList()
+    private var activeCurrentStationCall: ResolvedStationCall? = null
 
-    @Volatile
-    var currentConfirmedRouteWindows: List<ConfirmedRouteWindow> = emptyList()
-        private set
+    val publishedState: SimpleAtoPublishedState
+        get() {
+            val state = publishedAtoState()
+            val controller = state.controllerState as? SimpleAtoControllerPublishedState
+                ?: INITIAL_CONTROLLER_STATE
+            return SimpleAtoPublishedState(
+                trainSnapshot = state.trainSnapshot,
+                lifetimeTravelDistanceMeters = state.lifetimeTravelDistanceMeters,
+                preparedReverseRevision = controller.preparedReverseRevision,
+                runtimeDiagnostics = controller.runtimeDiagnostics,
+                currentMission = controller.currentMission,
+                currentConfirmedRouteWindows = controller.currentConfirmedRouteWindows,
+                currentStationCall = controller.currentStationCall
+            )
+        }
 
-    @Volatile
-    var currentStationCall: ResolvedStationCall? = null
-        private set
+    val preparedReverseRevision: Long get() = publishedState.preparedReverseRevision
+    val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics get() = publishedState.runtimeDiagnostics
+    val currentMission: AtoMission? get() = publishedState.currentMission
+    val currentConfirmedRouteWindows: List<ConfirmedRouteWindow>
+        get() = publishedState.currentConfirmedRouteWindows
+    val currentStationCall: ResolvedStationCall? get() = publishedState.currentStationCall
 
     /** Resolve and queue a Mission from the main thread; activation occurs at a physics Tick boundary. */
     @MainThread
@@ -262,7 +282,7 @@ class SimpleATO(
     @MainThread
     fun drainStationCallNotifications(): List<StationCallNotification> = buildList {
         while (true) {
-            val notification = stationNotifications.poll() ?: break
+            val notification = publishedStationNotifications.poll() ?: break
             add(notification)
         }
     }
@@ -349,12 +369,12 @@ class SimpleATO(
             missionProjectedProgressMeters = null
             movementAuthorityRevision = mission.revision
             movementAuthorityLimitMeters = 0.0
-            currentMission = mission
+            activeMission = mission
         }
         stationCallCommands.drain().lastOrNull()?.command?.let { resolved ->
-            check(currentMission?.revision == resolved.call.missionRevision) {
+            check(activeMission?.revision == resolved.call.missionRevision) {
                 "StationCall revision ${resolved.call.missionRevision} does not match active Mission " +
-                    "${currentMission?.revision}"
+                    "${activeMission?.revision}"
             }
             constraintManager.remove(STATION_OWNER)
             val berth = requireNotNull(worldData.stations.berth(resolved.berthRef)) {
@@ -387,7 +407,7 @@ class SimpleATO(
                     ).head
                 )
             )
-            currentStationCall = resolved
+            activeCurrentStationCall = resolved
         }
         commands.drain().forEach { envelope ->
             when (val command = envelope.command) {
@@ -399,7 +419,7 @@ class SimpleATO(
                 }
                 is Command.SetProvider -> switchProvider(command.providerId)
                 is Command.ConfirmRouteWindow -> {
-                    check(currentMission?.legs?.any { leg ->
+                    check(activeMission?.legs?.any { leg ->
                         leg.plannedRoute.routeId == command.window.key.routeId &&
                             leg.plannedRoute.revision == command.window.key.routeRevision
                     } == true) {
@@ -413,7 +433,7 @@ class SimpleATO(
                     publishConfirmedRouteWindows()
                 }
                 is Command.SetMovementAuthority -> {
-                    val activeRevision = currentMission?.revision ?: -1L
+                    val activeRevision = activeMission?.revision ?: -1L
                     when {
                         command.missionRevision == activeRevision -> {
                             movementAuthorityRevision = command.missionRevision
@@ -460,17 +480,17 @@ class SimpleATO(
                         reportStationCall(active, StationCallNotificationType.REVERSE_READY, 0.0)
                     }
                     activeStationCall = null
-                    currentStationCall = null
+                    activeCurrentStationCall = null
                     stationPositionErrorMeters = null
                     constraintManager.remove(STATION_OWNER)
-                    currentMission = null
+                    activeMission = null
                     missionRouteLayout = null
                     missionProjectedProgressMeters = null
                     missionProgressMeters = 0.0
                     movementAuthorityRevision = -1L
                     movementAuthorityLimitMeters = 0.0
                     constraintManager.remove(MISSION_OWNER)
-                    preparedReverseRevision = envelope.revision
+                    activePreparedReverseRevision = envelope.revision
                 }
             }
         }
@@ -498,7 +518,7 @@ class SimpleATO(
 
         // Continue perception and invariant validation without a Mission, but never turn line-speed
         // limits into movement authority. Infrastructure constraints are upper bounds only.
-        if (currentMission == null) return ControlDemand(0.0)
+        if (activeMission == null) return ControlDemand(0.0)
 
         return MinimumConstraintPlanner.plan(
             AtoPlanningContext(
@@ -607,7 +627,7 @@ class SimpleATO(
     }
 
     private fun updateMissionConstraints() {
-        val mission = currentMission
+        val mission = activeMission
         if (mission == null) {
             constraintManager.remove(MISSION_OWNER)
             return
@@ -662,7 +682,7 @@ class SimpleATO(
             return
         }
         val resolved = active.resolved
-        check(currentMission == null || currentMission?.revision == resolved.call.missionRevision ||
+        check(activeMission == null || activeMission?.revision == resolved.call.missionRevision ||
             active.departureGranted
         ) {
             "active StationCall revision does not match the active Mission before departure"
@@ -714,7 +734,7 @@ class SimpleATO(
             reportStationCall(active, StationCallNotificationType.DEPARTED, positionError)
             constraintManager.remove(STATION_OWNER)
             activeStationCall = null
-            currentStationCall = null
+            activeCurrentStationCall = null
             return
         }
         val constraints = when {
@@ -752,8 +772,8 @@ class SimpleATO(
             }
         }
         val station = activeStationCall
-        runtimeDiagnostics = SimpleAtoRuntimeDiagnostics(
-            missionRevision = currentMission?.revision,
+        activeRuntimeDiagnostics = SimpleAtoRuntimeDiagnostics(
+            missionRevision = activeMission?.revision,
             odometerProgressMeters = missionProgressMeters,
             projectedProgressMeters = missionProjectedProgressMeters,
             movementAuthorityRevision = movementAuthorityRevision,
@@ -772,7 +792,7 @@ class SimpleATO(
         positionErrorMeters: Double
     ) {
         val resolved = active.resolved
-        stationNotifications.add(
+        pendingStationNotifications.add(
             StationCallNotification(
                 type = type,
                 callId = resolved.call.callId,
@@ -939,8 +959,24 @@ class SimpleATO(
         return result
     }
 
+    override fun capturePublishedControllerState(): Any = SimpleAtoControllerPublishedState(
+        preparedReverseRevision = activePreparedReverseRevision,
+        runtimeDiagnostics = activeRuntimeDiagnostics.copy(
+            constraints = java.util.List.copyOf(activeRuntimeDiagnostics.constraints)
+        ),
+        currentMission = activeMission,
+        currentConfirmedRouteWindows = activeConfirmedRouteWindows,
+        currentStationCall = activeCurrentStationCall
+    )
+
+    override fun afterPhysicsStatePublished() {
+        if (pendingStationNotifications.isEmpty()) return
+        publishedStationNotifications.addAll(pendingStationNotifications)
+        pendingStationNotifications.clear()
+    }
+
     private fun publishConfirmedRouteWindows() {
-        currentConfirmedRouteWindows = java.util.Collections.unmodifiableList(
+        activeConfirmedRouteWindows = java.util.Collections.unmodifiableList(
             ArrayList(confirmedRouteWindows.values)
         )
     }
@@ -949,6 +985,25 @@ class SimpleATO(
         speed * speed / (2.0 * deceleration)
 
     private companion object {
+        val INITIAL_RUNTIME_DIAGNOSTICS = SimpleAtoRuntimeDiagnostics(
+            missionRevision = null,
+            odometerProgressMeters = 0.0,
+            projectedProgressMeters = null,
+            movementAuthorityRevision = -1L,
+            movementAuthorityLimitMeters = 0.0,
+            activeStationCallId = null,
+            stationTargetProgressMeters = null,
+            stationPositionErrorMeters = null,
+            permittedSpeedMetersPerSecond = 0.0,
+            constraints = emptyList()
+        )
+        val INITIAL_CONTROLLER_STATE = SimpleAtoControllerPublishedState(
+            preparedReverseRevision = 0L,
+            runtimeDiagnostics = INITIAL_RUNTIME_DIAGNOSTICS,
+            currentMission = null,
+            currentConfirmedRouteWindows = emptyList(),
+            currentStationCall = null
+        )
         val LINE_SPEED_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:line-speed")
         val ROUTE_END_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:route-end")
         val FOLLOW_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:following")

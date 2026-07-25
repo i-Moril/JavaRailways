@@ -60,15 +60,16 @@ abstract class TrainController(
     }
 
     /** Applies control mutations on the owning physics worker, never on the Bukkit thread. */
-    internal fun preparePhysicsTick() {
-        if (pendingReverseRequests.getAndSet(0) % 2 != 0) {
-            val controlledTrain = train
-            if (controlledTrain is CoreTrain) {
-                controlledTrain.reverseFromPhysics()
-            } else {
-                controlledTrain.reverse()
-            }
+    internal fun preparePhysicsTick(): Boolean {
+        if (pendingReverseRequests.getAndSet(0) % 2 == 0) return true
+        val controlledTrain = train
+        if (controlledTrain is CoreTrain) {
+            controlledTrain.reverseFromPhysics()
+        } else {
+            controlledTrain.reverse()
         }
+        // Publish the direction change as its own epoch. Movement resumes from that published state.
+        return false
     }
 
     override fun tick(deltaT: Double) {
@@ -92,7 +93,11 @@ abstract class TrainController(
             speedDirty = false
         }
         (train as? CoreTrain)?.publishPhysicsState()
+        onPhysicsStatePublished()
     }
+
+    /** Publishes controller-owned value state only after speed and train geometry are committed. */
+    protected open fun onPhysicsStatePublished() = Unit
 
     /** Main-thread render commit retained for API compatibility; physics publication is separate. */
     override fun commit() {

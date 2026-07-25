@@ -46,7 +46,7 @@ open class TrainEnd(
 
     override var location: RailLocationWithFacing
         get() = locationBuffer.get()
-        set(value) {
+        internal set(value) {
             locationBuffer.set(value)
             physicsDirty = true
         }

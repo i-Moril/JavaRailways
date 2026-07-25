@@ -200,37 +200,46 @@ class CoreCar @MainThread internal constructor(
         condition: (RailLocationWithFacing, IntermediateResult, Double) -> Double
     ): IntermediateResult {
         require(deltaS >= 0.0 && deltaS.isFinite())
-        val lowerDistance = (deltaS - FORWARD_SEARCH_RADIUS_METERS).coerceAtLeast(
-            -tailBogie.location.arcLength
+        val previousTail = tailBogie.activeLocation
+        val fallbackLowerDistance = (deltaS - FORWARD_SEARCH_RADIUS_METERS).coerceAtLeast(
+            -previousTail.arcLength
         )
         val requestedUpperDistance = deltaS + FORWARD_SEARCH_RADIUS_METERS
-        val reachableDistance = tailBogie.location
+        val reachableDistance = previousTail
             .peekCurve(requestedUpperDistance + bogieDistance)
             .sumOf { it.totalArcLength }
         val upperDistance = requestedUpperDistance.coerceAtMost(
             (reachableDistance - bogieDistance - Curve.TOLERANCE).coerceAtLeast(0.0)
         )
-        if (upperDistance < lowerDistance) throw BogieException(tailBogie)
-        val searchStart = tailBogie.location.forward(lowerDistance)
+
+        fun searchRange(lowerDistance: Double): IntermediateResult? {
+            if (upperDistance < lowerDistance) return null
+            val searchStart = previousTail.forward(lowerDistance) ?: return null
+            val searchLength = upperDistance - lowerDistance
+            return searchStart.peekCurve(searchLength)
+                .searchRailLocation(
+                    Curve.TOLERANCE,
+                    { location ->
+                        val offsetFromSearchStart = forwardDistanceTo(
+                            searchStart,
+                            location,
+                            searchLength
+                        ) ?: throw BogieException(tailBogie)
+                        Triple(
+                            location,
+                            calculatePositionByTailBogie(location),
+                            lowerDistance + offsetFromSearchStart
+                        )
+                    },
+                    { (location, result, distance) -> condition(location, result, distance) }
+                )?.second
+        }
+
+        // Prefer the train-local path ahead of the published tail. Only explicit correction of a
+        // compressed legacy placement may search behind it, and therefore consult reverse topology.
+        return searchRange(0.0)
+            ?: fallbackLowerDistance.takeIf { it < 0.0 }?.let(::searchRange)
             ?: throw BogieException(tailBogie)
-        val searchLength = upperDistance - lowerDistance
-        return searchStart.peekCurve(searchLength)
-            .searchRailLocation(
-                Curve.TOLERANCE,
-                { location ->
-                    val offsetFromSearchStart = forwardDistanceTo(
-                        searchStart,
-                        location,
-                        searchLength
-                    ) ?: throw BogieException(tailBogie)
-                    Triple(
-                        location,
-                        calculatePositionByTailBogie(location),
-                        lowerDistance + offsetFromSearchStart
-                    )
-                },
-                { (location, result, distance) -> condition(location, result, distance) }
-            )?.second ?: throw BogieException(tailBogie)
     }
 
 
@@ -245,7 +254,7 @@ class CoreCar @MainThread internal constructor(
         deltaS: Double? = null
     ): IntermediateResult {
         if (deltaS != null) {
-            val previousTail = tailBogie.location
+            val previousTail = tailBogie.activeLocation
             val targetHeadDistance = forwardDistanceTo(
                 previousTail,
                 headBogieNewLocation,

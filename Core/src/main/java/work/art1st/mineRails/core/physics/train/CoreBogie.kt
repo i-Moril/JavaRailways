@@ -40,7 +40,7 @@ class CoreBogie @MainThread internal constructor(
     override var location: RailLocationWithFacing by _location
         private set
     internal val activeLocation
-        get() = _location.getActive()
+        get() = if (physicsDirty) _location.getActive() else _location.get()
 
     override val position
         get() = location.position
@@ -53,7 +53,7 @@ class CoreBogie @MainThread internal constructor(
     /* velocity: 速度的大小和方向 */
     override var velocity: Vector3dc by _velocity
     internal val activeVelocity
-        get() = _velocity.getActive()
+        get() = if (physicsDirty) _velocity.getActive() else _velocity.get()
 
     override val world
         get() = location.rail.world
@@ -67,7 +67,7 @@ class CoreBogie @MainThread internal constructor(
 
     @Throws(BogieException::class)
     override fun moveForward(distance: Double) {
-        updateLocation(location.forward(distance) ?: throw BogieException(this))
+        updateLocation(activeLocation.forward(distance) ?: throw BogieException(this))
     }
 
     /** Publishes Core state off the Bukkit main thread after all physics workers complete. */

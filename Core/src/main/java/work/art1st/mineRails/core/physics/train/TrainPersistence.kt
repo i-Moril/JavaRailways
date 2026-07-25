@@ -33,10 +33,20 @@ data class SavedTrainV1(
     val name: String,
     val cars: List<SavedCarV1>,
     val reversed: Boolean,
-    val extension: Map<String, SerializableExtensionData>
+    val extension: Map<String, SerializableExtensionData>,
+    val headLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1? = null,
+    val tailLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1? = null
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
-        val train = CoreTrain(id, cars.map { it.load(dependency) }, dependency, extension, name)
+        val train = CoreTrain(
+            id,
+            cars.map { it.load(dependency) },
+            dependency,
+            extension,
+            name,
+            persistedHeadLocation = headLocation?.load(dependency),
+            persistedTailLocation = tailLocation?.load(dependency)
+        )
         return try {
             train.restorePersistedPlacement(reversed)
             train.commit()

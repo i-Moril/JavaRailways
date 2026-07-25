@@ -47,6 +47,6 @@ class RailDirectionRestrictionTest {
         assertEquals(first.id, train.tailLocation.rail.id)
         AsyncTickTestSupport.run { train.moveTrainForward(0.54) }
         train.commit()
-        assertFalse(train.isDerailed)
+        assertFalse(train.isDerailed, train.derailReason)
     }
 }

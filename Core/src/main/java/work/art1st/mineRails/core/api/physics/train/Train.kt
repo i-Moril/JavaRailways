@@ -30,6 +30,9 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     /** Whether physics has marked the train as derailed. */
     val isDerailed: Boolean
 
+    /** First immutable reason that caused derailment, when available. */
+    val derailReason: String?
+
     /** Number of cars. */
     val length: Int
 

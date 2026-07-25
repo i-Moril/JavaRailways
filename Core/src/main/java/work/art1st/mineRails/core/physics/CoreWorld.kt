@@ -183,7 +183,23 @@ class CoreWorld(
 
     @MainThread
     override fun removeRail(rail: Rail) {
-        (rail as? CoreRail)?.let { railSpatialIndex.removeRail(it) }
+        val removed = rail as? CoreRail
+        if (removed != null) {
+            allRails.asSequence()
+                .filter { it !== removed }
+                .flatMap { sequenceOf(it.viewAB, it.viewBA) }
+                .forEach { view ->
+                    val removedWasActive = view.activeRail?.rail === removed
+                    if (removedWasActive) view.activeRail = null
+                    view.mutableNextRails.removeIf { it.rail === removed }
+                    if (removedWasActive) view.activeRail = view.mutableNextRails.firstOrNull()
+                }
+            removed.viewAB.activeRail = null
+            removed.viewBA.activeRail = null
+            removed.viewAB.mutableNextRails.clear()
+            removed.viewBA.mutableNextRails.clear()
+            railSpatialIndex.removeRail(removed)
+        }
         rails.remove(rail.id)
     }
 

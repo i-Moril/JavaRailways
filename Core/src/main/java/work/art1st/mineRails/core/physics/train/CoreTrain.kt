@@ -53,6 +53,8 @@ open class CoreTrain @MainThread internal constructor(
     savedExtensionData: Map<String, SerializableExtensionData>,
     initialName: String = id,
     val extensionDataContainer: ExtensionDataContainer<TrainExtension> = ExtensionDataContainer(),
+    private val persistedHeadLocation: RailLocationWithFacing? = null,
+    private val persistedTailLocation: RailLocationWithFacing? = null,
 ) : Train, TrainComponentTrait<Train, TrainExtension>, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
     @Volatile
     private var _name: String = validateTrainName(initialName)
@@ -71,6 +73,7 @@ open class CoreTrain @MainThread internal constructor(
         protected set
     // 使用AtomicBoolean防止fire两遍Collision, 见下面fire
     private var _isDerailed: AtomicBoolean = AtomicBoolean(false)
+    @Volatile private var _derailReason: String? = null
 
     @Volatile
     internal var publishedSweptSpans: List<SweptRailSpan> = emptyList()
@@ -89,10 +92,13 @@ open class CoreTrain @MainThread internal constructor(
         internal val headLocation: RailLocationWithFacing,
         internal val reversed: Boolean,
         internal val derailed: Boolean,
+        internal val derailReason: String?,
         internal val publishedSweptSpans: List<SweptRailSpan>
     )
     override val isDerailed: Boolean
         get() = _isDerailed.get()
+    override val derailReason: String?
+        get() = _derailReason
     @Volatile
     var isReversed: Boolean = false
         protected set
@@ -112,11 +118,15 @@ open class CoreTrain @MainThread internal constructor(
 
     init {
         head = TrainEnd(
-            headBogie.location.forward(headCar.headBogieToEndPointOffset) ?: throw CannotCreateTrainException(),
+            persistedHeadLocation
+                ?: headBogie.location.forward(headCar.headBogieToEndPointOffset)
+                ?: throw CannotCreateTrainException(),
             this, TrainEnd.Type.HEAD
         )
         tail = TrainEnd(
-            tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotCreateTrainException(),
+            persistedTailLocation
+                ?: tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset)
+                ?: throw CannotCreateTrainException(),
             this, TrainEnd.Type.TAIL
         )
         world.addTrain(this)
@@ -177,7 +187,9 @@ open class CoreTrain @MainThread internal constructor(
             updateAfterHeadBogie(deltaS)
             pendingSweptSpans = mergeSweptSpans(
                 spansFromLocations(previousLocations + activeRailLocations()) +
-                    traversedSegments.map(::spanFromSegment)
+                    traversedSegments
+                        .filter { kotlin.math.abs(it.endArcLength - it.startArcLength) > Curve.TOLERANCE }
+                        .map(::spanFromSegment)
             )
         } catch (e: PhysicsException) {
             derail(e.toString())
@@ -190,6 +202,7 @@ open class CoreTrain @MainThread internal constructor(
         val previousLocations = currentRailLocations()
         val previousPendingSweptSpans = pendingSweptSpans
         val wasDerailed = isDerailed
+        val previousDerailReason = derailReason
         val wasReversed = isReversed
         val directionChanged = isReversed
         try {
@@ -206,6 +219,7 @@ open class CoreTrain @MainThread internal constructor(
                 pendingSweptSpans = previousPendingSweptSpans
             }.exceptionOrNull()?.let(failure::addSuppressed)
             _isDerailed.set(wasDerailed)
+            _derailReason = previousDerailReason
             throw failure
         }
     }
@@ -221,6 +235,7 @@ open class CoreTrain @MainThread internal constructor(
             headLocation = head.location,
             reversed = isReversed,
             derailed = isDerailed,
+            derailReason = derailReason,
             publishedSweptSpans = publishedSweptSpans.toList()
         )
     }
@@ -233,6 +248,7 @@ open class CoreTrain @MainThread internal constructor(
         if (directionChanged) reverseInternal()
         applyHeadLocation(snapshot.headLocation)
         _isDerailed.set(snapshot.derailed)
+        _derailReason = snapshot.derailReason
         pendingSweptSpans = snapshot.publishedSweptSpans
         commit()
         if (directionChanged) MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
@@ -280,9 +296,18 @@ open class CoreTrain @MainThread internal constructor(
     internal fun restorePersistedPlacement(reversed: Boolean) {
         isReversed = reversed
         cars.forEach { it.restorePersistedState(reversed) }
-        head.location = headBogie.location.forward(headCar.headBogieToEndPointOffset)
+        cars.forEach { car ->
+            val actualBogieDistance = car.bogieA.location.position.distance(car.bogieB.location.position)
+            val configuredBogieDistance = kotlin.math.abs(car.bogieAOffset - car.bogieBOffset)
+            if (kotlin.math.abs(actualBogieDistance - configuredBogieDistance) >
+                PERSISTED_BOGIE_POSITION_TOLERANCE_METERS
+            ) throw CannotCreateTrainException()
+        }
+        head.location = persistedHeadLocation
+            ?: headBogie.location.forward(headCar.headBogieToEndPointOffset)
             ?: throw CannotCreateTrainException()
-        tail.location = tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset)
+        tail.location = persistedTailLocation
+            ?: tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset)
             ?: throw CannotCreateTrainException()
         pendingSweptSpans = spansFromLocations(activeRailLocations())
     }
@@ -306,8 +331,68 @@ open class CoreTrain @MainThread internal constructor(
         }
         head.location =
             headBogie.activeLocation.forward(headCar.headBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
-        tail.location =
-            tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotMoveForwardException(this)
+        tail.location = if (deltaS != null) {
+            findTailEndForward(tail.activeLocation, tailBogie.activeLocation, deltaS)
+        } else {
+            tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset)
+                ?: throw CannotMoveForwardException(this)
+        }
+    }
+
+    /**
+     * Re-anchor the tail end from the train-local path used in this tick.
+     *
+     * Searching forward from the previous tail is intentional: looking backwards from the solved
+     * tail bogie would consult the independently selected reverse RailView at a trailing turnout.
+     * The root is the point whose forward rail distance to the solved bogie equals the configured
+     * bogie-to-end offset, so the endpoint is solved afresh instead of accumulating head deltaS.
+     */
+    private fun findTailEndForward(
+        previousTail: RailLocationWithFacing,
+        solvedTailBogie: RailLocationWithFacing,
+        deltaS: Double
+    ): RailLocationWithFacing {
+        val endOffset = tailCar.tailBogieToEndPointOffset
+        val maximumBogieDistance = deltaS + endOffset + TAIL_END_SEARCH_MARGIN_METERS
+        val bogieDistance = forwardDistanceTo(previousTail, solvedTailBogie, maximumBogieDistance)
+            ?: throw CannotMoveForwardException(
+                "tail bogie is not reachable on the train-local forward path: train=$id " +
+                    "tail=${previousTail.rail.id}/${previousTail.facing}@${previousTail.arcLength} " +
+                    "bogie=${solvedTailBogie.rail.id}/${solvedTailBogie.facing}@${solvedTailBogie.arcLength} " +
+                    "maximum=$maximumBogieDistance"
+            )
+        if (bogieDistance + Curve.TOLERANCE < endOffset) {
+            throw CannotMoveForwardException(
+                "solved tail bogie lies behind the tail endpoint offset: train=$id " +
+                    "distance=$bogieDistance offset=$endOffset"
+            )
+        }
+        val endpointSearchDistance = (bogieDistance - endOffset).coerceAtLeast(0.0)
+        return previousTail.peekCurve(endpointSearchDistance).searchRailLocation(Curve.TOLERANCE) { candidate ->
+            val candidateDistance = forwardDistanceTo(previousTail, candidate, endpointSearchDistance)
+                ?: throw CannotMoveForwardException("tail bisection left its train-local search path: train=$id")
+            bogieDistance - candidateDistance - endOffset
+        } ?: throw CannotMoveForwardException(
+            "tail bisection did not converge: train=$id distance=$bogieDistance offset=$endOffset"
+        )
+    }
+
+    private fun forwardDistanceTo(
+        from: RailLocationWithFacing,
+        target: RailLocationWithFacing,
+        maximumDistance: Double
+    ): Double? {
+        var traversed = 0.0
+        for (segment in from.peekCurve(maximumDistance)) {
+            if (segment.railView === target.railView &&
+                target.arcLength >= segment.startArcLength - Curve.TOLERANCE &&
+                target.arcLength <= segment.endArcLength + Curve.TOLERANCE
+            ) {
+                return traversed + (target.arcLength - segment.startArcLength)
+            }
+            traversed += segment.totalArcLength
+        }
+        return null
     }
 
     @MainThread
@@ -446,11 +531,25 @@ open class CoreTrain @MainThread internal constructor(
     }
 
     private fun spansFromLocations(locations: List<RailLocationWithFacing>): List<SweptRailSpan> {
-        val grouped = locations.groupBy { it.rail.id }
-        return grouped.map { (railId, railLocations) ->
+        val spans = locations.groupBy { it.rail.id }.map { (railId, railLocations) ->
             val arcs = railLocations.map { it.arcLengthIn(ViewDirection.AB) }
             SweptRailSpan(id, railId, arcs.min(), arcs.max())
+        }.toMutableList()
+        // When the train straddles a rail boundary, sampled endpoints/bogies can leave an
+        // artificial gap around the junction. Fill that connected boundary so physical locking
+        // never observes the train as clear while its body still crosses the turnout anchor.
+        locations.forEach { before ->
+            locations.forEach { after ->
+                if (before.railView.nextRails.none { it === after.railView }) return@forEach
+                spans += spanFromViewRange(
+                    before.railView,
+                    before.arcLength,
+                    before.railView.curve.totalArcLength
+                )
+                spans += spanFromViewRange(after.railView, 0.0, after.arcLength)
+            }
         }
+        return mergeSweptSpans(spans)
     }
 
     private fun spanFromSegment(segment: RailSegment): SweptRailSpan = spanFromViewRange(
@@ -518,24 +617,31 @@ open class CoreTrain @MainThread internal constructor(
 
     @OptIn(AsyncEventApi::class)
     override fun derail(reason: String) {
+        require(reason.isNotBlank())
         if (_isDerailed.compareAndSet(false, true)) {
+            _derailReason = reason
             removeController()
             PhysicsRailEventBus.publish(DerailEvent(this, reason))
         }
     }
 
-    internal fun markDerailedFromPhysics() {
+    internal fun markDerailedFromPhysics(reason: String) {
+        require(reason.isNotBlank())
         if (_isDerailed.compareAndSet(false, true)) {
+            _derailReason = reason
             removeController()
         }
     }
 
     protected fun clearDerailed() {
         _isDerailed.set(false)
+        _derailReason = null
     }
 
     companion object {
         const val COLLISION_SPEED = 2.78 // ~10km/h
+        private const val PERSISTED_BOGIE_POSITION_TOLERANCE_METERS = 1.0
+        private const val TAIL_END_SEARCH_MARGIN_METERS = 1.0
 
         @JvmStatic
         fun create(
@@ -560,7 +666,15 @@ open class CoreTrain @MainThread internal constructor(
         extensionDataContainer.extensionData.forEach { ext ->
             ext?.save()?.let { savedExtension[it.first] = it.second }
         }
-        return SavedTrainV1(id, name, cars.map { it.save() }, isReversed, savedExtension)
+        return SavedTrainV1(
+            id,
+            name,
+            cars.map { it.save() },
+            isReversed,
+            savedExtension,
+            head.location.save(),
+            tail.location.save()
+        )
     }
 
 

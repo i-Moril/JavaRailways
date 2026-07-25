@@ -16,7 +16,8 @@ data class TrainSnapshot(
     val derailed: Boolean,
     val carCount: Int,
     val head: RailPositionSnapshot,
-    val tail: RailPositionSnapshot
+    val tail: RailPositionSnapshot,
+    val derailReason: String? = null
 ) {
     init {
         require(trainId.isNotBlank()) { "TrainSnapshot trainId must not be blank" }
@@ -36,7 +37,8 @@ data class TrainSnapshot(
             derailed = train.isDerailed,
             carCount = train.length,
             head = RailPositionSnapshot.capture(train.headLocation, facing),
-            tail = RailPositionSnapshot.capture(train.tailLocation, facing)
+            tail = RailPositionSnapshot.capture(train.tailLocation, facing),
+            derailReason = train.derailReason
         )
     }
 }

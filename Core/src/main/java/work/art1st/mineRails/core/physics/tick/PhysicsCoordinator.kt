@@ -388,8 +388,9 @@ class PhysicsCoordinator(
             val second = attachedWorld.getTrain(decision.pair.secondTrainId) ?: return@forEach
             when (decision.resolution) {
                 CollisionResolution.DERAIL -> {
-                    first.markDerailedFromPhysics()
-                    second.markDerailedFromPhysics()
+                    val reason = "collision at physics epoch $epoch between ${first.id} and ${second.id}"
+                    first.markDerailedFromPhysics(reason)
+                    second.markDerailedFromPhysics(reason)
                 }
                 CollisionResolution.LINK -> {
                     val linkOwner = if (first.controller != null) first else second

@@ -146,10 +146,10 @@ class CoreTrainTailBogieTest {
         train.commit()
         val directionsBeforeReverse = train.cars.map { org.joml.Vector3d(it.direction) }
         train.reverseOnMainThread()
-        train.moveTrainForward(5.0)
+        AsyncTickTestSupport.run { train.moveTrainForward(5.0) }
         train.commit()
 
-        assertFalse(train.isDerailed)
+        assertFalse(train.isDerailed, train.derailReason)
         val d01 = train.cars[0].position.distance(train.cars[1].position)
         val d12 = train.cars[1].position.distance(train.cars[2].position)
         assertEquals(10.0, d01, 0.5, "car 0/1 spacing")

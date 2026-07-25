@@ -33,6 +33,10 @@ class RailObjectWandDynamicUiTest {
         )
         val playerId = UUID.randomUUID()
         val session = registry.getPlayerSession(playerId)
+        val pendingName = initialWayPointDialogName("pending:internal", pending = true)
+        session.setValue(keys.name, pendingName)
+        assertEquals("destination", session.getValue(keys.name))
+        assertEquals("existing", initialWayPointDialogName("existing", pending = false))
 
         assertEquals(
             setOf(keys.name.id, keys.role.id, keys.approachDirection.id),

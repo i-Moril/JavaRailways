@@ -117,6 +117,9 @@ internal object DirectionRestrictionParticleLayout {
     }
 }
 
+internal fun initialWayPointDialogName(wayPointId: String, pending: Boolean): String =
+    if (pending) "destination" else wayPointId
+
 internal object WayPointApproachParticleLayout {
     fun arcLengths(
         destinationArcInView: Double,
@@ -786,7 +789,9 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val destination = coreWorld.basicWorldData.destinations[wayPointId]
         val role = destination?.role ?: DestinationRole.Regular
         val session = configUI.getPlayerSession(player.uniqueId)
-        session.setValue(editKeys.name, if (pending != null) "" else wayPoint.id)
+        // Config sessions validate programmatic values immediately; use the field's valid default
+        // for a new pending destination instead of trying to seed a forbidden empty string.
+        session.setValue(editKeys.name, initialWayPointDialogName(wayPoint.id, pending != null))
         session.setValue(editKeys.role, preferredRole ?: role.type)
         session.setValue(
             editKeys.approachDirection,

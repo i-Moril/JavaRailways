@@ -51,8 +51,7 @@ class TimetableStationCallDispatcherTest {
         serviceDecelerationMetersPerSecondSquared = 1.0,
         reactionTimeSeconds = 0.0,
         safetyDistanceMeters = 1.0,
-        stopToleranceMeters = 0.25,
-        stoppedSpeedThresholdMetersPerSecond = 0.05
+        stopToleranceMeters = 0.25
     )
 
     @BeforeEach
@@ -286,7 +285,7 @@ class TimetableStationCallDispatcherTest {
             if (status.state == TimetableServiceRunState.DOORS_CLOSING && !closingCompleted) {
                 assertEquals(2, gateway.requests.size)
                 assertTrue(gateway.requests.last().operation is TrainOperation.CloseDoors)
-                assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+                assertEquals(0.0, fixture.train.speed)
                 gateway.tickets.last().succeed()
                 closingCompleted = true
             }
@@ -517,7 +516,7 @@ class TimetableStationCallDispatcherTest {
         assertEquals(TimetableServiceRunState.FAILED, status.state)
         assertEquals(TrainOperationTicketState.CANCELLED, status.operationTicketState)
         assertTrue(status.berthHeld)
-        assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(0.0, fixture.train.speed)
         assertTrue(status.message!!.contains("timed out"))
         repeat(20) { fixture.tick() }
         assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
@@ -637,7 +636,7 @@ class TimetableStationCallDispatcherTest {
         assertEquals(TimetableServiceRunState.FAILED, status.state)
         assertEquals(TrainOperationTicketState.FAILED, status.operationTicketState)
         assertFalse(status.state == TimetableServiceRunState.DEPARTING)
-        assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(0.0, fixture.train.speed)
         assertTrue(status.berthHeld)
         assertTrue(fixture.data.atoCoordinator.isStalled)
         assertEquals("TrainOperationFailure", fixture.data.atoCoordinator.lastStall?.errorType)
@@ -964,7 +963,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(TimetableServiceRunState.READY_TO_DEPART in observed)
         assertFalse(TimetableServiceRunState.DEPARTING in observed)
         assertEquals(TimetableServiceRunState.READY_TO_DEPART, dispatcher.status(mainId)?.state)
-        assertEquals(0.0, mainTrain.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(0.0, mainTrain.speed)
         assertTrue(dispatcher.status(mainId)?.berthHeld == true)
         assertTrue(dispatcher.status(blockerId)?.confirmedSectionCount == 1)
         assertFalse(data.atoCoordinator.isStalled)

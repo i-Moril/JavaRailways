@@ -120,7 +120,7 @@ class TimetableDispatcherTest {
         assertEquals(0, ato.currentConfirmedRouteWindows.size)
 
         repeat(600) { tickAndPublish(ato) }
-        assertEquals(0.0, train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(0.0, train.speed)
         assertEquals(originArc + 30.0, train.head.location.arcLength, 0.4)
         dispatcher.tick(world)
         assertEquals(
@@ -1583,7 +1583,7 @@ class TimetableDispatcherTest {
             "status=$status blocker=$blockerStatus selected=${approach.viewAB.nextActiveRail} " +
                 "head=${mainTrain.head.location.arcLength} speed=${mainTrain.speed}"
         )
-        assertEquals(0.0, mainTrain.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(0.0, mainTrain.speed)
         assertTrue(mainTrain.head.location.arcLength <= 80.0)
         assertTrue(mainTrain.head.location.arcLength >= 74.0)
         assertTrue(!data.atoCoordinator.isStalled)

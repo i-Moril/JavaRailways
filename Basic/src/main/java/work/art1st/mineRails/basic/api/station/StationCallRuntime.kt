@@ -17,18 +17,13 @@ object StationBerthDetector {
     fun isBerthed(
         headPositionErrorMeters: Double,
         speedMetersPerSecond: Double,
-        positionToleranceMeters: Double,
-        stoppedSpeedThresholdMetersPerSecond: Double
+        positionToleranceMeters: Double
     ): Boolean {
         require(headPositionErrorMeters.isFinite())
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)
         require(positionToleranceMeters.isFinite() && positionToleranceMeters > 0.0)
-        require(
-            stoppedSpeedThresholdMetersPerSecond.isFinite() &&
-                stoppedSpeedThresholdMetersPerSecond >= 0.0
-        )
         return kotlin.math.abs(headPositionErrorMeters) <= positionToleranceMeters &&
-            speedMetersPerSecond <= stoppedSpeedThresholdMetersPerSecond
+            speedMetersPerSecond == 0.0
     }
 }
 

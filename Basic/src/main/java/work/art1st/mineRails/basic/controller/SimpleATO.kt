@@ -320,8 +320,10 @@ class SimpleATO(
         safetyProfile.serviceDecelerationMetersPerSecondSquared
     )
 
-    fun isStopped(speedMetersPerSecond: Double): Boolean =
-        speedMetersPerSecond <= safetyProfile.stoppedSpeedThresholdMetersPerSecond
+    fun isStopped(speedMetersPerSecond: Double): Boolean {
+        require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)
+        return speedMetersPerSecond == 0.0
+    }
 
     val missionStopToleranceMeters: Double
         get() = safetyProfile.stopToleranceMeters
@@ -722,8 +724,7 @@ class SimpleATO(
         if (!active.berthed && StationBerthDetector.isBerthed(
                 headPositionErrorMeters = positionError,
                 speedMetersPerSecond = activeSpeed,
-                positionToleranceMeters = effectivePositionTolerance,
-                stoppedSpeedThresholdMetersPerSecond = safetyProfile.stoppedSpeedThresholdMetersPerSecond
+                positionToleranceMeters = effectivePositionTolerance
             )
         ) {
             active.berthed = true

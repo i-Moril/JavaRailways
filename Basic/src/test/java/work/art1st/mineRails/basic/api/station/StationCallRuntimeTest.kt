@@ -42,15 +42,15 @@ class StationCallRuntimeTest {
         serviceDecelerationMetersPerSecondSquared = 1.0,
         reactionTimeSeconds = 0.0,
         safetyDistanceMeters = 1.0,
-        stopToleranceMeters = 0.25,
-        stoppedSpeedThresholdMetersPerSecond = 0.05
+        stopToleranceMeters = 0.25
     )
 
     @Test
     fun `berth detector requires position and speed together`() {
-        assertFalse(StationBerthDetector.isBerthed(0.05, 1.0, 0.1, 0.05))
-        assertFalse(StationBerthDetector.isBerthed(0.2, 0.0, 0.1, 0.05))
-        assertTrue(StationBerthDetector.isBerthed(0.05, 0.0, 0.1, 0.05))
+        assertFalse(StationBerthDetector.isBerthed(0.05, 1.0, 0.1))
+        assertFalse(StationBerthDetector.isBerthed(0.05, Double.MIN_VALUE, 0.1))
+        assertFalse(StationBerthDetector.isBerthed(0.2, 0.0, 0.1))
+        assertTrue(StationBerthDetector.isBerthed(0.05, 0.0, 0.1))
     }
 
     @Test
@@ -112,7 +112,7 @@ class StationCallRuntimeTest {
                 "berth=${fixture.berth.location.arcLengthIn(ViewDirection.AB)} " +
                 "stall=${fixture.data.atoCoordinator.lastStall?.message}"
         )
-        assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(0.0, fixture.train.speed)
         assertEquals(
             fixture.berth.location.arcLengthIn(ViewDirection.AB),
             fixture.train.head.location.arcLengthIn(ViewDirection.AB),

@@ -6,8 +6,7 @@ data class AtoSafetyProfile(
     val serviceDecelerationMetersPerSecondSquared: Double = 1.0,
     val reactionTimeSeconds: Double = 0.1,
     val safetyDistanceMeters: Double = 5.0,
-    val stopToleranceMeters: Double = 0.1,
-    val stoppedSpeedThresholdMetersPerSecond: Double = 0.05
+    val stopToleranceMeters: Double = 0.1
 ) {
     init {
         require(accelerationMetersPerSecondSquared > 0.0 && accelerationMetersPerSecondSquared.isFinite())
@@ -15,6 +14,5 @@ data class AtoSafetyProfile(
         require(reactionTimeSeconds >= 0.0 && reactionTimeSeconds.isFinite())
         require(safetyDistanceMeters >= 0.0 && safetyDistanceMeters.isFinite())
         require(stopToleranceMeters >= 0.0 && stopToleranceMeters.isFinite())
-        require(stoppedSpeedThresholdMetersPerSecond >= 0.0 && stoppedSpeedThresholdMetersPerSecond.isFinite())
     }
 }

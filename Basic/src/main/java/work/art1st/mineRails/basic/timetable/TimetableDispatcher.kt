@@ -46,6 +46,7 @@ import work.art1st.mineRails.basic.api.timetable.TimetableRuntimeContext
 import work.art1st.mineRails.basic.api.timetable.TimetableServiceActivation
 import work.art1st.mineRails.basic.api.timetable.TimetableTrainContext
 import work.art1st.mineRails.basic.controller.SimpleATO
+import work.art1st.mineRails.basic.controller.SimpleAtoPublishedState
 import work.art1st.mineRails.basic.pathFinding.basicWorldData
 import work.art1st.mineRails.basic.persistence.SavedActiveRunCheckpointV1
 import work.art1st.mineRails.basic.persistence.SavedDispatcherV1
@@ -918,7 +919,7 @@ class TimetableDispatcher(
         if (run.train.isDerailed) {
             return TimetableReplanResult.Failure("train is derailed: ${run.train.id}")
         }
-        if (run.train.speed > REPLAN_STOPPED_SPEED_METERS_PER_SECOND) {
+        if (run.train.speed != 0.0) {
             return TimetableReplanResult.Failure(
                 "train must be stopped before replanning: speed=${run.train.speed}"
             )
@@ -1014,6 +1015,7 @@ class TimetableDispatcher(
                 run.state == TimetableServiceRunState.REPLAN_REQUIRED
             val controlTransferred = manualRouted || fullManual
             val publishedAtoState = run.ato.publishedState
+            run.lastPublishedAtoState = publishedAtoState
             val snapshot = if (controlTransferred) {
                 capturePublishedTrainSnapshot(run)
             } else {
@@ -2199,7 +2201,8 @@ class TimetableDispatcher(
     }
 
     private fun beginReverse(world: World, run: ActiveRun) {
-        val snapshot = run.ato.publishedState.trainSnapshot
+        val snapshot = run.lastPublishedAtoState?.trainSnapshot
+            ?: run.ato.publishedState.trainSnapshot
         if (!run.ato.isStopped(snapshot.speedMetersPerSecond)) {
             stallRun(world, run, "InfrastructureInvariantViolation", "reverse requires a stopped train")
             return
@@ -2224,7 +2227,9 @@ class TimetableDispatcher(
         }
         val reversedAfter = reverse.reversedAfter
         if (reversedAfter == null) {
-            if (run.ato.preparedReverseRevision < reverse.preparationRevision) return
+            val preparedRevision = run.lastPublishedAtoState?.preparedReverseRevision
+                ?: run.ato.publishedState.preparedReverseRevision
+            if (preparedRevision < reverse.preparationRevision) return
             val reversedBefore = run.train.isReversed
             val facingBefore =
                 (run.train.headLocation as? work.art1st.mineRails.core.physics.rail.RailLocationWithFacing)
@@ -2791,7 +2796,8 @@ class TimetableDispatcher(
 
     private fun updateTailProgress(run: ActiveRun, snapshot: TrainSnapshot) {
         run.runtimes.forEach { runtime ->
-            val publishedOdometer = run.ato.publishedState.lifetimeTravelDistanceMeters
+            val publishedOdometer = run.lastPublishedAtoState?.lifetimeTravelDistanceMeters
+                ?: run.ato.publishedState.lifetimeTravelDistanceMeters
             val odometerDelta = (publishedOdometer - runtime.lastOdometerMeters).coerceAtLeast(0.0)
             runtime.lastOdometerMeters = publishedOdometer
             val projected = runtime.layout.project(snapshot.tail, runtime.tailProgressMeters)
@@ -3702,8 +3708,7 @@ class TimetableDispatcher(
                     }
                     val operationalFailure = when {
                         train.isDerailed -> "derailed"
-                        train.publishedFrame.speedMetersPerSecond >
-                            REPLAN_STOPPED_SPEED_METERS_PER_SECOND -> "moving"
+                        train.publishedFrame.speedMetersPerSecond != 0.0 -> "moving"
                         runs.values.any {
                             it.train.id == train.id && !it.canBeReplaced() && !it.isStoredTerminal()
                         } -> "assigned to another service"
@@ -3763,7 +3768,7 @@ class TimetableDispatcher(
                             rejected += "$wayPointId/${train.id}: derailed"
                             null
                         }
-                        train.publishedFrame.speedMetersPerSecond > REPLAN_STOPPED_SPEED_METERS_PER_SECOND -> {
+                        train.publishedFrame.speedMetersPerSecond != 0.0 -> {
                             rejected += "$wayPointId/${train.id}: moving"
                             null
                         }
@@ -4023,7 +4028,6 @@ class TimetableDispatcher(
         const val RELEASE_EPSILON_METERS = 1.0e-6
         const val DEPOT_DEPARTURE_RELEASE_EPSILON_METERS = 1.0e-6
         const val DEFAULT_OPERATION_TIMEOUT_TICKS = 100L
-        const val REPLAN_STOPPED_SPEED_METERS_PER_SECOND = 0.05
         const val MANUAL_PROTECTION_TOLERANCE_METERS = 0.5
         const val MANUAL_NAVIGATION_PREFIX = "manual-navigate-"
         const val POWER_OFF_ACTION = "power-off"
@@ -4206,6 +4210,7 @@ class TimetableDispatcher(
         val cycleIndex: Long,
         val cycleStartDispatcherTick: Long,
         var lastObservedDispatcherTick: Long = cycleStartDispatcherTick,
+        var lastPublishedAtoState: SimpleAtoPublishedState? = null,
         var waitingUntilTimetableTick: Long? = null,
         var waitingStepPending: Boolean = false,
         var lastScheduledActionTick: Long? = null,

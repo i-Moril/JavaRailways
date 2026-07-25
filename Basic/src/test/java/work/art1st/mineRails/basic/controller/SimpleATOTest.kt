@@ -58,6 +58,8 @@ class SimpleATOTest {
         assertEquals(null, fixture.ato.currentMission)
         assertEquals(0.0, fixture.train.speed, 1.0e-9)
         assertEquals(0.0, fixture.ato.lifetimeTravelDistanceMeters, 1.0e-9)
+        assertTrue(fixture.ato.isStopped(0.0))
+        assertFalse(fixture.ato.isStopped(Double.MIN_VALUE))
         assertFalse(fixture.coordinator.isStalled)
         assertEquals(fixture.train.id, fixture.coordinator.initialTrain(fixture.train.id)?.trainId)
     }
@@ -219,7 +221,7 @@ class SimpleATOTest {
 
         repeat(600) { tickAndPublish(fixture.ato, 50.0) }
 
-        assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(0.0, fixture.train.speed)
         assertEquals(targetArc, fixture.train.head.location.arcLength, 0.4)
         assertFalse(fixture.coordinator.isStalled)
     }
@@ -333,7 +335,7 @@ class SimpleATOTest {
 
         repeat(600) { tickAndPublish(fixture.ato, 50.0) }
 
-        assertEquals(0.0, fixture.train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
+        assertEquals(0.0, fixture.train.speed)
         assertEquals(
             fixture.train.head.location.rail.curve.totalArcLength,
             fixture.train.head.location.arcLength,

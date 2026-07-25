@@ -89,6 +89,10 @@ class PhaseBConstraintTest {
 
         assertEquals(1.0, step.speedMetersPerSecond, 1.0e-9)
         assertEquals(0.5, step.distanceMeters, 1.0e-9)
+        assertEquals(
+            0.0,
+            actuator.step(0.051605736934817736, ControlDemand(0.0), 0.1).speedMetersPerSecond
+        )
         assertEquals(0.0, actuator.freeze().speedMetersPerSecond)
     }
 

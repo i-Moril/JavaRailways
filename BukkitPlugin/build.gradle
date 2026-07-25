@@ -16,11 +16,29 @@ runPaper {
 }
 
 def foliaPluginJar = layout.buildDirectory.file("folia-plugin/MineRails.jar")
-def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin", Copy) {
+def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin") {
     dependsOn(tasks.shadowJar)
-    from(tasks.shadowJar.archiveFile)
-    into(layout.buildDirectory.dir("folia-plugin"))
-    rename { "MineRails.jar" }
+    inputs.file(tasks.shadowJar.archiveFile)
+    outputs.file(foliaPluginJar)
+    doLast {
+        def source = tasks.shadowJar.archiveFile.get().asFile.toPath()
+        def target = foliaPluginJar.get().asFile.toPath()
+        java.nio.file.Files.createDirectories(target.parent)
+        def staged = java.nio.file.Files.createTempFile(target.parent, "MineRails-", ".jar.tmp")
+        try {
+            java.nio.file.Files.copy(source, staged, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            // Never truncate the jar held by a running Paper/Folia classloader. An atomic rename
+            // leaves its old inode readable while the next server start observes the new jar.
+            java.nio.file.Files.move(
+                staged,
+                target,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING
+            )
+        } finally {
+            java.nio.file.Files.deleteIfExists(staged)
+        }
+    }
 }
 
 runPaper.folia.registerTask {

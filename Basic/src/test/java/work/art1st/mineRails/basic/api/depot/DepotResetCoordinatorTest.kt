@@ -123,7 +123,7 @@ class DepotResetCoordinatorTest {
         AsyncTickTestSupport.run { ato.tick(50.0) }
         ato.commit()
         dispatcher.tick(world)
-        assertEquals(1, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
         coordinator.stall(report(coordinator.worldId, train.id))
 
         val result = DepotResetCoordinator(world).reset(setOf(depotId))
@@ -132,7 +132,7 @@ class DepotResetCoordinatorTest {
         val success = result.report
         assertEquals(DepotResetStatus.SUCCEEDED, success.status)
         assertEquals(1, success.removedRunCount)
-        assertEquals(1, success.releasedRouteSectionCount)
+        assertEquals(0, success.releasedRouteSectionCount)
         assertNull(dispatcher.status(TimetableServiceRunId("tt", "s1")))
         assertNull(train.controller)
         assertEquals(originArc, train.head.location.arcLength, 1.0e-6)

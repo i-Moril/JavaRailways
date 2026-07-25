@@ -60,6 +60,18 @@ data class RailSplitMetadata(
 }
 
 @Serializable
+data class TurnoutEndpointMetadata(
+    val protectionDistanceMeters: Double,
+    val lockingDistanceMeters: Double
+) {
+    init {
+        require(protectionDistanceMeters.isFinite() && protectionDistanceMeters >= 0.0)
+        require(lockingDistanceMeters.isFinite() && lockingDistanceMeters >= 0.0)
+        require(lockingDistanceMeters <= protectionDistanceMeters)
+    }
+}
+
+@Serializable
 data class RailMetadata(
     /** Requested design speed before geometry-derived limits are applied. */
     val designSpeedMetersPerSecond: Double? = null,
@@ -71,7 +83,11 @@ data class RailMetadata(
     val allowedDirection: ViewDirection? = null,
     val geometry: RailGeometryMetadata = RailGeometryMetadata(),
     /** Non-null when this segment was created by RailWand split mode. */
-    val createdBySplit: RailSplitMetadata? = null
+    val createdBySplit: RailSplitMetadata? = null,
+    /** Turnout settings at the canonical AB start endpoint. */
+    val turnoutAtA: TurnoutEndpointMetadata? = null,
+    /** Turnout settings at the canonical AB end endpoint. */
+    val turnoutAtB: TurnoutEndpointMetadata? = null
 ) {
     init {
         require(designSpeedMetersPerSecond == null || designSpeedMetersPerSecond > 0.0)

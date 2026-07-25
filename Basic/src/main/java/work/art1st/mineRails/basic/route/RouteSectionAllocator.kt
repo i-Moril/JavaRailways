@@ -39,6 +39,10 @@ sealed interface RouteSectionAllocationResult {
         val resource: RailViewRef,
         val heldBy: RouteSectionAllocationKey
     ) : RouteSectionAllocationResult
+    data class PhysicallyLocked(
+        val resource: RailViewRef,
+        val occupyingTrainIds: Set<String>
+    ) : RouteSectionAllocationResult
     data class Invalid(val reason: String) : RouteSectionAllocationResult
 }
 
@@ -97,7 +101,25 @@ class RouteSectionAllocator(private val world: World) {
             resourceOwners[requirement.from]?.let { currentOwner ->
                 return@synchronized RouteSectionAllocationResult.Conflict(requirement.from, currentOwner)
             }
-            resolved += ResolvedRequirement(requirement.from, from, selectedNext, from.nextActiveRail)
+            val previousSelection = from.nextActiveRail
+            if (previousSelection !== selectedNext) {
+                val lockIntervals = requirement.lockingIntervals(world)
+                val occupyingTrainIds = world.allTrains.asSequence()
+                    .filter { train ->
+                        train.occupiedRailIntervals.any { occupied ->
+                            lockIntervals.any { locked -> locked.overlaps(occupied) }
+                        }
+                    }
+                    .map { it.id }
+                    .toSet()
+                if (occupyingTrainIds.isNotEmpty()) {
+                    return@synchronized RouteSectionAllocationResult.PhysicallyLocked(
+                        requirement.from,
+                        occupyingTrainIds
+                    )
+                }
+            }
+            resolved += ResolvedRequirement(requirement.from, from, selectedNext, previousSelection)
         }
 
         try {

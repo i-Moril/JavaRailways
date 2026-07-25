@@ -11,6 +11,7 @@ import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.train.createTestWorld
+import work.art1st.mineRails.core.physics.train.createTrainWithConfig
 
 class RouteSectionAllocatorTest {
     @Test
@@ -68,6 +69,26 @@ class RouteSectionAllocatorTest {
     }
 
     @Test
+    fun `turnout cannot change while a train occupies its locking interval`() {
+        val world = createTestWorld()
+        val junction = junction(world, 0.0)
+        val train = createTrainWithConfig("occupant", junction.from, world, listOf(10.0))
+        train.setLocation(train.head.location.forward(9.0)!!)
+        train.commit()
+        junction.from.viewAB.selectNextRail(junction.first.viewAB)
+        val allocator = RouteSectionAllocator(world)
+        val route = plannedRoute(
+            "locked",
+            listOf(requirement(junction, junction.second, 5.0))
+        )
+
+        val result = allocator.allocate(RouteSectionOwner("service", train.id), route, 0)
+
+        assertTrue(result is RouteSectionAllocationResult.PhysicallyLocked)
+        assertSame(junction.first.viewAB, junction.from.viewAB.nextActiveRail)
+    }
+
+    @Test
     fun `same allocation key is idempotent`() {
         val world = createTestWorld()
         val junction = junction(world, 0.0)
@@ -107,12 +128,12 @@ class RouteSectionAllocatorTest {
     )
 
     private fun junction(world: CoreWorld, startX: Double): Junction {
-        val from = rail(world, Vector3d(startX, 0.0, 0.0), Vector3d(startX + 10.0, 0.0, 0.0))
-        val first = rail(world, Vector3d(startX + 10.0, 0.0, 0.0), Vector3d(startX + 20.0, 0.0, 0.0))
+        val from = rail(world, Vector3d(startX, 0.0, 0.0), Vector3d(startX + 30.0, 0.0, 0.0))
+        val first = rail(world, Vector3d(startX + 30.0, 0.0, 0.0), Vector3d(startX + 50.0, 0.0, 0.0))
         val second = rail(
             world,
-            Vector3d(startX + 10.0, 0.0, 0.0),
-            Vector3d(startX + 20.0, 0.0, 5.0)
+            Vector3d(startX + 30.0, 0.0, 0.0),
+            Vector3d(startX + 50.0, 0.0, 5.0)
         )
         CoreRail.connect(from, first)
         CoreRail.connect(from, second)

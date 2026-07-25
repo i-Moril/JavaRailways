@@ -284,6 +284,14 @@ class SimpleATO(
         ).revision
     }
 
+    fun serviceBrakingDistanceMeters(speedMetersPerSecond: Double): Double {
+        require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)
+        return brakingDistance(
+            speedMetersPerSecond,
+            safetyProfile.serviceDecelerationMetersPerSecondSquared
+        )
+    }
+
     fun routeAllocationTriggerDistanceMeters(
         approachSpeedMetersPerSecond: Double,
         timing: RouteAllocationTiming

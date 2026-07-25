@@ -50,6 +50,28 @@ class MineRailsConfigTest {
     }
 
     @Test
+    fun `parses and validates turnout safety defaults`() {
+        val yaml = validYaml().apply {
+            set("turnout.default-protection-distance-meters", 24.0)
+            set("turnout.default-locking-distance-meters", 6.0)
+            set("turnout.decision-lead-ticks", 5)
+            set("turnout.allocation-retry-ticks", 7)
+        }
+
+        val config = MineRailsConfig.fromYaml(yaml).turnoutSafety
+
+        assertEquals(24.0, config.defaultProtectionDistanceMeters)
+        assertEquals(6.0, config.defaultLockingDistanceMeters)
+        assertEquals(5, config.decisionLeadTicks)
+        assertEquals(7, config.allocationRetryTicks)
+        val invalid = validYaml().apply {
+            set("turnout.default-protection-distance-meters", 4.0)
+            set("turnout.default-locking-distance-meters", 5.0)
+        }
+        assertThrows(IllegalArgumentException::class.java) { MineRailsConfig.fromYaml(invalid) }
+    }
+
+    @Test
     fun `parses entitylib display renderer`() {
         val yaml = validYaml()
         yaml.set("display-renderer.backend", "entitylib")

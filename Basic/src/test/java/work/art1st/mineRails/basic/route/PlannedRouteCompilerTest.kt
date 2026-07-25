@@ -9,6 +9,7 @@ import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.physics.rail.CoreRail
+import work.art1st.mineRails.core.api.physics.rail.TurnoutEndpointMetadata
 import work.art1st.mineRails.core.physics.train.createTestWorld
 
 class PlannedRouteCompilerTest {
@@ -42,7 +43,6 @@ class PlannedRouteCompilerTest {
         CoreRail.connect(start, selected)
         CoreRail.connect(start, otherBranch)
         CoreRail.connect(selected, goal)
-        CoreRail.connect(otherBranch, goal)
         listOf(start, selected, otherBranch, goal).forEach(::allowAbOnly)
         val expanded = ExpandedRoute(
             "A",
@@ -64,20 +64,55 @@ class PlannedRouteCompilerTest {
         assertTrue(result is PlannedRouteCompilationResult.Success)
         val planned = (result as PlannedRouteCompilationResult.Success).route
         assertEquals(3L, planned.revision)
-        assertEquals(2, planned.sections.size)
+        assertEquals(3, planned.sections.size)
         assertEquals(0.0, planned.sections[0].entryProtectionDistanceMeters)
-        assertEquals(12.0, planned.sections[0].releaseDistanceMeters)
-        assertEquals(12.0, planned.sections[1].entryProtectionDistanceMeters)
-        assertEquals(20.0, planned.sections[1].releaseDistanceMeters)
+        assertEquals(5.0, planned.sections[0].releaseDistanceMeters)
+        assertEquals(5.0, planned.sections[1].entryProtectionDistanceMeters)
+        assertEquals(12.0, planned.sections[1].releaseDistanceMeters)
+        assertEquals(12.0, planned.sections[2].entryProtectionDistanceMeters)
+        assertEquals(20.0, planned.sections[2].releaseDistanceMeters)
         val requirement = planned.sections[0].turnoutRequirements.single()
         assertEquals(RailViewRef.from(start.viewAB), requirement.from)
         assertEquals(RailViewRef.from(selected.viewAB), requirement.selectedNext)
         assertEquals(5.0, requirement.routeDistanceMeters)
         assertTrue(planned.sections[1].turnoutRequirements.isEmpty())
+        assertTrue(planned.sections[2].turnoutRequirements.isEmpty())
     }
 
     @Test
-    fun `keeps consecutive turnout selections in one atomic section by default`() {
+    fun `trailing movement uses the same canonical turnout resource as facing movement`() {
+        val world = createTestWorld()
+        val stem = rail(world, 0.0, 10.0)
+        val selected = rail(world, 10.0, 20.0)
+        val other = CoreRail(
+            world,
+            straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 4.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        CoreRail.connect(stem, selected)
+        CoreRail.connect(stem, other)
+        val route = ExpandedRoute(
+            "branch",
+            "stem",
+            listOf(
+                RouteSegment(RailViewRef.from(selected.viewBA), 0.0, 10.0),
+                RouteSegment(RailViewRef.from(stem.viewBA), 0.0, 5.0)
+            )
+        )
+
+        val result = PlannedRouteCompiler(world).compile("trailing", 1L, route)
+
+        assertTrue(result is PlannedRouteCompilationResult.Success)
+        val requirement = (result as PlannedRouteCompilationResult.Success)
+            .route.sections.first().turnoutRequirements.single()
+        assertEquals(RailViewRef.from(stem.viewAB), requirement.from)
+        assertEquals(RailViewRef.from(selected.viewAB), requirement.selectedNext)
+        assertEquals(10.0, requirement.routeDistanceMeters)
+    }
+
+    @Test
+    fun `splits consecutive turnout selections into short protected sections by default`() {
         val world = createTestWorld()
         val first = rail(world, 0.0, 10.0)
         val second = rail(world, 10.0, 20.0)
@@ -96,6 +131,9 @@ class PlannedRouteCompilerTest {
         )
         CoreRail.connect(first, second)
         CoreRail.connect(first, firstBranch)
+        first.metadata = first.metadata.copy(
+            turnoutAtB = TurnoutEndpointMetadata(30.0, 7.0)
+        )
         CoreRail.connect(second, third)
         CoreRail.connect(second, secondBranch)
         listOf(first, second, third, firstBranch, secondBranch).forEach(::allowAbOnly)
@@ -112,9 +150,13 @@ class PlannedRouteCompilerTest {
         val result = PlannedRouteCompiler(world).compile("route", 1L, expanded)
 
         assertTrue(result is PlannedRouteCompilationResult.Success)
-        val section = (result as PlannedRouteCompilationResult.Success).route.sections.single()
-        assertEquals(2, section.turnoutRequirements.size)
-        assertEquals(listOf(10.0, 20.0), section.turnoutRequirements.map { it.routeDistanceMeters })
+        val sections = (result as PlannedRouteCompilationResult.Success).route.sections
+        assertEquals(3, sections.size)
+        assertEquals(listOf(10.0), sections[0].turnoutRequirements.map { it.routeDistanceMeters })
+        assertEquals(30.0, sections[0].turnoutRequirements.single().protectionDistanceMeters)
+        assertEquals(7.0, sections[0].turnoutRequirements.single().lockingDistanceMeters)
+        assertEquals(listOf(20.0), sections[1].turnoutRequirements.map { it.routeDistanceMeters })
+        assertTrue(sections[2].turnoutRequirements.isEmpty())
     }
 
     @Test

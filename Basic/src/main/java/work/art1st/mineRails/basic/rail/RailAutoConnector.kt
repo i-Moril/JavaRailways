@@ -1,10 +1,15 @@
 package work.art1st.mineRails.basic.rail
 
+import org.joml.Vector3d
 import work.art1st.mineRails.core.api.physics.curve.Curve
+import work.art1st.mineRails.core.api.physics.rail.TurnoutEndpointMetadata
+import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.rail.CoreRail
 import work.art1st.mineRails.core.physics.rail.RailView
+import kotlin.math.abs
 import kotlin.math.max
 
+/** Basic-layer operational topology rules for automatically joined rail endpoints. */
 object RailAutoConnector {
     data class Options(
         val endpointTolerance: Double = Curve.TOLERANCE,
@@ -16,7 +21,11 @@ object RailAutoConnector {
         ALREADY_CONNECTED,
         TOO_FAR,
         ANGLE_TOO_SHARP,
-        INVALID_TANGENT
+        INVALID_TANGENT,
+        TOO_MANY_ENDPOINTS,
+        AMBIGUOUS_TURNOUT,
+        TURNOUT_ANGLE_TOO_SHARP,
+        TURNOUT_INVALID_TANGENT
     }
 
     data class Result(
@@ -31,33 +40,48 @@ object RailAutoConnector {
         val distance: Double
     )
 
+    private data class Endpoint(val viewToJoint: RailView) {
+        val nextAwayFromJoint: RailView get() = viewToJoint.reversed
+        val outwardTangent: Vector3d
+            get() = Vector3d(viewToJoint.endPoint.tangent).negate().normalize()
+    }
+
     fun connectIfAllowed(
         first: CoreRail,
         second: CoreRail,
         options: Options = Options()
     ): Result {
         if (first == second) return Result(Outcome.ALREADY_CONNECTED)
-        if (areConnected(first, second)) return Result(Outcome.ALREADY_CONNECTED)
 
         val joint = closestJoint(first, second)
         if (joint.distance > options.endpointTolerance) {
             return Result(Outcome.TOO_FAR, distance = joint.distance)
         }
 
+        val endpoints = endpointsAt(
+            first,
+            joint.firstViewToJoint.endPoint.position,
+            options.endpointTolerance
+        )
+        if (endpoints.size > MAX_ENDPOINTS_PER_ANCHOR) {
+            return Result(Outcome.TOO_MANY_ENDPOINTS, distance = joint.distance)
+        }
+        if (areConnected(first, second)) return Result(Outcome.ALREADY_CONNECTED, joint.distance)
+        val endpointTargets = endpoints.mapTo(HashSet()) { it.nextAwayFromJoint }
+        val jointAlreadyHasConnection = endpoints.any { endpoint ->
+            endpoint.viewToJoint.mutableNextRails.any { it in endpointTargets }
+        }
+        if (endpoints.size == MAX_ENDPOINTS_PER_ANCHOR && jointAlreadyHasConnection) {
+            return configureThreeLegTurnout(endpoints, joint, options)
+        }
+
         val firstNext = joint.secondViewToJoint.reversed
         val secondNext = joint.firstViewToJoint.reversed
-        val forwardAngle = RailConnectionPolicy.transitionAngleDegrees(joint.firstViewToJoint, firstNext)
-        val reverseAngle = RailConnectionPolicy.transitionAngleDegrees(joint.secondViewToJoint, secondNext)
-        val angle = when {
-            forwardAngle == null -> reverseAngle
-            reverseAngle == null -> forwardAngle
-            else -> max(forwardAngle, reverseAngle)
-        }
-        if (forwardAngle == null || reverseAngle == null) {
-            return Result(Outcome.INVALID_TANGENT, distance = joint.distance, angleDegrees = angle)
-        }
+        val angle = transitionAngle(joint.firstViewToJoint, firstNext, joint.secondViewToJoint, secondNext)
+            ?: return Result(Outcome.INVALID_TANGENT, distance = joint.distance)
         if (!RailConnectionPolicy.canTransition(joint.firstViewToJoint, firstNext, options.maxTangentAngleDegrees) ||
-            !RailConnectionPolicy.canTransition(joint.secondViewToJoint, secondNext, options.maxTangentAngleDegrees)) {
+            !RailConnectionPolicy.canTransition(joint.secondViewToJoint, secondNext, options.maxTangentAngleDegrees)
+        ) {
             return Result(Outcome.ANGLE_TOO_SHARP, distance = joint.distance, angleDegrees = angle)
         }
 
@@ -89,6 +113,131 @@ object RailAutoConnector {
         return true
     }
 
+    private fun configureThreeLegTurnout(
+        endpoints: List<Endpoint>,
+        joint: Joint,
+        options: Options
+    ): Result {
+        val distance = joint.distance
+        val scoredPairs = listOf(
+            Triple(0, 1, endpoints[0].outwardTangent.dot(endpoints[1].outwardTangent)),
+            Triple(0, 2, endpoints[0].outwardTangent.dot(endpoints[2].outwardTangent)),
+            Triple(1, 2, endpoints[1].outwardTangent.dot(endpoints[2].outwardTangent))
+        ).sortedByDescending { it.third }
+        if (abs(scoredPairs[0].third - scoredPairs[1].third) <= STEM_SCORE_EPSILON) {
+            return Result(Outcome.AMBIGUOUS_TURNOUT, distance = distance)
+        }
+
+        val branchIndices = setOf(scoredPairs[0].first, scoredPairs[0].second)
+        val stemIndex = (endpoints.indices).single { it !in branchIndices }
+        val stem = endpoints[stemIndex]
+        val branches = branchIndices.map(endpoints::get)
+        var maximumAngle = 0.0
+        for (branch in branches) {
+            val angle = transitionAngle(
+                stem.viewToJoint,
+                branch.nextAwayFromJoint,
+                branch.viewToJoint,
+                stem.nextAwayFromJoint
+            ) ?: return Result(Outcome.TURNOUT_INVALID_TANGENT, distance = distance)
+            maximumAngle = max(maximumAngle, angle)
+            if (!RailConnectionPolicy.canTransition(
+                    stem.viewToJoint,
+                    branch.nextAwayFromJoint,
+                    options.maxTangentAngleDegrees
+                ) ||
+                !RailConnectionPolicy.canTransition(
+                    branch.viewToJoint,
+                    stem.nextAwayFromJoint,
+                    options.maxTangentAngleDegrees
+                )
+            ) {
+                return Result(Outcome.TURNOUT_ANGLE_TOO_SHARP, distance = distance, angleDegrees = angle)
+            }
+        }
+
+        val metadataCandidates = listOf(joint.firstViewToJoint, joint.secondViewToJoint) +
+            endpoints.map(Endpoint::viewToJoint)
+        val sharedMetadata = metadataCandidates.firstNotNullOfOrNull(::turnoutMetadataAtJoint)
+        var changed = endpoints.fold(false) { accumulated, endpoint ->
+            setTurnoutMetadataAtJoint(endpoint.viewToJoint, sharedMetadata) || accumulated
+        }
+
+        fun preferredNext(view: RailView): RailView? = when (view) {
+            joint.firstViewToJoint -> joint.secondViewToJoint.reversed
+            joint.secondViewToJoint -> joint.firstViewToJoint.reversed
+            else -> null
+        }
+        changed = setAllowedNext(
+            stem.viewToJoint,
+            branches.map { it.nextAwayFromJoint },
+            preferredNext(stem.viewToJoint)
+        ) || changed
+        branches.forEach { branch ->
+            changed = setAllowedNext(
+                branch.viewToJoint,
+                listOf(stem.nextAwayFromJoint),
+                preferredNext(branch.viewToJoint)
+            ) || changed
+        }
+        return Result(
+            if (changed) Outcome.CONNECTED else Outcome.ALREADY_CONNECTED,
+            distance,
+            maximumAngle
+        )
+    }
+
+    private fun endpointsAt(first: CoreRail, position: org.joml.Vector3dc, tolerance: Double): List<Endpoint> =
+        first.world.allRails
+            .flatMap { rail -> listOf(rail.viewAB, rail.viewBA) }
+            .filter { it.endPoint.position.distance(position) <= tolerance }
+            .map(::Endpoint)
+
+    private fun turnoutMetadataAtJoint(view: RailView): TurnoutEndpointMetadata? =
+        when (view.viewDirection) {
+            ViewDirection.AB -> view.rail.metadata.turnoutAtB
+            ViewDirection.BA -> view.rail.metadata.turnoutAtA
+        }
+
+    private fun setTurnoutMetadataAtJoint(view: RailView, value: TurnoutEndpointMetadata?): Boolean {
+        val old = turnoutMetadataAtJoint(view)
+        if (old == value) return false
+        view.rail.metadata = when (view.viewDirection) {
+            ViewDirection.AB -> view.rail.metadata.copy(turnoutAtB = value)
+            ViewDirection.BA -> view.rail.metadata.copy(turnoutAtA = value)
+        }
+        return true
+    }
+
+    private fun transitionAngle(
+        firstToJoint: RailView,
+        firstNext: RailView,
+        secondToJoint: RailView,
+        secondNext: RailView
+    ): Double? {
+        val forward = RailConnectionPolicy.transitionAngleDegrees(firstToJoint, firstNext)
+        val reverse = RailConnectionPolicy.transitionAngleDegrees(secondToJoint, secondNext)
+        if (forward == null || reverse == null) return null
+        return max(forward, reverse)
+    }
+
+    private fun setAllowedNext(view: RailView, allowed: List<RailView>, preferred: RailView?): Boolean {
+        val allowedDistinct = allowed.distinct()
+        val oldNext = view.mutableNextRails.toList()
+        val oldActive = view.activeRail
+        val ordered = buildList {
+            addAll(oldNext.filter { it in allowedDistinct })
+            if (preferred != null && preferred in allowedDistinct && preferred !in this) add(preferred)
+            addAll(allowedDistinct.filterNot { it in this })
+        }
+        if (oldNext == ordered && oldActive in ordered) return false
+        view.activeRail = null
+        view.mutableNextRails.clear()
+        view.mutableNextRails.addAll(ordered)
+        view.activeRail = oldActive?.takeIf { it in ordered } ?: ordered.firstOrNull()
+        return oldNext != ordered || oldActive !== view.activeRail
+    }
+
     private fun addNextPreservingActive(fromView: RailView, nextView: RailView): Boolean {
         val added = if (!fromView.mutableNextRails.contains(nextView)) {
             fromView.mutableNextRails.add(nextView)
@@ -96,9 +245,7 @@ object RailAutoConnector {
         } else {
             false
         }
-        if (fromView.activeRail == null) {
-            fromView.activeRail = nextView
-        }
+        if (fromView.activeRail == null) fromView.activeRail = nextView
         return added
     }
 
@@ -111,4 +258,7 @@ object RailAutoConnector {
         )
         return candidates.minBy { it.distance }
     }
+
+    private const val MAX_ENDPOINTS_PER_ANCHOR = 3
+    private const val STEM_SCORE_EPSILON = 1.0e-6
 }

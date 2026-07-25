@@ -896,7 +896,7 @@ class TimetableStationCallDispatcherTest {
         CoreRail.connect(approach, blockingBranch)
         val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0))
         val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0))
-        blockingTrain.setLocation(mainTrain.head.location.forward(-10.0)!!)
+        blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
         blockingTrain.commit()
         data.wayPoints.add(WayPoint("M0", "M0", approach.id, mainTrain.head.location.arcLengthIn(ViewDirection.AB)))
         data.wayPoints.add(WayPoint("P", "P", approach.id, 70.0))
@@ -931,18 +931,19 @@ class TimetableStationCallDispatcherTest {
         val blockerId = TimetableServiceRunId("tt", "blocking")
         val mainId = TimetableServiceRunId("tt", "main")
         dispatcher.startService(world, "tt", "blocking") as TimetableServiceStartResult.Started
+        val blockingAto = blockingTrain.controller as SimpleATO
+        for (ignored in 0 until 2_000) {
+            tick(blockingAto)
+            dispatcher.tick(world)
+            if (dispatcher.status(blockerId)?.confirmedSectionCount == 1) break
+        }
         val mainRun = dispatcher.startService(world, "tt", "main") as TimetableServiceStartResult.Started
         dispatcher.scheduleStationCall(
             world,
             mainId,
             call("main-call", mainRun.run.missionRevision, stationId, berthRef)
         )
-        val blockingAto = blockingTrain.controller as SimpleATO
         val mainAto = mainTrain.controller as SimpleATO
-        tick(blockingAto)
-        tick(mainAto)
-        dispatcher.tick(world)
-        tick(blockingAto)
 
         val observed = linkedSetOf<TimetableServiceRunState>()
         var readyWaitTicks = 0
@@ -955,7 +956,10 @@ class TimetableStationCallDispatcherTest {
             if (readyWaitTicks >= 20) break
         }
 
-        assertTrue(TimetableServiceRunState.BERTHED in observed)
+        assertTrue(
+            TimetableServiceRunState.BERTHED in observed,
+            "observed=$observed main=${dispatcher.status(mainId)} blocker=${dispatcher.status(blockerId)}"
+        )
         assertTrue(TimetableServiceRunState.DWELLING in observed)
         assertTrue(TimetableServiceRunState.READY_TO_DEPART in observed)
         assertFalse(TimetableServiceRunState.DEPARTING in observed)

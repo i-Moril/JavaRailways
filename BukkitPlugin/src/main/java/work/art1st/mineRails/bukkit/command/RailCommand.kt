@@ -170,7 +170,11 @@ object RailCommand {
                 when (RailAutoConnector.connectIfAllowed(endpoint.rail, candidate.rail, options).outcome) {
                     RailAutoConnector.Outcome.CONNECTED -> connected++
                     RailAutoConnector.Outcome.ANGLE_TOO_SHARP -> skippedByAngle++
-                    RailAutoConnector.Outcome.INVALID_TANGENT -> failed++
+                    RailAutoConnector.Outcome.INVALID_TANGENT,
+                    RailAutoConnector.Outcome.TOO_MANY_ENDPOINTS,
+                    RailAutoConnector.Outcome.AMBIGUOUS_TURNOUT,
+                    RailAutoConnector.Outcome.TURNOUT_ANGLE_TOO_SHARP,
+                    RailAutoConnector.Outcome.TURNOUT_INVALID_TANGENT -> failed++
                     RailAutoConnector.Outcome.ALREADY_CONNECTED,
                     RailAutoConnector.Outcome.TOO_FAR -> Unit
                 }

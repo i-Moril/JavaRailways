@@ -21,6 +21,7 @@ import work.art1st.mineRails.basic.safety.RailSpeedCalculator
 import work.art1st.mineRails.basic.safety.SpeedSafetyMonitor
 import work.art1st.mineRails.basic.timetable.TimetableAtoFactory
 import work.art1st.mineRails.basic.timetable.TimetableDispatcher
+import work.art1st.mineRails.basic.route.TurnoutSafetyDefaults
 import work.art1st.mineRails.bukkit.extension.train.rendererOrNull
 import work.art1st.mineRails.bukkit.operation.BukkitTrainOperationGateway
 import work.art1st.mineRails.bukkit.operation.RegionTrainOperationDispatcher
@@ -98,6 +99,14 @@ object RailWorldFactory {
                                     "${error::class.simpleName}: ${error.message.orEmpty()}"
                             )
                         }
+                },
+                turnoutSafetyDefaults = plugin.mineRailsConfig.turnoutSafety.let {
+                    TurnoutSafetyDefaults(
+                        protectionDistanceMeters = it.defaultProtectionDistanceMeters,
+                        lockingDistanceMeters = it.defaultLockingDistanceMeters,
+                        decisionLeadTicks = it.decisionLeadTicks,
+                        retryTicks = it.allocationRetryTicks
+                    )
                 }
             )
         coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)

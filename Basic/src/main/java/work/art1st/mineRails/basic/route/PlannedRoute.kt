@@ -9,11 +9,16 @@ import kotlin.math.abs
 data class TurnoutRequirement(
     val from: RailViewRef,
     val selectedNext: RailViewRef,
-    val routeDistanceMeters: Double
+    val routeDistanceMeters: Double,
+    val protectionDistanceMeters: Double = TurnoutSafetyDefaults.DEFAULT_PROTECTION_DISTANCE_METERS,
+    val lockingDistanceMeters: Double = TurnoutSafetyDefaults.DEFAULT_LOCKING_DISTANCE_METERS
 ) {
     init {
         require(from != selectedNext)
         require(routeDistanceMeters.isFinite() && routeDistanceMeters >= 0.0)
+        require(protectionDistanceMeters.isFinite() && protectionDistanceMeters >= 0.0)
+        require(lockingDistanceMeters.isFinite() && lockingDistanceMeters >= 0.0)
+        require(lockingDistanceMeters <= protectionDistanceMeters)
     }
 }
 
@@ -127,8 +132,33 @@ sealed interface PlannedRouteCompilationResult {
     data class Failure(val reason: String) : PlannedRouteCompilationResult
 }
 
+data class TurnoutSafetyDefaults(
+    val protectionDistanceMeters: Double = DEFAULT_PROTECTION_DISTANCE_METERS,
+    val lockingDistanceMeters: Double = DEFAULT_LOCKING_DISTANCE_METERS,
+    val decisionLeadTicks: Int = DEFAULT_DECISION_LEAD_TICKS,
+    val retryTicks: Int = DEFAULT_RETRY_TICKS
+) {
+    init {
+        require(protectionDistanceMeters.isFinite() && protectionDistanceMeters >= 0.0)
+        require(lockingDistanceMeters.isFinite() && lockingDistanceMeters >= 0.0)
+        require(lockingDistanceMeters <= protectionDistanceMeters)
+        require(decisionLeadTicks > 0)
+        require(retryTicks > 0)
+    }
+
+    companion object {
+        const val DEFAULT_PROTECTION_DISTANCE_METERS = 20.0
+        const val DEFAULT_LOCKING_DISTANCE_METERS = 5.0
+        const val DEFAULT_DECISION_LEAD_TICKS = 5
+        const val DEFAULT_RETRY_TICKS = 5
+    }
+}
+
 /** Resolves stable route references and compiles turnout selections into atomic sections. */
-class PlannedRouteCompiler(private val world: World) {
+class PlannedRouteCompiler(
+    private val world: World,
+    private val turnoutDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults()
+) {
     fun compile(
         routeId: String,
         revision: Long,
@@ -179,16 +209,41 @@ class PlannedRouteCompiler(private val world: World) {
                     "route selects a direction-restricted branch: ${nextSegment.railViewRef}"
                 )
             }
-            if (current.nextRails.size > 1) {
+            val canonicalTurnout = when {
+                current.nextRails.size > 1 -> current to next
+                next.reversed.nextRails.size > 1 &&
+                    next.reversed.nextRails.any { it === current.reversed } ->
+                    next.reversed to current.reversed
+                else -> null
+            }
+            if (canonicalTurnout != null) {
+                val (stemToJoint, selectedBranch) = canonicalTurnout
+                val endpointMetadata = when (stemToJoint.viewDirection) {
+                    work.art1st.mineRails.core.api.physics.rail.ViewDirection.AB ->
+                        stemToJoint.rail.metadata.turnoutAtB
+                    work.art1st.mineRails.core.api.physics.rail.ViewDirection.BA ->
+                        stemToJoint.rail.metadata.turnoutAtA
+                }
                 requirements += TurnoutRequirement(
-                    from = segment.railViewRef,
-                    selectedNext = nextSegment.railViewRef,
-                    routeDistanceMeters = routeDistance
+                    from = RailViewRef.from(stemToJoint),
+                    selectedNext = RailViewRef.from(selectedBranch),
+                    routeDistanceMeters = routeDistance,
+                    protectionDistanceMeters = endpointMetadata?.protectionDistanceMeters
+                        ?: turnoutDefaults.protectionDistanceMeters,
+                    lockingDistanceMeters = endpointMetadata?.lockingDistanceMeters
+                        ?: turnoutDefaults.lockingDistanceMeters
                 )
             }
         }
 
-        val boundaries = buildBoundaries(route.totalLength, protectionPointDistancesMeters)
+        val turnoutProtectionPoints = requirements.asSequence()
+            .map(TurnoutRequirement::routeDistanceMeters)
+            .filter { it > EPSILON && it < route.totalLength - EPSILON }
+            .toList()
+        val boundaries = buildBoundaries(
+            route.totalLength,
+            protectionPointDistancesMeters + turnoutProtectionPoints
+        )
             ?: return PlannedRouteCompilationResult.Failure(
                 "protection points must be finite and inside the expanded route"
             )

@@ -37,6 +37,7 @@ import work.art1st.mineRails.core.api.physics.curve.PrimeCurve
 import work.art1st.mineRails.core.physics.CoreWorld
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import work.art1st.mineRails.core.physics.rail.CoreRail
+import work.art1st.mineRails.core.physics.rail.RailLocationWithFacing
 import work.art1st.mineRails.core.physics.train.createStraightRailFromSegments
 import work.art1st.mineRails.core.physics.train.createTestWorld
 import work.art1st.mineRails.core.physics.train.createTrainWithConfig
@@ -106,7 +107,7 @@ class TimetableDispatcherTest {
         assertTrue(started is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
-        assertEquals(0.0, train.speed, 1.0e-9)
+        assertTrue(train.speed > 0.0)
 
         dispatcher.tick(world)
         assertEquals(
@@ -115,8 +116,8 @@ class TimetableDispatcherTest {
         )
         tickAndPublish(ato, 1_000.0)
 
-        assertEquals(1.0, train.speed, 1.0e-9)
-        assertEquals(1, ato.currentConfirmedRouteWindows.size)
+        assertEquals(1.05, train.speed, 1.0e-9)
+        assertEquals(0, ato.currentConfirmedRouteWindows.size)
 
         repeat(600) { tickAndPublish(ato) }
         assertEquals(0.0, train.speed, profile.stoppedSpeedThresholdMetersPerSecond)
@@ -131,11 +132,11 @@ class TimetableDispatcherTest {
         tickAndPublish(ato)
         dispatcher.tick(world)
         assertEquals(
-            TimetableServiceRunState.STOPPED,
+            TimetableServiceRunState.COMPLETED,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
         )
         assertNotNull(train.controller)
-        assertEquals(1, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
     }
 
     @Test
@@ -509,7 +510,7 @@ class TimetableDispatcherTest {
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableServiceRunState.COMPLETED, status.state)
-        assertTrue(status.confirmedSectionCount > 0)
+        assertEquals(0, status.confirmedSectionCount)
         assertEquals(originArc + 100.0, train.head.location.arcLength, 0.6)
         val rolling = data.depots.rollingStock(train.id)!!
         assertEquals(RollingStockState.AVAILABLE, rolling.state)
@@ -552,7 +553,7 @@ class TimetableDispatcherTest {
             TimetableServiceRunId("tt-depart-again", "s1")
         )!!
         assertEquals(TimetableServiceRunState.COMPLETED, departureStatus.state)
-        assertEquals(1, departureStatus.confirmedSectionCount)
+        assertEquals(0, departureStatus.confirmedSectionCount)
         assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
         assertEquals(null, data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
         assertTrue(!data.atoCoordinator.isStalled)
@@ -1117,12 +1118,12 @@ class TimetableDispatcherTest {
         val completed = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableServiceRunState.COMPLETED, completed.state)
         assertEquals(TimetableControlMode.MANUAL_ROUTED, completed.controlMode)
-        assertTrue(completed.confirmedSectionCount > 0)
+        assertEquals(0, completed.confirmedSectionCount)
         assertTrue(!data.atoCoordinator.isStalled)
     }
 
     @Test
-    fun `manual routed crossing of an unconfirmed protection point stalls the world`() {
+    fun `manual routed straight route has no synthetic protection resource`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-manual-violation", reportSink = {})
@@ -1150,9 +1151,8 @@ class TimetableDispatcherTest {
         }
         dispatcher.tick(world)
 
-        assertTrue(coordinator.isStalled)
-        assertEquals("ManualRoutedSafetyViolation", coordinator.lastStall?.errorType)
-        assertTrue(coordinator.lastStall?.message?.contains("unconfirmed protection") == true)
+        assertFalse(coordinator.isStalled)
+        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
     }
 
     @Test
@@ -1194,7 +1194,7 @@ class TimetableDispatcherTest {
         train.setController(manual)
         assertTrue(dispatcher.bindManualRoutedController(train.id, "driver", manual))
         dispatcher.tick(world)
-        assertEquals(1, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
         val suspended = dispatcher.switchToFullManual(train.id, "driver")
         assertTrue(suspended is TimetableControlTransferResult.Suspended)
         manual.setThrottle(1.0)
@@ -1343,15 +1343,14 @@ class TimetableDispatcherTest {
         dispatcher.startService(world, "tt", "s1") as TimetableServiceStartResult.Started
         tickAndPublish(train.controller as SimpleATO)
         dispatcher.tick(world)
-        assertEquals(1, dispatcher.status(id)?.confirmedSectionCount)
+        assertEquals(0, dispatcher.status(id)?.confirmedSectionCount)
 
         dispatcher.suspendForControlTransfer(world, train.id, "driver-1")
         dispatcher.tick(world)
 
         assertEquals(TimetableServiceRunState.SUSPENDED, dispatcher.status(id)?.state)
-        assertEquals(1, dispatcher.status(id)?.confirmedSectionCount)
+        assertEquals(0, dispatcher.status(id)?.confirmedSectionCount)
         assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-1"))
-        assertTrue(dispatcher.replanService(world, id, "A") is TimetableReplanResult.Failure)
 
         train.setLocation(train.head.location.forward(40.0)!!)
         train.commit()
@@ -1362,7 +1361,7 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `allocates the next leg by progress and releases only after the tail clears`() {
+    fun `straight route creates no synthetic resource claims across multiple legs`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
@@ -1401,7 +1400,7 @@ class TimetableDispatcherTest {
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
         dispatcher.tick(world)
-        assertEquals(1, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
 
         var observedHeadOnlyPastVia = false
         var observedTailRelease = false
@@ -1413,9 +1412,9 @@ class TimetableDispatcherTest {
                 train.tailBogie.location.arcLength < viaArc - 0.2
             ) {
                 observedHeadOnlyPastVia = true
-                assertEquals(2, count)
+                assertEquals(0, count)
             }
-            if (train.tailBogie.location.arcLength >= viaArc && count == 1) {
+            if (train.tailBogie.location.arcLength >= viaArc && count == 0) {
                 observedTailRelease = true
             }
             if (dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state ==
@@ -1489,6 +1488,35 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `stopped train immediately requests a turnout inside protection distance`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(dispatcher = dispatcher)
+        TestBasicWorldDataRegistry.register(world, data)
+        val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
+        val straight = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 0.0))
+        val branch = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 10.0))
+        CoreRail.connect(approach, straight)
+        CoreRail.connect(approach, branch)
+        approach.viewAB.selectNextRail(straight.viewAB)
+        val train = createTrainWithConfig("near-turnout", approach, world, listOf(10.0))
+        val origin = train.head.location.arcLength
+        assertTrue(30.0 - origin in 5.0..20.0)
+        data.wayPoints.add(WayPoint("A", "A", approach.id, origin))
+        data.wayPoints.add(WayPoint("B", "B", branch.id, 20.0))
+        data.timetables.add(Timetable("tt", services = listOf(service("s", train.id, "A", "B"))))
+
+        assertTrue(dispatcher.startService(world, "tt", "s") is TimetableServiceStartResult.Started)
+        tickAndPublish(train.controller as SimpleATO)
+        dispatcher.tick(world)
+
+        val status = dispatcher.status(TimetableServiceRunId("tt", "s"))
+        assertEquals(1, status?.confirmedSectionCount, "$status occupied=${train.occupiedRailIntervals}")
+        assertSame(branch.viewAB, approach.viewAB.nextActiveRail)
+        assertFalse(data.atoCoordinator.isStalled)
+    }
+
+    @Test
     fun `unconfirmed later section stops at its protection point without stalling`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
@@ -1504,7 +1532,7 @@ class TimetableDispatcherTest {
         CoreRail.connect(approach, blockingBranch)
         val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0))
         val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0))
-        blockingTrain.setLocation(mainTrain.head.location.forward(-10.0)!!)
+        blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
         blockingTrain.commit()
         val mainOrigin = mainTrain.head.location.arcLength
         val protectionArc = 70.0
@@ -1534,27 +1562,36 @@ class TimetableDispatcherTest {
         assertTrue(dispatcher.startService(world, "tt", "main") is TimetableServiceStartResult.Started)
         val blockingAto = blockingTrain.controller as SimpleATO
         val mainAto = mainTrain.controller as SimpleATO
-        tickAndPublish(blockingAto)
-        tickAndPublish(mainAto)
-        dispatcher.tick(world)
-        tickAndPublish(blockingAto)
-
+        for (ignored in 0 until 2_000) {
+            tickAndPublish(blockingAto)
+            tickAndPublish(mainAto)
+            dispatcher.tick(world)
+            if (dispatcher.status(TimetableServiceRunId("tt", "blocking"))
+                    ?.confirmedSectionCount == 1
+            ) break
+        }
         repeat(2_000) {
             tickAndPublish(mainAto)
             dispatcher.tick(world)
         }
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "main"))!!
-        assertEquals(TimetableServiceRunState.WAITING_ROUTE, status.state)
+        val blockerStatus = dispatcher.status(TimetableServiceRunId("tt", "blocking"))
+        assertEquals(
+            TimetableServiceRunState.WAITING_ROUTE,
+            status.state,
+            "status=$status blocker=$blockerStatus selected=${approach.viewAB.nextActiveRail} " +
+                "head=${mainTrain.head.location.arcLength} speed=${mainTrain.speed}"
+        )
         assertEquals(0.0, mainTrain.speed, profile.stoppedSpeedThresholdMetersPerSecond)
-        assertTrue(mainTrain.head.location.arcLength <= protectionArc)
-        assertTrue(mainTrain.head.location.arcLength >= protectionArc - 4.0)
+        assertTrue(mainTrain.head.location.arcLength <= 80.0)
+        assertTrue(mainTrain.head.location.arcLength >= 74.0)
         assertTrue(!data.atoCoordinator.isStalled)
         assertSame(blockingBranch.viewAB, approach.viewAB.nextActiveRail)
     }
 
     @Test
-    fun `conflicting services keep the later train held without partial turnout changes`() {
+    fun `short turnout claim releases for a later conflicting service`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
@@ -1569,10 +1606,11 @@ class TimetableDispatcherTest {
         CoreRail.connect(approach, secondBranch)
         val firstTrain = createTrainWithConfig("T1", approach, world, listOf(10.0))
         val secondTrain = createTrainWithConfig("T2", approach, world, listOf(10.0))
-        secondTrain.setLocation(firstTrain.head.location.forward(40.0)!!)
-        secondTrain.commit()
+        val secondOriginArc = firstTrain.head.location.arcLength + 40.0
+        secondTrain.setLocation(RailLocationWithFacing(secondBranch.viewAB, 40.0))
+        secondTrain.commitMaintenancePlacement()
         data.wayPoints.add(WayPoint("A1", "A1", approach.id, firstTrain.head.location.arcLength))
-        data.wayPoints.add(WayPoint("A2", "A2", approach.id, secondTrain.head.location.arcLength))
+        data.wayPoints.add(WayPoint("A2", "A2", approach.id, secondOriginArc))
         data.wayPoints.add(WayPoint("B1", "B1", firstBranch.id, 20.0))
         data.wayPoints.add(WayPoint("B2", "B2", secondBranch.id, 20.0))
         data.timetables.add(
@@ -1586,27 +1624,34 @@ class TimetableDispatcherTest {
         )
 
         assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
-        assertTrue(dispatcher.startService(world, "tt", "s2") is TimetableServiceStartResult.Started)
-        tickAndPublish(firstTrain.controller as SimpleATO)
-        tickAndPublish(secondTrain.controller as SimpleATO)
-        dispatcher.tick(world)
-
-        assertEquals(
-            TimetableServiceRunState.RUNNING,
-            dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
-        )
-        assertEquals(
-            TimetableServiceRunState.WAITING_ROUTE,
-            dispatcher.status(TimetableServiceRunId("tt", "s2"))?.state
-        )
-        assertSame(firstBranch.viewAB, approach.viewAB.nextActiveRail)
-
         val firstAto = firstTrain.controller as SimpleATO
-        tickAndPublish(firstAto)
-        approach.viewAB.selectNextRail(secondBranch.viewAB)
-        tickAndPublish(firstAto)
-        assertTrue(data.atoCoordinator.isStalled)
-        assertTrue(data.atoCoordinator.lastStall?.message?.contains("confirmed turnout mismatch") == true)
+        repeat(2_000) {
+            tickAndPublish(firstAto)
+            dispatcher.tick(world)
+        }
+        assertEquals(
+            TimetableServiceRunState.COMPLETED,
+            dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state,
+            "status=${dispatcher.status(TimetableServiceRunId("tt", "s1"))} stall=${data.atoCoordinator.lastStall}"
+        )
+        secondTrain.setLocation(RailLocationWithFacing(approach.viewAB, secondOriginArc))
+        secondTrain.commitMaintenancePlacement()
+        assertTrue(dispatcher.startService(world, "tt", "s2") is TimetableServiceStartResult.Started)
+        val secondAto = secondTrain.controller as SimpleATO
+        repeat(2_000) {
+            tickAndPublish(secondAto)
+            dispatcher.tick(world)
+        }
+
+        val firstStatus = dispatcher.status(TimetableServiceRunId("tt", "s1"))
+        val secondStatus = dispatcher.status(TimetableServiceRunId("tt", "s2"))
+        assertEquals(
+            TimetableServiceRunState.COMPLETED,
+            firstStatus?.state,
+            "$firstStatus / $secondStatus / stall=${data.atoCoordinator.lastStall}"
+        )
+        assertEquals(TimetableServiceRunState.COMPLETED, secondStatus?.state, "$firstStatus / $secondStatus")
+        assertFalse(data.atoCoordinator.isStalled)
     }
 
     @Test
@@ -1655,7 +1700,7 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `timetable tick orders simultaneous route conflicts`() {
+    fun `short claims let physically separated conflicting services proceed`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
@@ -1690,19 +1735,34 @@ class TimetableDispatcherTest {
         repeat(100) { dispatcher.tick(world) }
         assertTrue(dispatcher.startService(world, "tt", "late") is TimetableServiceStartResult.Started)
         assertTrue(dispatcher.startService(world, "tt", "early") is TimetableServiceStartResult.Started)
-        tickAndPublish(lateTrain.controller as SimpleATO)
-        tickAndPublish(earlyTrain.controller as SimpleATO)
-        dispatcher.tick(world)
+        val lateAto = lateTrain.controller as SimpleATO
+        val earlyAto = earlyTrain.controller as SimpleATO
+        repeat(5_000) {
+            if (earlyTrain.head.location.rail.id == approach.id &&
+                earlyTrain.head.location.arcLength > 95.0
+            ) assertSame(
+                earlyBranch.viewAB,
+                approach.viewAB.nextActiveRail,
+                "early=${dispatcher.status(TimetableServiceRunId("tt", "early"))} " +
+                    "late=${dispatcher.status(TimetableServiceRunId("tt", "late"))}"
+            )
+            tickAndPublish(lateAto)
+            tickAndPublish(earlyAto)
+            dispatcher.tick(world)
+        }
 
         assertEquals(
-            TimetableServiceRunState.RUNNING,
-            dispatcher.status(TimetableServiceRunId("tt", "early"))?.state
+            TimetableServiceRunState.COMPLETED,
+            dispatcher.status(TimetableServiceRunId("tt", "early"))?.state,
+            "early=${dispatcher.status(TimetableServiceRunId("tt", "early"))} " +
+                "late=${dispatcher.status(TimetableServiceRunId("tt", "late"))} " +
+                "stall=${data.atoCoordinator.lastStall}"
         )
         assertEquals(
-            TimetableServiceRunState.WAITING_ROUTE,
+            TimetableServiceRunState.COMPLETED,
             dispatcher.status(TimetableServiceRunId("tt", "late"))?.state
         )
-        assertSame(earlyBranch.viewAB, approach.viewAB.nextActiveRail)
+        assertFalse(data.atoCoordinator.isStalled)
     }
 
     @Test

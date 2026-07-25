@@ -11,6 +11,7 @@ import work.art1st.mineRails.basic.api.timetable.TimetableExtensionRegistry
 import work.art1st.mineRails.basic.pathFinding.RailMap
 import work.art1st.mineRails.basic.timetable.Timetable
 import work.art1st.mineRails.basic.timetable.TimetableDispatcher
+import work.art1st.mineRails.basic.route.TurnoutSafetyDefaults
 import work.art1st.mineRails.core.api.physics.rail.ViewDirection
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -32,7 +33,8 @@ data class BasicWorldData(
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),
-    val stations: StationStore = StationStore(railObjects)
+    val stations: StationStore = StationStore(railObjects),
+    val turnoutSafetyDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults()
 ) {
     init {
         require(stations.usesRailObjectStore(railObjects)) {

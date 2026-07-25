@@ -78,6 +78,13 @@ enum class PlayerDisplayDistanceDefault {
     }
 }
 
+data class TurnoutSafetyConfig(
+    val defaultProtectionDistanceMeters: Double,
+    val defaultLockingDistanceMeters: Double,
+    val decisionLeadTicks: Int,
+    val allocationRetryTicks: Int
+)
+
 data class MineRailsConfig(
     val trainModelUpdatePolicy: TrainModelUpdatePolicy,
     val trainKeyBindDistance: Double,
@@ -87,6 +94,7 @@ data class MineRailsConfig(
     val derailLateralAccelerationMetersPerSecondSquared: Double,
     val overspeedToleranceKmH: Double,
     val overspeedGraceTicks: Int,
+    val turnoutSafety: TurnoutSafetyConfig,
     val displayRenderer: DisplayRendererConfig,
     val timetableHttpBridge: TimetableHttpBridgeConfig,
     val timetableWebUi: TimetableWebUiConfig
@@ -114,6 +122,24 @@ data class MineRailsConfig(
             require(overspeedToleranceKmH >= 0.0) { "overspeed-tolerance-kmh must be >= 0.0" }
             val overspeedGraceTicks = requireInt(yaml, "overspeed-grace-ticks")
             require(overspeedGraceTicks > 0) { "overspeed-grace-ticks must be > 0" }
+            val turnoutProtection = optionalDouble(
+                yaml, "turnout.default-protection-distance-meters", 20.0
+            )
+            val turnoutLocking = optionalDouble(
+                yaml, "turnout.default-locking-distance-meters", 5.0
+            )
+            val turnoutLeadTicks = optionalInt(yaml, "turnout.decision-lead-ticks", 5)
+            val turnoutRetryTicks = optionalInt(yaml, "turnout.allocation-retry-ticks", 5)
+            require(turnoutProtection.isFinite() && turnoutProtection >= 0.0) {
+                "turnout.default-protection-distance-meters must be finite and >= 0"
+            }
+            require(turnoutLocking.isFinite() && turnoutLocking >= 0.0 &&
+                turnoutLocking <= turnoutProtection
+            ) {
+                "turnout.default-locking-distance-meters must be finite and between 0 and protection distance"
+            }
+            require(turnoutLeadTicks > 0) { "turnout.decision-lead-ticks must be > 0" }
+            require(turnoutRetryTicks > 0) { "turnout.allocation-retry-ticks must be > 0" }
             val displayRendererBackend = DisplayRendererBackend.fromConfig(
                 requireString(yaml, "display-renderer.backend")
             )
@@ -187,6 +213,12 @@ data class MineRailsConfig(
                 derailLateralAccelerationMetersPerSecondSquared = derailLateralAcceleration,
                 overspeedToleranceKmH = overspeedToleranceKmH,
                 overspeedGraceTicks = overspeedGraceTicks,
+                turnoutSafety = TurnoutSafetyConfig(
+                    defaultProtectionDistanceMeters = turnoutProtection,
+                    defaultLockingDistanceMeters = turnoutLocking,
+                    decisionLeadTicks = turnoutLeadTicks,
+                    allocationRetryTicks = turnoutRetryTicks
+                ),
                 displayRenderer = DisplayRendererConfig(
                     backend = displayRendererBackend,
                     playerDistance = PlayerDisplayDistanceConfig(
@@ -217,6 +249,9 @@ data class MineRailsConfig(
 
         private fun optionalInt(yaml: YamlConfiguration, path: String, fallback: Int): Int =
             if (yaml.contains(path, true)) requireInt(yaml, path) else fallback
+
+        private fun optionalDouble(yaml: YamlConfiguration, path: String, fallback: Double): Double =
+            if (yaml.contains(path, true)) requireDouble(yaml, path) else fallback
 
         private fun optionalLong(yaml: YamlConfiguration, path: String, fallback: Long): Long =
             if (yaml.contains(path, true)) requireLong(yaml, path) else fallback

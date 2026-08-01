@@ -43,6 +43,19 @@ class ScriptWorkerTest {
         }
     }
 
+    @Test fun `initial position selectors support exact names and tags`() {
+        val result = run("""
+          timetable.setPeriodDays(1);
+          timetable.setInitialPosition(timetable.and(timetable.named('s100.1'), timetable.tags('metro', 'available')), timetable.named('yard@1'));
+          timetable.service('s', 's100.1', t => { t.check('yard@1'); t.at(1).destination('next'); });
+        """)
+        val position = result.initialPositions.single()
+        assertEquals(SavedObjectSelectorTypeV1.AND, position.trainSelector.type)
+        assertEquals("^\\Qs100.1\\E$", position.trainSelector.selectors[0].pattern)
+        assertEquals(setOf("metro", "available"), position.trainSelector.selectors[1].tags)
+        assertEquals("^\\Qyard@1\\E$", position.wayPointSelector.pattern)
+    }
+
     @Test fun `initial position selectors serialize full-match regex combinators`() {
         val result = run("""
           timetable.setPeriodDays(1);

@@ -86,6 +86,21 @@ class TimetableBuilder(private val id: String) {
         return this
     }
 
+    @HostAccess.Export fun named(name: String): TimetableObjectSelectorValue {
+        require(name.isNotBlank()) { "name selector must not be blank" }
+        return TimetableObjectSelectorValue(
+            SavedObjectSelectorV1(SavedObjectSelectorTypeV1.REGEX, pattern = "^${Regex.escape(name)}$")
+        )
+    }
+    @HostAccess.Export fun tags(vararg tags: String): TimetableObjectSelectorValue {
+        val required = tags.toSet()
+        require(required.isNotEmpty() && required.all(String::isNotBlank)) {
+            "tag selector requires at least one non-blank tag"
+        }
+        return TimetableObjectSelectorValue(
+            SavedObjectSelectorV1(SavedObjectSelectorTypeV1.TAGS, tags = required)
+        )
+    }
     @HostAccess.Export fun and(vararg selectors: Value) = TimetableObjectSelectorValue(
         SavedObjectSelectorV1(
             SavedObjectSelectorTypeV1.AND,

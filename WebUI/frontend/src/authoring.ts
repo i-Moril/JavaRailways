@@ -166,7 +166,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1):G
   }
   for(const duty of document.duties) {
     for(const element of duty.elements) if(element.type==='FUNCTION'&&element.call.type==='PLACE_INITIAL') {
-      lines.push('',`    timetable.setInitialPosition(${quote(element.call.trainName)}, ${quote(element.call.wayPointId)})`);
+      lines.push('',`    timetable.setInitialPosition(timetable.named(${quote(element.call.trainName)}), timetable.named(${quote(element.call.wayPointId)}))`);
     }
   }
   for(const duty of document.duties) {

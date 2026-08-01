@@ -217,9 +217,15 @@ timetable.service("001", "train-001", {
 
 ## 初始位置约束
 
-`timetable.setInitialPosition(trainSelector, positionSelector)` 为当前 timetable epoch 声明一对列车/初始位置。位置 selector 可匹配 WayPoint ID，也可匹配 Depot ID；匹配 Depot 时会展开为该 Depot 下尚未使用的 StablingPoint。字符串是全长正则表达式，不需要手写 `^` 和 `$`：
+`timetable.setInitialPosition(trainSelector, positionSelector)` 为当前 timetable epoch 声明一对列车/初始位置。位置 selector 可匹配 WayPoint ID，也可匹配 Depot ID；匹配 Depot 时会展开为该 Depot 下尚未使用的 StablingPoint。普通字符串是全长正则表达式；结构化编辑器生成的脚本使用 `named(...)` 表示不会被正则解释的精确名称，并可使用 `tags(...)` 要求对象包含全部标签：
 
 ```js
+timetable.setInitialPosition(
+  timetable.and(timetable.named("s100-1"), timetable.tags("metro")),
+  timetable.named("yard@1")
+)
+
+// 高级脚本仍可直接使用正则和布尔组合：
 timetable.setInitialPosition(
   timetable.and("s100-.*", timetable.not(".*-maintenance")),
   timetable.or("yard@1", "yard@2")
@@ -229,11 +235,11 @@ timetable.setInitialPosition(
 规则：
 
 - 每次调用从尚未被前面约束选中的列车名和 WayPoint ID 中确定性匹配一对；
-- `and(...)`、`or(...)`、`not(...)` 用于组合 selector；
+- `named(...)` 选择精确名称，`tags(...)` 要求全部标签，`and(...)`、`or(...)`、`not(...)` 用于组合 selector；
 - 已经位于合法目标的配对优先，否则按列车名/UUID和 WayPoint ID 排序选择；
 - WayPoint 方向优先使用其 OperationalDestination `approachDirection`，否则使用下方 Rail 的 `allowedDirection`；两者都缺失会 Stall；
 - timetable start/reset 时全量应用；任一放置或占用检查失败会回滚全部移动并触发 `TimetableInitialPositionFailure`；
-- tags selector 已在持久化模型中预留，但当前 DSL 尚未开放。
+- `named(...)` 和 `tags(...)` 都返回可继续参与布尔组合的 selector。
 
 重置命令：
 

@@ -12,6 +12,10 @@ interface JavaRailwaysTimetableBuilder {
   takeFromDepot(depotId: string, options: JavaRailwaysDepotSelectorOptions, tick: number): JavaRailwaysAcquisitionSelector;
   takeFromWaypoint(wayPointId: string | readonly string[], tick: number): JavaRailwaysAcquisitionSelector;
   setInitialPosition(trainSelector: JavaRailwaysObjectSelector, wayPointSelector: JavaRailwaysObjectSelector): this;
+  /** Selects one exact object name without regular-expression interpretation. */
+  named(name: string): JavaRailwaysCombinedSelector;
+  /** Selects objects containing every supplied tag. */
+  tags(...tags: string[]): JavaRailwaysCombinedSelector;
   and(...selectors: JavaRailwaysObjectSelector[]): JavaRailwaysCombinedSelector;
   or(...selectors: JavaRailwaysObjectSelector[]): JavaRailwaysCombinedSelector;
   not(selector: JavaRailwaysObjectSelector): JavaRailwaysCombinedSelector;

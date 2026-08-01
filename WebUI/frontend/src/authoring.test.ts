@@ -46,7 +46,7 @@ describe('timetable editor document',()=>{
     const second=generateTimetableSource(valid());
     expect(first.issues).toEqual([]);
     expect(first.source).toBe(second.source);
-    expect(first.source).toContain('timetable.setInitialPosition("train-1", "a@1")');
+    expect(first.source).toContain('timetable.setInitialPosition(timetable.named("train-1"), timetable.named("a@1"))');
     expect(first.source).toContain('timetable.service("duty-a", "train-1", { diagramLineId: "line-1" }, t => {');
     expect(first.source).toContain('t.origin("duty:duty-a/element:up-element/run:up-01", scoped => {');
     expect(first.source).toContain('scoped.at(100).destination("b@1", { arrivalTick: 800 })');

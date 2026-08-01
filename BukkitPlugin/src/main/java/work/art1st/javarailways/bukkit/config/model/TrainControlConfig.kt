@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.config.model
 
 import kotlinx.serialization.Serializable
-import work.art1st.javarailways.basic.timetable.simulation.TrainDynamics
+import work.art1st.javarailways.basic.control.TrainDynamics
 
 @Serializable
 data class TrainControlConfig(

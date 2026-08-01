@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.timetable.simulation
 
 import java.util.concurrent.CancellationException
+import work.art1st.javarailways.basic.control.TrainDynamics
 import kotlin.math.max
 
 class DetailedTrainSimulationLimitException(message: String) : IllegalStateException(message)

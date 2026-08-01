@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable.simulation
+package work.art1st.javarailways.basic.control
 
 import kotlin.math.abs
 

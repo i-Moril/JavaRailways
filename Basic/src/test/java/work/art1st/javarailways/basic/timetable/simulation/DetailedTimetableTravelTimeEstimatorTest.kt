@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.timetable.simulation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.control.TrainDynamics
 
 class DetailedTimetableTravelTimeEstimatorTest {
     @Test
@@ -26,6 +27,28 @@ class DetailedTimetableTravelTimeEstimatorTest {
         assertEquals(1, estimator.cachedEstimateCount())
         estimator.clearCache()
         assertEquals(0, estimator.cachedEstimateCount())
+    }
+
+    @Test
+    fun `bounds cached route combinations without changing estimates`() {
+        var resolveCalls = 0
+        val estimator = DetailedTimetableTravelTimeEstimator(
+            DetailedTimetableRouteResolver { from, to ->
+                resolveCalls++
+                listOf(DetailedTravelLeg(from, to, 80.0))
+            },
+            mapOf(PROFILE_ID to profile()),
+            maximumCacheEntries = 1
+        )
+
+        fun request(target: String) = TimetableMovementEstimateRequest("s", 1, PROFILE_ID, "a", listOf(target))
+        val first = estimator.estimateTicks(request("b"))
+        estimator.estimateTicks(request("c"))
+        val repeated = estimator.estimateTicks(request("b"))
+
+        assertEquals(first, repeated)
+        assertEquals(1, estimator.cachedEstimateCount())
+        assertEquals(2, resolveCalls)
     }
 
     private fun profile(): DetailedTrainSimulationProfile {

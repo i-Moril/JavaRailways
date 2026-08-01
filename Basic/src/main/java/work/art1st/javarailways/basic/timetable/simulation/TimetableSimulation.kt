@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.timetable.simulation
 
+import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.timetable.TimetableAction
 import work.art1st.javarailways.basic.timetable.TimetableService
@@ -7,9 +8,36 @@ import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.basic.timetable.TrainSelector
 import java.util.PriorityQueue
 
-/** Stable key shown by WebUI when asking the user to map each selector to a simulation vehicle. */
-@JvmInline
-value class TimetableSimulationSelectorKey(val value: String)
+/** Structural selector identity used when WebUI asks for one simulation profile per selector. */
+sealed interface TimetableSimulationSelectorKey {
+    val value: String
+
+    data class NamedTrain(val trainId: String) : TimetableSimulationSelectorKey {
+        override val value: String get() = "name:$trainId"
+    }
+
+    data class Depot(val selector: DepotTrainSelector) : TimetableSimulationSelectorKey {
+        override val value: String get() = buildString {
+            append("depot:").append(selector.depotId.value)
+            if (selector.requiredTags.isNotEmpty()) {
+                append(";tags=").append(selector.requiredTags.sorted().joinToString(","))
+            }
+            selector.minimumCars?.let { append(";minimumCars=").append(it) }
+            selector.maximumCars?.let { append(";maximumCars=").append(it) }
+            selector.minimumSpeedMetersPerSecond?.let { append(";minimumSpeed=").append(it) }
+            if (selector.requiredCapabilities.isNotEmpty()) {
+                append(";capabilities=").append(selector.requiredCapabilities.sorted().joinToString(","))
+            }
+        }
+    }
+
+    data class Waypoints(val wayPointIds: List<String>) : TimetableSimulationSelectorKey {
+        init { require(wayPointIds.isNotEmpty()) }
+        override val value: String get() = "waypoints:${wayPointIds.joinToString(",")}"
+    }
+
+    data object Any : TimetableSimulationSelectorKey { override val value: String = "any" }
+}
 
 @JvmInline
 value class TimetableSimulationProfileId(val value: String)
@@ -66,16 +94,30 @@ fun interface TimetableTravelTimeEstimator {
 
 /** Duration of non-movement service operations such as reverse or custom actions. */
 fun interface TimetableOperationTimeEstimator {
+    /** Returns null when this action has no registered simulation implementation. */
     fun estimateTicks(
         serviceId: String,
         stepIndex: Int,
         profileId: TimetableSimulationProfileId,
         action: TimetableAction
-    ): Long
+    ): Long?
 
     companion object {
+        val UNSUPPORTED = TimetableOperationTimeEstimator { _, _, _, _ -> null }
         val ZERO = TimetableOperationTimeEstimator { _, _, _, _ -> 0L }
     }
+}
+
+/** Resolves the actual vehicle location selected by a dynamic acquisition action. */
+fun interface TimetableSimulationOriginResolver {
+    fun resolveOrigin(
+        serviceId: String,
+        stepIndex: Int,
+        profileId: TimetableSimulationProfileId,
+        action: TimetableAction
+    ): String?
+
+    companion object { val NONE = TimetableSimulationOriginResolver { _, _, _, _ -> null } }
 }
 
 /** A resource interval relative to an action's actual start tick. End is exclusive. */
@@ -121,8 +163,9 @@ interface TimetableSimulationResourceModel {
  */
 class TimetableSimulationEngine(
     private val travelTimeEstimator: TimetableTravelTimeEstimator,
-    private val operationTimeEstimator: TimetableOperationTimeEstimator = TimetableOperationTimeEstimator.ZERO,
-    private val resourceModel: TimetableSimulationResourceModel = TimetableSimulationResourceModel.NONE
+    private val operationTimeEstimator: TimetableOperationTimeEstimator = TimetableOperationTimeEstimator.UNSUPPORTED,
+    private val resourceModel: TimetableSimulationResourceModel = TimetableSimulationResourceModel.NONE,
+    private val originResolver: TimetableSimulationOriginResolver = TimetableSimulationOriginResolver.NONE
 ) {
     fun simulate(request: TimetableSimulationRequest): TimetableSimulationReport {
         val selectorKeys = request.timetable.services.map(::selectorKey).toSet()
@@ -144,10 +187,10 @@ class TimetableSimulationEngine(
         while (queue.isNotEmpty()) {
             val state = queue.remove()
             val step = state.currentStep() ?: continue
-            scheduleStep(state, step, calendars, events, issues)
+            scheduleStep(state, step, request.timetable.periodTicks, calendars, events, issues)
             state.stepIndex++
             state.advanceChecks()
-            if (state.hasNext()) queue += state
+            if (!state.failed && state.hasNext()) queue += state
         }
 
         return TimetableSimulationReport(
@@ -162,6 +205,7 @@ class TimetableSimulationEngine(
     private fun scheduleStep(
         state: ServiceState,
         step: TimetableStep.At,
+        periodTicks: Long,
         calendars: MutableMap<String, MutableList<ReservedWindow>>,
         events: MutableList<TimetableSimulationEvent>,
         issues: MutableList<TimetableSimulationIssue>
@@ -170,8 +214,14 @@ class TimetableSimulationEngine(
         val index = state.stepIndex
         val baseStart = maxOf(step.tick, state.availableTick)
         when (val action = step.action) {
-            is TimetableAction.DestinationOptions,
-            is TimetableAction.CallStation -> return
+            is TimetableAction.DestinationOptions -> {
+                state.pendingMinimumDwellTicks = action.minimumDwellTicks ?: 0L
+                return
+            }
+            is TimetableAction.CallStation -> {
+                state.pendingMinimumDwellTicks = action.minimumDwellTicks ?: 0L
+                return
+            }
             is TimetableAction.GoTo,
             is TimetableAction.GoVia -> {
                 val targets = when (action) {
@@ -183,8 +233,7 @@ class TimetableSimulationEngine(
                 )
                 val duration = travelTimeEstimator.estimateTicks(estimateRequest)
                 if (duration < 0L) {
-                    issues += TimetableSimulationIssue(service.id,
-                        "negative travel estimate at step#$index: $duration")
+                    fail(state, issues, "negative travel estimate at step#$index: $duration")
                     return
                 }
                 val allocation = allocate(baseStart, resourceModel.movementResources(estimateRequest, duration), calendars)
@@ -197,45 +246,74 @@ class TimetableSimulationEngine(
                 }
                 events += event(state, TimetableSimulationEventType.DEPARTURE, step.tick,
                     allocation.startTick, delay, state.currentLocation, cause, allocation.blockingResource)
-                state.availableTick = Math.addExact(allocation.startTick, duration)
+                val arrivalTick = Math.addExact(allocation.startTick, duration)
                 state.currentLocation = targets.lastOrNull()
                 events += event(state, TimetableSimulationEventType.ARRIVAL, step.tick,
-                    state.availableTick, delay, state.currentLocation, cause, allocation.blockingResource)
+                    arrivalTick, delay, state.currentLocation, cause, allocation.blockingResource)
+                state.availableTick = Math.addExact(arrivalTick, state.pendingMinimumDwellTicks)
+                state.pendingMinimumDwellTicks = 0L
+                checkPeriod(state, periodTicks, state.availableTick, issues)
             }
-            is TimetableAction.TakeFromWaypoint -> {
-                val allocation = allocateAction(state, step, baseStart, 0L, calendars)
-                state.currentLocation = action.wayPointIds.firstOrNull()
-                addActionEvent(events, state, step, allocation, TimetableSimulationEventType.ACQUIRE,
-                    state.currentLocation)
-                state.availableTick = allocation.startTick
-            }
+            is TimetableAction.TakeFromWaypoint,
             is TimetableAction.TakeFromDepot -> {
+                val resolvedOrigin = originResolver.resolveOrigin(service.id, index, state.profileId, action)
+                if (resolvedOrigin.isNullOrBlank()) {
+                    fail(state, issues, "could not resolve acquisition origin at step#$index")
+                    return
+                }
                 val allocation = allocateAction(state, step, baseStart, 0L, calendars)
+                state.currentLocation = resolvedOrigin
                 addActionEvent(events, state, step, allocation, TimetableSimulationEventType.ACQUIRE,
-                    action.selector.depotId.value)
+                    resolvedOrigin)
                 state.availableTick = allocation.startTick
+                checkPeriod(state, periodTicks, allocation.startTick, issues)
             }
             is TimetableAction.Stop -> {
                 val allocation = allocateAction(state, step, baseStart, action.ticks, calendars)
                 addActionEvent(events, state, step, allocation, TimetableSimulationEventType.ACTION,
                     state.currentLocation)
                 state.availableTick = Math.addExact(allocation.startTick, action.ticks)
+                checkPeriod(state, periodTicks, state.availableTick, issues)
             }
             else -> {
                 val duration = operationTimeEstimator.estimateTicks(
                     service.id, index, state.profileId, action
                 )
+                if (duration == null) {
+                    fail(state, issues, "unsupported simulation action at step#$index: ${action::class.simpleName}")
+                    return
+                }
                 if (duration < 0L) {
-                    issues += TimetableSimulationIssue(service.id,
-                        "negative operation estimate at step#$index: $duration")
+                    fail(state, issues, "negative operation estimate at step#$index: $duration")
                     return
                 }
                 val allocation = allocateAction(state, step, baseStart, duration, calendars)
                 addActionEvent(events, state, step, allocation, TimetableSimulationEventType.ACTION,
                     state.currentLocation)
                 state.availableTick = Math.addExact(allocation.startTick, duration)
+                checkPeriod(state, periodTicks, state.availableTick, issues)
             }
         }
+    }
+
+    private fun checkPeriod(
+        state: ServiceState,
+        periodTicks: Long,
+        actualTick: Long,
+        issues: MutableList<TimetableSimulationIssue>
+    ) {
+        if (actualTick >= periodTicks) {
+            fail(state, issues, "service crosses timetable period at tick $actualTick (period $periodTicks)")
+        }
+    }
+
+    private fun fail(
+        state: ServiceState,
+        issues: MutableList<TimetableSimulationIssue>,
+        message: String
+    ) {
+        state.failed = true
+        issues += TimetableSimulationIssue(state.service.id, message)
     }
 
     private fun allocateAction(
@@ -323,7 +401,9 @@ class TimetableSimulationEngine(
         val profileId: TimetableSimulationProfileId,
         var stepIndex: Int = 0,
         var availableTick: Long = 0,
-        var currentLocation: String? = null
+        var currentLocation: String? = null,
+        var pendingMinimumDwellTicks: Long = 0,
+        var failed: Boolean = false
     ) {
         fun advanceChecks() {
             while (stepIndex < service.steps.size && service.steps[stepIndex] is TimetableStep.Check) {
@@ -340,23 +420,18 @@ class TimetableSimulationEngine(
         fun selectorKey(service: TimetableService): TimetableSimulationSelectorKey {
             val selector = service.trainSelector
             if (selector is TrainSelector.TrainId) {
-                return TimetableSimulationSelectorKey("name:${selector.trainId}")
+                return TimetableSimulationSelectorKey.NamedTrain(selector.trainId)
             }
             val acquisition = service.steps.asSequence().filterIsInstance<TimetableStep.At>()
                 .map(TimetableStep.At::action).firstOrNull {
                     it is TimetableAction.TakeFromDepot || it is TimetableAction.TakeFromWaypoint
                 }
             return when (acquisition) {
-                is TimetableAction.TakeFromDepot -> TimetableSimulationSelectorKey(buildString {
-                    append("depot:").append(acquisition.selector.depotId.value)
-                    if (acquisition.selector.requiredTags.isNotEmpty()) {
-                        append(";tags=").append(acquisition.selector.requiredTags.sorted().joinToString(","))
-                    }
-                })
-                is TimetableAction.TakeFromWaypoint -> TimetableSimulationSelectorKey(
-                    "waypoints:${acquisition.wayPointIds.joinToString(",")}"
+                is TimetableAction.TakeFromDepot -> TimetableSimulationSelectorKey.Depot(acquisition.selector)
+                is TimetableAction.TakeFromWaypoint -> TimetableSimulationSelectorKey.Waypoints(
+                    acquisition.wayPointIds.toList()
                 )
-                else -> TimetableSimulationSelectorKey("any")
+                else -> TimetableSimulationSelectorKey.Any
             }
         }
     }

@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.timetable.simulation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.control.TrainDynamics
 
 class DetailedTrainTravelSimulatorTest {
     @Test

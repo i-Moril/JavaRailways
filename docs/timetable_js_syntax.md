@@ -253,6 +253,19 @@ timetable.setInitialPosition(
 
 在 `service(..., function(t) { ... })` 中，`t` 是 service builder。
 
+### `t.origin(originId, callback)`
+
+为 WebUI 确定性生成的动作添加仅用于编译追踪的来源范围。范围内生成的每个 step 会在 `compilationTrace` 中记录 `serviceId`、`stepIndex` 和 `origin`；该信息不会恢复到核心运行时模型，也不影响调度。
+
+```js
+t.origin("duty:l1-a/element:up-01/run:l1-up-01", scoped => {
+  scoped.check("idamachi@2")
+  scoped.at(4200).destination("manseibashi@3B")
+})
+```
+
+普通手写脚本可以省略 `origin()`。`originId` 必须非空，callback 必须可执行，且范围不能跨越未完成的 `pass(...)` 路径。
+
 ### `timetable.takeFromDepot(depotId, options?, tick)`
 
 构造一个 service train selector，在指定 tick 从 Depot 的 StablingPoint 中选择一列物理上实际停准、停止且未被其他 service 控制的列车。DepotStore 的 RollingStock 登记状态不参与车辆是否可取的判断。

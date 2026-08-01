@@ -16,6 +16,7 @@ class TimetableBuilder(private val id: String) {
     private val services = mutableListOf<SavedTimetableServiceV1>()
     private val diagramLines = mutableListOf<SavedDiagramLineV1>()
     private val initialPositions = mutableListOf<SavedInitialPositionV1>()
+    private val compilationTrace = mutableListOf<SavedCompilationTraceV1>()
 
     @HostAccess.Export fun setPeriodDays(days: Long): TimetableBuilder { require(days > 0); Math.multiplyExact(days, 24_000); periodDays = days; return this }
     @HostAccess.Export fun setPeriod(ticks: Long): TimetableBuilder { require(ticks > 0 && ticks % 24_000 == 0L) { "period ticks must be a positive multiple of 24000" }; return setPeriodDays(ticks / 24_000) }
@@ -154,6 +155,9 @@ class TimetableBuilder(private val id: String) {
         }
         require(diagramLineId != null || lineDirection == null) { "lineDirection requires diagramLineId" }
         services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.buildSteps(), activation, diagramLineId, lineDirection)
+        compilationTrace += builder.buildTrace().map { (stepIndex, origin) ->
+            SavedCompilationTraceV1(serviceId, stepIndex, origin)
+        }
         return this
     }
 
@@ -165,20 +169,37 @@ class TimetableBuilder(private val id: String) {
             requireNotNull(periodDays) { "setPeriodDays() is required" },
             services.toList(),
             diagramLines.toList(),
-            initialPositions.toList()
+            initialPositions.toList(),
+            compilationTrace.toList()
         )
     }
 }
 
 class ServiceBuilder {
     private val steps = mutableListOf<SavedTimetableStepV1>()
+    private val trace = mutableListOf<Pair<Int, String>>()
     private val pendingPasses = mutableListOf<String>()
     private var currentTick = 0L
+    private var currentOrigin: String? = null
+
+    @HostAccess.Export fun origin(origin: String, callback: Value): ServiceBuilder {
+        requireNoPendingRoute()
+        require(origin.isNotBlank()) { "origin must not be blank" }
+        require(callback.canExecute()) { "origin builder must be a function" }
+        val previous = currentOrigin
+        currentOrigin = origin
+        try {
+            callback.executeVoid(this)
+        } finally {
+            currentOrigin = previous
+        }
+        return this
+    }
 
     @HostAccess.Export fun check(wayPointId: String): ServiceBuilder {
         requireNoPendingRoute()
         require(wayPointId.isNotBlank())
-        steps += SavedTimetableStepV1(SavedTimetableStepTypeV1.CHECK, wayPointId = wayPointId)
+        append(SavedTimetableStepV1(SavedTimetableStepTypeV1.CHECK, wayPointId = wayPointId))
         return this
     }
 
@@ -217,7 +238,7 @@ class ServiceBuilder {
         val doorSide = options.string("doorSide")?.uppercase()?.also {
             require(it in setOf("NONE", "LEFT", "RIGHT", "BOTH")) { "doorSide must be NONE, LEFT, RIGHT, or BOTH" }
         }
-        steps += SavedTimetableStepV1(
+        append(SavedTimetableStepV1(
             SavedTimetableStepTypeV1.AT,
             tick,
             action = SavedTimetableActionV1(
@@ -228,15 +249,15 @@ class ServiceBuilder {
                 stoppingOffsetMetersBefore = offset,
                 doorSideOverride = doorSide
             )
-        )
-        steps += SavedTimetableStepV1(
+        ))
+        append(SavedTimetableStepV1(
             SavedTimetableStepTypeV1.AT,
             tick,
             action = SavedTimetableActionV1(
                 SavedTimetableActionTypeV1.DESTINATION,
                 wayPointIds = pendingPasses + target
             )
-        )
+        ))
         pendingPasses.clear()
         return this
     }
@@ -251,13 +272,21 @@ class ServiceBuilder {
     internal fun add(tick: Long, action: SavedTimetableActionV1): ServiceBuilder {
         requireNoPendingRoute()
         currentTick = tick
-        steps += SavedTimetableStepV1(SavedTimetableStepTypeV1.AT, tick, action = action)
+        append(SavedTimetableStepV1(SavedTimetableStepTypeV1.AT, tick, action = action))
         return this
     }
 
     internal fun buildSteps(): List<SavedTimetableStepV1> {
         requireNoPendingRoute()
         return steps.toList()
+    }
+
+    internal fun buildTrace(): List<Pair<Int, String>> = trace.toList()
+
+    private fun append(step: SavedTimetableStepV1) {
+        val index = steps.size
+        steps += step
+        currentOrigin?.let { trace += index to it }
     }
 
     private fun requireNoPendingRoute() {

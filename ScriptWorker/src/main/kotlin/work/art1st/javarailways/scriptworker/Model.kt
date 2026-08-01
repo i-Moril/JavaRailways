@@ -32,4 +32,12 @@ import kotlinx.serialization.json.JsonObject
 @Serializable enum class SavedObjectSelectorTypeV1 { REGEX, AND, OR, NOT, TAGS }
 @Serializable data class SavedObjectSelectorV1(val type: SavedObjectSelectorTypeV1, val pattern: String? = null, val selectors: List<SavedObjectSelectorV1> = emptyList(), val tags: Set<String> = emptySet())
 @Serializable data class SavedInitialPositionV1(val trainSelector: SavedObjectSelectorV1, val wayPointSelector: SavedObjectSelectorV1)
-@Serializable data class SavedTimetableV1(val id: String, val periodDays: Long, val services: List<SavedTimetableServiceV1>, val diagramLines: List<SavedDiagramLineV1> = emptyList(), val initialPositions: List<SavedInitialPositionV1> = emptyList())
+@Serializable data class SavedCompilationTraceV1(val serviceId: String, val stepIndex: Int, val origin: String)
+@Serializable data class SavedTimetableV1(
+    val id: String,
+    val periodDays: Long,
+    val services: List<SavedTimetableServiceV1>,
+    val diagramLines: List<SavedDiagramLineV1> = emptyList(),
+    val initialPositions: List<SavedInitialPositionV1> = emptyList(),
+    val compilationTrace: List<SavedCompilationTraceV1> = emptyList()
+)

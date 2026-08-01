@@ -39,6 +39,8 @@ interface JavaRailwaysServiceOptions {
     | { readonly type: 'conditional'; readonly condition: JavaRailwaysCondition; readonly falseBehavior?: 'SKIP_CYCLE' | 'WAIT_UNTIL_TRUE' };
 }
 interface JavaRailwaysServiceBuilder {
+  /** Groups generated actions under a presentation-only compiler trace origin. */
+  origin(originId: string, build: JavaRailwaysServiceCallback): this;
   check(wayPointId: string): this;
   at(departureTick: number): JavaRailwaysTimedActionBuilder;
   pass(target: string | readonly string[]): this;

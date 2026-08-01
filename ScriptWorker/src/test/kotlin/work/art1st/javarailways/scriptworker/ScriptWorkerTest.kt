@@ -119,6 +119,22 @@ class ScriptWorkerTest {
         assertEquals(900L, result.services.single().steps.first().action?.arrivalTick)
     }
 
+    @Test fun `origin scopes produce presentation-only step trace`() {
+        val result = run("""
+          timetable.setPeriodDays(1);
+          timetable.service('duty-a','train',t => {
+            t.origin('duty:duty-a/run:up-01', scoped => {
+              scoped.check('a');
+              scoped.at(100).destination('b', {arrivalTick: 200});
+            });
+            t.at(300).reverse();
+          });
+        """)
+        assertEquals(listOf(0, 1, 2), result.compilationTrace.map { it.stepIndex })
+        assertEquals(setOf("duty:duty-a/run:up-01"), result.compilationTrace.map { it.origin }.toSet())
+        assertEquals(setOf("duty-a"), result.compilationTrace.map { it.serviceId }.toSet())
+    }
+
     @Test fun `options reject unknown fields and normalize door side`() {
         val result = run("timetable.setPeriodDays(1); timetable.service('s','train', t => t.at(1).destination('central@one',{doorSide:'left'}));")
         assertEquals("LEFT", result.services.single().steps.first().action?.doorSideOverride)

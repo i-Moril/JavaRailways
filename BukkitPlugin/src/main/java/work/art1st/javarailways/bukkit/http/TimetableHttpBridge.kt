@@ -144,6 +144,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     exchange.respond(200, railMapPreview.trains(worldName))
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "scripts" ->
                     exchange.respond(200, scriptsJson())
+                exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "scripts" && parts[2] == "compile" -> {
+                    exchange.respond(200, compileSourceJson(worldName, readBody(exchange)))
+                }
                 exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "scripts" -> {
                     val scriptName = decode(parts[2])
                     val timetableId = exchange.requestURI.rawQuery?.split('&')?.mapNotNull { pair ->
@@ -319,8 +322,37 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun renderScriptJson(worldName: String, scriptName: String, timetableId: String): String {
             val source = plugin.timetableScriptSandbox.readSource(scriptName)
+            val compiled = compileSource(worldName, source, timetableId)
+            return json.encodeToString(buildJsonObject {
+                put("name", scriptName)
+                put("source", source)
+                put("timetable", json.parseToJsonElement(TimetableSnapshotCodec.encode(compiled.first)))
+                put("validation", validationJson(compiled.second))
+            })
+        }
+
+        private fun compileSourceJson(worldName: String, body: String): String {
+            val root = json.parseToJsonElement(body).jsonObject
+            val source = root["source"]?.jsonPrimitive?.content
+                ?: throw HttpFailure(400, "source is required")
+            val timetableId = root["id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: throw HttpFailure(400, "id is required")
+            val expectedHash = root["documentHash"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            val compiled = compileSource(worldName, source, timetableId)
+            return json.encodeToString(buildJsonObject {
+                put("timetable", json.parseToJsonElement(TimetableSnapshotCodec.encode(compiled.first)))
+                put("validation", validationJson(compiled.second))
+                expectedHash?.let { put("documentHash", it) }
+            })
+        }
+
+        private fun compileSource(
+            worldName: String,
+            source: String,
+            timetableId: String
+        ): Pair<SavedTimetableV1, work.art1st.javarailways.basic.timetable.TimetableValidationResult> {
             val workerSaved = plugin.timetableScriptSandbox.compileSource(source, timetableId)
-            val (saved, validation) = await {
+            return await {
                 withWorld(worldName) { _, world ->
                     val normalized = TimetableScriptNormalizer.normalize(workerSaved, world)
                     val timetable = runCatching(normalized::restore).getOrElse {
@@ -329,16 +361,13 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     normalized to TimetableValidator(world).validate(timetable)
                 }
             }
-            return json.encodeToString(buildJsonObject {
-                put("name", scriptName)
-                put("source", source)
-                put("timetable", json.parseToJsonElement(TimetableSnapshotCodec.encode(saved)))
-                put("validation", buildJsonObject {
-                    put("valid", validation.isSuccess)
-                    put("errors", JsonArray(validation.errors.map(::JsonPrimitive)))
-                })
-            })
         }
+
+        private fun validationJson(validation: work.art1st.javarailways.basic.timetable.TimetableValidationResult) =
+            buildJsonObject {
+                put("valid", validation.isSuccess)
+                put("errors", JsonArray(validation.errors.map(::JsonPrimitive)))
+            }
 
         private fun linesJson(worldName: String) = withWorld(worldName) { _, world ->
             val snapshot = world.basicWorldData.lines.snapshot()

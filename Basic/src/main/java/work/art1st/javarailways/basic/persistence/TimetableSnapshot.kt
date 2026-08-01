@@ -461,13 +461,22 @@ data class SavedInitialPositionV1(
 }
 
 @Serializable
+data class SavedCompilationTraceV1(
+    val serviceId: String,
+    val stepIndex: Int,
+    val origin: String
+)
+
+@Serializable
 data class SavedTimetableV1(
     val id: String,
     val periodDays: Long,
     val services: List<SavedTimetableServiceV1>,
     /** Presentation-only lane definitions; ignored by restore(). */
     val diagramLines: List<SavedDiagramLineV1> = emptyList(),
-    val initialPositions: List<SavedInitialPositionV1> = emptyList()
+    val initialPositions: List<SavedInitialPositionV1> = emptyList(),
+    /** Presentation-only compiler trace; ignored by restore(). */
+    val compilationTrace: List<SavedCompilationTraceV1> = emptyList()
 ) {
     fun restore(): Timetable = Timetable(
         id,

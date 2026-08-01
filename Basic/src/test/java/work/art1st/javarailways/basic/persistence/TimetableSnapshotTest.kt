@@ -31,7 +31,8 @@ class TimetableSnapshotTest {
                     arrivalTick = 100, departureTick = 140
                 ))
             )),
-            diagramLines = listOf(SavedDiagramLineV1("metro", listOf("central"), listOf("central")))
+            diagramLines = listOf(SavedDiagramLineV1("metro", listOf("central"), listOf("central"))),
+            compilationTrace = listOf(SavedCompilationTraceV1("S1", 0, "duty:S1/run:up-01"))
         )
 
         val decoded = TimetableSnapshotCodec.decode(TimetableSnapshotCodec.encode(saved))
@@ -41,6 +42,7 @@ class TimetableSnapshotTest {
         assertNull(recaptured.services.single().diagramLineId)
         assertNull(recaptured.services.single().steps.single().action?.arrivalTick)
         assertEquals(emptyList<SavedDiagramLineV1>(), recaptured.diagramLines)
+        assertEquals(emptyList<SavedCompilationTraceV1>(), recaptured.compilationTrace)
         assertNull(recaptured.services.single().rows?.single()?.arrivalTick)
         assertEquals(140, recaptured.services.single().rows?.single()?.departureTick)
     }

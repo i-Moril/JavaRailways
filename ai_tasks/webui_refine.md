@@ -729,14 +729,18 @@ data class SimulationEvent(
 - 完成展示到达时刻从行编辑到 Saved DTO 的链路。
 - Graph 区分到达点与发车点并分别编辑。
 - WebUI 支持 `DoorSide.NONE`。
-- Basic 新增首阶段确定性虚拟时间模拟引擎，消费编译后的 `Timetable`，要求每种 selector 映射模拟车辆，并支持旅行/操作时间 adapter 与延误传播报告。
+- Basic 新增确定性虚拟时间模拟引擎，消费编译后的 `Timetable`，要求每种结构化 selector 映射模拟车辆，并支持旅行/操作时间 adapter、最短停站、周期边界、动态取车起点解析、资源竞争和延误传播报告。
+- 未注册的运行时函数不再按零耗时兜底；模拟会终止对应交路并报告 error。
+- 纯列车动力学已移至 `basic.control`，线路预览和时刻表详细时分估算共享同一实现。
+- 详细时分缓存已设置容量边界，避免路径/profile 组合无限增长。
+- 交路编辑器支持原子跨交路移动运行线和有界撤销/重做；编译产物与完整文档快照绑定，避免发布过期结果。
+- EditorDocument 增加独立后端结构校验和更完整的前端语义校验，同时仍允许保存未完成草稿。
 
 后续仍需：
 
-- 完成交路函数参数、排序、跨交路拖动与撤销体验。
-- 将基础设施资源竞争接入 Basic 模拟器。
-- 抽离并接入详细动力学 `TravelTimeEstimator`。
-- 增加 selector/profile 映射 UI、模拟报告叠加和缓存。
+- 将世界基础设施和车辆快照 adapter 接到 Basic 模拟器，并提供完整时刻表模拟 API。
+- 增加 selector/profile 映射 UI、模拟报告叠加及带 revision/version 的持久缓存。
+- 继续拆分 `DutyEditor`，完善交路函数参数和拖放体验。
 - 完成批量复制、平移和周期生成。
 
 ## 18. 待讨论事项

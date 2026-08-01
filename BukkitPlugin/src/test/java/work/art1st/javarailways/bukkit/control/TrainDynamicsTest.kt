@@ -2,6 +2,7 @@ package work.art1st.javarailways.bukkit.control
 
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.timetable.simulation.TrainDynamics
 import work.art1st.javarailways.bukkit.config.model.CarBrakeControlConfig
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.DavisResistanceConfig

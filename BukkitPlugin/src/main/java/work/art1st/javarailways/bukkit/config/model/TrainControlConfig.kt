@@ -1,10 +1,11 @@
 package work.art1st.javarailways.bukkit.config.model
 
 import kotlinx.serialization.Serializable
+import work.art1st.javarailways.basic.timetable.simulation.TrainDynamics
 
 @Serializable
 data class TrainControlConfig(
-    val maxSpeed: Double = 20.0,
+    override val maxSpeed: Double = 20.0,
     val powerNotches: List<String> = listOf("P1", "P2", "P3", "P4", "P5"),
     val brakeNotches: List<String> = listOf("B1", "B2", "B3", "B4", "B5", "B6", "B7", "EB"),
     val tractionNotchScales: Map<String, Double> = linkedMapOf(
@@ -24,15 +25,20 @@ data class TrainControlConfig(
         "B7" to 1.00,
         "EB" to 1.25
     ),
-    val brakeApplyTime: Double = 1.2,
-    val brakeReleaseTime: Double = 1.8,
+    override val brakeApplyTime: Double = 1.2,
+    override val brakeReleaseTime: Double = 1.8,
     val resistance: DavisResistanceConfig = DavisResistanceConfig(),
     val adhesion: AdhesionConfig = AdhesionConfig(),
     val jerk: JerkLimitConfig = JerkLimitConfig()
-) {
-    fun normalizedPowerScale(handle: String): Double = tractionNotchScales[handle.uppercase()] ?: 0.0
-
-    fun normalizedBrakeScale(handle: String): Double = brakeNotchScales[handle.uppercase()] ?: 0.0
+) : TrainDynamics.TrainProfile {
+    override val powerHandles: List<String> get() = powerNotches
+    override val brakeHandles: List<String> get() = brakeNotches
+    override val adhesionCoefficient: Double get() = adhesion.coefficient
+    override val tractionJerk: Double get() = jerk.traction
+    override val brakeJerk: Double get() = jerk.brake
+    override fun normalizedPowerScale(handle: String): Double = tractionNotchScales[handle.uppercase()] ?: 0.0
+    override fun normalizedBrakeScale(handle: String): Double = brakeNotchScales[handle.uppercase()] ?: 0.0
+    override fun resistanceForceAt(speed: Double): Double = resistance.forceAt(speed)
 
     companion object {
         fun parse(root: Map<String, Any>?): TrainControlConfig {
@@ -96,13 +102,19 @@ data class TrainControlConfig(
 
 @Serializable
 data class CarControlConfig(
-    val mass: Double = 32_000.0,
+    override val mass: Double = 32_000.0,
     val rotatingMassFactor: Double = 1.08,
     val motor: MotorControlConfig = MotorControlConfig(),
     val brake: CarBrakeControlConfig = CarBrakeControlConfig(),
     val resistance: DavisResistanceConfig? = null
-) {
-    val effectiveMass: Double get() = mass * rotatingMassFactor
+) : TrainDynamics.CarProfile {
+    override val effectiveMass: Double get() = mass * rotatingMassFactor
+    override val motorAdhesionMassRatio: Double get() = motor.adhesionMassRatio
+    override val brakeMaxForce: Double get() = brake.maxForce
+    override val brakeAdhesionMassRatio: Double get() = brake.adhesionMassRatio
+    override fun motorForceAt(speed: Double): Double = motor.forceAt(speed)
+    override fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double): Double =
+        resistance?.forceAt(speed) ?: defaultResistance(speed)
 
     companion object {
         fun parse(root: Map<String, Any>?): CarControlConfig {

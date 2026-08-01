@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.control
 
+import work.art1st.javarailways.basic.timetable.simulation.TrainDynamics
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig

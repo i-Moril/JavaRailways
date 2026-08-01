@@ -1,14 +1,37 @@
-package work.art1st.javarailways.bukkit.control
+package work.art1st.javarailways.basic.timetable.simulation
 
-import work.art1st.javarailways.bukkit.config.model.CarControlConfig
-import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import kotlin.math.abs
 
+/** Pure longitudinal dynamics shared by live train control and isolated timetable simulation. */
 object TrainDynamics {
     private const val G = 9.80665
 
+    interface TrainProfile {
+        val maxSpeed: Double
+        val powerHandles: List<String>
+        val brakeHandles: List<String>
+        val brakeApplyTime: Double
+        val brakeReleaseTime: Double
+        val adhesionCoefficient: Double
+        val tractionJerk: Double
+        val brakeJerk: Double
+        fun normalizedPowerScale(handle: String): Double
+        fun normalizedBrakeScale(handle: String): Double
+        fun resistanceForceAt(speed: Double): Double
+    }
+
+    interface CarProfile {
+        val mass: Double
+        val effectiveMass: Double
+        val motorAdhesionMassRatio: Double
+        val brakeMaxForce: Double
+        val brakeAdhesionMassRatio: Double
+        fun motorForceAt(speed: Double): Double
+        fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double): Double
+    }
+
     data class CarInput(
-        val control: CarControlConfig,
+        val control: CarProfile,
         /** sin(theta), positive when the train's forward direction is uphill. */
         val grade: Double = 0.0
     )
@@ -30,7 +53,7 @@ object TrainDynamics {
 
     fun step(
         state: State,
-        config: TrainControlConfig,
+        config: TrainProfile,
         cars: List<CarInput>,
         handle: String,
         deltaSeconds: Double
@@ -57,36 +80,33 @@ object TrainDynamics {
             0.0
         } else {
             cars.sumOf { car ->
-                val motor = car.control.motor
-                val raw = motor.forceAt(speed) * powerScale
-                val adhesionLimit = car.control.mass * motor.adhesionMassRatio * G * config.adhesion.coefficient
+                val raw = car.control.motorForceAt(speed) * powerScale
+                val adhesionLimit = car.control.mass * car.control.motorAdhesionMassRatio * G *
+                    config.adhesionCoefficient
                 raw.coerceIn(0.0, adhesionLimit.coerceAtLeast(0.0))
             }
         }
         val brakeForce = cars.sumOf { car ->
-            val raw = car.control.brake.maxForce * brakeScale
-            val adhesionLimit = car.control.mass * car.control.brake.adhesionMassRatio * G * config.adhesion.coefficient
+            val raw = car.control.brakeMaxForce * brakeScale
+            val adhesionLimit = car.control.mass * car.control.brakeAdhesionMassRatio * G *
+                config.adhesionCoefficient
             raw.coerceIn(0.0, adhesionLimit.coerceAtLeast(0.0))
         }
         val resistanceForce = cars.sumOf { car ->
-            (car.control.resistance ?: config.resistance).forceAt(speed)
+            car.control.resistanceForceAt(speed, config::resistanceForceAt)
         }
         val gradeForce = cars.sumOf { car ->
             car.control.mass * G * car.grade.coerceIn(-1.0, 1.0)
         }
 
         var targetAcceleration = (tractionForce - brakeForce - resistanceForce - gradeForce) / effectiveMass
-        // The core train API only supports non-negative forward speed. Do not let a stopped train roll backwards;
-        // downhill grades can still start it moving forward when gradeForce is negative.
-        if (speed <= 0.0 && targetAcceleration < 0.0) {
-            targetAcceleration = 0.0
-        }
+        if (speed <= 0.0 && targetAcceleration < 0.0) targetAcceleration = 0.0
 
         val acceleration = applyJerkLimit(
             current = state.acceleration,
             target = targetAcceleration,
-            tractionJerk = config.jerk.traction,
-            brakeJerk = config.jerk.brake,
+            tractionJerk = config.tractionJerk,
+            brakeJerk = config.brakeJerk,
             deltaSeconds = deltaSeconds
         )
 
@@ -97,16 +117,12 @@ object TrainDynamics {
         val limitedAcceleration = (newSpeed - speed) / deltaSeconds
         val distance = ((speed + newSpeed) * 0.5 * deltaSeconds).coerceAtLeast(0.0)
         return StepResult(
-            state = State(
-                speed = newSpeed,
-                acceleration = limitedAcceleration,
-                brakeScale = brakeScale
-            ),
-            distance = distance,
-            tractionForce = tractionForce,
-            brakeForce = brakeForce,
-            resistanceForce = resistanceForce,
-            gradeForce = gradeForce
+            State(newSpeed, limitedAcceleration, brakeScale),
+            distance,
+            tractionForce,
+            brakeForce,
+            resistanceForce,
+            gradeForce
         )
     }
 
@@ -121,11 +137,8 @@ object TrainDynamics {
         val time = if (target > current) applyTime else releaseTime
         if (time <= 0.0) return target
         val maxDelta = deltaSeconds / time
-        return if (target > current) {
-            minOf(target, current + maxDelta)
-        } else {
-            maxOf(target, current - maxDelta)
-        }
+        return if (target > current) minOf(target, current + maxDelta)
+        else maxOf(target, current - maxDelta)
     }
 
     private fun applyJerkLimit(

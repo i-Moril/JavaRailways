@@ -1,4 +1,4 @@
-# MineRails 主配置。
+# JavaRailways 主配置。
 # 本文件中的每个键都是必填项；如果删除或写错类型，插件会在启动时报错。
 
 # 已保存列车在模型包更新后的跟随策略。
@@ -6,7 +6,7 @@
 # snapshot: 保存解析后的模型快照，后续不跟随包文件变更。
 train-model-update-policy: follow-package
 
-# MineRails 展示实体渲染后端。
+# JavaRailways 展示实体渲染后端。
 # entitylib: 默认；轨道和列车视觉 Display 使用 EntityLib + PacketEvents，座位、交互和碰撞仍为 native。
 # native: 显式回退到真实 Bukkit/Paper Display，受原生实体追踪和区块发送距离限制。
 display-renderer:
@@ -14,7 +14,7 @@ display-renderer:
   player-distance:
     # 未单独设置时，使用玩家客户端设置的视距换算为方块。
     default: player-view-distance
-    # MineRails 允许的最大展示半径。必须在 (0, 4096] 内。
+    # JavaRailways 允许的最大展示半径。必须在 (0, 4096] 内。
     max-blocks: 512.0
 
 # 玩家与绑定列车任意车厢中心的最大允许距离（米）。
@@ -22,7 +22,7 @@ display-renderer:
 train-key-bind-distance: 20.0
 
 # 是否启用逐 tick 列车调试日志。
-# true 时会写入 plugins/MineRails/debug/train_debug.csv。
+# true 时会写入 plugins/JavaRailways/debug/train_debug.csv。
 # 仅在短时间采样排障时开启。
 train-debug-log: false
 
@@ -46,25 +46,25 @@ turnout:
   allocation-retry-ticks: 5
 
 # Timetable WebUI process mode:
-# managed: MineRails extracts, starts, and stops an isolated WebUI Java sidecar (default).
+# managed: JavaRailways extracts, starts, and stops an isolated WebUI Java sidecar (default).
 # external: an administrator runs WebUI independently; both processes use bearer-token-env.
 # disabled: neither WebUI nor its bridge is started.
 timetable-webui:
   mode: managed
   bind-address: 127.0.0.1
   port: 8080
-  # Clickable URL emitted by /mr timetable edit. Remote plaintext HTTP is allowed
+  # Clickable URL emitted by /jr timetable edit. Remote plaintext HTTP is allowed
   # but vulnerable to network interception; use HTTPS when that matters.
   public-url: http://127.0.0.1:8080
   shutdown-timeout-millis: 5000
 
 # Authenticated loopback-only timetable HTTP bridge used by managed or external WebUI.
-# In managed mode MineRails generates an ephemeral token; bearer-token-env is used only
+# In managed mode JavaRailways generates an ephemeral token; bearer-token-env is used only
 # in external mode.
 timetable-http-bridge:
   enabled: true
   bind-address: 127.0.0.1
   port: 8765
-  bearer-token-env: MINERAILS_TIMETABLE_HTTP_TOKEN
+  bearer-token-env: JAVARAILWAYS_TIMETABLE_HTTP_TOKEN
   body-limit-bytes: 1048576
   timeout-millis: 5000

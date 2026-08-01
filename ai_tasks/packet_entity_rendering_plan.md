@@ -2,11 +2,11 @@
 
 ## 1. 目标
 
-为 MineRails 增加管理员可选的展示实体渲染后端，同时保留现有行为：
+为 JavaRailways 增加管理员可选的展示实体渲染后端，同时保留现有行为：
 
 - `native`：继续使用真实 Bukkit/Paper `Display` 实体；
 - `entitylib`：使用 EntityLib + PacketEvents 创建逐玩家虚拟 `ItemDisplay` / `BlockDisplay`，允许展示距离超过 Paper 原生实体追踪和玩家区块发送距离；
-- 每名玩家可拥有独立的 MineRails 展示距离；默认值取该玩家设置的客户端视距上限，并受管理员配置的最大方块距离约束；
+- 每名玩家可拥有独立的 JavaRailways 展示距离；默认值取该玩家设置的客户端视距上限，并受管理员配置的最大方块距离约束；
 - 座位、交互命中箱和碰撞平台仍使用真实 Bukkit 实体，不纳入远距离虚拟化。
 
 本计划只覆盖视觉 Display。它不改变 Core 物理、轨道持久化格式、座位控制或碰撞语义。
@@ -38,7 +38,7 @@ display-renderer:
   player-distance:
     # player-view-distance：使用玩家客户端视距换算为方块
     default: player-view-distance
-    # 管理员允许的 MineRails 最大视觉距离
+    # 管理员允许的 JavaRailways 最大视觉距离
     max-blocks: 512.0
 ```
 
@@ -56,7 +56,7 @@ display-renderer:
 ```text
 RenderChunkManager
   ├─ 维护 renderable 空间索引
-  ├─ 计算每名玩家的 MineRails audience
+  ├─ 计算每名玩家的 JavaRailways audience
   └─ 调用 RenderAudience.add/remove
 
 DisplayRenderBackend
@@ -78,7 +78,7 @@ DisplayVisual
   └─ addPassenger
 ```
 
-`RenderChunkManager` 继续作为 MineRails 唯一 audience 真相来源，不采用 EntityLib 的实验性 `ViewerEngine` 替换现有区块索引。
+`RenderChunkManager` 继续作为 JavaRailways 唯一 audience 真相来源，不采用 EntityLib 的实验性 `ViewerEngine` 替换现有区块索引。
 
 ## 5. 分阶段实施
 
@@ -217,7 +217,7 @@ GREEN：
 ### 集成/实机测试
 
 - Paper 1.21.11；
-- 玩家客户端视距低于/高于 MineRails 距离；
+- 玩家客户端视距低于/高于 JavaRailways 距离；
 - 未加载远端区块的虚拟 Display；
 - 静止轨道、大量静态轨道、移动列车；
 - 动画、开关门、LOD；
@@ -237,8 +237,8 @@ GREEN：
 
 - `BukkitPlugin/build.gradle`
 - `BukkitPlugin/src/main/resources/config.yml`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/BukkitPlugin.kt`
-- `.../config/MineRailsConfig.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt`
+- `.../config/JavaRailwaysConfig.kt`
 - `.../render/chunk/ViewDistanceManager.kt`
 - `.../render/chunk/RenderChunkManager.kt`
 - `.../extension/rail/RailExtension.kt`
@@ -251,6 +251,6 @@ GREEN：
 预计新增目录：
 
 ```text
-BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/backend/
-BukkitPlugin/src/test/java/work/art1st/mineRails/bukkit/render/backend/
+BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/backend/
+BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/render/backend/
 ```

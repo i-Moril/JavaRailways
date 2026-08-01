@@ -1,5 +1,5 @@
 # S100 编组总控制配置。
-# 本文件中的每个键都是必填项；MineRails 不再从代码补默认值。
+# 本文件中的每个键都是必填项；JavaRailways 不再从代码补默认值。
 
 config-version: 1
 

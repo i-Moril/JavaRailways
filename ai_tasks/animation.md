@@ -2,7 +2,7 @@
 
 ## 目标与范围
 
-本计划用于在 MineRails 中分步支持列车部件动画。参考来源：
+本计划用于在 JavaRailways 中分步支持列车部件动画。参考来源：
 
 - `/workspace/train/TrainCartResources/src/yml/s100/door.lib.yml`
 - `/workspace/train/TrainCartResources/src/yml/s100/train.yml`
@@ -27,11 +27,11 @@
 - [x] scene-aware transform 动画运行时。
 - [x] ModelTreeBuilder 接入部件动画。
 - [x] 安全递归触发链路。
-- [x] `/mr train anim` 调试命令。
+- [x] `/jr train anim` 调试命令。
 - [x] 已验证 S100 模型包，保存于 `models/s100/`。
-- [x] YAML Actions：`actions.yml`、`/mr train action <name>`、延迟动画/声音。
+- [x] YAML Actions：`actions.yml`、`/jr train action <name>`、延迟动画/声音。
 - [x] Display state 动画：`item-type`、`item-model`、`custom-model-data`、`brightness`。
-- [x] GraalJS Behavior：`behavior.js`、`action()`、`sound()`、`log()`、`/mr train behavior <method>`。
+- [x] GraalJS Behavior：`behavior.js`、`action()`、`sound()`、`log()`、`/jr train behavior <method>`。
 - [x] 渲染扩展持久化：保存/恢复 `carModelName`。
 - [x] held scene 持久化：保存/恢复如 `doors_l -> open` 的语义状态。
 - [x] `INTERACT` / `SEAT` / `PLATFORM` 分离。
@@ -51,7 +51,7 @@
 
 ### Phase 0：确认配置格式、scene 语义与兼容策略
 
-目标：先定下 MineRails 自己的动画 YAML 格式和 scene 播放语义，避免后面反复改解析器。
+目标：先定下 JavaRailways 自己的动画 YAML 格式和 scene 播放语义，避免后面反复改解析器。
 
 建议格式：
 
@@ -121,10 +121,10 @@ scene 播放语义：
 
 涉及文件：
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PartAnimationConfig.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PartDefinition.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PartItemConfig.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PartRegistry.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartAnimationConfig.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartDefinition.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartItemConfig.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartRegistry.kt`
 
 任务：
 
@@ -167,10 +167,10 @@ scene 播放语义：
 
 涉及文件：
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/Animation.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/CompactTransform.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/ModelState.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/AbstractModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/Animation.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/CompactTransform.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/ModelState.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/AbstractModel.kt`
 
 任务：
 
@@ -212,7 +212,7 @@ scene 播放语义：
 
 涉及文件：
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/ModelTreeBuilder.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/ModelTreeBuilder.kt`
 
 任务：
 
@@ -241,11 +241,11 @@ scene 播放语义：
 
 涉及文件：
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/AbstractModel.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/CompositeModel.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/TrainComponentExtension.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/CarExtension.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/TrainExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/AbstractModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/CompositeModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainComponentExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainExtension.kt`
 
 任务：
 
@@ -274,20 +274,20 @@ scene 播放语义：
 
 涉及文件：
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/command/TrainCommand.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/command/MineRailsCommand.kt`，如需 help/tab 补充
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/command/TrainCommand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/command/JavaRailwaysCommand.kt`，如需 help/tab 补充
 
 新增命令：
 
 ```text
-/mr train anim <animationName>
-/mr train anim <animationName> <sceneName>
+/jr train anim <animationName>
+/jr train anim <animationName> <sceneName>
 ```
 
 也可支持简写：
 
 ```text
-/mr train anim <animationName>:<sceneName>
+/jr train anim <animationName>:<sceneName>
 ```
 
 行为：
@@ -301,9 +301,9 @@ scene 播放语义：
 验证：
 
 - [x] `bash ./gradlew :BukkitPlugin:test` 通过。
-- [ ] `/mr train anim missing_name` 不报错，并提示没有部件响应。
-- [ ] `/mr train anim doors_l open` 或 `/mr train anim doors_l:open` 能触发配置了该 scene 的部件。
-- [ ] `/mr train anim doors_l closed` 能播放回关闭状态。
+- [ ] `/jr train anim missing_name` 不报错，并提示没有部件响应。
+- [ ] `/jr train anim doors_l open` 或 `/jr train anim doors_l:open` 能触发配置了该 scene 的部件。
+- [ ] `/jr train anim doors_l closed` 能播放回关闭状态。
 
 ---
 
@@ -313,7 +313,7 @@ scene 播放语义：
 
 涉及目录：
 
-- `BukkitPlugin/run/plugins/MineRails/trains/s100/parts/s100/`
+- `BukkitPlugin/run/plugins/JavaRailways/trains/s100/parts/s100/`
 
 候选文件：
 
@@ -345,9 +345,9 @@ scene 播放语义：
 验证：
 
 - [x] 创建 S100。
-- [x] 执行 `/mr train anim doors_l open`。
+- [x] 执行 `/jr train anim doors_l open`。
 - [x] 左侧门打开并保持，held scene 为 `open`。
-- [x] 执行 `/mr train anim doors_l closed`。
+- [x] 执行 `/jr train anim doors_l closed`。
 - [x] 左侧门关闭，held scene 为 `closed`。
 - [x] 右侧门同理。
 
@@ -411,15 +411,15 @@ actions:
 - [x] action 执行时支持调用已有 `applyAnimation(name, scene)`。
 - [x] action 执行时支持在列车/车厢位置播放 sound。
 - [x] action 动画/声音条目支持 `at` 延迟播放。
-- [x] 命令支持 `/mr train action <name>`。
+- [x] 命令支持 `/jr train action <name>`。
 - [x] 命令反馈 action 是否存在、哪些子效果被触发。
 
 验证：
 
 - [x] 新增 `TrainActionConfigTest` 覆盖 actions.yml 解析。
 - [x] `bash ./gradlew :BukkitPlugin:test` 通过。
-- [ ] `/mr train action door-left-open` 等价触发 `doors_l open`。
-- [ ] `/mr train action door-left-close` 等价触发 `doors_l closed`。
+- [ ] `/jr train action door-left-open` 等价触发 `doors_l open`。
+- [ ] `/jr train action door-left-close` 等价触发 `doors_l closed`。
 - [ ] 执行动作时能听到配置的声音。
 - [ ] 不存在的 action 有清晰提示，不抛异常。
 
@@ -496,7 +496,7 @@ function horn() {
 - [x] 向 JS 暴露安全 API：`action(name)`、`sound(key, volume, pitch)`、`log(message)`。
 - [x] 支持标准方法：`onStation(time, door_side)`。
 - [x] 支持自定义方法，供命令或其他插件调用。
-- [x] 命令支持 `/mr train behavior <method> [args...]` 用于调试。
+- [x] 命令支持 `/jr train behavior <method> [args...]` 用于调试。
 - [ ] 后续把自动门控逻辑接入 `onStation(time, door_side)`。
 
 验证：
@@ -521,7 +521,7 @@ function horn() {
 - [x] 定义/完善 `SavedTrainRenderState : SerializableExtensionData`，如需保存列车级渲染状态。
 - [x] `TrainExtension.save()` 保存列车级渲染状态。
 - [x] 世界加载后，为已恢复的 train/car 重新注册 Bukkit 的 `TrainExtension` / `CarExtension`。
-- [ ] 确认恢复后的列车可见、可删除、可执行 `/mr train anim`。
+- [ ] 确认恢复后的列车可见、可删除、可执行 `/jr train anim`。
 
 验证：
 
@@ -529,8 +529,8 @@ function horn() {
 - [x] `bash ./gradlew :BukkitPlugin:test` 通过。
 - [ ] 创建列车并保存/重启。
 - [ ] 重启后模型自动显示。
-- [ ] `/mr train delete` 能删除恢复后的列车模型。
-- [ ] `/mr train anim doors_l open` 能作用于恢复后的列车。
+- [ ] `/jr train delete` 能删除恢复后的列车模型。
+- [ ] `/jr train anim doors_l open` 能作用于恢复后的列车。
 
 ### Phase 11：Animation scene 状态持久化
 
@@ -561,7 +561,7 @@ data class SavedCarRenderState(
 - [x] `bash ./gradlew :BukkitPlugin:test` 通过。
 - [ ] 打开左门后保存/重启。
 - [ ] 重启后左门仍保持 open scene。
-- [ ] 执行 `/mr train anim doors_l closed` 能从 open scene 关闭。
+- [ ] 执行 `/jr train anim doors_l closed` 能从 open scene 关闭。
 
 ---
 
@@ -570,9 +570,9 @@ data class SavedCarRenderState(
 完成 Phase 1-6 后应满足：
 
 - [x] 插件能加载带 `animations`、`keyframes`、`scene` 的 part YAML。
-- [x] `/mr train anim doors_l open` 能让已渲染列车的左门部件移动到 open scene。
+- [x] `/jr train anim doors_l open` 能让已渲染列车的左门部件移动到 open scene。
 - [x] 动画结束后门保持打开状态，并记录 held scene。
-- [x] `/mr train anim doors_l closed` 能从 open scene 播放回 closed scene。
+- [x] `/jr train anim doors_l closed` 能从 open scene 播放回 closed scene。
 - [x] 右门 `doors_r open/closed` 同理。
 - [x] 没有对应动画或 scene 的部件不会抛异常。
 - [x] 重复触发动画不会导致 tick object 泄漏。
@@ -584,5 +584,5 @@ data class SavedCarRenderState(
 2. Animation 运行时修正。
 3. ModelTreeBuilder 接入动画 map。
 4. 递归触发链路改造。
-5. `/mr train anim` 调试命令。
+5. `/jr train anim` 调试命令。
 6. S100 门动画样例配置。

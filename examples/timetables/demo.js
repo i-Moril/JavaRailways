@@ -1,7 +1,7 @@
 // @ts-check
 /// <reference path="../../types/timetable.d.ts" />
 
-/** @param {MineRailsTimetableBuilder} timetable */
+/** @param {JavaRailwaysTimetableBuilder} timetable */
 function main(timetable) {
   timetable.setPeriodDays(1)
   const useExpress = true // ordinary JS is resolved while the timetable is built

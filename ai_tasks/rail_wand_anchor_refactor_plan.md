@@ -18,7 +18,7 @@
 1. **锚点与轨道绑定**
    - 轨道端点一定对应锚点。
    - 已创建轨道的锚点不再作为独立对象持久化，而是从轨道/轨道编辑元数据推导或绑定保存。
-   - 创建轨道前，玩家选择/放置的锚点只存在于内存中的会话状态，不写入 `plugins/MineRails/anchors/*.json`。
+   - 创建轨道前，玩家选择/放置的锚点只存在于内存中的会话状态，不写入 `plugins/JavaRailways/anchors/*.json`。
    - 锚点不需要全局编号；UI 可用临时序号/颜色/位置提示，但不作为持久 ID。
 
 2. **锚点创建来自右键目标方块**
@@ -78,7 +78,7 @@
 8. **每玩家 RailWand 设置持久化**
    - 当前 `WandPlayerState` 是内存状态，重启/重进后丢失。
    - 需要为每个玩家保存 RailWand 设置，例如：
-     - `plugins/MineRails/wand-settings/<player-uuid>.json`
+     - `plugins/JavaRailways/wand-settings/<player-uuid>.json`
    - 至少保存：
      - 当前模式/常用模式设置；
      - `parallelCount`、`parallelSpacing`；
@@ -114,7 +114,7 @@
 
 ### Phase 1：拆分临时锚点与轨道端点锚点
 
-状态：已开始实现。RailWand 已停止使用 `PersistentAnchorStore` 读写锚点，改为插件运行期内存 `transientAnchors`；创建、选择、编辑、删除、undo/redo 都只操作临时锚点，不再写入 `plugins/MineRails/anchors/*.json`。轨道端点绑定式锚点仍待实现。
+状态：已开始实现。RailWand 已停止使用 `PersistentAnchorStore` 读写锚点，改为插件运行期内存 `transientAnchors`；创建、选择、编辑、删除、undo/redo 都只操作临时锚点，不再写入 `plugins/JavaRailways/anchors/*.json`。轨道端点绑定式锚点仍待实现。
 
 #### 数据模型
 
@@ -158,7 +158,7 @@ enum class RailEnd { A, B }
 
 #### 验收
 
-- 创建锚点不再生成/修改 `plugins/MineRails/anchors/<world>.json`。
+- 创建锚点不再生成/修改 `plugins/JavaRailways/anchors/<world>.json`。
 - 重启后，未创建轨道的临时锚点消失。
 - 已创建轨道的端点仍可被 RailWand 识别为可选锚点。
 
@@ -274,7 +274,7 @@ data class RailEditMeta(
 如果现有 `PersistedRailRenderMeta` 不适合承载编辑信息，可以新增独立：
 
 ```text
-plugins/MineRails/rail_edit_meta/<world-uuid>.json
+plugins/JavaRailways/rail_edit_meta/<world-uuid>.json
 ```
 
 #### 验收

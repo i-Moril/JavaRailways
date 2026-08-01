@@ -12,30 +12,30 @@ Verification already run:
 Issues to fix before merge:
 
 1. `RailLocationWithFacing` BA-direction persistence is wrong.
-   - File: `Core/src/main/java/work/art1st/mineRails/core/physics/rail/RailLocationWithFacing.kt`
+   - File: `Core/src/main/java/work/art1st/javarailways/core/physics/rail/RailLocationWithFacing.kt`
    - `save()` stores `arcLengthIn(ViewDirection.AB)`, but `load()` reads that value directly from `rv.curve`.
    - For `direction == BA`, `rv.curve` is already reversed, so the loaded position is mirrored to `totalArcLength - savedArc`.
    - Fix: when loading BA, convert AB arc length to BA arc length first, or always get the point from `viewAB` and then construct the requested facing explicitly.
 
 2. `RailWand.connectSelectedAnchors` leaks partially created rails on non-exception failure.
-   - File: `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailWand.kt`
+   - File: `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt`
    - If `createCurveBetweenAnchors(...)` returns `null` after earlier rails were already created, the method returns directly.
    - That bypasses cleanup and also bypasses pushing undo actions.
    - Fix: precompute all curves before registration, or rollback `createdRails` before returning from the failure branch.
 
 3. Self-contained train package namespace handling is inconsistent.
    - Files:
-     - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PackageLoader.kt`
-     - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/CarDefinition.kt`
-     - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/ModelTreeBuilder.kt`
+     - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PackageLoader.kt`
+     - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/CarDefinition.kt`
+     - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/ModelTreeBuilder.kt`
    - `PackageLoader` loads package cars with `CarLoader(dir, partRegistry)` but does not make the manifest/package name the car namespace.
    - A natural layout like `trains/s100/cars/head.yml` can produce `car.name == head`; then `carDef.namespace == head`, and model building resolves bare parts under `head/<part>` instead of the package registry namespace.
    - Fix: make packaged car definitions carry the package namespace for part resolution, or route `ModelTreeBuilder` part resolution through `packageName` instead of `carDef.namespace`.
 
 4. `PlayerConfigSession.commit()` does not trigger the documented config change callbacks.
    - Files:
-     - `Basic/src/main/java/work/art1st/mineRails/basic/api/ui/config/PlayerConfigSession.kt`
-     - `Basic/src/main/java/work/art1st/mineRails/basic/impl/config/ConfigUIRegistry.kt`
+     - `Basic/src/main/java/work/art1st/javarailways/basic/api/ui/config/PlayerConfigSession.kt`
+     - `Basic/src/main/java/work/art1st/javarailways/basic/impl/config/ConfigUIRegistry.kt`
    - API docs say session commit triggers `ConfigUI.onValueChanged`.
    - Current implementation only updates `ConfigItemImpl` and calls `item.commit()`, so `valueChangedCallback` / `onValueChanged` listeners do not see Dialog/session changes.
    - Fix: reuse `ConfigUIRegistry.setValue(...)` from session commit, or emit the same old/new callbacks for each dirty key.
@@ -58,13 +58,13 @@ Likely root cause: generated `Curve.RawPoint.normal` is not orthogonal to `Curve
 
 Evidence:
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailWand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt`
   - `createStraightCurve(...)` sets `tangent = direction`, where `direction` can include Y on a slope.
   - It still sets `normal = Vector3d(0.0, 1.0, 0.0)`.
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/rail/RailExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/rail/RailExtension.kt`
   - `computeCurveRotation(...)` builds a rotation matrix from `tangent`, `normal`, and `binormal`.
   - If `tangent` and `normal` are not an orthonormal frame, display transforms are invalid or visually biased toward world-up.
-- `Basic/src/main/java/work/art1st/mineRails/basic/curve/ConstraintSolver.kt`
+- `Basic/src/main/java/work/art1st/javarailways/basic/curve/ConstraintSolver.kt`
   - `make3dNormal(...)` currently uses a positive slope component along the tangent direction.
   - For `tan3d = (tan2d, slope)`, that normal is not perpendicular to the tangent. The sign should be opposite, or the normal should be projected from world-up.
 
@@ -87,14 +87,14 @@ Primary root cause: straight rail generation still samples at `Curve.PRECISION =
 
 Evidence:
 
-- `Core/src/main/java/work/art1st/mineRails/core/api/physics/curve/Curve.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/api/physics/curve/Curve.kt`
   - `PRECISION` is `1e-3`.
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailWand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt`
   - `createStraightCurve(...)` computes `steps = maxOf(2, (length / Curve.PRECISION).toInt())`.
   - A 100m straight produces roughly 100,001 RawPoints; a 500m straight produces roughly 500,001 RawPoints.
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/command/RailCommand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/command/RailCommand.kt`
   - The command path has the same dense straight-line generation.
-- `Core/src/main/java/work/art1st/mineRails/core/physics/rail/curve/PrimeCurveImpl.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveImpl.kt`
   - The PR already added `Curve.SegmentType.LINE_START` / `LINE_END` and exact interpolation for that pair.
   - The straight-line creation paths are not using it.
 

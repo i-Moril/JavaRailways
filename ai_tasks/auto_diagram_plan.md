@@ -353,7 +353,7 @@ t.reverseAt(stopId)
 建议提供 dump 功能，把 JS 生成后的内部时刻表输出成 JSON，便于调试：
 
 ```text
-/mr timetable dump <id>
+/jr timetable dump <id>
 ```
 
 ### 脚本错误处理
@@ -544,19 +544,19 @@ data class WayPoint(
 命令保留为管理和调试入口，不作为 StopPoint 的主要编辑方式：
 
 ```text
-/mr wand rail
-/mr wand signal
+/jr wand rail
+/jr wand signal
 
-/mr stop list
-/mr stop info <id>
-/mr stop remove <id>       # 管理员兜底命令
+/jr stop list
+/jr stop info <id>
+/jr stop remove <id>       # 管理员兜底命令
 
-/mr timetable load <file.js>
-/mr timetable validate <id>
-/mr timetable dump <id>
-/mr timetable start <id>
-/mr timetable stop <id>
-/mr timetable status [id]
+/jr timetable load <file.js>
+/jr timetable validate <id>
+/jr timetable dump <id>
+/jr timetable start <id>
+/jr timetable stop <id>
+/jr timetable status [id]
 ```
 
 WayPoint 的创建/编辑优先通过 `OperationWand` 完成。
@@ -607,7 +607,7 @@ WayPoint 的创建/编辑优先通过 `OperationWand` 完成。
 
 ### Phase 2：WayPoint 与 Wand 交互
 
-状态：已进入第三个游戏内验证点。`StopPoint` 命名已调整为 `WayPoint`（路径点），用于列车寻路和时刻表动作引用，不代表一定停车；已新增 `AbstractWand` / `WandModeSpec` / `WandState`，并将 `RailWand` 的通用事件骨架、物品识别、发放、玩家 state 管理和模式切换迁移到 `AbstractWand`；已实现运行期 `WayPoint` / `WayPointStore`；已新增 `OperationWand`，支持右键轨道附近创建路径点并打开 Dialog 命名，右键已有路径点打开 Dialog 编辑名称，显示 marker；已支持 OperationWand 删除模式：左键选择路径点，再次左键确认删除；已新增 `/mr wand operation`、`/mr waypoint list|info|remove` 管理命令（`/mr stop` 暂留旧别名）。路径点 marker 和 RailWand 锚点均改为按玩家短生命周期渲染：玩家手持对应 Wand 时 spawn 非持久、默认不可见但对该玩家 show 的 Bukkit 实体，切走/退出时 remove；后续可替换为 packet-only renderer。`RailWand` 的 anchor/rail 业务、config、undo/redo 暂未抽取。
+状态：已进入第三个游戏内验证点。`StopPoint` 命名已调整为 `WayPoint`（路径点），用于列车寻路和时刻表动作引用，不代表一定停车；已新增 `AbstractWand` / `WandModeSpec` / `WandState`，并将 `RailWand` 的通用事件骨架、物品识别、发放、玩家 state 管理和模式切换迁移到 `AbstractWand`；已实现运行期 `WayPoint` / `WayPointStore`；已新增 `OperationWand`，支持右键轨道附近创建路径点并打开 Dialog 命名，右键已有路径点打开 Dialog 编辑名称，显示 marker；已支持 OperationWand 删除模式：左键选择路径点，再次左键确认删除；已新增 `/jr wand operation`、`/jr waypoint list|info|remove` 管理命令（`/jr stop` 暂留旧别名）。路径点 marker 和 RailWand 锚点均改为按玩家短生命周期渲染：玩家手持对应 Wand 时 spawn 非持久、默认不可见但对该玩家 show 的 Bukkit 实体，切走/退出时 remove；后续可替换为 packet-only renderer。`RailWand` 的 anchor/rail 业务、config、undo/redo 暂未抽取。
 
 目标：先实现路径点，并通过新的运营对象 Wand 在游戏内创建和编辑。路径点是寻路基准点，不表示必须停车。
 
@@ -622,11 +622,11 @@ WayPoint 的创建/编辑优先通过 `OperationWand` 完成。
 7. `OperationWand` 第一版支持创建 WayPoint、命名 Dialog 和显示 marker。
 8. 选择/删除/编辑可分阶段补充，避免和 `AbstractWand` 提取混在一个大改动里。
 9. 命令只保留管理和调试用途：
-   - `/mr wand rail`
-   - `/mr wand operation`
-   - `/mr stop list`
-   - `/mr stop info <id>`
-   - `/mr stop remove <id>`
+   - `/jr wand rail`
+   - `/jr wand operation`
+   - `/jr stop list`
+   - `/jr stop info <id>`
+   - `/jr stop remove <id>`
 
 第一版行为：玩家手持 `OperationWand` 右键轨道或轨道附近方块，系统取最近轨道、方向和弧长创建路径点，并打开 Dialog 设置路径点名称；如果右键已有路径点，则打开 Dialog 编辑名称。
 
@@ -647,7 +647,7 @@ WayPoint 的创建/编辑优先通过 `OperationWand` 完成。
 
 ### Phase 3：ExpandedRoute 与 dry-run
 
-状态：已开始。已新增 `RailViewRef`、`RouteSegment`、`ExpandedRoute`、`RoutePlanner`，并补充公共 `Rail.getView(direction)` API；路径点已改为方向无关，`RoutePlanner` 会尝试起点/终点 AB、BA 视图组合并选择最短可达经路，方向限制后续由独立运营 metadata 表达；已新增 `/mr route validate <fromWaypoint> <toWaypoint>`，用于输出路径点之间的展开经路、总长度和轨道段列表。
+状态：已开始。已新增 `RailViewRef`、`RouteSegment`、`ExpandedRoute`、`RoutePlanner`，并补充公共 `Rail.getView(direction)` API；路径点已改为方向无关，`RoutePlanner` 会尝试起点/终点 AB、BA 视图组合并选择最短可达经路，方向限制后续由独立运营 metadata 表达；已新增 `/jr route validate <fromWaypoint> <toWaypoint>`，用于输出路径点之间的展开经路、总长度和轨道段列表。
 
 目标：能从路径点 A 到 B 展开路径，但暂时不动车。
 
@@ -689,7 +689,7 @@ WayPoint 的创建/编辑优先通过 `OperationWand` 完成。
 
 ### Phase 5：JS Loader 与 DSL Builder
 
-状态：已实现首版。Basic 已引入 GraalJS polyglot 依赖，新增 `TimetableBuilder`/`ServiceBuilder` DSL、`TimetableScriptLoader`、`TimetableDumper`；Bukkit 新增 `/mr timetable load <file.js> [id]`、`/mr timetable dump <id>`、`/mr timetable list`。加载流程为执行 `main(timetable)` → 生成 Phase 4 Kotlin 模型 → `TimetableValidator` dry-run → 验证成功后才替换/加入运行期 store；失败不会影响旧时刻表。已添加 JS 加载与语法错误单元测试。语法说明见 `docs/timetable_js_syntax.md`。
+状态：已实现首版。Basic 已引入 GraalJS polyglot 依赖，新增 `TimetableBuilder`/`ServiceBuilder` DSL、`TimetableScriptLoader`、`TimetableDumper`；Bukkit 新增 `/jr timetable load <file.js> [id]`、`/jr timetable dump <id>`、`/jr timetable list`。加载流程为执行 `main(timetable)` → 生成 Phase 4 Kotlin 模型 → `TimetableValidator` dry-run → 验证成功后才替换/加入运行期 store；失败不会影响旧时刻表。已添加 JS 加载与语法错误单元测试。语法说明见 `docs/timetable_js_syntax.md`。
 
 目标：JS 只负责生成 Phase 4 的 Kotlin 模型。
 
@@ -711,8 +711,8 @@ function main(timetable) {
 ```
 
 4. 添加命令：
-   - `/mr timetable load <file.js>`
-   - `/mr timetable dump <id>`
+   - `/jr timetable load <file.js>`
+   - `/jr timetable dump <id>`
 
 验收：
 
@@ -761,9 +761,9 @@ function main(timetable) {
 5. 到站后停站。
 6. 停站结束后进入下一 step。
 7. 添加命令：
-   - `/mr timetable start <id>`
-   - `/mr timetable stop <id>`
-   - `/mr timetable status [id]`
+   - `/jr timetable start <id>`
+   - `/jr timetable stop <id>`
+   - `/jr timetable status [id]`
 
 验收：
 

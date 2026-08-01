@@ -22,10 +22,10 @@ Acceptance:
 
 Files:
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/MineRailsConfig.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PartInteractionConfig.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PartRegistry.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/TrainActionConfig.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/JavaRailwaysConfig.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartInteractionConfig.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartRegistry.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/TrainActionConfig.kt`
 - tests under `BukkitPlugin/src/test/...`
 
 Tasks:
@@ -84,7 +84,7 @@ Files:
 - `models/s100/parts/s100/body_head.yml`
 - `models/s100/parts/s100/driver_seat*.yml`
 - `models/s100/cars/s100/head_tail.yml` or related rear cab part references
-- runtime copies under `BukkitPlugin/run/plugins/MineRails/trains/s100/`
+- runtime copies under `BukkitPlugin/run/plugins/JavaRailways/trains/s100/`
 
 Tasks:
 
@@ -121,12 +121,12 @@ S100 control: expose cab seats and executable door actions
 
 Files:
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/control/TrainKeyItem.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainKeyItem.kt`
 - tests if practical
 
 Tasks:
 
-1. Keep `/mr train key` as the way to obtain a generic train key.
+1. Keep `/jr train key` as the way to obtain a generic train key.
 2. Add key item binding PDC fields:
 
 ```text
@@ -163,7 +163,7 @@ Control dialog phase 2: add train key binding data
 
 Files:
 
-- new `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/control/TrainControlManager.kt`
+- new `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainControlManager.kt`
 - `BukkitPlugin.kt`
 - remove/migrate relevant `TrainCommand` controller registry later, not all at once if risky
 
@@ -242,7 +242,7 @@ Control dialog phase 4: bind train key from driver seat
 Files:
 
 - `TrainControlManager.kt`
-- `MineRailsConfig.kt` if not finished in Step 1
+- `JavaRailwaysConfig.kt` if not finished in Step 1
 
 Tasks:
 
@@ -535,11 +535,11 @@ Files:
 Tasks:
 
 1. Ensure no manual driving commands remain documented or reachable:
-   - no `/mr train start`
-   - no `/mr train throttle`
-   - no `/mr train handle`
-   - no `/mr train reverse` for manual control
-2. Keep `/mr train key`.
+   - no `/jr train start`
+   - no `/jr train throttle`
+   - no `/jr train handle`
+   - no `/jr train reverse` for manual control
+2. Keep `/jr train key`.
 3. Document:
    - key binding
    - Dialog control acquisition
@@ -565,7 +565,7 @@ Docs: document train key control dialog workflow
 ## Final validation scenario
 
 1. Start server with current plugin.
-2. `/mr train key` gives a generic key.
+2. `/jr train key` gives a generic key.
 3. Create S100.
 4. Sit in driver seat with key.
 5. Right-click key:

@@ -91,7 +91,7 @@ WorldManager.onTickEnd
 - 删除 `CoreWorld.commitPublishedTrainRenderState()` 生产调用链；`WorldManager` drain frame 后，由 `CarExtension.applyFrame()` 直接消费对应 car/bogie value snapshot。
 - `RenderChunkManager` 的受众距离判断使用 frame 中的新位置，不再回读 live renderable position。
 - `TickManagerImpl.postTick()` 不再调用 `Synchronizable.commit()`；worker 只向有界、按对象 identity 合并的 commit mailbox 发布请求，Paper 过渡消费者位于 `WorldManager`。
-- `/mr perf` 输出 visual frame 与 generic tick commit mailbox 的容量、峰值、合并和丢弃指标。
+- `/jr perf` 输出 visual frame 与 generic tick commit mailbox 的容量、峰值、合并和丢弃指标。
 - 新增 Paper/Folia 共用的 `PlatformDispatcher`；异步查询完成回调改到 player entity scheduler，seat/teleport 后处理改到相关 entity scheduler，四个传统 repeating timer 改用 global scheduler 分发到各 player scheduler。
 - `BukkitPlugin/src/main/java` 已无 `BukkitScheduler.runTask/runTaskTimer/runTaskAsynchronously` 生产调用。
 - 新增 target-aware `BukkitThreadOwnership`；玩家移动/加入/传送等渲染受众事件改为校验 entity ownership，而非 `Bukkit.isPrimaryThread()`。
@@ -106,7 +106,7 @@ WorldManager.onTickEnd
 - generic commit mailbox 目前仍由 `WorldManager` 在 Paper TickEnd 串行消费；尚未声明 entity/region affinity。
 - `ThreadGuard.ensureMainThread` 尚未改造成 entity/region ownership guard；Folia region callback 仍可能触发旧断言。
 - TrainControlManager 的跨玩家/跨列车复合事务虽已使用 concurrent map，但尚未建立原子 command ownership。
-- mailbox 尚未接入时间/数量预算；监控已接入 `/mr perf`。
+- mailbox 尚未接入时间/数量预算；监控已接入 `/jr perf`。
 
 本阶段验证命令：
 
@@ -128,7 +128,7 @@ WorldManager.onTickEnd
 - Paper/Folia 默认使用 EntityLib packet display backend，但都遵循管理员的显式 `native` 回退配置。native interaction、seat carrier、platform collision 与 Wand marker entity 的 spawn/mutation/removal 使用 location/entity scheduler；跨 region movement 使用 `teleportAsync` 和 stale revision token。玩家距离判断先在 player entity task 形成 activation/snapshot，再由目标 location task创建 native entity。
 - 删除未被使用、仍依赖单主线程 teleport 的旧 `SeatExtension`；实际座位实现为 `SeatModel`。
 - rail/car audience/model lifecycle 增加并发集合或对象级串行化，防止不同 player region 与 car region 同时 build/destroy/update；shutdown 会先设置 stopping 并标记所有 world unloading，使已提交 frame/commit task 在 teardown 时跳过。
-- `/mr perf` 增加 visual region dispatch 的 pending car、coalesced frame 和 task 计数。
+- `/jr perf` 增加 visual region dispatch 的 pending car、coalesced frame 和 task 计数。
 - 新增 `runFolia`：`./gradlew :BukkitPlugin:runFolia`；普通构建与测试运行均生成 `folia-supported: true`。
 - 新增 affinity coalescer、simulation lock/release-restore 及 Core car/bogie commit decoupling 单元测试；`./gradlew test` 通过。
 - 使用 `openai-codex/gpt-5.5` 多轮审查；修复了 legacy CoreCar generic commit、player-affine native spawn、shutdown queued task、seat passenger ownership 与 marker mutable-state capture 问题。
@@ -138,7 +138,7 @@ WorldManager.onTickEnd
 - `./gradlew :BukkitPlugin:runFolia` 已在 Folia `26.1.2-8` 完成启动。
 - PacketEvents 从 `2.11.1` 更新到明确支持 Minecraft 26.1.2 的 `2.12.1`，修复 `NMS_ITEM_STACK_CLASS` 初始化失败。
 - Folia 测试 jar 先 staging 到独立 `build/folia-plugin` 目录，避免 Folia 在 Shadow 写入期间扫描 `build/libs` 产生损坏 jar 误报。
-- 日志确认 MineRails load/enable、Folia detection、EntityLib backend 选择、三个 world 注册以及 timeout 触发后的 disable/shutdown 均无异常。
+- 日志确认 JavaRailways load/enable、Folia detection、EntityLib backend 选择、三个 world 注册以及 timeout 触发后的 disable/shutdown 均无异常。
 
 仍未完成：
 
@@ -229,7 +229,7 @@ Dialog callback、异步查询 completion、teleport 后刷新、seat mount/dism
 2. 合并 `RenderChunkManager.updateAudience`，禁止 car × player 逐项提交任务。
 3. 将驾驶输入改为 active-driver per-entity task。
 4. Wand timer 只遍历 active viewer。
-5. 给 `PlatformDispatcher` 增加 submitted/executed/retired/direct-fast-path 指标，并显示到 `/mr perf`。
+5. 给 `PlatformDispatcher` 增加 submitted/executed/retired/direct-fast-path 指标，并显示到 `/jr perf`。
 
 ### 调度开销整改状态
 
@@ -240,12 +240,12 @@ Dialog callback、异步查询 completion、teleport 后刷新、seat mount/dism
 - 驾驶输入取消全局每 tick fan-out，改为仅实际驾驶玩家持有 per-entity repeating task；失去 controller 后立即取消。
 - Train key 扫描改为每玩家持久 repeating entity task，不再每秒从 global scheduler 重复提交全服玩家任务。
 - RailWand split preview、anchor refresh 和 RailObjectWand particle/marker 刷新只遍历活跃 viewer UUID set。
-- `PlatformDispatcher.runForEntity/runAt` 在当前线程已拥有目标时直接执行，并在 `/mr perf` 暴露 submission、execution、direct、retired 计数。
+- `PlatformDispatcher.runForEntity/runAt` 在当前线程已拥有目标时直接执行，并在 `/jr perf` 暴露 submission、execution、direct、retired 计数。
 - `RenderableFrameSnapshot` 改为 12 个内联标量，不再为每个 render state 创建 4 个 `Vector3Snapshot`；移除只包装一个 state 的 `BogieFrameSnapshot`。常见双 bogie car 的核心 frame 对象由约 18 个降至约 4 个 value object，另有每 car 一个 bogie list。
 - `WorldManager` 按稳定 car 顺序消费 frame，不再每 train/frame 创建 `associateBy` map。
 - `LatestTickCommitMailbox` 改为 concurrent identity map + 原子容量计数，移除多 worker 共用的单 monitor。
 
-新增测试覆盖 audience 候选集合、watcher 迁移、renderable 受众移除，以及 concurrent commit mailbox coalescing/capacity。仍需通过真实 Paper/Folia 压力场景读取 `/mr perf` 数据验证任务速率和 GC。
+新增测试覆盖 audience 候选集合、watcher 迁移、renderable 受众移除，以及 concurrent commit mailbox coalescing/capacity。仍需通过真实 Paper/Folia 压力场景读取 `/jr perf` 数据验证任务速率和 GC。
 
 ## 发现的关键阻塞点
 
@@ -272,23 +272,23 @@ folia-supported: true
 
 主要位置：
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/util/BukkitAsyncTasks.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/util/BukkitAsyncTasks.kt`
   - `runTaskAsynchronously`
   - `runTask`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/control/TrainHandleInputListener.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainHandleInputListener.kt`
   - `Bukkit.getScheduler().runTaskTimer(...)`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/control/TrainControlManager.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainControlManager.kt`
   - `plugin.server.scheduler.runTaskTimer(...)`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/control/TrainControlDialog.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainControlDialog.kt`
   - `plugin.server.scheduler.runTask(...)`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/chunk/RenderChunkManager.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/chunk/RenderChunkManager.kt`
   - `Bukkit.getScheduler().runTask(...)`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/SeatModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/SeatModel.kt`
   - 多处 `Bukkit.getScheduler().runTask(...)`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailWand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt`
   - `runTaskTimer(...)`
   - `runTask(...)`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailObjectWand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailObjectWand.kt`
   - `runTaskTimer(...)`
   - `runTask(...)`
 
@@ -296,8 +296,8 @@ folia-supported: true
 
 当前实现：
 
-- `Core/src/main/java/work/art1st/mineRails/core/util/ThreadGuard.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/util/BukkitThreadGuardBridge.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/ThreadGuard.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/util/BukkitThreadGuardBridge.kt`
 
 现状：
 
@@ -332,9 +332,9 @@ Folia 下没有传统全服主线程。需要重新设计：
 
 核心文件：
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/logic/WorldManager.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/util/TickManagerImpl.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/tick/PhysicsCoordinator.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/TickManagerImpl.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/tick/PhysicsCoordinator.kt`
 
 当前 `WorldManager` 使用：
 
@@ -508,12 +508,12 @@ data class TrainFrameSnapshot(
 
 重点文件：
 
-- `Core/src/main/java/work/art1st/mineRails/core/physics/train/CoreTrain.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/train/CoreCar.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/train/CoreBogie.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/train/TrainEnd.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/util/CommitBuffer.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/tick/PhysicsCoordinator.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreTrain.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreBogie.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/train/TrainEnd.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/CommitBuffer.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/tick/PhysicsCoordinator.kt`
 
 验收：并发读取 snapshot 时，不出现同一列车不同组件属于不同 epoch 的状态。
 

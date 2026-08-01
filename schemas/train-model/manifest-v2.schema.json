@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "manifest-v2.schema.json",
-  "title": "MineRails package manifest v2",
+  "title": "JavaRailways package manifest v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["config-version", "name", "type"],

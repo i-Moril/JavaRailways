@@ -5,7 +5,7 @@ slug: /architecture/threading-model
 
 # 线程与 Tick 模型
 
-MineRails 同时使用串行 simulation context、Folia global/region/entity scheduler、通用 Tick worker 和列车物理 worker。线程归属是扩展开发和故障排查时最重要的约束之一；Folia 下不存在可供所有 Bukkit 副作用使用的单一“主线程”。
+JavaRailways 同时使用串行 simulation context、Folia global/region/entity scheduler、通用 Tick worker 和列车物理 worker。线程归属是扩展开发和故障排查时最重要的约束之一；Folia 下不存在可供所有 Bukkit 副作用使用的单一“主线程”。
 
 ## Server Tick 流程
 
@@ -64,10 +64,10 @@ Folia 会强制选择 EntityLib packet display backend，避免 native Display �
 
 ## 事件线程
 
-MineRails 事件按线程归属分成两套同步总线：
+JavaRailways 事件按线程归属分成两套同步总线：
 
 - `MainRailEventBus` 只接受 `MainThreadRailEvent`；其 `ThreadGuard` 在 Bukkit 上代表串行 simulation context（Paper primary thread 仍兼容），不代表 Folia 任意 Bukkit 操作所有权；
-- `PhysicsRailEventBus` 只接受 `PhysicsRailEvent`，发布时断言 MineRails async Tick worker；
+- `PhysicsRailEventBus` 只接受 `PhysicsRailEvent`，发布时断言 JavaRailways async Tick worker；
 - 两者都在调用线程立即执行监听器，不会自动调度，并逐个隔离监听器异常；
 - 注册会返回可关闭的 `EventRegistration`，插件和服务必须在停止时关闭；
 - 原 `EventManager` 仅保留为兼容 facade，新代码不再使用。

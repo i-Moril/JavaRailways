@@ -154,26 +154,26 @@ curves:
 混合方案：
 1. **游戏内放置**: 默认取玩家 yaw 方向作为切线方向
 2. **YAML 定义**: 如果未指定 direction，自动用连线方向（起点→终点的投影方向）
-3. **手动输入**: `/mr rail anchor set_dir <id> <yaw>`
+3. **手动输入**: `/jr rail anchor set_dir <id> <yaw>`
 
 ## 命令设计
 
-保留 `/mr rail create` 的简单直线创建。
+保留 `/jr rail create` 的简单直线创建。
 
 新增子命令：
 
 ```
-/mr rail anchor add [id]     — 在玩家位置创建锚点，切线方向取玩家 yaw
-/mr rail anchor list         — 列出所有锚点
-/mr rail anchor remove <id>  — 删除锚点
-/mr rail anchor info <id>    — 查看锚点详情
+/jr rail anchor add [id]     — 在玩家位置创建锚点，切线方向取玩家 yaw
+/jr rail anchor list         — 列出所有锚点
+/jr rail anchor remove <id>  — 删除锚点
+/jr rail anchor info <id>    — 查看锚点详情
 
-/mr rail curve create <name> <from> <to> <radius> [clothoid_len]
+/jr rail curve create <name> <from> <to> <radius> [clothoid_len]
                               — 在两点间创建 clothoid→arc→clothoid 曲线
-/mr rail curve list          — 列出所有曲线
-/mr rail curve info <name>   — 查看曲线详情（半径、转角、长度等）
+/jr rail curve list          — 列出所有曲线
+/jr rail curve info <name>   — 查看曲线详情（半径、转角、长度等）
 
-/mr rail track build <name>  — 从曲线定义生成实际 Rail + 渲染
+/jr rail track build <name>  — 从曲线定义生成实际 Rail + 渲染
 ```
 
 ## 不同高度（纵断面 Vertical Alignment）

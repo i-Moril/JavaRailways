@@ -3,13 +3,13 @@ title: 列车模型包与行为脚本
 slug: /train-model/
 ---
 
-# MineRails 列车模型包与行为脚本教程
+# JavaRailways 列车模型包与行为脚本教程
 
 :::warning 格式状态
-本文描述当前源码实现。模型包格式已经带有 `config-version`，但尚未发布跨 MineRails 版本的兼容承诺；发布模型包时应同时声明测试过的 MineRails 版本。
+本文描述当前源码实现。模型包格式已经带有 `config-version`，但尚未发布跨 JavaRailways 版本的兼容承诺；发布模型包时应同时声明测试过的 JavaRailways 版本。
 :::
 
-本文说明如何编写 MineRails 的列车模型包，包括：
+本文说明如何编写 JavaRailways 的列车模型包，包括：
 
 - 模型包目录结构
 - `manifest.yml`、车厢、部件、动画与动作配置
@@ -29,13 +29,13 @@ models/s100/
 测试服运行目录通常是：
 
 ```text
-BukkitPlugin/run/plugins/MineRails/trains/s100/
+BukkitPlugin/run/plugins/JavaRailways/trains/s100/
 ```
 
 正式使用时，把一个模型包目录放到：
 
 ```text
-plugins/MineRails/trains/<package-name>/
+plugins/JavaRailways/trains/<package-name>/
 ```
 
 然后重启插件或服务器加载。
@@ -47,7 +47,7 @@ plugins/MineRails/trains/<package-name>/
 推荐结构：
 
 ```text
-plugins/MineRails/trains/s100/
+plugins/JavaRailways/trains/s100/
   manifest.yml
   actions.yml          # 可选：声明式动作
   behavior.js          # 可选：列车行为脚本
@@ -103,7 +103,7 @@ composition:
 | 字段 | 说明 |
 |---|---|
 | `config-version` | 配置版本。当前 manifest 必须使用 `2`，其他值会拒绝加载。 |
-| `name` | 包名，也用于 `/mr train create <name>`。 |
+| `name` | 包名，也用于 `/jr train create <name>`。 |
 | `type` | 必须是 `train`。 |
 | `display-name` | 显示名，可选。 |
 | `composition` | 编组顺序，引用 `cars/` 中的车厢简单名。 |
@@ -111,7 +111,7 @@ composition:
 创建列车：
 
 ```text
-/mr train create s100
+/jr train create s100
 ```
 
 ---
@@ -243,7 +243,7 @@ a = F / Σ有效质量
 
 其中坡度阻力由每节车当前轨道方向的竖直分量估算，牵引/制动力受粘着限制，最终加速度受 jerk 限制。
 
-手动驾驶不使用控制命令。玩家用 `/mr train key` 获取通用列车钥匙，手持钥匙坐在任意列车驾驶座上，然后直接用移动键操作手柄。
+手动驾驶不使用控制命令。玩家用 `/jr train key` 获取通用列车钥匙，手持钥匙坐在任意列车驾驶座上，然后直接用移动键操作手柄。
 
 | 输入 | 效果 |
 |---|---|
@@ -458,14 +458,14 @@ animations:
 触发 scene：
 
 ```text
-/mr train anim doors_l open
-/mr train anim doors_l closed
+/jr train anim doors_l open
+/jr train anim doors_l closed
 ```
 
 也可以：
 
 ```text
-/mr train anim doors_l:open
+/jr train anim doors_l:open
 ```
 
 ### 9.2 commands 相对时间写法
@@ -541,8 +541,8 @@ actions:
 调试命令：
 
 ```text
-/mr train action door-left-open
-/mr train action door-left-close
+/jr train action door-left-open
+/jr train action door-left-close
 ```
 
 建议：
@@ -592,7 +592,7 @@ function horn() {
 
 ### 11.1 可用全局 API
 
-MineRails 会向脚本注入以下全局函数：
+JavaRailways 会向脚本注入以下全局函数：
 
 ```js
 action(name)
@@ -651,7 +651,7 @@ defineAction("power-off", {
 - 不允许访问 Java class。
 - 不允许 IO。
 - 不允许创建线程或进程。
-- 只应该通过上面的 API 与 MineRails 交互。
+- 只应该通过上面的 API 与 JavaRailways 交互。
 
 ### 11.2 生命周期与调用 behavior
 
@@ -660,16 +660,16 @@ defineAction("power-off", {
 调试命令：
 
 ```text
-/mr train behavior <method> [args...]
+/jr train behavior <method> [args...]
 ```
 
 示例：
 
 ```text
-/mr train behavior onStation 0 left
-/mr train behavior onStation 20 left
-/mr train behavior door both open
-/mr train behavior horn
+/jr train behavior onStation 0 left
+/jr train behavior onStation 20 left
+/jr train behavior door both open
+/jr train behavior horn
 ```
 
 命令参数会自动转换：
@@ -716,7 +716,7 @@ train-model-update-policy: follow-package
 `snapshot` 模式会把模型快照保存到：
 
 ```text
-plugins/MineRails/model-snapshots/<sha256>.json
+plugins/JavaRailways/model-snapshots/<sha256>.json
 ```
 
 相同配置树只保存一次，车辆只记录 `modelSnapshotHash`。
@@ -738,22 +738,22 @@ train-model-update-policy: snapshot
 ## 13. 常用验证命令
 
 ```text
-/mr train create s100
-/mr train anim doors_l open
-/mr train anim doors_l closed
-/mr train anim doors_r open
-/mr train anim doors_r closed
-/mr train action door-left-open
-/mr train action door-left-close
-/mr train behavior onStation 0 left
-/mr train behavior onStation 20 left
-/mr train delete
+/jr train create s100
+/jr train anim doors_l open
+/jr train anim doors_l closed
+/jr train anim doors_r open
+/jr train anim doors_r closed
+/jr train action door-left-open
+/jr train action door-left-close
+/jr train behavior onStation 0 left
+/jr train behavior onStation 20 left
+/jr train delete
 ```
 
 建议每次修改模型包后至少检查：
 
 1. 服务器启动时没有模型包加载错误。
-2. `/mr train create <package>` 能创建完整列车。
+2. `/jr train create <package>` 能创建完整列车。
 3. 车体、转向架、门、灯、座位、平台位置正确。
 4. 动画能开关并保持 scene。
 5. action 能同时触发动画、灯光和声音。

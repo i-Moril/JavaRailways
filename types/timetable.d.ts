@@ -1,74 +1,77 @@
 /** Read-only WebUI authoring types for the sandboxed ScriptWorker DSL. */
-interface MineRailsTimetableBuilder {
+interface JavaRailwaysTimetableBuilder {
   setPeriodDays(days: number): this;
   /** @deprecated Use setPeriodDays; ticks must be a positive multiple of 24000. */
   setPeriod(ticks: number): this;
   /** Declares visual-only station lanes for a running graph. */
-  diagramLine(lineId: string, options: MineRailsDiagramLineOptions): this;
-  service(id: string, build: MineRailsServiceCallback): this;
-  service(id: string, selector: MineRailsTrainSelector | null, build: MineRailsServiceCallback): this;
-  service(id: string, selector: MineRailsTrainSelector | null, options: MineRailsServiceOptions, build: MineRailsServiceCallback): this;
-  takeFromDepot(depotId: string, tick: number): MineRailsAcquisitionSelector;
-  takeFromDepot(depotId: string, options: MineRailsDepotSelectorOptions, tick: number): MineRailsAcquisitionSelector;
-  takeFromWaypoint(wayPointId: string | readonly string[], tick: number): MineRailsAcquisitionSelector;
-  setInitialPosition(trainSelector: MineRailsObjectSelector, wayPointSelector: MineRailsObjectSelector): this;
-  and(...selectors: MineRailsObjectSelector[]): MineRailsCombinedSelector;
-  or(...selectors: MineRailsObjectSelector[]): MineRailsCombinedSelector;
-  not(selector: MineRailsObjectSelector): MineRailsCombinedSelector;
-  predicate(typeId: string, parameters: Readonly<Record<string, unknown>>): MineRailsCondition;
-  predicate(typeId: string, version: number, parameters: Readonly<Record<string, unknown>>): MineRailsCondition;
-  all(...conditions: MineRailsCondition[]): MineRailsCondition;
-  any(...conditions: MineRailsCondition[]): MineRailsCondition;
-  not(condition: MineRailsCondition): MineRailsCondition;
+  diagramLine(lineId: string, options: JavaRailwaysDiagramLineOptions): this;
+  service(id: string, build: JavaRailwaysServiceCallback): this;
+  service(id: string, selector: JavaRailwaysTrainSelector | null, build: JavaRailwaysServiceCallback): this;
+  service(id: string, selector: JavaRailwaysTrainSelector | null, options: JavaRailwaysServiceOptions, build: JavaRailwaysServiceCallback): this;
+  takeFromDepot(depotId: string, tick: number): JavaRailwaysAcquisitionSelector;
+  takeFromDepot(depotId: string, options: JavaRailwaysDepotSelectorOptions, tick: number): JavaRailwaysAcquisitionSelector;
+  takeFromWaypoint(wayPointId: string | readonly string[], tick: number): JavaRailwaysAcquisitionSelector;
+  setInitialPosition(trainSelector: JavaRailwaysObjectSelector, wayPointSelector: JavaRailwaysObjectSelector): this;
+  and(...selectors: JavaRailwaysObjectSelector[]): JavaRailwaysCombinedSelector;
+  or(...selectors: JavaRailwaysObjectSelector[]): JavaRailwaysCombinedSelector;
+  not(selector: JavaRailwaysObjectSelector): JavaRailwaysCombinedSelector;
+  predicate(typeId: string, parameters: Readonly<Record<string, unknown>>): JavaRailwaysCondition;
+  predicate(typeId: string, version: number, parameters: Readonly<Record<string, unknown>>): JavaRailwaysCondition;
+  all(...conditions: JavaRailwaysCondition[]): JavaRailwaysCondition;
+  any(...conditions: JavaRailwaysCondition[]): JavaRailwaysCondition;
+  not(condition: JavaRailwaysCondition): JavaRailwaysCondition;
 }
-type MineRailsServiceCallback = (service: MineRailsServiceBuilder) => void;
+type JavaRailwaysServiceCallback = (service: JavaRailwaysServiceBuilder) => void;
 /** A string selects the world-unique, player-assigned train name. */
-type MineRailsTrainSelector = string | MineRailsAcquisitionSelector;
-interface MineRailsAcquisitionSelector { readonly __mineRailsAcquisitionSelector: unique symbol }
-type MineRailsObjectSelector = string | MineRailsCombinedSelector;
-interface MineRailsCombinedSelector { readonly __mineRailsCombinedSelector: unique symbol }
-interface MineRailsCondition { readonly __mineRailsCondition: unique symbol }
-interface MineRailsServiceOptions {
+type JavaRailwaysTrainSelector = string | JavaRailwaysAcquisitionSelector;
+interface JavaRailwaysAcquisitionSelector { readonly __javaRailwaysAcquisitionSelector: unique symbol }
+type JavaRailwaysObjectSelector = string | JavaRailwaysCombinedSelector;
+interface JavaRailwaysCombinedSelector { readonly __javaRailwaysCombinedSelector: unique symbol }
+interface JavaRailwaysCondition { readonly __javaRailwaysCondition: unique symbol }
+interface JavaRailwaysServiceOptions {
+  /** Visual-only running-graph grouping; unrelated to infrastructure LineId. */
+  readonly diagramLineId?: string;
+  /** @deprecated Use diagramLineId. */
   readonly lineId?: string;
   readonly lineDirection?: 'UP' | 'DOWN';
   readonly activation?:
     | { readonly type: 'scheduled' | 'manual' }
-    | { readonly type: 'conditional'; readonly condition: MineRailsCondition; readonly falseBehavior?: 'SKIP_CYCLE' | 'WAIT_UNTIL_TRUE' };
+    | { readonly type: 'conditional'; readonly condition: JavaRailwaysCondition; readonly falseBehavior?: 'SKIP_CYCLE' | 'WAIT_UNTIL_TRUE' };
 }
-interface MineRailsServiceBuilder {
+interface JavaRailwaysServiceBuilder {
   check(wayPointId: string): this;
-  at(departureTick: number): MineRailsTimedActionBuilder;
+  at(departureTick: number): JavaRailwaysTimedActionBuilder;
   pass(target: string | readonly string[]): this;
-  destination(target: string, options?: MineRailsDestinationOptions): this;
+  destination(target: string, options?: JavaRailwaysDestinationOptions): this;
   /** Wait for a duration without destination, station, or door semantics. */
   wait(ticks: number): this;
   reverse(): this;
   halt(): this;
 }
-interface MineRailsDepotSelectorOptions { readonly tags?: readonly string[]; readonly minimumCars?: number; readonly maximumCars?: number; readonly minimumSpeedMetersPerSecond?: number; readonly capabilities?: readonly string[] }
-interface MineRailsDepotStorageOptions { readonly stablingPoints?: readonly string[] }
-type MineRailsDoorSide = 'NONE' | 'LEFT' | 'RIGHT' | 'BOTH' | 'none' | 'left' | 'right' | 'both';
-interface MineRailsDiagramLineOptions {
+interface JavaRailwaysDepotSelectorOptions { readonly tags?: readonly string[]; readonly minimumCars?: number; readonly maximumCars?: number; readonly minimumSpeedMetersPerSecond?: number; readonly capabilities?: readonly string[] }
+interface JavaRailwaysDepotStorageOptions { readonly stablingPoints?: readonly string[] }
+type JavaRailwaysDoorSide = 'NONE' | 'LEFT' | 'RIGHT' | 'BOTH' | 'none' | 'left' | 'right' | 'both';
+interface JavaRailwaysDiagramLineOptions {
   readonly upStations: readonly string[];
   readonly downStations: readonly string[];
 }
-interface MineRailsDestinationOptions {
+interface JavaRailwaysDestinationOptions {
   /** Visual-only arrival time used by running graphs; it does not schedule runtime actions. */
   readonly arrivalTick?: number;
   readonly minimumDwellTicks?: number;
   readonly stoppingOffsetMetersBefore?: number;
-  readonly doorSide?: MineRailsDoorSide;
+  readonly doorSide?: JavaRailwaysDoorSide;
 }
-interface MineRailsRuntimeActions { action(typeId: string, parameters: Readonly<Record<string, unknown>>): this }
-interface MineRailsTimedActionBuilder {
-  pass(target: string | readonly string[]): MineRailsServiceBuilder;
-  destination(target: string, options?: MineRailsDestinationOptions): MineRailsServiceBuilder;
+interface JavaRailwaysRuntimeActions { action(typeId: string, parameters: Readonly<Record<string, unknown>>): this }
+interface JavaRailwaysTimedActionBuilder {
+  pass(target: string | readonly string[]): JavaRailwaysServiceBuilder;
+  destination(target: string, options?: JavaRailwaysDestinationOptions): JavaRailwaysServiceBuilder;
   /** Wait for a duration without destination, station, or door semantics. */
-  wait(ticks: number): MineRailsServiceBuilder;
-  reverse(): MineRailsServiceBuilder; halt(): MineRailsServiceBuilder;
-  storeAtDepot(depotId: string, options?: MineRailsDepotStorageOptions): MineRailsServiceBuilder;
-  action(typeId: string, parameters: Readonly<Record<string, unknown>>): MineRailsServiceBuilder;
-  action(typeId: string, version: number, parameters: Readonly<Record<string, unknown>>): MineRailsServiceBuilder;
-  whenCondition(condition: MineRailsCondition, then: (actions: MineRailsRuntimeActions) => void, otherwise?: (actions: MineRailsRuntimeActions) => void): MineRailsServiceBuilder;
+  wait(ticks: number): JavaRailwaysServiceBuilder;
+  reverse(): JavaRailwaysServiceBuilder; halt(): JavaRailwaysServiceBuilder;
+  storeAtDepot(depotId: string, options?: JavaRailwaysDepotStorageOptions): JavaRailwaysServiceBuilder;
+  action(typeId: string, parameters: Readonly<Record<string, unknown>>): JavaRailwaysServiceBuilder;
+  action(typeId: string, version: number, parameters: Readonly<Record<string, unknown>>): JavaRailwaysServiceBuilder;
+  whenCondition(condition: JavaRailwaysCondition, then: (actions: JavaRailwaysRuntimeActions) => void, otherwise?: (actions: JavaRailwaysRuntimeActions) => void): JavaRailwaysServiceBuilder;
 }
-declare function main(timetable: MineRailsTimetableBuilder): void;
+declare function main(timetable: JavaRailwaysTimetableBuilder): void;

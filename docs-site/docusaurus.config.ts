@@ -6,7 +6,7 @@ const siteUrl = process.env.DOCS_URL ?? 'http://localhost:32000';
 const baseUrl = process.env.DOCS_BASE_URL ?? '/';
 
 const config: Config = {
-  title: 'MineRails 文档',
+  title: 'JavaRailways 文档',
   tagline: '铁路模拟、扩展开发、列车模型包与时刻表',
   url: siteUrl,
   baseUrl,
@@ -45,7 +45,7 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'MineRails',
+      title: 'JavaRailways',
       items: [
         {type: 'docSidebar', sidebarId: 'docsSidebar', label: '文档', position: 'left'},
         {to: '/architecture/overview', label: '工程设计', position: 'left'},
@@ -72,7 +72,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} MineRails contributors.`,
+      copyright: `Copyright © ${new Date().getFullYear()} JavaRailways contributors.`,
     },
     prism: {
       theme: prismThemes.github,

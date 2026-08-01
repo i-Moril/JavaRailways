@@ -149,7 +149,7 @@ ThreadGuard.ensureOffMainThread("CoreWorld.getNearestRail")
 ### 现实约束
 无法自动穷举整个 Bukkit API，因此最现实的做法是：
 
-- 识别 MineRails 自己的 **Bukkit 边界层**
+- 识别 JavaRailways 自己的 **Bukkit 边界层**
 - 在这些边界统一放 `ensureMainThread(...)`
 
 ### 建议重点守住的边界
@@ -263,8 +263,8 @@ interface TickMetricsView {
 ```
 
 后续可以再挂：
-- `/mr perf train <id>`
-- `/mr perf top`
+- `/jr perf train <id>`
+- `/jr perf top`
 
 ---
 
@@ -340,20 +340,20 @@ interface MainThreadTickMetricsView {
 ```
 
 后续再决定是否做命令：
-- `/mr perf tick latest`
-- `/mr perf tick recent 20`
+- `/jr perf tick latest`
+- `/jr perf tick recent 20`
 
 ---
 
 ## 六、建议新增的类/API 草图
 
 ### Core
-- `Core/src/main/java/work/art1st/mineRails/core/util/ThreadGuard.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/util/ThreadGuardPlatformBridge.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/util/AsyncTickThreadMarker.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/util/TickMetricsRegistry.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/util/TickMetricsSnapshot.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/api/util/tick/TickProfiled.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/ThreadGuard.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/ThreadGuardPlatformBridge.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/AsyncTickThreadMarker.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/TickMetricsRegistry.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/TickMetricsSnapshot.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/api/util/tick/TickProfiled.kt`
 
 ### TickManager 扩展
 建议在 `TickManager` 上补只读查询能力：
@@ -425,7 +425,7 @@ metrics 结构必须用：
 ### 3. 主线程 phase 统计口径要统一
 所有耗时都建议统一用 `System.nanoTime()`，不要混 `currentTimeMillis()`。
 
-### 4. “MineRails 在主线程花了多久”要定义清楚
+### 4. “JavaRailways 在主线程花了多久”要定义清楚
 建议正式口径就是：
 - 主线程计算时间
 - 主线程等待异步时间

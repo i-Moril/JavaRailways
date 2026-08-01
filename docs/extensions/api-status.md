@@ -9,7 +9,7 @@ slug: /extensions/api-status
 
 | 项目 | 当前值 |
 |---|---|
-| MineRails 版本 | `1.0-SNAPSHOT` |
+| JavaRailways 版本 | `1.0-SNAPSHOT` |
 | Paper API | `1.21.11-R0.1-SNAPSHOT` |
 | BukkitPlugin 运行时 Java | 21 |
 | Core/Basic 字节码目标 | 17 |
@@ -22,11 +22,11 @@ slug: /extensions/api-status
 后续 Dokka 站点只收录明确列入白名单的包，不按可见性自动收录整个模块。初始候选为：
 
 ```text
-work.art1st.mineRails.core.api.*
-work.art1st.mineRails.basic.api.*
+work.art1st.javarailways.core.api.*
+work.art1st.javarailways.basic.api.*
 ```
 
-`work.art1st.mineRails.bukkit.extension.*` 当前包含平台实现和 Core 内部依赖，不作为稳定 Bukkit API。待 `work.art1st.mineRails.bukkit.api.*` 建立后再加入。
+`work.art1st.javarailways.bukkit.extension.*` 当前包含平台实现和 Core 内部依赖，不作为稳定 Bukkit API。待 `work.art1st.javarailways.bukkit.api.*` 建立后再加入。
 
 ## 文档完成标准
 

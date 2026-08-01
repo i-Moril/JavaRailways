@@ -15,7 +15,7 @@ runPaper {
     disablePluginJarDetection()
 }
 
-def foliaPluginJar = layout.buildDirectory.file("folia-plugin/MineRails.jar")
+def foliaPluginJar = layout.buildDirectory.file("folia-plugin/JavaRailways.jar")
 def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin") {
     dependsOn(tasks.shadowJar)
     inputs.file(tasks.shadowJar.archiveFile)
@@ -24,7 +24,7 @@ def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin") {
         def source = tasks.shadowJar.archiveFile.get().asFile.toPath()
         def target = foliaPluginJar.get().asFile.toPath()
         java.nio.file.Files.createDirectories(target.parent)
-        def staged = java.nio.file.Files.createTempFile(target.parent, "MineRails-", ".jar.tmp")
+        def staged = java.nio.file.Files.createTempFile(target.parent, "JavaRailways-", ".jar.tmp")
         try {
             java.nio.file.Files.copy(source, staged, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             // Never truncate the jar held by a running Paper/Folia classloader. An atomic rename
@@ -57,17 +57,21 @@ tasks.named("processResources") {
     dependsOn(webUiShadowJar)
     from(webUiShadowJar.flatMap { it.archiveFile }) {
         into("webui")
-        rename { "MineRails-WebUI.jar" }
+        rename { "JavaRailways-WebUI.jar" }
     }
     dependsOn(scriptWorkerShadowJar)
     from(scriptWorkerShadowJar.flatMap { it.archiveFile }) {
         into("timetable-js")
-        rename { "MineRails-ScriptWorker.jar" }
+        rename { "JavaRailways-ScriptWorker.jar" }
     }
 }
 
 group = 'work.art1st'
 version = '1.0-SNAPSHOT'
+
+base {
+    archivesName = 'JavaRailways'
+}
 
 repositories {
     mavenCentral()
@@ -147,11 +151,11 @@ tasks.assemble {
 shadowJar {
     from(sourceSets.main.resources)
     mergeServiceFiles()
-    relocate 'org.joml.Vector3dKt', 'work.art1st.mineRails.shadow.org.joml.Vector3dKt'
+    relocate 'org.joml.Vector3dKt', 'work.art1st.javarailways.shadow.org.joml.Vector3dKt'
     // PacketEvents is embedded: relocate both API and platform implementation to avoid server-plugin conflicts.
-    relocate 'com.github.retrooper.packetevents', 'work.art1st.mineRails.shadow.packetevents.api'
-    relocate 'io.github.retrooper.packetevents', 'work.art1st.mineRails.shadow.packetevents.impl'
-    relocate 'me.tofaa.entitylib', 'work.art1st.mineRails.shadow.entitylib'
+    relocate 'com.github.retrooper.packetevents', 'work.art1st.javarailways.shadow.packetevents.api'
+    relocate 'io.github.retrooper.packetevents', 'work.art1st.javarailways.shadow.packetevents.impl'
+    relocate 'me.tofaa.entitylib', 'work.art1st.javarailways.shadow.entitylib'
     configurations = [project.configurations.runtimeClasspath, jomlShadow]
     dependencies {
         // GraalJS language selector artifacts are POM-only. They bring the real
@@ -205,8 +209,8 @@ kotlin {
 //paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
 
 bukkitPluginYaml {
-    name = "MineRails"
-    main = "work.art1st.mineRails.bukkit.BukkitPlugin"
+    name = "JavaRailways"
+    main = "work.art1st.javarailways.bukkit.BukkitPlugin"
     apiVersion = "1.21.11"
     foliaSupported = true
 
@@ -215,9 +219,9 @@ bukkitPluginYaml {
     // Embedded PacketEvents must load after other protocol injectors when they are present.
     softDepend.addAll("ProtocolLib", "ProtocolSupport", "ViaVersion", "ViaBackwards", "ViaRewind", "Geyser-Spigot")
 
-    // 须在 plugin.yml 中声明，getCommand("minerails"/"mr") 才能拿到命令实例
-    commands.register("minerails") {
-        description.set("MineRails 插件主命令")
-        aliases.add("mr")
+    // 须在 plugin.yml 中声明，getCommand("javarailways"/"jr") 才能拿到命令实例
+    commands.register("javarailways") {
+        description.set("JavaRailways 插件主命令")
+        aliases.add("jr")
     }
 }

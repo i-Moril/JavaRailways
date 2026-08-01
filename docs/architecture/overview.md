@@ -5,7 +5,7 @@ slug: /architecture/overview
 
 # 系统架构概览
 
-MineRails 将连续轨道物理、铁路运营逻辑和 Paper 平台交互分层，目标是让 Core 和 Basic 将来可以脱离 Bukkit 独立运行。
+JavaRailways 将连续轨道物理、铁路运营逻辑和 Paper 平台交互分层，目标是让 Core 和 Basic 将来可以脱离 Bukkit 独立运行。
 
 ```mermaid
 flowchart TB
@@ -45,7 +45,7 @@ BukkitPlugin 是 Paper 适配层，负责：
 
 ### BukkitPluginDev
 
-BukkitPluginDev 是游戏内测试和诊断插件，依赖主 MineRails 插件。它不是公开扩展 SDK，也不应作为 API 稳定性的依据。
+BukkitPluginDev 是游戏内测试和诊断插件，依赖主 JavaRailways 插件。它不是公开扩展 SDK，也不应作为 API 稳定性的依据。
 
 ## 每个 Bukkit 世界的运行时对象
 

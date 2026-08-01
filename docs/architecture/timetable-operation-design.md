@@ -5,7 +5,7 @@ slug: /architecture/timetable-operation-design
 
 # 给定时刻表运营闭环设计
 
-本文固定 MineRails 当前优先目标：管理员启动一张已验证的时刻表后，系统在共同周期时间轴上动态取车、申请经路、执行停站和存车；不实现容量优化、晚点恢复或全局自动排图。异常采用保守的 World-local Stall，由管理员检查、重置车辆段并重新启动。
+本文固定 JavaRailways 当前优先目标：管理员启动一张已验证的时刻表后，系统在共同周期时间轴上动态取车、申请经路、执行停站和存车；不实现容量优化、晚点恢复或全局自动排图。异常采用保守的 World-local Stall，由管理员检查、重置车辆段并重新启动。
 
 > 本文描述已确认的目标契约。尚未落地的部分按 [运营闭环验收清单](./timetable-operational-closure-checklist.md) 分切片实施；当前运行行为以结构化 `Timetable` 模型及源码为准。
 
@@ -204,11 +204,11 @@ Dispatcher 在筛选集合中原子选择一个兼容且未占用的 StablingPoi
 
 ## 5. 管理员车辆段 Reset
 
-`/mr ato reset` 不移动列车或修复脱轨；它在解除 Stall 前清理 FAILED run、旧 controller 及其遗留 operation/Section/Berth 资源。物理重置使用独立破坏性命令：
+`/jr ato reset` 不移动列车或修复脱轨；它在解除 Stall 前清理 FAILED run、旧 controller 及其遗留 operation/Section/Berth 资源。物理重置使用独立破坏性命令：
 
 ```text
-/mr depot reset <depot> confirm
-/mr depot reset-all confirm
+/jr depot reset <depot> confirm
+/jr depot reset-all confirm
 ```
 
 Reset 必须在主线程执行以下原子预检：
@@ -229,7 +229,7 @@ Reset 必须在主线程执行以下原子预检：
 - 重建 occupancy 与 AVAILABLE 状态；
 - 写出结构化 reset 报告。
 
-正常预检、列车定位和实际包络检查失败不会留下部分列车状态；回滚会恢复方向、脱轨标志和 swept occupancy，而不仅是车头坐标。账本提交开始后的未预期内部异常无法安全伪装成回滚成功，必须报告 `PARTIALLY_COMMITTED` 并保持 Stall，并记录异常发生前已经完成的 run removal、Section/Berth release 和 timetable stop 数量，等待管理员检查后再次执行 Reset。Reset 成功后 World 也**仍保持 Stall**；管理员检查列车和道岔后，显式执行 `/mr ato reset`，再启动新的 timetable epoch。这是唯一允许绕过正常车尾释放的维护边界。
+正常预检、列车定位和实际包络检查失败不会留下部分列车状态；回滚会恢复方向、脱轨标志和 swept occupancy，而不仅是车头坐标。账本提交开始后的未预期内部异常无法安全伪装成回滚成功，必须报告 `PARTIALLY_COMMITTED` 并保持 Stall，并记录异常发生前已经完成的 run removal、Section/Berth release 和 timetable stop 数量，等待管理员检查后再次执行 Reset。Reset 成功后 World 也**仍保持 Stall**；管理员检查列车和道岔后，显式执行 `/jr ato reset`，再启动新的 timetable epoch。这是唯一允许绕过正常车尾释放的维护边界。
 
 ## 6. 人工驾驶模式
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add required rail metadata to MineRails test world snapshots."""
+"""Add required rail metadata to JavaRailways test world snapshots."""
 
 import argparse
 import json

@@ -7,8 +7,8 @@
 
 ## 症状
 
-1. `/mr train create s100_4car` 后火车不显示 【已经解决】
-2. `/mr train start` + `/mr train throttle 0.5` 后火车不移动
+1. `/jr train create s100_4car` 后火车不显示 【已经解决】
+2. `/jr train start` + `/jr train throttle 0.5` 后火车不移动
 
 ---
 

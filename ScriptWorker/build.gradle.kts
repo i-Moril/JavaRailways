@@ -8,6 +8,10 @@ plugins {
 group = "work.art1st"
 version = "1.0-SNAPSHOT"
 
+base {
+    archivesName.set("JavaRailways-ScriptWorker")
+}
+
 repositories { mavenCentral() }
 
 dependencies {
@@ -20,7 +24,7 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-application { mainClass.set("work.art1st.mineRails.scriptworker.MainKt") }
+application { mainClass.set("work.art1st.javarailways.scriptworker.MainKt") }
 kotlin { jvmToolchain(17) }
 tasks.withType<JavaCompile>().configureEach { options.release.set(17) }
 tasks.test { useJUnitPlatform() }

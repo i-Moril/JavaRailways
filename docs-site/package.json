@@ -1,5 +1,5 @@
 {
-  "name": "minerails-docs",
+  "name": "javarailways-docs",
   "version": "0.0.0",
   "private": true,
   "scripts": {
@@ -7,7 +7,7 @@
     "start": "docusaurus start --host 0.0.0.0 --port 32000",
     "build": "npm run generate-api && npm run check-dsl-types && npm run validate-models && npm run copy-reference-files && npm run build:site && npm run index-search",
     "build:site": "docusaurus build",
-    "generate-api": "../gradlew -p .. dokkaGeneratePublicationHtml --quiet",
+    "generate-api": "../gradlew -p .. dokkaGeneratePublicationHtml -x :BukkitPlugin:reobfJar --quiet",
     "prepare-search": "node scripts/mark-search-content.mjs",
     "index-search": "npm run prepare-search && pagefind",
     "clear": "docusaurus clear",

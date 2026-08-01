@@ -13,15 +13,15 @@ Depot Reset 会移动列车并重建运行期资源账本；door failure 项会�
 
 ## 0. 测试记录
 
-- [ ] 记录 MineRails commit、Paper 版本和 Java 版本。
+- [ ] 记录 JavaRailways commit、Paper 版本和 Java 版本。
 - [ ] 记录测试世界 UUID、timetable ID、Depot ID、列车 ID 和模型包名。
-- [ ] 清空 `plugins/MineRails/debug/` 中旧报告，或先复制到归档目录。
-- [ ] 确认测试开始时 `/mr ato status <world>` 为 `RUNNING`。
+- [ ] 清空 `plugins/JavaRailways/debug/` 中旧报告，或先复制到归档目录。
+- [ ] 确认测试开始时 `/jr ato status <world>` 为 `RUNNING`。
 
 ## 1. 基础设施准备
 
-1. 使用 `/mr wand railobject` 获取 RailObjectWand。
-2. 在测试环线创建以下 directed Destination，并通过 `/mr waypoint info <id>` 核对 Rail、AB 弧长、接近方向和角色：
+1. 使用 `/jr wand railobject` 获取 RailObjectWand。
+2. 在测试环线创建以下 directed Destination，并通过 `/jr waypoint info <id>` 核对 Rail、AB 弧长、接近方向和角色：
    - [ ] 至少两个 `DEPOT_STABLING_POINT`，属于同一 Depot，配置足够的 usable length。
    - [ ] 至少一个 `STATION_BERTH`，显式配置 Station ID、Berth ID、door side 和接近方向。
    - [ ] 至少两个 `REGULAR` Destination/WayPoint，作为中间保护点和终点。
@@ -29,8 +29,8 @@ Depot Reset 会移动列车并重建运行期资源账本；door failure 项会�
 4. 验证经路：
 
 ```text
-/mr route validate <depot-destination> <line-end>
-/mr route validate <line-end> <stabling-destination>
+/jr route validate <depot-destination> <line-end>
+/jr route validate <line-end> <stabling-destination>
 ```
 
 - [ ] 正方向经路可达。
@@ -41,14 +41,14 @@ Depot Reset 会移动列车并重建运行期资源账本；door failure 项会�
 把列车停止并准确对齐 directed StablingPoint 后执行：
 
 ```text
-/mr depot assign <train> <depot> <point> metro doors
-/mr depot list <depot>
+/jr depot assign <train> <depot> <point> metro doors
+/jr depot list <depot>
 ```
 
 如果使用逗号分隔的多个值：
 
 ```text
-/mr depot assign <train> <depot> <point> metro,local doors
+/jr depot assign <train> <depot> <point> metro,local doors
 ```
 
 - [ ] 每列车只属于一个 home Depot。
@@ -69,9 +69,9 @@ Depot Reset 会移动列车并重建运行期资源账本；door failure 项会�
 检查并启动：
 
 ```text
-/mr timetable dump closure
-/mr timetable start closure
-/mr timetable status closure
+/jr timetable dump closure
+/jr timetable start closure
+/jr timetable status closure
 ```
 
 - [ ] 缺失周期、未知扩展、周期外 Tick、缺失 Destination/Berth 或不可达经路会在结构化模型验证阶段失败，且 World 不 Stall。
@@ -98,7 +98,7 @@ Depot Reset 会移动列车并重建运行期资源账本；door failure 项会�
 - [ ] cycle-0 仍占用的列车不会被 cycle-1 抢占。
 - [ ] 有第二列兼容车辆时，重叠 cycle 使用另一列 `AVAILABLE` 车辆。
 - [ ] 相同 timetable、cycle、service 和车辆池在重新搭建的相同场景中产生相同配车结果。
-- [ ] `/mr timetable stop closure` 后不再生成下一 cycle，当前资源仍只按车尾释放。
+- [ ] `/jr timetable stop closure` 后不再生成下一 cycle，当前资源仍只按车尾释放。
 
 ## 6. MANUAL_ROUTED 与 FULL_MANUAL
 
@@ -122,14 +122,14 @@ Depot Reset 会移动列车并重建运行期资源账本；door failure 项会�
 - [ ] 列车停止并位于明确 Destination/WayPoint 后，管理员使用：
 
 ```text
-/mr timetable replan closure loop <current-waypoint> [cycle]
+/jr timetable replan closure loop <current-waypoint> [cycle]
 ```
 
 - [ ] replan 成功产生更高 Mission revision；位置、方向、资源或人工 session 条件不满足时拒绝且不猜测恢复点。
 
 ## 7. World Stall 故障注入
 
-每项应在独立场景执行。记录 `/mr ato status`、`/mr ato dump` 和 `plugins/MineRails/debug/ato-stall-*.json`。
+每项应在独立场景执行。记录 `/jr ato status`、`/jr ato dump` 和 `plugins/JavaRailways/debug/ato-stall-*.json`。
 
 ### 7.1 无可用车辆
 
@@ -172,9 +172,9 @@ Depot Reset 会移动列车并重建运行期资源账本；door failure 项会�
 Stall 后不要先执行 ATO reset。先执行：
 
 ```text
-/mr depot reset north confirm
+/jr depot reset north confirm
 # 或
-/mr depot reset-all confirm
+/jr depot reset-all confirm
 ```
 
 - [ ] 非 Stall 状态命令被拒绝。
@@ -184,13 +184,13 @@ Stall 后不要先执行 ATO reset。先执行：
 - [ ] 用反向或脱轨列车制造后续列车定位失败时，回滚后方向、脱轨标志和位置均与 Reset 前一致。
 - [ ] 成功后所有列车位于唯一兼容 directed StablingPoint。
 - [ ] RollingStock 为 `AVAILABLE`，occupancy、controller、RouteSection、StationBerth 和 timetable run 一致。
-- [ ] 生成 `plugins/MineRails/debug/depot-reset-*.json`，包含 assignment 与释放数量。
-- [ ] Reset 成功后 `/mr ato status <world>` 仍为 `STALLED`。
+- [ ] 生成 `plugins/JavaRailways/debug/depot-reset-*.json`，包含 assignment 与释放数量。
+- [ ] Reset 成功后 `/jr ato status <world>` 仍为 `STALLED`。
 
 管理员检查现场和两类报告后，最后执行：
 
 ```text
-/mr ato reset <world>
+/jr ato reset <world>
 ```
 
 - [ ] ATO reset 不移动列车、不修复脱轨，也不恢复旧 epoch/run；FAILED run、旧 controller 和遗留 operation/Section/Berth 资源会被清理，随后可重新导航或接管健康列车。

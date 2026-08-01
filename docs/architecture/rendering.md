@@ -5,7 +5,7 @@ slug: /architecture/rendering
 
 # 展示实体渲染架构
 
-MineRails 使用 `RenderChunkManager` 维护轨道和列车 renderable 的空间索引，并按玩家位置决定 MineRails audience。列车普通部件 Display 作为 passenger 挂载到 root Display；逐玩家 LOD alternatives 使用世界坐标独立更新；座位、交互命中箱和碰撞平台则是独立的真实 Bukkit 实体。
+JavaRailways 使用 `RenderChunkManager` 维护轨道和列车 renderable 的空间索引，并按玩家位置决定 JavaRailways audience。列车普通部件 Display 作为 passenger 挂载到 root Display；逐玩家 LOD alternatives 使用世界坐标独立更新；座位、交互命中箱和碰撞平台则是独立的真实 Bukkit 实体。
 
 ## 当前实现
 
@@ -20,7 +20,7 @@ RenderChunkManager
                          └─ per-player LOD DisplayVisual
 ```
 
-逐玩家 MineRails 距离由 `RenderChunkManager` 计算。`native` Display 仍受 Paper 原生实体追踪距离、玩家 send view distance 和客户端 `viewRange` 限制；`entitylib` 轨道和列车视觉由 MineRails 显式维护 viewer，可显示在原生实体追踪范围之外。
+逐玩家 JavaRailways 距离由 `RenderChunkManager` 计算。`native` Display 仍受 Paper 原生实体追踪距离、玩家 send view distance 和客户端 `viewRange` 限制；`entitylib` 轨道和列车视觉由 JavaRailways 显式维护 viewer，可显示在原生实体追踪范围之外。
 
 ## 可选后端
 
@@ -70,11 +70,11 @@ display-renderer:
 - 每玩家展示距离；
 - 玩家退出、切世界和世界卸载清理。
 
-EntityLib 的 viewer 集合仅执行 audience 结果，不取代 MineRails 的空间索引。
+EntityLib 的 viewer 集合仅执行 audience 结果，不取代 JavaRailways 的空间索引。
 
 ### 线程边界
 
-模型状态来自 Core 已发布的 render snapshot；Bukkit 与 packet visual 的提交仍在主线程 render commit 阶段执行。PacketEvents 的网络写入可以进入 Netty，但 MineRails 不应从物理 worker 直接读取 Bukkit 玩家或修改 viewer 集合。
+模型状态来自 Core 已发布的 render snapshot；Bukkit 与 packet visual 的提交仍在主线程 render commit 阶段执行。PacketEvents 的网络写入可以进入 Netty，但 JavaRailways 不应从物理 worker 直接读取 Bukkit 玩家或修改 viewer 集合。
 
 ## 依赖策略
 

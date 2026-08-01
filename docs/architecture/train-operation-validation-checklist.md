@@ -39,7 +39,7 @@ slug: /architecture/train-operation-validation-checklist
 - [x] **C3-D02** adapter 把语义左右侧映射到模型 `behavior.js` 的 `door(side, scene)`；无 behavior 时回退到同名 door action。
 - [x] **C3-D03** `BOTH` 同时要求左右侧动作，任一缺失都拒绝 operation。
 - [x] **C3-D04** ticket 在所有声明的延迟 action 到达最晚启动时刻后才确认，而不是在刚排队时确认。
-- [x] **C3-D05** `/mr timetable status` 显示 operation ticket ID、状态、snapshot 错误和人工处理原因。
+- [x] **C3-D05** `/jr timetable status` 显示 operation ticket ID、状态、snapshot 错误和人工处理原因。
 
 ## 验收证据
 

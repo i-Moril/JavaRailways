@@ -40,17 +40,17 @@ slug: /architecture/timetable-operational-closure-checklist
 - [x] **T3-07** 列车停稳、整列进入边界且旧资源车尾释放后才变为 AVAILABLE。
 - [x] **T3-08** 无兼容存车位时 World Stall，不部分提交 occupancy。
 
-T3 证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛选、原子 reservation/cancel、离库释放、存车 handoff 和稳定 seed；`TimetableValidatorTest` 覆盖严格 Depot action 校验；`TimetableDispatcherTest` 覆盖动态绑定、从实际 directed StablingPoint 创建 Mission、完整取存车闭环，以及无匹配列车的 World-local Stall。旧 RouteSection/StationBerth 必须先自然车尾释放；最终 storage RouteSection 在存车期间保持确认，并转交给同车下一次离库 run，仍只在车尾越过原 release boundary 后释放。Depot Destination 会同步注册 StablingPoint，管理员可用 `/mr depot assign|list` 预解析并登记现有列车。
+T3 证据：`DepotStoreTest` 覆盖唯一 home depot、停车点 occupancy、筛选、原子 reservation/cancel、离库释放、存车 handoff 和稳定 seed；`TimetableValidatorTest` 覆盖严格 Depot action 校验；`TimetableDispatcherTest` 覆盖动态绑定、从实际 directed StablingPoint 创建 Mission、完整取存车闭环，以及无匹配列车的 World-local Stall。旧 RouteSection/StationBerth 必须先自然车尾释放；最终 storage RouteSection 在存车期间保持确认，并转交给同车下一次离库 run，仍只在车尾越过原 release boundary 后释放。Depot Destination 会同步注册 StablingPoint，管理员可用 `/jr depot assign|list` 预解析并登记现有列车。
 
 ## T4 管理员 Reset
 
-- [x] **T4-01** `/mr depot reset <depot> confirm` 和 `reset-all` 与 `/mr ato reset` 分离。
+- [x] **T4-01** `/jr depot reset <depot> confirm` 和 `reset-all` 与 `/jr ato reset` 分离。
 - [x] **T4-02** reset 只允许在 Stall 中执行，并先等待当前 physics ticket。
 - [x] **T4-03** 全部列车到 StablingPoint 的分配先原子预检；容量不足不修改任何状态。
 - [x] **T4-04** 提交阶段先暂存全部列车位置并按实际车体生成跨 Rail 包络；任一定位失败或包络重叠时，在修改资源账本前恢复位置、方向、脱轨标志和 swept state。包络全部互斥后才发布位置，再停止 run/controller、取消 ticket 并重建资源账本和 occupancy。
 - [x] **T4-05** reset 生成结构化报告且完成后保持 Stall，必须由管理员另行 ATO reset；账本提交开始后的意外异常明确报告 `PARTIALLY_COMMITTED` 及异常前已完成的资源修改计数，不得伪装成无副作用失败。
 
-T4 证据：`DepotStoreTest` 覆盖确定性全匹配、plan revalidation 和失败不修改 ledger；`DepotResetCoordinatorTest` 覆盖 Stall-only、Destination/Dispatcher 全量 preflight、实际车体跨 Rail 包络冲突、强制资源清理、位置与 occupancy 重建、定位中途失败时对反向/脱轨列车的完整状态回滚、结构化 JSON，以及成功后继续保持 Stall。Bukkit 命令在调用事务前等待当前 physics ticket，并将成功、失败或部分提交报告写入 `plugins/MineRails/debug/depot-reset-*.json`。
+T4 证据：`DepotStoreTest` 覆盖确定性全匹配、plan revalidation 和失败不修改 ledger；`DepotResetCoordinatorTest` 覆盖 Stall-only、Destination/Dispatcher 全量 preflight、实际车体跨 Rail 包络冲突、强制资源清理、位置与 occupancy 重建、定位中途失败时对反向/脱轨列车的完整状态回滚、结构化 JSON，以及成功后继续保持 Stall。Bukkit 命令在调用事务前等待当前 physics ticket，并将成功、失败或部分提交报告写入 `plugins/JavaRailways/debug/depot-reset-*.json`。
 
 ## T5 人工驾驶模式
 

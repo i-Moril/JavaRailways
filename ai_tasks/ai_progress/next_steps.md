@@ -51,17 +51,17 @@
 
 ### 命令系统实现
 - **状态**：✅ 已完成 - 命令框架已建立
-- `MineRailsCommand` - 主命令入口
-- `RailCommand` - `/mr rail create` 轨道创建
-- `TrainCommand` - `/mr train create|info|list` 列车命令
-- 注册 `/minerails` 和 `/mr` 别名
+- `JavaRailwaysCommand` - 主命令入口
+- `RailCommand` - `/jr rail create` 轨道创建
+- `TrainCommand` - `/jr train create|info|list` 列车命令
+- 注册 `/javarailways` 和 `/jr` 别名
 
 ### 游戏内测试的 Checklist
-- [x] 轨道创建和删除 - `/mr rail create` 已实现
+- [x] 轨道创建和删除 - `/jr rail create` 已实现
 - [x] 列车模型构建 - CarExtension/BogieExtension 从 car_model.yml 加载配置，ItemDisplay 渲染
 - [x] 座位系统 - SeatExtension 使用 Interaction 实体，玩家右键座位坐下
-- [x] 游戏内列车创建 - `/mr train create` 已实现，支持指定车厢数量和长度
-- [x] 手动驾驶算法 - ManualController 实现，`/mr train start|stop|throttle|reverse|info`
+- [x] 游戏内列车创建 - `/jr train create` 已实现，支持指定车厢数量和长度
+- [x] 手动驾驶算法 - ManualController 实现，`/jr train start|stop|throttle|reverse|info`
 - [x] 轨道的可视化。指定循环节每个元素的方块/item和偏移，以及循环节的长度（rail_model.yml）。
 - [x] 多节车厢定位 - `CoreCar` 转向架配对算法修复，含回归测试
 - [x] 远离原点渲染 - Display 实体真实坐标 + RenderChunk 修复

@@ -11,9 +11,9 @@
 
 ## 1) 运行时路径回退到了测试注册表
 **代码位置**
-- `Basic/src/main/java/work/art1st/mineRails/basic/pathFinding/RailMap.kt:71-75`
-- `Basic/src/main/java/work/art1st/mineRails/basic/pathFinding/RailMap.kt:83-100`
-- 对应正常注册路径：`BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/logic/RailWorldFactory.kt:36-42`
+- `Basic/src/main/java/work/art1st/javarailways/basic/pathFinding/RailMap.kt:71-75`
+- `Basic/src/main/java/work/art1st/javarailways/basic/pathFinding/RailMap.kt:83-100`
+- 对应正常注册路径：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailWorldFactory.kt:36-42`
 
 **问题描述**
 - `World.basicWorldData` 先 `runCatching { getExtensionData(...) }`，失败后回退到 `TestBasicWorldDataRegistry`。
@@ -31,8 +31,8 @@
 
 ## 2) 世界快照损坏会被当成“没有存档”
 **代码位置**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/persistence/WorldPersistence.kt:17-22`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/logic/WorldManager.kt:27-30`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/persistence/WorldPersistence.kt:17-22`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt:27-30`
 
 **问题描述**
 - `tryLoadSnapshot()` 把以下几种情况都折叠成 `null`：
@@ -55,10 +55,10 @@
 
 ## 3) 轨道渲染元数据加载过于宽松，存在“读坏后再写坏”的风险
 **代码位置**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/persistence/RailRenderMetaStore.kt:93`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/persistence/RailRenderMetaStore.kt:109-124`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/persistence/RailRenderMetaStore.kt:190-199`
-- 读取后立即参与恢复：`BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/logic/RailWorldFactory.kt:44-47`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/persistence/RailRenderMetaStore.kt:93`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/persistence/RailRenderMetaStore.kt:109-124`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/persistence/RailRenderMetaStore.kt:190-199`
+- 读取后立即参与恢复：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailWorldFactory.kt:44-47`
 
 **问题描述**
 - 未知 `RailDisplayType` 被强行兜底成 `ITEM`
@@ -81,10 +81,10 @@
 
 ## 4) 轨道 / 模型配置解析仍残留少量**非向量字段**默认值
 **代码位置**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/RailModelConfig.kt:100-106,129-140`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PartRegistry.kt:159-180,247-299`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/CarLoader.kt:87-97`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PartInteractionConfig.kt:18-26`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/RailModelConfig.kt:100-106,129-140`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartRegistry.kt:159-180,247-299`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/CarLoader.kt:87-97`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartInteractionConfig.kt:18-26`
 
 **问题描述**
 - 当前已明确：`offset/rotation/scale` 的 `x/y/z` 分量默认值需要保留；这部分不算问题。
@@ -112,8 +112,8 @@
 
 ## 5) `actions.yml` 仍在静默跳过坏项，文件坏了也可能继续跑
 **代码位置**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/TrainActionConfig.kt:17-61`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PackageLoader.kt:104-106`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/TrainActionConfig.kt:17-61`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PackageLoader.kt:104-106`
 
 **问题描述**
 - `actions.yml` 缺文件时返回空 action 集合作为“可选文件”，这一点可以接受。
@@ -138,11 +138,11 @@
 
 ## 6) `ConfigUI` 这套框架明显超前设计
 **代码位置**
-- 接口：`Basic/src/main/java/work/art1st/mineRails/basic/api/ui/config/ConfigUI.kt:16-159`
-- 实现：`Basic/src/main/java/work/art1st/mineRails/basic/impl/config/ConfigUIRegistry.kt:21-43,244-256`
+- 接口：`Basic/src/main/java/work/art1st/javarailways/basic/api/ui/config/ConfigUI.kt:16-159`
+- 实现：`Basic/src/main/java/work/art1st/javarailways/basic/impl/config/ConfigUIRegistry.kt:21-43,244-256`
 - 实际构造点只有：
-  - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailWand.kt:150`
-  - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/OperationWand.kt:58`
+  - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:150`
+  - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/OperationWand.kt:58`
 
 **问题描述**
 - 设计了分组扩展、构建监听、pending merge、player session、value callback 等完整框架。
@@ -167,9 +167,9 @@
 
 ## 7) `playerSessions` 有生命周期设计，但当前没有被真正管理
 **代码位置**
-- `Basic/src/main/java/work/art1st/mineRails/basic/impl/config/ConfigUIRegistry.kt:43,252-257`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailWand.kt:407-411`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/OperationWand.kt:328-331`
+- `Basic/src/main/java/work/art1st/javarailways/basic/impl/config/ConfigUIRegistry.kt:43,252-257`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt:407-411`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/OperationWand.kt:328-331`
 
 **问题描述**
 - `ConfigUIRegistry` 维护了 `playerSessions`
@@ -187,9 +187,9 @@
 
 ## 8) `PackageLoader.load(): Any?` 是不必要的泛化
 **代码位置**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/PackageLoader.kt:24`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/ModelManager.kt:52,69`
-- 相关类型其实已经存在：`BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/LoadedPackage.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PackageLoader.kt:24`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/ModelManager.kt:52,69`
+- 相关类型其实已经存在：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/LoadedPackage.kt`
 
 **问题描述**
 - `PackageLoader.load()` 返回 `Any?`
@@ -208,15 +208,15 @@
 
 ## 9) 扩展系统 API 过硬，逼出了异常流和占位实现
 **代码位置**
-- `Core/src/main/java/work/art1st/mineRails/core/api/util/plugin/ExtensionDataContainer.kt:12-16`
-- `Core/src/main/java/work/art1st/mineRails/core/api/util/plugin/Extendable.kt:7-13`
+- `Core/src/main/java/work/art1st/javarailways/core/api/util/plugin/ExtensionDataContainer.kt:12-16`
+- `Core/src/main/java/work/art1st/javarailways/core/api/util/plugin/Extendable.kt:7-13`
 - 运行时到处补异常兜底：
-  - `Basic/src/main/java/work/art1st/mineRails/basic/pathFinding/RailMap.kt:71-75`
-  - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/debug/AbnormalTrainMarker.kt:141`
-  - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/control/TrainControlManager.kt:320`
-  - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/control/TrainControlDialog.kt:148`
-  - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/TrainExtension.kt:133`
-  - `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/command/TrainCommand.kt:696`
+  - `Basic/src/main/java/work/art1st/javarailways/basic/pathFinding/RailMap.kt:71-75`
+  - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/debug/AbnormalTrainMarker.kt:141`
+  - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainControlManager.kt:320`
+  - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainControlDialog.kt:148`
+  - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainExtension.kt:133`
+  - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/command/TrainCommand.kt:696`
 
 **问题描述**
 - `getExtensionData()` 本质是硬转型
@@ -238,9 +238,9 @@
 
 ## 10) `BogieExtension` 是明显的占位类，且和当前渲染路径不一致
 **代码位置**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/BogieExtension.kt:11-25`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/TrainComponentExtension.kt:15-20`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/chunk/RenderChunkManager.kt:47-52`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/BogieExtension.kt:11-25`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainComponentExtension.kt:15-20`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/chunk/RenderChunkManager.kt:47-52`
 
 **问题描述**
 - 注释已经明确写了：`placeholder to satisfy the extension registration system`
@@ -262,8 +262,8 @@
 
 ## 11) 明确的死抽象：`Factory<T>`、`UuidGenerator`（已处理）
 **代码位置**
-- `Core/src/main/java/work/art1st/mineRails/core/util/Factory.kt`（已删除）
-- `Core/src/main/java/work/art1st/mineRails/core/util/UuidGenerator.kt`（已删除）
+- `Core/src/main/java/work/art1st/javarailways/core/util/Factory.kt`（已删除）
+- `Core/src/main/java/work/art1st/javarailways/core/util/UuidGenerator.kt`（已删除）
 
 **处理结果**
 - 两者已从代码库移除。
@@ -273,9 +273,9 @@
 
 ## 12) `ThreadGuard` / Tick metrics（已开始落地，仍需继续）
 **代码位置**
-- `Core/src/main/java/work/art1st/mineRails/core/util/ThreadGuard.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/util/TickManagerImpl.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/logic/WorldManager.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/ThreadGuard.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/TickManagerImpl.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt`
 
 **当前进展**
 - `ThreadGuard` 已真正实现，不再是空壳。
@@ -300,7 +300,7 @@
 
 ## 13) `ConfigItemImpl.typedValue()` 未使用，`try/catch` 也多余（已处理）
 **代码位置**
-- `Basic/src/main/java/work/art1st/mineRails/basic/api/ui/config/ConfigItem.kt`
+- `Basic/src/main/java/work/art1st/javarailways/basic/api/ui/config/ConfigItem.kt`
 
 **处理结果**
 - 未使用的 `typedValue()` 已删除。

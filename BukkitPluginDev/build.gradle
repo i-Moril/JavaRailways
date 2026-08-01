@@ -8,6 +8,10 @@ plugins {
 group = 'work.art1st'
 version = '1.0-SNAPSHOT'
 
+base {
+    archivesName = 'JavaRailwaysDev'
+}
+
 repositories {
     mavenCentral()
     maven {
@@ -38,14 +42,14 @@ kotlin {
 }
 
 bukkitPluginYaml {
-    main = "work.art1st.mineRails.bukkit.BukkitPluginDev"
+    main = "work.art1st.javarailways.bukkit.BukkitPluginDev"
     apiVersion = "1.21.11"
-    name = "MineRailsDev"
-    depend.add("MineRails")
+    name = "JavaRailwaysDev"
+    depend.add("JavaRailways")
 }
 
-// Dev 插件有独立 classloader；Bukkit/Paper 的 depend 不保证能看到 MineRails jar 里的 Kotlin stdlib。
-// 因此保留 kotlin-stdlib，其它 MineRails 模块仍由主插件提供，避免重复加载业务类。
+// Dev 插件有独立 classloader；Bukkit/Paper 的 depend 不保证能看到 JavaRailways jar 里的 Kotlin stdlib。
+// 因此保留 kotlin-stdlib，其它 JavaRailways 模块仍由主插件提供，避免重复加载业务类。
 shadowJar {
     dependencies {
         exclude(dependency("org.jetbrains.kotlinx:.*"))

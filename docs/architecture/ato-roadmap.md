@@ -11,7 +11,7 @@ slug: /architecture/ato-roadmap
 
 - Phase A：线程归属事件总线、RailObject 稳定引用和生命周期、不可变快照、revisioned command queue。
 - Phase B：owner-scoped 约束、固定减速度 Planner/Actuator、SimpleATO、线路限速、目标与线路末端停车、前车跟随、单一可选 Provider、道岔移动前校验。
-- Phase B 运维：World-local Stall、结构化 Stall dump、`/mr ato status|dump|reset`；不自动恢复列车位置。
+- Phase B 运维：World-local Stall、结构化 Stall dump、`/jr ato status|dump|reset`；不自动恢复列车位置。
 - Phase C1：加权 Planned Route、不可变 Mission、动态 Route Section 分配、movement authority、车尾释放、时刻表冲突优先级和显式列车 service 执行。
 - Phase C2：显式 Station/Berth call、停准通知、dwell、发车授权、berth 所有权和严格 JS/TypeScript DSL。
 - Phase C3/T6：主线程 `TrainOperationGateway`、可确认车门 ticket、开关门状态机、故障 World Stall 和 Bukkit 模型适配。
@@ -48,7 +48,7 @@ slug: /architecture/ato-roadmap
 - Confirmed Route Window 通过 command queue 在 physics Tick 边界发布；SimpleATO 持续验证仍占用的实际道岔。
 - 只有车尾完全越过 release point 才释放 Section；stop/failure 只执行受控停车，不越权释放。
 - 一个运行完成后可执行 dwell 和后续 `GoTo`/`GoVia` Mission，并报告 `COMPLETED`。
-- Bukkit 每次 physics 发布后驱动 Dispatcher，并提供 `/mr timetable start|status|stop <id> [service]`。
+- Bukkit 每次 physics 发布后驱动 Dispatcher，并提供 `/jr timetable start|status|stop <id> [service]`。
 
 ### C1 验收（已完成）
 
@@ -108,7 +108,7 @@ slug: /architecture/ato-roadmap
 
 - `TrainControlManager` 在安装人工 controller 前让活动车次进入 `SUSPENDED`，释放驾驶权后进入 `REPLAN_REQUIRED`。
 - 接管取消 pending operation ticket 和活动 StationCall 流程，但 RouteSection/StationBerth 仍只按原车尾 release boundary 释放。
-- 管理员必须在列车停止、人工 session 结束、旧资源清空后，从明确 WayPoint 执行 `/mr timetable replan`。
+- 管理员必须在列车停止、人工 session 结束、旧资源清空后，从明确 WayPoint 执行 `/jr timetable replan`。
 - replan 创建新 ATO 和新 Mission revision，目标保持为被中断 movement 的原目标；不自动恢复旧 Mission。
 
 ## 已完成：Phase T 给定时刻表运营闭环
@@ -132,7 +132,7 @@ slug: /architecture/ato-roadmap
 ### T3 Depot 与动态配车（已完成）
 
 - 已建立 Depot、StablingPoint、RollingStockRecord、occupancy 和主线程原子 reservation。
-- 已实现按稳定 trainId 排序和 SHA-256 seed 的可复现候选选择，并提供 `/mr depot assign|list` 登记入口。
+- 已实现按稳定 trainId 排序和 SHA-256 seed 的可复现候选选择，并提供 `/jr depot assign|list` 登记入口。
 - timetable `takeFromDepot` 已按 Depot、tags、编组、速度和 capabilities 严格取车，并在无匹配 AVAILABLE 列车时 World-local Stall。
 - 已实现离库车尾释放、`storeAtDepot` 兼容停车点 reservation，以及整列进入边界和旧资源释放后的 occupancy/AVAILABLE 原子 handoff；终端 storage RouteSection 由同车下一次离库继续按车尾释放。
 - 无兼容空闲停车点会 World-local Stall，不部分提交 occupancy。
@@ -141,7 +141,7 @@ slug: /architecture/ato-roadmap
 
 ### T4 管理员 Reset（已完成）
 
-- 已增加与 `/mr ato reset` 分离的 `/mr depot reset <depot> confirm` 和 `reset-all confirm`。
+- 已增加与 `/jr ato reset` 分离的 `/jr depot reset <depot> confirm` 和 `reset-all confirm`。
 - reset 只在 Stall 中执行，并在 Bukkit 层等待当前 physics ticket；列车、Destination、停车位全匹配、RouteSection 和 StationBerth ledger 在任何修改前完成全量预检。
 - 成功后停止相关 run/controller、取消 operation ticket、重建位置与资源/occupancy，并输出结构化报告；World 继续保持 Stall，等待管理员另行 ATO reset。
 

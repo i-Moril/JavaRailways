@@ -31,7 +31,7 @@ slug: /architecture/control-transfer-validation-checklist
 - [x] **D1-C03** replan 从指定 WayPoint 到被中断 movement 的原目标重新寻路，不静默恢复旧 Mission 或跳到任意目标。
 - [x] **D1-C04** 成功 replan 创建新的 SimpleATO；仍有 movement 时提交更高 Mission revision。解析、方向或资源条件失败时保持 `REPLAN_REQUIRED`。
 - [x] **D1-C05** 若指定 WayPoint 已是原目标，则直接推进剩余 timetable steps，但仍使用新 ATO 生命周期。
-- [x] **D1-C06** 管理员通过 `/mr timetable replan <id> <service> <current-waypoint> [cycle]` 显式恢复；仍有人工 session 时命令拒绝。
+- [x] **D1-C06** 管理员通过 `/jr timetable replan <id> <service> <current-waypoint> [cycle]` 显式恢复；仍有人工 session 时命令拒绝。
 
 ## T5 MANUAL_ROUTED 扩展
 

@@ -10,8 +10,8 @@ slug: /architecture/persistence
 世界状态使用两个带共同 `infrastructureRevision` 的版本化文件：
 
 ```text
-plugins/MineRails/worlds/<bukkit-world-uuid>-infrastructure.json
-plugins/MineRails/worlds/<bukkit-world-uuid>-runtime.json
+plugins/JavaRailways/worlds/<bukkit-world-uuid>-infrastructure.json
+plugins/JavaRailways/worlds/<bukkit-world-uuid>-runtime.json
 ```
 
 基础设施文件保存 Rails、Waypoint、OperationalDestination、StationBerth 与 Depot StablingPoint。删除 Rail 会级联删除其 Destination 及派生记录；端点/半径重建会按原三维位置迁移，split/merge 会换算 AB 弧长。快照捕获和恢复都会拒绝引用缺失 Rail 的孤儿 Destination。运行期文件在同一 physics barrier 捕获 Train、规范化 Timetable、Dispatcher logical clock/cycle 和安全 ActiveRun checkpoint；无法安全热恢复的 run 作为 `RECOVERY_REQUIRED` checkpoint 保留，不序列化 live ATO、ticket、锁、Future 或 worker queue。
@@ -20,7 +20,7 @@ plugins/MineRails/worlds/<bukkit-world-uuid>-runtime.json
 
 旧单文件 `SavedWorldV1` 不再由运行时代码读取；现有测试服文件已离线迁移为分离格式，避免长期保留双格式兼容路径。
 
-JSON 使用 `encodeDefaults = true` 和 `ignoreUnknownKeys = true`。读取损坏快照时，该 Bukkit 世界不会注册 MineRails 功能，日志会要求管理员修复或移走损坏文件，不会静默创建空世界覆盖原数据。
+JSON 使用 `encodeDefaults = true` 和 `ignoreUnknownKeys = true`。读取损坏快照时，该 Bukkit 世界不会注册 JavaRailways 功能，日志会要求管理员修复或移走损坏文件，不会静默创建空世界覆盖原数据。
 
 :::warning 类型兼容性
 扩展数据反序列化当前依赖保存的 JVM 类名和反射 serializer。移动或删除扩展数据类可能破坏旧快照，发布前必须设计迁移策略。
@@ -35,7 +35,7 @@ JSON 使用 `encodeDefaults = true` 和 `ignoreUnknownKeys = true`。读取损�
 轨道显示 metadata 由 Bukkit 层的 `RailRenderMetaStore` 单独保存。列车模型快照在 `snapshot` 策略下另存到：
 
 ```text
-plugins/MineRails/model-snapshots/<sha256>.json
+plugins/JavaRailways/model-snapshots/<sha256>.json
 ```
 
 ## 列车模型更新策略

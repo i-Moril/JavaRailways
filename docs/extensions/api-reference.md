@@ -5,11 +5,11 @@ slug: /extensions/api-reference
 
 # API Reference 构建
 
-MineRails 使用 Dokka 2.2 同时读取 Kotlin KDoc 和 JavaDoc。目前只收录：
+JavaRailways 使用 Dokka 2.2 同时读取 Kotlin KDoc 和 JavaDoc。目前只收录：
 
 ```text
-work.art1st.mineRails.core.api.*
-work.art1st.mineRails.basic.api.*
+work.art1st.javarailways.core.api.*
+work.art1st.javarailways.basic.api.*
 ```
 
 Bukkit 平台尚未建立稳定的 `bukkit.api`，因此不会把 `bukkit.extension` 或其他实现包发布为扩展 API。

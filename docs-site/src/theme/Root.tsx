@@ -29,7 +29,7 @@ function PagefindSearch(): React.ReactNode {
   }, [bundlePath]);
 
   return (
-    <div className="minerails-pagefind-search" data-pagefind-ignore="all">
+    <div className="javarailways-pagefind-search" data-pagefind-ignore="all">
       {React.createElement('pagefind-config', {
         'base-url': baseUrl,
         'bundle-path': bundlePath,

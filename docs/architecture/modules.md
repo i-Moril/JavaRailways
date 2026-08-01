@@ -46,9 +46,9 @@ flowchart LR
 计划公开的包必须显式列入 API Reference：
 
 ```text
-work.art1st.mineRails.core.api.*
-work.art1st.mineRails.basic.api.*
-work.art1st.mineRails.bukkit.api.*    # 尚未建立
+work.art1st.javarailways.core.api.*
+work.art1st.javarailways.basic.api.*
+work.art1st.javarailways.bukkit.api.*    # 尚未建立
 ```
 
 不能把 Kotlin/Java 的 `public` 等同于兼容承诺。当前若干候选 API 仍引用实现类，例如 `core.api.control.TrainController` 会使用 `CoreTrain` 和 `CommitBuffer`，这类泄漏需要在发布 SDK 前消除。

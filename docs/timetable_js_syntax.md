@@ -3,7 +3,7 @@ title: JS 时刻表语法
 slug: /timetable/
 ---
 
-# MineRails JS 时刻表语法说明
+# JavaRailways JS 时刻表语法说明
 
 :::warning 实验性能力
 本文档完整描述当前 JS 时刻表 DSL。运行时支持显式 `TrainId`、Depot 动态配车或普通路径点取车、`pass(...).destination(...)` 链式线路、`takeFromDepot`/`takeFromWaypoint`/`storeAtDepot`、非线路 hold、`Reverse`、`Halt`、Station/Berth 运营流程、扩展动作、结构化条件，以及共同 epoch 下的 not-before 计划时间和 period 自动 cycle。运营闭环仍以 [设计](architecture/timetable-operation-design.md) 和 [验收清单](architecture/timetable-operational-closure-checklist.md) 为准。
@@ -16,41 +16,41 @@ JS 只负责生成 `SavedTimetableV1`，不会成为运行时脚本。每次编�
 推荐把脚本放在：
 
 ```text
-plugins/MineRails/timetables/<name>.js
+plugins/JavaRailways/timetables/<name>.js
 ```
 
 加载：
 
 ```text
-/mr timetable load <file.js> [id]
+/jr timetable load <file.js> [id]
 ```
 
 示例：
 
 ```text
-/mr timetable load demo.js
-/mr timetable load demo.js line_a_morning
+/jr timetable load demo.js
+/jr timetable load demo.js line_a_morning
 ```
 
 查看已加载时刻表：
 
 ```text
-/mr timetable list
+/jr timetable list
 ```
 
 输出内部结构：
 
 ```text
-/mr timetable dump <id>
+/jr timetable dump <id>
 ```
 
 实验性启动和状态管理：
 
 ```text
-/mr timetable start <id> [service]
-/mr timetable status <id> [service]
-/mr timetable stop <id> [service]
-/mr timetable replan <id> <service> <current-waypoint> [cycle]
+/jr timetable start <id> [service]
+/jr timetable status <id> [service]
+/jr timetable stop <id> [service]
+/jr timetable replan <id> <service> <current-waypoint> [cycle]
 ```
 
 service 的第二参数可以是玩家指定的列车名、`timetable.takeFromDepot(...)` 或 `timetable.takeFromWaypoint(...)` selector。显式列车名需在第一条线路前通过 `check()` 指定初始位置；动态 selector 会生成内部取车步骤。线路使用 `[at(departureTick).]pass(...).destination(target, options?)` 一次提交，不能用逐段移动与独立等待拼接运营语义。
@@ -60,11 +60,11 @@ service 的第二参数可以是玩家指定的列车名、`timetable.takeFromDe
 World Stall 后可执行显式确认的 Depot Reset：
 
 ```text
-/mr depot reset <depot> confirm
-/mr depot reset-all confirm
+/jr depot reset <depot> confirm
+/jr depot reset-all confirm
 ```
 
-命令会先等待当前 physics ticket，再全量预检列车、directed StablingPoint、实际编组长度、容量和 Dispatcher ledger。任何 preflight 失败都不会移动列车或修改 occupancy。位置提交前会用实际车体计算跨 Rail 包络；定位或包络检查失败会在修改 ledger 前恢复旧位置、方向、脱轨标志和 swept occupancy。全部包络互斥后才发布位置，随后停止相关 run/controller、取消 operation ticket并重建资源账本；ticket 必须通过 snapshot 确认为 `CANCELLED`，取消或快照异常不会被忽略。账本提交开始后的未预期异常会明确报告 `PARTIALLY_COMMITTED`，不会声称已完整回滚。报告写入 `plugins/MineRails/debug/`；Reset 结束后 World **仍保持 Stall**，管理员检查后必须另行执行 `/mr ato reset <world>`。
+命令会先等待当前 physics ticket，再全量预检列车、directed StablingPoint、实际编组长度、容量和 Dispatcher ledger。任何 preflight 失败都不会移动列车或修改 occupancy。位置提交前会用实际车体计算跨 Rail 包络；定位或包络检查失败会在修改 ledger 前恢复旧位置、方向、脱轨标志和 swept occupancy。全部包络互斥后才发布位置，随后停止相关 run/controller、取消 operation ticket并重建资源账本；ticket 必须通过 snapshot 确认为 `CANCELLED`，取消或快照异常不会被忽略。账本提交开始后的未预期异常会明确报告 `PARTIALLY_COMMITTED`，不会声称已完整回滚。报告写入 `plugins/JavaRailways/debug/`；Reset 结束后 World **仍保持 Stall**，管理员检查后必须另行执行 `/jr ato reset <world>`。
 
 取得 timetable 列车钥匙控制权时默认进入 `MANUAL_ROUTED`：司机手柄是唯一速度来源，Dispatcher 仍申请计划 RouteSection 并按车尾释放，但不会自动开关门、执行 dwell hold 或授予发车。钥匙 Dialog 可通过“关闭时刻表进路辅助”进入 `FULL_MANUAL/SUSPENDED`；此后不申请新 Section。任一人工模式释放后均进入 `REPLAN_REQUIRED`，不会自动恢复 ATO。
 
@@ -80,7 +80,7 @@ function main(timetable) {
 }
 ```
 
-`main` 参数 `timetable` 是 MineRails 提供的 DSL 对象。
+`main` 参数 `timetable` 是 JavaRailways 提供的 DSL 对象。
 
 :::info 独立 Worker 沙箱
 脚本不在 Bukkit 或浏览器进程中执行。插件按次启动 `ScriptWorker` JVM，限制为 64 MiB heap、128 MiB metaspace、3 秒执行时间、512 KiB 源码和 8 MiB结果；超时会强制终止。GraalJS 只暴露标有 `@HostAccess.Export` 的 DSL 方法，并禁止 Host class lookup、文件/网络 IO、创建线程、native access 和 polyglot access。Worker 不继承 Bukkit 环境变量。WebUI 只能查看服务器脚本、验证结果和只读运行图，不能上传、编辑或加载脚本。
@@ -144,7 +144,7 @@ timetable.diagramLine("metro", {
 })
 ```
 
-上下行数组必须非空且各自不能包含重复站 ID。运行图按站 ID 合并不同站台，因此同一张图中每个车站只占一条横线。service 仍通过 `lineId` 关联到对应运行图。
+上下行数组必须非空且各自不能包含重复站 ID。运行图按站 ID 合并不同站台，因此同一张图中每个车站只占一条横线。service 通过纯展示字段 `diagramLineId` 关联到对应运行图；它与世界基础设施中的 `LineId` 无关。
 
 ### `timetable.service(id, builder)`
 
@@ -190,7 +190,7 @@ timetable.service("001", "train-001", function(t) {
 const demand = timetable.predicate("operator:demand", { minimum: 2 })
 
 timetable.service("001", "train-001", {
-  lineId: "metro",
+  diagramLineId: "metro",
   lineDirection: "UP",
   activation: {
     type: "conditional",
@@ -203,7 +203,7 @@ timetable.service("001", "train-001", {
 })
 ```
 
-`lineDirection` 在设置 `lineId` 时可选 `UP` 或 `DOWN`，对应线路中独立维护的上行/下行站序。旧脚本可以省略，但新脚本应显式指定；单独设置 `lineDirection` 而没有 `lineId` 会失败。
+`lineDirection` 在设置 `diagramLineId` 时可选 `UP` 或 `DOWN`，对应运行图中独立维护的上行/下行站序。旧脚本的 `lineId` 仍作为兼容别名接受，但新脚本应使用 `diagramLineId`；单独设置 `lineDirection` 而没有运行图 ID 会失败。
 
 `activation.type` 支持：
 
@@ -238,13 +238,13 @@ timetable.setInitialPosition(
 重置命令：
 
 ```text
-/mr timetable reset <id> confirm
+/jr timetable reset <id> confirm
 ```
 
 若 active/resource-holding run 无法安全完成停车，可由管理员显式执行破坏性的强制重置：
 
 ```text
-/mr timetable reset <id> force confirm
+/jr timetable reset <id> force confirm
 ```
 
 强制重置会立即撤销人工/ATO controller，取消操作票，释放 RouteSection、StationBerth 和停车位 reservation，丢弃该 timetable 的全部 run/clock，然后应用原子初始位置并启动新 epoch；不会等待车尾通过释放点。
@@ -338,8 +338,8 @@ t.at(22000).storeAtDepot("north", {
 列车和 home depot 目前由管理员在列车停止并准确位于 directed StablingPoint 后登记：
 
 ```text
-/mr depot assign <train> <depot> <point> [tagsCsv] [capabilitiesCsv]
-/mr depot list [depot]
+/jr depot assign <train> <depot> <point> [tagsCsv] [capabilitiesCsv]
+/jr depot list [depot]
 ```
 
 ### `[t.at(departureTick).]pass(...).destination(target, options?)`
@@ -434,9 +434,9 @@ if (express) {
 先在 timetable builder 上构造条件树：
 
 ```js
-const late = timetable.predicate("minerails:lateness_at_least", { ticks: 200 })
+const late = timetable.predicate("javarailways:lateness_at_least", { ticks: 200 })
 const suitable = timetable.all(
-  timetable.predicate("minerails:train_model", { models: ["s100"] }),
+  timetable.predicate("javarailways:train_model", { models: ["s100"] }),
   timetable.not(timetable.predicate("operator:maintenance", { active: true }))
 )
 ```
@@ -492,8 +492,8 @@ timetable.service("001", function(t) {
 可用命令查看：
 
 ```text
-/mr waypoint list
-/mr waypoint info <id>
+/jr waypoint list
+/jr waypoint info <id>
 ```
 
 legacy WayPoint 本身不带方向；Operational Destination 可以声明 approach direction。经路验证会遵守轨道方向限制和 destination 进站方向，并在合法候选中选择最短路线。
@@ -510,7 +510,7 @@ legacy WayPoint 本身不带方向；Operational Destination 可以声明 approa
 并为入口参数添加 JSDoc：
 
 ```js
-/** @param {MineRailsTimetableBuilder} timetable */
+/** @param {JavaRailwaysTimetableBuilder} timetable */
 function main(timetable) {
   // ...
 }
@@ -530,7 +530,7 @@ JavaScript 的 `number` 类型不能表达“必须是整数”，因此 tick �
 加载分为两层：
 
 1. **Worker 编译边界**
-   - 文件必须位于 `plugins/MineRails/timetables/`，名称只能包含安全文件名字符，符号链接会被拒绝；
+   - 文件必须位于 `plugins/JavaRailways/timetables/`，名称只能包含安全文件名字符，符号链接会被拒绝；
    - 源码、结果、内存和执行时间不得超过沙箱限制；
    - 必须定义 `function main(timetable)`；
    - `Java.type`、Host class、IO、网络、线程、native/polyglot access 不可用；

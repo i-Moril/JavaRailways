@@ -3,7 +3,7 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 export type Locale = 'zh-CN' | 'en-US';
 
 const zh = {
-  'app.title': 'MineRails 时刻表编辑器',
+  'app.title': 'JavaRailways 时刻表编辑器',
   'app.subtitle': '创建、验证并发布列车运行图',
   'nav.primary': '主导航',
   'nav.graph': '运行图',
@@ -152,7 +152,7 @@ const zh = {
 
 type TranslationKey = keyof typeof zh;
 const en: Record<TranslationKey, string> = {
-  'app.title': 'MineRails Timetable Editor',
+  'app.title': 'JavaRailways Timetable Editor',
   'app.subtitle': 'Build, validate and publish a train running graph',
   'nav.primary': 'Primary navigation',
   'nav.graph': 'Running graph',
@@ -317,7 +317,7 @@ const I18nContext = createContext<I18nValue | null>(null);
 
 function initialLocale(): Locale {
   if (typeof window === 'undefined') return 'en-US';
-  return normalizeLocale(window.localStorage.getItem('minerails.locale') || window.navigator.language);
+  return normalizeLocale(window.localStorage.getItem('javarailways.locale') || window.navigator.language);
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
@@ -326,7 +326,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     locale,
     setLocale(next) {
       updateLocale(next);
-      if (typeof window !== 'undefined') window.localStorage.setItem('minerails.locale', next);
+      if (typeof window !== 'undefined') window.localStorage.setItem('javarailways.locale', next);
     },
     t: (key) => translate(locale, key),
   }), [locale]);

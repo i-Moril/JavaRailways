@@ -1,16 +1,16 @@
-# MineRails WebUI
+# JavaRailways WebUI
 
-Standalone Java service for the MineRails timetable editor. It serves the React/Canvas editor, keeps drafts on disk, and proxies validated publication requests to the authenticated Bukkit bridge. The browser never receives the bridge token.
+Standalone Java service for the JavaRailways timetable editor. It serves the React/Canvas editor, keeps drafts on disk, and proxies validated publication requests to the authenticated Bukkit bridge. The browser never receives the bridge token.
 
 ## Managed mode（默认）
 
 `BukkitPlugin` 内含独立的 WebUI sidecar JAR。插件启动时会把它提取到
-`plugins/MineRails/webui/MineRails-WebUI.jar`，生成临时 Bridge Token，并启动独立 JVM；
+`plugins/JavaRailways/webui/JavaRailways-WebUI.jar`，生成临时 Bridge Token，并启动独立 JVM；
 插件关闭时先终止 sidecar，再关闭 Bridge。`runServer` 和 `runFolia` 因而会自动提供
 WebUI，无需手动启动第二个 Gradle 任务。浏览器 API 默认拒绝匿名访问；管理员需在游戏内执行：
 
 ```text
-/mr timetable edit
+/jr timetable edit
 ```
 
 命令会返回一个可点击、约 60 秒有效且只能使用一次的登录链接。Token 放在 URL fragment
@@ -37,8 +37,8 @@ timetable-webui:
 ```
 
 ```bash
-export MINERAILS_TIMETABLE_HTTP_TOKEN='replace-with-a-long-random-token'
-export MINERAILS_BRIDGE_TOKEN="$MINERAILS_TIMETABLE_HTTP_TOKEN"
+export JAVARAILWAYS_TIMETABLE_HTTP_TOKEN='replace-with-a-long-random-token'
+export JAVARAILWAYS_BRIDGE_TOKEN="$JAVARAILWAYS_TIMETABLE_HTTP_TOKEN"
 ```
 
 Bridge 仍强制绑定 loopback。WebUI 可监听 `0.0.0.0` 并通过 HTTP 直接访问，但服务器会输出明文传输警告；需要传输保密性时使用 HTTPS 反向代理。
@@ -47,7 +47,7 @@ Bridge 仍强制绑定 loopback。WebUI 可监听 `0.0.0.0` 并通过 HTTP 直�
 
 ```bash
 ./gradlew :WebUI:shadowJar
-export MINERAILS_BRIDGE_TOKEN="$MINERAILS_TIMETABLE_HTTP_TOKEN"
+export JAVARAILWAYS_BRIDGE_TOKEN="$JAVARAILWAYS_TIMETABLE_HTTP_TOKEN"
 java -jar WebUI/build/libs/WebUI-1.0-SNAPSHOT-all.jar
 ```
 
@@ -57,20 +57,20 @@ Configuration environment variables:
 
 | Variable | Default |
 |---|---|
-| `MINERAILS_BRIDGE_URL` | `http://127.0.0.1:8765/` |
-| `MINERAILS_BRIDGE_TOKEN` | empty; bridge calls fail until set |
-| `MINERAILS_DRAFT_DIR` | `data/drafts` |
-| `MINERAILS_WEB_BIND` | `127.0.0.1`；可设为 `0.0.0.0` |
-| `MINERAILS_WEB_PORT` | `8080` |
-| `MINERAILS_WEB_SECURE_COOKIE` | `false`；HTTPS 外部部署必须设为 `true`，managed 模式自动设置 |
-| `MINERAILS_MAX_REQUEST_BYTES` | `1048576` |
-| `MINERAILS_REQUEST_TIMEOUT_MS` | `10000` |
+| `JAVARAILWAYS_BRIDGE_URL` | `http://127.0.0.1:8765/` |
+| `JAVARAILWAYS_BRIDGE_TOKEN` | empty; bridge calls fail until set |
+| `JAVARAILWAYS_DRAFT_DIR` | `data/drafts` |
+| `JAVARAILWAYS_WEB_BIND` | `127.0.0.1`；可设为 `0.0.0.0` |
+| `JAVARAILWAYS_WEB_PORT` | `8080` |
+| `JAVARAILWAYS_WEB_SECURE_COOKIE` | `false`；HTTPS 外部部署必须设为 `true`，managed 模式自动设置 |
+| `JAVARAILWAYS_MAX_REQUEST_BYTES` | `1048576` |
+| `JAVARAILWAYS_REQUEST_TIMEOUT_MS` | `10000` |
 
 Remote plaintext HTTP is supported when explicitly configured. It preserves short-token authentication but does not protect tokens or session traffic from network interception.
 
 ## 世界轨道地图
 
-轨道地图由 Bukkit 的专用、有限队列 worker 生成。simulation context 只快速复制轨道曲线和标记引用；曲线采样、JSON 序列化和原子文件写入全部在线程外完成。地图文件保存在 `plugins/MineRails/webui-maps/`，世界卸载时会立即清除引用、缓存和文件。
+轨道地图由 Bukkit 的专用、有限队列 worker 生成。simulation context 只快速复制轨道曲线和标记引用；曲线采样、JSON 序列化和原子文件写入全部在线程外完成。地图文件保存在 `plugins/JavaRailways/webui-maps/`，世界卸载时会立即清除引用、缓存和文件。
 
 列车位置通过共享的认证 SSE 流以 2 Hz 同步。Bukkit 只读取原子发布的不可变 train frame，不会在 HTTP/SSE 线程访问 Bukkit 实体或执行列车物理。同步采用每世界 latest-only 请求，并限制全局/单世界订阅数、worker 队列、轨道数、标记数、总采样点数和序列化大小。浏览器地图最大缩放比例为 8×。
 
@@ -78,10 +78,10 @@ Remote plaintext HTTP is supported when explicitly configured. It preserves shor
 
 ## JS 时刻表只读预览
 
-服务器管理员可把脚本放入 `plugins/MineRails/timetables/*.js`，并执行：
+服务器管理员可把脚本放入 `plugins/JavaRailways/timetables/*.js`，并执行：
 
 ```text
-/mr timetable load <file.js> [id]
+/jr timetable load <file.js> [id]
 ```
 
 脚本不会在 Bukkit 或浏览器进程内执行。插件为每次编译启动内存受限、3 秒超时的独立

@@ -29,7 +29,7 @@ dependencies {
 dokka {
     dokkaPublications {
         html {
-            moduleName.set("MineRails API (Experimental)")
+            moduleName.set("JavaRailways API (Experimental)")
             moduleVersion.set(project.version.toString())
             outputDirectory.set(layout.buildDirectory.dir("dokka/html"))
             failOnWarning.set(false)

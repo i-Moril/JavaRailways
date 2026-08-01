@@ -1,0 +1,269 @@
+package work.art1st.javarailways.bukkit.render.model
+
+import org.bukkit.GameMode
+import org.bukkit.Location
+import org.bukkit.block.BlockFace
+import org.bukkit.entity.Chicken
+import org.bukkit.entity.Player
+import org.bukkit.entity.Shulker
+import io.papermc.paper.entity.TeleportFlag
+import org.joml.Quaterniond
+import org.joml.Vector3d
+import org.joml.Vector3dc
+import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.config.model.PartPlatformConfig
+import work.art1st.javarailways.bukkit.extension.bukkitWorldData
+import work.art1st.javarailways.bukkit.render.Animation
+import work.art1st.javarailways.bukkit.render.backend.PacketPlatformCarrier
+import work.art1st.javarailways.core.api.physics.World
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+
+class PlatformModel internal constructor(
+    world: World,
+    state: ModelState,
+    attachedModels: Collection<AbstractModel>,
+    animation: Map<String, Animation>,
+    private val initialLocation: Location,
+    platformConfig: PartPlatformConfig
+) : AbstractModel(world, state, attachedModels, animation) {
+    private val units: MutableList<PlatformUnit> = CopyOnWriteArrayList()
+    private val cellOffsets = platformConfig.cellOffsets().map { Vector3d(it.x, it.y, it.z) }
+    private val platformHalfX = ((platformConfig.rows.coerceAtLeast(1) - 1) * platformConfig.spacingX) / 2.0 + CELL_HALF_EXTENT
+    private val platformHalfZ = ((platformConfig.columns.coerceAtLeast(1) - 1) * platformConfig.spacingZ) / 2.0 + CELL_HALF_EXTENT
+    private val activePlayers = ConcurrentHashMap<UUID, Player>()
+    private val lifecycleRevision = AtomicLong(0L)
+    private val spawnScheduled = AtomicBoolean(false)
+
+    private fun spawnEntities() {
+        if (units.isNotEmpty() || cellOffsets.isEmpty() || !spawnScheduled.compareAndSet(false, true)) return
+        if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
+            spawnPacketEntities()
+            return
+        }
+        val bukkitWorld = world.bukkitWorldData.bukkitWorld
+        val (yaw, pitch) = entityYawPitch()
+        val generation = lifecycleRevision.get()
+        val remaining = AtomicInteger(cellOffsets.size)
+        for (offset in cellOffsets) {
+            val location = unitLocation(offset, yaw, pitch)
+            BukkitPlugin.INSTANCE.platformDispatcher.runAt(location) {
+                try {
+                    synchronized(this@PlatformModel) {
+                        if (generation != lifecycleRevision.get() || activePlayers.isEmpty()) return@synchronized
+                        val chicken = bukkitWorld.spawn(location, Chicken::class.java) { chicken ->
+                            chicken.isPersistent = false
+                            chicken.isSilent = true
+                            chicken.isInvisible = true
+                            chicken.isInvulnerable = true
+                            chicken.isCollidable = false
+                            chicken.setAI(false)
+                            chicken.setGravity(false)
+                            chicken.setIsChickenJockey(true)
+                        }
+                        val shulker = bukkitWorld.spawn(location, Shulker::class.java) { shulker ->
+                            shulker.isPersistent = false
+                            shulker.isSilent = true
+                            shulker.isInvisible = true
+                            shulker.isInvulnerable = true
+                            shulker.isCollidable = true
+                            shulker.setAI(false)
+                            shulker.setGravity(false)
+                            shulker.setAttachedFace(BlockFace.UP)
+                            shulker.setPeek(0.0f)
+                        }
+                        chicken.addPassenger(shulker)
+                        units += NativePlatformUnit(chicken, shulker, offset)
+                    }
+                } finally {
+                    if (remaining.decrementAndGet() == 0) spawnScheduled.set(false)
+                }
+            }
+        }
+    }
+
+    private fun spawnPacketEntities() {
+        val (yaw, pitch) = entityYawPitch()
+        val generation = lifecycleRevision.get()
+        try {
+            synchronized(this) {
+                if (generation != lifecycleRevision.get() || activePlayers.isEmpty()) return
+                cellOffsets.forEach { offset ->
+                    val location = unitLocation(offset, yaw, pitch)
+                    val carrier = PacketPlatformCarrier(location)
+                    carrier.updateViewers(activePlayers.values)
+                    units += PacketPlatformUnit(
+                        carrier = carrier,
+                        localOffset = offset
+                    )
+                }
+            }
+        } finally {
+            spawnScheduled.set(false)
+        }
+    }
+
+    @Synchronized
+    private fun destroyEntities() {
+        lifecycleRevision.incrementAndGet()
+        val removed = units.toList()
+        units.clear()
+        removed.forEach { unit ->
+            when (unit) {
+                is PacketPlatformUnit -> unit.carrier.destroy()
+                is NativePlatformUnit -> {
+                    BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(unit.chicken, action = {
+                        unit.chicken.eject()
+                        unit.chicken.remove()
+                    })
+                    BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(
+                        unit.shulker,
+                        action = { unit.shulker.remove() }
+                    )
+                }
+            }
+        }
+    }
+
+    override fun updateState(
+        parentRelativeTransform: CompactTransform,
+        rootTransform: CompactTransform,
+        rootVelocity: Vector3dc,
+        transformDirty: Boolean
+    ) {
+        super.updateState(parentRelativeTransform, rootTransform, rootVelocity, transformDirty)
+        if (activePlayers.isNotEmpty() && units.isEmpty()) spawnEntities()
+        if (units.isNotEmpty()) syncEntities()
+    }
+
+    fun refreshActivation(player: Player) {
+        if (!isEligible(player)) {
+            deactivateFor(player)
+            return
+        }
+
+        val playerId = player.uniqueId
+        val alreadyActive = activePlayers.containsKey(playerId)
+        val horizontalMargin = if (alreadyActive) DEACTIVATE_HORIZONTAL_MARGIN else ACTIVATE_HORIZONTAL_MARGIN
+        val verticalMargin = if (alreadyActive) DEACTIVATE_VERTICAL_MARGIN else 0.0
+        if (!containsPlayer(player, horizontalMargin, verticalMargin)) {
+            deactivateFor(player)
+            return
+        }
+
+        activePlayers[playerId] = player
+        if (units.isEmpty()) {
+            spawnEntities()
+        } else if (!alreadyActive && BukkitPlugin.INSTANCE.platformCapabilities.folia) {
+            units.filterIsInstance<PacketPlatformUnit>().forEach { unit ->
+                unit.carrier.showTo(player)
+            }
+        }
+    }
+
+    fun deactivateFor(player: Player) {
+        if (activePlayers.remove(player.uniqueId) == null) return
+        units.filterIsInstance<PacketPlatformUnit>().forEach { unit ->
+            unit.carrier.hideFrom(player.uniqueId)
+        }
+        if (activePlayers.isEmpty()) destroyEntities()
+    }
+
+    private fun syncEntities() {
+        val (yaw, pitch) = entityYawPitch()
+        val viewers = activePlayers.values
+        for (unit in units) {
+            val location = unitLocation(unit.localOffset, yaw, pitch)
+            when (unit) {
+                is PacketPlatformUnit -> unit.carrier.sync(location, viewers)
+                is NativePlatformUnit -> {
+                    BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(unit.chicken, action = {
+                        if (unit.chicken.isValid) {
+                            unit.chicken.teleport(
+                                location,
+                                TeleportFlag.EntityState.RETAIN_PASSENGERS
+                            )
+                        }
+                    })
+                }
+            }
+        }
+    }
+
+    private fun unitLocation(offset: Vector3dc, yaw: Float, pitch: Float): Location {
+        val position = Vector3d(offset)
+        state.worldTransform.rotation.transform(position)
+        position.add(state.worldTransform.position)
+        return Location(
+            world.bukkitWorldData.bukkitWorld,
+            position.x,
+            position.y - SHULKER_PASSENGER_Y_OFFSET,
+            position.z,
+            yaw,
+            pitch
+        )
+    }
+
+    private fun isEligible(player: Player): Boolean {
+        return player.isValid &&
+            !player.isDead &&
+            (player.gameMode != GameMode.SPECTATOR || BukkitPlugin.INSTANCE.platformCapabilities.folia) &&
+            player.world == world.bukkitWorldData.bukkitWorld
+    }
+
+    private fun containsPlayer(player: Player, horizontalMargin: Double, verticalMargin: Double): Boolean {
+        val location = player.location
+        val local = Vector3d(location.x, location.y, location.z).sub(state.worldTransform.position)
+        Quaterniond(state.worldTransform.rotation).conjugate().transform(local)
+        return abs(local.x()) <= platformHalfX + horizontalMargin &&
+            abs(local.z()) <= platformHalfZ + horizontalMargin &&
+            local.y() >= -ACTIVE_VERTICAL_BELOW - verticalMargin &&
+            local.y() <= ACTIVE_VERTICAL_ABOVE + verticalMargin
+    }
+
+    private fun entityYawPitch(): Pair<Float, Float> {
+        val forward = Vector3d(0.0, 0.0, 1.0)
+        state.worldTransform.rotation.transform(forward)
+        val yaw = Math.toDegrees(kotlin.math.atan2(-forward.x(), forward.z())).toFloat()
+        val pitch = Math.toDegrees(kotlin.math.asin(forward.y().coerceIn(-1.0, 1.0))).toFloat()
+        return yaw to pitch
+    }
+
+    override fun destroy() {
+        activePlayers.clear()
+        destroyEntities()
+        super.destroy()
+    }
+
+    private sealed interface PlatformUnit {
+        val localOffset: Vector3d
+    }
+
+    private data class NativePlatformUnit(
+        val chicken: Chicken,
+        val shulker: Shulker,
+        override val localOffset: Vector3d
+    ) : PlatformUnit
+
+    private data class PacketPlatformUnit(
+        val carrier: PacketPlatformCarrier,
+        override val localOffset: Vector3d
+    ) : PlatformUnit
+
+    companion object {
+        /** Empirical mount lift compensation for a shulker passenger on a chicken. */
+        private const val SHULKER_PASSENGER_Y_OFFSET = 0.6875
+
+        private const val CELL_HALF_EXTENT = 0.5
+        private const val ACTIVATE_HORIZONTAL_MARGIN = 3.0
+        private const val DEACTIVATE_HORIZONTAL_MARGIN = 5.0
+        private const val ACTIVE_VERTICAL_ABOVE = 3.0
+        private const val ACTIVE_VERTICAL_BELOW = 2.0
+        private const val DEACTIVATE_VERTICAL_MARGIN = 1.0
+    }
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "model-common.schema.json",
-  "title": "MineRails train model common definitions",
+  "title": "JavaRailways train model common definitions",
   "$defs": {
     "nonEmptyString": {
       "type": "string",

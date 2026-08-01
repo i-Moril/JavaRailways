@@ -1,4 +1,4 @@
-# MineRails 文档站点
+# JavaRailways 文档站点
 
 文档正文位于仓库根目录的 `docs/`，本目录只保存 Docusaurus 构建配置。
 

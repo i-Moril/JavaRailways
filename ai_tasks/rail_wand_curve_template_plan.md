@@ -4,7 +4,7 @@
 
 当前还有一个暂不处理但必须记录的问题：多线/复线轨道创建仍不满足并行轨道约束，可能出现本应平行的轨道在曲线中途交叉。该问题需要后续在复线约束校验与偏移曲线生成阶段单独处理，不能只依赖起终点横断面间距校验。
 
-当前 `RailWand` 的曲线生成核心在 `Basic/src/main/java/work/art1st/mineRails/basic/curve/RailCurveFactory.kt`：
+当前 `RailWand` 的曲线生成核心在 `Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt`：
 
 - 同向端点且 chord 与 tangent 共线时：生成直线模板。
 - 同向端点但 chord 与 tangent 不共线时：直接失败，提示“需要 S 弯模板”。
@@ -379,7 +379,7 @@ data class RailMeasurePoint(
 
 - 显示粒子/marker 标出两个测量点。
 - 持续显示测量线段/沿轨预览。
-- 支持测量路径点之间的轨道距离：`/mr route validate` 已有总长，可做专用 `/mr measure waypoint A B`。
+- 支持测量路径点之间的轨道距离：`/jr route validate` 已有总长，可做专用 `/jr measure waypoint A B`。
 - 支持复线间距采样，辅助修复 Phase 7 的复线交叉问题。
 - 支持输出坡度、平均坡度、最大坡度变化率。
 

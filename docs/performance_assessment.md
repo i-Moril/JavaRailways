@@ -1,4 +1,4 @@
-# MineRails 性能评估（2026-07-07）
+# JavaRailways 性能评估（2026-07-07）
 
 > 评估方式：基于当前代码的静态审查，没有跑真实 profiler / 火焰图。
 > 优先级按 **调用频率 × 单次开销 × 数据规模扩张风险** 排序。
@@ -30,7 +30,7 @@
 ## 1. 平台碰撞模型：当前最重的运行时热点
 
 涉及文件：
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/PlatformModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/PlatformModel.kt`
 - `models/s100/parts/s100/floor_platform.yml`
 - `models/s100/manifest.yml`
 - `models/s100/cars/s100/*.yml`
@@ -85,11 +85,11 @@ S100 默认编组在 `models/s100/manifest.yml` 里是 **5 节车**，而各车�
 ## 2. 车厢模型一旦建出来，就会每 tick 常驻更新
 
 涉及文件：
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/CarExtension.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/CompositeModel.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/DisplayModel.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/model/ModelTreeBuilder.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/TrainComponentExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/CompositeModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/DisplayModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/ModelTreeBuilder.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainComponentExtension.kt`
 
 ### 为什么它重
 
@@ -138,9 +138,9 @@ S100 默认编组在 `models/s100/manifest.yml` 里是 **5 节车**，而各车�
 ## 3. `RenderChunkManager.render()` 是典型的“每 tick 全量扫一遍”
 
 涉及文件：
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/chunk/RenderChunkManager.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/chunk/RenderChunkAreaIterator.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/chunk/ViewDistanceManager.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/chunk/RenderChunkManager.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/chunk/RenderChunkAreaIterator.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/chunk/ViewDistanceManager.kt`
 
 ### 为什么它重
 
@@ -188,10 +188,10 @@ S100 默认编组在 `models/s100/manifest.yml` 里是 **5 节车**，而各车�
 ## 4. 跟车解算的二分搜索在热路径上，而且固定跑满 50 次
 
 涉及文件：
-- `Core/src/main/java/work/art1st/mineRails/core/physics/train/CoreCar.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/train/CoreTrain.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/rail/RailSegment.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/rail/RailLocationWithFacing.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreCar.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreTrain.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/rail/RailSegment.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/rail/RailLocationWithFacing.kt`
 
 ### 为什么它重
 
@@ -233,9 +233,9 @@ S100 默认编组在 `models/s100/manifest.yml` 里是 **5 节车**，而各车�
 ## 5. 编辑/命令路径里存在“全量扫描 + 反复读文件”
 
 涉及文件：
-- `Core/src/main/java/work/art1st/mineRails/core/physics/CoreWorld.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailWand.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/persistence/RailRenderMetaStore.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/persistence/RailRenderMetaStore.kt`
 
 ### 为什么它重
 
@@ -278,7 +278,7 @@ S100 默认编组在 `models/s100/manifest.yml` 里是 **5 节车**，而各车�
 ## 6. `TickManagerImpl` 有额外调度/分配开销，但不是第一优先级
 
 涉及文件：
-- `Core/src/main/java/work/art1st/mineRails/core/util/TickManagerImpl.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/util/TickManagerImpl.kt`
 
 ### 现状
 
@@ -312,7 +312,7 @@ S100 默认编组在 `models/s100/manifest.yml` 里是 **5 节车**，而各车�
 
 ### 1. `TrainDynamics.step()`
 涉及文件：
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/control/TrainDynamics.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/control/TrainDynamics.kt`
 
 评估：
 - 只是对车厢做几次 `sumOf`
@@ -323,7 +323,7 @@ S100 默认编组在 `models/s100/manifest.yml` 里是 **5 节车**，而各车�
 
 ### 2. `StandardRailCurve.generatePoints()`
 涉及文件：
-- `Basic/src/main/java/work/art1st/mineRails/basic/curve/StandardRailCurve.kt`
+- `Basic/src/main/java/work/art1st/javarailways/basic/curve/StandardRailCurve.kt`
 
 评估：
 - 代码里已经明确把旧的 O(n²) 方式改成了单次推进积分 O(n)
@@ -333,7 +333,7 @@ S100 默认编组在 `models/s100/manifest.yml` 里是 **5 节车**，而各车�
 
 ### 3. `RailCommand.connectNearbyEndpoints()`
 涉及文件：
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/command/RailCommand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/command/RailCommand.kt`
 
 评估：
 - 已经从 O(n²) 轨道两两比较，改成了 bucket 近邻搜索

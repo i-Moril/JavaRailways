@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair MineRails world JSON rail endpoint connections.
+"""Repair JavaRailways world JSON rail endpoint connections.
 
 This is a one-shot/offline repair tool for worlds that were saved after RailWand
 created/selected the wrong active/default path at coincident rail endpoints.
@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_WORLD = Path("BukkitPlugin/run/plugins/MineRails/worlds/92b47942-f5b4-4230-9784-5b4c57d45fb9.json")
+DEFAULT_WORLD = Path("BukkitPlugin/run/plugins/JavaRailways/worlds/92b47942-f5b4-4230-9784-5b4c57d45fb9.json")
 DEFAULT_TOLERANCE = 5e-2
 DEFAULT_MAX_ANGLE_DEGREES = 30.0
 DEFAULT_LOOKAHEAD_METERS = 2.0

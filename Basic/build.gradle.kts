@@ -58,7 +58,7 @@ tasks.register<Jar>("dokkaJavadocJar") {
 
 dokka {
     dokkaPublications.html {
-        moduleName.set("MineRails Basic API")
+        moduleName.set("JavaRailways Basic API")
         includes.from("src/main/dokka/Module.md", "src/main/dokka/BasicPackages.md")
         failOnWarning.set(false)
     }
@@ -66,7 +66,7 @@ dokka {
         reportUndocumented.set(true)
         skipEmptyPackages.set(true)
         perPackageOption {
-            matchingRegex.set("""work\.art1st\.mineRails\.basic(?!\.api(?:\.|$)).*""")
+            matchingRegex.set("""work\.art1st\.javarailways\.basic(?!\.api(?:\.|$)).*""")
             suppress.set(true)
         }
         providers.environmentVariable("DOKKA_SOURCE_URL").orNull?.let { sourceRoot ->

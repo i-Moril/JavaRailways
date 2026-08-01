@@ -49,7 +49,7 @@ tasks.register<Jar>("dokkaJavadocJar") {
 
 dokka {
     dokkaPublications.html {
-        moduleName.set("MineRails Core API")
+        moduleName.set("JavaRailways Core API")
         includes.from("src/main/dokka/Module.md", "src/main/dokka/CorePackages.md")
         failOnWarning.set(false)
     }
@@ -57,7 +57,7 @@ dokka {
         reportUndocumented.set(true)
         skipEmptyPackages.set(true)
         perPackageOption {
-            matchingRegex.set("""work\.art1st\.mineRails\.core(?!\.api(?:\.|$)).*""")
+            matchingRegex.set("""work\.art1st\.javarailways\.core(?!\.api(?:\.|$)).*""")
             suppress.set(true)
         }
         providers.environmentVariable("DOKKA_SOURCE_URL").orNull?.let { sourceRoot ->

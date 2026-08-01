@@ -24,7 +24,7 @@ Implemented on `feature/control`:
 - WASD input through `PlayerInputEvent`:
   - currently `S` pulls toward power, `W` pushes toward brake, `D` centers.
 - `driver: true` metadata for seat parts.
-- Generic `TrainKeyItem` exists and `/mr train key` gives it.
+- Generic `TrainKeyItem` exists and `/jr train key` gives it.
 - Current control acquisition is still implicit: if a keyed player is in a driver seat, input auto-creates/acquires the controller.
 - Current key is generic and unbound.
 - S100 runtime package has been synced with `control.yml` and car `control` blocks.
@@ -309,7 +309,7 @@ for:
 
 Files:
 
-- `MineRailsConfig.kt`
+- `JavaRailwaysConfig.kt`
 - `PartInteractionConfig.kt`
 - `PartRegistry.kt`
 - `TrainActionConfig.kt`
@@ -345,7 +345,7 @@ Tasks:
 2. Implement bind/unbind.
 3. Implement distance validation and periodic unbind.
 4. Move `playerControllers` ownership out of `TrainCommand` into manager.
-5. Keep `/mr train key` command.
+5. Keep `/jr train key` command.
 
 Commit:
 
@@ -500,7 +500,7 @@ Tasks:
 
 1. Update `docs/train_model_packages.md`.
 2. Add usage docs:
-   - `/mr train key`
+   - `/jr train key`
    - key binding
    - Dialog ownership
    - YAML executable actions
@@ -517,7 +517,7 @@ Docs: document train key control dialog
 
 ## In-game validation checklist
 
-1. `/mr train key` gives generic key.
+1. `/jr train key` gives generic key.
 2. Right-click while not in driver seat does not bind.
 3. Sit in front cab driver seat, right-click key:
    - key binds to train

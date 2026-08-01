@@ -375,13 +375,13 @@ data class PhysicsEpochMetrics(
 
 ### Core API
 
-- `Core/src/main/java/work/art1st/mineRails/core/api/physics/World.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/api/physics/World.kt`
   - 暴露只读 physics runtime/metrics 所需接口，或由 `CoreWorld` 内部持有。
-- `Core/src/main/java/work/art1st/mineRails/core/api/control/TrainController.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/api/control/TrainController.kt`
   - 与通用 TickManager 解耦；输出 next physics state。
-- `Core/src/main/java/work/art1st/mineRails/core/api/event/CollisionEvent.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/api/event/CollisionEvent.kt`
   - 不可变 payload、resolution 和异步 Opt-In。
-- `Core/src/main/java/work/art1st/mineRails/core/api/util/annotation/`
+- `Core/src/main/java/work/art1st/javarailways/core/api/util/annotation/`
   - 新增明确的异步事件 Opt-In 标记。
 
 ### Core 实现
@@ -398,13 +398,13 @@ data class PhysicsEpochMetrics(
 
 ### Bukkit
 
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/config/MineRailsConfig.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/JavaRailwaysConfig.kt`
   - 新增必填 `physics-worker-threads`。
 - `BukkitPlugin/src/main/resources/config.yml`
   - 增加配置和注释。
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/logic/RailWorldFactory.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailWorldFactory.kt`
   - 创建 Coordinator、Worker pool、fallback timer；移除列车物理的单线程 executor。
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/logic/WorldManager.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt`
   - TickStart main wake；TickEnd 捕获并等待当前 Ticket；然后渲染最新已发布 epoch。
 - World unload/plugin disable：严格关闭全部 physics executor/timer。
 

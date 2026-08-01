@@ -1,4 +1,4 @@
-# Module MineRails Core API
+# Module JavaRailways Core API
 
 平台无关的轨道、列车、曲线、事件、Tick 和扩展数据候选 API。
 

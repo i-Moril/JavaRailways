@@ -1,13 +1,13 @@
 ---
 id: index
 slug: /
-title: MineRails 文档
+title: JavaRailways 文档
 sidebar_position: 1
 ---
 
-# MineRails 文档
+# JavaRailways 文档
 
-MineRails 是面向 Paper 的铁路模拟插件。当前文档首先覆盖工程设计、扩展开发边界、列车模型包和结构化时刻表。
+JavaRailways 是面向 Paper 的铁路模拟插件。当前文档首先覆盖工程设计、扩展开发边界、列车模型包和结构化时刻表。
 
 :::warning 当前状态
 项目仍使用 `1.0-SNAPSHOT`，公开 Java/Kotlin API、列车模型格式和时刻表 DSL 尚未承诺稳定兼容。页面描述的是当前源码实现；实验性能力会在页面中单独标记。

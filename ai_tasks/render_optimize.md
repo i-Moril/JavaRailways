@@ -1,4 +1,4 @@
-# MineRails 可修复性能点总表（更新版）
+# JavaRailways 可修复性能点总表（更新版）
 
 > 更新时间：2026-07-07  
 > 说明：这份清单以当前代码和最近讨论为准，修正了早期聊天记录里一些不准确的结论。  
@@ -47,7 +47,7 @@
 
 ### A1. `RailSegment.searchRailLocation()` 按业务容差提前退出
 **文件**
-- `Core/src/main/java/work/art1st/mineRails/core/physics/rail/RailSegment.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/rail/RailSegment.kt`
 
 **问题**
 - 二分搜索基本固定跑满 50 次。
@@ -66,8 +66,8 @@
 
 ### A2. 给 rail 查询加空间索引
 **文件**
-- `Core/src/main/java/work/art1st/mineRails/core/physics/CoreWorld.kt`
-- `Core/src/main/java/work/art1st/mineRails/core/physics/rail/RailSpatialIndex.kt`（新增）
+- `Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt`
+- `Core/src/main/java/work/art1st/javarailways/core/physics/rail/RailSpatialIndex.kt`（新增）
 
 **问题**
 - `CoreWorld.getNearestRail()` 原先是全量 rail 扫描，再对每条 curve 做重计算。
@@ -87,7 +87,7 @@
 
 ### A3. `RailRenderMetaStore` 做 world 级内存缓存
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/persistence/RailRenderMetaStore.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/persistence/RailRenderMetaStore.kt`
 
 **问题**
 - 多个工具/命令路径会重复 `load(world)`。
@@ -108,7 +108,7 @@
 
 ### A4. `RailWand.findLookedAtRail()` 先筛候选再精算
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/tool/RailWand.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/RailWand.kt`
 
 **问题**
 - 过去看向选轨会先拿全部 persisted rail，再逐条扫曲线采样点。
@@ -127,7 +127,7 @@
 
 ### A5. `PlatformModel` 近场启用
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/PlatformModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/PlatformModel.kt`
 
 **问题**
 - 平台碰撞实体原本是常驻生成、常驻更新。
@@ -150,8 +150,8 @@
 
 ### B1. `SeatModel` 重复 TP
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/SeatModel.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/EntityModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/SeatModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/EntityModel.kt`
 
 **问题**
 - `SeatModel` 会走基类 `EntityModel.updateState()` 的 teleport。
@@ -168,7 +168,7 @@
 
 ### B2. 空座不保留常驻 carrier
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/SeatModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/SeatModel.kt`
 - 或旧 `SeatExtension.kt` 路径（若仍在使用）
 
 **问题**
@@ -186,7 +186,7 @@
 
 ### B3. `CompositeModel.updateState()` 已在主线程时不应再排 after-commit task
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/CompositeModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/CompositeModel.kt`
 
 **问题**
 - 当前 root entity 更新会通过 `scheduleMainThreadAfterCommitTask(...)` 再包一层。
@@ -202,7 +202,7 @@
 
 ### B4. `RenderChunkManager.render()` 不要每 tick 全量扫
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/chunk/RenderChunkManager.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/chunk/RenderChunkManager.kt`
 
 **问题**
 - 当前每 tick：
@@ -226,9 +226,9 @@
 
 ### B5. 模型按 audience 构建与卸载，而不是 build 后永久更新
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/CarExtension.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/train/TrainComponentExtension.kt`
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/chunk/ModelAudienceTracker.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainComponentExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/chunk/ModelAudienceTracker.kt`
 
 **问题**
 - 车模一旦 build，就会一直保留并持续更新。
@@ -249,7 +249,7 @@
 
 ### C1. Display 树先做 Passenger 化原型
 **文件（主要涉及）**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/model/CompositeModel.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/model/CompositeModel.kt`
 - `.../DisplayModel.kt`
 - `.../LodDisplayModel.kt`
 - `.../ModelTreeBuilder.kt`
@@ -278,7 +278,7 @@
 
 ### C2. Rail 视觉件也应该 audience 化 / packet 化候选化
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/extension/rail/RailExtension.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/rail/RailExtension.kt`
 - `.../logic/RailVisualBootstrap.kt`
 
 **问题**
@@ -293,7 +293,7 @@
 
 ### C3. `RenderChunkManager` 距离判断可以统一换成 squared distance
 **文件**
-- `BukkitPlugin/src/main/java/work/art1st/mineRails/bukkit/render/chunk/RenderChunkManager.kt`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/chunk/RenderChunkManager.kt`
 
 **问题**
 - 当前很多位置直接用 `distance()`，会做开方。

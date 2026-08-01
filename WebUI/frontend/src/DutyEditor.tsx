@@ -1,9 +1,10 @@
 import { useEffect,useMemo,useState } from 'react';
 import { api } from './api';
 import {
-  emptyAuthoringDocument,generateTimetableSource,type AuthoringDutyElementV1,type AuthoringDutyV1,
+  emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,type AuthoringDutyElementV1,type AuthoringDutyV1,
   type AuthoringFunctionCallV1,type AuthoringRunV1,type TimetableAuthoringDocumentV1,
 } from './authoring';
+import { useDocumentHistory } from './documentHistory';
 import { useI18n } from './i18n';
 import type { CompiledTimetableSource,EditorDocumentSummary,LineV1 } from './types';
 
@@ -14,25 +15,29 @@ export function DutyEditor({world,lines,onError}:{world:string;lines:LineV1[];on
   const {t}=useI18n();
   const [documents,setDocuments]=useState<EditorDocumentSummary[]>([]);
   const [documentId,setDocumentId]=useState('');
-  const [value,setValue]=useState<TimetableAuthoringDocumentV1>(emptyAuthoringDocument);
+  const documentHistory=useDocumentHistory<TimetableAuthoringDocumentV1>(emptyAuthoringDocument);
+  const {value,setValue}=documentHistory;
   const [selectedRun,setSelectedRun]=useState('');
   const [selectedDuty,setSelectedDuty]=useState('');
-  const [compiled,setCompiled]=useState<CompiledTimetableSource>();
+  const [compiledState,setCompiledState]=useState<{result:CompiledTimetableSource;documentHashInput:string}>();
   const [busy,setBusy]=useState(false);
   const generated=useMemo(()=>generateTimetableSource(value),[value]);
+  const compiled=compiledState?.documentHashInput===generated.documentHashInput?compiledState.result:undefined;
   const assigned=new Map(value.duties.flatMap((duty)=>duty.elements.flatMap((element)=>element.type==='RUN'?[[element.runId,duty.id] as const]:[])));
   const selectedRunValue=value.runs.find((run)=>run.id===selectedRun);
   const selectedDutyValue=value.duties.find((duty)=>duty.id===selectedDuty);
 
   const refresh=async()=>setDocuments(await api.editorDocuments(world));
-  useEffect(()=>{setDocumentId('');setValue(emptyAuthoringDocument());setSelectedRun('');setSelectedDuty('');setCompiled(undefined);if(world)void refresh().catch((error)=>onError(String(error)));},[world]);
+  useEffect(()=>{setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setSelectedRun('');setSelectedDuty('');setCompiledState(undefined);if(world)void refresh().catch((error)=>onError(String(error)));},[world]);
   const execute=async(operation:()=>Promise<void>)=>{setBusy(true);onError('');try{await operation();}catch(error){onError(error instanceof Error?error.message:String(error));}finally{setBusy(false);}};
-  const load=async(id:string)=>execute(async()=>{setDocumentId(id);setCompiled(undefined);if(!id){setValue(emptyAuthoringDocument());return;}setValue(await api.editorDocument(world,id));});
+  const load=async(id:string)=>execute(async()=>{setDocumentId(id);setCompiledState(undefined);if(!id){documentHistory.reset(emptyAuthoringDocument());return;}documentHistory.reset(await api.editorDocument(world,id));});
   const save=async()=>execute(async()=>{if(documentId)await api.saveEditorDocument(world,documentId,value);else{const created=await api.createEditorDocument(world,value);setDocumentId(created.id);}await refresh();});
-  const remove=async()=>{if(!documentId)return;await execute(async()=>{await api.deleteEditorDocument(world,documentId);setDocumentId('');setValue(emptyAuthoringDocument());setCompiled(undefined);await refresh();});};
+  const remove=async()=>{if(!documentId)return;await execute(async()=>{await api.deleteEditorDocument(world,documentId);setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setCompiledState(undefined);await refresh();});};
   const compile=async()=>execute(async()=>{
-    if(generated.issues.some((item)=>item.severity==='error')){setCompiled(undefined);return;}
-    setCompiled(await api.compileSource(world,value.id,generated.source,hash(generated.documentHashInput)));
+    if(generated.issues.some((item)=>item.severity==='error')){setCompiledState(undefined);return;}
+    const documentHashInput=generated.documentHashInput;
+    const result=await api.compileSource(world,value.id,generated.source,hash(documentHashInput));
+    setCompiledState({result,documentHashInput});
   });
   const publish=async()=>{if(!compiled?.validation.valid)return;await execute(async()=>{await api.publish(world,compiled.timetable);});};
   const patchRun=(id:string,patch:Partial<AuthoringRunV1>)=>setValue((current)=>({...current,runs:current.runs.map((run)=>run.id===id?{...run,...patch}:run)}));
@@ -50,7 +55,7 @@ export function DutyEditor({world,lines,onError}:{world:string;lines:LineV1[];on
   };
   const addRun=()=>{const id=`run-${value.runs.length+1}`;const run:AuthoringRunV1={id,type:'PASSENGER',calls:[{id:uid('origin'),targetId:'',departureTick:0},{id:uid('terminal'),targetId:'',arrivalTick:null}]};setValue({...value,runs:[...value.runs,run]});setSelectedRun(id);};
   const addDuty=()=>{const id=`duty-${value.duties.length+1}`;setValue({...value,duties:[...value.duties,{id,selector:{type:'TRAIN_NAME',name:''},elements:[]}]});setSelectedDuty(id);};
-  const assignRun=(runId:string)=>{if(!selectedDutyValue||assigned.has(runId))return;patchDuty(selectedDutyValue.id,{elements:[...selectedDutyValue.elements,{id:uid('element'),type:'RUN',runId}]});};
+  const assignRun=(runId:string)=>{if(!selectedDutyValue)return;setValue((current)=>moveRunToDuty(current,runId,selectedDutyValue.id,uid('element')));};
   const removeElement=(elementId:string)=>{if(selectedDutyValue)patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.filter((item)=>item.id!==elementId)});};
   const addFunction=(call:AuthoringFunctionCallV1)=>{if(!selectedDutyValue)return;const element:AuthoringDutyElementV1={id:uid('element'),type:'FUNCTION',call};const elements=call.type==='PLACE_INITIAL'?[element,...selectedDutyValue.elements]:[...selectedDutyValue.elements,element];patchDuty(selectedDutyValue.id,{elements});};
 
@@ -60,6 +65,7 @@ export function DutyEditor({world,lines,onError}:{world:string;lines:LineV1[];on
       <label>{t('editor.timetableId')}<input value={value.id} onChange={(event)=>setValue({...value,id:event.target.value})}/></label>
       <label>{t('editor.periodDays')}<input type="number" min="1" value={value.periodDays} onChange={(event)=>setValue({...value,periodDays:Math.max(1,+event.target.value)})}/></label>
       <button onClick={()=>void save()} disabled={busy}>{t('common.save')}</button><button className="danger" onClick={()=>void remove()} disabled={!documentId||busy}>{t('common.delete')}</button>
+      <button onClick={documentHistory.undo} disabled={!documentHistory.canUndo||busy}>{t('common.undo')}</button><button onClick={documentHistory.redo} disabled={!documentHistory.canRedo||busy}>{t('common.redo')}</button>
       <span className="spacer"/><button onClick={()=>void compile()} disabled={busy||generated.issues.some((item)=>item.severity==='error')}>{t('duties.compile')}</button>
       <button className="primary" onClick={()=>void publish()} disabled={busy||!compiled?.validation.valid}>{t('common.publish')}</button>
     </div>
@@ -71,7 +77,7 @@ export function DutyEditor({world,lines,onError}:{world:string;lines:LineV1[];on
         {!selectedRunValue?<p className="empty">{t('duties.selectRun')}</p>:<>
           <div className="section-title"><input value={selectedRunValue.id} onChange={(event)=>{const id=event.target.value;setValue((current)=>({...current,runs:current.runs.map((run)=>run.id===selectedRunValue.id?{...run,id}:run),duties:current.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>element.type==='RUN'&&element.runId===selectedRunValue.id?{...element,runId:id}:element)}))}));setSelectedRun(id);}}/><select value={selectedRunValue.diagramLineId||''} onChange={(event)=>{const line=lines.find((item)=>item.id===event.target.value);patchRun(selectedRunValue.id,{diagramLineId:event.target.value||null});if(line&&!value.diagramLines.some((item)=>item.id===line.id))setValue((current)=>({...current,diagramLines:[...current.diagramLines,{id:line.id,upStationIds:line.upStationIds,downStationIds:line.downStationIds}]}));}}><option value="">{t('common.none')}</option>{lines.map((line)=><option key={line.id} value={line.id}>{line.displayName}</option>)}</select><select value={selectedRunValue.type} onChange={(event)=>patchRun(selectedRunValue.id,{type:event.target.value as AuthoringRunV1['type']})}><option value="PASSENGER">PASSENGER</option><option value="DEADHEAD">DEADHEAD</option></select></div>
           <ol className="duty-calls">{selectedRunValue.calls.map((call,index)=><li key={call.id}><input placeholder={t('editor.target')} value={call.targetId} onChange={(event)=>patchRun(selectedRunValue.id,{calls:selectedRunValue.calls.map((item)=>item.id===call.id?{...item,targetId:event.target.value}:item)})}/><input type="number" min="0" placeholder={t('editor.arrivalTime')} value={call.arrivalTick??''} onChange={(event)=>patchRun(selectedRunValue.id,{calls:selectedRunValue.calls.map((item)=>item.id===call.id?{...item,arrivalTick:event.target.value===''?null:+event.target.value}:item)})}/><input type="number" min="0" placeholder={t('editor.departureTime')} value={call.departureTick??''} onChange={(event)=>patchRun(selectedRunValue.id,{calls:selectedRunValue.calls.map((item)=>item.id===call.id?{...item,departureTick:event.target.value===''?null:+event.target.value}:item)})}/><input type="number" min="0" placeholder={t('editor.minimumDwell')} value={call.minimumDwellTicks??''} onChange={(event)=>patchRun(selectedRunValue.id,{calls:selectedRunValue.calls.map((item)=>item.id===call.id?{...item,minimumDwellTicks:event.target.value===''?null:+event.target.value}:item)})}/><select title={t('editor.doorSide')} value={call.doorSide||''} onChange={(event)=>patchRun(selectedRunValue.id,{calls:selectedRunValue.calls.map((item)=>item.id===call.id?{...item,doorSide:(event.target.value||null) as typeof call.doorSide}:item)})}><option value="">—</option><option>NONE</option><option>LEFT</option><option>RIGHT</option><option>BOTH</option></select><button className="danger" disabled={selectedRunValue.calls.length<=2} onClick={()=>patchRun(selectedRunValue.id,{calls:selectedRunValue.calls.filter((item)=>item.id!==call.id)})}>×</button>{index===selectedRunValue.calls.length-1&&<button onClick={()=>patchRun(selectedRunValue.id,{calls:[...selectedRunValue.calls,{id:uid('call'),targetId:'',arrivalTick:null,departureTick:null}]})}>＋</button>}</li>)}</ol>
-          {!assigned.has(selectedRunValue.id)&&selectedDutyValue&&<button onClick={()=>assignRun(selectedRunValue.id)}>{t('duties.assign')} {selectedDutyValue.id}</button>}
+          {assigned.get(selectedRunValue.id)!==selectedDutyValue?.id&&selectedDutyValue&&<button onClick={()=>assignRun(selectedRunValue.id)}>{t('duties.assign')} {selectedDutyValue.id}</button>}
         </>}
       </article>
       <aside className="card duty-chain"><div className="section-title"><h2>{t('duties.duties')}</h2><button onClick={addDuty}>＋</button></div>

@@ -406,16 +406,8 @@ public final class WebUiApplication {
         context.status(204);
     }
 
-    private static void requireEditorDocument(JsonNode document) {
-        if (document.path("formatVersion").asInt(-1) != 1) {
-            throw new IllegalArgumentException("unsupported editor document version");
-        }
-        if (document.path("id").asText("").isBlank()) {
-            throw new IllegalArgumentException("editor document id is required");
-        }
-        if (!document.path("runs").isArray() || !document.path("duties").isArray()) {
-            throw new IllegalArgumentException("editor document runs and duties must be arrays");
-        }
+    static void requireEditorDocument(JsonNode document) {
+        EditorDocumentValidator.validate(document);
     }
 
     private void validate(Context context) throws IOException, InterruptedException {

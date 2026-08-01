@@ -65,6 +65,34 @@ class TimetableSimulationTest {
     }
 
     @Test
+    fun `arbitrates shared resources by event time instead of service declaration order`() {
+        val later = TimetableService("later", TrainSelector.TrainId("train-a"), steps = listOf(
+            TimetableStep.Check("a"), TimetableStep.At(100, TimetableAction.GoTo("b"))
+        ))
+        val earlier = TimetableService("earlier", TrainSelector.TrainId("train-b"), steps = listOf(
+            TimetableStep.Check("c"), TimetableStep.At(90, TimetableAction.GoTo("d"))
+        ))
+        val resources = object : TimetableSimulationResourceModel {
+            override fun movementResources(request: TimetableMovementEstimateRequest, durationTicks: Long) =
+                listOf(TimetableSimulationResourceUsage("section:shared", endOffsetTicks = durationTicks))
+        }
+        val report = TimetableSimulationEngine(TimetableTravelTimeEstimator { 100 }, resourceModel = resources)
+            .simulate(TimetableSimulationRequest(
+                Timetable("t", services = listOf(later, earlier)),
+                mapOf(
+                    TimetableSimulationSelectorKey("name:train-a") to TimetableSimulationProfileId("template:a"),
+                    TimetableSimulationSelectorKey("name:train-b") to TimetableSimulationProfileId("template:b")
+                )
+            ))
+
+        val departures = report.events.filter { it.type == TimetableSimulationEventType.DEPARTURE }
+        assertEquals(listOf("earlier", "later"), departures.map { it.serviceId })
+        assertEquals(listOf(90L, 190L), departures.map { it.actualTick })
+        assertEquals(TimetableSimulationDelayCause.RESOURCE_CONFLICT, departures.last().cause)
+        assertEquals("section:shared", departures.last().blockingResource)
+    }
+
+    @Test
     fun `uses operation estimates without changing logical tick duration`() {
         val service = TimetableService(
             "duty-a", TrainSelector.TrainId("s100-1"), steps = listOf(

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyAction } from './editor';
 import {
   addRowAction, assignLineToService, canInitializeServiceRows, compileServiceRows, createLineRows, deleteRowAction,
-  deleteServiceRow, insertServiceRow, lineStations, moveServiceRow, updateGeneratedDeparture, updateServiceRow,
+  deleteServiceRow, insertServiceRow, lineStations, moveServiceRow, updateGeneratedArrival, updateGeneratedDeparture, updateServiceRow,
 } from './schedule';
 import type { LineV1, TimetableServiceV1, WorldMetadata } from './types';
 
@@ -80,6 +80,23 @@ describe('row-backed service schedule',()=>{
     expect(assigned.rows?.some((row)=>row.type==='DEPOT_OPERATION')).toBe(false);
   });
 
+  it('compiles visual arrival ticks without making them runtime-authoritative',()=>{
+    let assigned=assignLineToService(service,line,'UP',metadata);
+    const beta=assigned.rows![1];
+    assigned=updateServiceRow(assigned,beta.id,{status:'STOP',arrivalTick:420,departureTick:480},metadata);
+    expect(assigned.steps.find((step)=>step.action?.type==='STATION_DESTINATION_OPTIONS'&&step.action.stationId==='beta')?.action?.arrivalTick).toBe(420);
+  });
+
+  it('writes graph arrival dragging back to the destination row',()=>{
+    let assigned=assignLineToService(service,line,'UP',metadata);
+    const beta=assigned.rows![1];
+    assigned=updateServiceRow(assigned,beta.id,{status:'STOP',arrivalTick:420,departureTick:480},metadata);
+    const optionsIndex=assigned.steps.findIndex((step)=>step.action?.type==='STATION_DESTINATION_OPTIONS'&&step.action.stationId==='beta');
+    assigned=updateGeneratedArrival(assigned,optionsIndex,440,metadata);
+    expect(assigned.rows?.[1].arrivalTick).toBe(440);
+    expect(assigned.steps[optionsIndex].action?.arrivalTick).toBe(440);
+  });
+
   it('writes graph node time dragging back to the generating row',()=>{
     let assigned=assignLineToService(service,line,'UP',metadata);
     const movementIndex=assigned.steps.findIndex((step)=>step.action?.type==='DESTINATION');
@@ -103,7 +120,7 @@ describe('row-backed service schedule',()=>{
     const rows=createLineRows(line,'UP',metadata);
     const depot={id:'depot',type:'DEPOT_OPERATION' as const,depotOperation:'TAKE_FROM_DEPOT' as const,depotId:'north',tick:10,actions:[]};
     const reverse={id:'action',type:'ACTION_ONLY' as const,tick:20,actions:[emptyAction('REVERSE')]};
-    const compiled=compileServiceRows({...service,lineId:'line',lineDirection:'UP',rows:[depot,reverse,...rows]},metadata);
+    const compiled=compileServiceRows({...service,diagramLineId:'line',lineDirection:'UP',rows:[depot,reverse,...rows]},metadata);
     expect(compiled.steps.slice(0,3).map((step)=>step.action?.type||step.type)).toEqual(['TAKE_FROM_DEPOT','REVERSE','STATION_DESTINATION_OPTIONS']);
     expect(compiled.steps[0].tick).toBe(10);
   });

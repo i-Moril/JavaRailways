@@ -32,7 +32,9 @@ describe('graph layout', () => {
       {stationId:'beta',berthId:'1',destinationId:'beta@1'},
     ]});
     expect(layout.lanes.map((lane) => lane.id)).toEqual(['alpha', 'beta']);
-    expect(layout.points.map((point)=>[point.location,point.tick])).toEqual([['alpha',200],['beta',800]]);
+    expect(layout.points.map((point)=>[point.location,point.tick,point.kind,point.stepIndex])).toEqual([
+      ['alpha',200,'DEPARTURE',2],['beta',800,'ARRIVAL',1],
+    ]);
     expect(layout.points[0].y).toBe(layout.lanes[0].y);
     expect(layout.xToTick(layout.tickToX(80))).toBeCloseTo(80);
   });
@@ -64,8 +66,8 @@ describe('graph layout', () => {
 
   it('filters script rendering to the selected diagram line', () => {
     const multi:SavedTimetableV1={...value,services:[
-      {...value.services[0],id:'l1',lineId:'line-1'},
-      {...value.services[0],id:'l2',lineId:'line-2'},
+      {...value.services[0],id:'l1',diagramLineId:'line-1'},
+      {...value.services[0],id:'l2',diagramLineId:'line-2'},
     ]};
     expect(filterTimetableForDiagramLine(multi,'line-2').services.map((service)=>service.id)).toEqual(['l2']);
   });
@@ -74,7 +76,7 @@ describe('graph layout', () => {
     const visual:SavedTimetableV1={
       ...value,
       diagramLines:[{id:'line',upStationIds:['alpha','central'],downStationIds:['central','alpha']}],
-      services:[{...value.services[0],lineId:'line',steps:[
+      services:[{...value.services[0],diagramLineId:'line',steps:[
         {type:'CHECK',wayPointId:'alpha@1'},
         {type:'AT',tick:200,action:{type:'STATION_DESTINATION_OPTIONS',stationId:'central',berthId:'2',arrivalTick:900,wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
         {type:'AT',tick:200,action:{type:'DESTINATION',wayPointIds:['central@2'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},

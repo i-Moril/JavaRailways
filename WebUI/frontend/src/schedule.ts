@@ -29,7 +29,7 @@ export function canInitializeServiceRows(service:TimetableServiceV1):boolean {
 
 export function assignLineToService(service:TimetableServiceV1,line:LineV1,direction:LineDirection,metadata:WorldMetadata):TimetableServiceV1 {
   const rows=createLineRows(line,direction,metadata);
-  return compileServiceRows({ ...service,lineId:line.id,lineDirection:direction,rows },metadata);
+  return compileServiceRows({ ...service,diagramLineId:line.id,lineDirection:direction,rows },metadata);
 }
 
 export function updateServiceRow(
@@ -171,6 +171,12 @@ export function compileServiceRows(service:TimetableServiceV1,metadata:WorldMeta
       const options=emptyAction('STATION_DESTINATION_OPTIONS');
       options.stationId=row.stationId || '';
       options.berthId=row.berthId || '';
+      options.arrivalTick=row.arrivalTick ?? null;
+      steps.push(scheduledAction(departureTick,options));
+    } else if(row.arrivalTick!=null) {
+      const options=emptyAction('DESTINATION_OPTIONS');
+      options.wayPointIds=[destination];
+      options.arrivalTick=row.arrivalTick;
       steps.push(scheduledAction(departureTick,options));
     }
     const movement=emptyAction('DESTINATION');
@@ -183,6 +189,21 @@ export function compileServiceRows(service:TimetableServiceV1,metadata:WorldMeta
   }
   const hasTake=normalizedRows.some((row)=>row.type==='DEPOT_OPERATION'&&row.depotOperation==='TAKE_FROM_DEPOT');
   return {...service,selectorType:hasTake?'ANY':service.selectorType,trainId:hasTake?null:service.trainId,steps};
+}
+
+export function updateGeneratedArrival(service:TimetableServiceV1,stepIndex:number,tick:number,metadata:WorldMetadata):TimetableServiceV1 {
+  if(!service.rows || !['DESTINATION_OPTIONS','STATION_DESTINATION_OPTIONS'].includes(service.steps[stepIndex]?.action?.type || '')) return service;
+  const optionsOrdinal=service.steps.slice(0,stepIndex+1).filter((step)=>step.action?.type==='DESTINATION_OPTIONS'||step.action?.type==='STATION_DESTINATION_OPTIONS').length-1;
+  const destinations:ServiceEditorRowV1[]=[];
+  let anchorFound=false;
+  for(const row of service.rows) {
+    if(row.type==='DEPOT_OPERATION'&&row.depotOperation==='TAKE_FROM_DEPOT') { anchorFound=true; continue; }
+    if((row.type!=='STATION'&&row.type!=='SPECIAL_DESTINATION')||row.status==='DISABLED'||!target(row,metadata)) continue;
+    if(!anchorFound) { anchorFound=true; continue; }
+    if(row.status!=='PASS') destinations.push(row);
+  }
+  const selected=destinations[optionsOrdinal];
+  return selected ? updateServiceRow(service,selected.id,{arrivalTick:tick},metadata) : service;
 }
 
 export function updateGeneratedDeparture(service:TimetableServiceV1,stepIndex:number,tick:number,metadata:WorldMetadata):TimetableServiceV1 {

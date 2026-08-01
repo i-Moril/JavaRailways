@@ -1,12 +1,13 @@
 import { useEffect, useReducer, useState } from 'react';
 import { api } from './api';
 import { emptyAction, emptyTimetable, reducer } from './editor';
+import { DutyEditor } from './DutyEditor';
 import { Graph } from './Graph';
 import { filterTimetableForDiagramLine } from './graph';
 import { RailMap } from './RailMap';
 import {
   actionLabel, addRowAction, assignLineToService, canInitializeServiceRows, deleteRowAction, deleteServiceRow, insertServiceRow,
-  moveServiceRow, updateGeneratedDeparture, updateRowAction, updateServiceRow,
+  moveServiceRow, updateGeneratedArrival, updateGeneratedDeparture, updateRowAction, updateServiceRow,
 } from './schedule';
 import { useI18n } from './i18n';
 import { useTheme } from './theme';
@@ -35,7 +36,7 @@ const actionTypes = [
   'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'TAKE_FROM_WAYPOINT', 'STORE_AT_DEPOT',
   'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS', 'EXTENSION',
 ] as const satisfies readonly ActionType[];
-type View = 'graph' | 'map' | 'lines' | 'services' | 'scripts' | 'simulation';
+type View = 'graph' | 'duties' | 'map' | 'lines' | 'services' | 'scripts' | 'simulation';
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
@@ -131,7 +132,7 @@ export default function App() {
   const selectedService = selected ? state.services[selected.service] : undefined;
   const graphLine = lineCollection.lines.find((line) => line.id === graphLineId);
   const graphServiceIndices = state.services.map((_, index) => index)
-    .filter((index) => !graphLineId || state.services[index].lineId === graphLineId);
+    .filter((index) => !graphLineId || state.services[index].diagramLineId === graphLineId);
   const graphValue = { ...state, services: graphServiceIndices.map((index) => state.services[index]) };
   const selectedStep = selectedService && selected ? selectedService.steps[selected.step] : undefined;
 
@@ -139,7 +140,7 @@ export default function App() {
     <header className="topbar">
       <div className="brand"><h1>{t('app.title')}</h1><span>{t('app.subtitle')}</span></div>
       <nav aria-label={t('nav.primary')}>
-        {(['graph', 'map', 'lines', 'services', 'scripts', 'simulation'] as View[]).map((item) =>
+        {(['graph', 'duties', 'map', 'lines', 'services', 'scripts', 'simulation'] as View[]).map((item) =>
           <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{t(`nav.${item}`)}</button>)}
       </nav>
       <div className="top-controls">
@@ -156,7 +157,7 @@ export default function App() {
     </header>
 
     <section className="commandbar">
-      {view === 'scripts' ? <span className="readonly-banner">{t('scripts.readOnly')}</span> : <>
+      {view === 'scripts' || view === 'duties' ? <span className="readonly-banner">{view==='scripts'?t('scripts.readOnly'):t('duties.workspace')}</span> : <>
       <label>{t('common.draft')}<select value={draftId} onChange={(event) => void load(event.target.value)}>
         <option value="">{t('common.newDraft')}</option>
         {drafts.map((draft) => <option key={draft.id} value={draft.id}>{draft.id}</option>)}
@@ -182,10 +183,11 @@ export default function App() {
           <span>{t('editor.graphHint')}</span></div>
         <Graph value={graphValue} metadata={metadata} line={graphLine} graphLineId={graphLineId || undefined}
           onSelect={(service, step) => { setSelected({ service:graphServiceIndices[service], step }); setSidebarOpen(true); }}
-          onTick={(service, step, tick) => {
+          onTick={(service, step, tick, kind) => {
             const serviceIndex=graphServiceIndices[service];
             const current=state.services[serviceIndex];
-            if(current.rows) dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:updateGeneratedDeparture(current,step,tick,metadata)});
+            if(current.rows) dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:kind==='ARRIVAL'?updateGeneratedArrival(current,step,tick,metadata):updateGeneratedDeparture(current,step,tick,metadata)});
+            else if(kind==='ARRIVAL') dispatch({type:'PATCH_STEP',service:serviceIndex,step,action:{arrivalTick:tick}});
             else dispatch({ type:'PATCH_STEP', service:serviceIndex, step, tick });
           }} />
       </div>
@@ -204,16 +206,16 @@ export default function App() {
         </div>
         {selectedService && selected && <div className="sidebar-section fields-vertical">
           <label>{t('editor.serviceId')}<input value={selectedService.id} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: selected.service, patch: { id: event.target.value } })} /></label>
-          <label>{t('lines.title')}<select value={selectedService.lineId || ''} onChange={(event) => {
+          <label>{t('lines.title')}<select value={selectedService.diagramLineId || ''} onChange={(event) => {
             const line=lineCollection.lines.find((item) => item.id===event.target.value);
             if(line&&selectedService.rows&&!window.confirm(t('editor.confirmResetRows'))) return;
-            const updated=line ? (canInitializeServiceRows(selectedService) ? assignLineToService(selectedService,line,selectedService.lineDirection || 'UP',metadata) : {...selectedService,lineId:line.id}) : { ...selectedService,lineId:null,lineDirection:null,rows:null };
+            const updated=line ? (canInitializeServiceRows(selectedService) ? assignLineToService(selectedService,line,selectedService.lineDirection || 'UP',metadata) : {...selectedService,diagramLineId:line.id}) : { ...selectedService,diagramLineId:null,lineDirection:null,rows:null };
             dispatch({ type:'PATCH_SERVICE', service:selected.service, patch:updated });
           }}>
             <option value="">{t('common.none')}</option>{lineCollection.lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
           </select></label>
-          {selectedService.lineId && <label>{t('editor.lineDirection')}<select value={selectedService.lineDirection || ''} onChange={(event) => {
-            const line=lineCollection.lines.find((item) => item.id===selectedService.lineId);
+          {selectedService.diagramLineId && <label>{t('editor.lineDirection')}<select value={selectedService.lineDirection || ''} onChange={(event) => {
+            const line=lineCollection.lines.find((item) => item.id===selectedService.diagramLineId);
             if(!line) return;
             if(!selectedService.rows) { dispatch({type:'PATCH_SERVICE',service:selected.service,patch:{lineDirection:event.target.value as LineDirection}}); return; }
             if(!window.confirm(t('editor.confirmResetRows'))) return;
@@ -222,7 +224,7 @@ export default function App() {
           }}><option value="" disabled>{t('common.select')}</option><option value="UP">{t('direction.UP')}</option><option value="DOWN">{t('direction.DOWN')}</option></select></label>}
           {selectedService.rows ? <ServiceScheduleTable service={selectedService} metadata={metadata}
             onChange={(updated) => dispatch({type:'PATCH_SERVICE',service:selected.service,patch:updated})} />
-            : selectedService.lineId && <p className="empty">{t('editor.legacyRouteNote')}</p>}
+            : selectedService.diagramLineId && <p className="empty">{t('editor.legacyRouteNote')}</p>}
           {!selectedService.rows && selectedStep && <ActionInspector step={selectedStep} metadata={metadata}
             onReplace={(kind) => replaceStep(selected.service, selected.step, kind)}
             onTick={(tick) => dispatch({ type: 'PATCH_STEP', service: selected.service, step: selected.step, tick })}
@@ -241,6 +243,7 @@ export default function App() {
       </aside>
     </section>}
 
+    {view === 'duties' && <DutyEditor world={world} lines={lineCollection.lines} onError={setError} />}
     {view === 'map' && <RailMap world={world} onError={setError} />}
     {view === 'services' && <ServicesPage state={state} metadata={metadata} lines={lineCollection.lines} selected={selected} dispatch={dispatch}
       replaceStep={replaceStep} setSelected={setSelected} />}
@@ -317,15 +320,15 @@ function ServicesPage({ state, metadata, lines, selected, dispatch, replaceStep,
     {state.services.map((service, serviceIndex) => <article className="service card" key={serviceIndex}>
       <div className="service-head">
         <input aria-label={t('editor.serviceId')} value={service.id} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: serviceIndex, patch: { id: event.target.value } })} />
-        <select aria-label={t('lines.title')} value={service.lineId || ''} onChange={(event) => {
+        <select aria-label={t('lines.title')} value={service.diagramLineId || ''} onChange={(event) => {
           const line=lines.find((item) => item.id===event.target.value);
           if(line&&service.rows&&!window.confirm(t('editor.confirmResetRows'))) return;
-          const updated=line ? (canInitializeServiceRows(service) ? assignLineToService(service,line,service.lineDirection||'UP',metadata) : {...service,lineId:line.id}) : { ...service,lineId:null,lineDirection:null,rows:null };
+          const updated=line ? (canInitializeServiceRows(service) ? assignLineToService(service,line,service.lineDirection||'UP',metadata) : {...service,diagramLineId:line.id}) : { ...service,diagramLineId:null,lineDirection:null,rows:null };
           dispatch({ type:'PATCH_SERVICE', service:serviceIndex, patch:updated });
         }}>
           <option value="">{t('common.none')}</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
         </select>
-        {service.lineId&&<select aria-label={t('editor.lineDirection')} value={service.lineDirection||'UP'} onChange={(event)=>{const line=lines.find((item)=>item.id===service.lineId);if(!line)return;if(!service.rows){dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:{lineDirection:event.target.value as LineDirection}});return;}if(window.confirm(t('editor.confirmResetRows')))dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:assignLineToService(service,line,event.target.value as LineDirection,metadata)});}}><option value="UP">{t('direction.UP')}</option><option value="DOWN">{t('direction.DOWN')}</option></select>}
+        {service.diagramLineId&&<select aria-label={t('editor.lineDirection')} value={service.lineDirection||'UP'} onChange={(event)=>{const line=lines.find((item)=>item.id===service.diagramLineId);if(!line)return;if(!service.rows){dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:{lineDirection:event.target.value as LineDirection}});return;}if(window.confirm(t('editor.confirmResetRows')))dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:assignLineToService(service,line,event.target.value as LineDirection,metadata)});}}><option value="UP">{t('direction.UP')}</option><option value="DOWN">{t('direction.DOWN')}</option></select>}
         <select value={service.selectorType} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: serviceIndex, patch: { selectorType: event.target.value as 'ANY'|'TRAIN_ID', trainId: event.target.value === 'ANY' ? null : service.trainId } })}>
           <option value="ANY">{t('editor.dynamicTrain')}</option><option value="TRAIN_ID">{t('editor.fixedTrain')}</option>
         </select>
@@ -587,12 +590,13 @@ function ActionFields({ step, metadata, onAction, onCheck, onStationOperation }:
       <label>{t('editor.selectBerth')}<select value={action.berthId || ''} onChange={(event) => onAction({ berthId: event.target.value })}><option value="">{t('common.select')}</option>
         {(metadata.stations || []).filter((berth) => berth.stationId === action.stationId).map((berth) => <option key={berth.destinationId} value={berth.berthId}>{berth.berthId}</option>)}
       </select></label>
+      <OptionalNumber label={t('editor.arrivalTime')} value={action.arrivalTick} onChange={(value) => onAction({ arrivalTick: value })} />
       <OptionalNumber label={t('editor.stoppingOffset')} value={action.stoppingOffsetMetersBefore} onChange={(value) => onAction({ stoppingOffsetMetersBefore: value })} />
     </fieldset>
     <fieldset><legend>{t('editor.beforeDeparture')}</legend>
       <OptionalNumber label={t('editor.minimumDwell')} value={action.minimumDwellTicks} onChange={(value) => onAction({ minimumDwellTicks: value })} />
       <label>{t('editor.doorSide')}<select value={action.doorSideOverride || ''} onChange={(event) => onAction({ doorSideOverride: (event.target.value || null) as TimetableActionV1['doorSideOverride'] })}>
-        <option value="">{t('editor.defaultValue')}</option><option>LEFT</option><option>RIGHT</option><option>BOTH</option>
+        <option value="">{t('editor.defaultValue')}</option><option>NONE</option><option>LEFT</option><option>RIGHT</option><option>BOTH</option>
       </select></label>
       {onStationOperation && <div className="station-operation-buttons"><span>{t('editor.afterArrival')}</span>
         <button onClick={() => onStationOperation('REVERSE')}>{t('actions.REVERSE')}</button>
@@ -606,6 +610,7 @@ function ActionFields({ step, metadata, onAction, onCheck, onStationOperation }:
     <label>{t('editor.target')}<input list="points" value={points.at(-1) || ''} onChange={(event) => onAction({ wayPointIds: [...points.slice(0, -1), event.target.value] })} /></label>
     {action.type === 'DESTINATION' && <label>{t('editor.viaPoints')}<input value={points.slice(0, -1).join(', ')} onChange={(event) => onAction({ wayPointIds: [...splitList(event.target.value), points.at(-1) || ''] })} /></label>}
     {action.type === 'DESTINATION_OPTIONS' && <>
+      <OptionalNumber label={t('editor.arrivalTime')} value={action.arrivalTick} onChange={(value) => onAction({ arrivalTick: value })} />
       <OptionalNumber label={t('editor.minimumDwell')} value={action.minimumDwellTicks} onChange={(value) => onAction({ minimumDwellTicks: value })} />
       <OptionalNumber label={t('editor.stoppingOffset')} value={action.stoppingOffsetMetersBefore} onChange={(value) => onAction({ stoppingOffsetMetersBefore: value })} />
     </>}

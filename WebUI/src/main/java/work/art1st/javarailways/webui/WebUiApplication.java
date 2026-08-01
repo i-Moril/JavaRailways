@@ -32,6 +32,7 @@ public final class WebUiApplication {
     private final WebUiConfig config;
     private final ObjectMapper mapper;
     private final DraftRepository drafts;
+    private final DraftRepository editorDocuments;
     private final BridgeClient bridge;
     private final WebUiSessions sessions = new WebUiSessions(Duration.ofMinutes(30));
     private final ConcurrentHashMap<String, Queue<TrainSubscriber>> trainStreamClients = new ConcurrentHashMap<>();
@@ -74,6 +75,7 @@ public final class WebUiApplication {
         this.config = config;
         this.mapper = mapper;
         this.drafts = new DraftRepository(config.draftDirectory(), mapper);
+        this.editorDocuments = new DraftRepository(config.draftDirectory().resolve("editor-documents"), mapper);
         this.bridge = new BridgeClient(config, mapper);
     }
 
@@ -100,6 +102,7 @@ public final class WebUiApplication {
         app.get("/api/v1/worlds/{world}/rail-map", context -> proxyGet(context, worldPath(context) + "/rail-map"));
         app.sse("/api/v1/worlds/{world}/rail-map/trains", this::trainStream);
         app.get("/api/v1/worlds/{world}/scripts", this::scripts);
+        app.post("/api/v1/worlds/{world}/scripts/compile", this::compileSource);
         app.get("/api/v1/worlds/{world}/scripts/{script}", this::renderScript);
         app.get("/api/v1/worlds/{world}/lines", this::lines);
         app.post("/api/v1/worlds/{world}/lines/preview", this::previewLine);
@@ -111,6 +114,11 @@ public final class WebUiApplication {
         app.get("/api/v1/worlds/{world}/drafts/{draft}", this::getDraft);
         app.put("/api/v1/worlds/{world}/drafts/{draft}", this::putDraft);
         app.delete("/api/v1/worlds/{world}/drafts/{draft}", this::deleteDraft);
+        app.get("/api/v1/worlds/{world}/editor-documents", this::listEditorDocuments);
+        app.post("/api/v1/worlds/{world}/editor-documents", this::createEditorDocument);
+        app.get("/api/v1/worlds/{world}/editor-documents/{document}", this::getEditorDocument);
+        app.put("/api/v1/worlds/{world}/editor-documents/{document}", this::putEditorDocument);
+        app.delete("/api/v1/worlds/{world}/editor-documents/{document}", this::deleteEditorDocument);
         app.post("/api/v1/worlds/{world}/validate", this::validate);
         app.post("/api/v1/worlds/{world}/publish", this::publish);
 
@@ -298,6 +306,10 @@ public final class WebUiApplication {
         respond(context, bridge.get(path));
     }
 
+    private void compileSource(Context context) throws IOException, InterruptedException {
+        respond(context, bridge.post(worldPath(context) + "/scripts/compile", requestJson(context)));
+    }
+
     private String worldPath(Context context) {
         return "worlds/" + segment(context.pathParam("world"));
     }
@@ -361,6 +373,49 @@ public final class WebUiApplication {
             return;
         }
         context.status(204);
+    }
+
+    private void listEditorDocuments(Context context) throws IOException {
+        context.json(editorDocuments.list(context.pathParam("world")));
+    }
+
+    private void createEditorDocument(Context context) throws IOException {
+        JsonNode document = requestJson(context);
+        requireEditorDocument(document);
+        String id = editorDocuments.create(context.pathParam("world"), document);
+        context.status(201).json(Map.of("id", id));
+    }
+
+    private void getEditorDocument(Context context) throws IOException {
+        editorDocuments.find(context.pathParam("world"), context.pathParam("document"))
+            .ifPresentOrElse(context::json, () -> error(context, 404, "editor document not found"));
+    }
+
+    private void putEditorDocument(Context context) throws IOException {
+        JsonNode document = requestJson(context);
+        requireEditorDocument(document);
+        editorDocuments.save(context.pathParam("world"), context.pathParam("document"), document);
+        context.status(204);
+    }
+
+    private void deleteEditorDocument(Context context) throws IOException {
+        if (!editorDocuments.delete(context.pathParam("world"), context.pathParam("document"))) {
+            error(context, 404, "editor document not found");
+            return;
+        }
+        context.status(204);
+    }
+
+    private static void requireEditorDocument(JsonNode document) {
+        if (document.path("formatVersion").asInt(-1) != 1) {
+            throw new IllegalArgumentException("unsupported editor document version");
+        }
+        if (document.path("id").asText("").isBlank()) {
+            throw new IllegalArgumentException("editor document id is required");
+        }
+        if (!document.path("runs").isArray() || !document.path("duties").isArray()) {
+            throw new IllegalArgumentException("editor document runs and duties must be arrays");
+        }
     }
 
     private void validate(Context context) throws IOException, InterruptedException {

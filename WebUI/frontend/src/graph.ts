@@ -21,6 +21,7 @@ export function graphScreenXToTick(layout:Pick<GraphLayout,'left'|'xToTick'>, vi
 export interface GraphPoint {
   serviceIndex: number;
   stepIndex: number;
+  kind: 'DEPARTURE'|'ARRIVAL';
   tick: number;
   x: number;
   y: number;
@@ -47,7 +48,7 @@ export function snapTick(tick: number, snap = 20) {
 }
 
 export function filterTimetableForDiagramLine(value:SavedTimetableV1,lineId:string):SavedTimetableV1 {
-  return {...value,services:value.services.filter((service)=>service.lineId===lineId)};
+  return {...value,services:value.services.filter((service)=>service.diagramLineId===lineId)};
 }
 
 function destination(action?: TimetableActionV1 | null): string | undefined {
@@ -94,29 +95,29 @@ export function layoutGraph(
 
   const paths = value.services.flatMap((service, serviceIndex) => {
     let current=normalizeLocation(service.steps.find((step)=>step.type==='CHECK')?.wayPointId||`${service.id}: origin`);
-    let pendingArrivalTick:number|null=null;
+    let pendingArrival:{tick:number;stepIndex:number}|null=null;
     const segments:GraphPath[]=[];
     service.steps.forEach((step,stepIndex)=>{
       if(step.type==='CHECK'&&step.wayPointId){current=normalizeLocation(step.wayPointId);return;}
       if(step.type!=='AT')return;
       const action=step.action;
       if(action?.type==='DESTINATION_OPTIONS'||action?.type==='STATION_DESTINATION_OPTIONS'){
-        pendingArrivalTick=action.arrivalTick??null;
+        pendingArrival=action.arrivalTick==null?null:{tick:action.arrivalTick,stepIndex};
         return;
       }
       const target=destination(action);
       if(!target)return;
       const next=normalizeLocation(target);
       const departureY=laneById.get(current),arrivalY=laneById.get(next);
-      if(pendingArrivalTick!=null&&departureY!=null&&arrivalY!=null){
+      if(pendingArrival!=null&&departureY!=null&&arrivalY!=null){
         const departureTick=step.tick??0;
         segments.push({serviceIndex,serviceId:service.id,points:[
-          {serviceIndex,stepIndex,tick:departureTick,x:tickToX(departureTick),y:departureY,label:current,location:current},
-          {serviceIndex,stepIndex,tick:pendingArrivalTick,x:tickToX(pendingArrivalTick),y:arrivalY,label:next,location:next},
+          {serviceIndex,stepIndex,kind:'DEPARTURE',tick:departureTick,x:tickToX(departureTick),y:departureY,label:current,location:current},
+          {serviceIndex,stepIndex:pendingArrival.stepIndex,kind:'ARRIVAL',tick:pendingArrival.tick,x:tickToX(pendingArrival.tick),y:arrivalY,label:next,location:next},
         ]});
       }
       current=next;
-      pendingArrivalTick=null;
+      pendingArrival=null;
     });
     return segments;
   });

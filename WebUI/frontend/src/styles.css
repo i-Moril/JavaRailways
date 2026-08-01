@@ -216,6 +216,25 @@ tr.selected { background: #173954; }
 .readonly-graph { display: grid; grid-template-rows: auto minmax(420px, 1fr); overflow: hidden; }
 .readonly-graph-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .readonly-graph-header label { min-width: 160px; }
+.duty-page { display: grid; grid-template-rows: auto minmax(360px,1fr) minmax(260px,.7fr); gap: 12px; }
+.duty-toolbar { margin: 0; display: flex; align-items: end; gap: 8px; }
+.duty-toolbar label { min-width: 150px; }
+.duty-columns { min-height: 0; display: grid; grid-template-columns: minmax(180px,20%) minmax(360px,1fr) minmax(280px,30%); gap: 12px; }
+.duty-columns > .card { min-height: 0; margin: 0; overflow: auto; }
+.duty-list { display: flex; flex-direction: column; gap: 6px; }
+.duty-list button { display: flex; justify-content: space-between; gap: 8px; text-align: left; }
+.duty-list small { color: #8195af; }
+.duty-run-editor .section-title input { flex: 1; font-weight: 700; }
+.duty-calls,.duty-elements { display: grid; gap: 6px; padding: 0; list-style: none; }
+.duty-calls li { display: grid; grid-template-columns: minmax(120px,1fr) 82px 82px 82px 75px auto auto; gap: 5px; }
+.duty-elements li { display: grid; grid-template-columns: minmax(120px,1fr) minmax(100px,.7fr) auto; align-items: center; gap: 5px; padding: 7px; border: 1px solid #30415c; border-radius: 7px; }
+.duty-chain { display: grid; align-content: start; gap: 8px; }
+.duty-function-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
+.duty-output-grid { min-height: 0; display: grid; grid-template-columns: minmax(260px,35%) minmax(0,1fr); gap: 12px; }
+.duty-output-grid > .card { min-height: 0; margin: 0; overflow: auto; }
+.duty-output-grid p { margin: 5px 0; }
+.duty-output-grid .success { color: #80d8a3; }
+.duty-output-grid .error { color: #ffabb5; }
 
 @media (max-width: 900px) {
   .app-shell { grid-template-rows: auto auto auto minmax(0, 1fr); }
@@ -228,6 +247,9 @@ tr.selected { background: #173954; }
   .editor-sidebar { position: relative; z-index: 4; }
   .commandbar { overflow-x: auto; }
   .commandbar .spacer { min-width: 20px; }
+  .duty-page { display: block; }
+  .duty-toolbar { overflow-x: auto; margin-bottom: 10px; }
+  .duty-columns, .duty-output-grid { grid-template-columns: 1fr; margin-bottom: 10px; }
 }
 
 @media (max-width: 620px) {

@@ -5,7 +5,7 @@ import { useTheme } from './theme';
 import type { LineV1, SavedTimetableV1, WorldMetadata } from './types';
 
 type DragState =
-  | { kind:'point'; service:number; step:number }
+  | { kind:'point'; service:number; step:number; pointKind:'DEPARTURE'|'ARRIVAL' }
   | { kind:'pan'; axis:'x'|'y'|'both'; x:number; y:number; offsetX:number; offsetY:number };
 
 export function Graph({
@@ -22,7 +22,7 @@ export function Graph({
   line?: LineV1;
   graphLineId?: string;
   readOnly?: boolean;
-  onTick: (service: number, step: number, tick: number) => void;
+  onTick: (service: number, step: number, tick: number, kind:'DEPARTURE'|'ARRIVAL') => void;
   onSelect?: (service: number, step: number) => void;
 }) {
   const { t } = useI18n();
@@ -38,8 +38,8 @@ export function Graph({
   const transformX = (x:number) => layout.left + (x - layout.left) * viewport.scaleX + viewport.offsetX;
   const transformY = (y:number) => top + (y - top) * viewport.scaleY + viewport.offsetY;
   const transformedPoints = layout.points.map((point) => ({ ...point, x:transformX(point.x), y:transformY(point.y) }));
-  const pointKey=(point:{serviceIndex:number;stepIndex:number;tick:number;location:string})=>
-    `${point.serviceIndex}:${point.stepIndex}:${point.tick}:${point.location}`;
+  const pointKey=(point:{serviceIndex:number;stepIndex:number;kind:'DEPARTURE'|'ARRIVAL';tick:number;location:string})=>
+    `${point.serviceIndex}:${point.stepIndex}:${point.kind}:${point.tick}:${point.location}`;
 
   useEffect(() => {
     const element = surface.current;
@@ -160,7 +160,7 @@ export function Graph({
         if (!readOnly) {
           const hit = transformedPoints.find((point) => Math.hypot(point.x - pointer.x, point.y - pointer.y) < 13);
           if (hit) {
-            drag.current = { kind:'point', service:hit.serviceIndex, step:hit.stepIndex };
+            drag.current = { kind:'point', service:hit.serviceIndex, step:hit.stepIndex, pointKind:hit.kind };
             onSelect?.(hit.serviceIndex, hit.stepIndex);
             event.currentTarget.setPointerCapture(event.pointerId);
             return;
@@ -180,7 +180,7 @@ export function Graph({
           return;
         }
         if (drag.current.kind === 'point') {
-          onTick(drag.current.service, drag.current.step, snapTick(graphScreenXToTick(layout,viewport,pointer.x)));
+          onTick(drag.current.service, drag.current.step, snapTick(graphScreenXToTick(layout,viewport,pointer.x)), drag.current.pointKind);
           return;
         }
         const active = drag.current;

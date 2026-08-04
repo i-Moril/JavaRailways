@@ -1,7 +1,7 @@
 import { useEffect,useMemo,useRef,useState } from 'react';
 import { api } from './api';
 import {
-  copyRunShifted,createRunFromLine,lineSimulationRoute,resetRunTimings,resizeRunRoute,
+  copyRunShifted,createRunFromLine,lineSimulationRoute,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,
   type AuthoringRunCallV1,type AuthoringRunV1,
 } from './authoring';
 import { useI18n } from './i18n';
@@ -25,11 +25,12 @@ interface RunRouteEditorProps {
   onChange:(run:AuthoringRunV1,clearArrivalOverrides?:boolean)=>void;
   onRename:(previousId:string,nextId:string)=>void;
   onCopy:(runs:AuthoringRunV1[])=>void;
+  onPreviewChange:(run:AuthoringRunV1|undefined)=>void;
 }
 
 export function RunRouteEditor({
   world,run,lines,metadata,simulationProfiles,defaultProfileKey,existingRunIds,periodTicks,busy,
-  onError,onChange,onRename,onCopy,
+  onError,onChange,onRename,onCopy,onPreviewChange,
 }:RunRouteEditorProps) {
   const {t}=useI18n();
   const [firstDepartureTick,setFirstDepartureTick]=useState(run.calls[0]?.departureTick??0);
@@ -37,12 +38,16 @@ export function RunRouteEditor({
   const [profileKey,setProfileKey]=useState(defaultProfileKey??'');
   const [copyOffsetTicks,setCopyOffsetTicks]=useState(1_200);
   const [copyCount,setCopyCount]=useState(1);
+  const [shiftAnchorCallId,setShiftAnchorCallId]=useState('');
+  const [shiftTargetTick,setShiftTargetTick]=useState<number|''>('');
+  const [shiftPreviewActive,setShiftPreviewActive]=useState(false);
   const [resetBusy,setResetBusy]=useState(false);
   const latestRun=useRef(run);
   latestRun.current=run;
   useEffect(()=>{
     setFirstDepartureTick(run.calls[0]?.departureTick??0);
     setProfileKey(defaultProfileKey??'');
+    setShiftAnchorCallId('');setShiftTargetTick('');setShiftPreviewActive(false);onPreviewChange(undefined);
   },[run.id,defaultProfileKey]);
 
   const line=lines.find((candidate)=>candidate.id===run.diagramLineId);
@@ -55,6 +60,14 @@ export function RunRouteEditor({
   ])),[metadata.stations]);
   const labelStation=(stationId:string)=>stationNames.get(stationId)||stationId;
   const berthsFor=(stationId:string)=>(metadata.stations??[]).filter((berth)=>berth.stationId===stationId);
+  const shiftAnchors=run.calls.filter((call)=>call.departureTick!=null);
+  const shiftCalculation=useMemo(()=>{
+    if(!shiftAnchorCallId||shiftTargetTick==='')return {preview:undefined,error:''};
+    try{return {preview:shiftRunFromDeparture(run,shiftAnchorCallId,shiftTargetTick,periodTicks),error:''};}
+    catch(error){return {preview:undefined,error:error instanceof Error?error.message:String(error)};}
+  },[run,shiftAnchorCallId,shiftTargetTick,periodTicks]);
+  useEffect(()=>{onPreviewChange(shiftPreviewActive?shiftCalculation.preview?.run:undefined);},[shiftPreviewActive,shiftCalculation.preview,onPreviewChange]);
+  useEffect(()=>()=>onPreviewChange(undefined),[onPreviewChange]);
 
   const changeLine=(lineId:string)=>{
     const selected=lines.find((candidate)=>candidate.id===lineId);
@@ -160,6 +173,15 @@ export function RunRouteEditor({
             <button className="danger" title={t('duties.trimEndpoint')} disabled={!endpoint||run.calls.length<=2} onClick={()=>index===0?resize(run.calls[1].stationId,run.calls.at(-1)!.stationId):resize(run.calls[0].stationId,run.calls.at(-2)!.stationId)}>×</button>
           </li>;
         })}</ol>
+      </div>
+      <div className={`run-shift card-inset ${shiftPreviewActive?'preview-active':''}`}>
+        <label>{t('duties.shiftAnchor')}<select value={shiftAnchorCallId} onChange={(event)=>{const id=event.target.value,call=run.calls.find((candidate)=>candidate.id===id);setShiftAnchorCallId(id);setShiftTargetTick(call?.departureTick??'');setShiftPreviewActive(false);onPreviewChange(undefined);}}><option value="">{t('common.select')}</option>{shiftAnchors.map((call)=><option key={call.id} value={call.id}>{labelStation(call.stationId)} · {call.departureTick}</option>)}</select></label>
+        <label>{t('duties.shiftTargetDeparture')}<input type="number" min="0" value={shiftTargetTick} onChange={(event)=>setShiftTargetTick(event.target.value===''?'':Math.max(0,Math.trunc(+event.target.value)))}/></label>
+        <button onClick={()=>{if(shiftCalculation.error){onError(shiftCalculation.error);return;}setShiftPreviewActive(true);}} disabled={busy||!shiftCalculation.preview}>{t('duties.previewShift')}</button>
+        <button className="primary" onClick={()=>{if(!shiftCalculation.preview)return;onChange(shiftCalculation.preview.run,true);setShiftPreviewActive(false);onPreviewChange(undefined);}} disabled={busy||!shiftPreviewActive||!shiftCalculation.preview}>{t('duties.applyShift')}</button>
+        {shiftPreviewActive&&<button onClick={()=>{setShiftPreviewActive(false);onPreviewChange(undefined);}}>{t('duties.cancelPreview')}</button>}
+        {shiftCalculation.error&&shiftAnchorCallId&&shiftTargetTick!==''&&<small className="error">{shiftCalculation.error}</small>}
+        {shiftPreviewActive&&shiftCalculation.preview&&<small className="shift-summary">{t('duties.shiftDelta')}: {shiftCalculation.preview.deltaTicks>=0?'+':''}{shiftCalculation.preview.deltaTicks} · {t('duties.affectedTimes')}: {shiftCalculation.preview.affectedTimeCount} · {t('status.terminal')}: {run.calls.at(-1)?.arrivalTick??'—'} → {shiftCalculation.preview.run.calls.at(-1)?.arrivalTick??'—'}</small>}
       </div>
       <div className="run-copy card-inset">
         <label>{t('duties.copyOffset')}<input type="number" value={copyOffsetTicks} onChange={(event)=>setCopyOffsetTicks(Math.trunc(+event.target.value))}/></label>

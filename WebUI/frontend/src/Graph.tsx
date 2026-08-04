@@ -1,30 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
-import { graphScreenXToTick, graphServiceColors, layoutGraph, snapTick, zoomGraphViewport, type GraphViewport } from './graph';
+import { graphServiceColors, layoutGraph, zoomGraphViewport, type GraphViewport } from './graph';
 import { useI18n } from './i18n';
 import { useTheme } from './theme';
 import type { LineV1, SavedTimetableV1, WorldMetadata } from './types';
 
-type DragState =
-  | { kind:'point'; service:number; step:number; pointKind:'DEPARTURE'|'ARRIVAL' }
-  | { kind:'pan'; axis:'x'|'y'|'both'; x:number; y:number; offsetX:number; offsetY:number };
+type DragState = { kind:'pan'; axis:'x'|'y'|'both'; x:number; y:number; offsetX:number; offsetY:number };
 
 export function Graph({
   value,
-  onTick,
   onSelect,
   metadata,
   line,
   graphLineId,
-  readOnly = false,
   highlightedServiceIds,
+  previewServiceIds,
 }: {
   value: SavedTimetableV1;
   metadata?: WorldMetadata;
   line?: LineV1;
   graphLineId?: string;
-  readOnly?: boolean;
   highlightedServiceIds?:ReadonlySet<string>;
-  onTick: (service: number, step: number, tick: number, kind:'DEPARTURE'|'ARRIVAL') => void;
+  previewServiceIds?:ReadonlySet<string>;
   onSelect?: (service: number, step: number) => void;
 }) {
   const { t } = useI18n();
@@ -111,10 +107,12 @@ export function Graph({
       const points = path.points.map((point) => ({ ...point, x:transformX(point.x), y:transformY(point.y) }));
       const hasHighlightSelection=(highlightedServiceIds?.size??0)>0;
       const highlighted=!hasHighlightSelection||highlightedServiceIds!.has(path.serviceId);
+      const preview=previewServiceIds?.has(path.serviceId)??false;
       context.globalAlpha=highlighted?1:0.16;
+      context.setLineDash(preview?[8,5]:[]);
       if (points.length > 1) {
         context.strokeStyle = color;
-        context.lineWidth = hasHighlightSelection&&highlighted?4:2;
+        context.lineWidth = preview||hasHighlightSelection&&highlighted?4:2;
         context.beginPath();
         points.forEach((point, index) => index === 0 ? context.moveTo(point.x, point.y) : context.lineTo(point.x, point.y));
         context.stroke();
@@ -130,10 +128,11 @@ export function Graph({
           context.fillText(`${path.serviceId} · ${point.location} · ${point.tick}`, point.x + 9, point.y - 9);
         }
       }
+      context.setLineDash([]);
     }
     context.globalAlpha=1;
     context.restore();
-  }, [layout, size.width, size.height, value, viewport, theme, hoveredPoint, highlightedServiceIds]);
+  }, [layout, size.width, size.height, value, viewport, theme, hoveredPoint, highlightedServiceIds, previewServiceIds]);
 
   const position = (event: React.PointerEvent | React.WheelEvent) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -163,14 +162,10 @@ export function Graph({
       }}
       onPointerDown={(event) => {
         const pointer = position(event);
-        if (!readOnly) {
-          const hit = transformedPoints.find((point) => Math.hypot(point.x - pointer.x, point.y - pointer.y) < 13);
-          if (hit) {
-            drag.current = { kind:'point', service:hit.serviceIndex, step:hit.stepIndex, pointKind:hit.kind };
-            onSelect?.(hit.serviceIndex, hit.stepIndex);
-            event.currentTarget.setPointerCapture(event.pointerId);
-            return;
-          }
+        const hit = transformedPoints.find((point) => Math.hypot(point.x - pointer.x, point.y - pointer.y) < 13);
+        if (hit) {
+          onSelect?.(hit.serviceIndex, hit.stepIndex);
+          return;
         }
         drag.current = {
           kind:'pan', axis:pointer.x < layout.left ? 'y' : pointer.y < top ? 'x' : 'both',
@@ -183,10 +178,6 @@ export function Graph({
         if(!drag.current){
           const hit=transformedPoints.find((point)=>Math.hypot(point.x-pointer.x,point.y-pointer.y)<13);
           setHoveredPoint(hit?pointKey(hit):null);
-          return;
-        }
-        if (drag.current.kind === 'point') {
-          onTick(drag.current.service, drag.current.step, snapTick(graphScreenXToTick(layout,viewport,pointer.x)), drag.current.pointKind);
           return;
         }
         const active = drag.current;

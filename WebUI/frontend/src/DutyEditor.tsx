@@ -2,7 +2,7 @@ import { useEffect,useMemo,useRef,useState,type CSSProperties } from 'react';
 import { api } from './api';
 import {
   authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,
-  updateRunGraphTick,type AuthoringDutyElementV1,type AuthoringDutyV1,type AuthoringFunctionCallV1,type AuthoringRunV1,
+  type AuthoringDutyElementV1,type AuthoringDutyV1,type AuthoringFunctionCallV1,type AuthoringRunV1,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
 import { useDocumentHistory } from './documentHistory';
@@ -22,6 +22,7 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
   const documentHistory=useDocumentHistory<TimetableAuthoringDocumentV1>(emptyAuthoringDocument);
   const {value,setValue}=documentHistory;
   const [selectedRun,setSelectedRun]=useState('');
+  const [previewRun,setPreviewRun]=useState<AuthoringRunV1>();
   const [selectedDuty,setSelectedDuty]=useState('');
   const [sidebarTab,setSidebarTab]=useState<'runs'|'duties'>('runs');
   const [sidebarOpen,setSidebarOpen]=useState(true);
@@ -53,16 +54,19 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
   })})),[value.runs,value.arrivalOverrides]);
   const selectedRunValue=effectiveRuns.find((run)=>run.id===selectedRun);
   const selectedDutyValue=value.duties.find((duty)=>duty.id===selectedDuty);
-  const fullGraphValue=useMemo(()=>authoringGraphTimetable({...value,runs:effectiveRuns}),[value,effectiveRuns]);
+  const graphRuns=useMemo(()=>effectiveRuns.map((run)=>previewRun?.id===run.id?previewRun:run),[effectiveRuns,previewRun]);
+  const fullGraphValue=useMemo(()=>authoringGraphTimetable({...value,runs:graphRuns}),[value,graphRuns]);
   const graphValue=useMemo(()=>({...fullGraphValue,services:fullGraphValue.services.filter((service)=>!graphLineId||service.diagramLineId===graphLineId)}),[fullGraphValue,graphLineId]);
   const highlightedRunIds=useMemo(()=>new Set(sidebarTab==='duties'
     ?selectedDutyValue?.elements.flatMap((element)=>element.type==='RUN'?[element.runId]:[])??[]
     :selectedRun?[selectedRun]:[]),[sidebarTab,selectedDutyValue,selectedRun]);
+  const previewRunIds=useMemo(()=>new Set(previewRun?[previewRun.id]:[]),[previewRun]);
   const authoringWorkspaceStyle={'--authoring-sidebar-width':`${sidebarWidth}px`} as CSSProperties;
   const delayedOrigin=simulation?.delayedServiceId==null||simulation.delayedStepIndex==null?undefined:compiled?.timetable.compilationTrace?.find((trace)=>trace.serviceId===simulation.delayedServiceId&&trace.stepIndex===simulation.delayedStepIndex)?.origin;
 
   const refresh=async()=>setDocuments(await api.editorDocuments(world));
   useEffect(()=>{if(typeof window!=='undefined')window.localStorage.setItem('javarailways.authoringSidebarWidth',String(sidebarWidth));},[sidebarWidth]);
+  useEffect(()=>{setPreviewRun(undefined);},[selectedRun]);
   useEffect(()=>{setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setSelectedRun('');setSelectedDuty('');setSidebarTab('runs');setGraphLineId('');setCompiledState(undefined);setSimulationState(undefined);setProfileAssignments({});if(world)void refresh().catch((error)=>onError(String(error)));},[world]);
   const execute=async(operation:()=>Promise<void>)=>{setBusy(true);onError('');try{await operation();}catch(error){onError(error instanceof Error?error.message:String(error));}finally{setBusy(false);}};
   const load=async(id:string)=>execute(async()=>{
@@ -89,11 +93,11 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
     const result=await api.simulateTimetable(world,compiled.timetable,assignments,delayThresholdTicks);
     setSimulationState({result,inputKey:simulationInputKey});
   });};
-  const replaceRun=(next:AuthoringRunV1,clearArrivalOverrides=false)=>setValue((current)=>{
+  const replaceRun=(next:AuthoringRunV1,clearArrivalOverrides=false)=>{setPreviewRun(undefined);setValue((current)=>{
     const sourceLine=lines.find((line)=>line.id===next.diagramLineId);
     const diagramLines=sourceLine?[...current.diagramLines.filter((line)=>line.id!==sourceLine.id),{id:sourceLine.id,upStationIds:sourceLine.upStationIds,downStationIds:sourceLine.downStationIds}]:current.diagramLines;
     return {...current,diagramLines,runs:current.runs.map((run)=>run.id===next.id?next:run),arrivalOverrides:clearArrivalOverrides?current.arrivalOverrides.filter((override)=>override.runId!==next.id):current.arrivalOverrides};
-  });
+  });};
   const renameRun=(previousId:string,nextId:string)=>{setValue((current)=>({...current,
     runs:current.runs.map((run)=>run.id===previousId?{...run,id:nextId}:run),
     duties:current.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>element.type==='RUN'&&element.runId===previousId?{...element,runId:nextId}:element)})),
@@ -118,20 +122,6 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
   const assignRun=(runId:string)=>{if(!selectedDutyValue)return;setValue((current)=>moveRunToDuty(current,runId,selectedDutyValue.id,uid('element')));};
   const removeElement=(elementId:string)=>{if(selectedDutyValue)patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.filter((item)=>item.id!==elementId)});};
   const addFunction=(call:AuthoringFunctionCallV1)=>{if(!selectedDutyValue)return;const element:AuthoringDutyElementV1={id:uid('element'),type:'FUNCTION',call};const elements=call.type==='PLACE_INITIAL'?[element,...selectedDutyValue.elements]:[...selectedDutyValue.elements,element];patchDuty(selectedDutyValue.id,{elements});};
-  const updateGraphTick=(serviceIndex:number,stepIndex:number,tick:number,kind:'DEPARTURE'|'ARRIVAL')=>{
-    const runId=graphValue.services[serviceIndex]?.id;
-    if(!runId)return;
-    setValue((current)=>{
-      const stored=current.runs.find((run)=>run.id===runId);
-      if(!stored)return current;
-      const effective={...stored,calls:stored.calls.map((call)=>{
-        const override=current.arrivalOverrides.find((item)=>item.runId===runId&&item.callId===call.id);
-        return override?{...call,arrivalTick:override.tick}:call;
-      })};
-      const updated=updateRunGraphTick(effective,stepIndex,kind,tick);
-      return {...current,runs:current.runs.map((run)=>run.id===runId?updated:run),arrivalOverrides:current.arrivalOverrides.filter((override)=>override.runId!==runId)};
-    });
-  };
   const selectGraphRun=(serviceIndex:number)=>{const runId=graphValue.services[serviceIndex]?.id;if(runId)setSelectedRun(runId);};
   const addRunToSelectedDuty=(runId:string)=>{
     if(!selectedDutyValue)return;
@@ -167,10 +157,10 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
       <section className="authoring-graph">
         <div className="graph-overlay"><strong>{t('editor.graph')}</strong>
           <select value={graphLineId} onChange={(event)=>setGraphLineId(event.target.value)}><option value="">{t('lines.all')}</option>{lines.map((line)=><option key={line.id} value={line.id}>{line.displayName}</option>)}</select>
-          <span>{sidebarTab==='duties'?t('duties.highlightHint'):t('editor.graphHint')}</span>
+          <span>{previewRun?t('duties.shiftPreviewActive'):sidebarTab==='duties'?t('duties.highlightHint'):t('editor.graphHint')}</span>
         </div>
         <Graph value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
-          readOnly={sidebarTab==='duties'} highlightedServiceIds={highlightedRunIds} onSelect={(service)=>selectGraphRun(service)} onTick={updateGraphTick}/>
+          highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelect={(service)=>selectGraphRun(service)}/>
       </section>
 
       <div className="authoring-sidebar-resizer" title={t('editor.sidebarWidth')} role="separator" aria-orientation="vertical"
@@ -197,7 +187,7 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
             <RunRouteEditor world={world} run={selectedRunValue} lines={lines} metadata={metadata} simulationProfiles={simulationProfiles}
               defaultProfileKey={assigned.get(selectedRunValue.id)?profileAssignments[assigned.get(selectedRunValue.id)!]:undefined}
               existingRunIds={new Set(value.runs.map((run)=>run.id))} periodTicks={value.periodDays*24_000} busy={busy} onError={onError}
-              onChange={replaceRun} onRename={renameRun} onCopy={addCopiedRuns}/>
+              onChange={replaceRun} onRename={renameRun} onCopy={addCopiedRuns} onPreviewChange={setPreviewRun}/>
             {assigned.get(selectedRunValue.id)!==selectedDutyValue?.id&&selectedDutyValue&&<button onClick={()=>assignRun(selectedRunValue.id)}>{t('duties.assign')} {selectedDutyValue.id}</button>}
           </>}
         </div>}

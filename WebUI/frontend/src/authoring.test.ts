@@ -1,7 +1,7 @@
 import { describe,expect,it } from 'vitest';
 import {
   authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource,moveRunToDuty,
-  lineSimulationRoute,resetRunTimings,resizeRunRoute,updateRunGraphTick,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
+  lineSimulationRoute,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {layoutGraph} from './graph';
 import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
@@ -191,6 +191,22 @@ describe('timetable editor document',()=>{
     ]);
   });
 
+  it('shifts only the selected departure and all later route times',()=>{
+    const run=createRunFromLine('run-1',line,'UP',metadata,(station)=>`call-${station}`);
+    run.calls[0].departureTick=100;
+    run.calls[1]={...run.calls[1],arrivalTick:300,departureTick:400,minimumDwellTicks:50};
+    run.calls[2]={...run.calls[2],arrivalTick:600,departureTick:700};
+    run.calls[3]={...run.calls[3],arrivalTick:900};
+    const shifted=shiftRunFromDeparture(run,run.calls[1].id,500,24_000);
+    expect(shifted.deltaTicks).toBe(100);
+    expect(shifted.run.calls.map((call)=>[call.arrivalTick,call.departureTick])).toEqual([
+      [null,100],[300,500],[700,800],[1_000,null],
+    ]);
+    expect(run.calls[1].departureTick).toBe(400);
+    expect(()=>shiftRunFromDeparture(run,run.calls[1].id,320,24_000)).toThrow(/minimum dwell/);
+    expect(()=>shiftRunFromDeparture(run,run.calls[1].id,24_000,24_000)).toThrow(/period/);
+  });
+
   it('copies a run with fresh identities and shifts every route time without assigning a duty',()=>{
     const source=createRunFromLine('run-1',line,'UP',metadata,(station)=>`source-${station}`);
     const reset=resetRunTimings(source,{lineRevision:1,totalTravelSeconds:30,legs:[
@@ -217,7 +233,7 @@ describe('timetable editor document',()=>{
     expect(run.calls.every((call)=>call.arrivalTick==null&&call.departureTick==null)).toBe(true);
   });
 
-  it('builds a live graph service per run and maps dragged points back to route cells',()=>{
+  it('builds a live graph service per run from exact route-table times',()=>{
     const run=createRunFromLine('express',line,'UP',metadata,(station)=>`express-${station}`);
     run.calls[0].departureTick=100;
     run.calls[1].status='PASS';
@@ -233,8 +249,6 @@ describe('timetable editor document',()=>{
     expect(graph.services[0].id).toBe('express');
     expect(graph.services[0].steps).toHaveLength(7);
     expect(graph.services[0].steps[3].action?.arrivalTick).toBe(300);
-    expect(updateRunGraphTick(run,4,'DEPARTURE',240).calls[1].arrivalTick).toBe(240);
-    expect(updateRunGraphTick(run,3,'ARRIVAL',320).calls[2].arrivalTick).toBe(320);
   });
 
   it('compiles pass rows into one routed destination chain',()=>{

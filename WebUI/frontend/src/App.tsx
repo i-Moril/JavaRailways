@@ -396,7 +396,7 @@ function ScriptsPage({ world, metadata, run }: {
           </div>
             <Graph
               value={diagramLineId?filterTimetableForDiagramLine(rendered.timetable,diagramLineId):rendered.timetable}
-              metadata={metadata} graphLineId={diagramLineId||undefined} readOnly onTick={() => {}}
+              metadata={metadata} graphLineId={diagramLineId||undefined}
             />
           </section>
         </div>

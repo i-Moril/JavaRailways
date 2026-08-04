@@ -262,6 +262,9 @@ tr.selected { background: #173954; }
 .duty-calls.route-table li { padding: 5px 0; border-top: 1px solid #2b3c56; }
 .duty-calls.route-table li > input,.duty-calls.route-table li > select { min-width: 0; width: 100%; }
 .run-copy small { align-self: center; color: #91a6c0; }
+.run-shift.preview-active { border-color: #56c5ff; box-shadow: inset 3px 0 #56c5ff; }
+.run-shift .shift-summary,.run-shift > .error { flex-basis: 100%; align-self: center; }
+.run-shift .shift-summary { color: #80cfff; }
 .duty-elements li { display: grid; grid-template-columns: minmax(90px,.7fr) minmax(150px,1.3fr) auto; align-items: start; gap: 8px; padding: 7px; border: 1px solid #30415c; border-radius: 7px; }
 .duty-elements li.run-element .row-controls { grid-column: 3; }
 .duty-element-fields,.duty-parameter-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }

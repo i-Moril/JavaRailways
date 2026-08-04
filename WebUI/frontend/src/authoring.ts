@@ -183,6 +183,32 @@ export function resetRunTimings(
 }
 
 const shiftedTick=(tick:number|null|undefined,offsetTicks:number):number|null=>tick==null?null:tick+offsetTicks;
+export interface ShiftedRunPreview {run:AuthoringRunV1;anchorCallId:string;deltaTicks:number;affectedTimeCount:number}
+export function shiftRunFromDeparture(
+  run:AuthoringRunV1,anchorCallId:string,targetDepartureTick:number,periodTicks:number,
+):ShiftedRunPreview {
+  const anchorIndex=run.calls.findIndex((call)=>call.id===anchorCallId);
+  if(anchorIndex<0)throw new Error('shift departure anchor does not exist');
+  const anchor=run.calls[anchorIndex];
+  if(anchor.departureTick==null)throw new Error('shift anchor requires a departure time');
+  if(!Number.isSafeInteger(targetDepartureTick)||targetDepartureTick<0)throw new Error('target departure must be a non-negative integer');
+  const earliestDeparture=(anchor.arrivalTick??0)+(anchor.minimumDwellTicks??0);
+  if(anchor.arrivalTick!=null&&targetDepartureTick<earliestDeparture)throw new Error('target departure violates minimum dwell');
+  const deltaTicks=targetDepartureTick-anchor.departureTick;
+  let affectedTimeCount=1;
+  const calls=run.calls.map((call,index)=>{
+    if(index<anchorIndex)return call;
+    if(index===anchorIndex)return {...call,departureTick:targetDepartureTick};
+    if(call.arrivalTick!=null)affectedTimeCount++;
+    if(call.departureTick!=null)affectedTimeCount++;
+    return {...call,arrivalTick:shiftedTick(call.arrivalTick,deltaTicks),departureTick:shiftedTick(call.departureTick,deltaTicks)};
+  });
+  if(calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&(tick<0||tick>=periodTicks)))) {
+    throw new Error('shifted time is outside the timetable period');
+  }
+  return {run:{...run,calls},anchorCallId,deltaTicks,affectedTimeCount};
+}
+
 export function copyRunShifted(
   run:AuthoringRunV1,newId:string,offsetTicks:number,
   idFactory:RunCallIdFactory=(station,index)=>`${newId}-call-${index}-${station}`,
@@ -373,19 +399,6 @@ export function authoringGraphTimetable(document:TimetableAuthoringDocumentV1):S
       };
     }),
   };
-}
-
-/** Maps a graph point back to its route-table time cell. */
-export function updateRunGraphTick(
-  run:AuthoringRunV1,stepIndex:number,kind:'DEPARTURE'|'ARRIVAL',tick:number,
-):AuthoringRunV1 {
-  if(!Number.isSafeInteger(tick)||tick<0)return run;
-  const callIndex=kind==='ARRIVAL'?(stepIndex+1)/2:stepIndex/2-1;
-  if(!Number.isInteger(callIndex)||callIndex<0||callIndex>=run.calls.length)return run;
-  const calls=run.calls.map((call,index)=>index!==callIndex?call:kind==='ARRIVAL'||call.status==='PASS'
-    ?{...call,arrivalTick:tick}
-    :{...call,departureTick:tick});
-  return {...run,calls};
 }
 
 export function authoringSelectorKey(selector:AuthoringDutySelectorV1):string {

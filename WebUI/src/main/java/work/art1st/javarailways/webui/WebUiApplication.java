@@ -94,8 +94,14 @@ public final class WebUiApplication {
         });
         app.before(context -> context.header("Referrer-Policy", "no-referrer"));
         app.get("/health", context -> context.json(Map.of("status", "ok")));
+        app.get("/auth/session", this::sessionStatus);
         app.post("/auth/exchange", this::exchangeLoginToken);
-        app.before("/api/v1/{path...}", this::requireSession);
+        app.before(context -> {
+            if ((context.path().equals("/api/v1") || context.path().startsWith("/api/v1/"))
+                && !isPublicMapRequest(context)) {
+                requireSession(context);
+            }
+        });
 
         app.get("/api/v1/worlds", context -> proxyGet(context, "worlds"));
         app.get("/api/v1/worlds/{world}/metadata", this::metadata);
@@ -180,6 +186,31 @@ public final class WebUiApplication {
         context.status(204);
     }
 
+    private void sessionStatus(Context context) {
+        sessions.find(context.cookie(WebUiSessions.COOKIE_NAME)).ifPresentOrElse(
+            session -> context.json(Map.of(
+                "authenticated", true,
+                "playerName", session.playerName(),
+                "worldId", session.worldId(),
+                "expiresAtEpochMillis", session.expiresAtEpochMillis()
+            )),
+            () -> context.json(Map.of("authenticated", false))
+        );
+    }
+
+    private boolean isPublicMapRequest(Context context) {
+        if (!context.method().name().equals("GET")) return false;
+        String[] parts = context.path().substring(1).split("/");
+        if (parts.length == 3) {
+            return parts[0].equals("api") && parts[1].equals("v1") && parts[2].equals("worlds");
+        }
+        if (parts.length == 5 || parts.length == 6) {
+            return parts[0].equals("api") && parts[1].equals("v1") && parts[2].equals("worlds")
+                && parts[4].equals("rail-map") && (parts.length == 5 || parts[5].equals("trains"));
+        }
+        return false;
+    }
+
     private void requireSession(Context context) {
         String id = context.cookie(WebUiSessions.COOKIE_NAME);
         WebUiSessions.Session session = sessions.find(id).orElseThrow(UnauthorizedResponse::new);
@@ -187,7 +218,6 @@ public final class WebUiApplication {
     }
 
     private void trainStream(SseClient client) {
-        requireSession(client.ctx());
         String world = segment(client.ctx().pathParam("world"));
         Queue<TrainSubscriber> clients = trainStreamClients.computeIfAbsent(world, ignored -> new ConcurrentLinkedQueue<>());
         synchronized (trainStreamClients) {
@@ -197,7 +227,9 @@ public final class WebUiApplication {
                 return;
             }
             client.keepAlive();
-            TrainSubscriber subscriber = new TrainSubscriber(client, client.ctx().cookie(WebUiSessions.COOKIE_NAME));
+            String cookieSessionId = client.ctx().cookie(WebUiSessions.COOKIE_NAME);
+            String sessionId = sessions.find(cookieSessionId).isPresent() ? cookieSessionId : null;
+            TrainSubscriber subscriber = new TrainSubscriber(client, sessionId);
             clients.add(subscriber);
             client.onClose(() -> clients.remove(subscriber));
         }
@@ -226,7 +258,7 @@ public final class WebUiApplication {
             String payload = response.body().toString();
             clients.removeIf(subscriber -> {
                 SseClient client = subscriber.client;
-                if (client.terminated() || sessions.find(subscriber.sessionId).isEmpty()) {
+                if (client.terminated() || (subscriber.sessionId != null && sessions.find(subscriber.sessionId).isEmpty())) {
                     if (!client.terminated()) client.close();
                     return true;
                 }

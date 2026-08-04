@@ -20,6 +20,9 @@ export interface ObjectSelectorV1 { type:ObjectSelectorType; pattern?:string|nul
 export interface InitialPositionV1 { trainSelector:ObjectSelectorV1; wayPointSelector:ObjectSelectorV1 }
 export interface CompilationTraceV1 { serviceId:string; stepIndex:number; origin:string }
 export interface SavedTimetableV1 { id: string; periodDays: number; services: TimetableServiceV1[]; diagramLines?:DiagramLineV1[]; initialPositions?:InitialPositionV1[]; compilationTrace?:CompilationTraceV1[] }
+export interface WebSessionStatus {
+ authenticated:boolean; playerName?:string; worldId?:string; expiresAtEpochMillis?:number;
+}
 export interface WorldSummary { id: string; name?: string }
 export interface RailMapPoint { arc:number;x:number;y:number;z:number }
 export interface RailMapRail { id:string;elevation:number;points:RailMapPoint[] }

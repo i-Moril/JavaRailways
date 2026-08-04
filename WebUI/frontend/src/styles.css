@@ -67,6 +67,8 @@
 :root[data-theme="light"] .script-status .valid { color: #176c38; }
 :root[data-theme="light"] .readonly-banner,
 :root[data-theme="light"] .action-inspector legend { color: #075e88; }
+:root[data-theme="light"] .auth-state { border-color: #aebccc; color: #52677d; }
+:root[data-theme="light"] .auth-state.authenticated { border-color: #31875a; color: #176c38; }
 :root[data-theme="light"] .source-view pre { background: #f3f6f9; color: #16324a; }
 :root[data-theme="light"] .graph-workspace,
 :root[data-theme="light"] .graph,
@@ -102,6 +104,8 @@ h1, h2, p { margin-top: 0; }
 .topbar nav button { border: 0; border-radius: 0; background: transparent; padding: 0 14px; border-bottom: 2px solid transparent; }
 .topbar nav button.active { color: #64cbff; border-bottom-color: #56c5ff; }
 .top-controls { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.auth-state { padding: 4px 8px; border: 1px solid #40516b; border-radius: 999px; color: #a9bad0; font-size: 12px; white-space: nowrap; }
+.auth-state.authenticated { border-color: #31875a; color: #80d8a3; }
 .top-controls label, .commandbar label { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
 .commandbar { min-height: 50px; display: flex; align-items: center; gap: 8px; padding: 7px 16px; background: #111d30; border-bottom: 1px solid #263853; }
 .readonly-banner { color: #80cfff; }

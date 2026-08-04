@@ -36,7 +36,11 @@ const actionTypes = [
   'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'TAKE_FROM_WAYPOINT', 'STORE_AT_DEPOT',
   'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS', 'EXTENSION',
 ] as const satisfies readonly ActionType[];
-type View = 'graph' | 'map' | 'lines' | 'scripts' | 'simulation';
+export type View = 'graph' | 'map' | 'lines' | 'scripts' | 'simulation';
+export const DEFAULT_VIEW:View='map';
+export const navigationForAuthentication=(authenticated:boolean|null):View[]=>authenticated
+  ?['map','graph','lines','scripts','simulation']
+  :['map'];
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
@@ -48,7 +52,9 @@ export default function App() {
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const [lineCollection, setLineCollection] = useState<LineCollection>({ revision: 0, lines: [] });
   const [draftId, setDraftId] = useState('');
-  const [view, setView] = useState<View>('graph');
+  const [view, setView] = useState<View>(DEFAULT_VIEW);
+  const [authenticated,setAuthenticated]=useState<boolean|null>(null);
+  const [authenticatedPlayer,setAuthenticatedPlayer]=useState('');
   const [error, setError] = useState('');
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [busy, setBusy] = useState(false);
@@ -64,34 +70,51 @@ export default function App() {
   };
 
   useEffect(() => {
-    void run(async () => {
-      const loginToken = new URLSearchParams(window.location.hash.slice(1)).get('token');
-      if (loginToken) {
-        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
-        const response = await fetch('/auth/exchange', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: loginToken }),
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({})) as { error?: string };
-          throw new Error(body.error || `Login failed (${response.status})`);
+    let cancelled=false;
+    void (async()=>{
+      setBusy(true);setError('');
+      try{
+        const loginToken=new URLSearchParams(window.location.hash.slice(1)).get('token');
+        let loginError='';
+        if(loginToken){
+          window.history.replaceState(null,'',`${window.location.pathname}${window.location.search}`);
+          const response=await fetch('/auth/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:loginToken})});
+          if(!response.ok){const body=await response.json().catch(()=>({})) as {error?:string};loginError=body.error||`Login failed (${response.status})`;}
         }
-      }
-      const values = await api.worlds();
-      setWorlds(values);
-      if (values[0]) setWorld(values[0].id);
-    });
+        const session=await api.session();
+        const values=await api.worlds();
+        if(cancelled)return;
+        setAuthenticated(session.authenticated);setAuthenticatedPlayer(session.playerName||'');setWorlds(values);
+        setWorld(values.find((candidate)=>candidate.id===session.worldId)?.id||values[0]?.id||'');
+        if(loginError)setError(loginError);
+      }catch(failure){if(!cancelled){setAuthenticated(false);setError(failure instanceof Error?failure.message:String(failure));}}
+      finally{if(!cancelled)setBusy(false);}
+    })();
+    return()=>{cancelled=true;};
   }, []);
+
+  useEffect(()=>{
+    const revoke=()=>{setAuthenticated(false);setAuthenticatedPlayer('');setView('map');setMetadata({});setDrafts([]);setLineCollection({revision:0,lines:[]});};
+    window.addEventListener('javarailways:unauthorized',revoke);
+    return()=>window.removeEventListener('javarailways:unauthorized',revoke);
+  },[]);
+
+  useEffect(()=>{
+    if(!authenticated)return;
+    const timer=window.setInterval(()=>{void api.session().then((session)=>{if(!session.authenticated){setAuthenticated(false);setAuthenticatedPlayer('');setView('map');}}).catch(()=>undefined);},60_000);
+    return()=>window.clearInterval(timer);
+  },[authenticated]);
 
   useEffect(() => {
     if (!world) return;
+    if(!authenticated){setMetadata({});setDrafts([]);setLineCollection({revision:0,lines:[]});setDraftId('');return;}
     void run(async () => {
       const [reference, savedDrafts, savedLines] = await Promise.all([
         api.metadata(world), api.drafts(world), api.lines(world),
       ]);
       setMetadata(reference); setDrafts(savedDrafts); setLineCollection(savedLines); setDraftId('');
     });
-  }, [world]);
+  }, [world,authenticated]);
 
   const load = async (id: string) => {
     setDraftId(id);
@@ -117,14 +140,16 @@ export default function App() {
     const messages = [...(result.errors || []), ...(result.warnings || [])];
     setIssues(messages.length ? messages : [{ message: t('editor.noIssues'), severity: 'success' }]);
   };
+  const navigation=navigationForAuthentication(authenticated);
   return <main className="app-shell">
     <header className="topbar">
       <div className="brand"><h1>{t('app.title')}</h1><span>{t('app.subtitle')}</span></div>
       <nav aria-label={t('nav.primary')}>
-        {(['graph', 'map', 'lines', 'scripts', 'simulation'] as View[]).map((item) =>
+        {navigation.map((item) =>
           <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{t(`nav.${item}`)}</button>)}
       </nav>
       <div className="top-controls">
+        <span className={`auth-state ${authenticated?'authenticated':'guest'}`}>{authenticated?t('auth.authenticated')+(authenticatedPlayer?` · ${authenticatedPlayer}`:''):t('auth.guest')}</span>
         <label>{t('common.world')}<select value={world} onChange={(event) => setWorld(event.target.value)}>
           {worlds.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}
         </select></label>
@@ -138,17 +163,7 @@ export default function App() {
     </header>
 
     <section className="commandbar">
-      {view === 'graph' || view === 'scripts' ? <span className="readonly-banner">{view==='scripts'?t('scripts.readOnly'):t('duties.workspace')}</span> : <>
-      <label>{t('common.draft')}<select value={draftId} onChange={(event) => void load(event.target.value)}>
-        <option value="">{t('common.newDraft')}</option>
-        {drafts.map((draft) => <option key={draft.id} value={draft.id}>{draft.id}</option>)}
-      </select></label>
-      <button onClick={() => void save()} disabled={!world || busy}>{t('common.save')}</button>
-      <button className="danger" onClick={() => void removeDraft()} disabled={!draftId || busy}>{t('common.delete')}</button>
-      <span className="spacer" />
-      <button onClick={() => void validate()} disabled={!world || busy}>{t('common.validate')}</button>
-      <button className="primary" onClick={() => void run(() => api.publish(world, state))} disabled={!world || busy}>{t('common.publish')}</button>
-      </>}
+      <span className="readonly-banner">{!authenticated?t('auth.mapOnly'):view==='scripts'?t('scripts.readOnly'):view==='graph'?t('duties.workspace'):t('map.public')}</span>
     </section>
 
     <section className="notice-strip">
@@ -156,7 +171,7 @@ export default function App() {
       {issues.map((issue, index) => <div key={index} className={issue.severity}>{issue.path && <code>{issue.path}</code>} {issue.message}</div>)}
     </section>
 
-    <section className="persistent-graph-view" hidden={view!=='graph'}><DutyEditor world={world} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>
+    {authenticated&&<section className="persistent-graph-view" hidden={view!=='graph'}><DutyEditor world={world} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
     {view === 'map' && <RailMap world={world} onError={setError} />}
     {view === 'lines' && <LinesPage world={world} metadata={metadata} collection={lineCollection}
       onCollection={setLineCollection} run={run} />}

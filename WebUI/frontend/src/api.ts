@@ -1,6 +1,6 @@
 import type { TimetableAuthoringDocumentV1 } from './authoring';
-import type { CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LinePreview, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WorldMetadata, WorldSummary } from './types';
-async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...init?.headers }, ...init }); if (!response.ok) throw new Error((await response.text()) || `${response.status} ${response.statusText}`); return response.status === 204 ? undefined as T : response.json(); }
+import type { CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LinePreview, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary } from './types';
+async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...init?.headers }, ...init }); if (!response.ok) { if(response.status===401&&typeof window!=='undefined')window.dispatchEvent(new Event('javarailways:unauthorized')); throw new Error((await response.text()) || `${response.status} ${response.statusText}`); } return response.status === 204 ? undefined as T : response.json(); }
 export const normalizeTimetablePresentation = (value:SavedTimetableV1):SavedTimetableV1 => ({
  ...value,
  services:value.services.map(({lineId,...service})=>({
@@ -10,6 +10,7 @@ export const normalizeTimetablePresentation = (value:SavedTimetableV1):SavedTime
 });
 const base = (worldId: string) => `/api/v1/worlds/${encodeURIComponent(worldId)}`;
 export const api = {
+ session:()=>request<WebSessionStatus>('/auth/session'),
  worlds: () => request<WorldSummary[]>('/api/v1/worlds'), metadata: (worldId: string) => request<WorldMetadata>(`${base(worldId)}/metadata`),
  railMap: (worldId:string) => request<RailMapFile>(`${base(worldId)}/rail-map`),
  scripts: (worldId: string) => request<TimetableScriptSummary[]>(`${base(worldId)}/scripts`),

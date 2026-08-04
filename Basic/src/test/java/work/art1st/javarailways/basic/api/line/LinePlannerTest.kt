@@ -55,4 +55,39 @@ class LinePlannerTest {
         assertTrue(LinePlanner(world).compile(directional, LineDirection.UP) is LineCompileResult.Success)
         assertTrue(LinePlanner(world).compile(directional, LineDirection.DOWN) is LineCompileResult.Failure)
     }
+
+    @Test
+    fun `uses the exact selected berth sequence when requested`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(120.0, 1))
+        val destinations = OperationalDestinationService(world)
+        fun berth(station:String, berth:String, arc:Double) = OperationalDestination(
+            id="$station@$berth", displayName="$station $berth", railId=rail.id, arcLengthInAbMeters=arc,
+            approachDirection=ViewDirection.AB,
+            role=DestinationRole.StationBerthRole(StationId(station), station, berth, DoorSide.LEFT)
+        )
+        destinations.register(berth("a", "near", 20.0))
+        destinations.register(berth("a", "selected", 10.0))
+        destinations.register(berth("b", "near", 80.0))
+        destinations.register(berth("b", "selected", 90.0))
+        val line = Line(LineId("L-selected"), "Selected berths", listOf(StationId("a"), StationId("b")))
+
+        val result = LinePlanner(world).compileStations(
+            line,
+            line.upStationIds,
+            listOf("a@selected", "b@selected")
+        )
+
+        assertTrue(result is LineCompileResult.Success)
+        result as LineCompileResult.Success
+        assertEquals("a@selected", result.legs.single().fromDestinationId)
+        assertEquals("b@selected", result.legs.single().toDestinationId)
+        assertEquals(80.0, result.totalLengthMeters, 1e-6)
+        assertTrue(LinePlanner(world).compileStations(
+            line,
+            line.upStationIds,
+            listOf("a@near", "b@selected", "extra")
+        ) is LineCompileResult.Failure)
+    }
 }

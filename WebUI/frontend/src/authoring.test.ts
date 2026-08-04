@@ -1,7 +1,7 @@
 import { describe,expect,it } from 'vitest';
 import {
-  authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,generateTimetableSource,moveRunToDuty,
-  resetRunTimings,resizeRunRoute,updateRunGraphTick,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
+  authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource,moveRunToDuty,
+  lineSimulationRoute,resetRunTimings,resizeRunRoute,updateRunGraphTick,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {layoutGraph} from './graph';
 import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
@@ -45,6 +45,15 @@ describe('timetable editor document',()=>{
     expect(messages).toContain('Run up-01 is already assigned to duty duty-a');
     document.duties[0].elements=document.duties[0].elements.filter((item)=>item.type!=='RUN'||item.runId!=='down-01');
     expect(validateAuthoringDocument(document).map((item)=>item.message)).toContain('Run down-01 is not assigned to a duty');
+  });
+
+  it('deletes a run and all duty and arrival-override references atomically',()=>{
+    const document=valid();
+    document.arrivalOverrides=[{runId:'up-01',callId:'up-b',tick:700}];
+    const deleted=deleteRunFromDocument(document,'up-01');
+    expect(deleted.runs.map((run)=>run.id)).toEqual(['down-01']);
+    expect(deleted.duties.flatMap((duty)=>duty.elements).some((element)=>element.type==='RUN'&&element.runId==='up-01')).toBe(false);
+    expect(deleted.arrivalOverrides).toEqual([]);
   });
 
   it('moves a run between duties atomically while preserving its element identity',()=>{
@@ -152,6 +161,15 @@ describe('timetable editor document',()=>{
     ]);
     expect(shortened.calls[0].id).toBe('call-b');
     expect(shortened.calls[0].arrivalTick).toBeNull();
+  });
+
+  it('sends every selected berth destination to route simulation',()=>{
+    const run=createRunFromLine('run-1',line,'UP',metadata,(station)=>`call-${station}`);
+    run.calls[1]={...run.calls[1],berthId:'express',targetId:'b@express',status:'PASS'};
+    expect(lineSimulationRoute(run)).toEqual({
+      originStationId:'a',terminalStationId:'d',stopStationIds:['c','d'],
+      destinationIds:['a@1','b@express','c@1','d@1'],
+    });
   });
 
   it('resets all route times from simulated adjacent intervals and fixed stop dwell',()=>{

@@ -529,23 +529,29 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     val direction = request["direction"]?.jsonPrimitive?.content?.let {
                         runCatching { LineDirection.valueOf(it.uppercase()) }.getOrElse { throw HttpFailure(400, "direction must be UP or DOWN") }
                     } ?: LineDirection.UP
-                    val compilation = LinePlanner(world).compile(line, direction)
-                    if (compilation !is LineCompileResult.Success) {
-                        val failure = compilation as LineCompileResult.Failure
-                        throw HttpFailure(422, failure.reason)
-                    }
                     val originStationId = request["originStationId"]?.jsonPrimitive?.content
                     val terminalStationId = request["terminalStationId"]?.jsonPrimitive?.content
                     if ((originStationId == null) != (terminalStationId == null)) {
                         throw HttpFailure(400, "originStationId and terminalStationId must be provided together")
                     }
-                    val stationIds = line.stations(direction).map { it.value }
+                    val stationPattern = line.stations(direction)
+                    val stationIds = stationPattern.map { it.value }
                     val originIndex = originStationId?.let(stationIds::indexOf) ?: 0
                     val terminalIndex = terminalStationId?.let(stationIds::indexOf) ?: stationIds.lastIndex
                     if (originIndex < 0 || terminalIndex < 0 || terminalIndex <= originIndex) {
                         throw HttpFailure(400, "route endpoints must follow line direction and contain at least two stations")
                     }
-                    val selectedStationIds = stationIds.subList(originIndex, terminalIndex + 1)
+                    val selectedStations = stationPattern.subList(originIndex, terminalIndex + 1)
+                    val selectedStationIds = selectedStations.map { it.value }
+                    val selectedDestinationIds = request["destinationIds"]?.jsonArray?.map { it.jsonPrimitive.content }
+                    if (selectedDestinationIds != null && selectedDestinationIds.size != selectedStations.size) {
+                        throw HttpFailure(400, "destinationIds must match the selected route station count")
+                    }
+                    val compilation = LinePlanner(world).compileStations(line, selectedStations, selectedDestinationIds)
+                    if (compilation !is LineCompileResult.Success) {
+                        val failure = compilation as LineCompileResult.Failure
+                        throw HttpFailure(422, failure.reason)
+                    }
                     val requestedStopStationIds = request["stopStationIds"]?.jsonArray
                         ?.map { it.jsonPrimitive.content }
                         ?.toSet()
@@ -553,7 +559,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         throw HttpFailure(400, "stopStationIds must belong to the selected route section")
                     }
                     val stopStationIds = requestedStopStationIds ?: selectedStationIds.drop(1).toSet()
-                    val selectedLegs = compilation.legs.subList(originIndex, terminalIndex)
+                    val selectedLegs = compilation.legs
                     val profileType = request["profileType"]?.jsonPrimitive?.content?.let { value ->
                         runCatching { SimulationProfileType.valueOf(value) }.getOrElse {
                             throw HttpFailure(400, "unknown simulation profileType: $value")

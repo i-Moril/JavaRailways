@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.api.line
 
 import work.art1st.javarailways.basic.api.destination.DestinationRole
+import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.RouteBuildResult
@@ -26,16 +27,43 @@ data class CompiledLineLeg(
 class LinePlanner(private val world: World) {
     private val routePlanner = RoutePlanner(world)
 
-    fun compile(line: Line, direction: LineDirection = LineDirection.UP): LineCompileResult {
-        val destinationsByStation = world.basicWorldData.destinations.all().mapNotNull { destination ->
+    fun compile(line: Line, direction: LineDirection = LineDirection.UP): LineCompileResult =
+        compileStations(line, line.stations(direction))
+
+    /** Compiles an ordered section, optionally pinning every station to an exact berth destination. */
+    fun compileStations(
+        line: Line,
+        stationIds: List<StationId>,
+        destinationIds: List<String>? = null
+    ): LineCompileResult {
+        if (stationIds.size < 2) return LineCompileResult.Failure(line, 0, "A line section requires at least two stations")
+        if (destinationIds != null && destinationIds.size != stationIds.size) {
+            return LineCompileResult.Failure(line, 0, "Selected berth count must match station count")
+        }
+        val destinationService = world.basicWorldData.destinations
+        val destinationsByStation = destinationService.all().mapNotNull { destination ->
             val role = destination.role as? DestinationRole.StationBerthRole ?: return@mapNotNull null
             role.stationId to destination
         }.groupBy({ it.first }, { it.second })
+        val selectedDestinations = destinationIds?.mapIndexed { index, destinationId ->
+            val destination = destinationService[destinationId]
+                ?: return LineCompileResult.Failure(line, index.coerceAtMost(stationIds.lastIndex - 1), "Unknown berth destination: $destinationId")
+            val role = destination.role as? DestinationRole.StationBerthRole
+                ?: return LineCompileResult.Failure(line, index.coerceAtMost(stationIds.lastIndex - 1), "Destination is not a station berth: $destinationId")
+            if (role.stationId != stationIds[index]) {
+                return LineCompileResult.Failure(
+                    line,
+                    index.coerceAtMost(stationIds.lastIndex - 1),
+                    "Selected berth $destinationId does not belong to station ${stationIds[index]}"
+                )
+            }
+            destination
+        }
 
         val legs = ArrayList<CompiledLineLeg>()
-        line.stations(direction).zipWithNext().forEachIndexed { index, (fromStation, toStation) ->
-            val starts = destinationsByStation[fromStation].orEmpty()
-            val goals = destinationsByStation[toStation].orEmpty()
+        stationIds.zipWithNext().forEachIndexed { index, (fromStation, toStation) ->
+            val starts = selectedDestinations?.let { listOf(it[index]) } ?: destinationsByStation[fromStation].orEmpty()
+            val goals = selectedDestinations?.let { listOf(it[index + 1]) } ?: destinationsByStation[toStation].orEmpty()
             if (starts.isEmpty()) return LineCompileResult.Failure(line, index, "Station has no berth: $fromStation")
             if (goals.isEmpty()) return LineCompileResult.Failure(line, index, "Station has no berth: $toStation")
 

@@ -1,7 +1,7 @@
 import { useEffect,useMemo,useRef,useState,type CSSProperties } from 'react';
 import { api } from './api';
 import {
-  authoringGraphTimetable,authoringSelectorKey,createRunFromLine,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,
+  authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,
   updateRunGraphTick,type AuthoringDutyElementV1,type AuthoringDutyV1,type AuthoringFunctionCallV1,type AuthoringRunV1,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
@@ -113,6 +113,7 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
     const [element]=elements.splice(from,1);elements.splice(to,0,element);patchDuty(selectedDutyValue.id,{elements});
   };
   const addRun=()=>{const id=`run-${value.runs.length+1}`;const firstLine=lines[0];const run:AuthoringRunV1=firstLine?createRunFromLine(id,firstLine,'UP',metadata,()=>uid('call')):{id,type:'PASSENGER',diagramLineId:null,lineDirection:'UP',calls:[]};setValue((current)=>({...current,runs:[...current.runs,run],diagramLines:firstLine?[...current.diagramLines.filter((line)=>line.id!==firstLine.id),{id:firstLine.id,upStationIds:firstLine.upStationIds,downStationIds:firstLine.downStationIds}]:current.diagramLines}));setSelectedRun(id);};
+  const deleteSelectedRun=()=>{if(!selectedRun||!window.confirm(t('duties.confirmDeleteRun')))return;const next=value.runs.find((run)=>run.id!==selectedRun)?.id||'';setValue((current)=>deleteRunFromDocument(current,selectedRun));setSelectedRun(next);};
   const addDuty=()=>{const id=`duty-${value.duties.length+1}`;setValue({...value,duties:[...value.duties,{id,selector:{type:'TRAIN_NAME',name:''},elements:[]}]});setSelectedDuty(id);};
   const assignRun=(runId:string)=>{if(!selectedDutyValue)return;setValue((current)=>moveRunToDuty(current,runId,selectedDutyValue.id,uid('element')));};
   const removeElement=(elementId:string)=>{if(selectedDutyValue)patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.filter((item)=>item.id!==elementId)});};
@@ -190,7 +191,7 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
         </div>
 
         {sidebarTab==='runs'&&<div className="authoring-tab-panel">
-          <div className="section-title"><h2>{t('duties.runs')}</h2><button onClick={addRun}>＋</button></div>
+          <div className="section-title"><h2>{t('duties.runs')}</h2><span className="section-actions"><button onClick={addRun}>＋</button><button className="danger" disabled={!selectedRun} onClick={deleteSelectedRun}>{t('common.delete')}</button></span></div>
           <div className="sidebar-run-list">{value.runs.map((run)=><button className={selectedRun===run.id?'active':''} key={run.id} onClick={()=>setSelectedRun(run.id)}><strong>{run.id}</strong><small>{assigned.get(run.id)||t('duties.unassigned')}</small></button>)}</div>
           {!selectedRunValue?<p className="empty">{t('duties.selectRun')}</p>:<>
             <RunRouteEditor world={world} run={selectedRunValue} lines={lines} metadata={metadata} simulationProfiles={simulationProfiles}

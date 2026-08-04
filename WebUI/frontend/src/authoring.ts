@@ -1,4 +1,4 @@
-import type { DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, TimetableActionV1, WorldMetadata } from './types';
+import type { DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, SimulationProfile, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
 export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
@@ -53,6 +53,18 @@ export interface GeneratedTimetableSource {
   source:string;
   issues:AuthoringIssue[];
   documentHashInput:string;
+}
+
+export function deleteRunFromDocument(
+  document:TimetableAuthoringDocumentV1,runId:string,
+):TimetableAuthoringDocumentV1 {
+  if(!document.runs.some((run)=>run.id===runId))return document;
+  return {
+    ...document,
+    runs:document.runs.filter((run)=>run.id!==runId),
+    duties:document.duties.map((duty)=>({...duty,elements:duty.elements.filter((element)=>element.type!=='RUN'||element.runId!==runId)})),
+    arrivalOverrides:document.arrivalOverrides.filter((override)=>override.runId!==runId),
+  };
 }
 
 /** Atomically removes a run from any previous duty and appends it to the target duty. */
@@ -129,6 +141,15 @@ export function resizeRunRoute(
     return call;
   });
   return {...run,diagramLineId:line.id,lineDirection:direction,calls};
+}
+
+export function lineSimulationRoute(run:AuthoringRunV1):Pick<SimulationProfile,'originStationId'|'terminalStationId'|'stopStationIds'|'destinationIds'> {
+  return {
+    originStationId:run.calls[0]?.stationId,
+    terminalStationId:run.calls.at(-1)?.stationId,
+    stopStationIds:run.calls.filter((call)=>call.status==='STOP'||call.status==='TERMINAL').map((call)=>call.stationId),
+    destinationIds:run.calls.map((call)=>call.targetId),
+  };
 }
 
 const secondsToTicks=(seconds:number):number=>Math.max(1,Math.ceil(seconds*20-1e-9));

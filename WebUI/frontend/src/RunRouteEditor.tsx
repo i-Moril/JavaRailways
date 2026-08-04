@@ -1,7 +1,7 @@
 import { useEffect,useMemo,useRef,useState } from 'react';
 import { api } from './api';
 import {
-  copyRunShifted,createRunFromLine,resetRunTimings,resizeRunRoute,
+  copyRunShifted,createRunFromLine,lineSimulationRoute,resetRunTimings,resizeRunRoute,
   type AuthoringRunCallV1,type AuthoringRunV1,
 } from './authoring';
 import { useI18n } from './i18n';
@@ -93,9 +93,7 @@ export function RunRouteEditor({
       const result=await api.simulateLine(world,line.id,{
         profileType:profileKey.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',
         profileId:profileKey.slice(separator+1),direction,
-        originStationId:run.calls[0].stationId,
-        terminalStationId:run.calls.at(-1)!.stationId,
-        stopStationIds:run.calls.filter((call)=>call.status==='STOP'||call.status==='TERMINAL').map((call)=>call.stationId),
+        ...lineSimulationRoute(run),
       });
       if(JSON.stringify(latestRun.current)!==sourceFingerprint)throw new Error(t('duties.resetChanged'));
       const next=resetRunTimings(run,result,firstDepartureTick,fixedDwellTicks);

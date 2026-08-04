@@ -3,6 +3,7 @@ import {
   authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,generateTimetableSource,moveRunToDuty,
   resetRunTimings,resizeRunRoute,updateRunGraphTick,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
 } from './authoring';
+import {layoutGraph} from './graph';
 import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
 
 const metadata:WorldMetadata={stations:[
@@ -182,6 +183,18 @@ describe('timetable editor document',()=>{
     expect(copy.calls.map((call)=>call.id)).toEqual(['copy-a','copy-b','copy-c','copy-d']);
     expect(copy.calls[0].departureTick).toBe(300);
     expect(copy.calls[1].arrivalTick).toBe(500);
+  });
+
+  it('shows a newly created untimed run on the graph with presentation-only fallback times',()=>{
+    const run=createRunFromLine('draft',line,'UP',metadata,(station)=>`draft-${station}`);
+    const document=valid();
+    document.runs=[run];
+    document.diagramLines=[{id:line.id,upStationIds:line.upStationIds,downStationIds:line.downStationIds}];
+    const graph=authoringGraphTimetable(document);
+    const layout=layoutGraph(graph,1_000,58,170,metadata,line,line.id);
+    expect(layout.paths).toHaveLength(3);
+    expect(layout.paths.flatMap((path)=>path.points).every((point)=>point.tick>=0)).toBe(true);
+    expect(run.calls.every((call)=>call.arrivalTick==null&&call.departureTick==null)).toBe(true);
   });
 
   it('builds a live graph service per run and maps dragged points back to route cells',()=>{

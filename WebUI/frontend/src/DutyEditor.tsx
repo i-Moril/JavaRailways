@@ -1,4 +1,4 @@
-import { useEffect,useMemo,useState } from 'react';
+import { useEffect,useMemo,useRef,useState,type CSSProperties } from 'react';
 import { api } from './api';
 import {
   authoringGraphTimetable,authoringSelectorKey,createRunFromLine,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,
@@ -13,6 +13,7 @@ import type { CompiledTimetableSource,EditorDocumentSummary,LineV1,TimetableSimu
 
 const uid=(prefix:string)=>`${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
 const hash=(value:string)=>{let result=2166136261;for(let index=0;index<value.length;index++){result^=value.charCodeAt(index);result=Math.imul(result,16777619);}return (result>>>0).toString(16).padStart(8,'0');};
+export const clampAuthoringSidebarWidth=(width:number,viewportWidth:number)=>Math.max(360,Math.min(width,960,Math.max(360,viewportWidth-320)));
 
 export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
   const {t}=useI18n();
@@ -23,6 +24,13 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
   const [selectedRun,setSelectedRun]=useState('');
   const [selectedDuty,setSelectedDuty]=useState('');
   const [sidebarTab,setSidebarTab]=useState<'runs'|'duties'>('runs');
+  const [sidebarOpen,setSidebarOpen]=useState(true);
+  const [sidebarWidth,setSidebarWidth]=useState(()=>{
+    if(typeof window==='undefined')return 620;
+    const saved=Number(window.localStorage.getItem('javarailways.authoringSidebarWidth'));
+    return clampAuthoringSidebarWidth(Number.isFinite(saved)&&saved>0?saved:620,window.innerWidth);
+  });
+  const sidebarResize=useRef<{startX:number;startWidth:number}|null>(null);
   const [graphLineId,setGraphLineId]=useState('');
   const [compiledState,setCompiledState]=useState<{result:CompiledTimetableSource;documentHashInput:string}>();
   const [busy,setBusy]=useState(false);
@@ -50,9 +58,11 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
   const highlightedRunIds=useMemo(()=>new Set(sidebarTab==='duties'
     ?selectedDutyValue?.elements.flatMap((element)=>element.type==='RUN'?[element.runId]:[])??[]
     :selectedRun?[selectedRun]:[]),[sidebarTab,selectedDutyValue,selectedRun]);
+  const authoringWorkspaceStyle={'--authoring-sidebar-width':`${sidebarWidth}px`} as CSSProperties;
   const delayedOrigin=simulation?.delayedServiceId==null||simulation.delayedStepIndex==null?undefined:compiled?.timetable.compilationTrace?.find((trace)=>trace.serviceId===simulation.delayedServiceId&&trace.stepIndex===simulation.delayedStepIndex)?.origin;
 
   const refresh=async()=>setDocuments(await api.editorDocuments(world));
+  useEffect(()=>{if(typeof window!=='undefined')window.localStorage.setItem('javarailways.authoringSidebarWidth',String(sidebarWidth));},[sidebarWidth]);
   useEffect(()=>{setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setSelectedRun('');setSelectedDuty('');setSidebarTab('runs');setGraphLineId('');setCompiledState(undefined);setSimulationState(undefined);setProfileAssignments({});if(world)void refresh().catch((error)=>onError(String(error)));},[world]);
   const execute=async(operation:()=>Promise<void>)=>{setBusy(true);onError('');try{await operation();}catch(error){onError(error instanceof Error?error.message:String(error));}finally{setBusy(false);}};
   const load=async(id:string)=>execute(async()=>{
@@ -152,7 +162,7 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
       <button className="primary" onClick={()=>void publish()} disabled={busy||!compiled?.validation.valid}>{t('common.publish')}</button>
     </div>
 
-    <div className="authoring-workspace">
+    <div className={`authoring-workspace ${sidebarOpen?'':'sidebar-collapsed'}`} style={authoringWorkspaceStyle}>
       <section className="authoring-graph">
         <div className="graph-overlay"><strong>{t('editor.graph')}</strong>
           <select value={graphLineId} onChange={(event)=>setGraphLineId(event.target.value)}><option value="">{t('lines.all')}</option>{lines.map((line)=><option key={line.id} value={line.id}>{line.displayName}</option>)}</select>
@@ -161,6 +171,17 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
         <Graph value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
           readOnly={sidebarTab==='duties'} highlightedServiceIds={highlightedRunIds} onSelect={(service)=>selectGraphRun(service)} onTick={updateGraphTick}/>
       </section>
+
+      <div className="authoring-sidebar-resizer" title={t('editor.sidebarWidth')} role="separator" aria-orientation="vertical"
+        aria-label={t('editor.sidebarWidth')} aria-valuemin={360} aria-valuemax={960} aria-valuenow={sidebarWidth} tabIndex={sidebarOpen?0:-1}
+        onKeyDown={(event)=>{if(event.key==='ArrowLeft')setSidebarWidth((width)=>clampAuthoringSidebarWidth(width+20,window.innerWidth));if(event.key==='ArrowRight')setSidebarWidth((width)=>clampAuthoringSidebarWidth(width-20,window.innerWidth));}}
+        onPointerDown={(event)=>{if(!sidebarOpen)return;sidebarResize.current={startX:event.clientX,startWidth:sidebarWidth};event.currentTarget.setPointerCapture(event.pointerId);}}
+        onPointerMove={(event)=>{const resize=sidebarResize.current;if(!resize)return;setSidebarWidth(clampAuthoringSidebarWidth(resize.startWidth+resize.startX-event.clientX,window.innerWidth));}}
+        onPointerUp={(event)=>{sidebarResize.current=null;event.currentTarget.releasePointerCapture(event.pointerId);}}
+        onPointerCancel={()=>{sidebarResize.current=null;}}>
+        <button title={sidebarOpen?t('editor.sidebarHide'):t('editor.sidebarShow')} aria-expanded={sidebarOpen}
+          onPointerDown={(event)=>event.stopPropagation()} onClick={()=>setSidebarOpen((open)=>!open)}>{sidebarOpen?'›':'‹'}</button>
+      </div>
 
       <aside className="card authoring-sidebar">
         <div className="authoring-tabs" role="tablist">
@@ -188,19 +209,21 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
             <label>{t('simulation.profile')}<select value={profileAssignments[selectedDutyValue.id]||''} onChange={(event)=>{const selected=event.target.value,key=authoringSelectorKey(selectedDutyValue.selector);setProfileAssignments((current)=>{const next={...current};value.duties.filter((duty)=>authoringSelectorKey(duty.selector)===key).forEach((duty)=>{next[duty.id]=selected;});return next;});}}><option value="">{t('common.select')}</option>{simulationProfiles.map((profile)=><option key={`${profile.type}:${profile.id}`} value={`${profile.type}:${profile.id}`}>{profile.displayName} · {profile.carCount}</option>)}</select></label>
             <select value={selectedDutyValue.selector.type} onChange={(event)=>{const type=event.target.value as AuthoringDutyV1['selector']['type'];patchDuty(selectedDutyValue.id,{selector:type==='TRAIN_NAME'?{type,name:''}:type==='TAKE_FROM_DEPOT'?{type,depotId:'',tick:0,tags:[]}:{type,wayPointIds:[],tick:0}});}}><option value="TRAIN_NAME">{t('editor.fixedTrain')}</option><option value="TAKE_FROM_DEPOT">{t('actions.TAKE_FROM_DEPOT')}</option><option value="TAKE_FROM_WAYPOINT">{t('actions.TAKE_FROM_WAYPOINT')}</option></select>
             {selectedDutyValue.selector.type==='TRAIN_NAME'&&<input list="trains" placeholder={t('editor.trainId')} value={selectedDutyValue.selector.name} onChange={(event)=>patchDuty(selectedDutyValue.id,{selector:{type:'TRAIN_NAME',name:event.target.value}})}/>}
-            {selectedDutyValue.selector.type==='TAKE_FROM_DEPOT'&&<><input list="depots" placeholder={t('editor.target')} value={selectedDutyValue.selector.depotId} onChange={(event)=>patchDepotSelector({depotId:event.target.value})}/><input type="number" min="0" title={t('editor.tick')} value={selectedDutyValue.selector.tick} onChange={(event)=>patchDepotSelector({tick:Math.max(0,+event.target.value)})}/><input placeholder="tags" value={selectedDutyValue.selector.tags.join(', ')} onChange={(event)=>patchDepotSelector({tags:event.target.value.split(',').map((item)=>item.trim()).filter(Boolean)})}/></>}
-            {selectedDutyValue.selector.type==='TAKE_FROM_WAYPOINT'&&<><input list="points" placeholder={t('editor.target')} value={selectedDutyValue.selector.wayPointIds.join(', ')} onChange={(event)=>patchWaypointSelector({wayPointIds:event.target.value.split(',').map((item)=>item.trim()).filter(Boolean)})}/><input type="number" min="0" title={t('editor.tick')} value={selectedDutyValue.selector.tick} onChange={(event)=>patchWaypointSelector({tick:Math.max(0,+event.target.value)})}/></>}
+            {selectedDutyValue.selector.type==='TAKE_FROM_DEPOT'&&<div className="duty-parameter-fields"><label>{t('duties.depot')}<input list="depots" value={selectedDutyValue.selector.depotId} onChange={(event)=>patchDepotSelector({depotId:event.target.value})}/></label><label>{t('duties.acquireTick')}<input type="number" min="0" value={selectedDutyValue.selector.tick} onChange={(event)=>patchDepotSelector({tick:Math.max(0,+event.target.value)})}/></label><label>{t('duties.requiredTags')}<input value={selectedDutyValue.selector.tags.join(', ')} onChange={(event)=>patchDepotSelector({tags:event.target.value.split(',').map((item)=>item.trim()).filter(Boolean)})}/></label></div>}
+            {selectedDutyValue.selector.type==='TAKE_FROM_WAYPOINT'&&<div className="duty-parameter-fields"><label>{t('duties.waypoints')}<input list="points" value={selectedDutyValue.selector.wayPointIds.join(', ')} onChange={(event)=>patchWaypointSelector({wayPointIds:event.target.value.split(',').map((item)=>item.trim()).filter(Boolean)})}/></label><label>{t('duties.acquireTick')}<input type="number" min="0" value={selectedDutyValue.selector.tick} onChange={(event)=>patchWaypointSelector({tick:Math.max(0,+event.target.value)})}/></label></div>}
 
             <h3>{t('duties.runs')}</h3>
             <div className="duty-run-picker">{value.runs.map((run)=>{const owner=assigned.get(run.id),included=owner===selectedDutyValue.id;return <button key={run.id} aria-pressed={included} className={included?'included':''} onClick={()=>addRunToSelectedDuty(run.id)}><strong>{run.id}</strong><small>{included?t('duties.inSelectedDuty'):owner||t('duties.unassigned')}</small></button>;})}</div>
 
             <div className="duty-function-buttons"><button onClick={()=>addFunction({id:uid('initial'),type:'PLACE_INITIAL',trainName:selectedDutyValue.selector.type==='TRAIN_NAME'?selectedDutyValue.selector.name:'',wayPointId:''})}>{t('duties.initial')}</button><button onClick={()=>addFunction({id:uid('reverse'),type:'REVERSE',tick:0})}>{t('actions.REVERSE')}</button><button onClick={()=>addFunction({id:uid('wait'),type:'WAIT',tick:0,durationTicks:20})}>{t('actions.WAIT')}</button><button onClick={()=>addFunction({id:uid('store'),type:'STORE_AT_DEPOT',tick:0,depotId:'',stablingPointIds:[]})}>{t('actions.STORE_AT_DEPOT')}</button></div>
             <ol className="duty-elements">{selectedDutyValue.elements.map((element,index)=><li className={element.type==='RUN'?'run-element':''} key={element.id}>
-              <span>{element.type==='RUN'?`RUN · ${element.runId}`:element.call.type}</span>
-              {element.type==='FUNCTION'&&element.call.type==='PLACE_INITIAL'&&<input list="points" placeholder={t('editor.target')} value={element.call.wayPointId} onChange={(event)=>patchFunction(element.id,{wayPointId:event.target.value})}/>}
-              {element.type==='FUNCTION'&&'tick'in element.call&&<input type="number" min="0" title={t('editor.tick')} value={element.call.tick} onChange={(event)=>patchFunction(element.id,{tick:Math.max(0,+event.target.value)})}/>}
-              {element.type==='FUNCTION'&&element.call.type==='WAIT'&&<input type="number" min="1" title={t('editor.value')} value={element.call.durationTicks} onChange={(event)=>patchFunction(element.id,{durationTicks:Math.max(1,+event.target.value)})}/>}
-              {element.type==='FUNCTION'&&element.call.type==='STORE_AT_DEPOT'&&<input list="depots" placeholder={t('editor.target')} value={element.call.depotId} onChange={(event)=>patchFunction(element.id,{depotId:event.target.value})}/>}
+              <strong>{element.type==='RUN'?`RUN · ${element.runId}`:t(element.call.type==='PLACE_INITIAL'?'duties.initial':`actions.${element.call.type}` as Parameters<typeof t>[0])}</strong>
+              {element.type==='FUNCTION'&&<div className="duty-element-fields">
+                {element.call.type==='PLACE_INITIAL'&&<label>{t('duties.initialWaypoint')}<input list="points" value={element.call.wayPointId} onChange={(event)=>patchFunction(element.id,{wayPointId:event.target.value})}/></label>}
+                {'tick'in element.call&&<label>{t('duties.executeTick')}<input type="number" min="0" value={element.call.tick} onChange={(event)=>patchFunction(element.id,{tick:Math.max(0,+event.target.value)})}/></label>}
+                {element.call.type==='WAIT'&&<label>{t('duties.waitDuration')}<input type="number" min="1" value={element.call.durationTicks} onChange={(event)=>patchFunction(element.id,{durationTicks:Math.max(1,+event.target.value)})}/></label>}
+                {element.call.type==='STORE_AT_DEPOT'&&<><label>{t('duties.depot')}<input list="depots" value={element.call.depotId} onChange={(event)=>patchFunction(element.id,{depotId:event.target.value})}/></label><label>{t('editor.stablingIds')}<input value={element.call.stablingPointIds.join(', ')} onChange={(event)=>patchFunction(element.id,{stablingPointIds:event.target.value.split(',').map((item)=>item.trim()).filter(Boolean)})}/></label></>}
+              </div>}
               <span className="row-controls"><button disabled={index===0} onClick={()=>moveElement(element.id,-1)}>↑</button><button disabled={index===selectedDutyValue.elements.length-1} onClick={()=>moveElement(element.id,1)}>↓</button><button className="danger" onClick={()=>removeElement(element.id)}>×</button></span>
             </li>)}</ol>
           </>}

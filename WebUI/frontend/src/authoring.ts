@@ -328,20 +328,27 @@ const graphAction=(type:TimetableActionV1['type'],overrides:Partial<TimetableAct
 export function authoringGraphTimetable(document:TimetableAuthoringDocumentV1):SavedTimetableV1 {
   return {
     id:document.id,periodDays:document.periodDays,diagramLines:document.diagramLines,
-    services:document.runs.map((run)=>({
-      id:run.id,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY',activation:{type:'SCHEDULED'},
-      steps:run.calls.length===0?[]:[
-        {type:'CHECK',wayPointId:run.calls[0].targetId},
-        ...run.calls.slice(1).flatMap((call,index)=>{
-          const previous=run.calls[index];
-          const departureTick=previous.status==='PASS'?previous.arrivalTick:previous.departureTick;
-          return [
-            {type:'AT' as const,tick:departureTick??0,action:graphAction('DESTINATION_OPTIONS',{arrivalTick:call.arrivalTick})},
-            {type:'AT' as const,tick:departureTick??0,action:graphAction('DESTINATION',{wayPointIds:[call.targetId]})},
-          ];
-        }),
-      ],
-    })),
+    services:document.runs.map((run)=>{
+      if(run.calls.length===0)return {id:run.id,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY' as const,activation:{type:'SCHEDULED' as const},steps:[]};
+      const fallbackLegTicks=Math.max(20,Math.floor(document.periodDays*24_000/(run.calls.length+1)));
+      const periodEnd=document.periodDays*24_000-1;
+      let cursor=run.calls[0].departureTick??run.calls[0].arrivalTick??0;
+      const steps:SavedTimetableV1['services'][number]['steps']=[{type:'CHECK',wayPointId:run.calls[0].targetId}];
+      run.calls.slice(1).forEach((call,index)=>{
+        const previous=run.calls[index];
+        const departureTick=(previous.status==='PASS'?previous.arrivalTick:previous.departureTick)??cursor;
+        const arrivalTick=call.arrivalTick??Math.min(periodEnd,departureTick+fallbackLegTicks);
+        steps.push(
+          {type:'AT',tick:departureTick,action:graphAction('DESTINATION_OPTIONS',{arrivalTick})},
+          {type:'AT',tick:departureTick,action:graphAction('DESTINATION',{wayPointIds:[call.targetId]})},
+        );
+        cursor=(call.status==='PASS'?call.arrivalTick:call.departureTick)??arrivalTick;
+      });
+      return {
+        id:run.id,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY' as const,
+        activation:{type:'SCHEDULED' as const},steps,
+      };
+    }),
   };
 }
 

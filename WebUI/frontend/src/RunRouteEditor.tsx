@@ -141,6 +141,7 @@ export function RunRouteEditor({
       <div className="run-reset card-inset">
         <label>{t('editor.departureTime')}<input type="number" min="0" value={firstDepartureTick} onChange={(event)=>setFirstDepartureTick(Math.max(0,+event.target.value))}/></label>
         <label>{t('duties.fixedDwell')}<input type="number" min="0" value={fixedDwellTicks} onChange={(event)=>setFixedDwellTicks(Math.max(0,+event.target.value))}/></label>
+        <label>{t('duties.originDepartureMode')}<select value={run.originDepartureMode??'AUTO'} onChange={(event)=>onChange({...run,originDepartureMode:event.target.value as AuthoringRunV1['originDepartureMode']})}><option value="AUTO">{t('duties.originDeparture.AUTO')}</option><option value="CONTINUE">{t('duties.originDeparture.CONTINUE')}</option><option value="REVERSE">{t('duties.originDeparture.REVERSE')}</option></select></label>
         <label>{t('simulation.profile')}<select value={profileKey} onChange={(event)=>setProfileKey(event.target.value)}><option value="">{t('common.select')}</option>{simulationProfiles.map((profile)=><option key={`${profile.type}:${profile.id}`} value={`${profile.type}:${profile.id}`}>{profile.displayName} · {profile.carCount}</option>)}</select></label>
         <button className="primary" onClick={()=>void reset()} disabled={busy||resetBusy||run.calls.length<2}>{resetBusy?t('duties.resetting'):t('duties.resetTimes')}</button>
       </div>

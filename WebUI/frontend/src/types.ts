@@ -48,6 +48,7 @@ export interface SavedLineResult { revision:number; line:LineV1; preview:LinePre
 export interface SimulationProfile {
  profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string; direction:LineDirection;
  originStationId?:string; terminalStationId?:string; stopStationIds?:string[]; destinationIds?:string[];
+ originDepartureMode?:'AUTO'|'CONTINUE'|'REVERSE';
 }
 export interface SimulatedLineLeg { fromStationId:string; toStationId:string; lengthMeters:number; travelSeconds:number; peakSpeedKmh:number; stoppingErrorMeters:number }
 export interface LineSimulationResult { lineRevision:number; totalTravelSeconds:number; legs:SimulatedLineLeg[] }

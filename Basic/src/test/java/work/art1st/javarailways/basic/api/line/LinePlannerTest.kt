@@ -62,15 +62,16 @@ class LinePlannerTest {
         TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(120.0, 1))
         val destinations = OperationalDestinationService(world)
-        fun berth(station:String, berth:String, arc:Double) = OperationalDestination(
+        fun berth(station:String, berth:String, arc:Double, direction:ViewDirection = ViewDirection.AB) = OperationalDestination(
             id="$station@$berth", displayName="$station $berth", railId=rail.id, arcLengthInAbMeters=arc,
-            approachDirection=ViewDirection.AB,
+            approachDirection=direction,
             role=DestinationRole.StationBerthRole(StationId(station), station, berth, DoorSide.LEFT)
         )
         destinations.register(berth("a", "near", 20.0))
         destinations.register(berth("a", "selected", 10.0))
         destinations.register(berth("b", "near", 80.0))
         destinations.register(berth("b", "selected", 90.0))
+        destinations.register(berth("a", "return", 10.0, ViewDirection.BA))
         val line = Line(LineId("L-selected"), "Selected berths", listOf(StationId("a"), StationId("b")))
 
         val result = LinePlanner(world).compileStations(
@@ -89,5 +90,14 @@ class LinePlannerTest {
             line.upStationIds,
             listOf("a@near", "b@selected", "extra")
         ) is LineCompileResult.Failure)
+
+        val turnbackLine = Line(LineId("L-turnback"), "Turnback", listOf(StationId("b"), StationId("a")))
+        val turnbackCandidates = LinePlanner(world).compileResetCandidates(
+            turnbackLine,
+            turnbackLine.upStationIds,
+            listOf("b@selected", "a@return")
+        )
+        assertEquals(listOf(ViewDirection.BA), turnbackCandidates.map { it.originDepartureDirection })
+        assertEquals(80.0, turnbackCandidates.single().compilation.totalLengthMeters, 1e-6)
     }
 }

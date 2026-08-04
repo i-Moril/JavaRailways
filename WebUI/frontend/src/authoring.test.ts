@@ -168,8 +168,10 @@ describe('timetable editor document',()=>{
     run.calls[1]={...run.calls[1],berthId:'express',targetId:'b@express',status:'PASS'};
     expect(lineSimulationRoute(run)).toEqual({
       originStationId:'a',terminalStationId:'d',stopStationIds:['c','d'],
-      destinationIds:['a@1','b@express','c@1','d@1'],
+      destinationIds:['a@1','b@express','c@1','d@1'],originDepartureMode:'AUTO',
     });
+    run.originDepartureMode='REVERSE';
+    expect(lineSimulationRoute(run).originDepartureMode).toBe('REVERSE');
   });
 
   it('resets all route times from simulated adjacent intervals and fixed stop dwell',()=>{

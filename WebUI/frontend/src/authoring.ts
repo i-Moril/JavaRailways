@@ -19,6 +19,7 @@ export interface AuthoringRunV1 {
   type:'PASSENGER'|'DEADHEAD';
   diagramLineId?:string|null;
   lineDirection:LineDirection;
+  originDepartureMode?:'AUTO'|'CONTINUE'|'REVERSE';
   calls:AuthoringRunCallV1[];
 }
 export type AuthoringDutySelectorV1 =
@@ -118,7 +119,7 @@ export function createRunFromLine(
   const calls=stations.map((station,index)=>newRunCall(
     station,index,index===0?'ORIGIN':index===stations.length-1?'TERMINAL':'STOP',metadata,idFactory,
   ));
-  return {id,type:'PASSENGER',diagramLineId:line.id,lineDirection:direction,calls};
+  return {id,type:'PASSENGER',diagramLineId:line.id,lineDirection:direction,originDepartureMode:'AUTO',calls};
 }
 
 export function resizeRunRoute(
@@ -143,12 +144,13 @@ export function resizeRunRoute(
   return {...run,diagramLineId:line.id,lineDirection:direction,calls};
 }
 
-export function lineSimulationRoute(run:AuthoringRunV1):Pick<SimulationProfile,'originStationId'|'terminalStationId'|'stopStationIds'|'destinationIds'> {
+export function lineSimulationRoute(run:AuthoringRunV1):Pick<SimulationProfile,'originStationId'|'terminalStationId'|'stopStationIds'|'destinationIds'|'originDepartureMode'> {
   return {
     originStationId:run.calls[0]?.stationId,
     terminalStationId:run.calls.at(-1)?.stationId,
     stopStationIds:run.calls.filter((call)=>call.status==='STOP'||call.status==='TERMINAL').map((call)=>call.stationId),
     destinationIds:run.calls.map((call)=>call.targetId),
+    originDepartureMode:run.originDepartureMode??'AUTO',
   };
 }
 

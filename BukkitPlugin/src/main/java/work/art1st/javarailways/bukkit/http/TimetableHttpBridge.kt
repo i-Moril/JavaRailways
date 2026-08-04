@@ -34,6 +34,7 @@ import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimu
 import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationResult
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -547,10 +548,43 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     if (selectedDestinationIds != null && selectedDestinationIds.size != selectedStations.size) {
                         throw HttpFailure(400, "destinationIds must match the selected route station count")
                     }
-                    val compilation = LinePlanner(world).compileStations(line, selectedStations, selectedDestinationIds)
-                    if (compilation !is LineCompileResult.Success) {
-                        val failure = compilation as LineCompileResult.Failure
-                        throw HttpFailure(422, failure.reason)
+                    val compilation = if (selectedDestinationIds == null) {
+                        when (val compiled = LinePlanner(world).compileStations(line, selectedStations)) {
+                            is LineCompileResult.Success -> compiled
+                            is LineCompileResult.Failure -> throw HttpFailure(422, compiled.reason)
+                        }
+                    } else {
+                        val originMode = request["originDepartureMode"]?.jsonPrimitive?.content?.uppercase() ?: "AUTO"
+                        val originApproachDirection = data.destinations[selectedDestinationIds.first()]?.approachDirection
+                        val originDirections = when (originMode) {
+                            "AUTO" -> ViewDirection.entries
+                            "CONTINUE" -> listOf(originApproachDirection
+                                ?: throw HttpFailure(400, "origin berth has no configured approach direction; use AUTO"))
+                            "REVERSE" -> listOf(when (originApproachDirection
+                                ?: throw HttpFailure(400, "origin berth has no configured approach direction; use AUTO")) {
+                                ViewDirection.AB -> ViewDirection.BA
+                                ViewDirection.BA -> ViewDirection.AB
+                            })
+                            else -> throw HttpFailure(400, "originDepartureMode must be AUTO, CONTINUE, or REVERSE")
+                        }
+                        val candidates = runCatching {
+                            LinePlanner(world).compileResetCandidates(
+                                line,
+                                selectedStations,
+                                selectedDestinationIds,
+                                originDirections
+                            )
+                        }.getOrElse { throw HttpFailure(422, it.message ?: "could not compile selected berth route") }
+                        if (candidates.isEmpty()) {
+                            throw HttpFailure(422, "No continuous route from the selected origin berth in the requested departure mode")
+                        }
+                        if (originMode == "AUTO" && candidates.size > 1) {
+                            throw HttpFailure(
+                                409,
+                                "Both origin departure directions can complete this run; choose normal or turnback departure in Reset"
+                            )
+                        }
+                        candidates.minBy { it.compilation.totalLengthMeters }.compilation
                     }
                     val requestedStopStationIds = request["stopStationIds"]?.jsonArray
                         ?.map { it.jsonPrimitive.content }

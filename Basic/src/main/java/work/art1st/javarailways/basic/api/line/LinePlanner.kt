@@ -7,6 +7,7 @@ import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.RouteBuildResult
 import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 
 sealed interface LineCompileResult {
     data class Success(val line: Line, val legs: List<CompiledLineLeg>) : LineCompileResult {
@@ -23,12 +24,83 @@ data class CompiledLineLeg(
     val route: ExpandedRoute
 )
 
+data class CompiledLineResetCandidate(
+    val originDepartureDirection: ViewDirection,
+    val compilation: LineCompileResult.Success
+)
+
 /** Resolves station berth combinations and chooses the shortest directed route for each line leg. */
 class LinePlanner(private val world: World) {
     private val routePlanner = RoutePlanner(world)
 
     fun compile(line: Line, direction: LineDirection = LineDirection.UP): LineCompileResult =
         compileStations(line, line.stations(direction))
+
+    /**
+     * Searches a whole exact-berth route while carrying the actual direction through every stop.
+     * Both directions may be supplied for an origin whose departure orientation is unknown during Reset.
+     */
+    fun compileResetCandidates(
+        line: Line,
+        stationIds: List<StationId>,
+        destinationIds: List<String>,
+        originDirections: Collection<ViewDirection> = ViewDirection.entries
+    ): List<CompiledLineResetCandidate> {
+        require(stationIds.size >= 2) { "A line section requires at least two stations" }
+        require(destinationIds.size == stationIds.size) { "Selected berth count must match station count" }
+        val destinationService = world.basicWorldData.destinations
+        val destinations = destinationIds.mapIndexed { index, destinationId ->
+            val destination = requireNotNull(destinationService[destinationId]) { "Unknown berth destination: $destinationId" }
+            val role = destination.role as? DestinationRole.StationBerthRole
+                ?: throw IllegalArgumentException("Destination is not a station berth: $destinationId")
+            require(role.stationId == stationIds[index]) {
+                "Selected berth $destinationId does not belong to station ${stationIds[index]}"
+            }
+            destination
+        }
+        data class Candidate(
+            val originDirection: ViewDirection,
+            val currentDirection: ViewDirection,
+            val legs: List<CompiledLineLeg>,
+            val totalLength: Double
+        )
+        var candidates = originDirections.distinct().map { Candidate(it, it, emptyList(), 0.0) }
+        stationIds.zipWithNext().forEachIndexed { index, (fromStation, toStation) ->
+            val start = destinations[index]
+            val goal = destinations[index + 1]
+            val goalDirections = goal.approachDirection?.let(::listOf) ?: ViewDirection.entries
+            candidates = candidates.flatMap { candidate ->
+                goalDirections.mapNotNull { goalDirection ->
+                    val result = routePlanner.buildRoute(
+                        from = start.toWayPoint(),
+                        to = goal.toWayPoint(),
+                        requiredGoalDirection = goalDirection,
+                        requiredStartDirection = candidate.currentDirection
+                    ) as? RouteBuildResult.Success ?: return@mapNotNull null
+                    val actualEndDirection = result.route.segments.last().railViewRef.direction
+                    val leg = CompiledLineLeg(
+                        fromStation.value,
+                        toStation.value,
+                        start.id,
+                        goal.id,
+                        result.route
+                    )
+                    Candidate(
+                        candidate.originDirection,
+                        actualEndDirection,
+                        candidate.legs + leg,
+                        candidate.totalLength + result.route.totalLength
+                    )
+                }
+            }.groupBy { it.originDirection to it.currentDirection }
+                .values.map { alternatives -> alternatives.minBy(Candidate::totalLength) }
+            if (candidates.isEmpty()) return emptyList()
+        }
+        return candidates.groupBy(Candidate::originDirection).map { (originDirection, alternatives) ->
+            val best = alternatives.minBy(Candidate::totalLength)
+            CompiledLineResetCandidate(originDirection, LineCompileResult.Success(line, best.legs))
+        }
+    }
 
     /** Compiles an ordered section, optionally pinning every station to an exact berth destination. */
     fun compileStations(

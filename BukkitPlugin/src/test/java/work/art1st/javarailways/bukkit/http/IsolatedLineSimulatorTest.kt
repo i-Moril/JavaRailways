@@ -37,6 +37,21 @@ class IsolatedLineSimulatorTest {
     }
 
     @Test
+    fun `keeps speed through pass stations while returning adjacent crossing intervals`() {
+        val legs = listOf(
+            SimulationLeg("A", "B", 500.0, stopAtEnd = false),
+            SimulationLeg("B", "C", 500.0, stopAtEnd = false),
+            SimulationLeg("C", "D", 500.0, stopAtEnd = true)
+        )
+        val passing = IsolatedLineSimulator.simulate(legs, profile)
+        val allStops = IsolatedLineSimulator.simulate(legs.map { it.copy(stopAtEnd = true) }, profile)
+
+        assertEquals(listOf("B", "C", "D"), passing.legs.map { it.toStationId })
+        assertTrue(passing.legs.all { it.travelSeconds > 0.0 })
+        assertTrue(passing.totalTravelSeconds < allStops.totalTravelSeconds)
+    }
+
+    @Test
     fun `honors worker interruption`() {
         Thread.currentThread().interrupt()
         try {

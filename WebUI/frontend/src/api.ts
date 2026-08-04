@@ -1,5 +1,5 @@
 import type { TimetableAuthoringDocumentV1 } from './authoring';
-import type { CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LinePreview, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, ValidationResult, WorldMetadata, WorldSummary } from './types';
+import type { CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LinePreview, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WorldMetadata, WorldSummary } from './types';
 async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...init?.headers }, ...init }); if (!response.ok) throw new Error((await response.text()) || `${response.status} ${response.statusText}`); return response.status === 204 ? undefined as T : response.json(); }
 export const normalizeTimetablePresentation = (value:SavedTimetableV1):SavedTimetableV1 => ({
  ...value,
@@ -15,6 +15,7 @@ export const api = {
  scripts: (worldId: string) => request<TimetableScriptSummary[]>(`${base(worldId)}/scripts`),
  renderScript: (worldId: string, name: string, id?: string) => request<RenderedTimetableScript>(`${base(worldId)}/scripts/${encodeURIComponent(name)}${id ? `?id=${encodeURIComponent(id)}` : ''}`),
  compileSource: (worldId:string,id:string,source:string,documentHash?:string) => request<CompiledTimetableSource>(`${base(worldId)}/scripts/compile`, {method:'POST',body:JSON.stringify({id,source,documentHash})}),
+ simulateTimetable: (worldId:string,timetable:SavedTimetableV1,profileAssignments:TimetableSimulationProfileAssignment[],delayThresholdTicks:number) => request<TimetableSimulationResult>(`${base(worldId)}/timetables/simulate`,{method:'POST',body:JSON.stringify({timetable,profileAssignments,delayThresholdTicks})}),
  lines: (worldId: string) => request<LineCollection>(`${base(worldId)}/lines`),
  previewLine: (worldId: string, line: LineV1) => request<LinePreview>(`${base(worldId)}/lines/preview`, { method:'POST', body:JSON.stringify(line) }),
  simulateLine: (worldId: string, lineId: string, profile: SimulationProfile) => request<LineSimulationResult>(`${base(worldId)}/lines/${encodeURIComponent(lineId)}/simulate`, { method:'POST', body:JSON.stringify(profile) }),

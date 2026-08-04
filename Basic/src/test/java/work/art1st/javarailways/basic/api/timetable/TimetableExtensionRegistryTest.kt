@@ -95,6 +95,26 @@ class TimetableExtensionRegistryTest {
     }
 
     @Test
+    fun `isolated registry copies only providers with explicit simulation factories`() {
+        val registry = TimetableExtensionRegistry()
+        registry.registerCondition(provider("example:live-only", result = TimetableConditionResult.True))
+        registry.registerCondition(object : TimetableConditionProvider, TimetableConditionSimulationFactory {
+            override val typeId = "example:simulated"
+            override val version = 1
+            override val descriptor = this@TimetableExtensionRegistryTest.descriptor
+            override fun evaluate(parameters: JsonObject, context: TimetableRuntimeContext) =
+                TimetableConditionResult.Error("live provider must not be reused")
+            override fun createSimulationProvider() =
+                provider("example:simulated", result = TimetableConditionResult.True)
+        })
+
+        val isolated = registry.createSimulationRegistry()
+
+        assertEquals(null, isolated.condition("example:live-only"))
+        assertEquals(TimetableConditionResult.True, isolated.evaluate(predicate("example:simulated"), context))
+    }
+
+    @Test
     fun `passes parameters and immutable runtime context to provider`() {
         val registry = TimetableExtensionRegistry()
         registry.registerCondition(object : TimetableConditionProvider {

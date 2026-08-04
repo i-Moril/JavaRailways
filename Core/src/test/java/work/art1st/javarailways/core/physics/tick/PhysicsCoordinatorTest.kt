@@ -28,6 +28,33 @@ import java.util.concurrent.atomic.AtomicLong
 
 class PhysicsCoordinatorTest {
     @Test
+    fun `isolated simulation advances with caller supplied logical delta`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 2,
+            maxStepMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("simulation-step", rail, world, listOf(10.0))
+        val deltas = mutableListOf<Double>()
+        train.setController(object : TrainController(train, world) {
+            override fun tick(deltaT: Double) { synchronized(deltas) { deltas += deltaT } }
+        })
+        coordinator.start()
+        try {
+            val first = coordinator.stepSimulation(50.0).await()
+            val second = coordinator.stepSimulation(50.0).await()
+
+            assertEquals(PhysicsWakeSource.SIMULATION, first.source)
+            assertEquals(listOf(50.0, 50.0), deltas)
+            assertEquals(first.epoch + 1, second.epoch)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
     fun `physics publishes one immutable versioned frame per active train`() {
         val coordinator = PhysicsCoordinator(
             workerThreads = 1,

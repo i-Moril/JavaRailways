@@ -36,7 +36,7 @@ const actionTypes = [
   'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'TAKE_FROM_WAYPOINT', 'STORE_AT_DEPOT',
   'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS', 'EXTENSION',
 ] as const satisfies readonly ActionType[];
-type View = 'graph' | 'duties' | 'map' | 'lines' | 'services' | 'scripts' | 'simulation';
+type View = 'graph' | 'map' | 'lines' | 'scripts' | 'simulation';
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
@@ -47,11 +47,8 @@ export default function App() {
   const [metadata, setMetadata] = useState<WorldMetadata>({});
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const [lineCollection, setLineCollection] = useState<LineCollection>({ revision: 0, lines: [] });
-  const [graphLineId, setGraphLineId] = useState('');
   const [draftId, setDraftId] = useState('');
-  const [selected, setSelected] = useState<{ service: number; step: number }>();
   const [view, setView] = useState<View>('graph');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState('');
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [busy, setBusy] = useState(false);
@@ -88,18 +85,16 @@ export default function App() {
 
   useEffect(() => {
     if (!world) return;
-    setSelected(undefined);
     void run(async () => {
       const [reference, savedDrafts, savedLines] = await Promise.all([
         api.metadata(world), api.drafts(world), api.lines(world),
       ]);
       setMetadata(reference); setDrafts(savedDrafts); setLineCollection(savedLines); setDraftId('');
-      setGraphLineId((current) => savedLines.lines.some((line) => line.id === current) ? current : (savedLines.lines[0]?.id || ''));
     });
   }, [world]);
 
   const load = async (id: string) => {
-    setDraftId(id); setSelected(undefined);
+    setDraftId(id);
     if (!id) { dispatch({ type: 'LOAD', value: emptyTimetable() }); return; }
     const value = await run(() => api.draft(world, id));
     if (value) dispatch({ type: 'LOAD', value });
@@ -113,7 +108,7 @@ export default function App() {
   const removeDraft = async () => {
     if (!draftId) return;
     await run(() => api.deleteDraft(world, draftId));
-    setDraftId(''); setSelected(undefined); dispatch({ type: 'LOAD', value: emptyTimetable() });
+    setDraftId(''); dispatch({ type: 'LOAD', value: emptyTimetable() });
     setDrafts(await api.drafts(world));
   };
   const validate = async () => {
@@ -122,25 +117,11 @@ export default function App() {
     const messages = [...(result.errors || []), ...(result.warnings || [])];
     setIssues(messages.length ? messages : [{ message: t('editor.noIssues'), severity: 'success' }]);
   };
-  const replaceStep = (service: number, step: number, kind: 'CHECK' | ActionType) => {
-    const value: TimetableStepV1 = kind === 'CHECK'
-      ? { type: 'CHECK', wayPointId: '' }
-      : { type: 'AT', tick: 0, action: emptyAction(kind) };
-    dispatch({ type: 'REPLACE_STEP', service, step, value });
-  };
-
-  const selectedService = selected ? state.services[selected.service] : undefined;
-  const graphLine = lineCollection.lines.find((line) => line.id === graphLineId);
-  const graphServiceIndices = state.services.map((_, index) => index)
-    .filter((index) => !graphLineId || state.services[index].diagramLineId === graphLineId);
-  const graphValue = { ...state, services: graphServiceIndices.map((index) => state.services[index]) };
-  const selectedStep = selectedService && selected ? selectedService.steps[selected.step] : undefined;
-
   return <main className="app-shell">
     <header className="topbar">
       <div className="brand"><h1>{t('app.title')}</h1><span>{t('app.subtitle')}</span></div>
       <nav aria-label={t('nav.primary')}>
-        {(['graph', 'duties', 'map', 'lines', 'services', 'scripts', 'simulation'] as View[]).map((item) =>
+        {(['graph', 'map', 'lines', 'scripts', 'simulation'] as View[]).map((item) =>
           <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{t(`nav.${item}`)}</button>)}
       </nav>
       <div className="top-controls">
@@ -157,7 +138,7 @@ export default function App() {
     </header>
 
     <section className="commandbar">
-      {view === 'scripts' || view === 'duties' ? <span className="readonly-banner">{view==='scripts'?t('scripts.readOnly'):t('duties.workspace')}</span> : <>
+      {view === 'graph' || view === 'scripts' ? <span className="readonly-banner">{view==='scripts'?t('scripts.readOnly'):t('duties.workspace')}</span> : <>
       <label>{t('common.draft')}<select value={draftId} onChange={(event) => void load(event.target.value)}>
         <option value="">{t('common.newDraft')}</option>
         {drafts.map((draft) => <option key={draft.id} value={draft.id}>{draft.id}</option>)}
@@ -175,78 +156,8 @@ export default function App() {
       {issues.map((issue, index) => <div key={index} className={issue.severity}>{issue.path && <code>{issue.path}</code>} {issue.message}</div>)}
     </section>
 
-    {view === 'graph' && <section className={`workspace ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
-      <div className="graph-workspace">
-        <div className="graph-overlay"><strong>{t('editor.graph')}</strong>
-          <select value={graphLineId} onChange={(event) => setGraphLineId(event.target.value)}><option value="">{t('lines.all')}</option>
-            {lineCollection.lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}</select>
-          <span>{t('editor.graphHint')}</span></div>
-        <Graph value={graphValue} metadata={metadata} line={graphLine} graphLineId={graphLineId || undefined}
-          onSelect={(service, step) => { setSelected({ service:graphServiceIndices[service], step }); setSidebarOpen(true); }}
-          onTick={(service, step, tick, kind) => {
-            const serviceIndex=graphServiceIndices[service];
-            const current=state.services[serviceIndex];
-            if(current.rows) dispatch({type:'PATCH_SERVICE',service:serviceIndex,patch:kind==='ARRIVAL'?updateGeneratedArrival(current,step,tick,metadata):updateGeneratedDeparture(current,step,tick,metadata)});
-            else if(kind==='ARRIVAL') dispatch({type:'PATCH_STEP',service:serviceIndex,step,action:{arrivalTick:tick}});
-            else dispatch({ type:'PATCH_STEP', service:serviceIndex, step, tick });
-          }} />
-      </div>
-      <button className="sidebar-toggle" aria-expanded={sidebarOpen} aria-controls="editor-sidebar"
-        onClick={() => setSidebarOpen((open) => !open)}>{sidebarOpen ? '›' : '‹'}<span>{sidebarOpen ? t('editor.sidebarHide') : t('editor.sidebarShow')}</span></button>
-      <aside id="editor-sidebar" className="editor-sidebar">
-        <div className="sidebar-section fields-vertical">
-          <label>{t('editor.timetableId')}<input value={state.id} onChange={(event) => dispatch({ type: 'SET_HEADER', id: event.target.value })} /></label>
-          <label>{t('editor.periodDays')}<input type="number" min="1" value={state.periodDays} onChange={(event) => dispatch({ type: 'SET_HEADER', periodDays: Math.max(1, +event.target.value) })} /></label>
-        </div>
-        <div className="sidebar-section">
-          <div className="section-title"><h2>{t('editor.services')}</h2><button onClick={() => dispatch({ type: 'ADD_SERVICE' })}>+</button></div>
-          <div className="service-list">{state.services.map((service, serviceIndex) =>
-            <button key={serviceIndex} className={selected?.service === serviceIndex ? 'active' : ''}
-              onClick={() => setSelected({ service: serviceIndex, step: 0 })}>{service.id}</button>)}</div>
-        </div>
-        {selectedService && selected && <div className="sidebar-section fields-vertical">
-          <label>{t('editor.serviceId')}<input value={selectedService.id} onChange={(event) => dispatch({ type: 'PATCH_SERVICE', service: selected.service, patch: { id: event.target.value } })} /></label>
-          <label>{t('lines.title')}<select value={selectedService.diagramLineId || ''} onChange={(event) => {
-            const line=lineCollection.lines.find((item) => item.id===event.target.value);
-            if(line&&selectedService.rows&&!window.confirm(t('editor.confirmResetRows'))) return;
-            const updated=line ? (canInitializeServiceRows(selectedService) ? assignLineToService(selectedService,line,selectedService.lineDirection || 'UP',metadata) : {...selectedService,diagramLineId:line.id}) : { ...selectedService,diagramLineId:null,lineDirection:null,rows:null };
-            dispatch({ type:'PATCH_SERVICE', service:selected.service, patch:updated });
-          }}>
-            <option value="">{t('common.none')}</option>{lineCollection.lines.map((line) => <option key={line.id} value={line.id}>{line.displayName}</option>)}
-          </select></label>
-          {selectedService.diagramLineId && <label>{t('editor.lineDirection')}<select value={selectedService.lineDirection || ''} onChange={(event) => {
-            const line=lineCollection.lines.find((item) => item.id===selectedService.diagramLineId);
-            if(!line) return;
-            if(!selectedService.rows) { dispatch({type:'PATCH_SERVICE',service:selected.service,patch:{lineDirection:event.target.value as LineDirection}}); return; }
-            if(!window.confirm(t('editor.confirmResetRows'))) return;
-            const updated=assignLineToService(selectedService,line,event.target.value as LineDirection,metadata);
-            dispatch({type:'PATCH_SERVICE',service:selected.service,patch:updated});
-          }}><option value="" disabled>{t('common.select')}</option><option value="UP">{t('direction.UP')}</option><option value="DOWN">{t('direction.DOWN')}</option></select></label>}
-          {selectedService.rows ? <ServiceScheduleTable service={selectedService} metadata={metadata}
-            onChange={(updated) => dispatch({type:'PATCH_SERVICE',service:selected.service,patch:updated})} />
-            : selectedService.diagramLineId && <p className="empty">{t('editor.legacyRouteNote')}</p>}
-          {!selectedService.rows && selectedStep && <ActionInspector step={selectedStep} metadata={metadata}
-            onReplace={(kind) => replaceStep(selected.service, selected.step, kind)}
-            onTick={(tick) => dispatch({ type: 'PATCH_STEP', service: selected.service, step: selected.step, tick })}
-            onAction={(action) => dispatch({ type: 'PATCH_STEP', service: selected.service, step: selected.step, action })}
-            onCheck={(wayPointId) => dispatch({ type: 'REPLACE_STEP', service: selected.service, step: selected.step, value: { type: 'CHECK', wayPointId } })}
-            onStationOperation={(type) => {
-              const movementIndex = selectedService.steps.findIndex((candidate, index) =>
-                index > selected.step && candidate.type === 'AT' && candidate.action?.type === 'DESTINATION');
-              if (movementIndex < 0) return;
-              const tick = selectedService.steps[movementIndex].tick ?? 0;
-              dispatch({ type:'INSERT_STEP', service:selected.service, step:movementIndex + 1,
-                value:{ type:'AT', tick, action:emptyAction(type) } });
-              setSelected({ service:selected.service, step:movementIndex + 1 });
-            }} />}
-        </div>}
-      </aside>
-    </section>}
-
-    {view === 'duties' && <DutyEditor world={world} lines={lineCollection.lines} onError={setError} />}
+    <section className="persistent-graph-view" hidden={view!=='graph'}><DutyEditor world={world} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>
     {view === 'map' && <RailMap world={world} onError={setError} />}
-    {view === 'services' && <ServicesPage state={state} metadata={metadata} lines={lineCollection.lines} selected={selected} dispatch={dispatch}
-      replaceStep={replaceStep} setSelected={setSelected} />}
     {view === 'lines' && <LinesPage world={world} metadata={metadata} collection={lineCollection}
       onCollection={setLineCollection} run={run} />}
     {view === 'scripts' && <ScriptsPage world={world} metadata={metadata} run={run} />}

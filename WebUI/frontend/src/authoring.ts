@@ -1,8 +1,12 @@
-import type { DiagramLineV1, SavedTimetableV1 } from './types';
+import type { DiagramLineV1, LineDirection, LineSimulationResult, LineV1, SavedTimetableV1, TimetableActionV1, WorldMetadata } from './types';
 
 export type AuthoringDoorSide = 'NONE'|'LEFT'|'RIGHT'|'BOTH';
+export type AuthoringRunCallStatusV1 = 'ORIGIN'|'STOP'|'PASS'|'TERMINAL';
 export interface AuthoringRunCallV1 {
   id:string;
+  stationId:string;
+  berthId?:string|null;
+  status:AuthoringRunCallStatusV1;
   targetId:string;
   arrivalTick?:number|null;
   departureTick?:number|null;
@@ -14,6 +18,7 @@ export interface AuthoringRunV1 {
   id:string;
   type:'PASSENGER'|'DEADHEAD';
   diagramLineId?:string|null;
+  lineDirection:LineDirection;
   calls:AuthoringRunCallV1[];
 }
 export type AuthoringDutySelectorV1 =
@@ -78,6 +83,95 @@ export const emptyAuthoringDocument = ():TimetableAuthoringDocumentV1 => ({
   arrivalOverrides:[],
 });
 
+type RunCallIdFactory=(stationId:string,index:number)=>string;
+const lineStations=(line:LineV1,direction:LineDirection):string[]=>direction==='UP'?line.upStationIds:line.downStationIds;
+const stationBerths=(metadata:WorldMetadata,stationId:string)=>(metadata.stations??[]).filter((station)=>station.stationId===stationId);
+
+function newRunCall(
+  stationId:string,index:number,status:AuthoringRunCallStatusV1,metadata:WorldMetadata,idFactory:RunCallIdFactory,
+):AuthoringRunCallV1 {
+  const berth=stationBerths(metadata,stationId)[0];
+  return {
+    id:idFactory(stationId,index),stationId,berthId:berth?.berthId??null,status,
+    targetId:berth?.destinationId??'',arrivalTick:null,departureTick:null,minimumDwellTicks:null,
+    doorSide:null,stoppingOffsetMetersBefore:null,
+  };
+}
+
+export function createRunFromLine(
+  id:string,line:LineV1,direction:LineDirection,metadata:WorldMetadata,
+  idFactory:RunCallIdFactory=(station,index)=>`${id}-call-${index}-${station}`,
+):AuthoringRunV1 {
+  const stations=lineStations(line,direction);
+  const calls=stations.map((station,index)=>newRunCall(
+    station,index,index===0?'ORIGIN':index===stations.length-1?'TERMINAL':'STOP',metadata,idFactory,
+  ));
+  return {id,type:'PASSENGER',diagramLineId:line.id,lineDirection:direction,calls};
+}
+
+export function resizeRunRoute(
+  run:AuthoringRunV1,line:LineV1,direction:LineDirection,originStationId:string,terminalStationId:string,
+  metadata:WorldMetadata,idFactory:RunCallIdFactory=(station,index)=>`${run.id}-call-${index}-${station}`,
+):AuthoringRunV1 {
+  const stations=lineStations(line,direction);
+  const originIndex=stations.indexOf(originStationId);
+  const terminalIndex=stations.indexOf(terminalStationId);
+  if(originIndex<0||terminalIndex<0||terminalIndex<=originIndex) throw new Error('route endpoints must follow line direction and contain at least two stations');
+  const selectedStations=stations.slice(originIndex,terminalIndex+1);
+  const existingByStation=new Map(run.calls.map((call)=>[call.stationId,call]));
+  const calls=selectedStations.map((station,index)=>{
+    const existing=existingByStation.get(station);
+    const status:AuthoringRunCallStatusV1=index===0?'ORIGIN':index===selectedStations.length-1?'TERMINAL':existing?.status==='PASS'?'PASS':'STOP';
+    const call=existing?{...existing,status}:newRunCall(station,index,status,metadata,idFactory);
+    if(status==='ORIGIN') return {...call,arrivalTick:null,minimumDwellTicks:null};
+    if(status==='TERMINAL') return {...call,departureTick:null,minimumDwellTicks:null};
+    if(status==='PASS') return {...call,departureTick:null,minimumDwellTicks:null};
+    return call;
+  });
+  return {...run,diagramLineId:line.id,lineDirection:direction,calls};
+}
+
+const secondsToTicks=(seconds:number):number=>Math.max(1,Math.ceil(seconds*20-1e-9));
+export function resetRunTimings(
+  run:AuthoringRunV1,simulation:LineSimulationResult,firstDepartureTick:number,fixedDwellTicks:number,
+):AuthoringRunV1 {
+  if(!Number.isInteger(firstDepartureTick)||firstDepartureTick<0) throw new Error('first departure tick must be a non-negative integer');
+  if(!Number.isInteger(fixedDwellTicks)||fixedDwellTicks<0) throw new Error('fixed dwell ticks must be a non-negative integer');
+  if(run.calls.length<2||simulation.legs.length!==run.calls.length-1) throw new Error('simulation does not match route table');
+  const calls=run.calls.map((call)=>({...call}));
+  calls[0]={...calls[0],status:'ORIGIN',arrivalTick:null,departureTick:firstDepartureTick,minimumDwellTicks:null};
+  let cursor=firstDepartureTick;
+  simulation.legs.forEach((leg,index)=>{
+    const from=calls[index];
+    const to=calls[index+1];
+    if(leg.fromStationId!==from.stationId||leg.toStationId!==to.stationId) throw new Error('simulation station order does not match route table');
+    if(!Number.isFinite(leg.travelSeconds)||leg.travelSeconds<=0) throw new Error('simulation returned an invalid interval');
+    cursor+=secondsToTicks(leg.travelSeconds);
+    if(index===simulation.legs.length-1) {
+      calls[index+1]={...to,status:'TERMINAL',arrivalTick:cursor,departureTick:null,minimumDwellTicks:null};
+    } else if(to.status==='PASS') {
+      calls[index+1]={...to,arrivalTick:cursor,departureTick:null,minimumDwellTicks:null};
+    } else {
+      calls[index+1]={...to,status:'STOP',arrivalTick:cursor,departureTick:cursor+fixedDwellTicks,minimumDwellTicks:fixedDwellTicks};
+      cursor+=fixedDwellTicks;
+    }
+  });
+  return {...run,calls};
+}
+
+const shiftedTick=(tick:number|null|undefined,offsetTicks:number):number|null=>tick==null?null:tick+offsetTicks;
+export function copyRunShifted(
+  run:AuthoringRunV1,newId:string,offsetTicks:number,
+  idFactory:RunCallIdFactory=(station,index)=>`${newId}-call-${index}-${station}`,
+):AuthoringRunV1 {
+  if(!newId.trim()) throw new Error('copied run id is required');
+  if(!Number.isInteger(offsetTicks)) throw new Error('copy offset must be an integer');
+  return {...run,id:newId,calls:run.calls.map((call,index)=>({
+    ...call,id:idFactory(call.stationId,index),arrivalTick:shiftedTick(call.arrivalTick,offsetTicks),
+    departureTick:shiftedTick(call.departureTick,offsetTicks),
+  }))};
+}
+
 const issue=(path:string,message:string):AuthoringIssue=>({path,message,severity:'error'});
 const nonNegativeInteger=(value:number)=>Number.isSafeInteger(value)&&value>=0;
 const quote=(value:string)=>JSON.stringify(value);
@@ -106,21 +200,36 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
     else if(runIds.has(run.id)) issues.push(issue(`${path}.id`,`Duplicate run ID: ${run.id}`));
     runIds.add(run.id);
     if(run.calls.length<2) issues.push(issue(`${path}.calls`,'A run requires an origin and a destination'));
-    if(run.diagramLineId&&!diagramLineIds.has(run.diagramLineId)) issues.push(issue(`${path}.diagramLineId`,`Unknown diagram line: ${run.diagramLineId}`));
+    if(!run.diagramLineId) issues.push(issue(`${path}.diagramLineId`,'A run requires a diagram line'));
+    else if(!diagramLineIds.has(run.diagramLineId)) issues.push(issue(`${path}.diagramLineId`,`Unknown diagram line: ${run.diagramLineId}`));
+    if(run.lineDirection!=='UP'&&run.lineDirection!=='DOWN') issues.push(issue(`${path}.lineDirection`,'Line direction must be UP or DOWN'));
+    const diagramLine=document.diagramLines.find((line)=>line.id===run.diagramLineId);
+    const expectedStations=diagramLine?(run.lineDirection==='UP'?diagramLine.upStationIds:diagramLine.downStationIds):[];
+    const firstStationIndex=expectedStations.indexOf(run.calls[0]?.stationId);
+    const routeStations=firstStationIndex<0?[]:expectedStations.slice(firstStationIndex,firstStationIndex+run.calls.length);
+    if(diagramLine&&(routeStations.length!==run.calls.length||routeStations.some((station,index)=>station!==run.calls[index].stationId))) {
+      issues.push(issue(`${path}.calls`,'Route calls must be a contiguous section of the selected line direction'));
+    }
     const callIds=new Set<string>();
     run.calls.forEach((call,callIndex)=>{
       const callPath=`${path}.calls[${callIndex}]`;
       if(!call.id.trim()) issues.push(issue(`${callPath}.id`,'Call ID is required'));
       else if(callIds.has(call.id)) issues.push(issue(`${callPath}.id`,`Duplicate call ID: ${call.id}`));
       callIds.add(call.id);
+      if(!call.stationId.trim()) issues.push(issue(`${callPath}.stationId`,'Call station is required'));
       if(!call.targetId.trim()) issues.push(issue(`${callPath}.targetId`,'Call target is required'));
+      const expectedStatus:AuthoringRunCallStatusV1=callIndex===0?'ORIGIN':callIndex===run.calls.length-1?'TERMINAL':call.status;
+      if(call.status!==expectedStatus||(callIndex>0&&callIndex<run.calls.length-1&&call.status!=='STOP'&&call.status!=='PASS')) {
+        issues.push(issue(`${callPath}.status`,'Route endpoints and intermediate stop statuses are inconsistent'));
+      }
       for(const [name,value] of [['arrivalTick',call.arrivalTick],['departureTick',call.departureTick]] as const) {
         if(value!=null&&(!nonNegativeInteger(value)||value>=periodTicks)) issues.push(issue(`${callPath}.${name}`,`${name} must be inside the timetable period`));
       }
       if(call.minimumDwellTicks!=null&&!nonNegativeInteger(call.minimumDwellTicks)) issues.push(issue(`${callPath}.minimumDwellTicks`,'Minimum dwell must be a non-negative integer'));
       if(call.stoppingOffsetMetersBefore!=null&&(!Number.isFinite(call.stoppingOffsetMetersBefore)||call.stoppingOffsetMetersBefore<0)) issues.push(issue(`${callPath}.stoppingOffsetMetersBefore`,'Stopping offset must be finite and non-negative'));
       if(call.arrivalTick!=null&&call.departureTick!=null&&call.departureTick<call.arrivalTick) issues.push(issue(callPath,'Departure must not be earlier than arrival'));
-      if(callIndex<run.calls.length-1&&call.departureTick==null) issues.push(issue(`${callPath}.departureTick`,'Every non-terminal call requires a departure tick'));
+      if(call.status==='PASS'&&call.departureTick!=null) issues.push(issue(`${callPath}.departureTick`,'Pass rows cannot have a departure tick'));
+      if(callIndex<run.calls.length-1&&call.status!=='PASS'&&call.departureTick==null) issues.push(issue(`${callPath}.departureTick`,'Every stopping non-terminal call requires a departure tick'));
     });
   });
   const dutyIds=new Set<string>();
@@ -211,6 +320,50 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
   return issues;
 }
 
+const graphAction=(type:TimetableActionV1['type'],overrides:Partial<TimetableActionV1>):TimetableActionV1=>({
+  type,requiredTags:[],requiredCapabilities:[],stablingPointIds:[],wayPointIds:[],thenActions:[],elseActions:[],...overrides,
+});
+
+/** Builds a presentation-only service per run so the graph stays live without compiling the duty document. */
+export function authoringGraphTimetable(document:TimetableAuthoringDocumentV1):SavedTimetableV1 {
+  return {
+    id:document.id,periodDays:document.periodDays,diagramLines:document.diagramLines,
+    services:document.runs.map((run)=>({
+      id:run.id,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY',activation:{type:'SCHEDULED'},
+      steps:run.calls.length===0?[]:[
+        {type:'CHECK',wayPointId:run.calls[0].targetId},
+        ...run.calls.slice(1).flatMap((call,index)=>{
+          const previous=run.calls[index];
+          const departureTick=previous.status==='PASS'?previous.arrivalTick:previous.departureTick;
+          return [
+            {type:'AT' as const,tick:departureTick??0,action:graphAction('DESTINATION_OPTIONS',{arrivalTick:call.arrivalTick})},
+            {type:'AT' as const,tick:departureTick??0,action:graphAction('DESTINATION',{wayPointIds:[call.targetId]})},
+          ];
+        }),
+      ],
+    })),
+  };
+}
+
+/** Maps a graph point back to its route-table time cell. */
+export function updateRunGraphTick(
+  run:AuthoringRunV1,stepIndex:number,kind:'DEPARTURE'|'ARRIVAL',tick:number,
+):AuthoringRunV1 {
+  if(!Number.isSafeInteger(tick)||tick<0)return run;
+  const callIndex=kind==='ARRIVAL'?(stepIndex+1)/2:stepIndex/2-1;
+  if(!Number.isInteger(callIndex)||callIndex<0||callIndex>=run.calls.length)return run;
+  const calls=run.calls.map((call,index)=>index!==callIndex?call:kind==='ARRIVAL'||call.status==='PASS'
+    ?{...call,arrivalTick:tick}
+    :{...call,departureTick:tick});
+  return {...run,calls};
+}
+
+export function authoringSelectorKey(selector:AuthoringDutySelectorV1):string {
+  if(selector.type==='TRAIN_NAME')return JSON.stringify(['TRAIN_NAME',selector.name]);
+  if(selector.type==='TAKE_FROM_WAYPOINT')return JSON.stringify(['TAKE_FROM_WAYPOINT',selector.wayPointIds]);
+  return JSON.stringify(['TAKE_FROM_DEPOT',selector.depotId,[...selector.tags].sort()]);
+}
+
 function selectorSource(selector:AuthoringDutySelectorV1):string {
   if(selector.type==='TRAIN_NAME') return quote(selector.name);
   if(selector.type==='TAKE_FROM_WAYPOINT') return `timetable.takeFromWaypoint([${selector.wayPointIds.map(quote).join(', ')}], ${selector.tick})`;
@@ -257,11 +410,19 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1):G
           lines.push(`            ${scoped}.check(${quote(run.calls[0].targetId)})`);
           emittedCheck=true;
         }
+        let routeAnchor=run.calls[0];
+        let pendingPasses='';
         for(let index=1;index<run.calls.length;index++) {
-          const previous=run.calls[index-1],call=run.calls[index];
-          if(previous.departureTick==null||!call.targetId) continue;
+          const call=run.calls[index];
+          if(call.status==='PASS') {
+            if(call.targetId) pendingPasses+=`.pass(${quote(call.targetId)})`;
+            continue;
+          }
+          if(routeAnchor?.departureTick==null||!call.targetId) continue;
           const override=document.arrivalOverrides.find((item)=>item.runId===run.id&&item.callId===call.id)?.tick;
-          lines.push(`            ${scoped}.at(${previous.departureTick}).destination(${quote(call.targetId)}${destinationOptions(call,override)})`);
+          lines.push(`            ${scoped}.at(${routeAnchor.departureTick})${pendingPasses}.destination(${quote(call.targetId)}${destinationOptions(call,override)})`);
+          routeAnchor=call;
+          pendingPasses='';
         }
         lines.push('        })');
       } else {

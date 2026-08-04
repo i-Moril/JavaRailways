@@ -12,7 +12,9 @@ data class SimulationLeg(
     val toStationId: String,
     val lengthMeters: Double,
     /** Length-weighted route tangent Y captured before entering the async executor. */
-    val averageGrade: Double = 0.0
+    val averageGrade: Double = 0.0,
+    /** False keeps train state through this station and reports a crossing interval. */
+    val stopAtEnd: Boolean = true
 )
 data class SimulatedLeg(
     val fromStationId: String,
@@ -32,7 +34,7 @@ object IsolatedLineSimulator {
         val result = try {
             DetailedTrainTravelSimulator.simulate(
                 legs.map { DetailedTravelLeg(
-                    it.fromStationId, it.toStationId, it.lengthMeters, it.averageGrade
+                    it.fromStationId, it.toStationId, it.lengthMeters, it.averageGrade, it.stopAtEnd
                 ) },
                 DetailedTrainSimulationProfile(profile.trainControl, profile.carControls)
             )

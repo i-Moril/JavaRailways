@@ -21,7 +21,8 @@ import java.util.concurrent.atomic.AtomicLong
 /** Identifies who caused a physics epoch to start. */
 enum class PhysicsWakeSource {
     MAIN_THREAD,
-    TIMER_FALLBACK
+    TIMER_FALLBACK,
+    SIMULATION
 }
 
 enum class PhysicsCoordinatorStatus {
@@ -87,7 +88,9 @@ class PhysicsCoordinator(
     private val mainHeartbeatTimeoutMillis: Long = MAIN_HEARTBEAT_TIMEOUT_MILLIS,
     private val maxStepMillis: Long = MAX_STEP_MILLIS,
     private val overloadWindowMillis: Long = OVERLOAD_WINDOW_MILLIS,
-    private val overloadsBeforeStall: Int = OVERLOADS_BEFORE_STALL
+    private val overloadsBeforeStall: Int = OVERLOADS_BEFORE_STALL,
+    private val automaticFallback: Boolean = true,
+    private val publishCollisionEvents: Boolean = true
 ) : AutoCloseable {
     init {
         require(workerThreads > 0) { "physics workerThreads must be > 0" }
@@ -156,12 +159,14 @@ class PhysicsCoordinator(
             world!!.rebuildSweptOccupancyIndex()
             started = true
         }
-        fallbackTimer.scheduleAtFixedRate(
-            ::timerWake,
-            fallbackPeriodMillis,
-            fallbackPeriodMillis,
-            TimeUnit.MILLISECONDS
-        )
+        if (automaticFallback) {
+            fallbackTimer.scheduleAtFixedRate(
+                ::timerWake,
+                fallbackPeriodMillis,
+                fallbackPeriodMillis,
+                TimeUnit.MILLISECONDS
+            )
+        }
     }
 
     fun register(controller: TrainController) {
@@ -181,6 +186,13 @@ class PhysicsCoordinator(
             lastMainWakeNanos = nanoTime()
         }
         return requestStep(PhysicsWakeSource.MAIN_THREAD)
+    }
+
+    /** Advances an isolated world by one deterministic logical step without consulting wall time. */
+    fun stepSimulation(deltaMillis: Double): PhysicsTicket {
+        require(deltaMillis > 0.0 && deltaMillis.isFinite())
+        check(!automaticFallback) { "stepSimulation requires a coordinator with automaticFallback=false" }
+        return requestStep(PhysicsWakeSource.SIMULATION, deltaMillis)
     }
 
     /**
@@ -220,7 +232,7 @@ class PhysicsCoordinator(
                 trainBId = pair.secondTrainId,
                 relativeSpeed = relativeSpeed(train, other)
             )
-            PhysicsRailEventBus.publish(event)
+            if (publishCollisionEvents) PhysicsRailEventBus.publish(event)
             pendingCollisionDecisions[pair] = PendingCollisionDecision(runningEpoch, pair, event.resolution)
         }
         return true
@@ -258,7 +270,7 @@ class PhysicsCoordinator(
         }
     }
 
-    private fun requestStep(source: PhysicsWakeSource): PhysicsTicket {
+    private fun requestStep(source: PhysicsWakeSource, fixedDeltaMillis: Double? = null): PhysicsTicket {
         val ticket: PhysicsTicket
         val startNanos: Long
         val deltaMillis: Double
@@ -268,12 +280,12 @@ class PhysicsCoordinator(
             check(started) { "PhysicsCoordinator has not been started" }
 
             startNanos = nanoTime()
-            deltaMillis = if (previousPhysicsStartNanos == 0L) {
+            deltaMillis = fixedDeltaMillis ?: if (previousPhysicsStartNanos == 0L) {
                 BOOTSTRAP_DELTA_MILLIS
             } else {
                 (startNanos - previousPhysicsStartNanos).toDouble() / 1_000_000.0
             }
-            previousPhysicsStartNanos = startNanos
+            if (fixedDeltaMillis == null) previousPhysicsStartNanos = startNanos
 
             ticket = PhysicsTicket(nextEpoch++, CompletableFuture())
             inFlight = ticket

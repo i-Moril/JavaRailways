@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.bukkit.World as BukkitWorld
@@ -29,6 +30,8 @@ import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.SavedTimetableV1
 import work.art1st.javarailways.basic.persistence.TimetableSnapshotCodec
 import work.art1st.javarailways.basic.timetable.TimetableValidator
+import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationRequest
+import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationResult
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import java.net.InetSocketAddress
@@ -171,6 +174,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 exchange.requestMethod == "DELETE" && parts.size == 3 && parts[1] == "lines" -> {
                     val body = readBody(exchange)
                     exchange.respond(200, await { deleteLineJson(worldName, decode(parts[2]), body) })
+                }
+                exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "timetables" && parts[2] == "simulate" -> {
+                    exchange.respond(200, simulateTimetableJson(worldName, readBody(exchange)))
                 }
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "timetables" -> exchange.respond(200, await { timetablesJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "timetables" -> exchange.respond(200, await { timetableJson(worldName, decode(parts[2])) })
@@ -369,6 +375,116 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 put("errors", JsonArray(validation.errors.map(::JsonPrimitive)))
             }
 
+        private fun simulateTimetableJson(worldName: String, body: String): String {
+            val root = json.parseToJsonElement(body).jsonObject
+            val savedElement = root["timetable"]
+                ?: throw HttpFailure(400, "timetable is required")
+            val saved = runCatching { TimetableSnapshotCodec.decode(savedElement.toString()) }
+                .getOrElse { throw HttpFailure(400, "invalid timetable: ${it.message}") }
+            val timetable = runCatching(saved::restore)
+                .getOrElse { throw HttpFailure(422, "invalid timetable: ${it.message}") }
+            val delayThreshold = root["delayThresholdTicks"]?.jsonPrimitive?.content?.toLongOrNull()
+                ?: 1_200L
+            if (delayThreshold <= 0L) throw HttpFailure(400, "delayThresholdTicks must be positive")
+            val selections = root["profileAssignments"]?.let { element ->
+                runCatching {
+                    (element as JsonArray).map { assignmentElement ->
+                        val assignment = assignmentElement.jsonObject
+                        val serviceId = assignment["serviceId"]?.jsonPrimitive?.content
+                            ?.takeIf(String::isNotBlank)
+                            ?: throw IllegalArgumentException("profile assignment serviceId is required")
+                        val profileType = assignment["profileType"]?.jsonPrimitive?.content?.let {
+                            SimulationProfileType.valueOf(it)
+                        } ?: throw IllegalArgumentException("profile assignment profileType is required")
+                        val profileId = assignment["profileId"]?.jsonPrimitive?.content
+                            ?.takeIf(String::isNotBlank)
+                            ?: throw IllegalArgumentException("profile assignment profileId is required")
+                        TimetableProfileSelection(serviceId, profileType, profileId)
+                    }
+                }.getOrElse { throw HttpFailure(400, "invalid profileAssignments: ${it.message}") }
+            } ?: throw HttpFailure(400, "profileAssignments is required")
+            val factory = IsolatedTimetableSimulationFactory(SimulationControlProfileCatalog(plugin))
+            val snapshot = await {
+                withWorld(worldName) { _, world ->
+                    val coreWorld = world as? work.art1st.javarailways.core.physics.CoreWorld
+                        ?: throw HttpFailure(422, "world does not support isolated simulation")
+                    val validation = TimetableValidator(coreWorld).validate(timetable)
+                    if (!validation.isSuccess) throw HttpFailure(422, validation.errors.joinToString("; "))
+                    runCatching { factory.capture(coreWorld, timetable, selections) }
+                        .getOrElse { throw HttpFailure(422, it.message ?: "could not capture simulation world") }
+                }
+            }
+            val task = try {
+                simulationExecutor.submit<IsolatedTimetableSimulationResult> {
+                    BukkitThreadGuardBridge.runInSimulationContext {
+                        factory.create(
+                            snapshot,
+                            workerThreads = plugin.javaRailwaysConfig.physicsWorkerThreads.coerceIn(1, 4)
+                        ).use { simulation ->
+                            simulation.simulate(IsolatedTimetableSimulationRequest(
+                                timetable,
+                                delayThresholdTicks = delayThreshold
+                            ))
+                        }
+                    }
+                }
+            } catch (_: RejectedExecutionException) {
+                throw HttpFailure(429, "timetable simulation queue is full; retry later")
+            }
+            val result = try {
+                task.get(60, TimeUnit.SECONDS)
+            } catch (failure: ExecutionException) {
+                val cause = failure.cause ?: failure
+                if (cause is HttpFailure) throw cause
+                if (cause is IllegalArgumentException || cause is IllegalStateException) {
+                    throw HttpFailure(422, cause.message ?: "simulation setup failed")
+                }
+                throw cause
+            } catch (_: TimeoutException) {
+                task.cancel(true)
+                throw HttpFailure(504, "timetable simulation timed out")
+            } catch (interrupted: InterruptedException) {
+                task.cancel(true)
+                Thread.currentThread().interrupt()
+                throw interrupted
+            }
+            return simulationResultJson(result)
+        }
+
+        private fun simulationResultJson(result: IsolatedTimetableSimulationResult): String =
+            json.encodeToString(buildJsonObject {
+                put("status", when (result) {
+                    is IsolatedTimetableSimulationResult.Completed -> "COMPLETED"
+                    is IsolatedTimetableSimulationResult.DelayExceeded -> "DELAY_EXCEEDED"
+                    is IsolatedTimetableSimulationResult.Failed -> "FAILED"
+                    is IsolatedTimetableSimulationResult.PeriodEnded -> "PERIOD_ENDED"
+                })
+                put("simulatedTicks", result.simulatedTicks)
+                if (result is IsolatedTimetableSimulationResult.DelayExceeded) {
+                    put("thresholdTicks", result.thresholdTicks)
+                    put("observedDelayTicks", result.observedDelayTicks)
+                    put("delayedServiceId", result.delayedRun.id.serviceId)
+                    put("delayedStepIndex", result.delayedRun.nextStepIndex)
+                }
+                if (result is IsolatedTimetableSimulationResult.Failed) put("reason", result.reason)
+                put("runs", JsonArray(result.runs.map { run -> buildJsonObject {
+                    put("timetableId", run.id.timetableId)
+                    put("serviceId", run.id.serviceId)
+                    put("trainId", run.trainId)
+                    put("state", run.state.name)
+                    put("timetableElapsedTicks", run.timetableElapsedTicks)
+                    put("scheduledActionTick", run.scheduledActionTick)
+                    put("nextScheduledTick", run.nextScheduledTick)
+                    put("lastLatenessTicks", run.lastLatenessTicks)
+                    put("currentWayPointId", run.currentWayPointId)
+                    put("nextStepIndex", run.nextStepIndex)
+                    put("trainHeadRailId", run.trainHeadRailId)
+                    put("trainHeadArcLengthInAbMeters", run.trainHeadArcLengthInAbMeters)
+                    put("headProgressMeters", run.headProgressMeters)
+                    put("message", run.message)
+                }}))
+            })
+
         private fun linesJson(worldName: String) = withWorld(worldName) { _, world ->
             val snapshot = world.basicWorldData.lines.snapshot()
             json.encodeToString(buildJsonObject {
@@ -418,6 +534,26 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         val failure = compilation as LineCompileResult.Failure
                         throw HttpFailure(422, failure.reason)
                     }
+                    val originStationId = request["originStationId"]?.jsonPrimitive?.content
+                    val terminalStationId = request["terminalStationId"]?.jsonPrimitive?.content
+                    if ((originStationId == null) != (terminalStationId == null)) {
+                        throw HttpFailure(400, "originStationId and terminalStationId must be provided together")
+                    }
+                    val stationIds = line.stations(direction).map { it.value }
+                    val originIndex = originStationId?.let(stationIds::indexOf) ?: 0
+                    val terminalIndex = terminalStationId?.let(stationIds::indexOf) ?: stationIds.lastIndex
+                    if (originIndex < 0 || terminalIndex < 0 || terminalIndex <= originIndex) {
+                        throw HttpFailure(400, "route endpoints must follow line direction and contain at least two stations")
+                    }
+                    val selectedStationIds = stationIds.subList(originIndex, terminalIndex + 1)
+                    val requestedStopStationIds = request["stopStationIds"]?.jsonArray
+                        ?.map { it.jsonPrimitive.content }
+                        ?.toSet()
+                    if (requestedStopStationIds != null && !selectedStationIds.containsAll(requestedStopStationIds)) {
+                        throw HttpFailure(400, "stopStationIds must belong to the selected route section")
+                    }
+                    val stopStationIds = requestedStopStationIds ?: selectedStationIds.drop(1).toSet()
+                    val selectedLegs = compilation.legs.subList(originIndex, terminalIndex)
                     val profileType = request["profileType"]?.jsonPrimitive?.content?.let { value ->
                         runCatching { SimulationProfileType.valueOf(value) }.getOrElse {
                             throw HttpFailure(400, "unknown simulation profileType: $value")
@@ -431,7 +567,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     LineSimulationSnapshot(
                         revision = data.lines.snapshot().revision,
                         profile = profile,
-                        legs = compilation.legs.map { leg ->
+                        legs = selectedLegs.mapIndexed { index, leg ->
                             val weightedGrade = leg.route.segments.sumOf { segment ->
                                 val rail = world.getRail(segment.railViewRef.railId)
                                     ?: throw HttpFailure(409, "route rail disappeared: ${segment.railViewRef.railId}")
@@ -443,7 +579,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                                 leg.fromStationId,
                                 leg.toStationId,
                                 leg.route.totalLength,
-                                weightedGrade
+                                weightedGrade,
+                                stopAtEnd = leg.toStationId in stopStationIds || index == selectedLegs.lastIndex
                             )
                         }
                     )

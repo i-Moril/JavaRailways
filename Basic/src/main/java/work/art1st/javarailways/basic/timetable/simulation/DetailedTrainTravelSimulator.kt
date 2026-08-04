@@ -10,7 +10,8 @@ data class DetailedTravelLeg(
     val fromId: String,
     val toId: String,
     val lengthMeters: Double,
-    val averageGrade: Double = 0.0
+    val averageGrade: Double = 0.0,
+    val stopAtEnd: Boolean = true
 )
 
 data class DetailedSimulatedLeg(
@@ -49,11 +50,21 @@ object DetailedTrainTravelSimulator {
             profile.cars.sumOf(TrainDynamics.CarProfile::brakeMaxForce) /
                 profile.cars.sumOf(TrainDynamics.CarProfile::effectiveMass) * 0.72
         )
+        require(legs.last().stopAtEnd) { "the final travel leg must end at a stop" }
         val powerHandle = findPowerHandle(profile.train)
         val brakeHandle = findBrakeHandle(profile.train)
-        return DetailedTravelSimulationResult(legs.map { leg ->
-            simulateLeg(
-                leg,
+        val stoppingGroups = buildList {
+            var start = 0
+            legs.forEachIndexed { index, leg ->
+                if (leg.stopAtEnd) {
+                    add(legs.subList(start, index + 1))
+                    start = index + 1
+                }
+            }
+        }
+        return DetailedTravelSimulationResult(stoppingGroups.flatMap { group ->
+            simulateStoppingGroup(
+                group,
                 profile,
                 estimatedBrakeDeceleration,
                 powerHandle,
@@ -74,43 +85,76 @@ object DetailedTrainTravelSimulator {
             ?: profile.brakeHandles.maxByOrNull(profile::normalizedBrakeScale)
             ?: throw IllegalArgumentException("selected train profile has no brake notch")
 
-    private fun simulateLeg(
-        leg: DetailedTravelLeg,
+    private fun simulateStoppingGroup(
+        legs: List<DetailedTravelLeg>,
         profile: DetailedTrainSimulationProfile,
         brakeDeceleration: Double,
         powerHandle: String,
         brakeHandle: String,
         deadlineNanos: Long
-    ): DetailedSimulatedLeg {
-        val cars = profile.cars.map { TrainDynamics.CarInput(it, leg.averageGrade) }
+    ): List<DetailedSimulatedLeg> {
+        val totalLength = legs.sumOf(DetailedTravelLeg::lengthMeters)
+        val boundaries = legs.runningFold(0.0) { distance, leg -> distance + leg.lengthMeters }.drop(1)
+        val simulated = mutableListOf<DetailedSimulatedLeg>()
         var state = TrainDynamics.State()
         var distance = 0.0
         var elapsed = 0.0
-        var peakSpeed = 0.0
-        while (elapsed < MAX_LEG_SECONDS) {
+        var legIndex = 0
+        var legStartedAt = 0.0
+        var legPeakSpeed = 0.0
+        while (elapsed < MAX_LEG_SECONDS * legs.size) {
             if (Thread.currentThread().isInterrupted) throw CancellationException("travel simulation cancelled")
             if (System.nanoTime() >= deadlineNanos) {
                 throw DetailedTrainSimulationLimitException("travel simulation exceeded its computation deadline")
             }
-            val remaining = leg.lengthMeters - distance
+            val remaining = totalLength - distance
             val stoppingDistance = state.speed * state.speed / (2.0 * brakeDeceleration) + state.speed * 0.8 + 0.5
             val handle = if (remaining <= stoppingDistance) brakeHandle else powerHandle
+            val currentLeg = legs[legIndex.coerceAtMost(legs.lastIndex)]
+            val cars = profile.cars.map { TrainDynamics.CarInput(it, currentLeg.averageGrade) }
+            val beforeDistance = distance
+            val beforeElapsed = elapsed
             val result = TrainDynamics.step(state, profile.train, cars, handle, STEP_SECONDS)
             state = result.state
             distance += result.distance
             elapsed += STEP_SECONDS
-            peakSpeed = max(peakSpeed, state.speed)
-            if (remaining <= 2.0 && state.speed <= 0.05) {
-                return DetailedSimulatedLeg(
+            legPeakSpeed = max(legPeakSpeed, state.speed)
+
+            while (legIndex < legs.lastIndex && distance >= boundaries[legIndex]) {
+                val crossingFraction = if (distance > beforeDistance) {
+                    ((boundaries[legIndex] - beforeDistance) / (distance - beforeDistance)).coerceIn(0.0, 1.0)
+                } else 1.0
+                val crossingElapsed = beforeElapsed + STEP_SECONDS * crossingFraction
+                val leg = legs[legIndex]
+                simulated += DetailedSimulatedLeg(
                     leg.fromId,
                     leg.toId,
                     leg.lengthMeters,
-                    elapsed,
-                    peakSpeed,
-                    distance - leg.lengthMeters
+                    crossingElapsed - legStartedAt,
+                    legPeakSpeed,
+                    0.0
                 )
+                legStartedAt = crossingElapsed
+                legIndex += 1
+                legPeakSpeed = state.speed
+            }
+
+            if (remaining <= 2.0 && state.speed <= 0.05) {
+                val leg = legs.last()
+                simulated += DetailedSimulatedLeg(
+                    leg.fromId,
+                    leg.toId,
+                    leg.lengthMeters,
+                    elapsed - legStartedAt,
+                    legPeakSpeed,
+                    distance - totalLength
+                )
+                return simulated
             }
         }
-        error("simulation did not stop within ${MAX_LEG_SECONDS.toInt()} seconds: ${leg.fromId} -> ${leg.toId}")
+        error(
+            "simulation did not stop within ${(MAX_LEG_SECONDS * legs.size).toInt()} seconds: " +
+                "${legs.first().fromId} -> ${legs.last().toId}"
+        )
     }
 }

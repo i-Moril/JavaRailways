@@ -6,6 +6,20 @@ enum class ThreadContext {
     UNKNOWN_BACKGROUND
 }
 
+object IsolatedMainThreadMarker {
+    private val depth = ThreadLocal.withInitial { 0 }
+
+    fun isActive(): Boolean = depth.get() > 0
+
+    fun <T> run(action: () -> T): T {
+        depth.set(depth.get() + 1)
+        return try { action() } finally {
+            val next = depth.get() - 1
+            if (next == 0) depth.remove() else depth.set(next)
+        }
+    }
+}
+
 object ThreadGuard {
     @Volatile
     private var platformBridge: ThreadGuardPlatformBridge? = null
@@ -18,7 +32,8 @@ object ThreadGuard {
         platformBridge = null
     }
 
-    fun isMainThread(): Boolean = platformBridge?.isMainThread() == true
+    fun isMainThread(): Boolean =
+        IsolatedMainThreadMarker.isActive() || platformBridge?.isMainThread() == true
 
     fun isAsyncTickThread(): Boolean = AsyncTickThreadMarker.isAsyncTickThread()
 

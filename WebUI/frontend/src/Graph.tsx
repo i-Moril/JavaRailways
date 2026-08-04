@@ -16,12 +16,14 @@ export function Graph({
   line,
   graphLineId,
   readOnly = false,
+  highlightedServiceIds,
 }: {
   value: SavedTimetableV1;
   metadata?: WorldMetadata;
   line?: LineV1;
   graphLineId?: string;
   readOnly?: boolean;
+  highlightedServiceIds?:ReadonlySet<string>;
   onTick: (service: number, step: number, tick: number, kind:'DEPARTURE'|'ARRIVAL') => void;
   onSelect?: (service: number, step: number) => void;
 }) {
@@ -107,9 +109,12 @@ export function Graph({
     for (const path of layout.paths) {
       const color = serviceColors[path.serviceIndex % serviceColors.length];
       const points = path.points.map((point) => ({ ...point, x:transformX(point.x), y:transformY(point.y) }));
+      const hasHighlightSelection=(highlightedServiceIds?.size??0)>0;
+      const highlighted=!hasHighlightSelection||highlightedServiceIds!.has(path.serviceId);
+      context.globalAlpha=highlighted?1:0.16;
       if (points.length > 1) {
         context.strokeStyle = color;
-        context.lineWidth = 2;
+        context.lineWidth = hasHighlightSelection&&highlighted?4:2;
         context.beginPath();
         points.forEach((point, index) => index === 0 ? context.moveTo(point.x, point.y) : context.lineTo(point.x, point.y));
         context.stroke();
@@ -126,8 +131,9 @@ export function Graph({
         }
       }
     }
+    context.globalAlpha=1;
     context.restore();
-  }, [layout, size.width, size.height, value, viewport, theme, hoveredPoint]);
+  }, [layout, size.width, size.height, value, viewport, theme, hoveredPoint, highlightedServiceIds]);
 
   const position = (event: React.PointerEvent | React.WheelEvent) => {
     const bounds = event.currentTarget.getBoundingClientRect();

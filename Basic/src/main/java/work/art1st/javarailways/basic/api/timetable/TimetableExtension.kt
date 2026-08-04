@@ -164,6 +164,11 @@ sealed interface TimetableExtensionActionStartResult {
     }
 }
 
+/** Opt-in factory for a provider that is pure and safe inside an isolated simulation world. */
+fun interface TimetableConditionSimulationFactory {
+    fun createSimulationProvider(): TimetableConditionProvider
+}
+
 interface TimetableActionProvider {
     val typeId: String
     val version: Int
@@ -177,6 +182,11 @@ interface TimetableActionProvider {
         parameters: JsonObject,
         context: TimetableRuntimeContext
     ): TimetableExtensionActionStartResult
+}
+
+/** Opt-in factory for a pure action provider; providers without one are intentionally unavailable. */
+fun interface TimetableActionSimulationFactory {
+    fun createSimulationProvider(): TimetableActionProvider
 }
 
 /** Thread-safe registry. Duplicate type/version registrations fail instead of silently replacing plugins. */
@@ -223,6 +233,18 @@ class TimetableExtensionRegistry(registerBuiltIns: Boolean = true) {
 
     fun actionProviders(): List<TimetableActionProvider> =
         actions.entries.sortedWith(compareBy({ it.key.typeId }, { it.key.version })).map { it.value }
+
+    /** Creates a detached registry containing built-ins and explicitly supplied simulation providers only. */
+    fun createSimulationRegistry(): TimetableExtensionRegistry = TimetableExtensionRegistry().also { target ->
+        conditionProviders().filterIsInstance<TimetableConditionSimulationFactory>().forEach { factory ->
+            val provider = factory.createSimulationProvider()
+            if (target.condition(provider.typeId, provider.version) == null) target.registerCondition(provider)
+        }
+        actionProviders().filterIsInstance<TimetableActionSimulationFactory>().forEach { factory ->
+            val provider = factory.createSimulationProvider()
+            if (target.action(provider.typeId, provider.version) == null) target.registerAction(provider)
+        }
+    }
 
     fun validateCondition(
         condition: TimetableCondition,

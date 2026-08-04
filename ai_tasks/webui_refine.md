@@ -54,9 +54,19 @@ SavedTimetableV1 + CompilationTrace
 interface AuthoringRun {
   id: string;
   calls: AuthoringCall[];
-  routeHints: string[];
-  serviceType: 'PASSENGER' | 'DEADHEAD';
+  type: 'PASSENGER' | 'DEADHEAD';
   diagramLineId?: string;
+  lineDirection: 'UP' | 'DOWN';
+}
+
+interface AuthoringCall {
+  id: string;
+  stationId: string;
+  berthId?: string;
+  targetId: string;
+  status: 'ORIGIN' | 'STOP' | 'PASS' | 'TERMINAL';
+  arrivalTick?: number;
+  departureTick?: number;
 }
 ```
 
@@ -67,7 +77,7 @@ interface AuthoringRun {
 - 发布前所有运行线必须分配到且只分配到一个交路。
 - 调图是把运行线从交路 A 原子移动到交路 B，不是共享引用。
 - 复制运行线必须创建新的运行线 ID。
-- 可以复用运行线模板，但模板每次生成新的运行线实例。
+- 不引入显式运行线模板；已有运行线本身就是可复制并平移的原型。
 - 经过运营线路的回送必须由用户显式建立为一条 `DEADHEAD` 运行线。
 
 运行线不声明加速度、制动等级等复杂车辆性能要求。
@@ -110,6 +120,33 @@ Map<runId, dutyId>
 ```
 
 不要同时保存 `run.dutyId` 和 `duty.elements[].runId`，避免双向状态不一致。
+
+### 2.4 运行线便捷创建（已实现第一版）
+
+常规流程：
+
+```text
+选择线路和方向
+→ 选择起点、终点
+→ 自动形成路线表
+→ 编辑停车/通过和站台
+→ Reset 生成时刻
+→ 必要时逐站微调
+→ 复制并平移
+→ 分配到交路
+```
+
+约束：
+
+- 路线表是运行线站序、停站状态和时刻的唯一权威来源；第一行固定 `ORIGIN`，最后一行固定 `TERMINAL`。
+- 起终点只能选择所选方向上的连续区段，至少保留两个站；扩展/裁剪时保留重叠行数据，新行继承线路车站及默认站台。
+- 中间行可在 `STOP` 与 `PASS` 间切换；`PASS` 保留通过时刻，但没有发车时刻和停站时间。
+- Reset 输入首站发车 Tick、固定停站 Tick 和模拟车辆 Profile；后端按实际停站模式保持或清零过站速度，并返回每个相邻站间的通过/运行间隔。
+- Reset 失败不写回文档；成功一次性替换整条运行线时刻并清除该运行线的 arrival overrides，因此形成单条 Undo。
+- 复制并平移支持批量生成，全部到达/通过/发车时刻统一平移，创建新运行线和 call ID，且默认不分配交路。
+- 当前第一版仍以 Tick 输入为主；`HH:mm:ss`、更紧凑表格和其他视觉改进留在后续 UI 迭代。
+- 运行图始终是主工作区；旧“车次与动作”侧栏由带“运行线 / 交路”选项卡的新侧栏取代，不再建立单独的交路顶级页面。
+- 运行线选项卡可直接拖动运行图节点修改路线表时刻；交路选项卡将当前交路包含的运行线加粗高亮，并淡化其他运行线。
 
 ---
 
@@ -402,7 +439,7 @@ AuthoringDocument
     ↓ compile
 SavedTimetableV1 / Timetable + sourceMap
     ↓
-Basic TimetableSimulationEngine
+IsolatedTimetableSimulationWorld
 ```
 
 这样模拟验证的是实际将要发布和调度的产物。
@@ -418,7 +455,7 @@ Basic TimetableSimulationEngine
 
 source map 在模拟完成后把 service/step 事件映射回 duty/run/function。
 
-### 8.2 快速运营模拟
+### 8.2 隔离世界模拟
 
 建议目录：
 
@@ -428,57 +465,52 @@ Basic/src/main/.../timetable/simulation/
 
 特征：
 
-- 确定性虚拟时钟。
-- 优先事件队列。
-- 无事件区间直接跳到下一事件。
-- 不创建 Bukkit 实体。
-- 不读取实时可变世界对象。
-- 使用 immutable infrastructure/profile snapshot。
+- 从 Core 和 Basic infrastructure snapshot 创建全新的世界。
+- 不恢复 live runtime snapshot、列车、占用、预约、Dispatcher 时钟或道岔瞬态。
+- 只按 timetable 和 selector/profile 映射创建合成车辆。
+- 使用独立 TickManager、PhysicsCoordinator 和线程池。
+- 每次严格推进 `50ms` 逻辑 tick，并在每 tick 的物理发布屏障后运行真实 Dispatcher。
+- 直接复用 RoutePlanner、ATO、站台、车辆段、区间分配和碰撞规则，不维护第二套资源日历。
+- 当某个下一计划动作的延误达到配置阈值时立即停止全部模拟并报告当前位置。
 
-### 8.3 详细动力学
+### 8.3 动力学与列车操作
 
-现有 `BukkitPlugin/http/IsolatedLineSimulator.kt` 的纯计算部分不应继续由 HTTP 层拥有。建议拆分：
+线路预览仍可复用 `DetailedTrainTravelSimulator` 做单线估算；完整 timetable 模拟不再使用
+`TravelTimeEstimator + 事件队列` 代替真实世界运行。
 
 ```text
-Basic
-├── TimetableSimulationEngine
-├── TravelTimeEstimator 接口
-├── 运营事件和资源模拟
-└── SimulationReport
+Core
+├── CoreWorld static snapshot clone
+├── PhysicsCoordinator fixed simulation step
+└── train physics publication barrier
 
-Core、Basic 纯逻辑包或独立模块
-├── TrainDynamics 纯计算
-└── DetailedTravelTimeEstimator
+Basic
+├── IsolatedTimetableSimulationWorld
+├── real TimetableDispatcher / SimpleATO
+└── SimulationTrainOperationGateway
 
 BukkitPlugin
-└── 捕获世界、线路和车辆 immutable snapshot
+├── 捕获静态 infrastructure/config snapshot
+├── 根据 profile 创建合成 CoreTrain
+└── 将声明式 model action 时长转换为逻辑操作 ticket
 ```
 
-Basic 不依赖 Bukkit 实体或 HTTP 实现。
+Basic 不依赖 Bukkit 实体或 HTTP 实现。没有 simulation implementation 的自定义函数或模型动作直接报错。
 
 ### 8.4 加速方式
 
-“自定义 tickrate”表示提高模拟吞吐量，不改变逻辑 tick 时长：
+加速只提高 wall-clock 吞吐量，不改变逻辑 tick：
 
-- 运营层优先使用离散事件跳跃。
-- 详细动力学保持固定 `0.05s` 积分步长。
-- worker 可以在一次批处理中执行大量逻辑 tick。
-- 提高吞吐量不得改变模拟结果。
+- PhysicsCoordinator 使用调用者提供的固定 `50ms` delta。
+- 每个模拟拥有独立 worker pool，车辆物理可并行，但每 tick 必须统一发布后再推进。
+- 不等待真实服务器 tick，也不增大积分步长。
+- 线程调度顺序不得改变结果。
 
 ### 8.5 与真实 Dispatcher 共享规则
 
-长期逐步抽取：
-
-```text
-TimetableTransitionEngine
-├── Clock
-├── InfrastructureGateway
-├── TrainOperationGateway
-├── TravelTimeEstimator
-└── EventSink
-```
-
-生产注入真实 World/ATO adapter；模拟注入 VirtualClock 和内存 gateway。第一版可以先实现独立模拟器，但必须使用同一个编译产物和共享 validator，并逐步减少规则漂移。
+完整模拟直接运行现有 Dispatcher、ATO、RoutePlanner、station/depot allocator 和 Core physics，
+而不是复制这些状态转换。模拟 adapter 仅负责静态世界复制、合成车辆创建、平台操作的纯逻辑 ticket
+以及停止/报告策略。
 
 ---
 
@@ -509,49 +541,30 @@ TimetableTransitionEngine
 ## 10. 模拟报告
 
 ```kotlin
-data class SimulationEvent(
-    val serviceId: String,
-    val stepIndex: Int?,
-    val plannedTick: Long?,
-    val actualTick: Long,
-    val delayTicks: Long,
-    val cause: DelayCause?,
-    val blockingResource: String?
+data class DelayExceeded(
+    val simulatedTicks: Long,
+    val thresholdTicks: Long,
+    val observedDelayTicks: Long,
+    val delayedRun: TimetableServiceRunSnapshot,
+    val runs: List<TimetableServiceRunSnapshot>
 )
 ```
 
-通过 source map 在 WebUI 中转换为：
+`delayedRun` 直接包含真实 Dispatcher/ATO 状态：
 
-- dutyId。
-- runId。
-- functionCallId。
+- service 和 cycle。
+- 当前/下一 step。
+- 当前 waypoint。
+- 车头 Rail UUID 和 AB 弧长。
+- 下一计划 Tick 和已观测延误。
+- mission/站台/模型操作状态与运行消息。
 
-延误原因至少包括：
+通过 compilation trace 在 WebUI 中转换为 dutyId、runId 和 functionCallId。第一版在第一个达到阈值的
+延误处停止，因此不伪造“延误传播链”或由另一套资源模型猜测原因；界面直接展示停止时真实等待的
+route、berth、depot、operation 或 movement 状态。完整到发轨迹叠加可在不改变运行引擎的前提下增加
+tick observation sink。
 
-- `INSUFFICIENT_RUNNING_TIME`
-- `INSUFFICIENT_DWELL_TIME`
-- `TURNBACK_TIME`
-- `LOCATION_MISMATCH`
-- `DIRECTION_MISMATCH`
-- `PLATFORM_CONFLICT`
-- `ROUTE_CONFLICT`
-- `DEPOT_UNAVAILABLE`
-- `TRAIN_UNAVAILABLE`
-- `PREVIOUS_RUN_DELAY`
-- `CUSTOM_OPERATION`
-- `UNSIMULATABLE_FUNCTION`
-
-报告包括：
-
-- 每条运行线计划与模拟到发时刻。
-- 每条交路累计延误和最大延误。
-- 延误传播链。
-- 资源冲突和阻塞对象。
-- 最小可行区间、停站和折返时间。
-- 可用缓冲时间。
-- selector 使用的模拟车辆及 profile。
-
-第一版只给出问题和建议，不自动修改时刻表。
+第一版只报告问题，不自动修改时刻表。
 
 ---
 
@@ -620,20 +633,20 @@ data class SimulationEvent(
 - 函数插入和参数编辑。
 - generation manifest 和 compilation trace 驱动错误定位。
 
-### 阶段 3：Basic 快速模拟器
+### 阶段 3：隔离世界模拟器
 
-- 接收编译后的 `Timetable`。
-- selector/profile 映射。
-- VirtualClock 和事件队列。
-- 车辆和基础设施资源。
-- 延误传播和 SimulationReport。
+- 接收编译后的 `Timetable` 和 selector/profile 映射。
+- 捕获静态 Core/Basic infrastructure snapshot，不捕获 runtime snapshot。
+- 创建只含 timetable 合成车辆的新 CoreWorld。
+- 用固定 50ms tick 运行真实 PhysicsCoordinator、Dispatcher 和 ATO。
+- 达到延误阈值立即停止并返回运行快照。
 
-### 阶段 4：详细动力学和缓存
+### 阶段 4：报告和缓存
 
-- 抽离纯动力学计算。
-- 定义 `TravelTimeEstimator`。
-- 捕获 immutable snapshot。
-- 实现 revision/profile/compiler/simulator 版本化缓存。
+- 记录真实运行状态和物理位置 observation。
+- 通过 compilation trace 映射到 authoring 元素。
+- 实现 infrastructure/profile/compiler/simulator 版本化缓存。
+- 单线路预览可继续使用独立的纯动力学计算，但不得作为完整 timetable 的执行规则。
 
 ### 阶段 5：调图工具
 
@@ -713,6 +726,9 @@ data class SimulationEvent(
 9. EditorDocument 由 WebUI 的版本化仓库持久化；Bukkit 只保存编译后的 Timetable 及必要的源 revision/hash。
 10. WebUI 确定性生成只读 JS，复用现有 ScriptWorker 编译为 `SavedTimetableV1`；生成 JS 是构建产物，不作为结构化编辑的唯一源数据。
 11. 不兼容或迁移旧 flat `TimetableService` 到交路编辑器；旧数据需要结构化编辑时由用户重新建立 EditorDocument。
+12. 完整模拟必须创建不含 live runtime 状态的静态世界副本，直接运行真实 Dispatcher/ATO/物理规则；不再维护事件估算器和手工资源日历。
+13. 达到可配置的显著延误阈值后立即停止模拟并报告现场。
+14. duty 最终允许跨多个展示线路；在展示模型完成前暂时拒绝，不能静默丢失 line 信息。
 
 ## 17. 实施进度
 
@@ -729,17 +745,23 @@ data class SimulationEvent(
 - 完成展示到达时刻从行编辑到 Saved DTO 的链路。
 - Graph 区分到达点与发车点并分别编辑。
 - WebUI 支持 `DoorSide.NONE`。
-- Basic 新增确定性虚拟时间模拟引擎，消费编译后的 `Timetable`，要求每种结构化 selector 映射模拟车辆，并支持旅行/操作时间 adapter、最短停站、周期边界、动态取车起点解析、资源竞争和延误传播报告。
-- 未注册的运行时函数不再按零耗时兜底；模拟会终止对应交路并报告 error。
-- 纯列车动力学已移至 `basic.control`，线路预览和时刻表详细时分估算共享同一实现。
-- 详细时分缓存已设置容量边界，避免路径/profile 组合无限增长。
+- 删除了基于 `TravelTimeEstimator` 和手工资源日历的完整时刻表模拟器，避免形成第二套运行规则。
+- Core PhysicsCoordinator 支持无 wall-clock fallback 的固定逻辑步进；隔离模拟使用独立线程池和每 tick 发布屏障。
+- Basic 新增 `IsolatedTimetableSimulationWorld`，从静态 Core/Basic snapshot 创建无 live runtime 状态的世界副本，运行真实 Dispatcher、ATO、路线和物理规则。
+- 模拟只创建 timetable profile 指定的合成车辆；世界车辆只作为静态车型 profile，不复制位置或运行状态。
+- 模拟达到可配置延误阈值时立即停止，并报告 service、step、waypoint、轨道位置和运行状态。
+- 声明式模型动作由逻辑 operation ticket 按配置时长推进；缺少模拟实现时直接 error。
+- Bukkit/WebUI 已增加完整 timetable 模拟 API、selector/profile 映射和基础报告展示。
+- 插件 timetable provider 只有实现显式 simulation factory 才会复制到隔离 registry；否则 fail closed。
+- 纯列车动力学已移至 `basic.control`，继续用于单线路预览。
 - 交路编辑器支持原子跨交路移动运行线和有界撤销/重做；编译产物与完整文档快照绑定，避免发布过期结果。
 - EditorDocument 增加独立后端结构校验和更完整的前端语义校验，同时仍允许保存未完成草稿。
 
 后续仍需：
 
-- 将世界基础设施和车辆快照 adapter 接到 Basic 模拟器，并提供完整时刻表模拟 API。
-- 增加 selector/profile 映射 UI、模拟报告叠加及带 revision/version 的持久缓存。
+- 将模拟报告按 compilation trace 完整叠加到运行图的到达/发车点，目前只显示首个延误来源。
+- 增加带 infrastructure/profile/compiler/simulator revision 的持久缓存。
+- 扩展 behavior.js 模型动作的 simulation implementation 配置与诊断。
 - 继续拆分 `DutyEditor`，完善交路函数参数和拖放体验。
 - 完成批量复制、平移和周期生成。
 

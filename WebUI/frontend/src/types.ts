@@ -42,9 +42,24 @@ export interface LineLegPreview { fromStationId:string; toStationId:string; from
 export interface DirectionLinePreview { valid:boolean; totalLengthMeters?:number; legs?:LineLegPreview[]; legIndex?:number; error?:string }
 export interface LinePreview { valid:boolean; directions?:Partial<Record<LineDirection,DirectionLinePreview>>; error?:string }
 export interface SavedLineResult { revision:number; line:LineV1; preview:LinePreview }
-export interface SimulationProfile { profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string; direction:LineDirection }
+export interface SimulationProfile {
+ profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string; direction:LineDirection;
+ originStationId?:string; terminalStationId?:string; stopStationIds?:string[];
+}
 export interface SimulatedLineLeg { fromStationId:string; toStationId:string; lengthMeters:number; travelSeconds:number; peakSpeedKmh:number; stoppingErrorMeters:number }
 export interface LineSimulationResult { lineRevision:number; totalTravelSeconds:number; legs:SimulatedLineLeg[] }
+export interface TimetableSimulationProfileAssignment { serviceId:string; profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string }
+export interface TimetableSimulationRunResult {
+  timetableId:string; serviceId:string; trainId:string; state:string; timetableElapsedTicks:number;
+  scheduledActionTick?:number|null; nextScheduledTick?:number|null; lastLatenessTicks:number;
+  currentWayPointId?:string|null; nextStepIndex:number; trainHeadRailId?:string|null;
+  trainHeadArcLengthInAbMeters?:number|null; headProgressMeters?:number|null; message?:string|null;
+}
+export interface TimetableSimulationResult {
+  status:'COMPLETED'|'DELAY_EXCEEDED'|'FAILED'|'PERIOD_ENDED'; simulatedTicks:number;
+  thresholdTicks?:number; observedDelayTicks?:number; delayedServiceId?:string; delayedStepIndex?:number;
+  reason?:string; runs:TimetableSimulationRunResult[];
+}
 export interface TimetableScriptSummary { name:string; sizeBytes:number; modifiedAtEpochMillis:number }
 export interface RenderedTimetableScript { name:string; source:string; timetable:SavedTimetableV1; validation:{valid:boolean;errors:string[]} }
 export interface CompiledTimetableSource { timetable:SavedTimetableV1; validation:{valid:boolean;errors:string[]}; documentHash?:string }

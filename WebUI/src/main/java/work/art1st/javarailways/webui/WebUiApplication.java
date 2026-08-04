@@ -103,6 +103,7 @@ public final class WebUiApplication {
         app.sse("/api/v1/worlds/{world}/rail-map/trains", this::trainStream);
         app.get("/api/v1/worlds/{world}/scripts", this::scripts);
         app.post("/api/v1/worlds/{world}/scripts/compile", this::compileSource);
+        app.post("/api/v1/worlds/{world}/timetables/simulate", this::simulateTimetable);
         app.get("/api/v1/worlds/{world}/scripts/{script}", this::renderScript);
         app.get("/api/v1/worlds/{world}/lines", this::lines);
         app.post("/api/v1/worlds/{world}/lines/preview", this::previewLine);
@@ -308,6 +309,10 @@ public final class WebUiApplication {
 
     private void compileSource(Context context) throws IOException, InterruptedException {
         respond(context, bridge.post(worldPath(context) + "/scripts/compile", requestJson(context)));
+    }
+
+    private void simulateTimetable(Context context) throws IOException, InterruptedException {
+        respond(context, bridge.post(worldPath(context) + "/timetables/simulate", requestJson(context)));
     }
 
     private String worldPath(Context context) {

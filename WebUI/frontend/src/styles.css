@@ -47,6 +47,9 @@
 :root[data-theme="light"] .notice-strip { background: #fff5d9; border-color: #d6c797; }
 :root[data-theme="light"] .editor-sidebar,
 :root[data-theme="light"] .card { background: #fff; border-color: #cbd5df; }
+:root[data-theme="light"] .authoring-tabs { background: #f3f6f9; border-color: #cbd5df; }
+:root[data-theme="light"] .authoring-tabs button.active,
+:root[data-theme="light"] .duty-run-picker button.included { border-color: #087caf; background: #dceef8; color: #172235; }
 :root[data-theme="light"] .sidebar-section,
 :root[data-theme="light"] .schedule-row,
 :root[data-theme="light"] th,
@@ -110,6 +113,7 @@ h1, h2, p { margin-top: 0; }
 
 .workspace { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(700px, 48vw); overflow: hidden; }
 .workspace.sidebar-collapsed { grid-template-columns: minmax(0, 1fr) 28px 0; }
+.graph-only-workspace { min-height: 0; overflow: hidden; }
 .graph-workspace { min-width: 0; min-height: 0; height: 100%; position: relative; overflow: hidden; background: #07101d; }
 .graph-surface { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
 .graph-overlay { position: absolute; z-index: 2; left: 12px; top: 10px; display: flex; gap: 12px; align-items: baseline; pointer-events: auto; text-shadow: 0 1px 4px #000; }
@@ -216,17 +220,37 @@ tr.selected { background: #173954; }
 .readonly-graph { display: grid; grid-template-rows: auto minmax(420px, 1fr); overflow: hidden; }
 .readonly-graph-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .readonly-graph-header label { min-width: 160px; }
-.duty-page { display: grid; grid-template-rows: auto minmax(360px,1fr) minmax(260px,.7fr); gap: 12px; }
-.duty-toolbar { margin: 0; display: flex; align-items: end; gap: 8px; }
+.persistent-graph-view { min-height: 0; overflow: hidden; }
+.persistent-graph-view > .duty-page { height: 100%; }
+.duty-page { min-height: 0; display: grid; grid-template-rows: auto minmax(480px,1fr) auto; gap: 12px; overflow: hidden; }
+.duty-toolbar { margin: 0; display: flex; align-items: end; gap: 8px; overflow-x: auto; }
 .duty-toolbar label { min-width: 150px; }
-.duty-columns { min-height: 0; display: grid; grid-template-columns: minmax(180px,20%) minmax(360px,1fr) minmax(280px,30%); gap: 12px; }
-.duty-columns > .card { min-height: 0; margin: 0; overflow: auto; }
-.duty-list { display: flex; flex-direction: column; gap: 6px; }
-.duty-list button { display: flex; justify-content: space-between; gap: 8px; text-align: left; }
-.duty-list small { color: #8195af; }
+.authoring-workspace { min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) minmax(430px,42vw); gap: 12px; }
+.authoring-graph { min-width: 0; min-height: 0; position: relative; overflow: hidden; border: 1px solid #30415c; border-radius: 9px; background: #07101d; }
+.authoring-sidebar { min-width: 0; min-height: 0; margin: 0; padding: 0; overflow: auto; }
+.authoring-tabs { position: sticky; top: 0; z-index: 4; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 9px; border-bottom: 1px solid #30415c; background: #101c2e; }
+.authoring-tabs button.active { border-color: #56c5ff; background: #173954; color: #fff; }
+.authoring-tab-panel { display: grid; align-content: start; gap: 8px; padding: 10px; }
+.sidebar-run-list,.duty-run-picker { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
+.sidebar-run-list button,.duty-run-picker button { display: flex; justify-content: space-between; gap: 8px; min-width: 0; text-align: left; }
+.sidebar-run-list small,.duty-run-picker small { overflow: hidden; color: #8195af; text-overflow: ellipsis; white-space: nowrap; }
+.duty-run-picker button.included { border-color: #56c5ff; background: #173954; box-shadow: inset 3px 0 #56c5ff; }
+.authoring-output { margin: 0; max-height: min(38vh,430px); overflow: auto; }
+.authoring-output > summary { cursor: pointer; font-weight: 700; }
 .duty-run-editor .section-title input { flex: 1; font-weight: 700; }
 .duty-calls,.duty-elements { display: grid; gap: 6px; padding: 0; list-style: none; }
 .duty-calls li { display: grid; grid-template-columns: minmax(120px,1fr) 82px 82px 82px 75px auto auto; gap: 5px; }
+.run-identity { flex-wrap: wrap; }
+.run-identity select { min-width: 105px; }
+.run-endpoints { display: grid; grid-template-columns: repeat(2,minmax(140px,1fr)); gap: 8px; margin-block: 8px; }
+.card-inset { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; padding: 9px; margin-block: 8px; border: 1px solid #30415c; border-radius: 8px; background: rgba(7,16,29,.35); }
+.card-inset label { min-width: 130px; flex: 1; }
+.route-table-scroll { overflow-x: auto; }
+.route-table-header,.duty-calls.route-table li { min-width: 880px; display: grid; grid-template-columns: minmax(115px,1.2fr) 82px 88px 92px 92px 96px 80px 30px; align-items: center; gap: 5px; }
+.route-table-header { padding: 4px 0; color: #91a6c0; font-size: 11px; font-weight: 700; }
+.duty-calls.route-table li { padding: 5px 0; border-top: 1px solid #2b3c56; }
+.duty-calls.route-table li > input,.duty-calls.route-table li > select { min-width: 0; width: 100%; }
+.run-copy small { align-self: center; color: #91a6c0; }
 .duty-elements li { display: grid; grid-template-columns: minmax(120px,1fr) minmax(100px,.7fr) auto; align-items: center; gap: 5px; padding: 7px; border: 1px solid #30415c; border-radius: 7px; }
 .duty-chain { display: grid; align-content: start; gap: 8px; }
 .duty-function-buttons { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -247,9 +271,11 @@ tr.selected { background: #173954; }
   .editor-sidebar { position: relative; z-index: 4; }
   .commandbar { overflow-x: auto; }
   .commandbar .spacer { min-width: 20px; }
-  .duty-page { display: block; }
+  .duty-page { display: block; overflow: auto; }
   .duty-toolbar { overflow-x: auto; margin-bottom: 10px; }
-  .duty-columns, .duty-output-grid { grid-template-columns: 1fr; margin-bottom: 10px; }
+  .authoring-workspace { display: grid; grid-template-columns: 1fr; grid-template-rows: minmax(440px,60vh) auto; margin-bottom: 10px; }
+  .authoring-sidebar { max-height: none; }
+  .duty-output-grid { grid-template-columns: 1fr; margin-bottom: 10px; }
 }
 
 @media (max-width: 620px) {

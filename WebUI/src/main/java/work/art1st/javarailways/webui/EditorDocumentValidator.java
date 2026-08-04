@@ -27,9 +27,12 @@ final class EditorDocumentValidator {
     private static void validateRun(JsonNode run) {
         requireText(run, "id", "run");
         requireText(run, "type", "run");
+        requireText(run, "lineDirection", "run");
         requireObjectArray(run, "calls");
         run.path("calls").forEach(call -> {
             requireText(call, "id", "run call");
+            requireText(call, "stationId", "run call");
+            requireText(call, "status", "run call");
             requireText(call, "targetId", "run call");
         });
     }

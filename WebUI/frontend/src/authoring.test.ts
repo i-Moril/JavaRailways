@@ -1,17 +1,29 @@
 import { describe,expect,it } from 'vitest';
-import { generateTimetableSource,moveRunToDuty,validateAuthoringDocument,type TimetableAuthoringDocumentV1 } from './authoring';
+import {
+  authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,generateTimetableSource,moveRunToDuty,
+  resetRunTimings,resizeRunRoute,updateRunGraphTick,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
+} from './authoring';
+import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
+
+const metadata:WorldMetadata={stations:[
+  {stationId:'a',berthId:'1',destinationId:'a@1'},
+  {stationId:'b',berthId:'1',destinationId:'b@1'},
+  {stationId:'c',berthId:'1',destinationId:'c@1'},
+  {stationId:'d',berthId:'1',destinationId:'d@1'},
+]};
+const line:LineV1={id:'line-1',displayName:'Line 1',upStationIds:['a','b','c','d'],downStationIds:['d','c','b','a']};
 
 const valid=():TimetableAuthoringDocumentV1=>({
   formatVersion:1,id:'l1',periodDays:1,
   diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
   runs:[
-    {id:'up-01',type:'PASSENGER',diagramLineId:'line-1',calls:[
-      {id:'up-a',targetId:'a@1',departureTick:100},
-      {id:'up-b',targetId:'b@1',arrivalTick:800},
+    {id:'up-01',type:'PASSENGER',diagramLineId:'line-1',lineDirection:'UP',calls:[
+      {id:'up-a',stationId:'a',berthId:'1',status:'ORIGIN',targetId:'a@1',departureTick:100},
+      {id:'up-b',stationId:'b',berthId:'1',status:'TERMINAL',targetId:'b@1',arrivalTick:800},
     ]},
-    {id:'down-01',type:'PASSENGER',diagramLineId:'line-1',calls:[
-      {id:'down-b',targetId:'b@1',departureTick:1000},
-      {id:'down-a',targetId:'a@2',arrivalTick:1800,doorSide:'NONE'},
+    {id:'down-01',type:'PASSENGER',diagramLineId:'line-1',lineDirection:'DOWN',calls:[
+      {id:'down-b',stationId:'b',berthId:'1',status:'ORIGIN',targetId:'b@1',departureTick:1000},
+      {id:'down-a',stationId:'a',berthId:'2',status:'TERMINAL',targetId:'a@2',arrivalTick:1800,doorSide:'NONE'},
     ]},
   ],
   duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train-1'},elements:[
@@ -112,6 +124,11 @@ describe('timetable editor document',()=>{
     expect(messages).toContain(`Duplicate call ID: ${document.runs[0].calls[0].id}`);
   });
 
+  it('uses one stable identity for equivalent selector tag orderings',()=>{
+    expect(authoringSelectorKey({type:'TAKE_FROM_DEPOT',depotId:'north',tick:10,tags:['z','a']}))
+      .toBe(authoringSelectorKey({type:'TAKE_FROM_DEPOT',depotId:'north',tick:20,tags:['a','z']}));
+  });
+
   it('generates sorted tag selectors for depot acquisition',()=>{
     const document=valid();
     document.duties[0].selector={type:'TAKE_FROM_DEPOT',depotId:'north',tick:20,tags:['z','metro']};
@@ -119,5 +136,91 @@ describe('timetable editor document',()=>{
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);
     expect(result.source).toContain('timetable.takeFromDepot("north", { tags: ["metro", "z"] }, 20)');
+  });
+
+  it('creates a complete route table from a line and keeps endpoints synchronized when resized',()=>{
+    const run=createRunFromLine('run-1',line,'UP',metadata,(station)=>`call-${station}`);
+    expect(run.calls.map((call)=>[call.stationId,call.status,call.targetId])).toEqual([
+      ['a','ORIGIN','a@1'],['b','STOP','b@1'],['c','STOP','c@1'],['d','TERMINAL','d@1'],
+    ]);
+    run.calls[1].status='PASS';
+    run.calls[1].arrivalTick=200;
+    const shortened=resizeRunRoute(run,line,'UP','b','d',metadata,(station)=>`new-${station}`);
+    expect(shortened.calls.map((call)=>[call.stationId,call.status])).toEqual([
+      ['b','ORIGIN'],['c','STOP'],['d','TERMINAL'],
+    ]);
+    expect(shortened.calls[0].id).toBe('call-b');
+    expect(shortened.calls[0].arrivalTick).toBeNull();
+  });
+
+  it('resets all route times from simulated adjacent intervals and fixed stop dwell',()=>{
+    const run=createRunFromLine('run-1',line,'UP',metadata,(station)=>`call-${station}`);
+    run.calls[1].status='PASS';
+    const simulation:LineSimulationResult={lineRevision:4,totalTravelSeconds:60,legs:[
+      {fromStationId:'a',toStationId:'b',lengthMeters:100,travelSeconds:10,peakSpeedKmh:30,stoppingErrorMeters:0},
+      {fromStationId:'b',toStationId:'c',lengthMeters:100,travelSeconds:20,peakSpeedKmh:40,stoppingErrorMeters:0},
+      {fromStationId:'c',toStationId:'d',lengthMeters:100,travelSeconds:30,peakSpeedKmh:40,stoppingErrorMeters:0},
+    ]};
+    const reset=resetRunTimings(run,simulation,1_000,600);
+    expect(reset.calls.map((call)=>({station:call.stationId,arrival:call.arrivalTick,departure:call.departureTick,dwell:call.minimumDwellTicks}))).toEqual([
+      {station:'a',arrival:null,departure:1_000,dwell:null},
+      {station:'b',arrival:1_200,departure:null,dwell:null},
+      {station:'c',arrival:1_600,departure:2_200,dwell:600},
+      {station:'d',arrival:2_800,departure:null,dwell:null},
+    ]);
+  });
+
+  it('copies a run with fresh identities and shifts every route time without assigning a duty',()=>{
+    const source=createRunFromLine('run-1',line,'UP',metadata,(station)=>`source-${station}`);
+    const reset=resetRunTimings(source,{lineRevision:1,totalTravelSeconds:30,legs:[
+      {fromStationId:'a',toStationId:'b',lengthMeters:1,travelSeconds:10,peakSpeedKmh:1,stoppingErrorMeters:0},
+      {fromStationId:'b',toStationId:'c',lengthMeters:1,travelSeconds:10,peakSpeedKmh:1,stoppingErrorMeters:0},
+      {fromStationId:'c',toStationId:'d',lengthMeters:1,travelSeconds:10,peakSpeedKmh:1,stoppingErrorMeters:0},
+    ]},100,20);
+    const copy=copyRunShifted(reset,'run-2',200,(station)=>`copy-${station}`);
+    expect(copy.id).toBe('run-2');
+    expect(copy.calls.map((call)=>call.id)).toEqual(['copy-a','copy-b','copy-c','copy-d']);
+    expect(copy.calls[0].departureTick).toBe(300);
+    expect(copy.calls[1].arrivalTick).toBe(500);
+  });
+
+  it('builds a live graph service per run and maps dragged points back to route cells',()=>{
+    const run=createRunFromLine('express',line,'UP',metadata,(station)=>`express-${station}`);
+    run.calls[0].departureTick=100;
+    run.calls[1].status='PASS';
+    run.calls[1].arrivalTick=200;
+    run.calls[2].arrivalTick=300;
+    run.calls[2].departureTick=400;
+    run.calls[3].arrivalTick=500;
+    const document=valid();
+    document.runs=[run];
+    document.diagramLines=[{id:line.id,upStationIds:line.upStationIds,downStationIds:line.downStationIds}];
+    const graph=authoringGraphTimetable(document);
+    expect(graph.services).toHaveLength(1);
+    expect(graph.services[0].id).toBe('express');
+    expect(graph.services[0].steps).toHaveLength(7);
+    expect(graph.services[0].steps[3].action?.arrivalTick).toBe(300);
+    expect(updateRunGraphTick(run,4,'DEPARTURE',240).calls[1].arrivalTick).toBe(240);
+    expect(updateRunGraphTick(run,3,'ARRIVAL',320).calls[2].arrivalTick).toBe(320);
+  });
+
+  it('compiles pass rows into one routed destination chain',()=>{
+    const document=valid();
+    const run=createRunFromLine('express',line,'UP',metadata,(station)=>`express-${station}`);
+    document.diagramLines=[{id:line.id,upStationIds:line.upStationIds,downStationIds:line.downStationIds}];
+    run.calls[0].departureTick=100;
+    run.calls[1].status='PASS';
+    run.calls[1].arrivalTick=200;
+    run.calls[2].status='STOP';
+    run.calls[2].arrivalTick=300;
+    run.calls[2].departureTick=400;
+    run.calls[3].arrivalTick=500;
+    document.runs=[run];
+    document.duties[0].elements=document.duties[0].elements.filter((element)=>element.type==='FUNCTION'&&element.call.type==='PLACE_INITIAL');
+    document.duties[0].elements.push({id:'express-element',type:'RUN',runId:'express'});
+    const result=generateTimetableSource(document);
+    expect(result.issues).toEqual([]);
+    expect(result.source).toContain('scoped.at(100).pass("b@1").destination("c@1", { arrivalTick: 300');
+    expect(result.source).toContain('scoped.at(400).destination("d@1", { arrivalTick: 500');
   });
 });

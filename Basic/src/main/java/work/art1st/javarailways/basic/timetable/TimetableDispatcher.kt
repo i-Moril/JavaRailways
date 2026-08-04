@@ -142,6 +142,11 @@ data class TimetableServiceRunSnapshot(
     val timetableElapsedTicks: Long = 0L,
     val scheduledActionTick: Long? = null,
     val lastLatenessTicks: Long = 0L,
+    val currentWayPointId: String? = null,
+    val nextStepIndex: Int = 0,
+    val nextScheduledTick: Long? = null,
+    val trainHeadRailId: String? = null,
+    val trainHeadArcLengthInAbMeters: Double? = null,
     val headProgressMeters: Double? = null,
     val tailProgressMeters: Double? = null,
     val stationCallId: String? = null,
@@ -4286,6 +4291,16 @@ class TimetableDispatcher(
                     ?: stationCall?.plannedDepartureTimetableTick
                     ?: lastScheduledActionTick,
                 lastLatenessTicks = lastLatenessTicks,
+                currentWayPointId = currentWayPointId,
+                nextStepIndex = nextStepIndex,
+                nextScheduledTick = waitingUntilTimetableTick ?: service.steps.asSequence()
+                    .drop(nextStepIndex)
+                    .filterIsInstance<TimetableStep.At>()
+                    .firstOrNull()
+                    ?.tick,
+                trainHeadRailId = ato.publishedState.trainSnapshot.head.railId.toString(),
+                trainHeadArcLengthInAbMeters =
+                    ato.publishedState.trainSnapshot.head.arcLengthInAbMeters,
                 headProgressMeters = currentRuntimeOrNull?.headProgressMeters,
                 tailProgressMeters = currentRuntimeOrNull?.tailProgressMeters,
                 stationCallId = stationCall?.resolved?.call?.callId,

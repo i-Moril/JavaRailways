@@ -446,7 +446,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
 
     private fun handleDepot(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
-        if (!sender.isOp && !sender.hasPermission("javarailways.admin")) {
+        if (!sender.hasPermission("javarailways.admin")) {
             sender.sendMessage("没有权限管理车辆段")
             return true
         }
@@ -627,7 +627,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
         }
         when (args.firstOrNull()?.lowercase()) {
             "load" -> {
-                if (!sender.isOp && !sender.hasPermission("javarailways.admin")) {
+                if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage(Component.text("没有权限加载 JS 时刻表", NamedTextColor.RED))
                     return true
                 }
@@ -726,7 +726,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                     }
             }
             "edit" -> {
-                if (!sender.isOp && !sender.hasPermission("javarailways.admin")) {
+                if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage(Component.text("没有权限编辑时刻表", NamedTextColor.RED))
                     return true
                 }
@@ -755,7 +755,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                 )
             }
             "dump" -> {
-                if (!sender.isOp && !sender.hasPermission("javarailways.admin")) {
+                if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage("没有权限查看时刻表完整配置")
                     return true
                 }
@@ -828,7 +828,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                 }
             }
             "reset" -> {
-                if (!sender.isOp && !sender.hasPermission("javarailways.admin")) {
+                if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage("没有权限重置时刻表")
                     return true
                 }
@@ -955,7 +955,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                 }
             }
             "replan" -> {
-                if (!sender.isOp && !sender.hasPermission("javarailways.admin")) {
+                if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage("没有权限重新规划车次")
                     return true
                 }
@@ -1038,7 +1038,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
     }
 
     private fun handleAto(sender: CommandSender, args: List<String>): Boolean {
-        if (!sender.isOp && !sender.hasPermission("javarailways.admin")) {
+        if (!sender.hasPermission("javarailways.admin")) {
             sender.sendMessage("没有权限管理 ATO")
             return true
         }

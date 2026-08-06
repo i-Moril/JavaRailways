@@ -224,4 +224,9 @@ bukkitPluginYaml {
         description.set("JavaRailways 插件主命令")
         aliases.add("jr")
     }
+
+    permissions.register("javarailways.admin") {
+        description.set("允许执行 JavaRailways 管理操作")
+        getDefault().set(xyz.jpenilla.resourcefactory.bukkit.Permission.Default.OP)
+    }
 }

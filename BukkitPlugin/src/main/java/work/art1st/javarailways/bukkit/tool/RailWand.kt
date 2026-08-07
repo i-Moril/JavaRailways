@@ -641,14 +641,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
         // 锚点编辑分组 (单锚点)
         val editGroup = ConfigGroup("anchor.edit", "编辑锚点", description = "修改锚点位置和朝向").apply {
-            items.add(ConfigItemImpl(editKeys!!.posX))
-            items.add(ConfigItemImpl(editKeys!!.posY))
-            items.add(ConfigItemImpl(editKeys!!.posZ))
-            items.add(ConfigItemImpl(editKeys!!.tangentYaw))
-            items.add(ConfigItemImpl(editKeys!!.tangentPitch))
-            items.add(ConfigItemImpl(editKeys!!.roll))
-            items.add(ConfigItemImpl(editKeys!!.turnoutProtectionDistance))
-            items.add(ConfigItemImpl(editKeys!!.turnoutLockingDistance))
+            items.add(ConfigItemImpl(editKeys.posX))
+            items.add(ConfigItemImpl(editKeys.posY))
+            items.add(ConfigItemImpl(editKeys.posZ))
+            items.add(ConfigItemImpl(editKeys.tangentYaw))
+            items.add(ConfigItemImpl(editKeys.tangentPitch))
+            items.add(ConfigItemImpl(editKeys.roll))
+            items.add(ConfigItemImpl(editKeys.turnoutProtectionDistance))
+            items.add(ConfigItemImpl(editKeys.turnoutLockingDistance))
         }
         configUI.register(editGroup)
 

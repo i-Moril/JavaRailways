@@ -110,6 +110,9 @@ gradle-app.setting
 .classpath
 
 .*/
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 !.vscode/
 .vscode/*
 !.vscode/settings.json

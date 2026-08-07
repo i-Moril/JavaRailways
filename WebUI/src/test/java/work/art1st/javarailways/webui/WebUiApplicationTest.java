@@ -29,6 +29,14 @@ class WebUiApplicationTest {
             """;
         WebUiApplication.requireEditorDocument(mapper.readTree(valid));
         WebUiApplication.requireEditorDocument(mapper.readTree("""
+            {"formatVersion":1,"id":"t","formalScriptName":"weekday.js","periodDays":1,
+             "runs":[],"duties":[],"diagramLines":[],"arrivalOverrides":[]}
+            """));
+        assertThrows(IllegalArgumentException.class, () -> WebUiApplication.requireEditorDocument(mapper.readTree("""
+            {"formatVersion":1,"id":"t","formalScriptName":"../weekday.js","periodDays":1,
+             "runs":[],"duties":[],"diagramLines":[],"arrivalOverrides":[]}
+            """)));
+        WebUiApplication.requireEditorDocument(mapper.readTree("""
             {"formatVersion":1,"id":"draft","periodDays":1,
              "runs":[{"id":"run-1","type":"PASSENGER","lineDirection":"UP","calls":[{"id":"c1","stationId":"","status":"ORIGIN","targetId":""}]}],
              "duties":[{"id":"duty-1","selector":{"type":"TRAIN_NAME","name":""},"elements":[]}],

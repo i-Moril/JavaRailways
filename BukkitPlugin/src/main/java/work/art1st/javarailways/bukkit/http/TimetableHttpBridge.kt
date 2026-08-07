@@ -151,6 +151,15 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "scripts" && parts[2] == "compile" -> {
                     exchange.respond(200, compileSourceJson(worldName, readBody(exchange)))
                 }
+                exchange.requestMethod == "PUT" && parts.size == 3 && parts[1] == "scripts" -> {
+                    exchange.respond(200, saveScriptJson(worldName, decode(parts[2]), readBody(exchange)))
+                }
+                exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "scripts" && parts[3] == "rename" -> {
+                    exchange.respond(200, renameScriptJson(decode(parts[2]), readBody(exchange)))
+                }
+                exchange.requestMethod == "DELETE" && parts.size == 3 && parts[1] == "scripts" -> {
+                    exchange.respond(200, deleteScriptJson(decode(parts[2])))
+                }
                 exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "scripts" -> {
                     val scriptName = decode(parts[2])
                     val timetableId = exchange.requestURI.rawQuery?.split('&')?.mapNotNull { pair ->
@@ -336,6 +345,44 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 put("timetable", json.parseToJsonElement(TimetableSnapshotCodec.encode(compiled.first)))
                 put("validation", validationJson(compiled.second))
             })
+        }
+
+        private fun saveScriptJson(worldName: String, scriptName: String, body: String): String {
+            val root = json.parseToJsonElement(body).jsonObject
+            val source = root["source"]?.jsonPrimitive?.content
+                ?: throw HttpFailure(400, "source is required")
+            val timetableId = root["id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: throw HttpFailure(400, "id is required")
+            val overwrite = root["overwrite"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+            val compiled = compileSource(worldName, source, timetableId)
+            if (!compiled.second.isSuccess) throw HttpFailure(422, compiled.second.errors.joinToString("; "))
+            val replaced = try {
+                plugin.timetableScriptSandbox.saveSource(scriptName, source, overwrite)
+            } catch (conflict: TimetableScriptConflict) {
+                throw HttpFailure(409, conflict.message ?: "script already exists")
+            }
+            return json.encodeToString(buildJsonObject {
+                put("name", scriptName)
+                put("replaced", replaced)
+                put("timetable", json.parseToJsonElement(TimetableSnapshotCodec.encode(compiled.first)))
+            })
+        }
+
+        private fun renameScriptJson(scriptName: String, body: String): String {
+            val targetName = json.parseToJsonElement(body).jsonObject["targetName"]?.jsonPrimitive?.content
+                ?: throw HttpFailure(400, "targetName is required")
+            try {
+                plugin.timetableScriptSandbox.renameSource(scriptName, targetName)
+            } catch (conflict: TimetableScriptConflict) {
+                throw HttpFailure(409, conflict.message ?: "target script already exists")
+            }
+            return json.encodeToString(buildJsonObject { put("name", targetName) })
+        }
+
+        private fun deleteScriptJson(scriptName: String): String {
+            val removed = plugin.timetableScriptSandbox.deleteSource(scriptName)
+            if (!removed) throw HttpFailure(404, "script not found: $scriptName")
+            return json.encodeToString(buildJsonObject { put("removed", true) })
         }
 
         private fun compileSourceJson(worldName: String, body: String): String {

@@ -12,6 +12,11 @@ final class EditorDocumentValidator {
         if (document == null || !document.isObject()) fail("editor document must be an object");
         if (document.path("formatVersion").asInt(-1) != 1) fail("unsupported editor document version");
         if (document.path("id").asText("").isBlank()) fail("editor document id is required");
+        if (document.has("formalScriptName") &&
+            (!document.path("formalScriptName").isTextual() ||
+                !document.path("formalScriptName").asText().matches("[A-Za-z0-9][A-Za-z0-9._-]{0,123}\\.js"))) {
+            fail("editor document formalScriptName must be a valid .js file name");
+        }
         if (!document.path("periodDays").isIntegralNumber() || document.path("periodDays").asLong() < 1L) {
             fail("editor document periodDays must be a positive integer");
         }

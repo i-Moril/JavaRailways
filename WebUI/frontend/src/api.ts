@@ -32,6 +32,9 @@ export const api = {
  createEditorDocument: (worldId:string,value:TimetableAuthoringDocumentV1) => request<{id:string}>(`${base(worldId)}/editor-documents`,{method:'POST',body:JSON.stringify(value)}),
  saveEditorDocument: (worldId:string,id:string,value:TimetableAuthoringDocumentV1) => request<void>(`${base(worldId)}/editor-documents/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify(value)}),
  deleteEditorDocument: (worldId:string,id:string) => request<void>(`${base(worldId)}/editor-documents/${encodeURIComponent(id)}`,{method:'DELETE'}),
+ saveFormalScript: (worldId:string,documentId:string,fileName:string,source:string,document:TimetableAuthoringDocumentV1,overwrite=false) => request<{name:string;replaced:boolean}>(`${base(worldId)}/editor-documents/${encodeURIComponent(documentId)}/formal-script`,{method:'PUT',body:JSON.stringify({fileName,source,document,overwrite})}),
+ renameFormalScript: (worldId:string,documentId:string,sourceName:string,targetName:string,document:TimetableAuthoringDocumentV1) => request<{name:string}>(`${base(worldId)}/editor-documents/${encodeURIComponent(documentId)}/formal-script/rename`,{method:'POST',body:JSON.stringify({sourceName,targetName,document})}),
+ deleteFormalScript: (worldId:string,documentId:string,fileName:string) => request<{removed:boolean}>(`${base(worldId)}/editor-documents/${encodeURIComponent(documentId)}/formal-script`,{method:'DELETE',body:JSON.stringify({fileName})}),
  validate: (worldId: string, value: SavedTimetableV1) => request<ValidationResult>(`${base(worldId)}/validate`, { method:'POST', body:JSON.stringify(value) }),
  publish: (worldId: string, value: SavedTimetableV1) => request<void>(`${base(worldId)}/publish`, { method:'POST', body:JSON.stringify(value) })
 };

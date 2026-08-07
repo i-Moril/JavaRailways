@@ -126,6 +126,9 @@ public final class WebUiApplication {
         app.get("/api/v1/worlds/{world}/editor-documents/{document}", this::getEditorDocument);
         app.put("/api/v1/worlds/{world}/editor-documents/{document}", this::putEditorDocument);
         app.delete("/api/v1/worlds/{world}/editor-documents/{document}", this::deleteEditorDocument);
+        app.put("/api/v1/worlds/{world}/editor-documents/{document}/formal-script", this::saveFormalScript);
+        app.post("/api/v1/worlds/{world}/editor-documents/{document}/formal-script/rename", this::renameFormalScript);
+        app.delete("/api/v1/worlds/{world}/editor-documents/{document}/formal-script", this::deleteFormalScript);
         app.post("/api/v1/worlds/{world}/validate", this::validate);
         app.post("/api/v1/worlds/{world}/publish", this::publish);
 
@@ -441,6 +444,108 @@ public final class WebUiApplication {
             return;
         }
         context.status(204);
+    }
+
+    private void saveFormalScript(Context context) throws IOException, InterruptedException {
+        JsonNode request = requestJson(context);
+        JsonNode document = request.path("document");
+        requireEditorDocument(document);
+        String fileName = requiredScriptName(request.path("fileName").asText(""));
+        if (!fileName.equals(document.path("formalScriptName").asText())) {
+            throw new IllegalArgumentException("document formalScriptName must match fileName");
+        }
+        String world = context.pathParam("world");
+        String documentId = context.pathParam("document");
+        var previous = editorDocuments.find(world, documentId);
+        if (previous.map(value -> value.path("formalScriptName").asText(""))
+            .filter(value -> !value.isBlank() && !value.equals(fileName)).isPresent()) {
+            throw new IllegalArgumentException("rename the existing formal script before saving a different file name");
+        }
+        editorDocuments.save(world, documentId, document);
+        BridgeClient.Response response;
+        try {
+            response = bridge.put(
+                worldPath(context) + "/scripts/" + segment(fileName),
+                mapper.createObjectNode()
+                    .put("id", document.path("id").asText())
+                    .put("source", request.path("source").asText())
+                    .put("overwrite", request.path("overwrite").asBoolean(false))
+            );
+        } catch (IOException | InterruptedException failure) {
+            restoreEditorDocument(world, documentId, previous);
+            throw failure;
+        }
+        if (response.status() >= 400) restoreEditorDocument(world, documentId, previous);
+        respond(context, response);
+    }
+
+    private void renameFormalScript(Context context) throws IOException, InterruptedException {
+        JsonNode request = requestJson(context);
+        JsonNode document = request.path("document");
+        requireEditorDocument(document);
+        String sourceName = requiredScriptName(request.path("sourceName").asText(""));
+        String targetName = requiredScriptName(request.path("targetName").asText(""));
+        if (!targetName.equals(document.path("formalScriptName").asText())) {
+            throw new IllegalArgumentException("document formalScriptName must match targetName");
+        }
+        String world = context.pathParam("world");
+        String documentId = context.pathParam("document");
+        var previous = editorDocuments.find(world, documentId);
+        if (previous.isEmpty() || !sourceName.equals(previous.get().path("formalScriptName").asText())) {
+            throw new IllegalArgumentException("sourceName does not match the editor document formal script");
+        }
+        editorDocuments.save(world, documentId, document);
+        BridgeClient.Response response;
+        try {
+            response = bridge.post(
+                worldPath(context) + "/scripts/" + segment(sourceName) + "/rename",
+                mapper.createObjectNode().put("targetName", targetName)
+            );
+        } catch (IOException | InterruptedException failure) {
+            restoreEditorDocument(world, documentId, previous);
+            throw failure;
+        }
+        if (response.status() >= 400) restoreEditorDocument(world, documentId, previous);
+        respond(context, response);
+    }
+
+    private void deleteFormalScript(Context context) throws IOException, InterruptedException {
+        JsonNode request = requestJson(context);
+        String fileName = requiredScriptName(request.path("fileName").asText(""));
+        String world = context.pathParam("world");
+        String documentId = context.pathParam("document");
+        var previous = editorDocuments.find(world, documentId);
+        if (previous.isEmpty()) {
+            error(context, 404, "editor document not found");
+            return;
+        }
+        if (!fileName.equals(previous.get().path("formalScriptName").asText())) {
+            throw new IllegalArgumentException("fileName does not match the editor document formal script");
+        }
+        editorDocuments.delete(world, documentId);
+        BridgeClient.Response response;
+        try {
+            response = bridge.delete(
+                worldPath(context) + "/scripts/" + segment(fileName), mapper.createObjectNode()
+            );
+        } catch (IOException | InterruptedException failure) {
+            restoreEditorDocument(world, documentId, previous);
+            throw failure;
+        }
+        if (response.status() >= 400) restoreEditorDocument(world, documentId, previous);
+        respond(context, response);
+    }
+
+    private void restoreEditorDocument(String world, String id, java.util.Optional<JsonNode> previous) throws IOException {
+        if (previous.isPresent()) editorDocuments.save(world, id, previous.get());
+        else editorDocuments.delete(world, id);
+    }
+
+    private static String requiredScriptName(String value) {
+        if (!value.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,123}\\.js")) {
+            throw new IllegalArgumentException("invalid script file name");
+        }
+        return value;
     }
 
     static void requireEditorDocument(JsonNode document) {

@@ -13,12 +13,15 @@ import type { CompiledTimetableSource,EditorDocumentSummary,LineV1,TimetableSimu
 
 const uid=(prefix:string)=>`${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
 const hash=(value:string)=>{let result=2166136261;for(let index=0;index<value.length;index++){result^=value.charCodeAt(index);result=Math.imul(result,16777619);}return (result>>>0).toString(16).padStart(8,'0');};
+const defaultScriptName=(id:string)=>`${(id.replace(/[^A-Za-z0-9._-]/g,'-').replace(/^[^A-Za-z0-9]+/,'')||'timetable').slice(0,120)}.js`;
 export const clampAuthoringSidebarWidth=(width:number,viewportWidth:number)=>Math.max(360,Math.min(width,960,Math.max(360,viewportWidth-320)));
 
 export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
   const {t}=useI18n();
   const [documents,setDocuments]=useState<EditorDocumentSummary[]>([]);
   const [documentId,setDocumentId]=useState('');
+  const [formalScriptName,setFormalScriptName]=useState('new-timetable.js');
+  const [persistedFormalScriptName,setPersistedFormalScriptName]=useState('');
   const documentHistory=useDocumentHistory<TimetableAuthoringDocumentV1>(emptyAuthoringDocument);
   const {value,setValue}=documentHistory;
   const [selectedRun,setSelectedRun]=useState('');
@@ -67,15 +70,40 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
   const refresh=async()=>setDocuments(await api.editorDocuments(world));
   useEffect(()=>{if(typeof window!=='undefined')window.localStorage.setItem('javarailways.authoringSidebarWidth',String(sidebarWidth));},[sidebarWidth]);
   useEffect(()=>{setPreviewRun(undefined);},[selectedRun]);
-  useEffect(()=>{setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setSelectedRun('');setSelectedDuty('');setSidebarTab('runs');setGraphLineId('');setCompiledState(undefined);setSimulationState(undefined);setProfileAssignments({});if(world)void refresh().catch((error)=>onError(String(error)));},[world]);
+  useEffect(()=>{setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setFormalScriptName('new-timetable.js');setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');setSidebarTab('runs');setGraphLineId('');setCompiledState(undefined);setSimulationState(undefined);setProfileAssignments({});if(world)void refresh().catch((error)=>onError(String(error)));},[world]);
   const execute=async(operation:()=>Promise<void>)=>{setBusy(true);onError('');try{await operation();}catch(error){onError(error instanceof Error?error.message:String(error));}finally{setBusy(false);}};
   const load=async(id:string)=>execute(async()=>{
     setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);
-    if(!id){documentHistory.reset(emptyAuthoringDocument());setSelectedRun('');setSelectedDuty('');return;}
+    if(!id){const empty=emptyAuthoringDocument();documentHistory.reset(empty);setFormalScriptName(defaultScriptName(empty.id));setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');return;}
     const loaded=await api.editorDocument(world,id);
-    documentHistory.reset(loaded);setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
+    const loadedScriptName=loaded.formalScriptName||defaultScriptName(loaded.id);
+    documentHistory.reset(loaded);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(loaded.formalScriptName||'');setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
   });
   const save=async()=>execute(async()=>{if(documentId)await api.saveEditorDocument(world,documentId,value);else{const created=await api.createEditorDocument(world,value);setDocumentId(created.id);}await refresh();});
+  const saveFormalScript=async()=>execute(async()=>{
+    if(persistedFormalScriptName&&formalScriptName!==persistedFormalScriptName)throw new Error(t('duties.renameFirst'));
+    const document={...value,formalScriptName};
+    let targetDocumentId=documentId;
+    if(!targetDocumentId){const created=await api.createEditorDocument(world,document);targetDocumentId=created.id;setDocumentId(created.id);}
+    try{
+      await api.saveFormalScript(world,targetDocumentId,formalScriptName,generated.source,document,false);
+    }catch(error){
+      const message=error instanceof Error?error.message:String(error);
+      if(!message.includes('already exists')||!window.confirm(t('duties.confirmOverwrite')))throw error;
+      await api.saveFormalScript(world,targetDocumentId,formalScriptName,generated.source,document,true);
+    }
+    setValue(document);setPersistedFormalScriptName(formalScriptName);await refresh();
+  });
+  const renameFormalScript=async()=>execute(async()=>{
+    if(!documentId||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName)return;
+    const document={...value,formalScriptName};
+    await api.renameFormalScript(world,documentId,persistedFormalScriptName,formalScriptName,document);
+    setValue(document);setPersistedFormalScriptName(formalScriptName);await refresh();
+  });
+  const deleteFormalScript=async()=>{if(!documentId||!persistedFormalScriptName||!window.confirm(t('duties.confirmDeleteScript')))return;await execute(async()=>{
+    await api.deleteFormalScript(world,documentId,persistedFormalScriptName);
+    const empty=emptyAuthoringDocument();setDocumentId('');documentHistory.reset(empty);setFormalScriptName(defaultScriptName(empty.id));setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');setCompiledState(undefined);setSimulationState(undefined);await refresh();
+  });};
   const remove=async()=>{if(!documentId)return;await execute(async()=>{await api.deleteEditorDocument(world,documentId);setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setSelectedRun('');setSelectedDuty('');setCompiledState(undefined);setSimulationState(undefined);await refresh();});};
   const compile=async()=>execute(async()=>{
     if(generated.issues.some((item)=>item.severity==='error')){setCompiledState(undefined);return;}
@@ -140,10 +168,14 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
   return <section className="duty-page page-scroll">
     <div className="duty-toolbar card">
       <label>{t('duties.document')}<select value={documentId} onChange={(event)=>void load(event.target.value)}><option value="">{t('common.newDraft')}</option>{documents.map((item)=><option key={item.id} value={item.id}>{item.id}</option>)}</select></label>
-      <label>{t('editor.timetableId')}<input value={value.id} onChange={(event)=>setValue({...value,id:event.target.value})}/></label>
+      <label>{t('editor.timetableId')}<input value={value.id} onChange={(event)=>{const id=event.target.value;if(!persistedFormalScriptName&&formalScriptName===defaultScriptName(value.id))setFormalScriptName(defaultScriptName(id));setValue({...value,id});}}/></label>
       <label>{t('editor.periodDays')}<input type="number" min="1" value={value.periodDays} onChange={(event)=>setValue({...value,periodDays:Math.max(1,+event.target.value)})}/></label>
+      <label>{t('duties.scriptFile')}<input value={formalScriptName} onChange={(event)=>setFormalScriptName(event.target.value)}/></label>
       <button onClick={()=>void save()} disabled={busy}>{t('common.save')}</button>
-      <button className="danger" onClick={()=>void remove()} disabled={!documentId||busy}>{t('common.delete')}</button>
+      <button className="primary" onClick={()=>void saveFormalScript()} disabled={busy||generated.issues.some((item)=>item.severity==='error')||!!persistedFormalScriptName&&formalScriptName!==persistedFormalScriptName}>{t('duties.saveScript')}</button>
+      <button onClick={()=>void renameFormalScript()} disabled={busy||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName}>{t('duties.renameScript')}</button>
+      <button className="danger" onClick={()=>void deleteFormalScript()} disabled={busy||!persistedFormalScriptName}>{t('duties.deleteScript')}</button>
+      <button className="danger" onClick={()=>void remove()} disabled={!documentId||busy||!!persistedFormalScriptName}>{t('common.delete')}</button>
       <button onClick={documentHistory.undo} disabled={!documentHistory.canUndo||busy}>{t('common.undo')}</button>
       <button onClick={documentHistory.redo} disabled={!documentHistory.canRedo||busy}>{t('common.redo')}</button>
       <span className="spacer"/>

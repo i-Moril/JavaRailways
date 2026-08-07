@@ -43,6 +43,7 @@ export interface ArrivalOverrideV1 {runId:string;callId:string;tick:number}
 export interface TimetableAuthoringDocumentV1 {
   formatVersion:1;
   id:string;
+  formalScriptName?:string;
   periodDays:number;
   runs:AuthoringRunV1[];
   duties:AuthoringDutyV1[];
@@ -484,7 +485,8 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1):G
     lines.push('    })');
   }
   lines.push('}','');
-  return {source:lines.join('\n'),issues,documentHashInput:JSON.stringify(document)};
+  const {formalScriptName:_,...semanticDocument}=document;
+  return {source:lines.join('\n'),issues,documentHashInput:JSON.stringify(semanticDocument)};
 }
 
 export interface CompiledEditorDocument {

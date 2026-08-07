@@ -101,7 +101,7 @@ export default function App() {
 
   useEffect(()=>{
     if(!authenticated)return;
-    const timer=window.setInterval(()=>{void api.session().then((session)=>{if(!session.authenticated){setAuthenticated(false);setAuthenticatedPlayer('');setView('map');}}).catch(()=>undefined);},60_000);
+    const timer=window.setInterval(()=>{void api.session().then((session)=>{if(!session.authenticated){window.dispatchEvent(new Event('javarailways:unauthorized'));}}).catch(()=>undefined);},60_000);
     return()=>window.clearInterval(timer);
   },[authenticated]);
 
@@ -171,7 +171,7 @@ export default function App() {
       {issues.map((issue, index) => <div key={index} className={issue.severity}>{issue.path && <code>{issue.path}</code>} {issue.message}</div>)}
     </section>
 
-    {authenticated&&<section className="persistent-graph-view" hidden={view!=='graph'}><DutyEditor world={world} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
+    {authenticated&&<section className="persistent-graph-view" hidden={view!=='graph'}><DutyEditor world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
     {view === 'map' && <RailMap world={world} onError={setError} />}
     {view === 'lines' && <LinesPage world={world} metadata={metadata} collection={lineCollection}
       onCollection={setLineCollection} run={run} />}

@@ -5,6 +5,7 @@ import {
   type AuthoringDutyElementV1,type AuthoringDutyV1,type AuthoringFunctionCallV1,type AuthoringRunV1,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
+import { clearAuthoringRecovery,loadAuthoringRecovery,saveAuthoringRecovery } from './authoringRecovery';
 import { useDocumentHistory } from './documentHistory';
 import { Graph } from './Graph';
 import { RunRouteEditor } from './RunRouteEditor';
@@ -16,18 +17,22 @@ const hash=(value:string)=>{let result=2166136261;for(let index=0;index<value.le
 const defaultScriptName=(id:string)=>`${(id.replace(/[^A-Za-z0-9._-]/g,'-').replace(/^[^A-Za-z0-9]+/,'')||'timetable').slice(0,120)}.js`;
 export const clampAuthoringSidebarWidth=(width:number,viewportWidth:number)=>Math.max(360,Math.min(width,960,Math.max(360,viewportWidth-320)));
 
-export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
+export function DutyEditor({world,recoveryOwner,lines,metadata,onError}:{world:string;recoveryOwner:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
   const {t}=useI18n();
+  const [initialRecovery]=useState(()=>loadAuthoringRecovery(recoveryOwner,world));
+  const initialDocument=initialRecovery?.document??emptyAuthoringDocument();
+  const savedDocumentJson=useRef(initialRecovery?.savedDocumentJson??JSON.stringify(initialDocument));
+  const [workspaceWorld,setWorkspaceWorld]=useState(world);
   const [documents,setDocuments]=useState<EditorDocumentSummary[]>([]);
-  const [documentId,setDocumentId]=useState('');
-  const [formalScriptName,setFormalScriptName]=useState('new-timetable.js');
-  const [persistedFormalScriptName,setPersistedFormalScriptName]=useState('');
-  const documentHistory=useDocumentHistory<TimetableAuthoringDocumentV1>(emptyAuthoringDocument);
+  const [documentId,setDocumentId]=useState(initialRecovery?.documentId??'');
+  const [formalScriptName,setFormalScriptName]=useState(initialRecovery?.formalScriptName??'new-timetable.js');
+  const [persistedFormalScriptName,setPersistedFormalScriptName]=useState(initialRecovery?.persistedFormalScriptName??'');
+  const documentHistory=useDocumentHistory<TimetableAuthoringDocumentV1>(()=>initialDocument);
   const {value,setValue}=documentHistory;
-  const [selectedRun,setSelectedRun]=useState('');
+  const [selectedRun,setSelectedRun]=useState(initialRecovery?.selectedRun??'');
   const [previewRun,setPreviewRun]=useState<AuthoringRunV1>();
-  const [selectedDuty,setSelectedDuty]=useState('');
-  const [sidebarTab,setSidebarTab]=useState<'runs'|'duties'>('runs');
+  const [selectedDuty,setSelectedDuty]=useState(initialRecovery?.selectedDuty??'');
+  const [sidebarTab,setSidebarTab]=useState<'runs'|'duties'>(initialRecovery?.sidebarTab??'runs');
   const [sidebarOpen,setSidebarOpen]=useState(true);
   const [sidebarWidth,setSidebarWidth]=useState(()=>{
     if(typeof window==='undefined')return 620;
@@ -35,11 +40,11 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
     return clampAuthoringSidebarWidth(Number.isFinite(saved)&&saved>0?saved:620,window.innerWidth);
   });
   const sidebarResize=useRef<{startX:number;startWidth:number}|null>(null);
-  const [graphLineId,setGraphLineId]=useState('');
+  const [graphLineId,setGraphLineId]=useState(initialRecovery?.graphLineId??'');
   const [compiledState,setCompiledState]=useState<{result:CompiledTimetableSource;documentHashInput:string}>();
   const [busy,setBusy]=useState(false);
-  const [profileAssignments,setProfileAssignments]=useState<Record<string,string>>({});
-  const [delayThresholdTicks,setDelayThresholdTicks]=useState(1_200);
+  const [profileAssignments,setProfileAssignments]=useState<Record<string,string>>(initialRecovery?.profileAssignments??{});
+  const [delayThresholdTicks,setDelayThresholdTicks]=useState(initialRecovery?.delayThresholdTicks??1_200);
   const [simulationState,setSimulationState]=useState<{result:TimetableSimulationResult;inputKey:string}>();
   const generated=useMemo(()=>generateTimetableSource(value),[value]);
   const compiled=compiledState?.documentHashInput===generated.documentHashInput?compiledState.result:undefined;
@@ -66,20 +71,39 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
   const previewRunIds=useMemo(()=>new Set(previewRun?[previewRun.id]:[]),[previewRun]);
   const authoringWorkspaceStyle={'--authoring-sidebar-width':`${sidebarWidth}px`} as CSSProperties;
   const delayedOrigin=simulation?.delayedServiceId==null||simulation.delayedStepIndex==null?undefined:compiled?.timetable.compilationTrace?.find((trace)=>trace.serviceId===simulation.delayedServiceId&&trace.stepIndex===simulation.delayedStepIndex)?.origin;
+  const persistRecovery=()=>{
+    if(workspaceWorld!==world)return;
+    if(JSON.stringify(value)===savedDocumentJson.current){clearAuthoringRecovery(recoveryOwner,world);return;}
+    saveAuthoringRecovery({owner:recoveryOwner,world,documentId,formalScriptName,persistedFormalScriptName,document:value,savedDocumentJson:savedDocumentJson.current,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks});
+  };
 
   const refresh=async()=>setDocuments(await api.editorDocuments(world));
   useEffect(()=>{if(typeof window!=='undefined')window.localStorage.setItem('javarailways.authoringSidebarWidth',String(sidebarWidth));},[sidebarWidth]);
   useEffect(()=>{setPreviewRun(undefined);},[selectedRun]);
-  useEffect(()=>{setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setFormalScriptName('new-timetable.js');setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');setSidebarTab('runs');setGraphLineId('');setCompiledState(undefined);setSimulationState(undefined);setProfileAssignments({});if(world)void refresh().catch((error)=>onError(String(error)));},[world]);
+  useEffect(()=>{if(initialRecovery)onError(t('duties.recoveredLocalDraft'));},[]);
+  useEffect(()=>{const timer=window.setTimeout(persistRecovery,250);return()=>window.clearTimeout(timer);},[world,workspaceWorld,value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks]);
+  useEffect(()=>{const preserve=()=>persistRecovery();window.addEventListener('javarailways:unauthorized',preserve);window.addEventListener('beforeunload',preserve);return()=>{preserve();window.removeEventListener('javarailways:unauthorized',preserve);window.removeEventListener('beforeunload',preserve);};},[world,workspaceWorld,value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks]);
+  useEffect(()=>{
+    if(workspaceWorld!==world){
+      const recovered=loadAuthoringRecovery(recoveryOwner,world),document=recovered?.document??emptyAuthoringDocument();
+      savedDocumentJson.current=recovered?.savedDocumentJson??JSON.stringify(document);documentHistory.reset(document);
+      setDocumentId(recovered?.documentId??'');setFormalScriptName(recovered?.formalScriptName??'new-timetable.js');setPersistedFormalScriptName(recovered?.persistedFormalScriptName??'');
+      setSelectedRun(recovered?.selectedRun??'');setSelectedDuty(recovered?.selectedDuty??'');setSidebarTab(recovered?.sidebarTab??'runs');setGraphLineId(recovered?.graphLineId??'');
+      setProfileAssignments(recovered?.profileAssignments??{});setDelayThresholdTicks(recovered?.delayThresholdTicks??1_200);setWorkspaceWorld(world);
+      if(recovered)onError(t('duties.recoveredLocalDraft'));
+    }
+    setPreviewRun(undefined);setCompiledState(undefined);setSimulationState(undefined);
+    if(world)void refresh().catch((error)=>onError(String(error)));
+  },[world]);
   const execute=async(operation:()=>Promise<void>)=>{setBusy(true);onError('');try{await operation();}catch(error){onError(error instanceof Error?error.message:String(error));}finally{setBusy(false);}};
   const load=async(id:string)=>execute(async()=>{
     setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);
-    if(!id){const empty=emptyAuthoringDocument();documentHistory.reset(empty);setFormalScriptName(defaultScriptName(empty.id));setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');return;}
+    if(!id){const empty=emptyAuthoringDocument();savedDocumentJson.current=JSON.stringify(empty);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(empty);setFormalScriptName(defaultScriptName(empty.id));setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');return;}
     const loaded=await api.editorDocument(world,id);
     const loadedScriptName=loaded.formalScriptName||defaultScriptName(loaded.id);
-    documentHistory.reset(loaded);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(loaded.formalScriptName||'');setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
+    savedDocumentJson.current=JSON.stringify(loaded);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(loaded);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(loaded.formalScriptName||'');setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
   });
-  const save=async()=>execute(async()=>{if(documentId)await api.saveEditorDocument(world,documentId,value);else{const created=await api.createEditorDocument(world,value);setDocumentId(created.id);}await refresh();});
+  const save=async()=>execute(async()=>{if(documentId)await api.saveEditorDocument(world,documentId,value);else{const created=await api.createEditorDocument(world,value);setDocumentId(created.id);}savedDocumentJson.current=JSON.stringify(value);clearAuthoringRecovery(recoveryOwner,world);await refresh();});
   const saveFormalScript=async()=>execute(async()=>{
     if(persistedFormalScriptName&&formalScriptName!==persistedFormalScriptName)throw new Error(t('duties.renameFirst'));
     const document={...value,formalScriptName};
@@ -92,19 +116,19 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
       if(!message.includes('already exists')||!window.confirm(t('duties.confirmOverwrite')))throw error;
       await api.saveFormalScript(world,targetDocumentId,formalScriptName,generated.source,document,true);
     }
-    setValue(document);setPersistedFormalScriptName(formalScriptName);await refresh();
+    savedDocumentJson.current=JSON.stringify(document);clearAuthoringRecovery(recoveryOwner,world);setValue(document);setPersistedFormalScriptName(formalScriptName);await refresh();
   });
   const renameFormalScript=async()=>execute(async()=>{
     if(!documentId||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName)return;
     const document={...value,formalScriptName};
     await api.renameFormalScript(world,documentId,persistedFormalScriptName,formalScriptName,document);
-    setValue(document);setPersistedFormalScriptName(formalScriptName);await refresh();
+    savedDocumentJson.current=JSON.stringify(document);clearAuthoringRecovery(recoveryOwner,world);setValue(document);setPersistedFormalScriptName(formalScriptName);await refresh();
   });
   const deleteFormalScript=async()=>{if(!documentId||!persistedFormalScriptName||!window.confirm(t('duties.confirmDeleteScript')))return;await execute(async()=>{
     await api.deleteFormalScript(world,documentId,persistedFormalScriptName);
-    const empty=emptyAuthoringDocument();setDocumentId('');documentHistory.reset(empty);setFormalScriptName(defaultScriptName(empty.id));setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');setCompiledState(undefined);setSimulationState(undefined);await refresh();
+    const empty=emptyAuthoringDocument();savedDocumentJson.current=JSON.stringify(empty);clearAuthoringRecovery(recoveryOwner,world);setDocumentId('');documentHistory.reset(empty);setFormalScriptName(defaultScriptName(empty.id));setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');setCompiledState(undefined);setSimulationState(undefined);await refresh();
   });};
-  const remove=async()=>{if(!documentId)return;await execute(async()=>{await api.deleteEditorDocument(world,documentId);setDocumentId('');documentHistory.reset(emptyAuthoringDocument());setSelectedRun('');setSelectedDuty('');setCompiledState(undefined);setSimulationState(undefined);await refresh();});};
+  const remove=async()=>{if(!documentId)return;await execute(async()=>{await api.deleteEditorDocument(world,documentId);const empty=emptyAuthoringDocument();savedDocumentJson.current=JSON.stringify(empty);clearAuthoringRecovery(recoveryOwner,world);setDocumentId('');documentHistory.reset(empty);setSelectedRun('');setSelectedDuty('');setCompiledState(undefined);setSimulationState(undefined);await refresh();});};
   const compile=async()=>execute(async()=>{
     if(generated.issues.some((item)=>item.severity==='error')){setCompiledState(undefined);return;}
     const documentHashInput=generated.documentHashInput;
@@ -229,7 +253,7 @@ export function DutyEditor({world,lines,metadata,onError}:{world:string;lines:Li
           <select value={selectedDuty} onChange={(event)=>setSelectedDuty(event.target.value)}><option value="">{t('common.select')}</option>{value.duties.map((duty)=><option key={duty.id} value={duty.id}>{duty.id}</option>)}</select>
           {selectedDutyValue&&<>
             <input value={selectedDutyValue.id} onChange={(event)=>{const previousId=selectedDutyValue.id,id=event.target.value;patchDuty(previousId,{id});setProfileAssignments((current)=>{const next={...current};if(next[previousId]){next[id]=next[previousId];delete next[previousId];}return next;});setSelectedDuty(id);}}/>
-            <label>{t('simulation.profile')}<select value={profileAssignments[selectedDutyValue.id]||''} onChange={(event)=>{const selected=event.target.value,key=authoringSelectorKey(selectedDutyValue.selector);setProfileAssignments((current)=>{const next={...current};value.duties.filter((duty)=>authoringSelectorKey(duty.selector)===key).forEach((duty)=>{next[duty.id]=selected;});return next;});}}><option value="">{t('common.select')}</option>{simulationProfiles.map((profile)=><option key={`${profile.type}:${profile.id}`} value={`${profile.type}:${profile.id}`}>{profile.displayName} · {profile.carCount}</option>)}</select></label>
+            <label>{t('simulation.profile')}<select value={profileAssignments[selectedDutyValue.id]||''} onChange={(event)=>{const selected=event.target.value,key=authoringSelectorKey(selectedDutyValue.selector);setProfileAssignments((current)=>{const next={...current};value.duties.filter((duty)=>authoringSelectorKey(duty.selector)===key).forEach((duty)=>{next[duty.id]=selected;});return next;});}}><option value="">{t('common.select')}</option><optgroup label={t('simulation.worldTrains')}>{simulationProfiles.filter((profile)=>profile.type==='WORLD_TRAIN').map((profile)=><option key={`${profile.type}:${profile.id}`} value={`${profile.type}:${profile.id}`}>{profile.displayName} · {profile.carCount}</option>)}</optgroup><optgroup label={t('simulation.templates')}>{simulationProfiles.filter((profile)=>profile.type==='TRAIN_TEMPLATE').map((profile)=><option key={`${profile.type}:${profile.id}`} value={`${profile.type}:${profile.id}`}>{profile.displayName} · {profile.carCount}</option>)}</optgroup></select></label>
             <select value={selectedDutyValue.selector.type} onChange={(event)=>{const type=event.target.value as AuthoringDutyV1['selector']['type'];patchDuty(selectedDutyValue.id,{selector:type==='TRAIN_NAME'?{type,name:''}:type==='TAKE_FROM_DEPOT'?{type,depotId:'',tick:0,tags:[]}:{type,wayPointIds:[],tick:0}});}}><option value="TRAIN_NAME">{t('editor.fixedTrain')}</option><option value="TAKE_FROM_DEPOT">{t('actions.TAKE_FROM_DEPOT')}</option><option value="TAKE_FROM_WAYPOINT">{t('actions.TAKE_FROM_WAYPOINT')}</option></select>
             {selectedDutyValue.selector.type==='TRAIN_NAME'&&<input list="trains" placeholder={t('editor.trainId')} value={selectedDutyValue.selector.name} onChange={(event)=>patchDuty(selectedDutyValue.id,{selector:{type:'TRAIN_NAME',name:event.target.value}})}/>}
             {selectedDutyValue.selector.type==='TAKE_FROM_DEPOT'&&<div className="duty-parameter-fields"><label>{t('duties.depot')}<input list="depots" value={selectedDutyValue.selector.depotId} onChange={(event)=>patchDepotSelector({depotId:event.target.value})}/></label><label>{t('duties.acquireTick')}<input type="number" min="0" value={selectedDutyValue.selector.tick} onChange={(event)=>patchDepotSelector({tick:Math.max(0,+event.target.value)})}/></label><label>{t('duties.requiredTags')}<input value={selectedDutyValue.selector.tags.join(', ')} onChange={(event)=>patchDepotSelector({tags:event.target.value.split(',').map((item)=>item.trim()).filter(Boolean)})}/></label></div>}

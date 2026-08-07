@@ -4,7 +4,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.graalvm.polyglot.Context
 import org.graalvm.polyglot.HostAccess
-import org.graalvm.polyglot.PolyglotException
 import org.graalvm.polyglot.Source
 import java.io.ByteArrayOutputStream
 
@@ -32,17 +31,4 @@ fun executeScript(source: String, timetableId: String): String {
             main.executeVoid(builder)
         }
     return json.encodeToString(builder.build())
-}
-
-fun main(args: Array<String>) {
-    try {
-        require(args.size == 1 && args[0].isNotBlank()) { "usage: ScriptWorker <timetable-id>" }
-        val source = System.`in`.bufferedReader().readText()
-        require(source.isNotBlank()) { "stdin must contain JavaScript source" }
-        print(executeScript(source, args[0]))
-    } catch (error: Throwable) {
-        val message = if (error is PolyglotException) error.message else error.message ?: error::class.simpleName
-        System.err.println("ScriptWorker: $message")
-        kotlin.system.exitProcess(1)
-    }
 }

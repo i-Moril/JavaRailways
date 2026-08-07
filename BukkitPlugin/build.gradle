@@ -9,7 +9,6 @@ plugins {
 }
 
 evaluationDependsOn(":WebUI")
-evaluationDependsOn(":ScriptWorker")
 
 runPaper {
     disablePluginJarDetection()
@@ -51,18 +50,12 @@ runPaper.folia.registerTask {
 
 def jomlShadow = configurations.detachedConfiguration(dependencies.create("org.joml:joml:1.10.8"))
 def webUiShadowJar = project(":WebUI").tasks.named("shadowJar")
-def scriptWorkerShadowJar = project(":ScriptWorker").tasks.named("shadowJar")
 
 tasks.named("processResources") {
     dependsOn(webUiShadowJar)
     from(webUiShadowJar.flatMap { it.archiveFile }) {
         into("webui")
         rename { "JavaRailways-WebUI.jar" }
-    }
-    dependsOn(scriptWorkerShadowJar)
-    from(scriptWorkerShadowJar.flatMap { it.archiveFile }) {
-        into("timetable-js")
-        rename { "JavaRailways-ScriptWorker.jar" }
     }
 }
 
@@ -91,6 +84,7 @@ dependencies {
     compileOnly("org.joml:joml:1.10.8")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    // GraalJS is shared by in-process timetable compilation and train behaviors.
     implementation("org.graalvm.polyglot:polyglot:24.2.2")
     implementation("org.graalvm.polyglot:js-community:24.2.2")
     implementation("io.github.tofaa2:spigot:3.0.3-SNAPSHOT") // EntityLib; version pinning is tracked in the packet renderer plan.
@@ -103,7 +97,6 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation(testFixtures(project(":Core")))
-    testImplementation(project(":ScriptWorker"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -158,9 +151,7 @@ shadowJar {
     relocate 'me.tofaa.entitylib', 'work.art1st.javarailways.shadow.entitylib'
     configurations = [project.configurations.runtimeClasspath, jomlShadow]
     dependencies {
-        // GraalJS language selector artifacts are POM-only. They bring the real
-        // runtime jars transitively, but Shadow tries to unzip the POM itself.
-        // Exclude only these selector POMs from the fat jar.
+        // Language selector artifacts are POM-only; their transitive runtime jars are included.
         exclude(dependency('org.graalvm.polyglot:js-community:.*'))
         exclude(dependency('org.graalvm.js:js-community:.*'))
     }

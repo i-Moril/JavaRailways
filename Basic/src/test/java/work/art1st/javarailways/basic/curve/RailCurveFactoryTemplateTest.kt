@@ -44,6 +44,36 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
+    @OptIn(Heavy::class)
+    fun `s curve applies smooth signed automatic superelevation through the inflection`() {
+        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
+        val to = Anchor("B", Vector3d(80.0, 0.0, 12.0), Vector3d(1.0, 0.0, 0.0))
+        val result = RailCurveFactory.build(
+            from,
+            to,
+            RailCurveBuildOptions(
+                template = RailCurveTemplateType.S_CURVE,
+                superelevation = SuperelevationConfig(
+                    designSpeedKmH = 80.0,
+                    maxSuperelevation = 0.12
+                )
+            )
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        val points = result.curve!!.stream().toList()
+        val rolls = points.map { AnchorGeometry.rollDegreesFromNormal(it.tangent, it.normal) }
+        assertEquals(0.0, rolls.first(), 1.0e-8)
+        assertEquals(0.0, rolls.last(), 1.0e-8)
+        assertTrue(rolls.max() > 0.25, "first S-curve lobe should have positive cant: ${rolls.max()}")
+        assertTrue(rolls.min() < -0.25, "second S-curve lobe should have negative cant: ${rolls.min()}")
+        assertTrue(
+            rolls.zipWithNext { first, second -> kotlin.math.abs(second - first) }.max() < 0.5,
+            "cant should reverse without a roll jump"
+        )
+    }
+
+    @Test
     fun `straight template rejects an endpoint outside the start tangent line`() {
         val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.5, 0.0).normalize())
         val to = Anchor("B", Vector3d(10.0, 5.0, 5.0), Vector3d(1.0, 0.5, 0.0).normalize())

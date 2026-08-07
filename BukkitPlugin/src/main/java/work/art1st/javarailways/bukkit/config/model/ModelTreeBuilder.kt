@@ -166,7 +166,7 @@ class ModelTreeBuilder(
             entryRotation = entry.rotation
             childNamespace = def.namespace
         } else {
-            // Import or legacy reference: resolve from registry
+            // Imported reference: resolve from the package registry.
             val resolved = partRegistry.resolve(entry.name, namespace)
             def = resolved.resolved
             entryOffset = entry.offset
@@ -193,7 +193,7 @@ class ModelTreeBuilder(
             Math.toRadians(mergedRotation.z)
         )
 
-        val scale = def.item?.scale ?: def.scale
+        val scale = def.item?.scale
         val scaleVec = if (scale != null) Vector3d(scale.x, scale.y, scale.z) else Vector3d(1.0, 1.0, 1.0)
 
         val modelState = ModelState(
@@ -201,7 +201,7 @@ class ModelTreeBuilder(
         )
 
         val children = buildPartList(def.parts, childNamespace)
-        val animations = ((def.item?.animations ?: emptyList()) + def.animations).toRuntimeAnimationMap()
+        val animations = def.animations.toRuntimeAnimationMap()
         // Spawn entities at the car's root location so they start near the player,
         // not at world origin. DisplayModel.updateState will teleport them to exact positions.
         val spawnLoc = rootLocation.clone()

@@ -24,10 +24,31 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class BasicInfrastructureSnapshotTest {
     @Test
-    fun `legacy line station list migrates to up and reversed down`() {
-        val line = SavedLineV1("legacy", "Legacy", listOf("a", "b", "c")).restore()
-        assertEquals(listOf("a", "b", "c"), line.upStationIds.map { it.value })
-        assertEquals(listOf("c", "b", "a"), line.downStationIds.map { it.value })
+    fun `line snapshot requires explicit up and down patterns`() {
+        assertThrows(Exception::class.java) {
+            BasicInfrastructureSnapshotCodec.decode("""
+                {"formatVersion":1,"infrastructureRevision":1,"destinations":[],"wayPoints":[],"lines":[{
+                  "id":"old","displayName":"Old","stationIds":["a","b"]
+                }],"lineRevision":0}
+            """.trimIndent())
+        }
+    }
+
+    @Test
+    fun `infrastructure snapshot rejects unsupported format version`() {
+        val encoded = BasicInfrastructureSnapshotCodec.encode(
+            BasicInfrastructureSnapshotV1(
+                formatVersion = BasicInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION + 1,
+                infrastructureRevision = 0L,
+                destinations = emptyList(),
+                wayPoints = emptyList(),
+                lines = emptyList(),
+                lineRevision = 0L
+            )
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            BasicInfrastructureSnapshotCodec.decode(encoded)
+        }
     }
 
     private val worlds = mutableListOf<work.art1st.javarailways.core.physics.CoreWorld>()
@@ -108,7 +129,11 @@ class BasicInfrastructureSnapshotTest {
             )
         )
         source.basicWorldData.lines.put(
-            Line(LineId("metro"), "Metro", listOf(StationId("central"), StationId("south"))),
+            Line(
+                LineId("metro"), "Metro",
+                listOf(StationId("central"), StationId("south")),
+                listOf(StationId("south"), StationId("central"))
+            ),
             expectedRevision = 0L
         )
         service.register(

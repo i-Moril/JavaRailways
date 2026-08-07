@@ -7,22 +7,8 @@ import java.io.File
 class ModelManager(
     private val dataFolder: File
 ) {
-    val partRegistry: PartRegistry
-    val carLoader: CarLoader
-    val trainLoader: TrainLoader
-
     val trainPackages: MutableMap<String, LoadedTrainPackage> = mutableMapOf()
     val railPackages: MutableMap<String, LoadedRailPackage> = mutableMapOf()
-
-    init {
-        val partsDir = File(dataFolder, "parts")
-        val carsDir = File(dataFolder, "cars")
-        val trainsDir = File(dataFolder, "trains")
-
-        partRegistry = PartRegistry(partsDir)
-        carLoader = CarLoader(carsDir, partRegistry)
-        trainLoader = TrainLoader(trainsDir, carLoader)
-    }
 
     fun loadAll() {
         trainPackages.clear()
@@ -32,10 +18,6 @@ class ModelManager(
         loadRailPackages()
 
         wireCrossPackageReferences()
-
-        partRegistry.load()
-        carLoader.load()
-        trainLoader.load()
     }
 
     private fun loadTrainPackages() {
@@ -88,14 +70,10 @@ class ModelManager(
         for ((_, pkg) in trainPackages) {
             pkg.cars[name]?.let { return it }
         }
-        // Fallback to legacy
-        return carLoader[name]
+        return null
     }
 
-    fun getTrain(name: String): TrainDefinition? {
-        trainPackages[name]?.train?.let { return it }
-        return trainLoader[name]
-    }
+    fun getTrain(name: String): TrainDefinition? = trainPackages[name]?.train
 
     fun getTrainAction(packageName: String?, actionName: String): TrainActionConfig? {
         if (packageName != null) {
@@ -132,7 +110,7 @@ class ModelManager(
         return railPackages[name]?.railConfig
     }
 
-    fun createTreeBuilder(world: World, packageName: String? = null): ModelTreeBuilder {
+    fun createTreeBuilder(world: World, packageName: String): ModelTreeBuilder {
         return ModelTreeBuilder(world, getPartResolver(packageName))
     }
 
@@ -140,17 +118,15 @@ class ModelManager(
         return ModelTreeBuilder(world, partResolver)
     }
 
-    fun getPartResolver(packageName: String?): PartResolver {
-        return if (packageName != null) {
-            trainPackages[packageName]?.partRegistry ?: partRegistry
-        } else {
-            partRegistry
-        }
-    }
+    fun getPartResolver(packageName: String): PartResolver =
+        trainPackages[packageName]?.partRegistry
+            ?: throw IllegalArgumentException("Unknown train package: $packageName")
 
     fun createCarModelSnapshot(carModelName: String): SavedCarModelTree? {
         val car = getCar(carModelName) ?: return null
-        val resolver = getPartResolver(car.packageName)
+        val resolver = getPartResolver(requireNotNull(car.packageName) {
+            "Car '$carModelName' has no package"
+        })
         return SavedCarModelTree.build(car, resolver)
     }
 

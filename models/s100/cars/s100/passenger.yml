@@ -80,7 +80,7 @@ body-parts:
     offset: {x: 0, y: 0.5, z: -7.5}
     rotation: {y: 180}
 
-  # Bottom devices (legacy passenger behaves like the S100 trailer car)
+  # Bottom devices (passenger car uses the S100 trailer layout)
   - import: bottom_devices_b
     offset: {x: 0, y: 0.5, z: 1.8}
     rotation: {y: 180}
@@ -116,10 +116,10 @@ body-parts:
 bogies:
   - offset: {x: 0, y: 0, z: 5.75}
     parts:
-      - name: bogie
+      - import: bogie
     wheel-diameter: 0.86
   - offset: {x: 0, y: 0, z: -5.75}
     parts:
-      - name: bogie
+      - import: bogie
     wheel-diameter: 0.86
 

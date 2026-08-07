@@ -177,7 +177,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                         sender.sendMessage(
                             "${wayPoint.id} (${wayPoint.displayName}) rail=${wayPoint.railId} " +
                                 "s=${"%.2f".format(wayPoint.arcLength)} " +
-                                "role=${destination?.role?.type ?: "LEGACY"} " +
+                                "role=${destination?.role?.type ?: "WAYPOINT"} " +
                                 "direction=${destination?.approachDirection ?: "any"}"
                         )
                     }
@@ -197,7 +197,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                         sender.sendMessage("轨道: ${wayPoint.railId}")
                         sender.sendMessage("弧长: ${"%.2f".format(wayPoint.arcLength)}")
                         val destination = world.basicWorldData.destinations[wayPoint.id]
-                        sender.sendMessage("角色: ${destination?.role?.type ?: "LEGACY"}")
+                        sender.sendMessage("角色: ${destination?.role?.type ?: "WAYPOINT"}")
                         sender.sendMessage("接近方向: ${destination?.approachDirection ?: "any"}")
                     }
                 }

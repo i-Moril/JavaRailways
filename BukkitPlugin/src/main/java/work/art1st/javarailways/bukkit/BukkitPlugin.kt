@@ -159,12 +159,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         // 加载轨道可视化配置
         railModelConfig = loadRailModelConfigFromPlugin()
 
-        // 加载模型系统 (parts/, cars/, trains/)
+        // 加载版本化 trains/ 与 rails/ 模型包。
         modelManager = ModelManager(dataFolder)
         modelManager.loadAll()
-        logger.info("Model system loaded: ${modelManager.partRegistry.getAllNames().size} parts, " +
-            "${modelManager.carLoader.getAllNames().size} cars, " +
-            "${modelManager.trainLoader.getAllNames().size} trains")
+        logger.info(
+            "Model packages loaded: ${modelManager.trainPackages.size} train, " +
+                "${modelManager.railPackages.size} rail"
+        )
 
         timetableScriptSandbox = TimetableScriptSandbox(this)
 

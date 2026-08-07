@@ -177,21 +177,10 @@
         "rotation": {"$ref": "#/$defs/vector"}
       }
     },
-    "legacyReference": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name"],
-      "properties": {
-        "name": {"$ref": "#/$defs/nonEmptyString"},
-        "offset": {"$ref": "#/$defs/vector"},
-        "rotation": {"$ref": "#/$defs/vector"}
-      }
-    },
     "partReference": {
       "oneOf": [
         {"$ref": "#/$defs/importReference"},
-        {"$ref": "#/$defs/partDefinition"},
-        {"$ref": "#/$defs/legacyReference"}
+        {"$ref": "#/$defs/partDefinition"}
       ]
     }
   }

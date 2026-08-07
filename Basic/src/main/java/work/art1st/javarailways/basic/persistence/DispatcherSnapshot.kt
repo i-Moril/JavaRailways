@@ -9,8 +9,8 @@ data class SavedTimetableClockV1(
     val epochDispatcherTick: Long,
     val periodTicks: Long,
     val nextCycleIndex: Long,
-    val disabledServiceIds: Set<String> = emptySet(),
-    val pendingActivationCycles: Map<String, Long> = emptyMap()
+    val disabledServiceIds: Set<String>,
+    val pendingActivationCycles: Map<String, Long>
 )
 
 @Serializable
@@ -49,15 +49,24 @@ data class SavedActiveRunCheckpointV1(
 
 @Serializable
 data class SavedDispatcherV1(
-    val formatVersion: Int = 1,
+    val formatVersion: Int,
     val dispatcherTick: Long,
     val missionRevision: Long,
-    val clocks: List<SavedTimetableClockV1> = emptyList(),
-    val runs: List<SavedActiveRunCheckpointV1> = emptyList()
-)
+    val clocks: List<SavedTimetableClockV1>,
+    val runs: List<SavedActiveRunCheckpointV1>
+) {
+    companion object {
+        const val CURRENT_FORMAT_VERSION = 1
+    }
+}
 
 object DispatcherSnapshotCodec {
-    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true; prettyPrint = true }
+    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
     fun encode(value: SavedDispatcherV1): String = json.encodeToString(SavedDispatcherV1.serializer(), value)
-    fun decode(value: String): SavedDispatcherV1 = json.decodeFromString(SavedDispatcherV1.serializer(), value)
+    fun decode(value: String): SavedDispatcherV1 =
+        json.decodeFromString(SavedDispatcherV1.serializer(), value).also {
+            require(it.formatVersion == SavedDispatcherV1.CURRENT_FORMAT_VERSION) {
+                "Unsupported dispatcher snapshot version: ${it.formatVersion}"
+            }
+        }
 }

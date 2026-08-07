@@ -129,9 +129,9 @@ body-parts:
 bogies:
   - offset: {x: 0, y: 0, z: 5.75}
     parts:
-      - name: bogie
+      - import: bogie
     wheel-diameter: 0.86
   - offset: {x: 0, y: 0, z: -5.75}
     parts:
-      - name: bogie
+      - import: bogie
     wheel-diameter: 0.86

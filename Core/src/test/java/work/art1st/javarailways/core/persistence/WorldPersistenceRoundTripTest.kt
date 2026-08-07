@@ -92,10 +92,12 @@ class WorldPersistenceRoundTripTest {
     @Test
     fun worldLoadReportsTheTrainThatFailedToRestore() {
         val infrastructure = CoreWorld.SavedInfrastructureV1(
+            formatVersion = CoreWorld.SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             rails = emptyList()
         )
         val runtime = CoreWorld.SavedRuntimeV1(
+            formatVersion = CoreWorld.SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 1L,
             trains = listOf(
@@ -104,7 +106,13 @@ class WorldPersistenceRoundTripTest {
                     name = "broken-train",
                     cars = emptyList(),
                     reversed = false,
-                    extension = emptyMap()
+                    extension = emptyMap(),
+                    headLocation = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing.SavedRailLocationWithFacingV1(
+                        "00000000-0000-0000-0000-000000000002", 0.0, ViewDirection.AB
+                    ),
+                    tailLocation = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing.SavedRailLocationWithFacingV1(
+                        "00000000-0000-0000-0000-000000000002", 0.0, ViewDirection.AB
+                    )
                 )
             )
         )
@@ -124,6 +132,20 @@ class WorldPersistenceRoundTripTest {
             assertNotNull(failure.cause)
         } finally {
             scheduler.shutdownNow()
+        }
+    }
+
+    @Test
+    fun decodeRejectsUnsupportedSnapshotVersion() {
+        val encoded = WorldSnapshotCodec.encodeInfrastructure(
+            CoreWorld.SavedInfrastructureV1(
+                formatVersion = CoreWorld.SNAPSHOT_FORMAT_VERSION + 1,
+                infrastructureRevision = 0L,
+                rails = emptyList()
+            )
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            WorldSnapshotCodec.decodeInfrastructure(encoded)
         }
     }
 

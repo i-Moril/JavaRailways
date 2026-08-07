@@ -159,7 +159,7 @@ class PartRegistry(
         fun parseItemConfig(map: Map<String, Any>?): PartItemConfig? {
             if (map == null) return null
             map.requireOnlyKeys(
-                setOf("type", "item-model", "custom-model-data", "scale", "animations"),
+                setOf("type", "item-model", "custom-model-data", "scale"),
                 "item"
             )
             val itemModel = map.optionalStringValue("item-model", "item")
@@ -174,8 +174,7 @@ class PartRegistry(
                 type = itemType,
                 itemModel = itemModel,
                 customModelData = customModelData,
-                scale = parseScale(map.optionalMap("scale", "item")),
-                animations = parseAnimations(map.optionalList("animations", "item"))
+                scale = parseScale(map.optionalMap("scale", "item"))
             )
         }
 
@@ -203,7 +202,7 @@ class PartRegistry(
         fun parsePlatformConfig(map: Map<String, Any>?): PartPlatformConfig {
             if (map == null) return PartPlatformConfig()
             map.requireOnlyKeys(
-                setOf("rows", "columns", "spacing-x", "spacingX", "spacing-z", "spacingZ", "spacing"),
+                setOf("rows", "columns", "spacing-x", "spacing-z", "spacing"),
                 "platform"
             )
             val spacing = parseVec3(map.optionalMap("spacing", "platform"))
@@ -211,11 +210,9 @@ class PartRegistry(
                 rows = map.optionalIntValue("rows", "platform") ?: 1,
                 columns = map.optionalIntValue("columns", "platform") ?: 1,
                 spacingX = map.optionalDoubleValue("spacing-x", "platform")
-                    ?: map.optionalDoubleValue("spacingX", "platform")
                     ?: spacing.x.takeIf { it != 0.0 }
                     ?: 1.0,
                 spacingZ = map.optionalDoubleValue("spacing-z", "platform")
-                    ?: map.optionalDoubleValue("spacingZ", "platform")
                     ?: spacing.z.takeIf { it != 0.0 }
                     ?: 1.0
             )
@@ -250,26 +247,20 @@ class PartRegistry(
                 val rotation = parseVec3(entryMap.optionalMap("rotation", "parts[$index]"))
 
                 when {
-                    // Import format: "import: namespace/part-name"
                     entryMap.containsKey("import") -> {
                         entryMap.requireOnlyKeys(setOf("import", "offset", "rotation"), "parts[$index]")
                         val importName = entryMap.requireString("import", "parts[$index]")
                         require(importName.isNotBlank()) { "parts[$index].import must not be blank" }
-                        PartRefEntry(name = importName, offset = offset, rotation = rotation, isImport = true)
+                        PartRefEntry(name = importName, offset = offset, rotation = rotation)
                     }
-                    // Inline format: "name: ..., type: ..."
                     entryMap.containsKey("type") -> {
                         entryMap.requireOnlyKeys(PART_KEYS, "parts[$index]")
                         val def = parsePartDefinition(entryMap, namespace)
                         PartRefEntry(name = def.name, offset = offset, rotation = rotation, inline = def)
                     }
-                    // Legacy format: "name: part-name"
-                    else -> {
-                        entryMap.requireOnlyKeys(setOf("name", "offset", "rotation"), "parts[$index]")
-                        val refName = entryMap.requireString("name", "parts[$index]")
-                        require(refName.isNotBlank()) { "parts[$index].name must not be blank" }
-                        PartRefEntry(name = refName, offset = offset, rotation = rotation)
-                    }
+                    else -> throw IllegalArgumentException(
+                        "parts[$index] must declare either 'import' or an inline 'type'"
+                    )
                 }
             }
         }
@@ -363,14 +354,8 @@ class PartRegistry(
             )
         }
 
-        private fun normalizeSceneName(scene: String?): String? {
-            return when (val normalized = scene?.trim()?.lowercase()) {
-                null, "" -> null
-                "o" -> "open"
-                "c" -> "closed"
-                else -> normalized
-            }
-        }
+        private fun normalizeSceneName(scene: String?): String? =
+            scene?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
 
         private fun validateUniqueScenes(animationName: String, scenes: List<String>) {
             val duplicates = scenes.groupingBy { it }.eachCount().filterValues { it > 1 }.keys

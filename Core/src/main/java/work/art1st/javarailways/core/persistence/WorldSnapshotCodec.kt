@@ -27,7 +27,7 @@ object WorldSnapshotCodec {
     }
 
     private val json = Json {
-        ignoreUnknownKeys = true
+        ignoreUnknownKeys = false
         encodeDefaults = true
         serializersModule = extensionDataModule
     }
@@ -36,11 +36,19 @@ object WorldSnapshotCodec {
         json.encodeToString(CoreWorld.SavedInfrastructureV1.serializer(), snapshot)
 
     fun decodeInfrastructure(data: String): CoreWorld.SavedInfrastructureV1 =
-        json.decodeFromString(CoreWorld.SavedInfrastructureV1.serializer(), data)
+        json.decodeFromString(CoreWorld.SavedInfrastructureV1.serializer(), data).also {
+            require(it.formatVersion == CoreWorld.SNAPSHOT_FORMAT_VERSION) {
+                "Unsupported core infrastructure snapshot version: ${it.formatVersion}"
+            }
+        }
 
     fun encodeRuntime(snapshot: CoreWorld.SavedRuntimeV1): String =
         json.encodeToString(CoreWorld.SavedRuntimeV1.serializer(), snapshot)
 
     fun decodeRuntime(data: String): CoreWorld.SavedRuntimeV1 =
-        json.decodeFromString(CoreWorld.SavedRuntimeV1.serializer(), data)
+        json.decodeFromString(CoreWorld.SavedRuntimeV1.serializer(), data).also {
+            require(it.formatVersion == CoreWorld.SNAPSHOT_FORMAT_VERSION) {
+                "Unsupported core runtime snapshot version: ${it.formatVersion}"
+            }
+        }
 }

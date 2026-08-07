@@ -46,29 +46,17 @@ data class TrainActionConfig(
         private fun parseAnimations(list: List<*>?, actionName: String): List<TrainActionAnimationConfig> {
             if (list == null) return emptyList()
             return list.mapIndexed { index, entry ->
-                when (entry) {
-                    is String -> {
-                        require(entry.isNotBlank()) {
-                            "train actions.$actionName.animations[$index] must not be blank"
-                        }
-                        TrainActionAnimationConfig(name = entry)
-                    }
-                    is Map<*, *> -> {
-                        val subject = "train actions.$actionName.animations[$index]"
-                        val map = entry.toStringKeyMap(subject)
-                        map.requireOnlyKeys(setOf("name", "scene", "at"), subject)
-                        val name = map.requireString("name", subject)
-                        require(name.isNotBlank()) { "$subject.name must not be blank" }
-                        TrainActionAnimationConfig(
-                            name = name,
-                            scene = normalizeSceneName(map.optionalStringValue("scene", subject)),
-                            at = map.optionalDoubleValue("at", subject) ?: 0.0
-                        )
-                    }
-                    else -> throw IllegalArgumentException(
-                        "train actions.$actionName.animations[$index] must be a string or map"
-                    )
-                }
+                val subject = "train actions.$actionName.animations[$index]"
+                val map = (entry as? Map<*, *>)?.toStringKeyMap(subject)
+                    ?: throw IllegalArgumentException("$subject must be a map")
+                map.requireOnlyKeys(setOf("name", "scene", "at"), subject)
+                val name = map.requireString("name", subject)
+                require(name.isNotBlank()) { "$subject.name must not be blank" }
+                TrainActionAnimationConfig(
+                    name = name,
+                    scene = normalizeSceneName(map.optionalStringValue("scene", subject)),
+                    at = map.optionalDoubleValue("at", subject) ?: 0.0
+                )
             }
         }
 
@@ -90,14 +78,8 @@ data class TrainActionConfig(
             }
         }
 
-        private fun normalizeSceneName(scene: String?): String? {
-            return when (val normalized = scene?.trim()?.lowercase()) {
-                null, "" -> null
-                "o" -> "open"
-                "c" -> "closed"
-                else -> normalized
-            }
-        }
+        private fun normalizeSceneName(scene: String?): String? =
+            scene?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
 
     }
 }

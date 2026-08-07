@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.tool
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.curve.RailCurveTemplateType
 import work.art1st.javarailways.basic.curve.StandardTurnout
@@ -40,15 +41,10 @@ class WandStateCodecTest {
     }
 
     @Test
-    fun `rail wand decoder clamps invalid persisted values`() {
-        val restored = requireNotNull(RailWandStateCodec.decode(
+    fun `rail wand decoder rejects removed fields`() {
+        assertNull(RailWandStateCodec.decode(
             """{"mode":"REMOVED","parallelCount":99,"parallelSpacing":-4.0,"straightUsesChordDirection":true,"designSpeedKmH":9999.0}"""
         ))
-
-        assertEquals(WandMode.CREATE, restored.mode)
-        assertEquals(10, restored.parallelCount)
-        assertEquals(1.0, restored.parallelSpacing)
-        assertEquals(500.0, restored.designSpeedKmH)
     }
 
     @Test

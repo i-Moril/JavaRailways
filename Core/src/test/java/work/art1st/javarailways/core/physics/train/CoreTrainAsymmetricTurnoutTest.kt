@@ -4,12 +4,10 @@ import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.api.physics.exception.CannotCreateTrainException
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
@@ -95,26 +93,6 @@ class CoreTrainAsymmetricTurnoutTest {
         AsyncTickTestSupport.run { fixture.train.moveTrainForward(0.5) }
 
         assertFalse(fixture.train.isDerailed, fixture.train.derailReason)
-    }
-
-    @Test
-    fun `legacy restore fails when the saved tail needs an unset reverse active path`() {
-        val fixture = fixtureWithTailAcrossJunction()
-        val saved = fixture.train.save().copy(headLocation = null, tailLocation = null)
-        fixture.world.removeTrain(fixture.train)
-        fixture.junction.viewBA.activeRail = null
-        check(fixture.junction.viewBA.nextRails.size == 2)
-        check(fixture.train.tailBogie.location.forward(-fixture.train.tailCar.tailBogieToEndPointOffset) == null) {
-            "tail=${fixture.train.tailBogie.location.rail.id}/${fixture.train.tailBogie.location.facing}@" +
-                "${fixture.train.tailBogie.location.arcLength} offset=" +
-                fixture.train.tailCar.tailBogieToEndPointOffset +
-                " active=${fixture.junction.viewBA.activeRail?.rail?.id} result=" +
-                fixture.train.tailBogie.location.forward(-fixture.train.tailCar.tailBogieToEndPointOffset)
-        }
-
-        assertThrows(CannotCreateTrainException::class.java) {
-            saved.load(fixture.world)
-        }
     }
 
     @Test

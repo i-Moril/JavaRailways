@@ -377,8 +377,8 @@ class DepotStore {
 
     /**
      * Reserve an exact train only after the dispatcher has selected it from physical occupancy.
-     * DepotStore is not an availability/selection authority; this only preserves optional legacy
-     * rolling-stock lifecycle metadata for an already registered train.
+     * DepotStore is not an availability/selection authority; this updates optional rolling-stock
+     * lifecycle metadata for an already registered train.
      */
     @MainThread
     fun reservePhysicallySelected(

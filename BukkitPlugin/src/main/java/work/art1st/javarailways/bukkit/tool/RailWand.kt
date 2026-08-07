@@ -213,32 +213,32 @@ data class WandPlayerState(
 
 @Serializable
 internal data class SavedRailWandStateV1(
-    val mode: String = WandMode.CREATE.name,
-    val selectedAnchors: List<String> = emptyList(),
-    val selectedRails: List<String> = emptyList(),
-    val pendingDeleteAnchor: String? = null,
-    val pendingDeleteRail: String? = null,
-    val pendingSplitRail: String? = null,
-    val pendingSplitArcLength: Double? = null,
-    val pendingDecorationDeleteRail: String? = null,
-    val parallelCount: Int = 1,
-    val parallelSpacing: Double = 4.5,
-    val snapToAngle: Boolean = true,
-    val snapToBlock: Boolean = true,
-    val openConfigAfterCreate: Boolean = false,
-    val autoDecorate: Boolean = true,
-    val decorationModel: String = "standard",
-    val curveRadius: Double = 0.0,
-    val curveTemplate: String = RailCurveTemplateType.AUTO.name,
-    val turnoutStandard: String = StandardTurnout.N9.name,
-    val designSpeedKmH: Double = 80.0,
-    val allowableCantDeficiencyMm: Double = 75.0,
-    val automaticSuperelevation: Boolean = true,
-    val maxSuperelevationMm: Double = 150.0
+    val mode: String,
+    val selectedAnchors: List<String>,
+    val selectedRails: List<String>,
+    val pendingDeleteAnchor: String?,
+    val pendingDeleteRail: String?,
+    val pendingSplitRail: String?,
+    val pendingSplitArcLength: Double?,
+    val pendingDecorationDeleteRail: String?,
+    val parallelCount: Int,
+    val parallelSpacing: Double,
+    val snapToAngle: Boolean,
+    val snapToBlock: Boolean,
+    val openConfigAfterCreate: Boolean,
+    val autoDecorate: Boolean,
+    val decorationModel: String,
+    val curveRadius: Double,
+    val curveTemplate: String,
+    val turnoutStandard: String,
+    val designSpeedKmH: Double,
+    val allowableCantDeficiencyMm: Double,
+    val automaticSuperelevation: Boolean,
+    val maxSuperelevationMm: Double
 )
 
 internal object RailWandStateCodec {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = Json { ignoreUnknownKeys = false; encodeDefaults = true }
 
     fun encode(state: WandPlayerState): String = json.encodeToString(
         SavedRailWandStateV1(
@@ -269,36 +269,38 @@ internal object RailWandStateCodec {
 
     fun decode(encoded: String): WandPlayerState? = runCatching {
         val saved = json.decodeFromString<SavedRailWandStateV1>(encoded)
+        require(saved.parallelCount in 1..10)
+        require(saved.parallelSpacing in 1.0..20.0)
+        require(saved.pendingSplitArcLength == null || saved.pendingSplitArcLength.isFinite() && saved.pendingSplitArcLength > 0.0)
+        require(saved.curveRadius.isFinite() && saved.curveRadius >= 0.0)
+        require(saved.designSpeedKmH in 5.0..500.0)
+        require(saved.allowableCantDeficiencyMm in 0.0..300.0)
+        require(saved.maxSuperelevationMm in 0.0..300.0)
         WandPlayerState(
-            mode = enumValueOrDefault(saved.mode, WandMode.CREATE),
+            mode = enumValueOf<WandMode>(saved.mode),
             selectedAnchors = saved.selectedAnchors.toMutableList(),
-            selectedRails = saved.selectedRails.mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }.toMutableList(),
+            selectedRails = saved.selectedRails.map(UUID::fromString).toMutableList(),
             pendingDeleteAnchor = saved.pendingDeleteAnchor,
-            pendingDeleteRail = saved.pendingDeleteRail?.let { runCatching { UUID.fromString(it) }.getOrNull() },
-            pendingSplitRail = saved.pendingSplitRail?.let { runCatching { UUID.fromString(it) }.getOrNull() },
-            pendingSplitArcLength = saved.pendingSplitArcLength?.takeIf { it.isFinite() && it > 0.0 },
-            pendingDecorationDeleteRail = saved.pendingDecorationDeleteRail?.let {
-                runCatching { UUID.fromString(it) }.getOrNull()
-            },
-            parallelCount = saved.parallelCount.coerceIn(1, 10),
-            parallelSpacing = saved.parallelSpacing.coerceIn(1.0, 20.0),
+            pendingDeleteRail = saved.pendingDeleteRail?.let(UUID::fromString),
+            pendingSplitRail = saved.pendingSplitRail?.let(UUID::fromString),
+            pendingSplitArcLength = saved.pendingSplitArcLength,
+            pendingDecorationDeleteRail = saved.pendingDecorationDeleteRail?.let(UUID::fromString),
+            parallelCount = saved.parallelCount,
+            parallelSpacing = saved.parallelSpacing,
             snapToAngle = saved.snapToAngle,
             snapToBlock = saved.snapToBlock,
             openConfigAfterCreate = saved.openConfigAfterCreate,
             autoDecorate = saved.autoDecorate,
-            decorationModel = saved.decorationModel.trim().takeIf(String::isNotEmpty) ?: "standard",
-            curveRadius = saved.curveRadius.coerceAtLeast(0.0),
-            curveTemplate = enumValueOrDefault(saved.curveTemplate, RailCurveTemplateType.AUTO),
-            turnoutStandard = enumValueOrDefault(saved.turnoutStandard, StandardTurnout.N9),
-            designSpeedKmH = saved.designSpeedKmH.coerceIn(5.0, 500.0),
-            allowableCantDeficiencyMm = saved.allowableCantDeficiencyMm.coerceIn(0.0, 300.0),
+            decorationModel = saved.decorationModel.trim().also { require(it.isNotEmpty()) },
+            curveRadius = saved.curveRadius,
+            curveTemplate = enumValueOf<RailCurveTemplateType>(saved.curveTemplate),
+            turnoutStandard = enumValueOf<StandardTurnout>(saved.turnoutStandard),
+            designSpeedKmH = saved.designSpeedKmH,
+            allowableCantDeficiencyMm = saved.allowableCantDeficiencyMm,
             automaticSuperelevation = saved.automaticSuperelevation,
-            maxSuperelevationMm = saved.maxSuperelevationMm.coerceIn(0.0, 300.0)
+            maxSuperelevationMm = saved.maxSuperelevationMm
         )
     }.getOrNull()
-
-    private inline fun <reified E : Enum<E>> enumValueOrDefault(value: String, fallback: E): E =
-        enumValues<E>().firstOrNull { it.name == value } ?: fallback
 }
 
 // ═══════════════════════════════════════════════════════════════

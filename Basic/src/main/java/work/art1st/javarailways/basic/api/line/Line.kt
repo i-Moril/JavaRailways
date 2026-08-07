@@ -24,16 +24,6 @@ data class Line private constructor(
     val downStationIds: List<StationId>,
     val color: String? = null
 ) {
-    /** Backward-compatible source alias. New code must select an explicit direction. */
-    val stationIds: List<StationId> get() = upStationIds
-
-    constructor(
-        id: LineId,
-        displayName: String,
-        stationIds: Collection<StationId>,
-        color: String? = null
-    ) : this(id, displayName, immutable(stationIds), immutable(stationIds.reversed()), color)
-
     constructor(
         id: LineId,
         displayName: String,

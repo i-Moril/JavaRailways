@@ -8,7 +8,6 @@ import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationBerth
 import work.art1st.javarailways.basic.api.station.StationBerthRef
 import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.pathFinding.RailDestination
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -175,33 +174,9 @@ class OperationalDestinationStore {
     fun remove(id: String): OperationalDestination? = destinations.remove(id)
 }
 
-/** Main-thread atomic adapter between new Destinations and legacy WayPoint/Station stores. */
+/** Main-thread atomic adapter keeping Destination-owned operational stores in sync. */
 class OperationalDestinationService(private val world: World) {
     private val data = world.basicWorldData
-
-    /** Migrate the legacy RailView-start Destination into one directed operational record. */
-    @MainThread
-    fun registerLegacy(
-        legacy: RailDestination,
-        destinationId: String = legacy.label
-    ): OperationalDestination {
-        require(legacy.railView.rail.world === world) { "legacy Destination belongs to another World" }
-        val railLength = legacy.railView.rail.getView(ViewDirection.AB).curve.totalArcLength
-        val arcInAb = when (legacy.railView.viewDirection) {
-            ViewDirection.AB -> 0.0
-            ViewDirection.BA -> railLength
-        }
-        val destination = OperationalDestination(
-            id = destinationId,
-            displayName = legacy.label,
-            railId = legacy.railView.rail.id,
-            arcLengthInAbMeters = arcInAb,
-            approachDirection = legacy.railView.viewDirection,
-            role = DestinationRole.Regular
-        )
-        register(destination)
-        return destination
-    }
 
     @MainThread
     fun register(destination: OperationalDestination) {

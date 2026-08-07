@@ -13,7 +13,7 @@ export interface ServiceEditorRowV1 {
   destinationId?:string|null; tick?:number|null; arrivalTick?:number|null; departureTick?:number|null;
   depotOperation?:'TAKE_FROM_DEPOT'|'STORE_AT_DEPOT'|null; depotId?:string|null; actions:TimetableActionV1[];
 }
-export interface TimetableServiceV1 { id: string; diagramLineId?:string|null; /** @deprecated Read compatibility only. */ lineId?:string|null; lineDirection?:LineDirection|null; rows?:ServiceEditorRowV1[]|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
+export interface TimetableServiceV1 { id: string; diagramLineId?:string|null; lineDirection?:LineDirection|null; rows?:ServiceEditorRowV1[]|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
 export interface DiagramLineV1 { id:string; upStationIds:string[]; downStationIds:string[] }
 export type ObjectSelectorType = 'REGEX'|'AND'|'OR'|'NOT'|'TAGS';
 export interface ObjectSelectorV1 { type:ObjectSelectorType; pattern?:string|null; selectors:ObjectSelectorV1[]; tags:string[] }
@@ -39,7 +39,7 @@ export interface DraftSummary { id: string; updatedAt?: string; timetable?: Save
 export interface EditorDocumentSummary { id:string; updatedAt?:string }
 export interface ValidationIssue { path?: string; message: string; severity?: string }
 export interface ValidationResult { valid: boolean; errors?: ValidationIssue[]; warnings?: ValidationIssue[] }
-export interface LineV1 { id:string; displayName:string; upStationIds:string[]; downStationIds:string[]; stationIds?:string[]; color?:string|null }
+export interface LineV1 { id:string; displayName:string; upStationIds:string[]; downStationIds:string[]; color?:string|null }
 export interface LineCollection { revision:number; lines:LineV1[] }
 export interface LineLegPreview { fromStationId:string; toStationId:string; fromDestinationId:string; toDestinationId:string; lengthMeters:number }
 export interface DirectionLinePreview { valid:boolean; totalLengthMeters?:number; legs?:LineLegPreview[]; legIndex?:number; error?:string }

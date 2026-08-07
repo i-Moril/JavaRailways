@@ -16,8 +16,8 @@ class TrainActionConfigTest {
                         "executable" to true,
                         "requires-control" to true,
                         "animations" to listOf(
-                            mapOf("name" to "doors_l", "scene" to "o", "at" to 0.6),
-                            "legacy_animation"
+                            mapOf("name" to "doors_l", "scene" to "open", "at" to 0.6),
+                            mapOf("name" to "door_warning", "at" to 0.0)
                         ),
                         "sounds" to listOf(
                             mapOf(
@@ -41,11 +41,25 @@ class TrainActionConfigTest {
         assertEquals("doors_l", action.animations[0].name)
         assertEquals("open", action.animations[0].scene)
         assertEquals(0.6, action.animations[0].at)
-        assertEquals("legacy_animation", action.animations[1].name)
+        assertEquals("door_warning", action.animations[1].name)
         assertNull(action.animations[1].scene)
         assertEquals("minecraft:block.iron_door.open", action.sounds.single().key)
         assertEquals(0.8, action.sounds.single().volume)
         assertEquals(1.2, action.sounds.single().pitch)
         assertEquals(0.6, action.sounds.single().at)
+    }
+
+    @Test
+    fun `rejects string animation references`() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            TrainActionConfig.parseActions(
+                mapOf(
+                    "config-version" to 1,
+                    "actions" to mapOf(
+                        "door-open" to mapOf("animations" to listOf("old-animation"))
+                    )
+                )
+            )
+        }
     }
 }

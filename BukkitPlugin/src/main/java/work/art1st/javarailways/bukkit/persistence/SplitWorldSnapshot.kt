@@ -11,7 +11,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 
 @Serializable
 data class InfrastructureFileV1(
-    val formatVersion: Int = 1,
+    val formatVersion: Int,
     val infrastructureRevision: Long,
     val coreSnapshotJson: String,
     val basicSnapshotJson: String
@@ -28,7 +28,7 @@ data class InfrastructureFileV1(
 
 @Serializable
 data class RuntimeFileV1(
-    val formatVersion: Int = 1,
+    val formatVersion: Int,
     val infrastructureRevision: Long,
     val physicsEpoch: Long,
     val coreSnapshotJson: String,
@@ -72,7 +72,8 @@ data class WorldSnapshotCapture(
 }
 
 object SplitWorldSnapshotCodec {
-    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true; prettyPrint = true }
+    const val CURRENT_FORMAT_VERSION = 1
+    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
 
     fun infrastructure(
         core: CoreWorld.SavedInfrastructureV1,
@@ -80,6 +81,7 @@ object SplitWorldSnapshotCodec {
     ): InfrastructureFileV1 {
         require(core.infrastructureRevision == basic.infrastructureRevision)
         return InfrastructureFileV1(
+            formatVersion = CURRENT_FORMAT_VERSION,
             infrastructureRevision = core.infrastructureRevision,
             coreSnapshotJson = WorldSnapshotCodec.encodeInfrastructure(core),
             basicSnapshotJson = BasicInfrastructureSnapshotCodec.encode(basic)
@@ -93,6 +95,7 @@ object SplitWorldSnapshotCodec {
         require(core.infrastructureRevision == basic.infrastructureRevision)
         require(core.physicsEpoch == basic.physicsEpoch)
         return RuntimeFileV1(
+            formatVersion = CURRENT_FORMAT_VERSION,
             infrastructureRevision = core.infrastructureRevision,
             physicsEpoch = core.physicsEpoch,
             coreSnapshotJson = WorldSnapshotCodec.encodeRuntime(core),
@@ -105,7 +108,15 @@ object SplitWorldSnapshotCodec {
     fun encode(value: RuntimeFileV1): String =
         json.encodeToString(RuntimeFileV1.serializer(), value)
     fun decodeInfrastructure(value: String): InfrastructureFileV1 =
-        json.decodeFromString(InfrastructureFileV1.serializer(), value)
+        json.decodeFromString(InfrastructureFileV1.serializer(), value).also {
+            require(it.formatVersion == CURRENT_FORMAT_VERSION) {
+                "Unsupported infrastructure file version: ${it.formatVersion}"
+            }
+        }
     fun decodeRuntime(value: String): RuntimeFileV1 =
-        json.decodeFromString(RuntimeFileV1.serializer(), value)
+        json.decodeFromString(RuntimeFileV1.serializer(), value).also {
+            require(it.formatVersion == CURRENT_FORMAT_VERSION) {
+                "Unsupported runtime file version: ${it.formatVersion}"
+            }
+        }
 }

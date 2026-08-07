@@ -84,7 +84,7 @@ class RoutePlanner(private val world: World) {
     }
 
     /**
-     * Legacy WayPoints try both allowed directions. Operational Destinations contribute their
+     * Standalone WayPoints try both allowed directions. Operational Destinations contribute their
      * configured directed approach unless a synthetic caller supplies an explicit requirement.
      */
     fun buildRoute(

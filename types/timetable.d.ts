@@ -1,8 +1,6 @@
 /** Read-only WebUI authoring types for the sandboxed ScriptWorker DSL. */
 interface JavaRailwaysTimetableBuilder {
   setPeriodDays(days: number): this;
-  /** @deprecated Use setPeriodDays; ticks must be a positive multiple of 24000. */
-  setPeriod(ticks: number): this;
   /** Declares visual-only station lanes for a running graph. */
   diagramLine(lineId: string, options: JavaRailwaysDiagramLineOptions): this;
   service(id: string, build: JavaRailwaysServiceCallback): this;
@@ -35,8 +33,6 @@ interface JavaRailwaysCondition { readonly __javaRailwaysCondition: unique symbo
 interface JavaRailwaysServiceOptions {
   /** Visual-only running-graph grouping; unrelated to infrastructure LineId. */
   readonly diagramLineId?: string;
-  /** @deprecated Use diagramLineId. */
-  readonly lineId?: string;
   readonly lineDirection?: 'UP' | 'DOWN';
   readonly activation?:
     | { readonly type: 'scheduled' | 'manual' }

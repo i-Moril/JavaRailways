@@ -36,7 +36,11 @@ class LinePlannerTest {
         destinations.register(station("wrong", 80.0, ViewDirection.BA))
 
         val result = LinePlanner(world).compile(
-            Line(LineId("L1"), "Line 1", listOf(StationId("a"), StationId("b")))
+            Line(
+                LineId("L1"), "Line 1",
+                listOf(StationId("a"), StationId("b")),
+                listOf(StationId("b"), StationId("a"))
+            )
         )
 
         assertTrue(result is LineCompileResult.Success)
@@ -45,7 +49,11 @@ class LinePlannerTest {
         assertEquals("a@one", result.legs.single().fromDestinationId)
         assertEquals("b@one", result.legs.single().toDestinationId)
         assertTrue(LinePlanner(world).compile(
-            Line(LineId("L2"), "Wrong direction", listOf(StationId("a"), StationId("wrong")))
+            Line(
+                LineId("L2"), "Wrong direction",
+                listOf(StationId("a"), StationId("wrong")),
+                listOf(StationId("wrong"), StationId("a"))
+            )
         ) is LineCompileResult.Failure)
         val directional = Line(
             LineId("L3"), "Directional",
@@ -72,7 +80,11 @@ class LinePlannerTest {
         destinations.register(berth("b", "near", 80.0))
         destinations.register(berth("b", "selected", 90.0))
         destinations.register(berth("a", "return", 10.0, ViewDirection.BA))
-        val line = Line(LineId("L-selected"), "Selected berths", listOf(StationId("a"), StationId("b")))
+        val line = Line(
+            LineId("L-selected"), "Selected berths",
+            listOf(StationId("a"), StationId("b")),
+            listOf(StationId("b"), StationId("a"))
+        )
 
         val result = LinePlanner(world).compileStations(
             line,
@@ -91,7 +103,11 @@ class LinePlannerTest {
             listOf("a@near", "b@selected", "extra")
         ) is LineCompileResult.Failure)
 
-        val turnbackLine = Line(LineId("L-turnback"), "Turnback", listOf(StationId("b"), StationId("a")))
+        val turnbackLine = Line(
+            LineId("L-turnback"), "Turnback",
+            listOf(StationId("b"), StationId("a")),
+            listOf(StationId("a"), StationId("b"))
+        )
         val turnbackCandidates = LinePlanner(world).compileResetCandidates(
             turnbackLine,
             turnbackLine.upStationIds,

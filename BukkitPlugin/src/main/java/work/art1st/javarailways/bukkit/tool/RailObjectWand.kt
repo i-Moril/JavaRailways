@@ -74,13 +74,13 @@ data class RailObjectWandState(
 
 @Serializable
 internal data class SavedRailObjectWandStateV1(
-    val mode: String = RailObjectWandMode.WAY_POINT.name,
-    val pendingDeleteWayPoint: String? = null,
-    val defaultWayPointType: String = DestinationRoleType.REGULAR.name
+    val mode: String,
+    val pendingDeleteWayPoint: String?,
+    val defaultWayPointType: String
 )
 
 internal object RailObjectWandStateCodec {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = Json { ignoreUnknownKeys = false; encodeDefaults = true }
 
     fun encode(state: RailObjectWandState): String = json.encodeToString(
         SavedRailObjectWandStateV1(
@@ -93,12 +93,9 @@ internal object RailObjectWandStateCodec {
     fun decode(encoded: String): RailObjectWandState? = runCatching {
         val saved = json.decodeFromString<SavedRailObjectWandStateV1>(encoded)
         RailObjectWandState(
-            mode = RailObjectWandMode.entries.firstOrNull { it.name == saved.mode }
-                ?: RailObjectWandMode.WAY_POINT,
+            mode = enumValueOf<RailObjectWandMode>(saved.mode),
             pendingDeleteWayPoint = saved.pendingDeleteWayPoint,
-            defaultWayPointType = DestinationRoleType.entries.firstOrNull {
-                it.name == saved.defaultWayPointType
-            } ?: DestinationRoleType.REGULAR
+            defaultWayPointType = enumValueOf<DestinationRoleType>(saved.defaultWayPointType)
         )
     }.getOrNull()
 }
@@ -821,11 +818,11 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val session = configUI.getPlayerSession(player.uniqueId)
         val rawName = session.getValue(editKeys.name) ?: oldId
         val pending = pendingWayPoints.remove(player.uniqueId)?.takeIf { it.id == oldId }
-        val legacyWayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: pending ?: return
+        val wayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: pending ?: return
         val original = coreWorld.basicWorldData.destinations[oldId]
         val updated = try {
             applyRailObjectDestinationEdit(
-                legacyWayPoint,
+                wayPoint,
                 original,
                 RailObjectDestinationEdit(
                     id = rawName,
@@ -864,7 +861,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 try {
                     destinationService.register(updated)
                 } catch (failure: Exception) {
-                    coreWorld.basicWorldData.wayPoints.add(legacyWayPoint)
+                    coreWorld.basicWorldData.wayPoints.add(wayPoint)
                     throw failure
                 }
             }

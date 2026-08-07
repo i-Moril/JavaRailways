@@ -262,7 +262,7 @@ class CoreCar @MainThread internal constructor(
         }
 
         // Prefer the train-local path ahead of the published tail. Only explicit correction of a
-        // compressed legacy placement may search behind it, and therefore consult reverse topology.
+        // A compressed explicit placement may search behind it and consult reverse topology.
         return searchRange(0.0)
             ?: fallbackLowerDistance.takeIf { it < 0.0 }?.let(::searchRange)
             ?: throw BogieException(activeTailBogie)

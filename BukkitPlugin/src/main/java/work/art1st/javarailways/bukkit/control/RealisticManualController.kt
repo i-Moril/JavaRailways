@@ -43,18 +43,6 @@ class RealisticManualController(
     val direction: TrainDriveDirection
         get() = directionRef.get()
 
-    /** Compatibility view for the older /jr train throttle command. */
-    val throttle: Double
-        get() = when {
-            controlConfig.tractionNotchScales.containsKey(handle) -> controlConfig.normalizedPowerScale(handle)
-            controlConfig.brakeNotchScales.containsKey(handle) -> -controlConfig.normalizedBrakeScale(handle)
-            else -> 0.0
-        }
-
-    /** Compatibility view: realistic control has no target speed, only a speed limit. */
-    val targetSpeed: Double
-        get() = if (controlConfig.tractionNotchScales.containsKey(handle)) controlConfig.maxSpeed else 0.0
-
     val displaySpeed: Double get() = dynamicsState.speed * movementSign
     val acceleration: Double get() = dynamicsState.acceleration
     val brakeScale: Double get() = dynamicsState.brakeScale
@@ -72,15 +60,6 @@ class RealisticManualController(
         if (!known) return false
         handleRef.set(normalized)
         return true
-    }
-
-    fun setThrottle(value: Double) {
-        val clamped = value.coerceIn(-1.0, 1.0)
-        handleRef.set(when {
-            clamped > 0.0 -> nearestNotch(controlConfig.tractionNotchScales, clamped) ?: NEUTRAL_HANDLE
-            clamped < 0.0 -> nearestNotch(controlConfig.brakeNotchScales, -clamped) ?: NEUTRAL_HANDLE
-            else -> NEUTRAL_HANDLE
-        })
     }
 
     fun shiftHandleTowardPower(): String {
@@ -154,10 +133,6 @@ class RealisticManualController(
                 grade = car.direction.y()
             )
         }
-    }
-
-    private fun nearestNotch(scales: Map<String, Double>, target: Double): String? {
-        return scales.minByOrNull { (_, scale) -> kotlin.math.abs(scale - target) }?.key
     }
 
     private fun shiftedHandle(current: String, delta: Int): String {

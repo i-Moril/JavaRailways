@@ -41,10 +41,6 @@ data class BasicWorldData(
             "StationStore must use this BasicWorldData RailObjectStore"
         }
     }
-
-    /** 兼容早期 Phase2 命名；后续代码应使用 wayPoints。 */
-    val stopPoints: WayPointStore
-        get() = wayPoints
 }
 
 /** 轨道上的路径点。第一版只保存可持久化引用，不直接持有 Core 内部 location 对象。 */
@@ -94,9 +90,6 @@ object DirectionRestrictionResolver {
         return if (delta > 0.0) ViewDirection.AB else ViewDirection.BA
     }
 }
-
-typealias StopPoint = WayPoint
-typealias StopPointStore = WayPointStore
 
 class TimetableStore {
     private val timetables = ConcurrentHashMap<String, Timetable>()

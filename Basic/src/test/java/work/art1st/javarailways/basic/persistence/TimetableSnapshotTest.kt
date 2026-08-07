@@ -48,14 +48,14 @@ class TimetableSnapshotTest {
     }
 
     @Test
-    fun `legacy lineId JSON decodes as presentation diagramLineId`() {
-        val decoded = TimetableSnapshotCodec.decode("""
-            {"id":"legacy","periodDays":1,"services":[{
-              "id":"S1","selectorType":"TRAIN_ID","trainId":"T1","steps":[],"lineId":"metro"
-            }]}
-        """.trimIndent())
-
-        assertEquals("metro", decoded.services.single().diagramLineId)
+    fun `legacy lineId JSON is rejected`() {
+        org.junit.jupiter.api.Assertions.assertThrows(Exception::class.java) {
+            TimetableSnapshotCodec.decode("""
+                {"id":"old","periodDays":1,"services":[{
+                  "id":"S1","selectorType":"TRAIN_ID","trainId":"T1","steps":[],"lineId":"metro"
+                }]}
+            """.trimIndent())
+        }
     }
 
     @Test

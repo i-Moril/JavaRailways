@@ -14,8 +14,8 @@ class DraftRepositoryTest {
 
     @Test void savesAndReadsJsonDraft() throws Exception {
         DraftRepository repository = new DraftRepository(directory, mapper);
-        repository.save("weekday_1", mapper.readTree("{\"name\":\"Weekday\"}"));
-        assertEquals("Weekday", repository.find("weekday_1").orElseThrow().path("name").asText());
+        repository.save("default", "weekday_1", mapper.readTree("{\"name\":\"Weekday\"}"));
+        assertEquals("Weekday", repository.find("default", "weekday_1").orElseThrow().path("name").asText());
     }
     @Test void listsCreatesAndDeletesWorldScopedDrafts() throws Exception {
         DraftRepository repository = new DraftRepository(directory, mapper);
@@ -28,7 +28,7 @@ class DraftRepositoryTest {
 
     @Test void rejectsTraversalAndNonObjectDrafts() throws Exception {
         DraftRepository repository = new DraftRepository(directory, mapper);
-        assertThrows(IllegalArgumentException.class, () -> repository.save("../outside", mapper.createObjectNode()));
-        assertThrows(IllegalArgumentException.class, () -> repository.save("valid", mapper.readTree("[]")));
+        assertThrows(IllegalArgumentException.class, () -> repository.save("default", "../outside", mapper.createObjectNode()));
+        assertThrows(IllegalArgumentException.class, () -> repository.save("default", "valid", mapper.readTree("[]")));
     }
 }

@@ -11,7 +11,6 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.pathFinding.RailDestination
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.RouteBuildResult
@@ -68,11 +67,6 @@ class OperationalDestinationTest {
         assertEquals(20.0, world.basicWorldData.wayPoints["A"]?.arcLength)
         assertEquals(DestinationRoleType.REGULAR, world.basicWorldData.destinations["A"]?.role?.type)
         assertTrue(RoutePlanner(world).buildRoute("A", "wrong-way") is RouteBuildResult.Failure)
-
-        val migrated = service.registerLegacy(RailDestination(rail.viewAB, "legacy"))
-        assertEquals(ViewDirection.AB, migrated.approachDirection)
-        assertEquals(0.0, migrated.arcLengthInAbMeters)
-        assertEquals("legacy", world.basicWorldData.wayPoints["legacy"]?.id)
     }
 
     @Test

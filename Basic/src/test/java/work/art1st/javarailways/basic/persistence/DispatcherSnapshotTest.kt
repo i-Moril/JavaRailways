@@ -8,6 +8,7 @@ class DispatcherSnapshotTest {
     @Test
     fun `restored active runs become recovery required checkpoints`() {
         val saved = SavedDispatcherV1(
+            formatVersion = SavedDispatcherV1.CURRENT_FORMAT_VERSION,
             dispatcherTick = 500L,
             missionRevision = 12L,
             clocks = listOf(SavedTimetableClockV1(

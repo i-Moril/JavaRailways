@@ -34,8 +34,8 @@ data class SavedTrainV1(
     val cars: List<SavedCarV1>,
     val reversed: Boolean,
     val extension: Map<String, SerializableExtensionData>,
-    val headLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1? = null,
-    val tailLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1? = null
+    val headLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1,
+    val tailLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
         val train = CoreTrain(
@@ -44,8 +44,8 @@ data class SavedTrainV1(
             dependency,
             extension,
             name,
-            persistedHeadLocation = headLocation?.load(dependency),
-            persistedTailLocation = tailLocation?.load(dependency)
+            persistedHeadLocation = headLocation.load(dependency),
+            persistedTailLocation = tailLocation.load(dependency)
         )
         return try {
             train.restorePersistedPlacement(reversed)

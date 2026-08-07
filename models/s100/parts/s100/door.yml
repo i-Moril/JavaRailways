@@ -5,20 +5,20 @@ type: dummy
 # Door leaf parts are split by side so doors_l and doors_r scenes animate independently.
 parts:
   # Left side (posX=+1.375)
-  - name: door_left_a
+  - import: door_left_a
     offset: {x: 1.375, y: 0, z: 0.375}
-  - name: door_left_b
+  - import: door_left_b
     offset: {x: 1.375, y: 0, z: -0.375}
   # Right side (posX=-1.375, rotY=180)
-  - name: door_right_a
+  - import: door_right_a
     offset: {x: -1.375, y: 0, z: 0.375}
     rotation: {y: 180}
-  - name: door_right_b
+  - import: door_right_b
     offset: {x: -1.375, y: 0, z: -0.375}
     rotation: {y: 180}
   # Door lights
-  - name: door_light_left
+  - import: door_light_left
     offset: {x: 0, y: 0, z: 0}
-  - name: door_light_right
+  - import: door_light_right
     offset: {x: 0, y: 0, z: 0}
     rotation: {y: 180}

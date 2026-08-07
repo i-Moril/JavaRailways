@@ -118,9 +118,7 @@ object TrainCommand {
         if (trainDef == null) {
             heavyOperationGate.finish(sender.uniqueId)
             sender.sendMessage("错误: 未知列车类型 '$trainTypeName'")
-            val availablePkgNames = modelManager.trainPackages.keys
-            val availableLegacyNames = modelManager.trainLoader.getAllNames()
-            sender.sendMessage("可用类型: ${(availablePkgNames + availableLegacyNames).joinToString(", ")}")
+            sender.sendMessage("可用类型: ${modelManager.trainPackages.keys.joinToString(", ")}")
             return true
         }
 
@@ -431,19 +429,13 @@ object TrainCommand {
         playerControllers[sender.uniqueId] = controller
 
         val initialHandle = args.firstOrNull()
-        if (initialHandle != null) {
-            val throttle = initialHandle.toDoubleOrNull()
-            if (throttle != null) {
-                controller.setThrottle(throttle)
-            } else if (!controller.setHandle(initialHandle)) {
-                sender.sendMessage("未知手柄档位: $initialHandle")
-                sender.sendMessage("可用档位: ${availableHandles(controlConfig)}")
-            }
+        if (initialHandle != null && !controller.setHandle(initialHandle)) {
+            sender.sendMessage("未知手柄档位: $initialHandle")
+            sender.sendMessage("可用档位: ${availableHandles(controlConfig)}")
         }
 
         sender.sendMessage("控制器已连接至列车: ${train.id}")
         sender.sendMessage("使用 /jr train handle <P1..P5|N|B1..B7|EB> 设置手柄")
-        sender.sendMessage("使用 /jr train throttle <-1~1> 兼容旧式比例控制")
         sender.sendMessage("使用 /jr train stop 断开连接")
         return true
     }
@@ -493,39 +485,6 @@ object TrainCommand {
             return true
         }
         sender.sendMessage("手柄设置为 ${controller.handle}")
-        return true
-    }
-
-    /**
-     * 设置加速手柄。
-     */
-    private fun handleThrottle(sender: CommandSender, args: List<String>): Boolean {
-        if (sender !is Player) {
-            sender.sendMessage("此命令需要玩家执行")
-            return true
-        }
-        val controller = playerControllers[sender.uniqueId]
-        if (controller == null) {
-            sender.sendMessage("当前没有连接的控制器，先用 /jr train start")
-            return true
-        }
-
-        if (!isDrivingControlledTrain(sender, controller)) {
-            sender.sendMessage("手柄无效：请坐在当前列车的驾驶座上")
-            return true
-        }
-
-        val throttle = args.firstOrNull()?.toDoubleOrNull()
-        if (throttle == null) {
-            sender.sendMessage("用法: /jr train throttle <-1~1>")
-            sender.sendMessage("  正值=加速，负值=制动，0=惰行")
-            sender.sendMessage("当前手柄: ${"%.2f".format(controller.throttle)}")
-            sender.sendMessage("当前速度: ${"%.2f".format(controller.speed)} m/s")
-            return true
-        }
-
-        controller.setThrottle(throttle.coerceIn(-1.0, 1.0))
-        sender.sendMessage("手柄设置为 ${"%.2f".format(controller.throttle)}，目标速度 ${"%.2f".format(controller.targetSpeed)} m/s")
         return true
     }
 
@@ -809,7 +768,7 @@ object TrainCommand {
             if (controller != null) {
                 sender.sendMessage("速度: ${"%.2f".format(controller.speed)} m/s")
                 sender.sendMessage("加速度: ${"%.3f".format(controller.acceleration)} m/s²")
-                sender.sendMessage("手柄: ${controller.handle} (${"%.2f".format(controller.throttle)})")
+                sender.sendMessage("手柄: ${controller.handle}")
                 sender.sendMessage("制动建立: ${"%.2f".format(controller.brakeScale)}")
                 sender.sendMessage(
                     "力: 牵引=${"%.0f".format(controller.tractionForce)}N " +

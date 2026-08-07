@@ -122,14 +122,14 @@ data class JavaRailwaysConfig(
             require(overspeedToleranceKmH >= 0.0) { "overspeed-tolerance-kmh must be >= 0.0" }
             val overspeedGraceTicks = requireInt(yaml, "overspeed-grace-ticks")
             require(overspeedGraceTicks > 0) { "overspeed-grace-ticks must be > 0" }
-            val turnoutProtection = optionalDouble(
-                yaml, "turnout.default-protection-distance-meters", 20.0
+            val turnoutProtection = requireDouble(
+                yaml, "turnout.default-protection-distance-meters"
             )
-            val turnoutLocking = optionalDouble(
-                yaml, "turnout.default-locking-distance-meters", 5.0
+            val turnoutLocking = requireDouble(
+                yaml, "turnout.default-locking-distance-meters"
             )
-            val turnoutLeadTicks = optionalInt(yaml, "turnout.decision-lead-ticks", 5)
-            val turnoutRetryTicks = optionalInt(yaml, "turnout.allocation-retry-ticks", 5)
+            val turnoutLeadTicks = requireInt(yaml, "turnout.decision-lead-ticks")
+            val turnoutRetryTicks = requireInt(yaml, "turnout.allocation-retry-ticks")
             require(turnoutProtection.isFinite() && turnoutProtection >= 0.0) {
                 "turnout.default-protection-distance-meters must be finite and >= 0"
             }
@@ -153,54 +153,43 @@ data class JavaRailwaysConfig(
             require(maxDisplayDistance <= MAX_DISPLAY_DISTANCE_BLOCKS) {
                 "display-renderer.player-distance.max-blocks must be <= $MAX_DISPLAY_DISTANCE_BLOCKS"
             }
-            val bridgePort = optionalInt(yaml, "timetable-http-bridge.port", 8765)
+            val bridgePort = requireInt(yaml, "timetable-http-bridge.port")
             require(bridgePort in 1..65535) { "timetable-http-bridge.port must be in 1..65535" }
-            val bridgeBodyLimit = optionalInt(yaml, "timetable-http-bridge.body-limit-bytes", 1_048_576)
+            val bridgeBodyLimit = requireInt(yaml, "timetable-http-bridge.body-limit-bytes")
             require(bridgeBodyLimit in 1..10_485_760) { "timetable-http-bridge.body-limit-bytes must be in 1..10485760" }
-            val bridgeTimeoutMillis = optionalLong(yaml, "timetable-http-bridge.timeout-millis", 5_000L)
+            val bridgeTimeoutMillis = requireLong(yaml, "timetable-http-bridge.timeout-millis")
             require(bridgeTimeoutMillis in 1L..60_000L) { "timetable-http-bridge.timeout-millis must be in 1..60000" }
-            val bridgeBindAddress = optionalString(yaml, "timetable-http-bridge.bind-address", "127.0.0.1")
+            val bridgeBindAddress = requireString(yaml, "timetable-http-bridge.bind-address")
             require(bridgeBindAddress == "127.0.0.1" || bridgeBindAddress == "localhost" || bridgeBindAddress == "::1") {
                 "timetable-http-bridge.bind-address must be loopback only"
             }
-            val tokenEnv = optionalString(
-                yaml,
-                "timetable-http-bridge.bearer-token-env",
-                "JAVARAILWAYS_TIMETABLE_HTTP_TOKEN"
-            )
+            val tokenEnv = requireString(yaml, "timetable-http-bridge.bearer-token-env")
             require(tokenEnv.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) {
                 "timetable-http-bridge.bearer-token-env must be an environment variable name"
             }
             val webUiMode = TimetableWebUiMode.fromConfig(
-                optionalString(yaml, "timetable-webui.mode", "managed")
+                requireString(yaml, "timetable-webui.mode")
             )
-            val webUiBindAddress = optionalString(yaml, "timetable-webui.bind-address", "127.0.0.1")
+            val webUiBindAddress = requireString(yaml, "timetable-webui.bind-address")
             require(webUiBindAddress.isNotBlank() && webUiBindAddress.none(Char::isWhitespace)) {
                 "timetable-webui.bind-address must be a non-blank host or IP address"
             }
-            val webUiPort = optionalInt(yaml, "timetable-webui.port", 8080)
+            val webUiPort = requireInt(yaml, "timetable-webui.port")
             require(webUiPort in 1..65535) { "timetable-webui.port must be in 1..65535" }
-            val defaultPublicHost = if (webUiBindAddress == "::1") "[::1]" else webUiBindAddress
-            val webUiPublicUrl = optionalString(
-                yaml,
-                "timetable-webui.public-url",
-                "http://$defaultPublicHost:$webUiPort"
-            ).trimEnd('/')
+            val webUiPublicUrl = requireString(yaml, "timetable-webui.public-url").trimEnd('/')
             val publicUri = runCatching { URI.create(webUiPublicUrl) }.getOrElse {
                 throw IllegalArgumentException("timetable-webui.public-url must be a valid URL", it)
             }
             require(publicUri.isAbsolute && publicUri.host != null && publicUri.scheme in setOf("http", "https") &&
                 publicUri.rawQuery == null && publicUri.rawFragment == null
             ) { "timetable-webui.public-url must be an absolute http(s) URL without query or fragment" }
-            val webUiShutdownTimeout = optionalLong(
-                yaml,
-                "timetable-webui.shutdown-timeout-millis",
-                5_000L
+            val webUiShutdownTimeout = requireLong(
+                yaml, "timetable-webui.shutdown-timeout-millis"
             )
             require(webUiShutdownTimeout in 1L..60_000L) {
                 "timetable-webui.shutdown-timeout-millis must be in 1..60000"
             }
-            val bridgeEnabled = optionalBoolean(yaml, "timetable-http-bridge.enabled", true)
+            val bridgeEnabled = requireBoolean(yaml, "timetable-http-bridge.enabled")
             require(webUiMode == TimetableWebUiMode.DISABLED || bridgeEnabled) {
                 "timetable-http-bridge.enabled must be true when timetable-webui is managed or external"
             }
@@ -243,21 +232,6 @@ data class JavaRailwaysConfig(
                 )
             )
         }
-
-        private fun optionalString(yaml: YamlConfiguration, path: String, fallback: String): String =
-            if (yaml.contains(path, true)) requireString(yaml, path) else fallback
-
-        private fun optionalInt(yaml: YamlConfiguration, path: String, fallback: Int): Int =
-            if (yaml.contains(path, true)) requireInt(yaml, path) else fallback
-
-        private fun optionalDouble(yaml: YamlConfiguration, path: String, fallback: Double): Double =
-            if (yaml.contains(path, true)) requireDouble(yaml, path) else fallback
-
-        private fun optionalLong(yaml: YamlConfiguration, path: String, fallback: Long): Long =
-            if (yaml.contains(path, true)) requireLong(yaml, path) else fallback
-
-        private fun optionalBoolean(yaml: YamlConfiguration, path: String, fallback: Boolean): Boolean =
-            if (yaml.contains(path, true)) requireBoolean(yaml, path) else fallback
 
         private fun requireString(yaml: YamlConfiguration, path: String): String {
             require(yaml.contains(path, true)) { "Missing required config key '$path'" }

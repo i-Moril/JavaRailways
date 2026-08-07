@@ -22,8 +22,7 @@ data class PartDefinition(
     val offset: Vec3Config = Vec3Config(),        // Local offset
     val rotation: Vec3Config = Vec3Config(),      // Local rotation (degrees)
     val parts: List<PartRefEntry> = emptyList(),  // Sub-part references
-    val animations: List<PartAnimationConfig> = emptyList(), // Part-level animations
-    val scale: PartScaleConfig? = null            // Legacy scale for non-item-display
+    val animations: List<PartAnimationConfig> = emptyList() // Part-level animations
 ) {
     /**
      * Resolve this part's sub-part references into a tree of PartNode.
@@ -50,8 +49,7 @@ data class PartDefinition(
                     z = childDef.rotation.z + entry.rotation.z
                 ),
                 parts = childDef.parts,
-                animations = childDef.animations,
-                scale = childDef.scale
+                animations = childDef.animations
             )
             mergedDef.resolveTree(registry)
         }

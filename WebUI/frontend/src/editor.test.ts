@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTimetablePresentation } from './api';
 import { emptyAction, emptyTimetable, reducer } from './editor';
 
 describe('editor reducer', () => {
@@ -26,14 +25,6 @@ describe('editor reducer', () => {
     expect(emptyAction('STOP').stopTicks).toBe(20);
     expect(emptyAction('DESTINATION_OPTIONS').wayPointIds).toEqual(['']);
     expect(emptyAction('STATION_DESTINATION_OPTIONS')).toMatchObject({ stationId:'', berthId:'' });
-  });
-
-  it('migrates legacy lineId drafts to presentation-only diagramLineId', () => {
-    const value = reducer(emptyTimetable(), { type:'ADD_SERVICE' });
-    const legacy = { ...value, services:value.services.map((service)=>({ ...service, lineId:'metro' })) };
-    const normalized = normalizeTimetablePresentation(legacy);
-    expect(normalized.services[0].diagramLineId).toBe('metro');
-    expect(normalized.services[0].lineId).toBeUndefined();
   });
 
   it('deletes only the selected service', () => {

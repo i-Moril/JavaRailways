@@ -78,7 +78,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         )
     }
 
-    /** Legacy synchronous entry point retained for explicit Core command paths. */
+    /** Synchronous commit entry point used by explicit Core command paths. */
     override fun commit() {
         applyFrame(
             captureLiveFrame(),
@@ -139,7 +139,10 @@ class CarExtension : TrainComponentExtension<Car>() {
         val builder = if (snapshot != null) {
             modelManager.createTreeBuilder(self.world, snapshot.partResolver())
         } else {
-            modelManager.createTreeBuilder(self.world, carDef.packageName)
+            modelManager.createTreeBuilder(
+                self.world,
+                requireNotNull(carDef.packageName) { "Car model '$modelName' has no package" }
+            )
         }
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val rootState = renderFrame().state

@@ -64,6 +64,7 @@ class CoreWorld(
     ) : this(LinkedHashMap(), ConcurrentHashMap(), hashMapOf(), tickManager, physicsCoordinator, worldParent)
 
     companion object {
+        const val SNAPSHOT_FORMAT_VERSION = 1
         private const val DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY = 65_536
 
         fun createEmpty(
@@ -77,7 +78,13 @@ class CoreWorld(
             runtime: SavedRuntimeV1?,
             dependency: SnapshotDependency
         ): CoreWorld {
+            require(infrastructure.formatVersion == SNAPSHOT_FORMAT_VERSION) {
+                "Unsupported core infrastructure snapshot version: ${infrastructure.formatVersion}"
+            }
             if (runtime != null) {
+                require(runtime.formatVersion == SNAPSHOT_FORMAT_VERSION) {
+                    "Unsupported core runtime snapshot version: ${runtime.formatVersion}"
+                }
                 require(runtime.infrastructureRevision == infrastructure.infrastructureRevision) {
                     "runtime infrastructure revision ${runtime.infrastructureRevision} does not match " +
                         infrastructure.infrastructureRevision
@@ -244,6 +251,7 @@ class CoreWorld(
     fun saveInfrastructure(infrastructureRevision: Long): SavedInfrastructureV1 {
         require(infrastructureRevision >= 0L)
         return SavedInfrastructureV1(
+            formatVersion = SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = infrastructureRevision,
             rails = rails.values.map { it.save() }
         )
@@ -252,6 +260,7 @@ class CoreWorld(
     fun saveRuntime(infrastructureRevision: Long, physicsEpoch: Long): SavedRuntimeV1 {
         require(infrastructureRevision >= 0L && physicsEpoch >= 0L)
         return SavedRuntimeV1(
+            formatVersion = SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = infrastructureRevision,
             physicsEpoch = physicsEpoch,
             trains = trains.values.map { it.save() }
@@ -260,14 +269,14 @@ class CoreWorld(
 
     @Serializable
     data class SavedInfrastructureV1(
-        val formatVersion: Int = 1,
+        val formatVersion: Int,
         val infrastructureRevision: Long,
         val rails: List<CoreRail.SavedRailV1>
     )
 
     @Serializable
     data class SavedRuntimeV1(
-        val formatVersion: Int = 1,
+        val formatVersion: Int,
         val infrastructureRevision: Long,
         val physicsEpoch: Long,
         val trains: List<SavedTrainV1>

@@ -5,7 +5,7 @@ import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
-/** Bridges legacy Core "main thread" contracts to the single JavaRailways simulation owner. */
+/** Bridges Core simulation-thread contracts to the single JavaRailways simulation owner. */
 object BukkitThreadGuardBridge : ThreadGuardPlatformBridge {
     private val simulationDepth = ThreadLocal.withInitial { 0 }
     private val simulationLock = ReentrantLock()

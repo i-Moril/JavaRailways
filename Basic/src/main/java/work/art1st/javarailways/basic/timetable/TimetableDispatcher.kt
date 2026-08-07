@@ -263,6 +263,7 @@ class TimetableDispatcher(
 
     /** Capture stable logical state only; live locks, tickets, queues and controller objects are excluded. */
     fun saveCheckpoint(): SavedDispatcherV1 = SavedDispatcherV1(
+        formatVersion = SavedDispatcherV1.CURRENT_FORMAT_VERSION,
         dispatcherTick = dispatcherTick,
         missionRevision = missionRevision.get(),
         clocks = timetableClocks.entries.map { (id, clock) ->
@@ -317,6 +318,9 @@ class TimetableDispatcher(
 
     /** Restore clocks and retain former active runs as explicit RECOVERY_REQUIRED checkpoints. */
     fun restoreCheckpoint(saved: SavedDispatcherV1) {
+        require(saved.formatVersion == SavedDispatcherV1.CURRENT_FORMAT_VERSION) {
+            "Unsupported dispatcher snapshot version: ${saved.formatVersion}"
+        }
         check(runs.isEmpty() && timetableClocks.isEmpty()) { "Dispatcher must be empty before restore" }
         require(saved.dispatcherTick >= 0L && saved.missionRevision >= 0L)
         dispatcherTick = saved.dispatcherTick
@@ -3728,7 +3732,7 @@ class TimetableDispatcher(
                 }
             if (candidate != null) {
                 val assignmentId = "${runId}@cycle-$cycleIndex"
-                val legacyAllocation = store.reservePhysicallySelected(
+                val stockAllocation = store.reservePhysicallySelected(
                     candidate.id,
                     point.point.ref,
                     take.selector,
@@ -3737,9 +3741,9 @@ class TimetableDispatcher(
                 return SelectedServiceTrain(
                     trainId = candidate.id,
                     originWayPointId = wayPointId,
-                    depotAllocation = legacyAllocation,
+                    depotAllocation = stockAllocation,
                     dynamicAcquisition = true,
-                    depotReservationPending = legacyAllocation != null
+                    depotReservationPending = stockAllocation != null
                 )
             }
         }

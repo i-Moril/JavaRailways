@@ -33,11 +33,6 @@ public final class DraftRepository {
         return Optional.of(mapper.readTree(Files.readAllBytes(file)));
     }
 
-    /** Backward-compatible helper for local repository tests. */
-    public Optional<JsonNode> find(String id) throws IOException {
-        return find("default", id);
-    }
-
     public List<ObjectNode> list(String worldId) throws IOException {
         Path worldDirectory = worldDirectory(worldId);
         if (!Files.isDirectory(worldDirectory)) return List.of();
@@ -89,11 +84,6 @@ public final class DraftRepository {
         } finally {
             Files.deleteIfExists(temporary);
         }
-    }
-
-    /** Backward-compatible helper for local repository tests. */
-    public void save(String id, JsonNode draft) throws IOException {
-        save("default", id, draft);
     }
 
     public boolean delete(String worldId, String id) throws IOException {

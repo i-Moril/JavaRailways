@@ -118,16 +118,12 @@ class JavaRailwaysConfigTest {
     }
 
     @Test
-    fun `legacy config without webui keys defaults to managed sidecar`() {
-        val yaml = validYaml().apply {
-            set("timetable-webui", null)
-            set("timetable-http-bridge", null)
-        }
+    fun `config requires webui and bridge sections`() {
+        val missingWebUi = validYaml().apply { set("timetable-webui", null) }
+        val missingBridge = validYaml().apply { set("timetable-http-bridge", null) }
 
-        val config = JavaRailwaysConfig.fromYaml(yaml)
-        assertEquals(TimetableWebUiMode.MANAGED, config.timetableWebUi.mode)
-        assertEquals(true, config.timetableHttpBridge.enabled)
-        assertEquals(8080, config.timetableWebUi.port)
+        assertThrows(IllegalArgumentException::class.java) { JavaRailwaysConfig.fromYaml(missingWebUi) }
+        assertThrows(IllegalArgumentException::class.java) { JavaRailwaysConfig.fromYaml(missingBridge) }
     }
 
     @Test
@@ -180,12 +176,17 @@ class JavaRailwaysConfigTest {
         set("derail-lateral-acceleration-mps2", 3.0)
         set("overspeed-tolerance-kmh", 5.0)
         set("overspeed-grace-ticks", 5)
+        set("turnout.default-protection-distance-meters", 20.0)
+        set("turnout.default-locking-distance-meters", 5.0)
+        set("turnout.decision-lead-ticks", 5)
+        set("turnout.allocation-retry-ticks", 5)
         set("display-renderer.backend", "native")
         set("display-renderer.player-distance.default", "player-view-distance")
         set("display-renderer.player-distance.max-blocks", 512.0)
         set("timetable-webui.mode", "managed")
         set("timetable-webui.bind-address", "127.0.0.1")
         set("timetable-webui.port", 8080)
+        set("timetable-webui.public-url", "http://127.0.0.1:8080")
         set("timetable-webui.shutdown-timeout-millis", 5000)
         set("timetable-http-bridge.enabled", true)
         set("timetable-http-bridge.bind-address", "127.0.0.1")

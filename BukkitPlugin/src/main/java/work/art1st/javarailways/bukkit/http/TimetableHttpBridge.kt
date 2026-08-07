@@ -57,7 +57,7 @@ private data class LineSimulationSnapshot(
 )
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
-    private val json = Json { encodeDefaults = true; prettyPrint = true; ignoreUnknownKeys = true }
+    private val json = Json { encodeDefaults = true; prettyPrint = true; ignoreUnknownKeys = false }
     private var server: HttpServer? = null
     private val executor = Executors.newCachedThreadPool { Thread(it, "JavaRailways-timetable-http").apply { isDaemon = true } }
     private val railMapPreview = RailMapPreviewService(java.io.File(plugin.dataFolder, "webui-maps"))
@@ -735,12 +735,12 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val id = value["id"]?.jsonPrimitive?.content ?: throw HttpFailure(400, "line id is required")
             val displayName = value["displayName"]?.jsonPrimitive?.content
                 ?: throw HttpFailure(400, "line displayName is required")
-            val legacy = value["stationIds"] as? JsonArray
-            val up = value["upStationIds"] as? JsonArray ?: legacy
+            val up = value["upStationIds"] as? JsonArray
                 ?: throw HttpFailure(400, "line upStationIds is required")
             val down = value["downStationIds"] as? JsonArray
+                ?: throw HttpFailure(400, "line downStationIds is required")
             val upIds = up.map { StationId(it.jsonPrimitive.content) }
-            val downIds = down?.map { StationId(it.jsonPrimitive.content) } ?: upIds.reversed()
+            val downIds = down.map { StationId(it.jsonPrimitive.content) }
             val color = value["color"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
             return Line(LineId(id), displayName, upIds, downIds, color)
         }
@@ -748,7 +748,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         private fun lineJson(line: Line) = buildJsonObject {
             put("id", line.id.value)
             put("displayName", line.displayName)
-            put("stationIds", JsonArray(line.upStationIds.map { JsonPrimitive(it.value) }))
             put("upStationIds", JsonArray(line.upStationIds.map { JsonPrimitive(it.value) }))
             put("downStationIds", JsonArray(line.downStationIds.map { JsonPrimitive(it.value) }))
             line.color?.let { put("color", it) }

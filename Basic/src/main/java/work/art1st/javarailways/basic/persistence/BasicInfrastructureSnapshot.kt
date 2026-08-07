@@ -127,40 +127,42 @@ data class SavedOperationalDestinationV1(
 data class SavedLineV1(
     val id: String,
     val displayName: String,
-    /** Legacy UP pattern retained for backward-compatible snapshots. */
-    val stationIds: List<String> = emptyList(),
-    val color: String? = null,
-    val upStationIds: List<String> = emptyList(),
-    val downStationIds: List<String> = emptyList()
+    val upStationIds: List<String>,
+    val downStationIds: List<String>,
+    val color: String? = null
 ) {
-    fun restore(): Line {
-        val up = (upStationIds.ifEmpty { stationIds }).map(::StationId)
-        val down = (downStationIds.ifEmpty { up.map { it.value }.reversed() }).map(::StationId)
-        return Line(LineId(id), displayName, up, down, color)
-    }
+    fun restore(): Line = Line(
+        LineId(id),
+        displayName,
+        upStationIds.map(::StationId),
+        downStationIds.map(::StationId),
+        color
+    )
 
     companion object {
         fun capture(value: Line): SavedLineV1 = SavedLineV1(
             id = value.id.value,
             displayName = value.displayName,
-            stationIds = value.upStationIds.map { it.value },
-            color = value.color,
             upStationIds = value.upStationIds.map { it.value },
-            downStationIds = value.downStationIds.map { it.value }
+            downStationIds = value.downStationIds.map { it.value },
+            color = value.color
         )
     }
 }
 
 @Serializable
 data class BasicInfrastructureSnapshotV1(
-    val formatVersion: Int = 1,
+    val formatVersion: Int,
     val infrastructureRevision: Long,
     val destinations: List<SavedOperationalDestinationV1>,
-    val legacyWayPoints: List<SavedWayPointV1> = emptyList(),
-    val lines: List<SavedLineV1> = emptyList(),
-    val lineRevision: Long = 0L
+    val wayPoints: List<SavedWayPointV1>,
+    val lines: List<SavedLineV1>,
+    val lineRevision: Long
 ) {
     fun restore(world: World) {
+        require(formatVersion == CURRENT_FORMAT_VERSION) {
+            "Unsupported Basic infrastructure snapshot version: $formatVersion"
+        }
         check(world.basicWorldData.wayPoints.all().isEmpty())
         check(world.basicWorldData.destinations.all().isEmpty())
         val missingRails = destinations.filter { saved ->
@@ -170,7 +172,7 @@ data class BasicInfrastructureSnapshotV1(
             "Infrastructure snapshot contains destinations on missing rails: " +
                 missingRails.joinToString { "${it.id}@${it.railId}" }
         }
-        val missingWayPointRails = legacyWayPoints.filter { saved ->
+        val missingWayPointRails = wayPoints.filter { saved ->
             world.getRail(UUID.fromString(saved.railId)) == null
         }
         check(missingWayPointRails.isEmpty()) {
@@ -179,7 +181,7 @@ data class BasicInfrastructureSnapshotV1(
         }
         val service = OperationalDestinationService(world)
         destinations.forEach { service.register(it.restore()) }
-        legacyWayPoints.forEach { world.basicWorldData.wayPoints.add(it.restore()) }
+        wayPoints.forEach { world.basicWorldData.wayPoints.add(it.restore()) }
         val restoredLines = lines.map(SavedLineV1::restore)
         val stationIds = world.basicWorldData.stations.all().mapTo(HashSet()) { it.id }
         val missingStations = restoredLines.flatMap { it.upStationIds + it.downStationIds }.filterNot { it in stationIds }.distinct()
@@ -190,6 +192,8 @@ data class BasicInfrastructureSnapshotV1(
     }
 
     companion object {
+        const val CURRENT_FORMAT_VERSION = 1
+
         fun capture(world: World, infrastructureRevision: Long): BasicInfrastructureSnapshotV1 {
             require(infrastructureRevision >= 0L)
             val data = world.basicWorldData
@@ -200,17 +204,18 @@ data class BasicInfrastructureSnapshotV1(
                     missingRails.joinToString { "${it.id}@${it.railId}" }
             }
             val destinationIds = destinations.mapTo(HashSet()) { it.id }
-            val legacyWayPoints = data.wayPoints.all().filterNot { it.id in destinationIds }
-            val missingWayPointRails = legacyWayPoints.filter { world.getRail(it.railId) == null }
+            val standaloneWayPoints = data.wayPoints.all().filterNot { it.id in destinationIds }
+            val missingWayPointRails = standaloneWayPoints.filter { world.getRail(it.railId) == null }
             check(missingWayPointRails.isEmpty()) {
                 "Cannot capture WayPoints on missing rails: " +
                     missingWayPointRails.joinToString { "${it.id}@${it.railId}" }
             }
             val lineSnapshot = data.lines.snapshot()
             return BasicInfrastructureSnapshotV1(
+                formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
                 destinations = destinations.map(SavedOperationalDestinationV1::capture),
-                legacyWayPoints = legacyWayPoints.map(SavedWayPointV1::capture),
+                wayPoints = standaloneWayPoints.map(SavedWayPointV1::capture),
                 lines = lineSnapshot.lines.map(SavedLineV1::capture),
                 lineRevision = lineSnapshot.revision
             )
@@ -221,7 +226,7 @@ data class BasicInfrastructureSnapshotV1(
 object BasicInfrastructureSnapshotCodec {
     private val json = Json {
         encodeDefaults = true
-        ignoreUnknownKeys = true
+        ignoreUnknownKeys = false
         prettyPrint = true
     }
 
@@ -229,5 +234,9 @@ object BasicInfrastructureSnapshotCodec {
         json.encodeToString(BasicInfrastructureSnapshotV1.serializer(), snapshot)
 
     fun decode(data: String): BasicInfrastructureSnapshotV1 =
-        json.decodeFromString(BasicInfrastructureSnapshotV1.serializer(), data)
+        json.decodeFromString(BasicInfrastructureSnapshotV1.serializer(), data).also {
+            require(it.formatVersion == BasicInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION) {
+                "Unsupported Basic infrastructure snapshot version: ${it.formatVersion}"
+            }
+        }
 }

@@ -10,6 +10,7 @@ class LineStoreTest {
         LineId(id),
         "Line $id",
         listOf(StationId("A"), StationId("B")),
+        listOf(StationId("B"), StationId("A")),
         "#56c5ff"
     )
 
@@ -39,7 +40,11 @@ class LineStoreTest {
     @Test
     fun `line requires unique ordered stations`() {
         assertThrows(IllegalArgumentException::class.java) {
-            Line(LineId("L1"), "Line", listOf(StationId("A"), StationId("A")))
+            Line(
+                LineId("L1"), "Line",
+                listOf(StationId("A"), StationId("A")),
+                listOf(StationId("A"), StationId("A"))
+            )
         }
     }
 }

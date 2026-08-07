@@ -3,7 +3,6 @@ package work.art1st.javarailways.bukkit.config.model
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class PartRegistryAnimationTest {
@@ -23,8 +22,8 @@ class PartRegistryAnimationTest {
                         "name" to "doors_l",
                         "keep-final-state" to false,
                         "keyframes" to listOf(
-                            mapOf("at" to 1.3, "scene" to "o", "offset" to mapOf("z" to 0.625)),
-                            mapOf("at" to 0.0, "scene" to "c")
+                            mapOf("at" to 1.3, "scene" to "open", "offset" to mapOf("z" to 0.625)),
+                            mapOf("at" to 0.0, "scene" to "closed")
                         )
                     )
                 )
@@ -43,35 +42,29 @@ class PartRegistryAnimationTest {
     }
 
     @Test
-    fun `keeps compatibility with item-level command animations`() {
-        val part = PartRegistry.parsePartDefinition(
-            mapOf(
-                "config-version" to 1,
-                "name" to "door_b",
-                "type" to "item_display",
-                "item" to mapOf(
-                    "type" to "IRON_NUGGET",
-                    "item-model" to "art1st/tc/s100/door_b",
-                    "animations" to listOf(
-                        mapOf(
-                            "name" to "door_left_open",
-                            "commands" to listOf(
-                                mapOf("duration" to 0.3, "offset" to mapOf("z" to 0.1)),
-                                mapOf("duration" to 1.0, "scene" to "open", "offset" to mapOf("z" to 0.625))
-                            )
-                        )
+    fun `rejects item-level animations`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            PartRegistry.parsePartDefinition(
+                mapOf(
+                    "config-version" to 1,
+                    "name" to "door_b",
+                    "type" to "item_display",
+                    "item" to mapOf(
+                        "type" to "IRON_NUGGET",
+                        "item-model" to "art1st/tc/s100/door_b",
+                        "animations" to emptyList<Any>()
                     )
-                )
-            ),
-            "s100"
-        )
+                ),
+                "s100"
+            )
+        }
+    }
 
-        val animation = part.item!!.animations.single()
-        assertTrue(animation.keepFinalState)
-        assertEquals("door_left_open", animation.name)
-        assertEquals(listOf(0.3, 1.0), animation.commands.map { it.duration })
-        assertEquals("open", animation.commands[1].scene)
-        assertEquals(0.625, animation.commands[1].offset.z)
+    @Test
+    fun `rejects name-only part references`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            PartRegistry.parsePartList(listOf(mapOf("name" to "door_b")), "s100")
+        }
     }
 
     @Test
@@ -201,7 +194,7 @@ class PartRegistryAnimationTest {
                             "name" to "doors_l",
                             "keyframes" to listOf(
                                 mapOf("at" to 0.0, "scene" to "closed"),
-                                mapOf("at" to 1.0, "scene" to "c")
+                                mapOf("at" to 1.0, "scene" to "closed")
                             )
                         )
                     )

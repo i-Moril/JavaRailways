@@ -1,13 +1,6 @@
 import type { TimetableAuthoringDocumentV1 } from './authoring';
 import type { CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LinePreview, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary } from './types';
 async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...init?.headers }, ...init }); if (!response.ok) { if(response.status===401&&typeof window!=='undefined')window.dispatchEvent(new Event('javarailways:unauthorized')); throw new Error((await response.text()) || `${response.status} ${response.statusText}`); } return response.status === 204 ? undefined as T : response.json(); }
-export const normalizeTimetablePresentation = (value:SavedTimetableV1):SavedTimetableV1 => ({
- ...value,
- services:value.services.map(({lineId,...service})=>({
-  ...service,
-  diagramLineId:service.diagramLineId ?? lineId ?? null,
- })),
-});
 const base = (worldId: string) => `/api/v1/worlds/${encodeURIComponent(worldId)}`;
 export const api = {
  session:()=>request<WebSessionStatus>('/auth/session'),
@@ -23,7 +16,7 @@ export const api = {
  saveLine: (worldId: string, line: LineV1, expectedRevision: number) => request<SavedLineResult>(`${base(worldId)}/lines/${encodeURIComponent(line.id)}`, { method:'PUT', body:JSON.stringify({ line, expectedRevision }) }),
  deleteLine: (worldId: string, lineId: string, expectedRevision: number) => request<{revision:number;removed:boolean}>(`${base(worldId)}/lines/${encodeURIComponent(lineId)}`, { method:'DELETE', body:JSON.stringify({ expectedRevision }) }),
  drafts: (worldId: string) => request<DraftSummary[]>(`${base(worldId)}/drafts`),
- draft: (worldId: string, draftId: string) => request<SavedTimetableV1>(`${base(worldId)}/drafts/${encodeURIComponent(draftId)}`).then(normalizeTimetablePresentation),
+ draft: (worldId: string, draftId: string) => request<SavedTimetableV1>(`${base(worldId)}/drafts/${encodeURIComponent(draftId)}`),
  createDraft: (worldId: string, value: SavedTimetableV1) => request<DraftSummary>(`${base(worldId)}/drafts`, { method:'POST', body:JSON.stringify(value) }),
  saveDraft: (worldId: string, draftId: string, value: SavedTimetableV1) => request<void>(`${base(worldId)}/drafts/${encodeURIComponent(draftId)}`, { method:'PUT', body:JSON.stringify(value) }),
  deleteDraft: (worldId: string, draftId: string) => request<void>(`${base(worldId)}/drafts/${encodeURIComponent(draftId)}`, { method:'DELETE' }),

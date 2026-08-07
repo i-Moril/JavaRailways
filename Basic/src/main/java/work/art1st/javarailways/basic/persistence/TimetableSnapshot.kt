@@ -1,9 +1,7 @@
 package work.art1st.javarailways.basic.persistence
 
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
@@ -352,7 +350,6 @@ data class SavedServiceEditorRowV1(
 @Serializable
 enum class SavedDiagramDirectionV1 { UP, DOWN }
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class SavedTimetableServiceV1(
     val id: String,
@@ -361,7 +358,6 @@ data class SavedTimetableServiceV1(
     val steps: List<SavedTimetableStepV1>,
     val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(),
     /** Presentation-only running-graph grouping; this is not an infrastructure LineId. */
-    @JsonNames("lineId")
     val diagramLineId: String? = null,
     /** Presentation/editor hint only; generated runtime steps remain authoritative. */
     val lineDirection: SavedDiagramDirectionV1? = null,
@@ -496,7 +492,7 @@ data class SavedTimetableV1(
 }
 
 object TimetableSnapshotCodec {
-    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true; prettyPrint = true }
+    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
     fun encode(value: SavedTimetableV1): String = json.encodeToString(SavedTimetableV1.serializer(), value)
     fun decode(value: String): SavedTimetableV1 = json.decodeFromString(SavedTimetableV1.serializer(), value)
 }

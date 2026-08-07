@@ -45,8 +45,7 @@ object RailVisualBootstrap {
     fun fromPersisted(coreWorld: CoreWorld, persisted: PersistedRailRenderMeta): Boolean {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.fromPersisted")
         val rail = coreWorld.getRail(persisted.railId) ?: return false
-        val template = persisted.templateSnapshot ?: createTemplateSnapshot("standard")
-        registerSegments(rail.id, createSegments(rail, template))
+        registerSegments(rail.id, createSegments(rail, persisted.templateSnapshot))
         return true
     }
 
@@ -95,7 +94,7 @@ object RailVisualBootstrap {
     }
 
     private fun createTemplateSnapshot(railType: String): RailTemplateSnapshot {
-        // Try package config first, fall back to legacy global config
+        // A named rail package overrides the bundled standard rail configuration.
         val modelManager = BukkitPlugin.INSTANCE.modelManager
         val config = if (modelManager.hasRailPackages) {
             modelManager.getRailConfig(railType) ?: BukkitPlugin.INSTANCE.railModelConfig

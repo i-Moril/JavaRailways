@@ -324,12 +324,12 @@ open class CoreTrain @MainThread internal constructor(
                 PERSISTED_BOGIE_POSITION_TOLERANCE_METERS
             ) throw CannotCreateTrainException()
         }
-        head.location = persistedHeadLocation
-            ?: headBogie.location.forward(headCar.headBogieToEndPointOffset)
-            ?: throw CannotCreateTrainException()
-        tail.location = persistedTailLocation
-            ?: tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset)
-            ?: throw CannotCreateTrainException()
+        head.location = requireNotNull(persistedHeadLocation) {
+            "persisted train $id is missing its head location"
+        }
+        tail.location = requireNotNull(persistedTailLocation) {
+            "persisted train $id is missing its tail location"
+        }
         pendingSweptSpans = spansFromLocations(activeRailLocations())
     }
 

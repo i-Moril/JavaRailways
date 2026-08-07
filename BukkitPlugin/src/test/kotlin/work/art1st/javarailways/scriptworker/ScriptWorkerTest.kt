@@ -112,13 +112,19 @@ class ScriptWorkerTest {
         assertEquals("SKIP_CYCLE", activation.falseBehavior)
     }
 
-    @Test fun `service diagram direction is serialized explicitly and legacy line id remains accepted`() {
+    @Test fun `service diagram direction is serialized explicitly`() {
         val result = run("timetable.setPeriodDays(1); timetable.service('s','train',{diagramLineId:'metro',lineDirection:'down'},t=>t.at(1).destination('a'));")
         assertEquals("metro", result.services.single().diagramLineId)
         assertEquals(SavedLineDirectionV1.DOWN, result.services.single().lineDirection)
+    }
 
-        val legacy = run("timetable.setPeriodDays(1); timetable.service('s','train',{lineId:'legacy'},t=>t.at(1).destination('a'));")
-        assertEquals("legacy", legacy.services.single().diagramLineId)
+    @Test fun `removed service options are rejected`() {
+        assertThrows(Throwable::class.java) {
+            run("timetable.setPeriodDays(1); timetable.service('s','train',{lineId:'old'},t=>t.at(1).destination('a'));")
+        }
+        assertThrows(Throwable::class.java) {
+            run("timetable.setPeriod(24000); timetable.service('s','train',t=>t.at(1).destination('a'));")
+        }
     }
 
     @Test fun `diagram lines and visual arrival ticks are serialized`() {

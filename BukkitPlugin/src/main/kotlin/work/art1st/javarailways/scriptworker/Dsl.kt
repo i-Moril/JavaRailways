@@ -19,7 +19,6 @@ class TimetableBuilder(private val id: String) {
     private val compilationTrace = mutableListOf<SavedCompilationTraceV1>()
 
     @HostAccess.Export fun setPeriodDays(days: Long): TimetableBuilder { require(days > 0); Math.multiplyExact(days, 24_000); periodDays = days; return this }
-    @HostAccess.Export fun setPeriod(ticks: Long): TimetableBuilder { require(ticks > 0 && ticks % 24_000 == 0L) { "period ticks must be a positive multiple of 24000" }; return setPeriodDays(ticks / 24_000) }
     @HostAccess.Export
     fun diagramLine(lineId: String, options: Value): TimetableBuilder {
         require(lineId.isNotBlank()) { "diagram line id must not be blank" }
@@ -155,14 +154,9 @@ class TimetableBuilder(private val id: String) {
         val builder = ServiceBuilder()
         acquisition?.let { builder.add(it.tick, it.action) }
         callback.executeVoid(builder)
-        options?.requireOnly(setOf("activation", "diagramLineId", "lineId", "lineDirection"), "service options")
+        options?.requireOnly(setOf("activation", "diagramLineId", "lineDirection"), "service options")
         val activation = options?.member("activation")?.takeUnless { it.isNull }?.let { activation(it) } ?: SavedTimetableActivationV1()
-        val explicitDiagramLineId = options?.string("diagramLineId")
-        val legacyLineId = options?.string("lineId")
-        require(explicitDiagramLineId == null || legacyLineId == null) {
-            "service options must not contain both diagramLineId and legacy lineId"
-        }
-        val diagramLineId = (explicitDiagramLineId ?: legacyLineId)?.also {
+        val diagramLineId = options?.string("diagramLineId")?.also {
             require(it.isNotBlank()) { "diagramLineId must not be blank" }
         }
         val lineDirection = options?.string("lineDirection")?.uppercase()?.let {

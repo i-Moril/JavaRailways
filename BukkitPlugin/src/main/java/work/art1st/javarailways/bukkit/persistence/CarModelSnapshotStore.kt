@@ -8,7 +8,7 @@ import java.io.File
 
 object CarModelSnapshotStore {
     private val json = Json {
-        ignoreUnknownKeys = true
+        ignoreUnknownKeys = false
         encodeDefaults = true
         explicitNulls = false
     }

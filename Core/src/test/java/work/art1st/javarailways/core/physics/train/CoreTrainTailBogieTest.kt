@@ -115,7 +115,7 @@ class CoreTrainTailBogieTest {
         assertFalse(train.isDerailed)
 
         train.reverseOnMainThread()
-        // Simulate a legacy projected-distance placement that is slightly compressed in the new
+        // Simulate a projected-distance placement that is slightly compressed in the new
         // direction. The signed ±1m interval must be able to correct it behind the old tail.
         train.cars[2].bogies.forEach { bogie ->
             bogie.updateLocation(bogie.location.forward(0.02)!!)

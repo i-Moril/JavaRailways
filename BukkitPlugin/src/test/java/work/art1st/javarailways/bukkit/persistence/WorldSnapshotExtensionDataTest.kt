@@ -17,12 +17,16 @@ class WorldSnapshotExtensionDataTest {
     fun `split snapshot requires one infrastructure revision and physics epoch`() {
         val infrastructure = CoreWorld.SavedInfrastructureV1(1, 7L, emptyList())
         val runtime = CoreWorld.SavedRuntimeV1(1, 7L, 9L, emptyList())
-        val basicInfrastructure = BasicInfrastructureSnapshotV1(1, 7L, emptyList())
+        val basicInfrastructure = BasicInfrastructureSnapshotV1(
+            1, 7L, emptyList(), emptyList(), emptyList(), 0L
+        )
         val basicRuntime = BasicRuntimeSnapshotV1(
+            formatVersion = BasicRuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 9L,
             timetables = emptyList(),
-            dispatcher = SavedDispatcherV1(1, 0L, 0L)
+            dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
+            rollingStock = emptyList()
         )
 
         val capture = WorldSnapshotCapture(
@@ -53,6 +57,7 @@ class WorldSnapshotExtensionDataTest {
     @Test
     fun `world snapshot codec preserves bukkit render extension data`() {
         val snapshot = CoreWorld.SavedRuntimeV1(
+            formatVersion = CoreWorld.SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = 1L,
             physicsEpoch = 1L,
             trains = listOf(
@@ -61,7 +66,15 @@ class WorldSnapshotExtensionDataTest {
                     name = "train-a",
                     cars = emptyList(),
                     reversed = false,
-                    extension = mapOf("BUKKIT" to SavedCarRenderState("s100/passenger"))
+                    extension = mapOf("BUKKIT" to SavedCarRenderState("s100/passenger")),
+                    headLocation = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing.SavedRailLocationWithFacingV1(
+                        "00000000-0000-0000-0000-00000000000b", 0.0,
+                        work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB
+                    ),
+                    tailLocation = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing.SavedRailLocationWithFacingV1(
+                        "00000000-0000-0000-0000-00000000000b", 0.0,
+                        work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB
+                    )
                 )
             )
         )

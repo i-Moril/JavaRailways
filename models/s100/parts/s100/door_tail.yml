@@ -8,20 +8,20 @@ parts:
   # Use tail-specific leaves because the 180-degree group rotation also flips
   # front/back leaf order, so texture and slide direction cannot both be kept
   # correct by reusing the forward-car leaf parts directly.
-  - name: door_tail_right_a
+  - import: door_tail_right_a
     offset: {x: 1.375, y: 0, z: 0.375}
-  - name: door_tail_right_b
+  - import: door_tail_right_b
     offset: {x: 1.375, y: 0, z: -0.375}
   # Local -X becomes visual left after the car-level 180-degree rotation.
-  - name: door_tail_left_a
+  - import: door_tail_left_a
     offset: {x: -1.375, y: 0, z: 0.375}
     rotation: {y: 180}
-  - name: door_tail_left_b
+  - import: door_tail_left_b
     offset: {x: -1.375, y: 0, z: -0.375}
     rotation: {y: 180}
   # Door lights
-  - name: door_light_right
+  - import: door_light_right
     offset: {x: 0, y: 0, z: 0}
-  - name: door_light_left
+  - import: door_light_left
     offset: {x: 0, y: 0, z: 0}
     rotation: {y: 180}

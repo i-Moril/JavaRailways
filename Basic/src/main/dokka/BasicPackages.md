@@ -32,7 +32,7 @@ Phase T3/T4 的 Depot/StablingPoint、RollingStockRecord、occupancy/reservation
 
 # Package work.art1st.javarailways.basic.api.destination
 
-Phase T2/T3 的 stable directed Destination、普通/StationBerth/DepotStablingPoint 角色和 legacy WayPoint 适配服务。
+Phase T2/T3 的 stable directed Destination、普通/StationBerth/DepotStablingPoint 角色和独立 WayPoint 服务。
 
 # Package work.art1st.javarailways.basic.api.station
 

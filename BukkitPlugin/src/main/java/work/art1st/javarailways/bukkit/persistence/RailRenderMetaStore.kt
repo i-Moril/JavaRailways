@@ -20,35 +20,35 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
-private data class RailRenderMetaFileV1(
-    val version: Int = 2,
-    val templates: List<RailRenderTemplateV1> = emptyList(),
-    val rails: List<RailRenderMetaEntryV1> = emptyList()
+private data class RailRenderMetaFileV2(
+    val version: Int,
+    val templates: List<RailRenderTemplateV2>,
+    val rails: List<RailRenderMetaEntryV2>
 )
 
 @Serializable
-private data class RailRenderMetaEntryV1(
+private data class RailRenderMetaEntryV2(
     val railId: String,
-    val templateId: String? = null,
-    val segments: List<RailRenderSegmentV1>
+    val templateId: String,
+    val segments: List<RailRenderSegmentV2>
 )
 
 @Serializable
-private data class RailRenderSegmentV1(
+private data class RailRenderSegmentV2(
     val arcStart: Double,
     val arcEnd: Double,
-    val pointArcs: List<Double> = emptyList()
+    val pointArcs: List<Double>
 )
 
 @Serializable
-private data class RailRenderTemplateV1(
+private data class RailRenderTemplateV2(
     val templateId: String,
     val repeatLength: Double,
-    val elements: List<RailRenderTemplateElementV1>
+    val elements: List<RailRenderTemplateElementV2>
 )
 
 @Serializable
-private data class RailRenderTemplateElementV1(
+private data class RailRenderTemplateElementV2(
     val type: String,
     val itemStack: ItemStack? = null,
     val blockMaterial: String? = null,
@@ -66,10 +66,11 @@ private data class RailRenderTemplateElementV1(
 data class PersistedRailRenderMeta(
     val railId: UUID,
     val segments: List<RailArcSegmentMeta>,
-    val templateSnapshot: RailTemplateSnapshot? = null
+    val templateSnapshot: RailTemplateSnapshot
 )
 
 object RailRenderMetaStore {
+    private const val CURRENT_VERSION = 2
     private data class CacheEntry(
         val lastModified: Long,
         val length: Long,
@@ -79,7 +80,7 @@ object RailRenderMetaStore {
     )
 
     private val json = Json {
-        ignoreUnknownKeys = true
+        ignoreUnknownKeys = false
         prettyPrint = true
     }
     private val cache: MutableMap<UUID, CacheEntry> = ConcurrentHashMap()
@@ -128,15 +129,16 @@ object RailRenderMetaStore {
 
         val templates = LinkedHashMap<String, RailTemplateSnapshot>()
         records.forEach { record ->
-            record.templateSnapshot?.let { templates[it.templateId] = it }
+            templates[record.templateSnapshot.templateId] = record.templateSnapshot
         }
-        val encoded = RailRenderMetaFileV1(
+        val encoded = RailRenderMetaFileV2(
+            version = CURRENT_VERSION,
             templates = templates.values.map { template ->
-                RailRenderTemplateV1(
+                RailRenderTemplateV2(
                     templateId = template.templateId,
                     repeatLength = template.repeatLength,
                     elements = template.elements.map { element ->
-                        RailRenderTemplateElementV1(
+                        RailRenderTemplateElementV2(
                             type = element.type.name,
                             itemStack = element.itemStack,
                             blockMaterial = element.blockMaterial,
@@ -154,11 +156,11 @@ object RailRenderMetaStore {
                 )
             },
             rails = records.map { record ->
-                RailRenderMetaEntryV1(
+                RailRenderMetaEntryV2(
                     railId = record.railId.toString(),
-                    templateId = record.templateSnapshot?.templateId,
+                    templateId = record.templateSnapshot.templateId,
                     segments = record.segments.map { seg ->
-                        RailRenderSegmentV1(seg.arcStart, seg.arcEnd, seg.pointArcs)
+                        RailRenderSegmentV2(seg.arcStart, seg.arcEnd, seg.pointArcs)
                     }
                 )
             }
@@ -204,7 +206,10 @@ object RailRenderMetaStore {
     }
 
     private fun parseFile(file: File): List<PersistedRailRenderMeta> {
-        val decoded = json.decodeFromString<RailRenderMetaFileV1>(file.readText())
+        val decoded = json.decodeFromString<RailRenderMetaFileV2>(file.readText())
+        require(decoded.version == CURRENT_VERSION) {
+            "Unsupported rail render metadata version: ${decoded.version}"
+        }
         val templatesById = decoded.templates.associate { template ->
             template.templateId to RailTemplateSnapshot(
                 templateId = template.templateId,
@@ -250,12 +255,10 @@ object RailRenderMetaStore {
                         pointArcs = seg.pointArcs
                     )
                 },
-                templateSnapshot = entry.templateId?.let { templateId ->
-                    templatesById[templateId]
-                        ?: throw IllegalArgumentException(
-                            "Rail entry #${index + 1} references missing template '$templateId'"
-                        )
-                }
+                templateSnapshot = templatesById[entry.templateId]
+                    ?: throw IllegalArgumentException(
+                        "Rail entry #${index + 1} references missing template '${entry.templateId}'"
+                    )
             )
         }
     }

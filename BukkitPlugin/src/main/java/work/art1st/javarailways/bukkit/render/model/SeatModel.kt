@@ -108,7 +108,7 @@ class SeatModel internal constructor(
 
     fun deactivateFor(player: Player) {
         if (activePlayers.remove(player.uniqueId) == null) return
-        val packetMotion = BukkitPlugin.INSTANCE.foliaPacketEntityMotion
+        val packetMotion = BukkitPlugin.INSTANCE.packetEntityMotion
         entity?.let { packetMotion?.releaseViewer(it, player.uniqueId) }
         carrierEntity?.let { packetMotion?.releaseViewer(it, player.uniqueId) }
         if (activePlayers.isNotEmpty()) return
@@ -159,22 +159,18 @@ class SeatModel internal constructor(
         destroyCarrier()
         val hitbox = entity as? Interaction ?: error("Seat hitbox not initialized")
         val carrierLocation = latestCarrierLocation?.clone() ?: bottomCarrierLocation(hitbox.location)
-        val carrier: Entity = if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
-            world.bukkitWorldData.bukkitWorld.spawn(carrierLocation, ArmorStand::class.java) { armorStand ->
-                configureSeatCarrier(armorStand)
-            }
-        } else {
-            world.bukkitWorldData.bukkitWorld.spawn(carrierLocation, Interaction::class.java).also(::configureSeatCarrier)
-        }
+        val carrier = world.bukkitWorldData.bukkitWorld.spawn(
+            carrierLocation,
+            ArmorStand::class.java,
+            ::configureSeatCarrier
+        )
         carrierEntity = carrier
         val binding = seatBinding ?: error("Seat binding not initialized")
         binding.carrier = carrier
         SeatInteractionListener.bindCarrier(binding, carrier)
-        if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
-            checkNotNull(BukkitPlugin.INSTANCE.foliaPacketEntityMotion) {
-                "Folia packet entity motion is not initialized"
-            }.registerSeatCarrier(carrier, carrierLocation, activePlayers.values)
-        }
+        checkNotNull(BukkitPlugin.INSTANCE.packetEntityMotion) {
+            "Packet entity motion is not initialized"
+        }.registerSeatCarrier(carrier, carrierLocation, activePlayers.values)
         return carrier
     }
 
@@ -186,7 +182,7 @@ class SeatModel internal constructor(
         if (binding != null) SeatInteractionListener.unbindCarrier(binding)
         binding?.carrier = null
         carrierEntity = null
-        BukkitPlugin.INSTANCE.foliaPacketEntityMotion?.release(carrier)
+        BukkitPlugin.INSTANCE.packetEntityMotion?.release(carrier)
         BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(carrier, action = {
             carrier.eject()
             carrier.remove()
@@ -200,7 +196,7 @@ class SeatModel internal constructor(
         destroyCarrier()
         (entity as? Interaction)?.let { hitbox ->
             SeatInteractionListener.unregister(hitbox.uniqueId)
-            BukkitPlugin.INSTANCE.foliaPacketEntityMotion?.release(hitbox)
+            BukkitPlugin.INSTANCE.packetEntityMotion?.release(hitbox)
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(hitbox, action = {
                 hitbox.eject()
                 hitbox.remove()
@@ -240,28 +236,17 @@ class SeatModel internal constructor(
         interaction.setInteractionHeight(if (occupied) 0.0f else 1.0f)
     }
 
-    private fun configureSeatCarrier(entity: Entity) {
-        when (entity) {
-            is Interaction -> {
-                configureCommonInteraction(entity)
-                entity.setResponsive(false)
-                entity.setInteractionWidth(0.01f)
-                entity.setInteractionHeight(0.01f)
-            }
-            is ArmorStand -> {
-                entity.isPersistent = false
-                entity.isSilent = true
-                entity.isInvisible = true
-                entity.isMarker = true
-                entity.isSmall = true
-                entity.setArms(false)
-                entity.setBasePlate(false)
-                entity.setGravity(false)
-                entity.setNoPhysics(true)
-                entity.isCollidable = false
-            }
-            else -> error("Unsupported Seat carrier type: ${entity.type}")
-        }
+    private fun configureSeatCarrier(entity: ArmorStand) {
+        entity.isPersistent = false
+        entity.isSilent = true
+        entity.isInvisible = true
+        entity.isMarker = true
+        entity.isSmall = true
+        entity.setArms(false)
+        entity.setBasePlate(false)
+        entity.setGravity(false)
+        entity.setNoPhysics(true)
+        entity.isCollidable = false
     }
 
     private fun configureCommonInteraction(interaction: Interaction) {
@@ -279,41 +264,30 @@ class SeatModel internal constructor(
     ) {
         BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(interaction, action = entityTask@{
             if (revision != movementRevision.get() || !interaction.isValid) return@entityTask
-            if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
-                val viewersById = LinkedHashMap<UUID, Player>()
-                activePlayers.values.forEach { viewersById[it.uniqueId] = it }
-                interaction.passengers.filterIsInstance<Player>().forEach {
-                    viewersById[it.uniqueId] = it
-                }
-                checkNotNull(BukkitPlugin.INSTANCE.foliaPacketEntityMotion) {
-                    "Folia packet entity motion is not initialized"
-                }.sync(interaction, location, viewersById.values)
-                afterMove()
-            } else {
-                interaction.teleport(location)
-                afterMove()
+            val viewersById = LinkedHashMap<UUID, Player>()
+            activePlayers.values.forEach { viewersById[it.uniqueId] = it }
+            interaction.passengers.filterIsInstance<Player>().forEach {
+                viewersById[it.uniqueId] = it
             }
+            checkNotNull(BukkitPlugin.INSTANCE.packetEntityMotion) {
+                "Packet entity motion is not initialized"
+            }.sync(interaction, location, viewersById.values)
+            afterMove()
         })
     }
 
     private fun moveCarrier(carrier: Entity, location: Location, revision: Long) {
-        if (BukkitPlugin.INSTANCE.platformCapabilities.folia) {
-            val packetMotion = checkNotNull(BukkitPlugin.INSTANCE.foliaPacketEntityMotion) {
-                "Folia packet entity motion is not initialized"
-            }
-            packetMotion.renderSeatCarrier(carrier, location, activePlayers.values)
-            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(carrier, action = entityTask@{
-                if (revision != movementRevision.get() || !carrier.isValid) return@entityTask
-                packetMotion.syncSeatAuthority(carrier, location)
-                configureSeatCarrier(carrier)
-            })
-        } else {
-            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(carrier, action = entityTask@{
-                if (revision != movementRevision.get() || !carrier.isValid) return@entityTask
-                carrier.teleport(location)
-                configureSeatCarrier(carrier)
-            })
+        val armorStand = carrier as? ArmorStand
+            ?: error("Seat carrier must be an ArmorStand, got ${carrier.type}")
+        val packetMotion = checkNotNull(BukkitPlugin.INSTANCE.packetEntityMotion) {
+            "Packet entity motion is not initialized"
         }
+        packetMotion.renderSeatCarrier(armorStand, location, activePlayers.values)
+        BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(armorStand, action = entityTask@{
+            if (revision != movementRevision.get() || !armorStand.isValid) return@entityTask
+            packetMotion.syncSeatAuthority(armorStand, location)
+            configureSeatCarrier(armorStand)
+        })
     }
 
     private fun bottomCarrierLocation(hitboxLocation: Location): Location = hitboxLocation.clone()

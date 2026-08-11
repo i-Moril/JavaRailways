@@ -16,8 +16,8 @@ import org.bukkit.Location
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Stable client-only mount for one occupied Folia seat. */
-internal class FoliaVirtualSeat(
+/** Stable client-only mount for one occupied Paper/Folia Seat. */
+internal class PacketVirtualSeat(
     private val authorityEntityId: Int,
     private val bundles: TrainPacketBundleCoordinator
 ) {

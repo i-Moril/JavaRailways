@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-class FoliaVirtualSeatTest {
+class PacketVirtualSeatTest {
     @Test
     fun `own virtual living mount hides vehicle health`() {
         assertTrue(shouldHideVirtualMountHealth(42, intArrayOf(42)))

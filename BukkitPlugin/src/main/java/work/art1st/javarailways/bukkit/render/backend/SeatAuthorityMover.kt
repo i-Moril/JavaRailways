@@ -8,8 +8,8 @@ import org.bukkit.craftbukkit.entity.CraftEntity
 import org.bukkit.entity.Entity
 import kotlin.math.sqrt
 
-/** Moves the hidden server authority on its owning Folia tick thread without teleporting it. */
-internal object FoliaSeatAuthorityMover {
+/** Moves the hidden server authority on its owning Paper/Folia entity thread without teleporting it. */
+internal object SeatAuthorityMover {
     fun move(entity: Entity, target: Location): SeatAuthorityMoveResult {
         val current = entity.location
         require(current.world === target.world) {

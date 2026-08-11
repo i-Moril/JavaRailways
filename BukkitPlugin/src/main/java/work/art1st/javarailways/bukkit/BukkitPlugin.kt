@@ -20,7 +20,7 @@ import work.art1st.javarailways.bukkit.http.WebUiLoginTokens
 import work.art1st.javarailways.bukkit.logic.WorldManager
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackendFactory
-import work.art1st.javarailways.bukkit.render.backend.FoliaPacketEntityMotion
+import work.art1st.javarailways.bukkit.render.backend.PacketEntityMotion
 import work.art1st.javarailways.bukkit.render.backend.PacketEntityRuntime
 import work.art1st.javarailways.bukkit.render.backend.TrainPacketBundleCoordinator
 import work.art1st.javarailways.bukkit.render.chunk.ViewDistanceManager
@@ -61,7 +61,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     private var packetEntityRuntime: PacketEntityRuntime? = null
     private var timetableHttpBridge: TimetableHttpBridge? = null
     private var timetableWebUiSidecar: TimetableWebUiSidecar? = null
-    var foliaPacketEntityMotion: FoliaPacketEntityMotion? = null
+    var packetEntityMotion: PacketEntityMotion? = null
         private set
 
     /** 全局插件配置，从 config.yml 加载 */
@@ -99,22 +99,22 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         platformCapabilities = PlatformCapabilities.detect(javaClass.classLoader)
         platformDispatcher = PaperPlatformDispatcher(this)
         javaRailwaysConfig = JavaRailwaysConfig.load(this)
-        if (platformCapabilities.folia || javaRailwaysConfig.displayRenderer.backend == DisplayRendererBackend.ENTITYLIB) {
-            packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }
-        }
+        packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }
     }
 
     override fun onEnable() {
-        packetEntityRuntime?.enable()
-        trainPacketBundles = TrainPacketBundleCoordinator()
-        if (platformCapabilities.folia) {
-            foliaPacketEntityMotion = checkNotNull(packetEntityRuntime) {
-                "Folia packet entity runtime was not loaded"
-            }.enableFoliaEntityMotion(platformDispatcher, trainPacketBundles)
-            logger.warning(
-                "Folia packet motion is active: bundled train frames, packet Seats, and ArmorStand authority carriers"
-            )
+        val packetRuntime = checkNotNull(packetEntityRuntime) {
+            "Packet entity runtime was not loaded"
         }
+        packetRuntime.enable()
+        trainPacketBundles = TrainPacketBundleCoordinator()
+        packetEntityMotion = packetRuntime.enablePacketEntityMotion(
+            platformDispatcher,
+            trainPacketBundles
+        )
+        logger.info(
+            "Packet Seat motion is active: bundled train frames, virtual Seats, and ArmorStand authority carriers"
+        )
         displayRenderBackend = DisplayRenderBackendFactory.create(this)
         ensureJavaRailwaysKoinStarted()
         BasicPlugin.INSTANCE = BasicPlugin(0)
@@ -142,7 +142,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         val displayBackend = javaRailwaysConfig.displayRenderer.backend
         logger.info("Display renderer backend: ${displayBackend.name.lowercase()}")
         if (displayBackend == DisplayRendererBackend.ENTITYLIB) {
-            logger.info("EntityLib renders Display visuals; interaction, seat and collision entities remain native")
+            logger.info(
+                "EntityLib renders Display visuals; Seats use packet virtual ArmorStands with native authority carriers"
+            )
         }
         logger.info("Physics worker threads per world: ${javaRailwaysConfig.physicsWorkerThreads}")
         val availableProcessors = Runtime.getRuntime().availableProcessors()
@@ -230,7 +232,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         trainDebugEventRegistration = null
         runShutdownStep("train debug log") { TrainDebugLog.close() }
         runShutdownStep("packet entity runtime") { packetEntityRuntime?.close() }
-        foliaPacketEntityMotion = null
+        packetEntityMotion = null
         packetEntityRuntime = null
         runShutdownStep("thread guard bridge") { ThreadGuard.clearPlatformBridge() }
     }

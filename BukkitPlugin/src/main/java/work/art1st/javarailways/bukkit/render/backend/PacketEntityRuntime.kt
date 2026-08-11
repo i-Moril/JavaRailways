@@ -15,7 +15,7 @@ class PacketEntityRuntime(
 ) : AutoCloseable {
     private var loaded = false
     private var enabled = false
-    private var foliaEntityMotion: FoliaPacketEntityMotion? = null
+    private var packetEntityMotion: PacketEntityMotion? = null
 
     /** Must run from JavaPlugin.onLoad, before PacketEvents starts injecting connections. */
     fun load() {
@@ -47,21 +47,21 @@ class PacketEntityRuntime(
         enabled = true
     }
 
-    fun enableFoliaEntityMotion(
+    fun enablePacketEntityMotion(
         dispatcher: PlatformDispatcher,
         bundles: TrainPacketBundleCoordinator
-    ): FoliaPacketEntityMotion {
-        check(enabled) { "Packet entity runtime must be enabled before Folia motion starts" }
-        check(foliaEntityMotion == null) { "Folia packet entity motion is already enabled" }
-        return FoliaPacketEntityMotion(plugin, dispatcher, bundles).also {
+    ): PacketEntityMotion {
+        check(enabled) { "Packet entity runtime must be enabled before packet motion starts" }
+        check(packetEntityMotion == null) { "Packet entity motion is already enabled" }
+        return PacketEntityMotion(plugin, dispatcher, bundles).also {
             it.start()
-            foliaEntityMotion = it
+            packetEntityMotion = it
         }
     }
 
     override fun close() {
-        foliaEntityMotion?.close()
-        foliaEntityMotion = null
+        packetEntityMotion?.close()
+        packetEntityMotion = null
         if (enabled) {
             EntityLib.getOptionalApi().ifPresent { api ->
                 api.allEntities.toList().forEach { it.remove() }

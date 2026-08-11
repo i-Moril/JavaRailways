@@ -6,8 +6,9 @@
 # snapshot: 保存解析后的模型快照，后续不跟随包文件变更。
 train-model-update-policy: follow-package
 
-# JavaRailways 展示实体渲染后端。
-# entitylib: 默认；轨道和列车视觉 Display 使用 EntityLib + PacketEvents，座位、交互和碰撞仍为 native。
+# JavaRailways 展示实体渲染后端。座椅在两种模式下都使用 packet 虚拟 ArmorStand，
+# 并保留隐藏的 native ArmorStand 作为服务端权威载体。
+# entitylib: 默认；轨道和列车视觉 Display 使用 EntityLib + PacketEvents。
 # native: 显式回退到真实 Bukkit/Paper Display，受原生实体追踪和区块发送距离限制。
 display-renderer:
   backend: entitylib

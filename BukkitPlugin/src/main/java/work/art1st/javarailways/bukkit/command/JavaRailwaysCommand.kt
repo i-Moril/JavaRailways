@@ -1213,10 +1213,10 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                 "train bundles sent=${metrics.bundlesSent} packets=${metrics.packetsBundled}"
             )
         }
-        plugin.foliaPacketEntityMotion?.let { packetMotion ->
+        plugin.packetEntityMotion?.let { packetMotion ->
             packetMotion.metrics().let { metrics ->
                 sender.sendMessage(
-                    "folia packet motion managed=${metrics.managedEntities} " +
+                    "packet motion managed=${metrics.managedEntities} " +
                         "virtualSeats=${metrics.virtualSeats} " +
                         "authorityUpdates=${metrics.seatAuthorityMoveUpdates} " +
                         "authorityCorrections=${metrics.seatAuthorityCorrections} " +
@@ -1228,21 +1228,21 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
             val nativeTrace = packetMotion.recentPacketTrace()
             val bundleTrace = plugin.trainPacketBundles.recentTrace()
             if (seatTrace.isNotEmpty() || nativeTrace.isNotEmpty() || bundleTrace.isNotEmpty()) {
-                val traceFile = plugin.dataFolder.resolve("diagnostics/folia-seat-packet-trace.txt")
+                val traceFile = plugin.dataFolder.resolve("diagnostics/seat-packet-trace.txt")
                 traceFile.parentFile.mkdirs()
                 traceFile.writeText(
                     buildString {
-                        appendLine("Folia Seat authority trace (oldest -> newest)")
+                        appendLine("Seat authority trace (oldest -> newest)")
                         seatTrace.forEach(::appendLine)
                         appendLine()
-                        appendLine("Folia Seat native packet trace (oldest -> newest)")
+                        appendLine("Seat native packet trace (oldest -> newest)")
                         nativeTrace.forEach(::appendLine)
                         appendLine()
                         appendLine("JavaRailways Bundle trace (sampled, oldest -> newest)")
                         bundleTrace.forEach(::appendLine)
                     }
                 )
-                sender.sendMessage("folia seat packet trace: ${traceFile.absolutePath}")
+                sender.sendMessage("seat packet trace: ${traceFile.absolutePath}")
                 nativeTrace.takeLast(30).forEach { sender.sendMessage("  $it") }
             }
         }

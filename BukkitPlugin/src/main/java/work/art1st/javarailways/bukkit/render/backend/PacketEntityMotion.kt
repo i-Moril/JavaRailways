@@ -40,10 +40,10 @@ import java.util.concurrent.atomic.DoubleAccumulator
 import kotlin.math.floor
 
 /**
- * Temporary Folia compatibility layer. It owns client movement packets for selected native entities
- * while coalescing their authoritative teleportAsync calls to at most one in-flight operation.
+ * Cross-platform packet movement layer for native interaction and Seat authority entities.
+ * Client-visible Seats use a virtual ArmorStand while one hidden native entity retains server authority.
  */
-class FoliaPacketEntityMotion(
+class PacketEntityMotion(
     private val plugin: Plugin,
     private val dispatcher: PlatformDispatcher,
     private val bundles: TrainPacketBundleCoordinator
@@ -61,7 +61,7 @@ class FoliaPacketEntityMotion(
     private var registeredListener: PacketListenerCommon? = null
 
     fun start() {
-        check(registeredListener == null) { "Folia packet entity motion is already started" }
+        check(registeredListener == null) { "Packet entity motion is already started" }
         registeredListener = PacketEvents.getAPI().eventManager.registerListener(listener)
     }
 
@@ -126,7 +126,7 @@ class FoliaPacketEntityMotion(
                     entityId = entityId,
                     entityUuid = entityUuid,
                     initialAnchor = AuthoritativeAnchor.from(entity.location),
-                    virtualSeat = FoliaVirtualSeat(entityId, bundles)
+                    virtualSeat = PacketVirtualSeat(entityId, bundles)
                 )
             } else {
                 current
@@ -151,20 +151,20 @@ class FoliaPacketEntityMotion(
         virtualSeat.sync(target, viewerEntityIds)
     }
 
-    /** Moves the hidden server authority exactly on its owning Folia tick thread. */
+    /** Moves the hidden server authority exactly on its owning Paper/Folia entity thread. */
     fun syncSeatAuthority(entity: Entity, target: Location) {
         val managed = entitiesByIdentity[entity] ?: return
         if (!managed.active.get() || managed.virtualSeat == null || !entity.isValid) return
 
         val result = try {
-            FoliaSeatAuthorityMover.move(entity, target)
+            SeatAuthorityMover.move(entity, target)
         } catch (failure: Exception) {
             seatTrace.record(
                 "entity=${managed.entityId} AUTHORITY_MOVE_FAILED " +
                     "type=${failure.javaClass.simpleName} message=${failure.message}"
             )
             plugin.logger.severe(
-                "Folia Seat authority move failed for entity ${managed.entityId}: ${failure.message}"
+                "Seat authority move failed for entity ${managed.entityId}: ${failure.message}"
             )
             managed.gate.offer(target.clone())?.let { launchTeleport(managed, it) }
             return
@@ -278,7 +278,7 @@ class FoliaPacketEntityMotion(
                     if (teleported != true) passengerMarkers.forEach(seatCorrectionGate::clear)
                     if (error != null && managed.active.get()) {
                         plugin.logger.warning(
-                            "Folia authoritative teleport failed for entity ${managed.entityId}: ${error.message}"
+                            "Authoritative entity teleport failed for entity ${managed.entityId}: ${error.message}"
                         )
                     }
                     dispatcher.runForEntityLater(
@@ -316,7 +316,7 @@ class FoliaPacketEntityMotion(
         managed.retire()
     }
 
-    fun metrics(): FoliaPacketEntityMotionMetrics = FoliaPacketEntityMotionMetrics(
+    fun metrics(): PacketEntityMotionMetrics = PacketEntityMotionMetrics(
         managedEntities = entities.size,
         virtualSeats = entities.values.count { it.virtualSeat != null },
         suppressedPlayerCorrections = suppressedPlayerCorrections.get(),
@@ -410,7 +410,7 @@ class FoliaPacketEntityMotion(
         val entityId: Int,
         val entityUuid: UUID,
         initialAnchor: AuthoritativeAnchor,
-        val virtualSeat: FoliaVirtualSeat?
+        val virtualSeat: PacketVirtualSeat?
     ) {
         val active = AtomicBoolean(true)
         val gate = LatestTargetGate<Location>()
@@ -442,7 +442,7 @@ class FoliaPacketEntityMotion(
     }
 }
 
-data class FoliaPacketEntityMotionMetrics(
+data class PacketEntityMotionMetrics(
     val managedEntities: Int,
     val virtualSeats: Int,
     val suppressedPlayerCorrections: Long,

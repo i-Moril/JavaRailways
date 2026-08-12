@@ -31,7 +31,7 @@ class PhysicsCoordinatorTest {
     fun `isolated simulation advances with caller supplied logical delta`() {
         val coordinator = PhysicsCoordinator(
             workerThreads = 2,
-            maxStepMillis = 1_000_000L,
+            epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
@@ -60,7 +60,7 @@ class PhysicsCoordinatorTest {
             workerThreads = 1,
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 1_000_000L
+            epochOverloadThresholdMillis = 1_000_000L
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
@@ -98,7 +98,7 @@ class PhysicsCoordinatorTest {
             workerThreads = 1,
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 1_000_000L
+            epochOverloadThresholdMillis = 1_000_000L
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
@@ -120,7 +120,7 @@ class PhysicsCoordinatorTest {
             workerThreads = 1,
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 1_000_000L
+            epochOverloadThresholdMillis = 1_000_000L
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
@@ -149,7 +149,7 @@ class PhysicsCoordinatorTest {
             workerThreads = 1,
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 1_000_000L
+            epochOverloadThresholdMillis = 1_000_000L
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
@@ -175,7 +175,7 @@ class PhysicsCoordinatorTest {
             workerThreads = 1,
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 1_000_000L
+            epochOverloadThresholdMillis = 1_000_000L
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
@@ -205,7 +205,7 @@ class PhysicsCoordinatorTest {
             workerThreads = 2,
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 1_000_000L
+            epochOverloadThresholdMillis = 1_000_000L
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
@@ -236,7 +236,7 @@ class PhysicsCoordinatorTest {
             workerThreads = 2,
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 1_000_000L
+            epochOverloadThresholdMillis = 1_000_000L
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
@@ -260,7 +260,7 @@ class PhysicsCoordinatorTest {
             nanoTime = clock::get,
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 1_000_000L
+            epochOverloadThresholdMillis = 1_000_000L
         )
         CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         coordinator.start()
@@ -270,8 +270,70 @@ class PhysicsCoordinatorTest {
             val second = coordinator.wakeFromMainThread().await()
 
             assertEquals(PhysicsCoordinator.BOOTSTRAP_DELTA_MILLIS, first.deltaMillis)
+            assertEquals(73.0, second.rawDeltaMillis, 0.0001)
             assertEquals(73.0, second.deltaMillis, 0.0001)
+            assertEquals(0.0, second.droppedDeltaMillis, 0.0001)
             assertEquals(2L, second.epoch)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `wall clock delta is clamped to two hundred milliseconds without catch up debt`() {
+        val clock = AtomicLong(1_000_000_000L)
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = clock::get,
+            fallbackPeriodMillis = 1_000_000L,
+            mainHeartbeatTimeoutMillis = 1_000_000L,
+            epochOverloadThresholdMillis = 1_000_000L,
+            maxPhysicsDeltaMillis = 200.0
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("clamped-delta", rail, world, listOf(10.0))
+        val deltas = mutableListOf<Double>()
+        train.setController(object : TrainController(train, world) {
+            override fun tick(deltaT: Double) { deltas += deltaT }
+        })
+        coordinator.start()
+        try {
+            coordinator.wakeFromMainThread().await()
+            clock.addAndGet(500_000_000L)
+            val clamped = coordinator.wakeFromMainThread().await()
+            clock.addAndGet(20_000_000L)
+            val normal = coordinator.wakeFromMainThread().await()
+
+            assertEquals(listOf(50.0, 200.0, 20.0), deltas)
+            assertEquals(500.0, clamped.rawDeltaMillis, 0.0001)
+            assertEquals(200.0, clamped.deltaMillis, 0.0001)
+            assertEquals(300.0, clamped.droppedDeltaMillis, 0.0001)
+            assertTrue(clamped.deltaClamped)
+            assertEquals(1L, clamped.clampedEpochCount)
+            assertEquals(20.0, normal.rawDeltaMillis, 0.0001)
+            assertEquals(20.0, normal.deltaMillis, 0.0001)
+            assertEquals(0.0, normal.droppedDeltaMillis, 0.0001)
+            assertTrue(!normal.deltaClamped)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `explicit simulation delta above one tick limit is rejected`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            maxPhysicsDeltaMillis = 200.0,
+            automaticFallback = false
+        )
+        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        coordinator.start()
+        try {
+            assertThrows(IllegalArgumentException::class.java) {
+                coordinator.stepSimulation(200.001)
+            }
         } finally {
             coordinator.close()
         }
@@ -285,7 +347,7 @@ class PhysicsCoordinatorTest {
             nanoTime = { clock.addAndGet(30_000_000L) },
             fallbackPeriodMillis = 1_000_000L,
             mainHeartbeatTimeoutMillis = 1_000_000L,
-            maxStepMillis = 50L,
+            epochOverloadThresholdMillis = 50L,
             overloadWindowMillis = 1_000_000L,
             overloadsBeforeStall = 3
         )

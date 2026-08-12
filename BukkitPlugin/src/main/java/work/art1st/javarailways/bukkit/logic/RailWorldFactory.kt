@@ -18,7 +18,6 @@ import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.javarailways.basic.controller.SimpleATO
 import work.art1st.javarailways.basic.safety.RailSpeedCalculator
-import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.timetable.TimetableAtoFactory
 import work.art1st.javarailways.basic.timetable.TimetableDispatcher
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
@@ -68,6 +67,7 @@ object RailWorldFactory {
         val plugin = BukkitPlugin.INSTANCE
         val atoLogger = plugin.logger
         val pluginDataFolder = plugin.dataFolder
+        val safetyConfig = plugin.javaRailwaysConfig
         val basicData = BasicWorldData(
                 dispatcher = TimetableDispatcher(
                     operationGateway = BukkitTrainOperationGateway(
@@ -112,7 +112,6 @@ object RailWorldFactory {
         coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
         basicInfrastructure?.restore(coreWorld)
         basicRuntime?.restore(coreWorld)
-        val safetyConfig = BukkitPlugin.INSTANCE.javaRailwaysConfig
         coreWorld.allRails.forEach { rail ->
             val requestedSpeed = rail.metadata.designSpeedMetersPerSecond ?: return@forEach
             val limits = RailSpeedCalculator.calculate(
@@ -126,16 +125,6 @@ object RailWorldFactory {
                 derailSpeedMetersPerSecond = limits.derailSpeedMetersPerSecond
             )
         }
-        tickManager.register(
-            SpeedSafetyMonitor(
-                coreWorld,
-                SpeedSafetyMonitor.Config(
-                    derailEnabled = safetyConfig.overspeedDerailEnabled,
-                    toleranceMetersPerSecond = safetyConfig.overspeedToleranceKmH / 3.6,
-                    graceTicks = safetyConfig.overspeedGraceTicks
-                )
-            )
-        )
         val persisted = RailRenderMetaStore.load(bukkitWorld)
         val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }
         if (restored.size != persisted.size) {

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.safety
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -12,7 +13,6 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
-import work.art1st.javarailways.core.util.AsyncTickTestSupport
 
 class SpeedSafetyMonitorTest {
     @Test
@@ -37,8 +37,9 @@ class SpeedSafetyMonitorTest {
             SpeedSafetyMonitor.Config(true, 0.0, 1)
         )
 
-        AsyncTickTestSupport.run { monitor.tick(50.0) }
+        val requests = monitor.evaluatePublishedEpoch(1L)
 
+        assertTrue(requests.isEmpty())
         assertFalse(train.isDerailed)
     }
 
@@ -68,10 +69,16 @@ class SpeedSafetyMonitorTest {
             )
         )
 
-        AsyncTickTestSupport.run { monitor.tick(50.0) }
+        assertTrue(monitor.evaluatePublishedEpoch(1L).isEmpty())
         assertFalse(train.isDerailed)
-        AsyncTickTestSupport.run { monitor.tick(50.0) }
-        assertTrue(train.isDerailed)
+        assertTrue(monitor.evaluatePublishedEpoch(1L).isEmpty(), "same epoch must not consume grace twice")
+
+        val requests = monitor.evaluatePublishedEpoch(2L)
+
+        assertEquals(1, requests.size)
+        assertEquals(train.id, requests.single().trainId)
+        assertEquals(2L, requests.single().observedPhysicsEpoch)
+        assertFalse(train.isDerailed, "monitor returns a request; simulation owner applies it")
     }
 
     private class FixedSpeedController(train: Train, world: World) : TrainController(train, world) {

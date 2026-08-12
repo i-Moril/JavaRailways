@@ -3,6 +3,8 @@ package work.art1st.javarailways.core.physics
 import kotlinx.serialization.Serializable
 import org.joml.Vector3dc
 import work.art1st.javarailways.core.api.util.annotation.Heavy
+import work.art1st.javarailways.core.api.event.DerailEvent
+import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
@@ -156,6 +158,33 @@ class CoreWorld(
     override val allTrains: Collection<CoreTrain>
         get() = trains.values
 
+    /** Low-frequency maintenance boundary; callers must stop affected operations before awaiting. */
+    @MainThread
+    fun awaitCurrentPhysicsEpoch(): Long {
+        val ticket = physicsCoordinator.captureCurrentTicket()
+        ticket.await()
+        return ticket.epoch
+    }
+
+    /** Publishes physics-origin derail transitions after their frames have crossed the epoch boundary. */
+    @MainThread
+    fun publishPendingDerailEvents() {
+        trains.values.forEach { train ->
+            val reason = train.pollDerailNotificationReason() ?: return@forEach
+            MainRailEventBus.publish(DerailEvent(train, reason))
+        }
+    }
+
+    fun occupyingTrainIds(railIds: Set<UUID>): Set<String> {
+        if (railIds.isEmpty()) return emptySet()
+        return trains.values.asSequence()
+            .filter { train ->
+                val occupiedRailIds = train.activePlacementEnvelope().mapTo(HashSet()) { it.railId }
+                occupiedRailIds.any(railIds::contains)
+            }
+            .mapTo(linkedSetOf()) { it.id }
+    }
+
     @MainThread
     override fun removeTrain(train: Train) {
         publishedTrainFrames.remove(train.id)
@@ -190,8 +219,23 @@ class CoreWorld(
 
     @MainThread
     override fun removeRail(rail: Rail) {
+        awaitCurrentPhysicsEpoch()
         val removed = rail as? CoreRail
         if (removed != null) {
+            val affectedRailIds = buildSet {
+                add(removed.id)
+                allRails.asSequence()
+                    .filter { it !== removed }
+                    .filter { candidate ->
+                        candidate.viewAB.nextRails.any { it.rail === removed } ||
+                            candidate.viewBA.nextRails.any { it.rail === removed }
+                    }
+                    .forEach { add(it.id) }
+            }
+            val occupyingTrainIds = occupyingTrainIds(affectedRailIds)
+            require(occupyingTrainIds.isEmpty()) {
+                "Cannot remove rail ${removed.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
+            }
             allRails.asSequence()
                 .filter { it !== removed }
                 .flatMap { sequenceOf(it.viewAB, it.viewBA) }

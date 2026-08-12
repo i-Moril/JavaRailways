@@ -5,12 +5,14 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailMetadata
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 
 class RailTopologyEditorTest {
     @Test
@@ -60,6 +62,21 @@ class RailTopologyEditorTest {
             val arc = originalCurve.totalArcLength * index / 40.0
             assertTrue(originalCurve.getPointAt(arc).position.distance(merged.curve.getPointAt(arc).position) < 1e-9)
         }
+    }
+
+    @Test
+    fun `split is rejected while affected rail is occupied`() {
+        val world = createTestWorld()
+        val original = rail(world, 0.0, 20.0)
+        createTrainWithConfig("occupied", original, world, listOf(8.0))
+        val (beforeCurve, afterCurve) = original.curve.splitAt(10.0)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            RailTopologyEditor.splitWithPreparedCurves(original, beforeCurve, afterCurve)
+        }
+
+        assertSame(original, world.getRail(original.id))
+        assertEquals(1, world.allRails.size)
     }
 
     @Test

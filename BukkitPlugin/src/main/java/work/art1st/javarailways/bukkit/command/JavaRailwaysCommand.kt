@@ -1159,6 +1159,10 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                     "workerMax=${formatMillis(metrics.workerMaxNanos)}ms coordinator=${formatMillis(metrics.coordinatorNanos)}ms"
             )
             sender.sendMessage(
+                "  delta=${"%.2f".format(metrics.deltaMillis)}ms raw=${"%.2f".format(metrics.rawDeltaMillis)}ms " +
+                    "dropped=${"%.2f".format(metrics.droppedDeltaMillis)}ms clampedEpochs=${metrics.clampedEpochCount}"
+            )
+            sender.sendMessage(
                 "  active=${metrics.activeTrainCount}/${metrics.totalTrainCount} spans=${metrics.spanCount} " +
                     "bucketRefs=${metrics.bucketReferenceCount} candidates=${metrics.candidateChecks} " +
                     "collisions=${metrics.collisionClaims} overloads=${metrics.overloadCountInWindow}"

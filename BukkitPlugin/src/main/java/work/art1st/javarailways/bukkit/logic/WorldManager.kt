@@ -8,6 +8,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.javarailways.bukkit.BukkitPlugin
@@ -63,6 +64,7 @@ class WorldManager(
     }
     private val pendingPeriodicSnapshots = ConcurrentHashMap<BukkitWorld, WorldSnapshotCapture>()
     private val snapshotWrites = ConcurrentHashMap<BukkitWorld, Future<*>>()
+    private val speedSafetyMonitors = ConcurrentHashMap<CoreWorld, SpeedSafetyMonitor>()
 
     fun start() {
         check(tickTask == null) { "WorldManager is already started" }
@@ -139,6 +141,17 @@ class WorldManager(
             basicRuntime = splitRuntime?.basic()
         )
         railWorlds[bukkitWorld] = railWorld
+        if (railWorld is CoreWorld) {
+            val config = BukkitPlugin.INSTANCE.javaRailwaysConfig
+            speedSafetyMonitors[railWorld] = SpeedSafetyMonitor(
+                railWorld,
+                SpeedSafetyMonitor.Config(
+                    derailEnabled = config.overspeedDerailEnabled,
+                    toleranceMetersPerSecond = config.overspeedToleranceKmH / 3.6,
+                    graceTicks = config.overspeedGraceTicks
+                )
+            )
+        }
         val restoredTrains = split?.runtime?.core()?.trains.orEmpty()
         if (restoredTrains.isNotEmpty() && railWorld is CoreWorld) {
             restoreBukkitTrainExtensions(railWorld, restoredTrains)
@@ -200,6 +213,7 @@ class WorldManager(
                     }.get()
                 }
             } finally {
+                coreWorld?.let(speedSafetyMonitors::remove)
                 coreWorld?.physicsCoordinator?.close()
                 try {
                     rw.renderChunkManager.close()
@@ -253,6 +267,21 @@ class WorldManager(
                 publishedPhysicsEpoch = physicsTicket.epoch
                 phaseBreakdown["world:${world.name}:physics_wait"] = physicsWaitNanos
                 blockedWaitAsyncNanos += physicsWaitNanos
+
+                val speedSafetyNanos = measureNanoTime {
+                    coreWorld.publishPendingDerailEvents()
+                    speedSafetyMonitors[coreWorld]
+                        ?.evaluatePublishedEpoch(publishedPhysicsEpoch)
+                        .orEmpty()
+                        .forEach { request ->
+                            val train = coreWorld.getTrain(request.trainId) ?: return@forEach
+                            if (train.publishedFrame.physicsEpoch == request.observedPhysicsEpoch) {
+                                train.derail(request.reason)
+                            }
+                        }
+                }
+                phaseBreakdown["world:${world.name}:speed_safety"] = speedSafetyNanos
+                computeNanos += speedSafetyNanos
 
                 val renderCommitNanos = measureNanoTime {
                     dispatchPublishedTrainFrames(world, coreWorld)

@@ -4,6 +4,7 @@ import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -30,6 +31,35 @@ class CoreTrainAsymmetricTurnoutTest {
 
         assertEquals(listOf(first.viewAB, second.viewAB), stem.viewAB.mutableNextRails)
         assertTrue(stem.viewAB.activeRail === first.viewAB)
+    }
+
+    @Test
+    fun `removing an occupied rail is rejected without changing topology`() {
+        val world = createTestWorld()
+        val occupied = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0))
+        createTrainWithConfig("occupied-remove", occupied, world, listOf(8.0))
+
+        assertThrows(IllegalArgumentException::class.java) { world.removeRail(occupied) }
+
+        assertTrue(world.getRail(occupied.id) === occupied)
+    }
+
+    @Test
+    fun `removing a rail crossed only by the train body is rejected`() {
+        val world = createTestWorld()
+        val before = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
+        val middle = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(35.0, 0.0, 0.0))
+        val after = rail(world, Vector3d(35.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
+        CoreRail.connect(before, middle)
+        CoreRail.connect(middle, after)
+        val train = createTrainWithConfig("body-only", before, world, listOf(20.0, 20.0))
+        train.setLocation(RailLocationWithFacing(after.viewAB, 25.0))
+        train.commitMaintenancePlacement()
+        assertTrue(train.head.location.rail !== middle && train.tail.location.rail !== middle)
+
+        assertThrows(IllegalArgumentException::class.java) { world.removeRail(middle) }
+
+        assertTrue(world.getRail(middle.id) === middle)
     }
 
     @Test

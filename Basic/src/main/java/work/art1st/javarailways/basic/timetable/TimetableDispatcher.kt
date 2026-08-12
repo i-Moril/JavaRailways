@@ -261,6 +261,10 @@ class TimetableDispatcher(
     private var allocatorWorld: World? = null
     private var allocator: RouteSectionAllocator? = null
 
+    /** Maintenance precondition: affected turnouts must not have live route allocations. */
+    fun hasRouteAllocationOn(railIds: Set<java.util.UUID>): Boolean =
+        allocator?.hasAllocationOn(railIds) == true
+
     /** Capture stable logical state only; live locks, tickets, queues and controller objects are excluded. */
     fun saveCheckpoint(): SavedDispatcherV1 = SavedDispatcherV1(
         formatVersion = SavedDispatcherV1.CURRENT_FORMAT_VERSION,

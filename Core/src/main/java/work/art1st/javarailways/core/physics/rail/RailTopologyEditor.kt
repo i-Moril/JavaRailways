@@ -27,9 +27,18 @@ object RailTopologyEditor {
         afterCurve: PrimeCurve,
         operationId: String = UUID.randomUUID().toString()
     ): SplitResult {
+        rail.world.awaitCurrentPhysicsEpoch()
         require(operationId.isNotBlank())
         require(rail.world.getRail(rail.id) === rail) { "Rail is no longer registered in its world" }
-        require(rail.trains.isEmpty()) { "Cannot split a rail occupied by trains" }
+        val affectedRailIds = buildSet {
+            add(rail.id)
+            rail.viewAB.nextRails.forEach { add(it.rail.id) }
+            rail.viewBA.nextRails.forEach { add(it.rail.id) }
+        }
+        val occupyingTrainIds = rail.world.occupyingTrainIds(affectedRailIds)
+        require(occupyingTrainIds.isEmpty()) {
+            "Cannot split rail ${rail.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
+        }
         require(rail.signals.isEmpty()) { "Cannot split a rail containing signals" }
         require(beforeCurve.totalArcLength > Curve.TOLERANCE && afterCurve.totalArcLength > Curve.TOLERANCE) {
             "Split point is too close to a rail endpoint"
@@ -97,7 +106,13 @@ object RailTopologyEditor {
         if (before.metadata.copy(createdBySplit = beforeSplit.parent) !=
             after.metadata.copy(createdBySplit = afterSplit.parent)
         ) return "两段轨道元数据不一致"
-        if (before.trains.isNotEmpty() || after.trains.isNotEmpty()) return "不能合并有列车占用的轨道"
+        val affectedRailIds = buildSet {
+            add(before.id)
+            add(after.id)
+            before.viewBA.nextRails.forEach { add(it.rail.id) }
+            after.viewAB.nextRails.forEach { add(it.rail.id) }
+        }
+        if (before.world.occupyingTrainIds(affectedRailIds).isNotEmpty()) return "不能合并有列车占用的相关轨道"
         if (before.signals.isNotEmpty() || after.signals.isNotEmpty()) return "不能合并包含信号机的轨道"
         if (before.viewAB.mutableNextRails != listOf(after.viewAB) ||
             after.viewBA.mutableNextRails != listOf(before.viewBA)
@@ -110,6 +125,7 @@ object RailTopologyEditor {
 
     @MainThread
     fun mergeWithPreparedCurve(before: CoreRail, after: CoreRail, mergedCurve: PrimeCurve): CoreRail {
+        before.world.awaitCurrentPhysicsEpoch()
         val eligibilityError = mergeEligibilityError(before, after)
         require(eligibilityError == null) { eligibilityError ?: "Rails cannot be merged" }
         require(before.world.getRail(before.id) === before && after.world.getRail(after.id) === after) {

@@ -48,7 +48,12 @@ private data class PendingCollisionDecision(
 data class PhysicsEpochMetrics(
     val epoch: Long,
     val source: PhysicsWakeSource,
+    /** Delta passed to controllers after wall-clock clamping. */
     val deltaMillis: Double,
+    val rawDeltaMillis: Double,
+    val droppedDeltaMillis: Double,
+    val deltaClamped: Boolean,
+    val clampedEpochCount: Long,
     val wallNanos: Long,
     val workerMaxNanos: Long,
     val workerTotalNanos: Long,
@@ -86,7 +91,8 @@ class PhysicsCoordinator(
     private val nanoTime: () -> Long = System::nanoTime,
     private val fallbackPeriodMillis: Long = FALLBACK_PERIOD_MILLIS,
     private val mainHeartbeatTimeoutMillis: Long = MAIN_HEARTBEAT_TIMEOUT_MILLIS,
-    private val maxStepMillis: Long = MAX_STEP_MILLIS,
+    private val epochOverloadThresholdMillis: Long = DEFAULT_EPOCH_OVERLOAD_THRESHOLD_MILLIS,
+    private val maxPhysicsDeltaMillis: Double = DEFAULT_MAX_PHYSICS_DELTA_MILLIS,
     private val overloadWindowMillis: Long = OVERLOAD_WINDOW_MILLIS,
     private val overloadsBeforeStall: Int = OVERLOADS_BEFORE_STALL,
     private val automaticFallback: Boolean = true,
@@ -96,7 +102,10 @@ class PhysicsCoordinator(
         require(workerThreads > 0) { "physics workerThreads must be > 0" }
         require(fallbackPeriodMillis > 0) { "fallbackPeriodMillis must be > 0" }
         require(mainHeartbeatTimeoutMillis > 0) { "mainHeartbeatTimeoutMillis must be > 0" }
-        require(maxStepMillis > 0) { "maxStepMillis must be > 0" }
+        require(epochOverloadThresholdMillis > 0) { "epochOverloadThresholdMillis must be > 0" }
+        require(maxPhysicsDeltaMillis > 0.0 && maxPhysicsDeltaMillis.isFinite()) {
+            "maxPhysicsDeltaMillis must be finite and > 0"
+        }
         require(overloadWindowMillis > 0) { "overloadWindowMillis must be > 0" }
         require(overloadsBeforeStall > 0) { "overloadsBeforeStall must be > 0" }
     }
@@ -120,6 +129,8 @@ class PhysicsCoordinator(
     private val pendingCollisionDecisions = ConcurrentHashMap<CollisionPair, PendingCollisionDecision>()
     private val trainsPendingCollision = ConcurrentHashMap.newKeySet<String>()
     private val epochCandidateChecks = AtomicLong()
+    private var clampedEpochCount = 0L
+    private var nextClampLogNanos = 0L
 
     @Volatile
     private var runningEpoch: Long = 0L
@@ -191,6 +202,9 @@ class PhysicsCoordinator(
     /** Advances an isolated world by one deterministic logical step without consulting wall time. */
     fun stepSimulation(deltaMillis: Double): PhysicsTicket {
         require(deltaMillis > 0.0 && deltaMillis.isFinite())
+        require(deltaMillis <= maxPhysicsDeltaMillis) {
+            "stepSimulation deltaMillis must be <= maxPhysicsDeltaMillis ($maxPhysicsDeltaMillis)"
+        }
         check(!automaticFallback) { "stepSimulation requires a coordinator with automaticFallback=false" }
         return requestStep(PhysicsWakeSource.SIMULATION, deltaMillis)
     }
@@ -273,6 +287,7 @@ class PhysicsCoordinator(
     private fun requestStep(source: PhysicsWakeSource, fixedDeltaMillis: Double? = null): PhysicsTicket {
         val ticket: PhysicsTicket
         val startNanos: Long
+        val rawDeltaMillis: Double
         val deltaMillis: Double
         synchronized(stateLock) {
             ensureUsableLocked()
@@ -280,10 +295,18 @@ class PhysicsCoordinator(
             check(started) { "PhysicsCoordinator has not been started" }
 
             startNanos = nanoTime()
-            deltaMillis = fixedDeltaMillis ?: if (previousPhysicsStartNanos == 0L) {
+            rawDeltaMillis = fixedDeltaMillis ?: if (previousPhysicsStartNanos == 0L) {
                 BOOTSTRAP_DELTA_MILLIS
             } else {
                 (startNanos - previousPhysicsStartNanos).toDouble() / 1_000_000.0
+            }
+            require(rawDeltaMillis > 0.0 && rawDeltaMillis.isFinite()) {
+                "physics deltaMillis must be finite and > 0"
+            }
+            deltaMillis = if (fixedDeltaMillis == null) {
+                minOf(rawDeltaMillis, maxPhysicsDeltaMillis)
+            } else {
+                rawDeltaMillis
             }
             if (fixedDeltaMillis == null) previousPhysicsStartNanos = startNanos
 
@@ -292,7 +315,7 @@ class PhysicsCoordinator(
         }
 
         coordinatorExecutor.execute {
-            runEpoch(ticket, source, startNanos, deltaMillis)
+            runEpoch(ticket, source, startNanos, rawDeltaMillis, deltaMillis)
         }
         return ticket
     }
@@ -301,6 +324,7 @@ class PhysicsCoordinator(
         ticket: PhysicsTicket,
         source: PhysicsWakeSource,
         epochStartNanos: Long,
+        rawDeltaMillis: Double,
         deltaMillis: Double
     ) {
         try {
@@ -348,6 +372,9 @@ class PhysicsCoordinator(
             publishedTrains.forEach { train ->
                 val previousFrame = train.publishedFrame
                 val frame = train.publishFrame(ticket.epoch)
+                if (!previousFrame.derailed && frame.derailed) {
+                    train.queuePublishedDerailNotification()
+                }
                 if (shouldPublishMotionFrame(train, previousFrame)) {
                     world?.publishTrainFrame(frame)
                 }
@@ -357,10 +384,20 @@ class PhysicsCoordinator(
             val coordinatorNanos = nanoTime() - coordinatorStart
             val wallNanos = nanoTime() - epochStartNanos
             val overloadCount = recordOverloadIfNeeded(wallNanos, epochStartNanos)
+            val droppedDeltaMillis = rawDeltaMillis - deltaMillis
+            val deltaClamped = droppedDeltaMillis > 0.0
+            if (deltaClamped) {
+                maybeLogClampedDelta(ticket.epoch, rawDeltaMillis, deltaMillis, epochStartNanos)
+                clampedEpochCount++
+            }
             val metrics = PhysicsEpochMetrics(
                 epoch = ticket.epoch,
                 source = source,
                 deltaMillis = deltaMillis,
+                rawDeltaMillis = rawDeltaMillis,
+                droppedDeltaMillis = droppedDeltaMillis,
+                deltaClamped = deltaClamped,
+                clampedEpochCount = clampedEpochCount,
                 wallNanos = wallNanos,
                 workerMaxNanos = workerDurations.maxOrNull() ?: 0L,
                 workerTotalNanos = workerDurations.sum(),
@@ -378,7 +415,8 @@ class PhysicsCoordinator(
 
             if (overloadCount >= overloadsBeforeStall) {
                 val failure = PhysicsStalledException(
-                    "Physics stalled after $overloadCount epochs reached ${maxStepMillis}ms within ${overloadWindowMillis}ms"
+                    "Physics stalled after $overloadCount epochs reached " +
+                        "${epochOverloadThresholdMillis}ms within ${overloadWindowMillis}ms"
                 )
                 synchronized(stateLock) {
                     status = PhysicsCoordinatorStatus.STALLED
@@ -438,13 +476,22 @@ class PhysicsCoordinator(
         }
     }
 
+    private fun maybeLogClampedDelta(epoch: Long, rawDeltaMillis: Double, deltaMillis: Double, nowNanos: Long) {
+        if (nowNanos < nextClampLogNanos) return
+        nextClampLogNanos = nowNanos + TimeUnit.MILLISECONDS.toNanos(CLAMP_LOG_INTERVAL_MILLIS)
+        System.err.println(
+            "[JavaRailways] Physics delta clamped in epoch $epoch: " +
+                "raw=${rawDeltaMillis}ms applied=${deltaMillis}ms"
+        )
+    }
+
     private fun recordOverloadIfNeeded(wallNanos: Long, nowNanos: Long): Int {
         synchronized(stateLock) {
             val windowNanos = TimeUnit.MILLISECONDS.toNanos(overloadWindowMillis)
             while (overloadTimesNanos.isNotEmpty() && nowNanos - overloadTimesNanos.first() > windowNanos) {
                 overloadTimesNanos.removeFirst()
             }
-            if (wallNanos >= TimeUnit.MILLISECONDS.toNanos(maxStepMillis)) {
+            if (wallNanos >= TimeUnit.MILLISECONDS.toNanos(epochOverloadThresholdMillis)) {
                 overloadTimesNanos.addLast(nowNanos)
                 System.err.println(
                     "[JavaRailways] Physics epoch overload: ${wallNanos / 1_000_000.0}ms " +
@@ -482,6 +529,10 @@ class PhysicsCoordinator(
             epoch = 0L,
             source = PhysicsWakeSource.MAIN_THREAD,
             deltaMillis = 0.0,
+            rawDeltaMillis = 0.0,
+            droppedDeltaMillis = 0.0,
+            deltaClamped = false,
+            clampedEpochCount = 0L,
             wallNanos = 0L,
             workerMaxNanos = 0L,
             workerTotalNanos = 0L,
@@ -510,9 +561,11 @@ class PhysicsCoordinator(
         const val BOOTSTRAP_DELTA_MILLIS = 50.0
         const val FALLBACK_PERIOD_MILLIS = 50L
         const val MAIN_HEARTBEAT_TIMEOUT_MILLIS = 75L
-        const val MAX_STEP_MILLIS = 50L
+        const val DEFAULT_EPOCH_OVERLOAD_THRESHOLD_MILLIS = 50L
+        const val DEFAULT_MAX_PHYSICS_DELTA_MILLIS = 200.0
         const val OVERLOAD_WINDOW_MILLIS = 10_000L
         const val OVERLOADS_BEFORE_STALL = 3
+        private const val CLAMP_LOG_INTERVAL_MILLIS = 10_000L
 
         private val WORKER_SEQUENCE = AtomicLong()
         private val COORDINATOR_SEQUENCE = AtomicLong()

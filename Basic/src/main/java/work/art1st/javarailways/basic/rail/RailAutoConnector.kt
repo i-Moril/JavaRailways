@@ -4,6 +4,7 @@ import org.joml.Vector3d
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.TurnoutEndpointMetadata
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import kotlin.math.abs
@@ -51,7 +52,9 @@ object RailAutoConnector {
         second: CoreRail,
         options: Options = Options()
     ): Result {
+        first.world.awaitCurrentPhysicsEpoch()
         if (first == second) return Result(Outcome.ALREADY_CONNECTED)
+        require(first.world === second.world) { "rails must belong to the same world" }
 
         val joint = closestJoint(first, second)
         if (joint.distance > options.endpointTolerance) {
@@ -63,6 +66,17 @@ object RailAutoConnector {
             joint.firstViewToJoint.endPoint.position,
             options.endpointTolerance
         )
+        val affectedRailIds = endpoints.mapTo(linkedSetOf()) { it.viewToJoint.rail.id }.apply {
+            add(first.id)
+            add(second.id)
+        }
+        val occupyingTrainIds = first.world.occupyingTrainIds(affectedRailIds)
+        require(occupyingTrainIds.isEmpty()) {
+            "Cannot connect occupied endpoint rails: ${occupyingTrainIds.sorted()}"
+        }
+        require(first.world.basicWorldDataOrNull?.dispatcher?.hasRouteAllocationOn(affectedRailIds) != true) {
+            "Cannot connect endpoint rails with active route allocations"
+        }
         if (endpoints.size > MAX_ENDPOINTS_PER_ANCHOR) {
             return Result(Outcome.TOO_MANY_ENDPOINTS, distance = joint.distance)
         }

@@ -186,7 +186,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             )
             val physics = PhysicsCoordinator(
                 workerThreads = workerThreads,
-                maxStepMillis = 60_000L,
+                epochOverloadThresholdMillis = 60_000L,
                 overloadWindowMillis = 60_000L,
                 overloadsBeforeStall = Int.MAX_VALUE,
                 automaticFallback = false,

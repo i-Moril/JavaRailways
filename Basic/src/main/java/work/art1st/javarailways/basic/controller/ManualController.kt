@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.controller
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.control.TrainController
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 手动控制器：玩家通过加速/减速手柄控制列车。
@@ -22,49 +23,37 @@ class ManualController(
     private val maxSpeed: Double = 10.0
 ) : TrainController(train, world) {
 
-    /**
-     * 目标速度 (m/s)，由玩家通过手柄设置
-     * 始终 >= 0
-     */
-    var targetSpeed: Double = 0.0
-        private set
+    private data class ManualInput(val throttle: Double, val targetSpeed: Double)
 
-    /**
-     * 加速手柄位置，范围 [-1, 1]
-     * 正值 = 加速，负值 = 减速（制动）
-     */
-    var throttle: Double = 0.0
-        private set
+    private val input = AtomicReference(ManualInput(0.0, 0.0))
+
+    /** 目标速度 (m/s)，由玩家通过手柄设置，始终 >= 0。 */
+    val targetSpeed: Double get() = input.get().targetSpeed
+
+    /** 加速手柄位置，范围 [-1, 1]；正值加速，负值制动。 */
+    val throttle: Double get() = input.get().throttle
 
     /**
      * 设置加速手柄位置。
      * @param value 范围 [-1, 1]，正值加速，负值减速/制动
      */
     fun setThrottle(value: Double) {
-        throttle = value.coerceIn(-1.0, 1.0)
-        // 手柄位置转换为目标速度
-        targetSpeed = if (throttle >= 0) {
-            throttle * maxSpeed
-        } else {
-            // 负手柄只用于制动，不用于倒车
-            0.0
-        }
+        val throttle = value.coerceIn(-1.0, 1.0)
+        input.set(ManualInput(throttle, if (throttle >= 0.0) throttle * maxSpeed else 0.0))
     }
 
     /**
      * 紧急制动：立即将速度设为 0 并阻止加速
      */
     fun emergencyBrake() {
-        throttle = -1.0
-        targetSpeed = 0.0
+        input.set(ManualInput(-1.0, 0.0))
     }
 
     /**
      * 惰行（滑行）：解除制动但目标速度归零
      */
     fun coast() {
-        throttle = 0.0
-        targetSpeed = 0.0
+        input.set(ManualInput(0.0, 0.0))
     }
 
     val controlledTrain: Train
@@ -73,6 +62,7 @@ class ManualController(
     override fun tick(deltaT: Double) {
         // deltaT 单位为毫秒，转换为秒
         val deltaS = deltaT * 0.001
+        val targetSpeed = input.get().targetSpeed
 
         if (speed < targetSpeed) {
             // 加速

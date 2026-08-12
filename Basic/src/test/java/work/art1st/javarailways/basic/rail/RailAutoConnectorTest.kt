@@ -2,7 +2,9 @@ package work.art1st.javarailways.basic.rail
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -10,10 +12,66 @@ import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.TurnoutEndpointMetadata
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import kotlin.math.cos
 import kotlin.math.sin
 
 class RailAutoConnectorTest {
+    @Test
+    fun `occupied endpoint rail must be taken out of service before connection`() {
+        val world = createTestWorld()
+        val first = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val second = CoreRail(
+            world,
+            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        createTrainWithConfig("occupied-connect", first, world, listOf(8.0))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            RailAutoConnector.connectIfAllowed(first, second)
+        }
+        assertFalse(RailAutoConnector.areConnected(first, second))
+    }
+
+    @Test
+    fun `third occupied endpoint rail prevents turnout reconfiguration`() {
+        val world = createTestWorld()
+        val stem = CoreRail(
+            world,
+            straightCurve(Vector3d(-30.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val straight = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(stem, straight).outcome)
+        createTrainWithConfig("occupied-third-leg", straight, world, listOf(8.0))
+        val branch = CoreRail(
+            world,
+            angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0, length = 40.0),
+            mutableListOf(),
+            mutableListOf()
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            RailAutoConnector.connectIfAllowed(stem, branch)
+        }
+
+        assertTrue(branch.viewBA.nextRails.isEmpty())
+        assertEquals(listOf(straight.viewAB), stem.viewAB.nextRails)
+    }
+
     @Test
     fun `auto connector rejects sharp endpoint branch`() {
         val world = createTestWorld()

@@ -2283,10 +2283,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun splitSafetyError(coreWorld: CoreWorld, rails: List<CoreRail>): String? {
-        if (rails.any { it.trains.isNotEmpty() }) return "不能操作有列车占用的轨道"
-        if (rails.any { it.signals.isNotEmpty() }) return "不能操作包含信号机的轨道"
         val railIds = rails.mapTo(hashSetOf()) { it.id }
+        if (coreWorld.occupyingTrainIds(railIds).isNotEmpty()) return "不能操作有列车占用的轨道"
+        if (rails.any { it.signals.isNotEmpty() }) return "不能操作包含信号机的轨道"
         val basicData = coreWorld.basicWorldDataOrNull ?: return null
+        if (basicData.dispatcher.hasRouteAllocationOn(railIds)) return "不能操作有活动进路锁的轨道"
         if (basicData.wayPoints.all().any { it.railId in railIds }) return "不能操作包含路径点或运营目的地的轨道"
         if (railIds.any { basicData.railObjects.objectsOnRail(it).isNotEmpty() }) return "不能操作包含运营对象的轨道"
         return null

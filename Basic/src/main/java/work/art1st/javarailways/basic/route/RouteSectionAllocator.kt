@@ -163,6 +163,11 @@ class RouteSectionAllocator(private val world: World) {
         allocations.values.toList()
     }
 
+    /** True when an active allocation owns a turnout on any affected rail. */
+    fun hasAllocationOn(railIds: Set<java.util.UUID>): Boolean = synchronized(lock) {
+        resourceOwners.keys.any { it.railId in railIds }
+    }
+
     private fun resolve(ref: RailViewRef): RailView? =
         world.getRail(ref.railId)?.getView(ref.direction)
 

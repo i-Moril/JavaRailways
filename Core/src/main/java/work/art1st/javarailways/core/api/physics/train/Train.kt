@@ -53,5 +53,6 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     fun reverse()
 
     /** Enter a derailed state with a diagnostic [reason]. */
+    @MainThread
     fun derail(reason: String)
 }

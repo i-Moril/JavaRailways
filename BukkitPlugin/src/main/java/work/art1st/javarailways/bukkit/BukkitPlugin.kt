@@ -29,7 +29,6 @@ import work.art1st.javarailways.bukkit.tool.RailWand
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.core.api.event.processor.EventRegistration
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
-import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.javarailways.core.api.util.plugin.Plugin
 import work.art1st.javarailways.core.api.util.plugin.PluginRegistry
 import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
@@ -89,7 +88,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var trainDebugEventListener: TrainDebugEventListener
 
     private var trainReverseEventRegistration: EventRegistration? = null
-    private var trainDebugEventRegistration: EventRegistration? = null
+    private var trainDebugMainEventRegistration: EventRegistration? = null
 
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var railObjectWand: RailObjectWand
@@ -132,7 +131,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         trainReverseBehaviorListener = TrainReverseBehaviorListener()
         trainReverseEventRegistration = MainRailEventBus.register(trainReverseBehaviorListener)
         trainDebugEventListener = TrainDebugEventListener()
-        trainDebugEventRegistration = PhysicsRailEventBus.register(trainDebugEventListener)
+        trainDebugMainEventRegistration = MainRailEventBus.register(trainDebugEventListener)
 
         // 全局配置已在 onLoad 读取，使 packet backend 能在连接注入前完成 load。
         if (javaRailwaysConfig.trainDebugLog) {
@@ -228,8 +227,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         }
         runShutdownStep("train reverse event registration") { trainReverseEventRegistration?.close() }
         trainReverseEventRegistration = null
-        runShutdownStep("train debug event registration") { trainDebugEventRegistration?.close() }
-        trainDebugEventRegistration = null
+        runShutdownStep("train debug main event registration") { trainDebugMainEventRegistration?.close() }
+        trainDebugMainEventRegistration = null
         runShutdownStep("train debug log") { TrainDebugLog.close() }
         runShutdownStep("packet entity runtime") { packetEntityRuntime?.close() }
         packetEntityMotion = null

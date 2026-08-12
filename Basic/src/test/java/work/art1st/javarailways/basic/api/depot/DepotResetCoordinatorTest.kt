@@ -217,7 +217,7 @@ class DepotResetCoordinatorTest {
             StablingPointRef(depotId, "risky")
         )
         onMainThread { safeTrain.reverse() }
-        AsyncTickTestSupport.run { safeTrain.derail("test pre-reset state") }
+        onMainThread { safeTrain.derail("test pre-reset state") }
         val beforeSafeHead = safeTrain.head.location.arcLengthIn(ViewDirection.AB)
         val beforeRiskyHead = riskyTrain.head.location.arcLengthIn(ViewDirection.AB)
         val beforeRiskyBogies = riskyTrain.cars.flatMap { car -> car.bogies }

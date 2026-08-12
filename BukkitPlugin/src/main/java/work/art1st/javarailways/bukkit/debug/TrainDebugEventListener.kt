@@ -5,10 +5,7 @@ import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.EventListener
 import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.physics.train.CoreTrain
-import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
-
 /** Adds one-shot event rows to the train debug CSV for failures that happen between ticks. */
-@OptIn(AsyncEventApi::class)
 class TrainDebugEventListener : EventListener {
     @HandlesEvent
     fun onDerail(event: DerailEvent) {

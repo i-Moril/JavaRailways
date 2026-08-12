@@ -77,6 +77,7 @@ open class CoreTrain @MainThread internal constructor(
     private val derailStateLock = Any()
     private var derailPhysicsDirty = false
     private var removeControllerOnPhysicsPublish = false
+    private var pendingDerailNotificationReason: String? = null
     private val activeDerailState: DerailState
         get() = if (derailPhysicsDirty) derailStateBuffer.getActive() else derailStateBuffer.get()
 
@@ -659,9 +660,11 @@ open class CoreTrain @MainThread internal constructor(
         setController(null)
     }
 
-    @OptIn(AsyncEventApi::class)
+    @MainThread
     override fun derail(reason: String) {
+        ThreadGuard.ensureMainThread("CoreTrain.derail")
         require(reason.isNotBlank())
+        world.awaitCurrentPhysicsEpoch()
         val changed = synchronized(derailStateLock) {
             if (activeDerailState.derailed) return@synchronized false
             publishDerailState(DerailState(true, reason))
@@ -669,7 +672,8 @@ open class CoreTrain @MainThread internal constructor(
         }
         if (!changed) return
         removeController()
-        PhysicsRailEventBus.publish(DerailEvent(this, reason))
+        world.publishTrainFrame(publishMetadataFrame())
+        MainRailEventBus.publish(DerailEvent(this, reason))
     }
 
     internal fun markDerailedFromPhysics(reason: String) {
@@ -680,6 +684,17 @@ open class CoreTrain @MainThread internal constructor(
             derailPhysicsDirty = true
             removeControllerOnPhysicsPublish = true
         }
+    }
+
+    internal fun queuePublishedDerailNotification() = synchronized(derailStateLock) {
+        val state = derailStateBuffer.get()
+        if (state.derailed && pendingDerailNotificationReason == null) {
+            pendingDerailNotificationReason = requireNotNull(state.reason)
+        }
+    }
+
+    internal fun pollDerailNotificationReason(): String? = synchronized(derailStateLock) {
+        pendingDerailNotificationReason.also { pendingDerailNotificationReason = null }
     }
 
     protected fun clearDerailed() {

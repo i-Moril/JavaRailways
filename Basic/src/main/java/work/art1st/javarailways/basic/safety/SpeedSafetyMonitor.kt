@@ -1,14 +1,26 @@
 package work.art1st.javarailways.basic.safety
 
-import work.art1st.javarailways.core.api.physics.World
-import work.art1st.javarailways.core.api.util.tick.TickProfiled
-import work.art1st.javarailways.core.api.util.tick.TickingObject
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.api.util.annotation.MainThread
 
-/** Optional geometry-derived derail-speed enforcement. */
+/** A simulation-owned derail request derived from one published physics epoch. */
+data class DerailRequest(
+    val trainId: String,
+    val reason: String,
+    val observedPhysicsEpoch: Long
+) {
+    init {
+        require(trainId.isNotBlank())
+        require(reason.isNotBlank())
+        require(observedPhysicsEpoch >= 0L)
+    }
+}
+
+/** Optional geometry-derived derail-speed enforcement over published physics state. */
 class SpeedSafetyMonitor(
-    private val world: World,
+    private val world: CoreWorld,
     private val config: Config
-) : TickingObject, TickProfiled {
+) {
     data class Config(
         val derailEnabled: Boolean,
         val toleranceMetersPerSecond: Double,
@@ -20,46 +32,56 @@ class SpeedSafetyMonitor(
         }
     }
 
-    private val overspeedTicks = HashMap<String, Int>()
+    private val overspeedEpochs = HashMap<String, Int>()
+    private var lastEvaluatedEpoch = -1L
 
-    override val profileCategory: String = "speed-safety"
-    override val profileId: String = "world"
-
-    override fun tick(deltaT: Double) {
-        if (!config.derailEnabled) return
+    /**
+     * Evaluates one already-published epoch. The caller owns applying returned requests.
+     * Re-evaluating the same or an older epoch is a no-op; skipped epochs are not inferred.
+     */
+    @MainThread
+    fun evaluatePublishedEpoch(physicsEpoch: Long): List<DerailRequest> {
+        require(physicsEpoch >= 0L) { "physicsEpoch must be non-negative" }
+        if (physicsEpoch <= lastEvaluatedEpoch) return emptyList()
+        lastEvaluatedEpoch = physicsEpoch
+        if (!config.derailEnabled) return emptyList()
 
         val liveTrainIds = HashSet<String>()
+        val requests = ArrayList<DerailRequest>()
         world.allTrains.forEach { train ->
             liveTrainIds += train.id
-            if (train.isDerailed) {
-                overspeedTicks.remove(train.id)
+            val frame = train.publishedFrame
+            if (frame.derailed) {
+                overspeedEpochs.remove(train.id)
                 return@forEach
             }
 
-            val derailSpeed = train.cars.asSequence()
-                .flatMap { it.bogies.asSequence() }
-                .mapNotNull { it.location.rail.metadata.derailSpeedMetersPerSecond }
+            val derailSpeed = frame.sweptSpans.asSequence()
+                .mapNotNull { span -> world.getRail(span.railId)?.metadata?.derailSpeedMetersPerSecond }
                 .minOrNull()
                 ?: run {
-                    overspeedTicks.remove(train.id)
+                    overspeedEpochs.remove(train.id)
                     return@forEach
                 }
-
-            if (train.speed <= derailSpeed + config.toleranceMetersPerSecond) {
-                overspeedTicks.remove(train.id)
+            val publishedSpeed = frame.speedMetersPerSecond
+            if (publishedSpeed <= derailSpeed + config.toleranceMetersPerSecond) {
+                overspeedEpochs.remove(train.id)
                 return@forEach
             }
 
-            val ticks = (overspeedTicks[train.id] ?: 0) + 1
-            if (ticks >= config.graceTicks) {
-                overspeedTicks.remove(train.id)
-                train.derail(
-                    "Derail speed exceeded: %.2f m/s > %.2f m/s".format(train.speed, derailSpeed)
+            val epochs = (overspeedEpochs[train.id] ?: 0) + 1
+            if (epochs >= config.graceTicks) {
+                overspeedEpochs.remove(train.id)
+                requests += DerailRequest(
+                    trainId = train.id,
+                    reason = "Derail speed exceeded: %.2f m/s > %.2f m/s".format(publishedSpeed, derailSpeed),
+                    observedPhysicsEpoch = physicsEpoch
                 )
             } else {
-                overspeedTicks[train.id] = ticks
+                overspeedEpochs[train.id] = epochs
             }
         }
-        overspeedTicks.keys.retainAll(liveTrainIds)
+        overspeedEpochs.keys.retainAll(liveTrainIds)
+        return requests
     }
 }

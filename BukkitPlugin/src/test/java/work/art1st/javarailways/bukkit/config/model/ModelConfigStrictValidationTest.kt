@@ -37,6 +37,53 @@ class ModelConfigStrictValidationTest {
     }
 
     @Test
+    fun `schema rejection fixtures match strict part loader`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            PartRegistry.parsePartDefinition(
+                mapOf(
+                    "config-version" to 1,
+                    "name" to "invalid-item-animation",
+                    "type" to "item_display",
+                    "item" to mapOf(
+                        "type" to "IRON_NUGGET",
+                        "item-model" to "example/model",
+                        "animations" to emptyList<Any>()
+                    )
+                ),
+                "test"
+            )
+        }
+
+        listOf("spacingX", "spacingZ").forEach { unsupportedKey ->
+            assertThrows(IllegalArgumentException::class.java) {
+                PartRegistry.parsePartDefinition(
+                    mapOf(
+                        "config-version" to 1,
+                        "name" to "invalid-$unsupportedKey",
+                        "type" to "platform",
+                        "platform" to mapOf(unsupportedKey to 1.0)
+                    ),
+                    "test"
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `schema rejection fixture matches strict action loader`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TrainActionConfig.parseActions(
+                mapOf(
+                    "config-version" to 1,
+                    "actions" to mapOf(
+                        "open" to mapOf("animations" to listOf("doors"))
+                    )
+                )
+            )
+        }
+    }
+
+    @Test
     fun `rejects unsupported manifest versions and fields`() {
         val unsupported = File(tempDir, "unsupported").apply { mkdirs() }
         File(unsupported, "manifest.yml").writeText(

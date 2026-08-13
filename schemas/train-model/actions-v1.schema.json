@@ -15,19 +15,14 @@
   },
   "$defs": {
     "animation": {
-      "oneOf": [
-        {"type": "string", "minLength": 1},
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["name"],
-          "properties": {
-            "name": {"type": "string", "minLength": 1},
-            "scene": {"type": "string"},
-            "at": {"type": "number", "default": 0.0}
-          }
-        }
-      ]
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "scene": {"type": "string"},
+        "at": {"type": "number", "default": 0.0}
+      }
     },
     "sound": {
       "type": "object",

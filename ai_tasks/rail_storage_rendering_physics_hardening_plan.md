@@ -31,9 +31,10 @@
 - `infrastructureRevision` 使用会在重启后归零的 `serverTickIndex`；加载又选择数值最大的备份 revision，可能在第二次重启后回滚到旧存档。
 - `CoreRail.restoreConnections()` 会静默丢弃缺失引用并替换 active branch。
 - 扩展数据依赖 JVM 类名和 `Class.forName()`。
-- render meta 保存了加载时不用的 `segments/pointArcs`，并且不与 Core infrastructure 同 revision。
-- 快照文件体积大，现有样本 gzip 后仅约为原大小 14%。
 - `SavedTrainV1` 未保存脱轨状态。
+- 模型 JSON Schema 与严格 Kotlin loader 存在已确认漂移，且根仓库/文档站点曾维护重复 Schema 副本。
+
+Task A 主交付已收敛为 revision、严格预校验、稳定 extension ID、脱轨状态兼容字段，以及 Schema 对齐/单一来源。render meta 的 revision 一致性/派生字段瘦身与 gzip 体积优化仍是有效后续，但改为独立任务和提交，不阻塞 Task A 完成。
 
 不做：generation store、CBOR/定点量化、删除 canonical curve points、live Controller 自动恢复。
 
@@ -99,13 +100,19 @@
 ## 4. 推荐执行顺序
 
 ```text
-A1 revision 单调性
+A1 revision 单调性与 pair 恢复
   ↓
-A2 严格快照验证
+A2 materialize 前严格快照验证
   ↓
-A3 render meta 纳入现有 revision + gzip
+A3 稳定扩展 type ID
   ↓
-A4 稳定扩展 type ID + 脱轨状态
+A4 脱轨状态 V1 兼容字段扩展（不升级 schema）
+  ↓
+A5 模型 Schema 对齐 + 单一 source of truth（不升级 schema）
+
+Task A 完成后：
+render meta revision/瘦身 ──独立决策──> revisioned third file 或 integrated payload
+gzip ──JVM benchmark 支持──> raw/gzip 兼容迁移
 
 B1 停运维护前置条件 RED 测试
   ↓

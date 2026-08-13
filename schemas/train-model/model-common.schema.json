@@ -99,11 +99,7 @@
         "type": {"$ref": "#/$defs/nonEmptyString"},
         "item-model": {"$ref": "#/$defs/nonEmptyString"},
         "custom-model-data": {"type": "integer"},
-        "scale": {"$ref": "#/$defs/scale"},
-        "animations": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/animation"}
-        }
+        "scale": {"$ref": "#/$defs/scale"}
       }
     },
     "interaction": {
@@ -126,9 +122,7 @@
         "rows": {"type": "integer", "default": 1},
         "columns": {"type": "integer", "default": 1},
         "spacing-x": {"type": "number"},
-        "spacingX": {"type": "number"},
         "spacing-z": {"type": "number"},
-        "spacingZ": {"type": "number"},
         "spacing": {"$ref": "#/$defs/vector"}
       }
     },

@@ -38,6 +38,8 @@ import work.art1st.javarailways.basic.rail.RailAutoConnector
 import work.art1st.javarailways.basic.safety.RailSpeedCalculator
 import work.art1st.javarailways.basic.safety.RailSpeedLimits
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.api.operation.OperationResult
+import work.art1st.javarailways.bukkit.api.operation.UndoableOperation
 import work.art1st.javarailways.bukkit.extension.rail.RailDecorationLayout
 import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
 import work.art1st.javarailways.bukkit.persistence.PersistedRailRenderMeta
@@ -61,6 +63,8 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailTopologyEditor
 import work.art1st.javarailways.core.physics.rail.RailView
 import java.util.*
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.*
 
@@ -115,50 +119,6 @@ data class SavedAnchorData(
     val x: Double, val y: Double, val z: Double,
     val tx: Double, val ty: Double, val tz: Double
 )
-
-internal class WandActionHistory(private val limit: Int = 10) {
-    private val undoActions = mutableListOf<WandAction>()
-    private val redoActions = mutableListOf<WandAction>()
-
-    internal val undoSize: Int get() = undoActions.size
-    internal val redoSize: Int get() = redoActions.size
-
-    fun record(action: WandAction) {
-        appendBounded(undoActions, action)
-        redoActions.clear()
-    }
-
-    fun takeUndo(): WandAction? {
-        val action = undoActions.removeLastOrNull() ?: return null
-        appendBounded(redoActions, action)
-        return action
-    }
-
-    fun takeRedo(): WandAction? {
-        val action = redoActions.removeLastOrNull() ?: return null
-        appendBounded(undoActions, action)
-        return action
-    }
-
-    fun discardCreatedAnchors(anchorIds: Set<String>) {
-        val retained = undoActions.mapNotNull { it.withoutCreatedAnchors(anchorIds) }
-        undoActions.clear()
-        undoActions.addAll(retained.takeLast(limit))
-    }
-
-    private fun appendBounded(actions: MutableList<WandAction>, action: WandAction) {
-        actions.add(action)
-        if (actions.size > limit) actions.removeAt(0)
-    }
-
-    private fun WandAction.withoutCreatedAnchors(anchorIds: Set<String>): WandAction? = when (this) {
-        is WandAction.CreateAnchor -> takeUnless { anchorId in anchorIds }
-        is WandAction.MultiAction -> actions.mapNotNull { it.withoutCreatedAnchors(anchorIds) }
-            .takeIf { it.isNotEmpty() }
-            ?.let { WandAction.MultiAction(it) }
-        else -> this
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════
 // 玩家状态
@@ -355,9 +315,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private val anchorEntities =
         ConcurrentHashMap<UUID, ConcurrentHashMap<String, MutableSet<ItemDisplay>>>()
     private val heavyOperationGate = PlayerOperationGate()
-
-    /** 每名玩家最近 10 次有效操作。 */
-    private val actionHistories = ConcurrentHashMap<UUID, WandActionHistory>()
+    private val anchorCreationOperations =
+        ConcurrentHashMap<UUID, ConcurrentHashMap<String, RailWandOperation>>()
 
     private data class SplitPreviewTarget(
         val worldId: UUID,
@@ -742,7 +701,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     override fun onPlayerQuit(player: Player, state: WandPlayerState) {
         removeAllAnchorDisplays(player)
-        actionHistories.remove(player.uniqueId)
         splitPreviewTargets.remove(player.uniqueId)
         splitPreviewRequests.remove(player.uniqueId)
         splitPreviewViewers.remove(player.uniqueId)
@@ -1126,7 +1084,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
                     val autoConnected = connectCreatedRailsToExisting(createdRails, existingRails)
                     RailRenderMetaStore.upsertRails(livePlayer.world, persistedMetas)
-                    actionHistory(livePlayer).discardCreatedAnchors(selectionSnapshot.toSet())
+                    discardCreatedAnchorOperations(livePlayer, selectionSnapshot.toSet())
                     pushUndo(livePlayer, WandAction.MultiAction(undoActions))
                     livePlayer.sendMessage(Component.text(
                         "✓ 创建了 ${createdRails.size} 段轨道 (${settingsSnapshot.parallelCount} 条并行线)，自动连接 $autoConnected 条",
@@ -2816,69 +2774,156 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // Undo / Redo
     // ═══════════════════════════════════════════
 
-    private fun actionHistory(player: Player): WandActionHistory =
-        actionHistories.getOrPut(player.uniqueId) { WandActionHistory() }
-
     private fun pushUndo(player: Player, action: WandAction) {
-        actionHistory(player).record(action)
+        // Even operations that currently lack a reverse snapshot are recorded as chronological
+        // barriers, so /jr undo never skips them and mutates an older unrelated action.
+        val operation = RailWandOperation(action)
+        operation.sequence = plugin.playerOperationService.record(
+            player.uniqueId,
+            plugin,
+            operation
+        )
+        val anchorIds = createdAnchorIds(action)
+        if (anchorIds.isNotEmpty()) {
+            val playerOperations = anchorCreationOperations.computeIfAbsent(player.uniqueId) {
+                ConcurrentHashMap()
+            }
+            anchorIds.forEach { playerOperations[it] = operation }
+        }
     }
 
-    fun undo(player: Player): Boolean {
-        val action = actionHistories[player.uniqueId]?.takeUndo()
-        if (action == null) {
-            player.sendActionBar(Component.text("没有可撤销的操作", NamedTextColor.GRAY))
-            return false
-        }
+    private inner class RailWandOperation(
+        initialAction: WandAction
+    ) : UndoableOperation {
+        @Volatile
+        private var action: WandAction = initialAction
+        var sequence: Long = -1L
 
-        when (action) {
-            is WandAction.CreateAnchor -> undoCreateAnchor(player, action)
-            is WandAction.DeleteAnchor -> undoDeleteAnchor(player, action)
+        override fun description(): Component = Component.text("RailWand 操作")
+
+        override fun undo(player: Player): CompletionStage<OperationResult> =
+            CompletableFuture.completedFuture(applyUndo(player, action))
+
+        override fun redo(player: Player): CompletionStage<OperationResult> =
+            CompletableFuture.completedFuture(applyRedo(player, action))
+
+        @Synchronized
+        fun discardCreatedAnchors(anchorIds: Set<String>): Boolean {
+            val retained = action.withoutCreatedAnchors(anchorIds) ?: return false
+            action = retained
+            return true
+        }
+    }
+
+    private fun discardCreatedAnchorOperations(player: Player, anchorIds: Set<String>) {
+        val indexed = anchorCreationOperations[player.uniqueId] ?: return
+        val affected = anchorIds.mapNotNull(indexed::remove).toSet()
+        affected.forEach { operation ->
+            if (!operation.discardCreatedAnchors(anchorIds)) {
+                plugin.playerOperationService.discard(player.uniqueId, plugin, operation.sequence)
+            }
+        }
+        if (indexed.isEmpty()) anchorCreationOperations.remove(player.uniqueId, indexed)
+    }
+
+    private fun forgetCreatedAnchorOperations(player: Player, action: WandAction) {
+        val indexed = anchorCreationOperations[player.uniqueId] ?: return
+        createdAnchorIds(action).forEach(indexed::remove)
+        if (indexed.isEmpty()) anchorCreationOperations.remove(player.uniqueId, indexed)
+    }
+
+    private fun createdAnchorIds(action: WandAction): Set<String> = when (action) {
+        is WandAction.CreateAnchor -> setOf(action.anchorId)
+        is WandAction.MultiAction -> action.actions.flatMapTo(linkedSetOf(), ::createdAnchorIds)
+        else -> emptySet()
+    }
+
+    private fun WandAction.withoutCreatedAnchors(anchorIds: Set<String>): WandAction? = when (this) {
+        is WandAction.CreateAnchor -> takeUnless { anchorId in anchorIds }
+        is WandAction.MultiAction -> actions.mapNotNull { it.withoutCreatedAnchors(anchorIds) }
+            .takeIf { it.isNotEmpty() }
+            ?.let(WandAction::MultiAction)
+        else -> this
+    }
+
+    private fun applyUndo(player: Player, action: WandAction): OperationResult {
+        if (!canUndo(action)) {
+            return OperationResult.unsupported(Component.text("该 RailWand 操作无法撤销", NamedTextColor.RED))
+        }
+        if (!isInActionWorld(player, action)) {
+            return OperationResult.failed(Component.text("请回到执行该操作的世界后再撤销", NamedTextColor.RED))
+        }
+        val applied = when (action) {
+            is WandAction.CreateAnchor -> { undoCreateAnchor(player, action); true }
+            is WandAction.DeleteAnchor -> { undoDeleteAnchor(player, action); true }
             is WandAction.CreateRail -> undoCreateRail(player, action)
-            is WandAction.DeleteRail -> undoDeleteRail(player, action)
-            is WandAction.MultiAction -> {
-                action.actions.reversed().forEach { sub ->
-                    when (sub) {
-                        is WandAction.CreateRail -> undoCreateRail(player, sub)
-                        is WandAction.DeleteRail -> undoDeleteRail(player, sub)
-                        is WandAction.CreateAnchor -> undoCreateAnchor(player, sub)
-                        is WandAction.DeleteAnchor -> undoDeleteAnchor(player, sub)
-                        else -> {}
-                    }
-                }
-            }
+            is WandAction.DeleteRail -> false
+            is WandAction.MultiAction -> action.actions.asReversed().all { applyUndoPart(player, it) }
         }
+        if (!applied) {
+            return OperationResult.failed(Component.text("RailWand 撤销失败", NamedTextColor.RED))
+        }
+        forgetCreatedAnchorOperations(player, action)
         persistState(player, getState(player))
-        player.sendActionBar(Component.text("已撤销", NamedTextColor.GREEN))
-        return true
+        return OperationResult.success(Component.text("已撤销 RailWand 操作", NamedTextColor.GREEN))
     }
 
-    fun redo(player: Player): Boolean {
-        val action = actionHistories[player.uniqueId]?.takeRedo()
-        if (action == null) {
-            player.sendActionBar(Component.text("没有可重做的操作", NamedTextColor.GRAY))
-            return false
+    private fun applyRedo(player: Player, action: WandAction): OperationResult {
+        if (!canRedo(action)) {
+            return OperationResult.unsupported(Component.text("该 RailWand 操作不支持重做", NamedTextColor.RED))
         }
-
-        when (action) {
-            is WandAction.CreateAnchor -> redoCreateAnchor(player, action)
-            is WandAction.DeleteAnchor -> redoDeleteAnchor(player, action)
-            is WandAction.CreateRail -> redoCreateRail(player, action)
-            is WandAction.DeleteRail -> redoDeleteRail(player, action)
-            is WandAction.MultiAction -> {
-                action.actions.forEach { sub ->
-                    when (sub) {
-                        is WandAction.CreateRail -> redoCreateRail(player, sub)
-                        is WandAction.DeleteRail -> redoDeleteRail(player, sub)
-                        is WandAction.CreateAnchor -> redoCreateAnchor(player, sub)
-                        is WandAction.DeleteAnchor -> redoDeleteAnchor(player, sub)
-                        else -> {}
-                    }
-                }
-            }
+        if (!isInActionWorld(player, action)) {
+            return OperationResult.failed(Component.text("请回到执行该操作的世界后再重做", NamedTextColor.RED))
+        }
+        val applied = when (action) {
+            is WandAction.DeleteAnchor -> { redoDeleteAnchor(player, action); true }
+            is WandAction.MultiAction -> action.actions.all { applyRedoPart(player, it) }
+            else -> false
+        }
+        if (!applied) {
+            return OperationResult.failed(Component.text("RailWand 重做失败", NamedTextColor.RED))
         }
         persistState(player, getState(player))
-        player.sendActionBar(Component.text("已重做", NamedTextColor.GREEN))
-        return true
+        return OperationResult.success(Component.text("已重做 RailWand 操作", NamedTextColor.GREEN))
+    }
+
+    private fun applyUndoPart(player: Player, action: WandAction): Boolean = when (action) {
+        is WandAction.CreateAnchor -> { undoCreateAnchor(player, action); true }
+        is WandAction.DeleteAnchor -> { undoDeleteAnchor(player, action); true }
+        is WandAction.CreateRail -> undoCreateRail(player, action)
+        is WandAction.DeleteRail -> false
+        is WandAction.MultiAction -> action.actions.asReversed().all { applyUndoPart(player, it) }
+    }
+
+    private fun applyRedoPart(player: Player, action: WandAction): Boolean = when (action) {
+        is WandAction.DeleteAnchor -> { redoDeleteAnchor(player, action); true }
+        is WandAction.MultiAction -> action.actions.all { applyRedoPart(player, it) }
+        else -> false
+    }
+
+    private fun canUndo(action: WandAction): Boolean = when (action) {
+        is WandAction.CreateAnchor, is WandAction.DeleteAnchor, is WandAction.CreateRail -> true
+        is WandAction.DeleteRail -> false
+        is WandAction.MultiAction -> action.actions.isNotEmpty() && action.actions.all(::canUndo)
+    }
+
+    private fun canRedo(action: WandAction): Boolean = when (action) {
+        is WandAction.DeleteAnchor -> true
+        is WandAction.MultiAction -> action.actions.isNotEmpty() && action.actions.all(::canRedo)
+        else -> false
+    }
+
+    private fun isInActionWorld(player: Player, action: WandAction): Boolean {
+        val worldIds = actionWorldIds(action)
+        return worldIds.size == 1 && player.world.uid in worldIds
+    }
+
+    private fun actionWorldIds(action: WandAction): Set<UUID> = when (action) {
+        is WandAction.CreateAnchor -> setOf(action.worldId)
+        is WandAction.DeleteAnchor -> setOf(action.worldId)
+        is WandAction.CreateRail -> setOf(action.worldId)
+        is WandAction.DeleteRail -> setOf(action.worldId)
+        is WandAction.MultiAction -> action.actions.flatMapTo(linkedSetOf(), ::actionWorldIds)
     }
 
     private fun undoCreateAnchor(player: Player, action: WandAction.CreateAnchor) {
@@ -2886,11 +2931,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         removeAnchorDisplay(player, action.anchorId)
         removeAnchor(world, action.anchorId)
         getState(player).selectedAnchors.remove(action.anchorId)
-    }
-
-    private fun redoCreateAnchor(player: Player, action: WandAction.CreateAnchor) {
-        // Cannot fully redo anchor creation without anchor data stored in original action
-        player.sendActionBar(Component.text("无法重做锚点创建（数据不足）", NamedTextColor.RED))
     }
 
     private fun undoDeleteAnchor(player: Player, action: WandAction.DeleteAnchor) {
@@ -2910,8 +2950,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         removeAnchor(player.world, action.anchor.id)
     }
 
-    private fun undoCreateRail(player: Player, action: WandAction.CreateRail) {
-        val coreWorld = getCoreWorld(player) ?: return
+    private fun undoCreateRail(player: Player, action: WandAction.CreateRail): Boolean {
+        val coreWorld = getCoreWorld(player) ?: return false
         val rail = coreWorld.getRail(action.railId)
         if (rail != null) {
             OperationalDestinationService(coreWorld).removeAllOnRail(action.railId)
@@ -2923,26 +2963,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val state = getState(player)
         state.selectedRails.remove(action.railId)
         state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) == action.railId }
-    }
-
-    private fun redoCreateRail(player: Player, action: WandAction.CreateRail) {
-        player.sendActionBar(Component.text("无法重做轨道创建（数据不足）", NamedTextColor.RED))
-    }
-
-    private fun undoDeleteRail(player: Player, action: WandAction.DeleteRail) {
-        player.sendActionBar(Component.text("无法撤销轨道删除（数据不足）", NamedTextColor.RED))
-    }
-
-    private fun redoDeleteRail(player: Player, action: WandAction.DeleteRail) {
-        val coreWorld = getCoreWorld(player) ?: return
-        val rail = coreWorld.getRail(action.railId)
-        if (rail != null) {
-            OperationalDestinationService(coreWorld).removeAllOnRail(action.railId)
-            RailVisualBootstrap.unregisterRail(action.railId)
-            RailRenderMetaStore.removeRail(player.world, action.railId)
-            rail.destroy()
-            coreWorld.removeRail(rail)
-        }
+        return true
     }
 
     // ═══════════════════════════════════════════

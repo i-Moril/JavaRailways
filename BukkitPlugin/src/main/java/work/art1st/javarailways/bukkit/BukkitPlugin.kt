@@ -1,6 +1,12 @@
 package work.art1st.javarailways.bukkit
 
 import org.bukkit.plugin.java.JavaPlugin
+import org.bukkit.plugin.ServicePriority
+import work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetService
+import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationService
+import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
+import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.bukkit.behavior.TrainReverseBehaviorListener
 import work.art1st.javarailways.bukkit.command.JavaRailwaysCommand
 import work.art1st.javarailways.bukkit.config.DisplayRendererBackend
@@ -54,6 +60,11 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var platformDispatcher: PlatformDispatcher
     lateinit var platformCapabilities: PlatformCapabilities
     lateinit var trainPacketBundles: TrainPacketBundleCoordinator
+    lateinit var railTargetService: RailTargetService
+        private set
+    lateinit var playerOperationService: PlayerOperationService
+        private set
+    private lateinit var playerOperationServiceImpl: DefaultPlayerOperationService
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
@@ -124,6 +135,17 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         viewDistanceManager = ViewDistanceManager(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks)
         worldManager = WorldManager()
         server.pluginManager.registerEvents(worldManager, this)
+        railTargetService = BukkitRailTargetService(this)
+        playerOperationServiceImpl = DefaultPlayerOperationService(logger)
+        playerOperationService = playerOperationServiceImpl
+        server.servicesManager.register(RailTargetService::class.java, railTargetService, this, ServicePriority.Normal)
+        server.servicesManager.register(
+            PlayerOperationService::class.java,
+            playerOperationService,
+            this,
+            ServicePriority.Normal
+        )
+        server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         trainControlManager = TrainControlManager(this)
         trainControlManager.start()
         trainHandleInputListener = TrainHandleInputListener(trainControlManager)
@@ -200,6 +222,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     override fun onDisable() {
+        server.servicesManager.unregisterAll(this)
+        if (::playerOperationServiceImpl.isInitialized) {
+            playerOperationServiceImpl.clear()
+        }
         runShutdownStep("Timetable WebUI sidecar") { timetableWebUiSidecar?.stop() }
         timetableWebUiSidecar = null
         runShutdownStep("timetable HTTP bridge") { timetableHttpBridge?.stop() }

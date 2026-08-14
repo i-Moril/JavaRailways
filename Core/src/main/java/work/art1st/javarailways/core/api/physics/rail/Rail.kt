@@ -15,7 +15,10 @@ interface Rail : Destroyable, Extendable<RenderableExtension<Rail>> {
     /** World that owns this rail. */
     val world: World
 
-    /** Canonical AB geometry. Positions and arc lengths are measured in metres. */
+    /**
+     * Canonical immutable AB geometry. Positions and arc lengths are measured in metres.
+     * Existing curve references remain safe for concurrent read-only sampling.
+     */
     val curve: PrimeCurve
 
     /** Operational and geometry metadata. Mutations must follow the owning world's thread rules. */

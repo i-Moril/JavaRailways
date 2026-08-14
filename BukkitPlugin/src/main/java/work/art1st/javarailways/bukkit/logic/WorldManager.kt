@@ -46,7 +46,7 @@ data class CarFrameDispatchMetrics(
 )
 
 class WorldManager(
-    val railWorlds: MutableMap<BukkitWorld, World> = mutableMapOf()
+    val railWorlds: MutableMap<BukkitWorld, World> = ConcurrentHashMap()
 ) : Listener {
     private var serverTickIndex: Long = 0L
     private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()

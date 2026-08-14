@@ -9,6 +9,7 @@ plugins {
 }
 
 evaluationDependsOn(":WebUI")
+evaluationDependsOn(":TunnelBridgeBuilder")
 
 runPaper {
     disablePluginJarDetection()
@@ -43,8 +44,9 @@ def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin") {
 runPaper.folia.registerTask {
     minecraftVersion("26.1.2")
     runDirectory = file("run-folia")
-    dependsOn(prepareFoliaPlugin)
+    dependsOn(prepareFoliaPlugin, ":TunnelBridgeBuilder:shadowJar")
     pluginJars.from(foliaPluginJar)
+    pluginJars.from(project(":TunnelBridgeBuilder").tasks.named("shadowJar").flatMap { it.archiveFile })
     jvmArgs("-Dcom.mojang.eula.agree=true")
 }
 
@@ -109,11 +111,12 @@ tasks {
     runServer {
         minecraftVersion("1.21.11")
         pluginJars.from(tasks.shadowJar.archiveFile)
+        pluginJars.from(project(":TunnelBridgeBuilder").tasks.named("shadowJar").flatMap { it.archiveFile })
         // Also load the Dev plugin for testing
         pluginJars.from(provider {
             rootProject.project(":BukkitPluginDev").tasks.shadowJar.archiveFile.get().asFile
         })
-        dependsOn(":BukkitPluginDev:shadowJar")
+        dependsOn(":BukkitPluginDev:shadowJar", ":TunnelBridgeBuilder:shadowJar")
         doFirst {
             delete(layout.projectDirectory.dir("run/plugins/.paper-remapped"))
         }

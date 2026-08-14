@@ -1257,14 +1257,35 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
 
     private fun handleUndo(sender: CommandSender): Boolean {
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
-        BukkitPlugin.INSTANCE.railWand.undo(sender)
+        sendOperationResult(sender, BukkitPlugin.INSTANCE.playerOperationService.undo(sender))
         return true
     }
 
     private fun handleRedo(sender: CommandSender): Boolean {
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
-        BukkitPlugin.INSTANCE.railWand.redo(sender)
+        sendOperationResult(sender, BukkitPlugin.INSTANCE.playerOperationService.redo(sender))
         return true
+    }
+
+    private fun sendOperationResult(
+        player: Player,
+        stage: java.util.concurrent.CompletionStage<work.art1st.javarailways.bukkit.api.operation.OperationResult>
+    ) {
+        val plugin = BukkitPlugin.INSTANCE
+        stage.whenComplete { result, failure ->
+            plugin.platformDispatcher.runForEntity(
+                player,
+                action = {
+                    if (failure != null) {
+                        plugin.logger.warning("Player operation failed: ${failure.message}")
+                        player.sendActionBar(Component.text("撤销或重做执行失败", NamedTextColor.RED))
+                    } else {
+                        player.sendActionBar(result.message())
+                    }
+                },
+                retired = {}
+            )
+        }
     }
 
     private fun sendHelp(sender: CommandSender) {

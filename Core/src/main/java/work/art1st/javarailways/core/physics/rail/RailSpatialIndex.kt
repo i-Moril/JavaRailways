@@ -21,6 +21,7 @@ class RailSpatialIndex(
     private val buckets: MutableMap<CellKey, MutableSet<CoreRail>> = HashMap()
     private val railCells: MutableMap<java.util.UUID, Set<CellKey>> = HashMap()
 
+    @Synchronized
     fun addRail(rail: CoreRail) {
         removeRail(rail)
         val cells = collectCells(rail)
@@ -30,6 +31,7 @@ class RailSpatialIndex(
         }
     }
 
+    @Synchronized
     fun removeRail(rail: CoreRail) {
         railCells.remove(rail.id)?.forEach { cell ->
             buckets[cell]?.let { rails ->
@@ -39,6 +41,7 @@ class RailSpatialIndex(
         }
     }
 
+    @Synchronized
     fun query(position: Vector3dc, radius: Double): Set<CoreRail> {
         if (buckets.isEmpty()) return emptySet()
         val safeRadius = radius.coerceAtLeast(0.0)
@@ -59,6 +62,7 @@ class RailSpatialIndex(
         return result
     }
 
+    @Synchronized
     fun queryAlongRay(origin: Vector3dc, direction: Vector3dc, maxDistance: Double, radius: Double): Set<CoreRail> {
         if (buckets.isEmpty() || maxDistance < 0.0) return emptySet()
         val step = max(cellSize / 2.0, radius.coerceAtLeast(1.0))

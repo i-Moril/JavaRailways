@@ -2,7 +2,6 @@ package work.art1st.javarailways.tunnelbridgebuilder.rail
 
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
-import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.block.data.BlockData
@@ -36,8 +35,7 @@ class RailSweepService(
     private val railTargets: RailTargetService,
     private val playerOperations: PlayerOperationService
 ) {
-    private data class StoredBlock(val x: Int, val y: Int, val z: Int, val blockData: String)
-    private data class BlockUndo(val worldId: UUID, val blocks: List<StoredBlock>)
+    private data class BlockUndo(val worldId: UUID, val blocks: List<FullBlockSnapshot>)
 
     private val operationsInProgress = ConcurrentHashMap.newKeySet<UUID>()
 
@@ -133,11 +131,11 @@ class RailSweepService(
         val world = player.world
         val groups = changes.groupBy { it.position.x shr 4 to (it.position.z shr 4) }.values.map { group ->
             RegionBlockTask(group.first().position) {
-                val snapshots = ArrayList<StoredBlock>(group.size)
+                val snapshots = ArrayList<FullBlockSnapshot>(group.size)
                 group.forEach { change ->
                     val position = change.position
                     val block = world.getBlockAt(position.x, position.y, position.z)
-                    snapshots += StoredBlock(position.x, position.y, position.z, block.blockData.asString)
+                    snapshots += FullBlockSnapshot.capture(block)
                     when (val operation = change.operation) {
                         Carve -> block.setType(Material.AIR, false)
                         is Place -> block.setBlockData(operation.block, false)
@@ -147,7 +145,7 @@ class RailSweepService(
                 snapshots
             }
         }
-        val before = ArrayList<StoredBlock>(changes.size)
+        val before = ArrayList<FullBlockSnapshot>(changes.size)
         runRegionTasks(
             world = world,
             tasks = groups,
@@ -208,10 +206,7 @@ class RailSweepService(
         val world = player.world
         val groups = undo.blocks.groupBy { it.x shr 4 to (it.z shr 4) }.values.map { group ->
             RegionBlockTask(BlockPosition(group.first().x, group.first().y, group.first().z)) {
-                group.forEach { saved ->
-                    world.getBlockAt(saved.x, saved.y, saved.z)
-                        .setBlockData(Bukkit.createBlockData(saved.blockData), false)
-                }
+                group.forEach(FullBlockSnapshot::restore)
                 emptyList()
             }
         }
@@ -242,7 +237,7 @@ class RailSweepService(
         world: World,
         tasks: List<RegionBlockTask>,
         index: Int = 0,
-        onGroupApplied: (List<StoredBlock>) -> Unit,
+        onGroupApplied: (List<FullBlockSnapshot>) -> Unit,
         onDone: () -> Unit,
         onFailure: (Throwable) -> Unit
     ) {
@@ -282,7 +277,7 @@ class RailSweepService(
 
     private data class RegionBlockTask(
         val position: BlockPosition,
-        val action: () -> List<StoredBlock>
+        val action: () -> List<FullBlockSnapshot>
     )
 
     private companion object {

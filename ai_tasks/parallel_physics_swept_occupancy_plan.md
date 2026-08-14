@@ -148,7 +148,8 @@ deltaTMillis = (currentPhysicsTickStartNanos - previousPhysicsTickStartNanos) / 
 新增必填配置：
 
 ```yaml
-physics-worker-threads: 4
+# physics.yml
+worker-threads: 4
 ```
 
 规则：
@@ -398,9 +399,9 @@ data class PhysicsEpochMetrics(
 
 ### Bukkit
 
-- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/JavaRailwaysConfig.kt`
-  - 新增必填 `physics-worker-threads`。
-- `BukkitPlugin/src/main/resources/config.yml`
+- `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/PhysicsConfig.kt`
+  - 严格读取 `physics.yml` 中必填的 `worker-threads`。
+- `BukkitPlugin/src/main/resources/physics.yml`
   - 增加配置和注释。
 - `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/RailWorldFactory.kt`
   - 创建 Coordinator、Worker pool、fallback timer；移除列车物理的单线程 executor。
@@ -412,7 +413,7 @@ data class PhysicsEpochMetrics(
 
 ### Phase 1：Coordinator、Ticket、配置与状态机
 
-- 增加 `physics-worker-threads` 配置并严格校验。
+- 增加 `physics.yml` 的 `worker-threads` 配置并严格校验。
 - 实现 Coordinator 单 in-flight 状态机。
 - 实现 main/timer 双唤醒合并。
 - 实现 TickEnd 捕获当前 Ticket 并等待。

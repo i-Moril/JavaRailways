@@ -27,24 +27,7 @@ train-key-bind-distance: 20.0
 # 仅在短时间采样排障时开启。
 train-debug-log: false
 
-# 每个世界的列车物理 Worker 数量。必须为正整数；不会被静默修正。
-physics-worker-threads: 4
-
-# 是否让持续超过轨道几何脱轨时速的列车脱轨。
-overspeed-derail-enabled: false
-# 用于反算曲线脱轨时速的硬性未平衡横向加速度。
-derail-lateral-acceleration-mps2: 3.0
-# 超过几何脱轨时速多少 km/h 后开始累计超速 tick。
-overspeed-tolerance-kmh: 5.0
-# 连续超速多少 tick 后脱轨。
-overspeed-grace-ticks: 5
-
-# 道岔资源默认参数；RailWand 可在具体道岔锚点上覆盖前两项。
-turnout:
-  default-protection-distance-meters: 20.0
-  default-locking-distance-meters: 5.0
-  decision-lead-ticks: 5
-  allocation-retry-ticks: 5
+# 轨道工程、曲线采样、物理 Worker、超速脱轨与道岔安全参数位于 physics.yml。
 
 # Timetable WebUI process mode:
 # managed: JavaRailways extracts, starts, and stops an isolated WebUI Java sidecar (default).

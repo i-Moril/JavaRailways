@@ -467,7 +467,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     BukkitThreadGuardBridge.runInSimulationContext {
                         factory.create(
                             snapshot,
-                            workerThreads = plugin.javaRailwaysConfig.physicsWorkerThreads.coerceIn(1, 4)
+                            workerThreads = plugin.physicsConfig.workerThreads.coerceIn(1, 4)
                         ).use { simulation ->
                             simulation.simulate(IsolatedTimetableSimulationRequest(
                                 timetable,

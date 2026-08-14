@@ -11,6 +11,7 @@ import work.art1st.javarailways.bukkit.behavior.TrainReverseBehaviorListener
 import work.art1st.javarailways.bukkit.command.JavaRailwaysCommand
 import work.art1st.javarailways.bukkit.config.DisplayRendererBackend
 import work.art1st.javarailways.bukkit.config.JavaRailwaysConfig
+import work.art1st.javarailways.bukkit.config.PhysicsConfig
 import work.art1st.javarailways.bukkit.config.RailModelConfig
 import work.art1st.javarailways.bukkit.config.TimetableWebUiMode
 import work.art1st.javarailways.bukkit.config.loadRailModelConfig
@@ -77,6 +78,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     /** 全局插件配置，从 config.yml 加载 */
     lateinit var javaRailwaysConfig: JavaRailwaysConfig
 
+    /** 轨道工程与物理配置，从 physics.yml 加载；仅在重启时生效。 */
+    lateinit var physicsConfig: PhysicsConfig
+
     /** 轨道可视化配置，从 rail_model.yml 加载 */
     lateinit var railModelConfig: RailModelConfig
 
@@ -108,6 +112,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         INSTANCE = this
         platformCapabilities = PlatformCapabilities.detect(javaClass.classLoader)
         platformDispatcher = PaperPlatformDispatcher(this)
+        physicsConfig = PhysicsConfig.load(this)
         javaRailwaysConfig = JavaRailwaysConfig.load(this)
         packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }
     }
@@ -167,11 +172,11 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 "EntityLib renders Display visuals; Seats use packet virtual ArmorStands with native authority carriers"
             )
         }
-        logger.info("Physics worker threads per world: ${javaRailwaysConfig.physicsWorkerThreads}")
+        logger.info("Physics worker threads per world: ${physicsConfig.workerThreads}")
         val availableProcessors = Runtime.getRuntime().availableProcessors()
-        if (javaRailwaysConfig.physicsWorkerThreads >= availableProcessors) {
+        if (physicsConfig.workerThreads >= availableProcessors) {
             logger.warning(
-                "physics-worker-threads=${javaRailwaysConfig.physicsWorkerThreads} leaves no dedicated CPU for the server main thread " +
+                "physics.yml worker-threads=${physicsConfig.workerThreads} leaves no dedicated CPU for the server main thread " +
                     "(availableProcessors=$availableProcessors); the configured value will still be used"
             )
         }

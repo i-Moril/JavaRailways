@@ -22,7 +22,8 @@ enum class RailCurveTemplateType(val displayName: String) {
 data class RailCurveBuildOptions(
     val template: RailCurveTemplateType = RailCurveTemplateType.AUTO,
     val radius: Double = 0.0,
-    val superelevation: SuperelevationConfig? = null
+    val superelevation: SuperelevationConfig? = null,
+    val geometry: RailGeometryParameters = RailGeometryParameters()
 )
 
 data class CurveTemplateMatch(
@@ -95,7 +96,7 @@ object RailCurveFactory {
         }
 
         return when (match.template) {
-            RailCurveTemplateType.STRAIGHT -> buildStraight(prepared, match)
+            RailCurveTemplateType.STRAIGHT -> buildStraight(prepared, options.geometry, match)
             RailCurveTemplateType.FIVE_SEGMENT -> buildFiveSegment(prepared, options, match)
             RailCurveTemplateType.S_CURVE -> buildSCurve(prepared, options, match)
             RailCurveTemplateType.AUTO -> error("AUTO should be resolved before build")
@@ -340,6 +341,7 @@ object RailCurveFactory {
 
     private fun buildStraight(
         prepared: PreparedAnchors,
+        geometry: RailGeometryParameters,
         match: CurveTemplateMatch
     ): RailCurveBuildResult {
         val length = prepared.chord.length()
@@ -368,7 +370,8 @@ object RailCurveFactory {
             tangent,
             length,
             prepared.fromRoll,
-            prepared.toRoll
+            prepared.toRoll,
+            geometry.defaultStepMeters
         )
         if (!validateGeneratedCurve(
                 curve,
@@ -396,7 +399,13 @@ object RailCurveFactory {
         val result: ConstraintSolveResult = if (options.radius > 0) {
             ConstraintSolver.solve(prepared.fromPos, prepared.fromTan2d, prepared.toPos, prepared.toTan2d, options.radius)
         } else {
-            ConstraintSolver.solveBest(prepared.fromPos, prepared.fromTan2d, prepared.toPos, prepared.toTan2d)
+            ConstraintSolver.solveBest(
+                prepared.fromPos,
+                prepared.fromTan2d,
+                prepared.toPos,
+                prepared.toTan2d,
+                options.geometry
+            )
         }
         if (result !is ConstraintSolveResult.Success) {
             return RailCurveBuildResult.failure((result as ConstraintSolveResult.Failure).reason, match.template, match.reason)
@@ -408,10 +417,11 @@ object RailCurveFactory {
             prepared.fromTan3d,
             prepared.toPos,
             prepared.toTan3d,
-            0.2,
+            options.geometry.defaultStepMeters,
             prepared.fromRoll,
             prepared.toRoll,
-            options.superelevation
+            options.superelevation,
+            options.geometry
         )
         val curve = PrimeCurve.fromPoints(curvePoints)
         if (!validateGeneratedCurve(curve, prepared.fromPos, prepared.toPos, prepared.fromTan3d, prepared.toTan3d, prepared.fromRoll, prepared.toRoll)) {
@@ -430,15 +440,20 @@ object RailCurveFactory {
             return RailCurveBuildResult.failure("端点距离过短", match.template, match.reason)
         }
 
-        val handle0 = hermiteHandleLength(prepared.chord, prepared.fromTan2d, horizontalDistance)
-        val handle1 = hermiteHandleLength(prepared.chord, prepared.toTan2d, horizontalDistance)
+        val handle0 = hermiteHandleLength(
+            prepared.chord, prepared.fromTan2d, horizontalDistance, options.geometry
+        )
+        val handle1 = hermiteHandleLength(
+            prepared.chord, prepared.toTan2d, horizontalDistance, options.geometry
+        )
         val minRadius = estimateHermiteMinRadius(
             prepared.fromPos,
             prepared.toPos,
             prepared.fromTan2d,
             prepared.toTan2d,
             handle0,
-            handle1
+            handle1,
+            options.geometry.sCurveCurvatureProbeCount
         )
         if (options.radius > 0.0 && minRadius < options.radius) {
             return RailCurveBuildResult.failure(
@@ -460,7 +475,8 @@ object RailCurveFactory {
             prepared.fromRoll,
             prepared.toRoll,
             horizontalDistance,
-            options.superelevation
+            options.superelevation,
+            options.geometry
         )
         if (!validateGeneratedCurve(curve, prepared.fromPos, prepared.toPos, prepared.fromTan3d, prepared.toTan3d, prepared.fromRoll, prepared.toRoll)) {
             return RailCurveBuildResult.failure("S弯模板生成后端点位置/切线/roll 校验失败", match.template, match.reason)
@@ -473,9 +489,16 @@ object RailCurveFactory {
         return if (horizontal > 1e-10) tangent.y() / horizontal else 0.0
     }
 
-    private fun hermiteHandleLength(chord: Vector3dc, tangent2d: Vector3dc, horizontalDistance: Double): Double {
+    private fun hermiteHandleLength(
+        chord: Vector3dc,
+        tangent2d: Vector3dc,
+        horizontalDistance: Double,
+        geometry: RailGeometryParameters
+    ): Double {
         val projection = abs(chord.x() * tangent2d.x() + chord.z() * tangent2d.z())
-        return projection.coerceAtLeast(horizontalDistance * 0.6).coerceAtMost(horizontalDistance * 1.5)
+        return projection
+            .coerceAtLeast(horizontalDistance * geometry.sCurveMinimumHandleFactor)
+            .coerceAtMost(horizontalDistance * geometry.sCurveMaximumHandleFactor)
     }
 
     private fun createHermiteSCurve(
@@ -490,9 +513,13 @@ object RailCurveFactory {
         fromRollDegrees: Double,
         toRollDegrees: Double,
         horizontalDistance: Double,
-        superelevationConfig: SuperelevationConfig?
+        superelevationConfig: SuperelevationConfig?,
+        geometry: RailGeometryParameters
     ): PrimeCurve {
-        val sampleCount = maxOf(24, kotlin.math.ceil(horizontalDistance / 0.4).toInt())
+        val sampleCount = maxOf(
+            geometry.sCurveMinimumSamples,
+            kotlin.math.ceil(horizontalDistance / geometry.sCurveTargetStepMeters).toInt()
+        )
         val horizontalSamples = (0..sampleCount).map { index ->
             val u = index.toDouble() / sampleCount
             val p = hermitePosition2d(from, to, fromTangent2d, toTangent2d, handle0, handle1, u)
@@ -542,25 +569,31 @@ object RailCurveFactory {
             }
         }
 
+        // Cubic Hermite S-curves can have non-zero endpoint curvature. Keep automatic cant at
+        // zero at both anchors, reverse it through the inflection, then scale the complete profile
+        // so every sampled interval obeys the configured maximum cant gradient.
+        val rawCantMeters = cumulative.indices.map { index ->
+            if (peakSuperelevation <= 0.0 || peakCurvature <= 1.0e-12) return@map 0.0
+            val t = (cumulative[index] / totalLength).coerceIn(0.0, 1.0)
+            val endpointTransition = transitionFraction(2.0 * minOf(t, 1.0 - t))
+            peakSuperelevation * (signedCurvatures[index] / peakCurvature) * endpointTransition
+        }
+        val rawPeakGradient = rawCantMeters.indices.drop(1).maxOfOrNull { index ->
+            val deltaArc = cumulative[index] - cumulative[index - 1]
+            if (deltaArc <= 1.0e-12) 0.0
+            else abs(rawCantMeters[index] - rawCantMeters[index - 1]) / deltaArc
+        } ?: 0.0
+        val cantScale = when {
+            superelevationConfig == null || rawPeakGradient <= 0.0 -> 1.0
+            superelevationConfig.maxCantGradient <= 0.0 -> 0.0
+            else -> minOf(1.0, superelevationConfig.maxCantGradient / rawPeakGradient)
+        }
+
         fun rollAt(index: Int, arc: Double): Double {
             val t = (arc / totalLength).coerceIn(0.0, 1.0)
             val anchorRoll = fromRollDegrees + (toRollDegrees - fromRollDegrees) * t
-            if (peakSuperelevation <= 0.0 || peakCurvature <= 1.0e-12) return anchorRoll
-
-            // Cubic Hermite S-curves can have non-zero endpoint curvature. Keep automatic cant at
-            // zero at both anchors so adjacent rails retain matching normals, then reverse it
-            // continuously through the zero-curvature inflection.
-            val endpointTransition = transitionFraction(2.0 * minOf(t, 1.0 - t))
-            val signedCurvature = signedCurvatures[index]
-            val curvatureFraction = abs(signedCurvature) / peakCurvature
-            val cantMeters = peakSuperelevation * curvatureFraction * endpointTransition
-            val cantSign = when {
-                signedCurvature > 1.0e-12 -> 1.0
-                signedCurvature < -1.0e-12 -> -1.0
-                else -> 0.0
-            }
             val cantDegrees = Math.toDegrees(
-                kotlin.math.atan2(cantSign * cantMeters, StandardRailCurveBuilder.DEFAULT_GAUGE)
+                kotlin.math.atan2(rawCantMeters[index] * cantScale, geometry.gaugeMeters)
             )
             return anchorRoll + cantDegrees
         }
@@ -671,11 +704,12 @@ object RailCurveFactory {
         fromTangent2d: Vector3dc,
         toTangent2d: Vector3dc,
         handle0: Double,
-        handle1: Double
+        handle1: Double,
+        probeCount: Int
     ): Double {
         var maxCurvature = 0.0
-        for (i in 0..100) {
-            val u = i / 100.0
+        for (i in 0..probeCount) {
+            val u = i.toDouble() / probeCount
             val curvature = abs(
                 hermiteSignedCurvature(from, to, fromTangent2d, toTangent2d, handle0, handle1, u)
             )
@@ -757,8 +791,10 @@ object RailCurveFactory {
         tangent: Vector3dc,
         length: Double,
         fromRollDegrees: Double = 0.0,
-        toRollDegrees: Double = 0.0
+        toRollDegrees: Double = 0.0,
+        step: Double = RailGeometryParameters().defaultStepMeters
     ): PrimeCurve {
+        require(step.isFinite() && step > 0.0)
         val direction = Vector3d(tangent).normalize()
         fun rollAt(arc: Double): Double {
             val ratio = if (length > 1e-9) (arc / length).coerceIn(0.0, 1.0) else 0.0
@@ -766,7 +802,6 @@ object RailCurveFactory {
         }
 
         val points = mutableListOf<Curve.RawPoint>()
-        val step = 0.2
         var arc = 0.0
         while (arc < length - 1e-9) {
             val position = Vector3d(from).fma(arc, direction)

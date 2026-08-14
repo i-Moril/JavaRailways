@@ -78,23 +78,10 @@ enum class PlayerDisplayDistanceDefault {
     }
 }
 
-data class TurnoutSafetyConfig(
-    val defaultProtectionDistanceMeters: Double,
-    val defaultLockingDistanceMeters: Double,
-    val decisionLeadTicks: Int,
-    val allocationRetryTicks: Int
-)
-
 data class JavaRailwaysConfig(
     val trainModelUpdatePolicy: TrainModelUpdatePolicy,
     val trainKeyBindDistance: Double,
     val trainDebugLog: Boolean,
-    val physicsWorkerThreads: Int,
-    val overspeedDerailEnabled: Boolean,
-    val derailLateralAccelerationMetersPerSecondSquared: Double,
-    val overspeedToleranceKmH: Double,
-    val overspeedGraceTicks: Int,
-    val turnoutSafety: TurnoutSafetyConfig,
     val displayRenderer: DisplayRendererConfig,
     val timetableHttpBridge: TimetableHttpBridgeConfig,
     val timetableWebUi: TimetableWebUiConfig
@@ -111,35 +98,13 @@ data class JavaRailwaysConfig(
         }
 
         fun fromYaml(yaml: YamlConfiguration): JavaRailwaysConfig {
+            val retiredPhysicsKey = RETIRED_PHYSICS_KEYS.firstOrNull { yaml.contains(it, true) }
+            require(retiredPhysicsKey == null) {
+                "Config key '$retiredPhysicsKey' moved to physics.yml; run scripts/migrate_physics_config.py in dry-run mode first"
+            }
             val policy = TrainModelUpdatePolicy.fromConfig(requireString(yaml, "train-model-update-policy"))
             val bindDistance = requireDouble(yaml, "train-key-bind-distance")
             require(bindDistance >= 0.0) { "train-key-bind-distance must be >= 0.0" }
-            val physicsWorkerThreads = requireInt(yaml, "physics-worker-threads")
-            require(physicsWorkerThreads > 0) { "physics-worker-threads must be > 0" }
-            val derailLateralAcceleration = requireDouble(yaml, "derail-lateral-acceleration-mps2")
-            require(derailLateralAcceleration > 0.0) { "derail-lateral-acceleration-mps2 must be > 0.0" }
-            val overspeedToleranceKmH = requireDouble(yaml, "overspeed-tolerance-kmh")
-            require(overspeedToleranceKmH >= 0.0) { "overspeed-tolerance-kmh must be >= 0.0" }
-            val overspeedGraceTicks = requireInt(yaml, "overspeed-grace-ticks")
-            require(overspeedGraceTicks > 0) { "overspeed-grace-ticks must be > 0" }
-            val turnoutProtection = requireDouble(
-                yaml, "turnout.default-protection-distance-meters"
-            )
-            val turnoutLocking = requireDouble(
-                yaml, "turnout.default-locking-distance-meters"
-            )
-            val turnoutLeadTicks = requireInt(yaml, "turnout.decision-lead-ticks")
-            val turnoutRetryTicks = requireInt(yaml, "turnout.allocation-retry-ticks")
-            require(turnoutProtection.isFinite() && turnoutProtection >= 0.0) {
-                "turnout.default-protection-distance-meters must be finite and >= 0"
-            }
-            require(turnoutLocking.isFinite() && turnoutLocking >= 0.0 &&
-                turnoutLocking <= turnoutProtection
-            ) {
-                "turnout.default-locking-distance-meters must be finite and between 0 and protection distance"
-            }
-            require(turnoutLeadTicks > 0) { "turnout.decision-lead-ticks must be > 0" }
-            require(turnoutRetryTicks > 0) { "turnout.allocation-retry-ticks must be > 0" }
             val displayRendererBackend = DisplayRendererBackend.fromConfig(
                 requireString(yaml, "display-renderer.backend")
             )
@@ -197,17 +162,6 @@ data class JavaRailwaysConfig(
                 trainModelUpdatePolicy = policy,
                 trainKeyBindDistance = bindDistance,
                 trainDebugLog = requireBoolean(yaml, "train-debug-log"),
-                physicsWorkerThreads = physicsWorkerThreads,
-                overspeedDerailEnabled = requireBoolean(yaml, "overspeed-derail-enabled"),
-                derailLateralAccelerationMetersPerSecondSquared = derailLateralAcceleration,
-                overspeedToleranceKmH = overspeedToleranceKmH,
-                overspeedGraceTicks = overspeedGraceTicks,
-                turnoutSafety = TurnoutSafetyConfig(
-                    defaultProtectionDistanceMeters = turnoutProtection,
-                    defaultLockingDistanceMeters = turnoutLocking,
-                    decisionLeadTicks = turnoutLeadTicks,
-                    allocationRetryTicks = turnoutRetryTicks
-                ),
                 displayRenderer = DisplayRendererConfig(
                     backend = displayRendererBackend,
                     playerDistance = PlayerDisplayDistanceConfig(
@@ -273,6 +227,14 @@ data class JavaRailwaysConfig(
             return value
         }
 
+        private val RETIRED_PHYSICS_KEYS = setOf(
+            "physics-worker-threads",
+            "overspeed-derail-enabled",
+            "derail-lateral-acceleration-mps2",
+            "overspeed-tolerance-kmh",
+            "overspeed-grace-ticks",
+            "turnout"
+        )
         private const val MAX_DISPLAY_DISTANCE_BLOCKS = 4096.0
     }
 }

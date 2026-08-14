@@ -14,13 +14,28 @@ import kotlin.math.sqrt
  * @param maxSuperelevation 最大超高值（米），如 0.15 表示外轨最高高出 150mm
  * @param superelevationTransition 超高过渡方式，默认为 EN 13803 的 Sine/Klein 正弦过渡
  * @param autoCalculate 自动计算超高值：h(mm) ≈ 11.3·v²(km/h)/R(m)。若速度 ≤ 0 则不使用超高
+ * @param maxCantGradient 最大瞬时超高变化率（m/m），默认 1:300
+ * @param gaugeMeters 轨距（米）
+ * @param gravityMetersPerSecondSquared 重力加速度（m/s²）
  */
 data class SuperelevationConfig(
     val maxSuperelevation: Double = 0.15,
     val superelevationTransition: SuperelevationTransition = SuperelevationTransition.SINE_KLEIN,
     val autoCalculate: Boolean = true,
-    val designSpeedKmH: Double = 0.0
+    val designSpeedKmH: Double = 0.0,
+    val maxCantGradient: Double = 1.0 / 300.0,
+    val gaugeMeters: Double = StandardRailCurveBuilder.DEFAULT_GAUGE,
+    val gravityMetersPerSecondSquared: Double = StandardRailCurveBuilder.DEFAULT_GRAVITY
 ) {
+    init {
+        require(maxCantGradient.isFinite() && maxCantGradient >= 0.0) {
+            "最大超高变化率必须是有限非负数"
+        }
+        require(gaugeMeters.isFinite() && gaugeMeters > 0.0) { "轨距必须是有限正数" }
+        require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0) {
+            "重力加速度必须是有限正数"
+        }
+    }
     enum class SuperelevationTransition {
         LINEAR,      // 线性过渡
         SINE_KLEIN   // EN 13803 Sine/Klein 过渡，形状系数 qN = 2
@@ -34,8 +49,10 @@ data class SuperelevationConfig(
     fun calculateSuperelevation(radius: Double): Double {
         if (radius <= 0) return 0.0
         if (autoCalculate && designSpeedKmH > 0) {
-            val hMm = 11.3 * designSpeedKmH * designSpeedKmH / radius
-            return minOf(hMm / 1000.0, maxSuperelevation)
+            val speedMetersPerSecond = designSpeedKmH / 3.6
+            val heightMeters = gaugeMeters * speedMetersPerSecond * speedMetersPerSecond /
+                (gravityMetersPerSecondSquared * radius)
+            return minOf(heightMeters, maxSuperelevation)
         }
         return if (maxSuperelevation > 0) maxSuperelevation else 0.0
     }
@@ -65,13 +82,29 @@ class StandardRailCurve(
     /** 轨道总长度：两段缓和曲线 + 圆曲线 */
     val totalLength: Double = 2 * L + Lc
 
-    /** 设计超高值（米），通过 autoCalculate 或手动设置获取 */
-    val superelevation: Double = superelevationConfig?.calculateSuperelevation(R) ?: 0.0
+    /** 按半径和设计速度计算、尚未应用变化率限制的目标超高值（米）。 */
+    val requestedSuperelevation: Double = superelevationConfig?.calculateSuperelevation(R) ?: 0.0
+
+    /**
+     * 实际超高值（米）。缓和曲线不足时降低超高，保证完整过渡中的瞬时变化率不超过配置上限。
+     * Sine/Klein 的峰值导数是平均导数的 2 倍；线性过渡的峰值因子为 1。
+     */
+    val superelevation: Double = minOf(requestedSuperelevation, maximumSuperelevationForTransition())
 
     init {
         require(R > 0) { "半径 R 必须大于 0" }
         require(L >= 0) { "回旋线长度 L 必须非负" }
         require(Lc >= 0) { "圆弧长度 Lc 必须非负" }
+    }
+
+    private fun maximumSuperelevationForTransition(): Double {
+        val config = superelevationConfig ?: return 0.0
+        if (L <= 0.0 || config.maxCantGradient <= 0.0) return 0.0
+        val peakDerivativeFactor = when (config.superelevationTransition) {
+            SuperelevationConfig.SuperelevationTransition.LINEAR -> 1.0
+            SuperelevationConfig.SuperelevationTransition.SINE_KLEIN -> 2.0
+        }
+        return config.maxCantGradient * L / peakDerivativeFactor
     }
 
     companion object {
@@ -146,7 +179,10 @@ class StandardRailCurve(
      * @param gauge 轨距（米），默认 1.435m
      * @return 超高角（弧度）
      */
-    fun superelevationAngleAt(s: Double, gauge: Double = 1.435): Double {
+    fun superelevationAngleAt(
+        s: Double,
+        gauge: Double = superelevationConfig?.gaugeMeters ?: StandardRailCurveBuilder.DEFAULT_GAUGE
+    ): Double {
         return kotlin.math.atan2(superelevationAt(s), gauge)
     }
 
@@ -289,7 +325,7 @@ class StandardRailCurve(
             val tangent = Vector3d(cos(theta), 0.0, sin(theta))
 
             // 超高角：外轨在正 Z 方向倾斜
-            val superelAngle = kotlin.math.atan2(superelevationAt(arc), 1.435)
+            val superelAngle = superelevationAngleAt(arc)
             // 法线：考虑超高的轨道平面法线（绕 X 轴旋转 superelAngle）
             val normal = Vector3d(0.0, cos(superelAngle), sin(superelAngle))
 
@@ -394,6 +430,9 @@ object StandardRailCurveBuilder {
     /** 默认轨距（米） */
     const val DEFAULT_GAUGE = 1.435
 
+    /** 默认重力加速度（m/s²） */
+    const val DEFAULT_GRAVITY = 9.80665
+
     /** 默认最大超高（米） */
     const val DEFAULT_MAX_SUPERELEVATION = 0.15
 
@@ -482,10 +521,14 @@ object StandardRailCurveBuilder {
     fun calculateSuperelevation(
         speedKmH: Double,
         radius: Double,
-        maxSuperelevation: Double = DEFAULT_MAX_SUPERELEVATION
+        maxSuperelevation: Double = DEFAULT_MAX_SUPERELEVATION,
+        gaugeMeters: Double = DEFAULT_GAUGE,
+        gravityMetersPerSecondSquared: Double = DEFAULT_GRAVITY
     ): Double {
         if (speedKmH <= 0 || radius <= 0) return 0.0
-        val hMm = 11.3 * speedKmH * speedKmH / radius
-        return minOf(hMm / 1000.0, maxSuperelevation)
+        val speedMetersPerSecond = speedKmH / 3.6
+        val heightMeters = gaugeMeters * speedMetersPerSecond * speedMetersPerSecond /
+            (gravityMetersPerSecondSquared * radius)
+        return minOf(heightMeters, maxSuperelevation)
     }
 }

@@ -11,6 +11,16 @@ import kotlin.math.sign
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+data class RailSpeedPhysics(
+    val gaugeMeters: Double = RailSpeedCalculator.STANDARD_GAUGE_METERS,
+    val gravityMetersPerSecondSquared: Double = RailSpeedCalculator.GRAVITY_METERS_PER_SECOND_SQUARED
+) {
+    init {
+        require(gaugeMeters.isFinite() && gaugeMeters > 0.0)
+        require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
+    }
+}
+
 /** Geometry-derived operating and derail speed thresholds. */
 data class RailSpeedLimits(
     val operatingLimitMetersPerSecond: Double,
@@ -27,7 +37,8 @@ object RailSpeedCalculator {
         curve: PrimeCurve,
         requestedLimitMetersPerSecond: Double,
         allowableCantDeficiencyMeters: Double,
-        derailLateralAccelerationMetersPerSecondSquared: Double
+        derailLateralAccelerationMetersPerSecondSquared: Double,
+        physics: RailSpeedPhysics = RailSpeedPhysics()
     ): RailSpeedLimits {
         require(requestedLimitMetersPerSecond > 0.0)
         require(allowableCantDeficiencyMeters >= 0.0)
@@ -39,8 +50,8 @@ object RailSpeedCalculator {
             return RailSpeedLimits(requestedLimitMetersPerSecond, null)
         }
 
-        val operatingAcceleration = GRAVITY_METERS_PER_SECOND_SQUARED *
-            allowableCantDeficiencyMeters / STANDARD_GAUGE_METERS
+        val operatingAcceleration = physics.gravityMetersPerSecondSquared *
+            allowableCantDeficiencyMeters / physics.gaugeMeters
         var geometryOperatingLimit = Double.POSITIVE_INFINITY
         var geometryDerailLimit = Double.POSITIVE_INFINITY
 
@@ -66,7 +77,7 @@ object RailSpeedCalculator {
             val supportingCantAngle = -sign(signedCurvature) * roll
             val denominator = curvature * cos(supportingCantAngle)
             if (denominator <= 1.0e-12) return@forEach
-            val cantAcceleration = GRAVITY_METERS_PER_SECOND_SQUARED * sin(supportingCantAngle)
+            val cantAcceleration = physics.gravityMetersPerSecondSquared * sin(supportingCantAngle)
 
             val operating = sqrt(((operatingAcceleration + cantAcceleration) / denominator).coerceAtLeast(0.0))
             val derail = sqrt(((derailLateralAccelerationMetersPerSecondSquared + cantAcceleration) / denominator).coerceAtLeast(0.0))

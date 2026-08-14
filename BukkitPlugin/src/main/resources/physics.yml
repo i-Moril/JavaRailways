@@ -1,0 +1,73 @@
+# JavaRailways 轨道工程与物理配置。
+# 本文件是独立配置边界；所有键均为必填，修改后重启服务器生效。
+# 浮点 epsilon、Gauss 积分节点等数值算法细节不属于工程参数，不开放配置。
+schema-version: 1
+
+# 每个世界的列车物理 Worker 数量。
+worker-threads: 4
+
+track:
+  # 标准轨距及重力，用于超高角、平衡超高与曲线限速计算。
+  gauge-meters: 1.435
+  gravity-mps2: 9.80665
+  # 最大瞬时超高变化率（m/m）；1/300。
+  maximum-cant-gradient: 0.0033333333333333335
+  # 自动超高采用低于轨道设计速度的平衡速度，保留欠超高余量。
+  cant-balance-speed-offset-kmh: 10.0
+
+geometry-sampling:
+  # 通用曲线目标采样间距。
+  default-step-meters: 0.2
+  adaptive:
+    tight-radius-upper-bound-meters: 30.0
+    tight-step-meters: 0.02
+    medium-radius-upper-bound-meters: 100.0
+    medium-step-meters: 0.05
+    wide-radius-upper-bound-meters: 300.0
+    wide-step-meters: 0.1
+    very-wide-step-meters: 0.2
+  s-curve-target-step-meters: 0.4
+  s-curve-minimum-samples: 24
+  s-curve-minimum-handle-factor: 0.6
+  s-curve-maximum-handle-factor: 1.5
+  s-curve-curvature-probe-count: 100
+  turnout-step-meters: 0.2
+
+auto-radius:
+  # 自动半径搜索上界约为锚点距离乘该系数，并按 increment 向下搜索。
+  distance-factor: 5.0
+  increment-meters: 50.0
+  fallback-radii-meters: [40.0, 30.0, 20.0, 10.0]
+
+# 标准道岔目录；键为稳定的道岔号数。
+standard-turnouts:
+  4: { radius-meters: 30.0, diverging-speed-kmh: 10.0 }
+  5: { radius-meters: 50.0, diverging-speed-kmh: 15.0 }
+  6: { radius-meters: 80.0, diverging-speed-kmh: 20.0 }
+  7: { radius-meters: 100.0, diverging-speed-kmh: 20.0 }
+  8: { radius-meters: 145.0, diverging-speed-kmh: 25.0 }
+  9: { radius-meters: 180.0, diverging-speed-kmh: 30.0 }
+  10: { radius-meters: 220.0, diverging-speed-kmh: 35.0 }
+  12: { radius-meters: 330.0, diverging-speed-kmh: 45.0 }
+  14: { radius-meters: 500.0, diverging-speed-kmh: 55.0 }
+  16: { radius-meters: 700.0, diverging-speed-kmh: 65.0 }
+  18: { radius-meters: 1100.0, diverging-speed-kmh: 80.0 }
+  20: { radius-meters: 1400.0, diverging-speed-kmh: 90.0 }
+  24: { radius-meters: 1600.0, diverging-speed-kmh: 100.0 }
+  30: { radius-meters: 2700.0, diverging-speed-kmh: 140.0 }
+  38: { radius-meters: 4000.0, diverging-speed-kmh: 150.0 }
+  42: { radius-meters: 5000.0, diverging-speed-kmh: 160.0 }
+  60: { radius-meters: 10000.0, diverging-speed-kmh: 200.0 }
+
+overspeed:
+  derail-enabled: false
+  # 用于反算曲线脱轨时速的硬性未平衡横向加速度。
+  derail-lateral-acceleration-mps2: 3.0
+  tolerance-kmh: 5.0
+  grace-ticks: 5
+
+turnout:
+  default-protection-distance-meters: 20.0
+  default-locking-distance-meters: 5.0
+  decision-lead-ticks: 5
+  allocation-retry-ticks: 5

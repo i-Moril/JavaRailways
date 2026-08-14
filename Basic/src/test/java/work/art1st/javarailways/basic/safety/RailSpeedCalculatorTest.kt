@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.curve.Anchor
 import work.art1st.javarailways.basic.curve.StandardRailCurve
-import work.art1st.javarailways.basic.curve.StandardTurnout
+import work.art1st.javarailways.basic.curve.StandardTurnoutGeometry
 import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
 import work.art1st.javarailways.basic.curve.SuperelevationConfig
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -20,22 +20,44 @@ import kotlin.math.sqrt
 class RailSpeedCalculatorTest {
     @Test
     fun `uncanted curve has separate operating and derail speeds`() {
+        val turnout = StandardTurnoutGeometry(9, 180.0, 30.0)
         val curve = requireNotNull(StandardTurnoutFactory.build(
             Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
             Vector3d(1.0, 0.0, -0.2),
-            StandardTurnout.N9
+            turnout
         )).curve
 
         val limits = RailSpeedCalculator.calculate(curve, 100.0, 0.075, 3.0)
         val expectedOperating = sqrt(
             RailSpeedCalculator.GRAVITY_METERS_PER_SECOND_SQUARED * 0.075 /
-                RailSpeedCalculator.STANDARD_GAUGE_METERS * StandardTurnout.N9.radiusMeters
+                RailSpeedCalculator.STANDARD_GAUGE_METERS * turnout.radiusMeters
         )
-        val expectedDerail = sqrt(3.0 * StandardTurnout.N9.radiusMeters)
+        val expectedDerail = sqrt(3.0 * turnout.radiusMeters)
 
         assertEquals(expectedOperating, limits.operatingLimitMetersPerSecond, 0.02)
         assertEquals(expectedDerail, limits.derailSpeedMetersPerSecond!!, 0.05)
         assertTrue(limits.derailSpeedMetersPerSecond > limits.operatingLimitMetersPerSecond)
+    }
+
+    @Test
+    fun `speed limits use configured gauge and gravity`() {
+        val turnout = StandardTurnoutGeometry(9, 180.0, 30.0)
+        val curve = requireNotNull(StandardTurnoutFactory.build(
+            Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
+            Vector3d(1.0, 0.0, -0.2),
+            turnout
+        )).curve
+
+        val limits = RailSpeedCalculator.calculate(
+            curve,
+            requestedLimitMetersPerSecond = 100.0,
+            allowableCantDeficiencyMeters = 0.1,
+            derailLateralAccelerationMetersPerSecondSquared = 3.0,
+            physics = RailSpeedPhysics(gaugeMeters = 2.0, gravityMetersPerSecondSquared = 5.0)
+        )
+
+        assertEquals(sqrt(5.0 * 0.1 / 2.0 * turnout.radiusMeters),
+            limits.operatingLimitMetersPerSecond, 0.02)
     }
 
     @Test
@@ -46,7 +68,11 @@ class RailSpeedCalculatorTest {
             300.0,
             20.0,
             50.0,
-            SuperelevationConfig(maxSuperelevation = 0.15, designSpeedKmH = balanceKmH)
+            SuperelevationConfig(
+                maxSuperelevation = 0.15,
+                designSpeedKmH = balanceKmH,
+                maxCantGradient = 1.0
+            )
         )
         val curve = PrimeCurve.fromPoints(source.generatePoints(0.1).map { point ->
             val cantAngle = atan2(source.superelevationAt(point.arcLength), RailSpeedCalculator.STANDARD_GAUGE_METERS)

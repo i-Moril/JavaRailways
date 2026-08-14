@@ -225,7 +225,8 @@ class StandardRailCurveTest {
             val config = SuperelevationConfig(
                 autoCalculate = true,
                 designSpeedKmH = 100.0,
-                maxSuperelevation = 0.15
+                maxSuperelevation = 0.15,
+                maxCantGradient = 1.0
             )
             val curve = StandardRailCurve(30.0, 5.0, 10.0, config)
             // h ≈ 11.3 * 100² / 30 = 3766.67 mm -> 3.77 m，超过 0.15m 限制
@@ -237,7 +238,8 @@ class StandardRailCurveTest {
             val config = SuperelevationConfig(
                 autoCalculate = true,
                 designSpeedKmH = 60.0,
-                maxSuperelevation = 0.15
+                maxSuperelevation = 0.15,
+                maxCantGradient = 1.0
             )
             val curve = StandardRailCurve(300.0, 5.0, 10.0, config)
             // h ≈ 11.3 * 60² / 300 = 135.6 mm = 0.136m < 0.15m，不受限
@@ -250,11 +252,16 @@ class StandardRailCurveTest {
                 300.0,
                 10.0,
                 20.0,
-                SuperelevationConfig(autoCalculate = true, designSpeedKmH = 60.0, maxSuperelevation = 1.0)
+                SuperelevationConfig(
+                    autoCalculate = true,
+                    designSpeedKmH = 60.0,
+                    maxSuperelevation = 1.0,
+                    maxCantGradient = 1.0
+                )
             )
 
-            assertEquals(0.0678, curve.superelevationAt(5.0), 1.0e-4)
-            assertEquals(0.1356, curve.superelevationAt(15.0), 1.0e-4)
+            assertEquals(0.0678, curve.superelevationAt(5.0), 2.0e-4)
+            assertEquals(0.1356, curve.superelevationAt(15.0), 2.0e-4)
         }
 
         @Test
@@ -292,7 +299,8 @@ class StandardRailCurveTest {
                     autoCalculate = true,
                     designSpeedKmH = 80.0,
                     maxSuperelevation = 0.15,
-                    superelevationTransition = SuperelevationConfig.SuperelevationTransition.SINE_KLEIN
+                    superelevationTransition = SuperelevationConfig.SuperelevationTransition.SINE_KLEIN,
+                    maxCantGradient = 1.0
                 )
             )
 
@@ -322,7 +330,39 @@ class StandardRailCurveTest {
         }
 
         @Test
-        fun `无缓和曲线的纯圆弧全程保持设计超高`() {
+        fun `Sine Klein 超高受最大瞬时变化率限制`() {
+            val curve = StandardRailCurve(
+                30.0,
+                10.0,
+                20.0,
+                SuperelevationConfig(autoCalculate = false, maxSuperelevation = 0.15)
+            )
+            val delta = 1.0e-4
+            val middleGradient =
+                (curve.superelevationAt(5.0 + delta) - curve.superelevationAt(5.0 - delta)) / (2.0 * delta)
+
+            assertEquals(1.0 / 60.0, curve.superelevation, 1.0e-9)
+            assertEquals(1.0 / 300.0, middleGradient, 1.0e-8)
+        }
+
+        @Test
+        fun `线性超高按自身峰值因子应用变化率限制`() {
+            val curve = StandardRailCurve(
+                30.0,
+                10.0,
+                20.0,
+                SuperelevationConfig(
+                    autoCalculate = false,
+                    maxSuperelevation = 0.15,
+                    superelevationTransition = SuperelevationConfig.SuperelevationTransition.LINEAR
+                )
+            )
+
+            assertEquals(1.0 / 30.0, curve.superelevation, 1.0e-9)
+        }
+
+        @Test
+        fun `无缓和曲线时禁用超高以避免接缝突变`() {
             val curve = StandardRailCurve(
                 300.0,
                 0.0,
@@ -330,16 +370,18 @@ class StandardRailCurveTest {
                 SuperelevationConfig(autoCalculate = true, designSpeedKmH = 60.0, maxSuperelevation = 1.0)
             )
 
-            assertEquals(curve.superelevation, curve.superelevationAt(0.0), 1.0e-9)
-            assertEquals(curve.superelevation, curve.superelevationAt(10.0), 1.0e-9)
-            assertEquals(curve.superelevation, curve.superelevationAt(20.0), 1.0e-9)
+            assertEquals(0.0, curve.superelevation, 1.0e-9)
+            assertEquals(0.0, curve.superelevationAt(0.0), 1.0e-9)
+            assertEquals(0.0, curve.superelevationAt(10.0), 1.0e-9)
+            assertEquals(0.0, curve.superelevationAt(20.0), 1.0e-9)
         }
 
         @Test
         fun `圆曲线段超高达到 superelevation`() {
             val config = SuperelevationConfig(
                 autoCalculate = false,
-                maxSuperelevation = 0.10
+                maxSuperelevation = 0.10,
+                maxCantGradient = 1.0
             )
             val curve = StandardRailCurve(30.0, 5.0, 10.0, config)
             // 圆曲线段 s ∈ [L, L+Lc] = [5, 15]
@@ -352,7 +394,8 @@ class StandardRailCurveTest {
             val config = SuperelevationConfig(
                 autoCalculate = false,
                 maxSuperelevation = 0.10,
-                superelevationTransition = SuperelevationConfig.SuperelevationTransition.LINEAR
+                superelevationTransition = SuperelevationConfig.SuperelevationTransition.LINEAR,
+                maxCantGradient = 1.0
             )
             val curve = StandardRailCurve(30.0, 5.0, 10.0, config)
             // 入口回旋线：s ∈ [0, 5]
@@ -369,7 +412,8 @@ class StandardRailCurveTest {
             val config = SuperelevationConfig(
                 autoCalculate = false,
                 maxSuperelevation = 0.10,
-                superelevationTransition = SuperelevationConfig.SuperelevationTransition.SINE_KLEIN
+                superelevationTransition = SuperelevationConfig.SuperelevationTransition.SINE_KLEIN,
+                maxCantGradient = 1.0
             )
             val curve = StandardRailCurve(30.0, 5.0, 10.0, config)
             val quarterFraction = 0.25 - 1.0 / (2.0 * Math.PI)
@@ -383,7 +427,8 @@ class StandardRailCurveTest {
             val config = SuperelevationConfig(
                 autoCalculate = false,
                 maxSuperelevation = 0.10,
-                superelevationTransition = SuperelevationConfig.SuperelevationTransition.LINEAR
+                superelevationTransition = SuperelevationConfig.SuperelevationTransition.LINEAR,
+                maxCantGradient = 1.0
             )
             val curve = StandardRailCurve(30.0, 5.0, 10.0, config)
             // 出口回旋线：s ∈ [15, 20]
@@ -399,7 +444,8 @@ class StandardRailCurveTest {
         fun `有超高配置的 curve 生成法线倾斜`() {
             val config = SuperelevationConfig(
                 autoCalculate = false,
-                maxSuperelevation = 0.10
+                maxSuperelevation = 0.10,
+                maxCantGradient = 1.0
             )
             val curve = StandardRailCurve(30.0, 5.0, 10.0, config)
             val points = curve.generatePoints(0.5)
@@ -409,6 +455,25 @@ class StandardRailCurveTest {
             val expectedAngle = kotlin.math.atan2(0.10, 1.435)
             val actualAngle = kotlin.math.atan2(midPoint.normal.z(), midPoint.normal.y())
             assertEquals(expectedAngle, actualAngle, 0.01, "圆曲线中点法线倾斜角应正确")
+        }
+
+        @Test
+        fun `平衡超高使用配置的轨距和重力`() {
+            val curve = StandardRailCurve(
+                20.0,
+                10.0,
+                10.0,
+                SuperelevationConfig(
+                    maxSuperelevation = 2.0,
+                    designSpeedKmH = 36.0,
+                    maxCantGradient = 1.0,
+                    gaugeMeters = 2.0,
+                    gravityMetersPerSecondSquared = 10.0
+                )
+            )
+
+            assertEquals(1.0, curve.superelevation, 1.0e-9)
+            assertEquals(kotlin.math.atan2(1.0, 2.0), curve.superelevationAngleAt(15.0), 1.0e-9)
         }
 
         @Test

@@ -50,7 +50,7 @@ object RailWorldFactory {
             System.currentTimeMillis()
         )
         val physicsCoordinator = PhysicsCoordinator(
-            workerThreads = BukkitPlugin.INSTANCE.javaRailwaysConfig.physicsWorkerThreads
+            workerThreads = BukkitPlugin.INSTANCE.physicsConfig.workerThreads
         )
         val worldParent = KoinWorldParentContext(javaRailwaysParentScope())
         val dependency = CoreWorld.SnapshotDependency(tickManager, worldParent, physicsCoordinator)
@@ -67,7 +67,7 @@ object RailWorldFactory {
         val plugin = BukkitPlugin.INSTANCE
         val atoLogger = plugin.logger
         val pluginDataFolder = plugin.dataFolder
-        val safetyConfig = plugin.javaRailwaysConfig
+        val physicsConfig = plugin.physicsConfig
         val basicData = BasicWorldData(
                 dispatcher = TimetableDispatcher(
                     operationGateway = BukkitTrainOperationGateway(
@@ -100,7 +100,7 @@ object RailWorldFactory {
                             )
                         }
                 },
-                turnoutSafetyDefaults = plugin.javaRailwaysConfig.turnoutSafety.let {
+                turnoutSafetyDefaults = physicsConfig.turnoutSafety.let {
                     TurnoutSafetyDefaults(
                         protectionDistanceMeters = it.defaultProtectionDistanceMeters,
                         lockingDistanceMeters = it.defaultLockingDistanceMeters,
@@ -118,7 +118,8 @@ object RailWorldFactory {
                 rail.curve,
                 requestedSpeed,
                 rail.metadata.geometry.allowableCantDeficiencyMeters,
-                safetyConfig.derailLateralAccelerationMetersPerSecondSquared
+                physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
+                physicsConfig.railSpeedPhysics()
             )
             rail.metadata = rail.metadata.copy(
                 speedLimitMetersPerSecond = limits.operatingLimitMetersPerSecond,

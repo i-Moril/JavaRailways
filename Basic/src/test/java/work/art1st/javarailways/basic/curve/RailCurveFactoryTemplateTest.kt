@@ -28,6 +28,21 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
+    @OptIn(Heavy::class)
+    fun `straight template uses configured sampling step`() {
+        val from = Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0))
+        val to = Anchor("B", Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
+        val result = RailCurveFactory.build(
+            from,
+            to,
+            RailCurveBuildOptions(geometry = RailGeometryParameters(defaultStepMeters = 2.0))
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        assertEquals(6L, result.curve!!.stream().count())
+    }
+
+    @Test
     fun `auto builds s curve for same tangent offset`() {
         val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
         val to = Anchor("B", Vector3d(10.0, 0.0, 5.0), Vector3d(1.0, 0.0, 0.0))
@@ -71,6 +86,14 @@ class RailCurveFactoryTemplateTest {
             rolls.zipWithNext { first, second -> kotlin.math.abs(second - first) }.max() < 0.5,
             "cant should reverse without a roll jump"
         )
+        val cantMeters = rolls.map { roll ->
+            kotlin.math.tan(Math.toRadians(roll)) * StandardRailCurveBuilder.DEFAULT_GAUGE
+        }
+        val peakCantGradient = points.indices.drop(1).maxOf { index ->
+            kotlin.math.abs(cantMeters[index] - cantMeters[index - 1]) /
+                (points[index].arcLength - points[index - 1].arcLength)
+        }
+        assertTrue(peakCantGradient <= 1.0 / 300.0 + 1.0e-9, "peak cant gradient=$peakCantGradient")
     }
 
     @Test

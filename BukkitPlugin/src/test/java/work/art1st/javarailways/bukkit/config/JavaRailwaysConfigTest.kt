@@ -25,50 +25,18 @@ class JavaRailwaysConfigTest {
         yaml.set("train-model-update-policy", "snapshot")
         yaml.set("train-key-bind-distance", 24.5)
         yaml.set("train-debug-log", true)
-        yaml.set("physics-worker-threads", 3)
-        yaml.set("overspeed-derail-enabled", true)
-        yaml.set("derail-lateral-acceleration-mps2", 3.5)
-        yaml.set("overspeed-tolerance-kmh", 6.0)
-        yaml.set("overspeed-grace-ticks", 4)
 
         val config = JavaRailwaysConfig.fromYaml(yaml)
 
         assertEquals(TrainModelUpdatePolicy.SNAPSHOT, config.trainModelUpdatePolicy)
         assertEquals(24.5, config.trainKeyBindDistance)
         assertEquals(true, config.trainDebugLog)
-        assertEquals(3, config.physicsWorkerThreads)
-        assertEquals(true, config.overspeedDerailEnabled)
-        assertEquals(3.5, config.derailLateralAccelerationMetersPerSecondSquared)
-        assertEquals(6.0, config.overspeedToleranceKmH)
-        assertEquals(4, config.overspeedGraceTicks)
         assertEquals(DisplayRendererBackend.NATIVE, config.displayRenderer.backend)
         assertEquals(PlayerDisplayDistanceDefault.PLAYER_VIEW_DISTANCE, config.displayRenderer.playerDistance.default)
         assertEquals(512.0, config.displayRenderer.playerDistance.maxBlocks)
         assertEquals(true, config.timetableHttpBridge.enabled)
         assertEquals(TimetableWebUiMode.MANAGED, config.timetableWebUi.mode)
         assertEquals("JAVARAILWAYS_TIMETABLE_HTTP_TOKEN", config.timetableHttpBridge.bearerTokenEnvironmentVariable)
-    }
-
-    @Test
-    fun `parses and validates turnout safety defaults`() {
-        val yaml = validYaml().apply {
-            set("turnout.default-protection-distance-meters", 24.0)
-            set("turnout.default-locking-distance-meters", 6.0)
-            set("turnout.decision-lead-ticks", 5)
-            set("turnout.allocation-retry-ticks", 7)
-        }
-
-        val config = JavaRailwaysConfig.fromYaml(yaml).turnoutSafety
-
-        assertEquals(24.0, config.defaultProtectionDistanceMeters)
-        assertEquals(6.0, config.defaultLockingDistanceMeters)
-        assertEquals(5, config.decisionLeadTicks)
-        assertEquals(7, config.allocationRetryTicks)
-        val invalid = validYaml().apply {
-            set("turnout.default-protection-distance-meters", 4.0)
-            set("turnout.default-locking-distance-meters", 5.0)
-        }
-        assertThrows(IllegalArgumentException::class.java) { JavaRailwaysConfig.fromYaml(invalid) }
     }
 
     @Test
@@ -151,9 +119,8 @@ class JavaRailwaysConfigTest {
     }
 
     @Test
-    fun `physics worker threads must be positive`() {
-        val yaml = validYaml()
-        yaml.set("physics-worker-threads", 0)
+    fun `retired physics keys fail with explicit migration boundary`() {
+        val yaml = validYaml().apply { set("physics-worker-threads", 4) }
 
         assertThrows(IllegalArgumentException::class.java) {
             JavaRailwaysConfig.fromYaml(yaml)
@@ -171,15 +138,6 @@ class JavaRailwaysConfigTest {
         set("train-model-update-policy", "follow-package")
         set("train-key-bind-distance", 20.0)
         set("train-debug-log", false)
-        set("physics-worker-threads", 4)
-        set("overspeed-derail-enabled", false)
-        set("derail-lateral-acceleration-mps2", 3.0)
-        set("overspeed-tolerance-kmh", 5.0)
-        set("overspeed-grace-ticks", 5)
-        set("turnout.default-protection-distance-meters", 20.0)
-        set("turnout.default-locking-distance-meters", 5.0)
-        set("turnout.decision-lead-ticks", 5)
-        set("turnout.allocation-retry-ticks", 5)
         set("display-renderer.backend", "native")
         set("display-renderer.player-distance.default", "player-view-distance")
         set("display-renderer.player-distance.max-blocks", 512.0)

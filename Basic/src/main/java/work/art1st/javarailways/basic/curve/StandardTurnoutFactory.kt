@@ -9,31 +9,39 @@ import kotlin.math.PI
 import kotlin.math.atan
 import kotlin.math.ceil
 
-enum class StandardTurnout(
+data class StandardTurnoutGeometry(
     val number: Int,
     val radiusMeters: Double,
     val divergingSpeedKmH: Double
 ) {
-    N4(4, 30.0, 10.0),
-    N5(5, 50.0, 15.0),
-    N6(6, 80.0, 20.0),
-    N7(7, 100.0, 20.0),
-    N8(8, 145.0, 25.0),
-    N9(9, 180.0, 30.0),
-    N10(10, 220.0, 35.0),
-    N12(12, 330.0, 45.0),
-    N14(14, 500.0, 55.0),
-    N16(16, 700.0, 65.0),
-    N18(18, 1100.0, 80.0),
-    N20(20, 1400.0, 90.0),
-    N24(24, 1600.0, 100.0),
-    N30(30, 2700.0, 140.0),
-    N38(38, 4000.0, 150.0),
-    N42(42, 5000.0, 160.0),
-    N60(60, 10000.0, 200.0);
+    init {
+        require(number > 0)
+        require(radiusMeters.isFinite() && radiusMeters > 0.0)
+        require(divergingSpeedKmH.isFinite() && divergingSpeedKmH > 0.0)
+    }
 
     val branchAngleRadians: Double get() = atan(1.0 / number)
     val displayName: String get() = "${number}号 (R${radiusMeters.toInt()}m / ${divergingSpeedKmH.toInt()}km/h)"
+}
+
+enum class StandardTurnout(val number: Int) {
+    N4(4),
+    N5(5),
+    N6(6),
+    N7(7),
+    N8(8),
+    N9(9),
+    N10(10),
+    N12(12),
+    N14(14),
+    N16(16),
+    N18(18),
+    N20(20),
+    N24(24),
+    N30(30),
+    N38(38),
+    N42(42),
+    N60(60)
 }
 
 data class StandardTurnoutBuildResult(
@@ -54,14 +62,20 @@ object StandardTurnoutFactory {
      * branch sides produce four valid end directions; the one closest to [towards] is selected.
      */
     @Heavy
-    fun build(anchor: Anchor, towards: Vector3dc, standard: StandardTurnout): StandardTurnoutBuildResult? {
+    fun build(
+        anchor: Anchor,
+        towards: Vector3dc,
+        geometry: StandardTurnoutGeometry,
+        sampleStepMeters: Double = RailGeometryParameters().turnoutStepMeters
+    ): StandardTurnoutBuildResult? {
+        require(sampleStepMeters.isFinite() && sampleStepMeters > 0.0)
         val axis = Vector3d(anchor.tangent.x(), 0.0, anchor.tangent.z())
         val target = Vector3d(towards.x(), 0.0, towards.z())
         if (axis.lengthSquared() < 1.0e-12 || target.lengthSquared() < 1.0e-12) return null
         axis.normalize()
         target.normalize()
 
-        val angle = standard.branchAngleRadians
+        val angle = geometry.branchAngleRadians
         val candidates = listOf(1.0, -1.0).flatMap { directionSign ->
             val start = Vector3d(axis).mul(directionSign)
             listOf(1.0, -1.0).map { turnSign ->
@@ -73,7 +87,7 @@ object StandardTurnoutFactory {
             }
         }
         val selected = candidates.maxBy { it.endTangent.dot(target) }
-        val curve = circularBranch(anchor.position, selected, standard.radiusMeters, angle)
+        val curve = circularBranch(anchor.position, selected, geometry.radiusMeters, angle, sampleStepMeters)
         return StandardTurnoutBuildResult(curve, Vector3d(selected.startTangent), Vector3d(selected.endTangent))
     }
 
@@ -81,10 +95,11 @@ object StandardTurnoutFactory {
         startPosition: Vector3dc,
         direction: DirectionCandidate,
         radius: Double,
-        angle: Double
+        angle: Double,
+        sampleStepMeters: Double
     ): PrimeCurve {
         val totalLength = radius * angle
-        val sampleCount = maxOf(2, ceil(totalLength / 0.2).toInt())
+        val sampleCount = maxOf(2, ceil(totalLength / sampleStepMeters).toInt())
         val centerDirection = Vector3d(direction.startTangent).rotateY(direction.turnSign * PI / 2.0)
         val center = Vector3d(startPosition).fma(radius, centerDirection)
         val startRadius = Vector3d(startPosition).sub(center)

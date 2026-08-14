@@ -60,27 +60,33 @@ object ConstraintSolver {
      */
     fun solveBest(
         fromPos: Vector3dc, fromTangent: Vector3dc,
-        toPos: Vector3dc, toTangent: Vector3dc
+        toPos: Vector3dc, toTangent: Vector3dc,
+        geometry: RailGeometryParameters = RailGeometryParameters()
     ): ConstraintSolveResult {
         val dp = computeAngle(fromTangent, toTangent)
         if (dp < 1e-10) return ConstraintSolveResult.Failure("切线夹角为 0")
         val dist = fromPos.distance(toPos)
-        val maxR = maxOf(((dist * 5) / 50).let { ceil(it).toInt() * 50 }, 50).toDouble()
+        val increment = geometry.autoRadiusIncrementMeters
+        val maxR = maxOf(
+            ceil(dist * geometry.autoRadiusDistanceFactor / increment) * increment,
+            increment
+        )
 
-        // 50m 倍数的候选
+        // 按配置的半径增量由大到小搜索。
         var R = maxR
-        while (R >= 50) {
+        while (R >= increment) {
             val result = solve(fromPos, fromTangent, toPos, toTangent, R)
             if (result is ConstraintSolveResult.Success) return result
-            R -= 50
+            R -= increment
         }
-        // 如果 50m 倍数都失败，尝试更小的半径（40, 30, 20, 10）
-        for (r in listOf(40.0, 30.0, 20.0, 10.0)) {
+        // 常规增量候选都失败后，尝试配置的回退半径。
+        for (r in geometry.autoRadiusFallbackRadiiMeters) {
             if (r > dist) continue // R 不应超过锚点间距（纯弧场合）
             val result = solve(fromPos, fromTangent, toPos, toTangent, r)
             if (result is ConstraintSolveResult.Success) return result
         }
-        return ConstraintSolveResult.Failure("未找到可行半径 (${maxR}m→10m, 间距≈${"%.1f".format(dist)}m)")
+        val minimumRadius = geometry.autoRadiusFallbackRadiiMeters.last()
+        return ConstraintSolveResult.Failure("未找到可行半径 (${maxR}m→${minimumRadius}m, 间距≈${"%.1f".format(dist)}m)")
     }
 
     /** 生成五段曲线点列，叠加抛物线竖曲线使切线匹配锚点坡度。 */
@@ -88,7 +94,8 @@ object ConstraintSolver {
         r: ConstraintSolveResult.Success, fromPos: Vector3dc, fromTangent: Vector3dc,
         toPos: Vector3dc, toTangent: Vector3dc, step: Double = 0.2,
         fromRollDegrees: Double = 0.0, toRollDegrees: Double = 0.0,
-        superelevationConfig: SuperelevationConfig? = null
+        superelevationConfig: SuperelevationConfig? = null,
+        geometry: RailGeometryParameters = RailGeometryParameters()
     ): List<Curve.RawPoint> {
         val fx = Vector3d(fromTangent.x(), 0.0, fromTangent.z()).normalize()
         val fz = if (r.leftTurn)
@@ -158,7 +165,7 @@ object ConstraintSolver {
 
         // clothoid + arc + clothoid
         val curve = StandardRailCurve(r.R, r.L1, r.Lc, superelevationConfig)
-        val curveStep = minOf(step, adaptiveCurveStep(r.R))
+        val curveStep = minOf(step, geometry.adaptiveStep(r.R))
         val localPoints = curve.generatePoints(curveStep).toMutableList()
         if (localPoints.isNotEmpty()) {
             localPoints[0] = accurateLocalRawPoint(curve, 0.0)
@@ -189,13 +196,6 @@ object ConstraintSolver {
         addSegment(r.straightB, endTan2d, pts.last().position)
 
         return pts
-    }
-
-    private fun adaptiveCurveStep(radius: Double): Double = when {
-        radius < 30.0 -> 0.02
-        radius < 100.0 -> 0.05
-        radius < 300.0 -> 0.10
-        else -> 0.20
     }
 
     private fun accurateLocalRawPoint(curve: StandardRailCurve, arc: Double): StandardRailCurve.CurveRawPoint {

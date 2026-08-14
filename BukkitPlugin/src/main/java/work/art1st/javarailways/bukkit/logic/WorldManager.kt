@@ -142,13 +142,13 @@ class WorldManager(
         )
         railWorlds[bukkitWorld] = railWorld
         if (railWorld is CoreWorld) {
-            val config = BukkitPlugin.INSTANCE.javaRailwaysConfig
+            val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
             speedSafetyMonitors[railWorld] = SpeedSafetyMonitor(
                 railWorld,
                 SpeedSafetyMonitor.Config(
-                    derailEnabled = config.overspeedDerailEnabled,
-                    toleranceMetersPerSecond = config.overspeedToleranceKmH / 3.6,
-                    graceTicks = config.overspeedGraceTicks
+                    derailEnabled = config.derailEnabled,
+                    toleranceMetersPerSecond = config.toleranceKmH / 3.6,
+                    graceTicks = config.graceTicks
                 )
             )
         }

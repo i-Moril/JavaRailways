@@ -364,7 +364,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // ═══════════════════════════════════════════
 
     /** 每个玩家独立持有 wand 设置，但通过 PlayerConfigSession 隔离值 */
-    class WandConfigKeys {
+    class WandConfigKeys(
+        turnoutLabels: Map<StandardTurnout, String>
+    ) {
         val parallelCount = ConfigKey.build<Int>("wand.parallelCount") {
             label = "并行轨道数"
             description = "同时创建的并行轨道数量"
@@ -443,7 +445,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.ENUM
             constraints = ConfigConstraints.EnumOptions(
                 StandardTurnout.entries,
-                StandardTurnout.entries.associateWith { it.displayName }
+                turnoutLabels
             )
             group = "wand.settings"
             order = 8
@@ -568,7 +570,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private lateinit var railEditKeys: RailEditKeys
 
     private fun registerWandConfig() {
-        wandKeys = WandConfigKeys()
+        wandKeys = WandConfigKeys(
+            StandardTurnout.entries.associateWith { plugin.physicsConfig.turnoutGeometry(it).displayName }
+        )
         editKeys = AnchorEditKeys()
         railEditKeys = RailEditKeys()
 
@@ -870,19 +874,26 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
         val worldId = player.world.uid
         val standard = state.turnoutStandard
+        val turnoutGeometry = plugin.physicsConfig.turnoutGeometry(standard)
         val cantDeficiencyMeters = state.allowableCantDeficiencyMm / 1000.0
-        val derailAcceleration = plugin.javaRailwaysConfig.derailLateralAccelerationMetersPerSecondSquared
+        val derailAcceleration = plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.createTurnoutAtAnchor",
             supplier = {
-                StandardTurnoutFactory.build(anchor, towards, standard)?.let { result ->
+                StandardTurnoutFactory.build(
+                    anchor,
+                    towards,
+                    turnoutGeometry,
+                    plugin.physicsConfig.geometrySampling.turnoutStepMeters
+                )?.let { result ->
                     result to RailSpeedCalculator.calculate(
                         curve = result.curve,
-                        requestedLimitMetersPerSecond = standard.divergingSpeedKmH / 3.6,
+                        requestedLimitMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
                         allowableCantDeficiencyMeters = cantDeficiencyMeters,
-                        derailLateralAccelerationMetersPerSecondSquared = derailAcceleration
+                        derailLateralAccelerationMetersPerSecondSquared = derailAcceleration,
+                        physics = plugin.physicsConfig.railSpeedPhysics()
                     )
                 }
             },
@@ -903,12 +914,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     mutableListOf(),
                     mutableListOf(),
                     RailMetadata(
-                        designSpeedMetersPerSecond = standard.divergingSpeedKmH / 3.6,
+                        designSpeedMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
                         speedLimitMetersPerSecond = speedLimits.operatingLimitMetersPerSecond,
                         derailSpeedMetersPerSecond = speedLimits.derailSpeedMetersPerSecond,
                         geometry = RailGeometryMetadata(
                             curveKind = RailCurveKind.FIVE_SEGMENT,
-                            curveRadiusMeters = standard.radiusMeters,
+                            curveRadiusMeters = turnoutGeometry.radiusMeters,
                             automaticSuperelevation = false,
                             allowableCantDeficiencyMeters = cantDeficiencyMeters
                         )
@@ -1192,7 +1203,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             operation = "RailWand.rebuildRailForEndpointEdit",
             supplier = {
                 val curvesByRailId = linkedMapOf<UUID, BuiltCurve>()
-                val derailAcceleration = plugin.javaRailwaysConfig.derailLateralAccelerationMetersPerSecondSquared
+                val derailAcceleration = plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
                 for (input in rebuildInputs) {
                     val newStart = if (input.movedEnd == 'A') updatedEndpoint else input.oldStart
                     val newEnd = if (input.movedEnd == 'B') updatedEndpoint else input.oldEnd
@@ -1201,7 +1212,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         curve,
                         settingsSnapshot.designSpeedKmH / 3.6,
                         settingsSnapshot.allowableCantDeficiencyMm / 1000.0,
-                        derailAcceleration
+                        derailAcceleration,
+                        plugin.physicsConfig.railSpeedPhysics()
                     )
                     curvesByRailId[input.railId] = BuiltCurve(curve, limits)
                 }
@@ -1494,7 +1506,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         settings: CurveBuildSettingsSnapshot
     ): List<BuiltCurve>? {
         val curves = createCurvesBetweenParallelAnchors(startAnchors, endAnchors, settings) ?: return null
-        val derailAcceleration = plugin.javaRailwaysConfig.derailLateralAccelerationMetersPerSecondSquared
+        val derailAcceleration = plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
         return curves.map { curve ->
             BuiltCurve(
                 curve,
@@ -1502,7 +1514,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     curve = curve,
                     requestedLimitMetersPerSecond = settings.designSpeedKmH / 3.6,
                     allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
-                    derailLateralAccelerationMetersPerSecondSquared = derailAcceleration
+                    derailLateralAccelerationMetersPerSecondSquared = derailAcceleration,
+                    physics = plugin.physicsConfig.railSpeedPhysics()
                 )
             )
         }
@@ -1513,17 +1526,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun railCurveBuildOptions(settings: CurveBuildSettingsSnapshot): RailCurveBuildOptions {
+        val physics = plugin.physicsConfig
         return RailCurveBuildOptions(
             template = settings.curveTemplate,
             radius = settings.curveRadius,
             superelevation = if (settings.automaticSuperelevation) {
                 SuperelevationConfig(
                     maxSuperelevation = settings.maxSuperelevationMm / 1000.0,
-                    designSpeedKmH = (settings.designSpeedKmH - 10.0).coerceAtLeast(0.0)
+                    designSpeedKmH = (
+                        settings.designSpeedKmH - physics.track.cantBalanceSpeedOffsetKmH
+                    ).coerceAtLeast(0.0),
+                    maxCantGradient = physics.track.maximumCantGradient,
+                    gaugeMeters = physics.track.gaugeMeters,
+                    gravityMetersPerSecondSquared = physics.track.gravityMetersPerSecondSquared
                 )
             } else {
                 null
-            }
+            },
+            geometry = physics.railGeometryParameters()
         )
     }
 
@@ -1781,7 +1801,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(editKeys.tangentYaw, formatEditNumber(yaw, digits = 1))
         session.setValue(editKeys.tangentPitch, formatEditNumber(pitch, digits = 1))
         session.setValue(editKeys.roll, formatEditNumber(roll, digits = 1))
-        val turnoutDefaults = plugin.javaRailwaysConfig.turnoutSafety
+        val turnoutDefaults = plugin.physicsConfig.turnoutSafety
         session.setValue(
             editKeys.turnoutProtectionDistance,
             anchor.metadata[TURNOUT_PROTECTION_METADATA_KEY]?.toDoubleOrNull()

@@ -8,6 +8,7 @@ repeat_length: 0.95
 
 # 周期内的显示元素列表。每个元素都会在一个 repeat_length 周期内重复一次。
 # 每个元素都必须显式提供：type / material / offset / rotation / scale。
+# brightness 可选；block/sky 范围均为 0..15，省略 brightness 时使用环境光照。
 # 但 offset/rotation 缺失的分量默认是 0.0，scale 缺失的分量默认是 1.0。
 elements:
   - type: block
@@ -20,6 +21,9 @@ elements:
       x: 0.0
       y: 0.0
       z: 0.0
+    # brightness:
+    #   block: 15
+    #   sky: 15
     scale:
       x: 1.0
       y: 1.0

@@ -20,38 +20,40 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
-private data class RailRenderMetaFileV2(
+internal data class RailRenderMetaFileV2(
     val version: Int,
     val templates: List<RailRenderTemplateV2>,
     val rails: List<RailRenderMetaEntryV2>
 )
 
 @Serializable
-private data class RailRenderMetaEntryV2(
+internal data class RailRenderMetaEntryV2(
     val railId: String,
     val templateId: String,
     val segments: List<RailRenderSegmentV2>
 )
 
 @Serializable
-private data class RailRenderSegmentV2(
+internal data class RailRenderSegmentV2(
     val arcStart: Double,
     val arcEnd: Double,
     val pointArcs: List<Double>
 )
 
 @Serializable
-private data class RailRenderTemplateV2(
+internal data class RailRenderTemplateV2(
     val templateId: String,
     val repeatLength: Double,
     val elements: List<RailRenderTemplateElementV2>
 )
 
 @Serializable
-private data class RailRenderTemplateElementV2(
+internal data class RailRenderTemplateElementV2(
     val type: String,
     val itemStack: ItemStack? = null,
     val blockMaterial: String? = null,
+    val brightnessBlock: Int? = null,
+    val brightnessSky: Int? = null,
     val offsetX: Double,
     val offsetY: Double,
     val offsetZ: Double,
@@ -142,6 +144,8 @@ object RailRenderMetaStore {
                             type = element.type.name,
                             itemStack = element.itemStack,
                             blockMaterial = element.blockMaterial,
+                            brightnessBlock = element.brightnessBlock,
+                            brightnessSky = element.brightnessSky,
                             offsetX = element.offsetX,
                             offsetY = element.offsetY,
                             offsetZ = element.offsetZ,
@@ -227,6 +231,8 @@ object RailRenderMetaStore {
                         type = type,
                         itemStack = element.itemStack,
                         blockMaterial = element.blockMaterial,
+                        brightnessBlock = element.brightnessBlock,
+                        brightnessSky = element.brightnessSky,
                         offsetX = element.offsetX,
                         offsetY = element.offsetY,
                         offsetZ = element.offsetZ,

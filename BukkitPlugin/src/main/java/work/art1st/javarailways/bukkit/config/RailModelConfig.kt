@@ -50,6 +50,8 @@ data class RailElementConfig(
     val item: RailItemConfig? = null,
     /** BlockDisplay 方块材质 */
     val blockMaterial: String? = null,
+    /** 可选的显示实体光照覆盖；null 表示使用环境光照。 */
+    val brightness: RailBrightnessConfig? = null,
     /** 相对曲线点的局部偏移 */
     val offset: OffsetConfig,
     /** 局部欧拉角旋转（度） */
@@ -57,6 +59,16 @@ data class RailElementConfig(
     /** 模型缩放 (x=沿曲线方向长度, y=高度, z=宽度) */
     val scale: ScaleConfig
 )
+
+data class RailBrightnessConfig(
+    val block: Int = 0,
+    val sky: Int = 0
+) {
+    init {
+        require(block in 0..15) { "rail element.brightness.block must be between 0 and 15" }
+        require(sky in 0..15) { "rail element.brightness.sky must be between 0 and 15" }
+    }
+}
 
 data class RotationConfig(
     val x: Double = 0.0,
@@ -101,6 +113,7 @@ private fun parseRailElement(map: Map<String, Any>): RailElementConfig {
     val rotationMap = map.requireMap("rotation", "rail element")
     val scaleMap = map.requireMap("scale", "rail element")
     val itemMap = map.optionalMap("item", "rail element")
+    val brightnessMap = map.optionalMap("brightness", "rail element")
 
     val item = if (type == RailDisplayType.ITEM) {
         parseRailItem(itemMap, material)
@@ -114,9 +127,27 @@ private fun parseRailElement(map: Map<String, Any>): RailElementConfig {
         type = type,
         item = item,
         blockMaterial = blockMaterial,
+        brightness = parseRailBrightness(brightnessMap),
         offset = parseOffset(offsetMap),
         rotation = parseRotation(rotationMap),
         scale = parseScale(scaleMap)
+    )
+}
+
+private fun parseRailBrightness(map: Map<String, Any>?): RailBrightnessConfig? {
+    if (map == null) return null
+    val unknownKeys = map.keys - setOf("block", "sky")
+    require(unknownKeys.isEmpty()) {
+        "rail element.brightness contains unsupported keys: ${unknownKeys.joinToString()}"
+    }
+    fun lightValue(key: String): Int {
+        val value = map[key] ?: return 0
+        return (value as? Number)?.toInt()
+            ?: throw IllegalArgumentException("rail element.brightness.$key must be a number")
+    }
+    return RailBrightnessConfig(
+        block = lightValue("block"),
+        sky = lightValue("sky")
     )
 }
 

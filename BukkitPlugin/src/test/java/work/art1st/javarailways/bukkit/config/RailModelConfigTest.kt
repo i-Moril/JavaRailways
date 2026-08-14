@@ -36,6 +36,47 @@ class RailModelConfigTest {
     }
 
     @Test
+    fun `parses optional display brightness override`() {
+        val yaml = """
+            repeat_length: 0.95
+            elements:
+              - type: item
+                material: RAIL
+                brightness:
+                  block: 12
+                  sky: 7
+                offset: {}
+                rotation: {}
+                scale: {}
+        """.trimIndent()
+
+        val brightness = loadRailModelConfig(ByteArrayInputStream(yaml.toByteArray()))
+            .elements.single().brightness ?: error("brightness should be parsed")
+
+        assertEquals(12, brightness.block)
+        assertEquals(7, brightness.sky)
+    }
+
+    @Test
+    fun `rejects display brightness outside vanilla range`() {
+        val yaml = """
+            repeat_length: 0.95
+            elements:
+              - type: item
+                material: RAIL
+                brightness:
+                  block: 16
+                offset: {}
+                rotation: {}
+                scale: {}
+        """.trimIndent()
+
+        assertThrows(IllegalArgumentException::class.java) {
+            loadRailModelConfig(ByteArrayInputStream(yaml.toByteArray()))
+        }
+    }
+
+    @Test
     fun `missing scale block still fails explicitly`() {
         val yaml = """
             repeat_length: 0.95

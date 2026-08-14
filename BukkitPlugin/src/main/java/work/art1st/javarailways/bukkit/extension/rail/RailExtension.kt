@@ -13,9 +13,10 @@ import org.joml.Vector3dc
 import org.joml.Vector3f
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.OffsetConfig
+import work.art1st.javarailways.bukkit.config.RailBrightnessConfig
+import work.art1st.javarailways.bukkit.config.RailDisplayType
 import work.art1st.javarailways.bukkit.config.RailElementConfig
 import work.art1st.javarailways.bukkit.config.RailModelConfig
-import work.art1st.javarailways.bukkit.config.RailDisplayType
 import work.art1st.javarailways.bukkit.config.RotationConfig
 import work.art1st.javarailways.bukkit.config.ScaleConfig
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -177,7 +178,9 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
                     BukkitPlugin.INSTANCE.javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks
                 )
             )
-        )
+        ).also { visual ->
+            element.brightness?.let { visual.setBrightness(it.block, it.sky) }
+        }
     }
 
     /**
@@ -242,6 +245,12 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
                         )
                     },
                     blockMaterial = element.blockMaterial,
+                    brightness = if (element.brightnessBlock != null || element.brightnessSky != null) {
+                        RailBrightnessConfig(
+                            block = element.brightnessBlock ?: 0,
+                            sky = element.brightnessSky ?: 0
+                        )
+                    } else null,
                     offset = OffsetConfig(element.offsetX, element.offsetY, element.offsetZ),
                     rotation = RotationConfig(element.rotationX, element.rotationY, element.rotationZ),
                     scale = ScaleConfig(element.scaleX, element.scaleY, element.scaleZ)

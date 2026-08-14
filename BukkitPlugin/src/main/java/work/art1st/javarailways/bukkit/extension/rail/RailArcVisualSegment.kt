@@ -22,6 +22,8 @@ data class RailElementTemplateSnapshot(
     val type: RailDisplayType,
     val itemStack: ItemStack? = null,
     val blockMaterial: String? = null,
+    val brightnessBlock: Int? = null,
+    val brightnessSky: Int? = null,
     val offsetX: Double,
     val offsetY: Double,
     val offsetZ: Double,

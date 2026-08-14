@@ -106,6 +106,8 @@ object RailVisualBootstrap {
                 type = element.type,
                 itemStack = element.item?.toItemStack(),
                 blockMaterial = element.blockMaterial,
+                brightnessBlock = element.brightness?.block,
+                brightnessSky = element.brightness?.sky,
                 offsetX = element.offset.x,
                 offsetY = element.offset.y,
                 offsetZ = element.offset.z,
@@ -132,6 +134,8 @@ object RailVisualBootstrap {
                     itemMeta.customModelData
                 } else null
                 append(customModelData ?: "")
+                append(',')
+                append(e.brightnessBlock ?: "").append(',').append(e.brightnessSky ?: "")
                 append(',')
                 append(e.offsetX).append(',').append(e.offsetY).append(',').append(e.offsetZ)
                 append(',')

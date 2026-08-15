@@ -20,6 +20,27 @@ object BlockWandEditor {
         return state.withCell(slot, next)
     }
 
+    fun shiftLeftClick(
+        state: BlockWandState,
+        slot: Int,
+        supportedRules: List<PlacementRule>
+    ): BlockWandState {
+        require(slot in 0 until BlockWandState.CELL_COUNT)
+        require(supportedRules.isNotEmpty()) { "At least one placement rule is required" }
+        if (state.isRailCell(slot)) return state
+        val material = state[slot] as? WandCell.Material ?: return state
+        if (supportedRules.size == 1) {
+            return if (material.placementRule == supportedRules.single()) {
+                state
+            } else {
+                state.withCell(slot, material.copy(placementRule = supportedRules.single()))
+            }
+        }
+        val currentIndex = supportedRules.indexOf(material.placementRule)
+        val nextIndex = if (currentIndex < 0) 0 else (currentIndex + 1) % supportedRules.size
+        return state.withCell(slot, material.copy(placementRule = supportedRules[nextIndex]))
+    }
+
     fun rightClick(
         state: BlockWandState,
         slot: Int,

@@ -5,6 +5,7 @@ import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.block.data.BlockData
+import org.bukkit.block.data.type.Slab
 import org.bukkit.entity.Player
 import work.art1st.javarailways.bukkit.api.operation.OperationResult
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
@@ -22,6 +23,7 @@ import work.art1st.javarailways.tunnelbridgebuilder.algorithm.SweepFrame
 import work.art1st.javarailways.tunnelbridgebuilder.algorithm.SweepPlanner
 import work.art1st.javarailways.tunnelbridgebuilder.algorithm.Vec3
 import work.art1st.javarailways.tunnelbridgebuilder.wand.BlockWandState
+import work.art1st.javarailways.tunnelbridgebuilder.wand.PlacementRule
 import work.art1st.javarailways.tunnelbridgebuilder.wand.WandCrossSectionFactory
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -36,6 +38,7 @@ class RailSweepService(
     private val playerOperations: PlayerOperationService
 ) {
     private data class BlockUndo(val worldId: UUID, val blocks: List<FullBlockSnapshot>)
+    private data class BlockPlacement(val blockData: BlockData, val rule: PlacementRule)
 
     private val operationsInProgress = ConcurrentHashMap.newKeySet<UUID>()
 
@@ -100,12 +103,78 @@ class RailSweepService(
     }
 
     private fun plan(rail: Rail, state: BlockWandState): List<BlockPositionChange<BlockData>> {
-        val section = WandCrossSectionFactory.create(state) { key ->
-            val material = requireNotNull(Material.matchMaterial(key)) { "Unknown block material: $key" }
-            require(material.isBlock && !material.isAir) { "Material is not a placeable block: $key" }
-            material.createBlockData()
+        val section = WandCrossSectionFactory.create(state) { cell ->
+            val material = requireNotNull(Material.matchMaterial(cell.key)) {
+                "Unknown block material: ${cell.key}"
+            }
+            require(material.isBlock && !material.isAir) {
+                "Material is not a placeable block: ${cell.key}"
+            }
+            val blockData = material.createBlockData()
+            require(cell.placementRule == PlacementRule.REGULAR || blockData is Slab) {
+                "Placement rule ${cell.placementRule} is only supported for slabs: ${cell.key}"
+            }
+            BlockPlacement(blockData, cell.placementRule)
         }
-        return SweepPlanner.plan(section, sample(rail))
+        return resolvePlacements(SweepPlanner.plan(section, sample(rail)))
+    }
+
+    private fun resolvePlacements(
+        planned: List<BlockPositionChange<BlockPlacement>>
+    ): List<BlockPositionChange<BlockData>> {
+        val resolved = LinkedHashMap<BlockPosition, BlockPositionChange<BlockData>>()
+        planned.forEach { change ->
+            when (val operation = change.operation) {
+                Carve -> mergeResolved(
+                    resolved,
+                    BlockPositionChange(change.position, Carve, change.cellCenter)
+                )
+                is Place -> {
+                    val placement = operation.block
+                    if (placement.rule == PlacementRule.REGULAR) {
+                        mergeResolved(
+                            resolved,
+                            BlockPositionChange(
+                                change.position,
+                                Place(placement.blockData),
+                                change.cellCenter
+                            )
+                        )
+                    } else {
+                        val matched = HalfBlockMatcher.match(change.cellCenter.y, placement.rule)
+                        val targetPosition = change.position.copy(y = matched.blockY)
+                        if (targetPosition != change.position) {
+                            mergeResolved(
+                                resolved,
+                                BlockPositionChange(change.position, Carve, change.cellCenter)
+                            )
+                        }
+                        val slab = placement.blockData.clone() as Slab
+                        slab.type = when (matched.half) {
+                            HalfBlockHalf.BOTTOM -> Slab.Type.BOTTOM
+                            HalfBlockHalf.TOP -> Slab.Type.TOP
+                            HalfBlockHalf.DOUBLE -> Slab.Type.DOUBLE
+                        }
+                        mergeResolved(
+                            resolved,
+                            BlockPositionChange(targetPosition, Place(slab), change.cellCenter)
+                        )
+                    }
+                }
+                Ignore -> Unit
+            }
+        }
+        return resolved.values.toList()
+    }
+
+    private fun mergeResolved(
+        changes: MutableMap<BlockPosition, BlockPositionChange<BlockData>>,
+        candidate: BlockPositionChange<BlockData>
+    ) {
+        val existing = changes[candidate.position]
+        if (existing == null || existing.operation !is Place || candidate.operation is Place) {
+            changes[candidate.position] = candidate
+        }
     }
 
     private fun sample(rail: Rail): SampledCenterLine {

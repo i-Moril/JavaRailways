@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.Material
+import org.bukkit.block.data.type.Slab
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
@@ -44,6 +45,11 @@ class BlockWandMenu(
         val slot = cell.row * BlockWandState.WIDTH + cell.column
 
         holder.state = when {
+            event.isLeftClick && event.isShiftClick -> BlockWandEditor.shiftLeftClick(
+                holder.state,
+                slot,
+                supportedPlacementRules(holder.state[slot])
+            )
             event.isRightClick -> BlockWandEditor.rightClick(
                 holder.state,
                 slot,
@@ -160,17 +166,42 @@ class BlockWandMenu(
                         Component.text("Shift + 右键设为基准轨道", NamedTextColor.YELLOW),
                         Component.text("右键删除", NamedTextColor.DARK_GRAY)
                     )
-                    else -> listOf(
-                        Component.text("光标拿方块左键：复制材料", NamedTextColor.GRAY),
-                        Component.text("空手左键：空气/屏障", NamedTextColor.GRAY),
-                        Component.text("右键：添加附属轨道", NamedTextColor.RED),
-                        Component.text("Shift + 右键：设为基准轨道", NamedTextColor.GREEN)
-                    )
+                    else -> buildList {
+                        if (cell is WandCell.Material && supportedPlacementRules(cell).size > 1) {
+                            add(Component.text(
+                                "规则：${placementRuleName(cell.placementRule)}",
+                                NamedTextColor.AQUA
+                            ))
+                            add(Component.text("Shift + 左键：切换规则", NamedTextColor.YELLOW))
+                        }
+                        add(Component.text("光标拿方块左键：复制材料", NamedTextColor.GRAY))
+                        add(Component.text("空手左键：空气/屏障", NamedTextColor.GRAY))
+                        add(Component.text("右键：添加附属轨道", NamedTextColor.RED))
+                        add(Component.text("Shift + 右键：设为基准轨道", NamedTextColor.GREEN))
+                    }
                 }
             )
             meta.addItemFlags(ItemFlag.HIDE_ADDITIONAL_TOOLTIP)
             item.itemMeta = meta
         }
+    }
+
+    private fun supportedPlacementRules(cell: WandCell): List<PlacementRule> {
+        val materialCell = cell as? WandCell.Material ?: return listOf(PlacementRule.REGULAR)
+        val material = Material.matchMaterial(materialCell.key)
+            ?.takeIf { it.isBlock } ?: return listOf(PlacementRule.REGULAR)
+        return if (material.createBlockData() is Slab) {
+            PlacementRule.entries.toList()
+        } else {
+            listOf(PlacementRule.REGULAR)
+        }
+    }
+
+    private fun placementRuleName(rule: PlacementRule): String = when (rule) {
+        PlacementRule.REGULAR -> "常规放置"
+        PlacementRule.MATCH_HALF -> "按 0.5m 匹配"
+        PlacementRule.MATCH_HALF_FILL_DOWN -> "按 0.5m 匹配并向下补全"
+        PlacementRule.MATCH_HALF_FILL_UP -> "按 0.5m 匹配并向上补全"
     }
 
     private class SectionInventoryHolder(

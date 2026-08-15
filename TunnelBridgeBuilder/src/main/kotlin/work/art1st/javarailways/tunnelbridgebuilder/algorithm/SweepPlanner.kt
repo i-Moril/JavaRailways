@@ -27,7 +27,10 @@ object SweepPlanner {
                     val row = floor(section.anchor.row - localRowUp + 0.5).toInt()
                     val operation = section[column, row] ?: continue
                     if (operation !== Ignore) {
-                        result += BlockPositionChange(position, operation)
+                        val cellCenter = nearest.frame.position +
+                            nearest.frame.right * (column - section.anchor.column).toDouble() +
+                            nearest.frame.normal * (section.anchor.row - row).toDouble()
+                        result += BlockPositionChange(position, operation, cellCenter)
                     }
                 }
             }

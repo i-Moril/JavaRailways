@@ -24,6 +24,23 @@ class BlockWandStateCodecTest {
     }
 
     @Test
+    fun `round trips placement rules and defaults old materials to regular`() {
+        val state = BlockWandState.createDefault().withCell(
+            3,
+            WandCell.Material("minecraft:stone_slab", PlacementRule.MATCH_HALF_FILL_DOWN)
+        )
+        val encoded = BlockWandStateCodec.encode(state)
+        assertEquals(state, BlockWandStateCodec.decode(encoded))
+
+        val regular = BlockWandState.createDefault().withCell(
+            3,
+            WandCell.Material("minecraft:stone_slab")
+        )
+        val legacy = BlockWandStateCodec.encode(regular).replace(",\"placementRule\":\"regular\"", "")
+        assertEquals(regular, BlockWandStateCodec.decode(legacy))
+    }
+
+    @Test
     fun `new state reserves a bottom row and left column for axis markers`() {
         val state = BlockWandState.createDefault()
 

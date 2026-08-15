@@ -45,5 +45,7 @@ data class BlockPosition(val x: Int, val y: Int, val z: Int) {
 
 data class BlockPositionChange<B>(
     val position: BlockPosition,
-    val operation: SectionOperation<B>
+    val operation: SectionOperation<B>,
+    /** Continuous world-space center of the template cell that selected this voxel. */
+    val cellCenter: Vec3
 )

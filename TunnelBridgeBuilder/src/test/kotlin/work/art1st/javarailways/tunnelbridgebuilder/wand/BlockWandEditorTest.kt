@@ -26,6 +26,38 @@ class BlockWandEditorTest {
     }
 
     @Test
+    fun `shift left cycles supported slab placement rules and returns to regular`() {
+        val initial = BlockWandState.createDefault().withCell(
+            2,
+            WandCell.Material("minecraft:stone_slab")
+        )
+        val rules = PlacementRule.entries.toList()
+
+        val matched = BlockWandEditor.shiftLeftClick(initial, 2, rules)
+        val fillDown = BlockWandEditor.shiftLeftClick(matched, 2, rules)
+        val fillUp = BlockWandEditor.shiftLeftClick(fillDown, 2, rules)
+        val regular = BlockWandEditor.shiftLeftClick(fillUp, 2, rules)
+
+        assertEquals(PlacementRule.MATCH_HALF, (matched[2] as WandCell.Material).placementRule)
+        assertEquals(PlacementRule.MATCH_HALF_FILL_DOWN, (fillDown[2] as WandCell.Material).placementRule)
+        assertEquals(PlacementRule.MATCH_HALF_FILL_UP, (fillUp[2] as WandCell.Material).placementRule)
+        assertEquals(PlacementRule.REGULAR, (regular[2] as WandCell.Material).placementRule)
+    }
+
+    @Test
+    fun `shift left normalizes unsupported rules and leaves rails unchanged`() {
+        val material = BlockWandState.createDefault().withCell(
+            2,
+            WandCell.Material("minecraft:stone", PlacementRule.MATCH_HALF)
+        )
+        val rail = BlockWandEditor.rightClick(material, slot = 2)
+
+        val normalized = BlockWandEditor.shiftLeftClick(material, 2, listOf(PlacementRule.REGULAR))
+        assertEquals(PlacementRule.REGULAR, (normalized[2] as WandCell.Material).placementRule)
+        assertEquals(rail, BlockWandEditor.shiftLeftClick(rail, 2, PlacementRule.entries.toList()))
+    }
+
+    @Test
     fun `first right click creates primary rail and later clicks toggle secondary rails`() {
         val initial = BlockWandState.createDefault()
             .withCell(4, WandCell.Material("minecraft:stone"))

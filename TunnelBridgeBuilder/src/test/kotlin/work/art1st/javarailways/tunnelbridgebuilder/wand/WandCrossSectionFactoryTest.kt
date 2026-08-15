@@ -14,14 +14,14 @@ class WandCrossSectionFactoryTest {
     fun `uses the primary rail as anchor and translates cells`() {
         val state = BlockWandState.createDefault()
             .withCell(0, WandCell.Air)
-            .withCell(1, WandCell.Material("minecraft:stone"))
+            .withCell(1, WandCell.Material("minecraft:stone", PlacementRule.MATCH_HALF))
             .makePrimaryRailCell(10)
 
-        val section = WandCrossSectionFactory.create(state) { it.uppercase() }
+        val section = WandCrossSectionFactory.create(state) { "${it.key.uppercase()}:${it.placementRule}" }
 
         assertEquals(SectionCoordinate(2, 1), section.anchor)
         assertSame(Carve, section[0, 0])
-        assertEquals(Place("MINECRAFT:STONE"), section[1, 0])
+        assertEquals(Place("MINECRAFT:STONE:MATCH_HALF"), section[1, 0])
         assertSame(Ignore, section[7, 4])
         assertSame(Carve, section[2, 1])
     }

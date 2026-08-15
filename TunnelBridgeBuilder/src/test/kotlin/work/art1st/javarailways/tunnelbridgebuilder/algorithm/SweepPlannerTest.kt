@@ -35,6 +35,14 @@ class SweepPlannerTest {
             assertEquals(Place("right"), byPosition[BlockPosition(1, 64, z)]?.operation)
             assertEquals(Place("foundation"), byPosition[BlockPosition(0, 63, z)]?.operation)
         }
+        assertEquals(
+            Vec3(0.5, 64.5, 1.5),
+            byPosition[BlockPosition(0, 64, 1)]?.cellCenter
+        )
+        assertEquals(
+            Vec3(0.5, 65.5, 1.5),
+            byPosition[BlockPosition(0, 65, 1)]?.cellCenter
+        )
         assertFalse(changes.any { it.position.z < 0 || it.position.z > 2 })
         assertEquals(changes.size, changes.map { it.position }.toSet().size)
     }

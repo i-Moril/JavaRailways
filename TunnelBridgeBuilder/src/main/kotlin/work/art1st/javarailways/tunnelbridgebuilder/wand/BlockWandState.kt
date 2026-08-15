@@ -7,6 +7,21 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
+enum class PlacementRule {
+    @SerialName("regular")
+    REGULAR,
+
+    @SerialName("match_half")
+    MATCH_HALF,
+
+    @SerialName("match_half_fill_down")
+    MATCH_HALF_FILL_DOWN,
+
+    @SerialName("match_half_fill_up")
+    MATCH_HALF_FILL_UP
+}
+
+@Serializable
 sealed interface WandCell {
     @Serializable
     @SerialName("ignore")
@@ -18,7 +33,10 @@ sealed interface WandCell {
 
     @Serializable
     @SerialName("material")
-    data class Material(val key: String) : WandCell {
+    data class Material(
+        val key: String,
+        val placementRule: PlacementRule = PlacementRule.REGULAR
+    ) : WandCell {
         init {
             require(key.isNotBlank()) { "Material key must not be blank" }
         }

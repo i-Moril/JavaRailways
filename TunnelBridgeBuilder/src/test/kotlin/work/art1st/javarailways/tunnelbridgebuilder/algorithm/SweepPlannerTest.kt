@@ -134,6 +134,17 @@ class SweepPlannerTest {
         assertTrue(frame.right.x > 0.0)
     }
 
+    @Test
+    fun `upright frame removes cant roll while following rail gradient`() {
+        val tangent = Vec3(1.0, 0.25, 1.0)
+        val frame = SweepFrame.upright(Vec3.ZERO, tangent)
+
+        assertEquals(0.0, frame.right.y, 1.0e-12)
+        assertEquals(0.0, frame.tangent dot frame.normal, 1.0e-12)
+        assertEquals(0.0, frame.tangent dot frame.right, 1.0e-12)
+        assertTrue(frame.normal.y > 0.0)
+    }
+
     private fun straightPath(
         start: Vec3,
         end: Vec3,

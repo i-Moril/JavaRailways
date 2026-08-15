@@ -113,10 +113,11 @@ class RailSweepService(
         val segments = ceil(length / SAMPLE_SPACING).toInt().coerceAtLeast(1)
         val frames = (0..segments).map { index ->
             val point = rail.curve.getPointAt(length * index / segments)
-            SweepFrame(
+            // Curve normals include rail superelevation. Tunnel and bridge structures stay
+            // upright, while the projected world-up frame still follows the rail gradient.
+            SweepFrame.upright(
                 position = Vec3(point.position.x(), point.position.y(), point.position.z()),
-                tangent = Vec3(point.tangent.x(), point.tangent.y(), point.tangent.z()),
-                normal = Vec3(point.normal.x(), point.normal.y(), point.normal.z())
+                tangent = Vec3(point.tangent.x(), point.tangent.y(), point.tangent.z())
             )
         }
         return SampledCenterLine(frames)

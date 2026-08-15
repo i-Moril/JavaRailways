@@ -53,6 +53,15 @@ class SweepFrame(position: Vec3, tangent: Vec3, normal: Vec3) {
         // Section columns increase toward the local right side.
         this.right = (this.normal cross this.tangent).normalized()
     }
+
+    companion object {
+        /**
+         * Builds a no-roll section frame from world up. The resulting right axis is horizontal,
+         * so rail superelevation/cant cannot tilt the swept tunnel or bridge cross-section.
+         */
+        fun upright(position: Vec3, tangent: Vec3): SweepFrame =
+            SweepFrame(position, tangent, Vec3.UNIT_Y)
+    }
 }
 
 internal data class NearestCenterLinePoint(

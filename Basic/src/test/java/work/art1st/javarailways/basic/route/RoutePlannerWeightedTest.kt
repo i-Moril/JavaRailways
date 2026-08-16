@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.route
 
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue

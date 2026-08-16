@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.timetable
 
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.safety
 
+import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 
@@ -57,7 +58,12 @@ class SpeedSafetyMonitor(
             }
 
             val derailSpeed = frame.sweptSpans.asSequence()
-                .mapNotNull { span -> world.getRail(span.railId)?.metadata?.derailSpeedMetersPerSecond }
+                .mapNotNull { span ->
+                    world.getRail(span.railId)?.let { rail ->
+                        world.basicWorldData.railMetadata.getOrDefault(rail.id)
+                            .curveSafety.baseCurveDerailSpeedMetersPerSecond
+                    }
+                }
                 .minOrNull()
                 ?: run {
                     overspeedEpochs.remove(train.id)

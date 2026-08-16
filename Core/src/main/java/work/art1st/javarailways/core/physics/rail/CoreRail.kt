@@ -12,7 +12,6 @@ import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.exception.CannotConnectRailException
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.api.physics.rail.Rail
-import work.art1st.javarailways.core.api.physics.rail.RailMetadata
 import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.util.annotation.Concurrent
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -32,7 +31,6 @@ class CoreRail @MainThread private constructor(
     override val id: UUID,
     override val world: CoreWorld,
     curveAB: PrimeCurve,
-    @Volatile override var metadata: RailMetadata,
     nextRailsA: Collection<RailView>,
     nextRailsB: Collection<RailView>,
     activeTrackAtA: RailView? = null,
@@ -66,9 +64,8 @@ class CoreRail @MainThread private constructor(
         world: CoreWorld,
         curveAB: PrimeCurve,
         nextRailsA: MutableList<RailView>,
-        nextRailsB: MutableList<RailView>,
-        metadata: RailMetadata = RailMetadata()
-    ) : this(UUID.randomUUID(), world, curveAB, metadata, nextRailsA, nextRailsB)
+        nextRailsB: MutableList<RailView>
+    ) : this(UUID.randomUUID(), world, curveAB, nextRailsA, nextRailsB)
 
     override fun getView(direction: ViewDirection): RailView {
         return when (direction) {
@@ -109,7 +106,6 @@ class CoreRail @MainThread private constructor(
         return SavedRailV1(
             id.toString(),
             curveSnapshot,
-            metadata,
             viewBA.nextRails.map { it.rail.id.toString() },
             viewAB.nextRails.map { it.rail.id.toString() },
             viewBA.nextActiveRail?.rail?.id?.toString(),
@@ -121,7 +117,6 @@ class CoreRail @MainThread private constructor(
     data class SavedRailV1(
         val id: String,
         val curveAB: PrimeCurveImpl.SavedPrimeCurveV1,
-        val metadata: RailMetadata,
         val nextRailAtA: List<String>,
         val nextRailAtB: List<String>,
         val activeTrackAtA: String?,
@@ -139,7 +134,6 @@ class CoreRail @MainThread private constructor(
                 UUID.fromString(id),
                 dependency.world,
                 curve,
-                metadata,
                 emptyList(),
                 emptyList(),
                 null,

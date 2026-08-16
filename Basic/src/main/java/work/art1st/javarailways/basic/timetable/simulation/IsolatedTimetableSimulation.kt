@@ -170,7 +170,7 @@ class IsolatedTimetableSimulationWorld private constructor(
         private const val LOGICAL_TICK_MILLIS = 50L
 
         fun create(
-            coreInfrastructure: CoreWorld.SavedInfrastructureV1,
+            coreInfrastructure: CoreWorld.SavedInfrastructureV2,
             basicInfrastructure: BasicInfrastructureSnapshotV1,
             workerThreads: Int,
             basicDataFactory: (CoreWorld) -> BasicWorldData,

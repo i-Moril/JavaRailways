@@ -44,6 +44,7 @@ import work.art1st.javarailways.basic.api.station.StationCallResolutionResult
 import work.art1st.javarailways.basic.api.station.StationCallResolver
 import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.basic.route.ConfirmedRouteWindow
 import work.art1st.javarailways.basic.route.MissionRouteLayout
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
@@ -560,8 +561,8 @@ class SimpleATO(
     private fun updateBuiltInConstraints(scan: ScanResult) {
         var distanceToSegment = 0.0
         val routeLimits = scan.segments.mapIndexed { index, segment ->
-            val limit = segment.railView.rail.metadata.speedLimitMetersPerSecond
-                ?: actuator.maximumSpeedMetersPerSecond
+            val limit = segment.railView.rail.infrastructureMetadata.speedLimits
+                .effectiveLimitMetersPerSecond() ?: actuator.maximumSpeedMetersPerSecond
             RouteSpeedLimitConstraint(
                 key = ConstraintKey("basic", "route-speed/$index/${segment.railView.rail.id}"),
                 distanceToStartMeters = distanceToSegment,

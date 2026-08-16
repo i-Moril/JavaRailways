@@ -6,7 +6,9 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
 import work.art1st.javarailways.bukkit.persistence.RailRenderMetaStore
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.RailAutoConnector
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -250,6 +252,7 @@ object RailCommand {
             rail.destroy()
             coreWorld.removeRail(rail)
         }
+        coreWorld.basicWorldData.railMetadata.remove(railId)
         RailVisualBootstrap.unregisterRail(railId)
         RailRenderMetaStore.removeRail(sender.world, railId)
         sender.sendMessage(

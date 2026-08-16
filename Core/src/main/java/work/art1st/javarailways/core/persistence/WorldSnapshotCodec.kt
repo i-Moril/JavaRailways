@@ -32,12 +32,12 @@ object WorldSnapshotCodec {
         serializersModule = extensionDataModule
     }
 
-    fun encodeInfrastructure(snapshot: CoreWorld.SavedInfrastructureV1): String =
-        json.encodeToString(CoreWorld.SavedInfrastructureV1.serializer(), snapshot)
+    fun encodeInfrastructure(snapshot: CoreWorld.SavedInfrastructureV2): String =
+        json.encodeToString(CoreWorld.SavedInfrastructureV2.serializer(), snapshot)
 
-    fun decodeInfrastructure(data: String): CoreWorld.SavedInfrastructureV1 =
-        json.decodeFromString(CoreWorld.SavedInfrastructureV1.serializer(), data).also {
-            require(it.formatVersion == CoreWorld.SNAPSHOT_FORMAT_VERSION) {
+    fun decodeInfrastructure(data: String): CoreWorld.SavedInfrastructureV2 =
+        json.decodeFromString(CoreWorld.SavedInfrastructureV2.serializer(), data).also {
+            require(it.formatVersion == CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION) {
                 "Unsupported core infrastructure snapshot version: ${it.formatVersion}"
             }
         }
@@ -47,7 +47,7 @@ object WorldSnapshotCodec {
 
     fun decodeRuntime(data: String): CoreWorld.SavedRuntimeV1 =
         json.decodeFromString(CoreWorld.SavedRuntimeV1.serializer(), data).also {
-            require(it.formatVersion == CoreWorld.SNAPSHOT_FORMAT_VERSION) {
+            require(it.formatVersion == CoreWorld.RUNTIME_SNAPSHOT_FORMAT_VERSION) {
                 "Unsupported core runtime snapshot version: ${it.formatVersion}"
             }
         }

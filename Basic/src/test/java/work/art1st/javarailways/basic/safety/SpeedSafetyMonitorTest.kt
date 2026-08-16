@@ -1,20 +1,24 @@
 package work.art1st.javarailways.basic.safety
 
+import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
-import work.art1st.javarailways.core.api.physics.rail.RailMetadata
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.createTestWorld as createCoreTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 
 class SpeedSafetyMonitorTest {
+    private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+
     @Test
     fun `exceeding operating limit alone does not derail`() {
         val world = createTestWorld()

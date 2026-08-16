@@ -1,7 +1,7 @@
 package work.art1st.javarailways.basic.curve
 
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.api.physics.rail.RailAssemblyRole
+import work.art1st.javarailways.basic.rail.RailAssemblyRole
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 
 /** One CoreRail-sized part of a player-facing curve. */

@@ -70,7 +70,8 @@ class CoreWorld(
     ) : this(LinkedHashMap(), ConcurrentHashMap(), hashMapOf(), tickManager, physicsCoordinator, worldParent)
 
     companion object {
-        const val SNAPSHOT_FORMAT_VERSION = 1
+        const val INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION = 2
+        const val RUNTIME_SNAPSHOT_FORMAT_VERSION = 1
         private const val DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY = 65_536
 
         fun createEmpty(
@@ -80,15 +81,15 @@ class CoreWorld(
         ): CoreWorld = CoreWorld(tickManager, physicsCoordinator, worldParent)
 
         fun load(
-            infrastructure: SavedInfrastructureV1,
+            infrastructure: SavedInfrastructureV2,
             runtime: SavedRuntimeV1?,
             dependency: SnapshotDependency
         ): CoreWorld {
-            require(infrastructure.formatVersion == SNAPSHOT_FORMAT_VERSION) {
+            require(infrastructure.formatVersion == INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION) {
                 "Unsupported core infrastructure snapshot version: ${infrastructure.formatVersion}"
             }
             if (runtime != null) {
-                require(runtime.formatVersion == SNAPSHOT_FORMAT_VERSION) {
+                require(runtime.formatVersion == RUNTIME_SNAPSHOT_FORMAT_VERSION) {
                     "Unsupported core runtime snapshot version: ${runtime.formatVersion}"
                 }
                 require(runtime.infrastructureRevision == infrastructure.infrastructureRevision) {
@@ -313,10 +314,10 @@ class CoreWorld(
 
     fun trainFrameMailboxMetrics(): LatestTrainFrameMailbox.Metrics = publishedTrainFrames.metrics()
 
-    fun saveInfrastructure(infrastructureRevision: Long): SavedInfrastructureV1 {
+    fun saveInfrastructure(infrastructureRevision: Long): SavedInfrastructureV2 {
         require(infrastructureRevision >= 0L)
-        return SavedInfrastructureV1(
-            formatVersion = SNAPSHOT_FORMAT_VERSION,
+        return SavedInfrastructureV2(
+            formatVersion = INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = infrastructureRevision,
             rails = allRails.map { it.save() }
         )
@@ -325,7 +326,7 @@ class CoreWorld(
     fun saveRuntime(infrastructureRevision: Long, physicsEpoch: Long): SavedRuntimeV1 {
         require(infrastructureRevision >= 0L && physicsEpoch >= 0L)
         return SavedRuntimeV1(
-            formatVersion = SNAPSHOT_FORMAT_VERSION,
+            formatVersion = RUNTIME_SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = infrastructureRevision,
             physicsEpoch = physicsEpoch,
             trains = trains.values.map { it.save() }
@@ -333,7 +334,7 @@ class CoreWorld(
     }
 
     @Serializable
-    data class SavedInfrastructureV1(
+    data class SavedInfrastructureV2(
         val formatVersion: Int,
         val infrastructureRevision: Long,
         val rails: List<CoreRail.SavedRailV1>

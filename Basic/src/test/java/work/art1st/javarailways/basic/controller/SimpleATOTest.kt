@@ -24,6 +24,7 @@ import work.art1st.javarailways.basic.api.ato.provider.ProviderBoundaryAction
 import work.art1st.javarailways.basic.pathFinding.RailDestination
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.rail.RailAutoConnector
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.basic.route.ConfirmedRouteWindow
 import work.art1st.javarailways.basic.route.RouteSectionAllocationKey
 import work.art1st.javarailways.basic.route.RouteSectionOwner
@@ -36,11 +37,13 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.createTestWorld as createCoreTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 
 class SimpleATOTest {
+    private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
@@ -177,7 +180,7 @@ class SimpleATOTest {
     fun `configured rail limit overrides actuator maximum speed`() {
         val fixture = fixture("rail-limit")
         val rail = fixture.train.head.location.rail
-        rail.metadata = rail.metadata.copy(speedLimitMetersPerSecond = 0.0)
+        rail.metadata = rail.metadata.copy(speedLimitMetersPerSecond = 0.01)
 
         tickAndPublish(fixture.ato, 1_000.0)
 

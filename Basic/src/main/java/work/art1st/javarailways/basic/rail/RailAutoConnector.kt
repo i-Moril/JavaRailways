@@ -2,7 +2,6 @@ package work.art1st.javarailways.basic.rail
 
 import org.joml.Vector3d
 import work.art1st.javarailways.core.api.physics.curve.Curve
-import work.art1st.javarailways.core.api.physics.rail.TurnoutEndpointMetadata
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -219,16 +218,19 @@ object RailAutoConnector {
 
     private fun turnoutMetadataAtJoint(view: RailView): TurnoutEndpointMetadata? =
         when (view.viewDirection) {
-            ViewDirection.AB -> view.rail.metadata.turnoutAtB
-            ViewDirection.BA -> view.rail.metadata.turnoutAtA
+            ViewDirection.AB -> view.rail.infrastructureMetadata.operating.turnoutAtB
+            ViewDirection.BA -> view.rail.infrastructureMetadata.operating.turnoutAtA
         }
 
     private fun setTurnoutMetadataAtJoint(view: RailView, value: TurnoutEndpointMetadata?): Boolean {
         val old = turnoutMetadataAtJoint(view)
         if (old == value) return false
-        view.rail.metadata = when (view.viewDirection) {
-            ViewDirection.AB -> view.rail.metadata.copy(turnoutAtB = value)
-            ViewDirection.BA -> view.rail.metadata.copy(turnoutAtA = value)
+        view.rail.updateInfrastructureMetadata { metadata ->
+            val operating = when (view.viewDirection) {
+                ViewDirection.AB -> metadata.operating.copy(turnoutAtB = value)
+                ViewDirection.BA -> metadata.operating.copy(turnoutAtA = value)
+            }
+            metadata.copy(operating = operating)
         }
         return true
     }

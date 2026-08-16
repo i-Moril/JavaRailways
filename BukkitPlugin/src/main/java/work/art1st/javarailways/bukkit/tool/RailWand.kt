@@ -39,8 +39,19 @@ import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
 import work.art1st.javarailways.basic.curve.SuperelevationConfig
 import work.art1st.javarailways.basic.curve.VerticalCurveRebuilder
 import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
+import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
+import work.art1st.javarailways.basic.rail.ParallelRailMetadata
+import work.art1st.javarailways.basic.rail.RailAssemblyKind
+import work.art1st.javarailways.basic.rail.RailAssemblyMetadata
+import work.art1st.javarailways.basic.rail.RailAssemblyRole
 import work.art1st.javarailways.basic.rail.RailAutoConnector
+import work.art1st.javarailways.basic.rail.RailCurveKind
+import work.art1st.javarailways.basic.rail.RailGeometryMetadata
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataTopology
+import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.basic.rail.TurnoutEndpointMetadata
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.basic.safety.RailSpeedCalculator
 import work.art1st.javarailways.basic.safety.RailSpeedLimits
 import work.art1st.javarailways.bukkit.BukkitPlugin
@@ -57,14 +68,6 @@ import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.PlayerOperationGate
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.api.physics.rail.ParallelRailMetadata
-import work.art1st.javarailways.core.api.physics.rail.RailAssemblyKind
-import work.art1st.javarailways.core.api.physics.rail.RailAssemblyMetadata
-import work.art1st.javarailways.core.api.physics.rail.RailAssemblyRole
-import work.art1st.javarailways.core.api.physics.rail.RailCurveKind
-import work.art1st.javarailways.core.api.physics.rail.RailGeometryMetadata
-import work.art1st.javarailways.core.api.physics.rail.RailMetadata
-import work.art1st.javarailways.core.api.physics.rail.TurnoutEndpointMetadata
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -158,6 +161,7 @@ sealed class WandAction {
         val removedRails: List<CoreRail.SavedRailV1>,
         val worldTopologyBefore: List<CoreRail.SavedRailV1>,
         val renderMetasBefore: List<PersistedRailRenderMeta>,
+        val railMetadataBefore: Map<UUID, RailMetadata>,
         val createdToRemovedIds: Map<UUID, UUID>
     ) : WandAction()
     data class MultiAction(val actions: List<WandAction>) : WandAction()
@@ -1052,8 +1056,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     coreWorld,
                     result.curve,
                     mutableListOf(),
-                    mutableListOf(),
-                    RailMetadata(
+                    mutableListOf()
+                ).also {
+                    it.metadata = RailMetadata(
                         designSpeedMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
                         speedLimitMetersPerSecond = speedLimits.operatingLimitMetersPerSecond,
                         derailSpeedMetersPerSecond = speedLimits.derailSpeedMetersPerSecond,
@@ -1064,7 +1069,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             allowableCantDeficiencyMeters = cantDeficiencyMeters
                         )
                     )
-                )
+                }
                 decorationModel?.let { modelName ->
                     val renderMeta = RailVisualBootstrap.registerRail(rail, modelName)
                     RailRenderMetaStore.upsertRail(livePlayer.world, renderMeta)
@@ -1075,6 +1080,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 } catch (failure: Exception) {
                     rail.destroy()
                     coreWorld.removeRail(rail)
+                    coreWorld.basicWorldData.railMetadata.remove(rail.id)
                     RailVisualBootstrap.unregisterRail(rail.id)
                     RailRenderMetaStore.removeRail(livePlayer.world, rail.id)
                     restoreRailConnections(connectionSnapshots)
@@ -1238,6 +1244,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val existingRails = liveCoreWorld.allRails.toList()
                 val topologyBefore = existingRails.map(CoreRail::save)
                 val renderMetasBefore = RailRenderMetaStore.load(livePlayer.world)
+                val railMetadataBefore = liveCoreWorld.basicWorldData.railMetadata.snapshot()
                 val renderMetaByRail = renderMetasBefore.associateBy { it.railId }
                 val removedIds = liveAdjacentRails.keys
                 val removedSaved = liveAdjacentRails.values.map(CoreRail::save)
@@ -1259,9 +1266,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             liveCoreWorld,
                             builtCurve.curve,
                             mutableListOf(),
-                            mutableListOf(),
-                            metadata
-                        )
+                            mutableListOf()
+                        ).also { it.metadata = metadata }
                         createdRails += replacement
                         oldToNew[oldId] = replacement.id
                         renderMetaByRail[oldId]?.let { oldMeta ->
@@ -1293,17 +1299,18 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                     role = part.role
                                 )
                             }
+                            val metadata = railMetadata(settingsSnapshot, part.speedLimits, parallel).copy(
+                                assembly = assembly,
+                                gradeLockedAtA = segmentIndex == 0 && isGradeLocked(startAnchors[laneIndex]),
+                                gradeLockedAtB = segmentIndex == segmentCount - 1 && isGradeLocked(endAnchors[laneIndex])
+                            )
                             CoreRail(
                                 liveCoreWorld,
                                 part.curve,
                                 mutableListOf(),
-                                mutableListOf(),
-                                railMetadata(settingsSnapshot, part.speedLimits, parallel).copy(
-                                    assembly = assembly,
-                                    gradeLockedAtA = segmentIndex == 0 && isGradeLocked(startAnchors[laneIndex]),
-                                    gradeLockedAtB = segmentIndex == segmentCount - 1 && isGradeLocked(endAnchors[laneIndex])
-                                )
+                                mutableListOf()
                             ).also { rail ->
+                                rail.metadata = metadata
                                 createdRails += rail
                                 newRails += rail
                             }
@@ -1330,6 +1337,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         RailVisualBootstrap.unregisterRail(oldRail.id)
                         oldRail.destroy()
                         liveCoreWorld.removeRail(oldRail)
+                        liveCoreWorld.basicWorldData.railMetadata.remove(oldRail.id)
                     }
 
                     discardCreatedAnchorOperations(livePlayer, selectionSnapshot.toSet())
@@ -1339,6 +1347,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         removedRails = removedSaved,
                         worldTopologyBefore = topologyBefore,
                         renderMetasBefore = renderMetasBefore,
+                        railMetadataBefore = railMetadataBefore,
                         createdToRemovedIds = oldToNew.entries.associate { (oldId, newId) -> newId to oldId }
                     ))
                     livePlayer.sendMessage(Component.text(
@@ -1369,6 +1378,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
                         liveCoreWorld.removeRail(rail)
+                        liveCoreWorld.basicWorldData.railMetadata.remove(rail.id)
                     }
                     restoreRailConnections(existingConnectionSnapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, renderMetasBefore)
@@ -1522,28 +1532,28 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 try {
                     rebuildInputs.forEach { input ->
                         val builtCurve = curvesByRailId[input.railId] ?: error("Missing rebuilt curve for ${input.railId}")
+                        val newMetadata = input.oldMetadata.copy(
+                            speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
+                            derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond,
+                            turnoutAtA = if (input.movedEnd == 'A') {
+                                turnoutEndpointMetadata(updatedEndpoint)
+                            } else input.oldMetadata.turnoutAtA,
+                            turnoutAtB = if (input.movedEnd == 'B') {
+                                turnoutEndpointMetadata(updatedEndpoint)
+                            } else input.oldMetadata.turnoutAtB,
+                            gradeLockedAtA = if (input.movedEnd == 'A') {
+                                isGradeLocked(updatedEndpoint)
+                            } else input.oldMetadata.gradeLockedAtA,
+                            gradeLockedAtB = if (input.movedEnd == 'B') {
+                                isGradeLocked(updatedEndpoint)
+                            } else input.oldMetadata.gradeLockedAtB
+                        )
                         val newRail = CoreRail(
                             liveCoreWorld,
                             builtCurve.curve,
                             mutableListOf(),
-                            mutableListOf(),
-                            input.oldMetadata.copy(
-                                speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
-                                derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond,
-                                turnoutAtA = if (input.movedEnd == 'A') {
-                                    turnoutEndpointMetadata(updatedEndpoint)
-                                } else input.oldMetadata.turnoutAtA,
-                                turnoutAtB = if (input.movedEnd == 'B') {
-                                    turnoutEndpointMetadata(updatedEndpoint)
-                                } else input.oldMetadata.turnoutAtB,
-                                gradeLockedAtA = if (input.movedEnd == 'A') {
-                                    isGradeLocked(updatedEndpoint)
-                                } else input.oldMetadata.gradeLockedAtA,
-                                gradeLockedAtB = if (input.movedEnd == 'B') {
-                                    isGradeLocked(updatedEndpoint)
-                                } else input.oldMetadata.gradeLockedAtB
-                            )
-                        )
+                            mutableListOf()
+                        ).also { it.metadata = newMetadata }
                         createdRails.add(newRail)
                         liveExistingMetaByRail[input.railId]?.let { oldMeta ->
                             createdMetas.add(registerRailWithTemplate(newRail, oldMeta.templateSnapshot))
@@ -1567,6 +1577,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
                         liveCoreWorld.removeRail(rail)
+                        liveCoreWorld.basicWorldData.railMetadata.remove(rail.id)
                     }
 
                     val replacementForEdited = oldToNew[editedRailId] ?: createdRails.first()
@@ -1583,6 +1594,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
                         liveCoreWorld.removeRail(rail)
+                        liveCoreWorld.basicWorldData.railMetadata.remove(rail.id)
                     }
                     restoreRailConnections(snapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, liveExistingMetas)
@@ -2135,6 +2147,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val allBefore = world.allRails.toList()
         val topologyBefore = allBefore.map(CoreRail::save)
         val renderBefore = RailRenderMetaStore.load(player.world)
+        val railMetadataBefore = world.basicWorldData.railMetadata.snapshot()
         val renderByRail = renderBefore.associateBy { it.railId }
         val oldIds = oldRails.mapTo(linkedSetOf(), CoreRail::id)
         val created = mutableListOf<CoreRail>()
@@ -2144,16 +2157,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         try {
             oldRails.forEach { old ->
                 val built = rebuilt.getValue(old.id)
+                val replacementMetadata = old.metadata.copy(
+                    speedLimitMetersPerSecond = built.speedLimits.operatingLimitMetersPerSecond,
+                    derailSpeedMetersPerSecond = built.speedLimits.derailSpeedMetersPerSecond
+                )
                 val replacement = CoreRail(
                     world,
                     built.curve,
                     mutableListOf(),
-                    mutableListOf(),
-                    old.metadata.copy(
-                        speedLimitMetersPerSecond = built.speedLimits.operatingLimitMetersPerSecond,
-                        derailSpeedMetersPerSecond = built.speedLimits.derailSpeedMetersPerSecond
-                    )
-                )
+                    mutableListOf()
+                ).also { it.metadata = replacementMetadata }
                 created += replacement
                 oldToNew[old.id] = replacement.id
                 renderByRail[old.id]?.let { renderAfter += registerRailWithTemplate(replacement, it.templateSnapshot) }
@@ -2167,6 +2180,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 RailVisualBootstrap.unregisterRail(old.id)
                 old.destroy()
                 world.removeRail(old)
+                world.basicWorldData.railMetadata.remove(old.id)
             }
             pushUndo(player, WandAction.ReplaceRails(
                 player.world.uid,
@@ -2174,6 +2188,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 topologyBefore.filter { UUID.fromString(it.id) in oldIds },
                 topologyBefore,
                 renderBefore,
+                railMetadataBefore,
                 oldToNew.entries.associate { (oldId, newId) -> newId to oldId }
             ))
             val state = getState(player)
@@ -2192,6 +2207,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 RailVisualBootstrap.unregisterRail(rail.id)
                 rail.destroy()
                 world.removeRail(rail)
+                world.basicWorldData.railMetadata.remove(rail.id)
             }
             restoreRailConnections(connectionSnapshots)
             RailRenderMetaStore.saveAll(player.world, renderBefore)
@@ -2416,7 +2432,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 gradeLockedAtA = oldLane.first().metadata.gradeLockedAtA && segmentIndex == 0,
                                 gradeLockedAtB = oldLane.last().metadata.gradeLockedAtB && segmentIndex == segmentCount - 1
                             )
-                            CoreRail(liveWorld, part.curve, mutableListOf(), mutableListOf(), metadata).also {
+                            CoreRail(liveWorld, part.curve, mutableListOf(), mutableListOf()).also {
+                                it.metadata = metadata
                                 created += it
                             }
                         }
@@ -2437,6 +2454,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         RailVisualBootstrap.unregisterRail(old.id)
                         old.destroy()
                         liveWorld.removeRail(old)
+                        liveWorld.basicWorldData.railMetadata.remove(old.id)
                     }
                     createdLanes.forEachIndexed { laneIndex, lane ->
                         val oldTemplate = oldLanes[laneIndex].firstNotNullOfOrNull {
@@ -2466,6 +2484,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
                         liveWorld.removeRail(rail)
+                        liveWorld.basicWorldData.railMetadata.remove(rail.id)
                     }
                     restoreRailConnections(connectionSnapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, persisted)
@@ -2856,6 +2875,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val originalRenderMeta = renderMetas.firstOrNull { it.railId == railId }
                 try {
                     val result = RailTopologyEditor.splitWithPreparedCurves(liveRail, curves.first, curves.second)
+                    RailInfrastructureMetadataTopology.split(
+                        liveWorld.basicWorldData.railMetadata,
+                        railId,
+                        result.before.id,
+                        result.after.id,
+                        result.operationId
+                    )
                     OperationalDestinationService(liveWorld).migrateAfterRailSplit(
                         oldRailId = railId,
                         beforeRailId = result.before.id,
@@ -2911,6 +2937,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text(error, NamedTextColor.RED))
             return
         }
+        RailInfrastructureMetadataTopology.mergeEligibilityError(
+            coreWorld.basicWorldData.railMetadata,
+            before.id,
+            after.id
+        )?.let { error ->
+            player.sendActionBar(Component.text(error, NamedTextColor.RED))
+            return
+        }
         splitSafetyError(coreWorld, listOf(before, after))?.let { error ->
             player.sendActionBar(Component.text(error, NamedTextColor.RED))
             return
@@ -2952,6 +2986,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
                     return@supply
                 }
+                RailInfrastructureMetadataTopology.mergeEligibilityError(
+                    liveWorld.basicWorldData.railMetadata,
+                    livePair.first.id,
+                    livePair.second.id
+                )?.let { error ->
+                    livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
+                    return@supply
+                }
                 splitSafetyError(liveWorld, livePair.toList())?.let { error ->
                     livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
                     return@supply
@@ -2962,6 +3004,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     val afterRailId = livePair.second.id
                     val beforeLengthMeters = livePair.first.curve.totalArcLength
                     val merged = RailTopologyEditor.mergeWithPreparedCurve(livePair.first, livePair.second, mergedCurve)
+                    RailInfrastructureMetadataTopology.merge(
+                        liveWorld.basicWorldData.railMetadata,
+                        beforeRailId,
+                        afterRailId,
+                        merged.id
+                    )
                     OperationalDestinationService(liveWorld).migrateAfterRailMerge(
                         beforeRailId = beforeRailId,
                         afterRailId = afterRailId,
@@ -3071,6 +3119,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val rail = coreWorld.getRail(railId) ?: run {
             RailVisualBootstrap.unregisterRail(railId)
             RailRenderMetaStore.removeRail(player.world, railId)
+            coreWorld.basicWorldData.railMetadata.remove(railId)
             refreshAllAnchorsForPlayer(player)
             player.sendActionBar(Component.text("轨道不存在，已清理残留渲染数据: $railId", NamedTextColor.YELLOW))
             return
@@ -3093,6 +3142,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 RailVisualBootstrap.unregisterRail(target.id)
                 target.destroy()
                 coreWorld.removeRail(target)
+                coreWorld.basicWorldData.railMetadata.remove(target.id)
             }
             RailRenderMetaStore.saveAll(player.world, renderAfter)
         }
@@ -3808,9 +3858,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val restoredRails = mutableListOf<CoreRail>()
         val topologyAtUndo = coreWorld.allRails.map(CoreRail::save)
         val renderAtUndo = RailRenderMetaStore.load(player.world)
+        val metadataAtUndo = coreWorld.basicWorldData.railMetadata.snapshot()
         var referencesMigrated = false
         return try {
             action.removedRails.forEach { restoredRails += it.loadDisconnected(dependency) }
+            coreWorld.basicWorldData.railMetadata.replace(
+                removals = action.createdRailIds,
+                additions = action.railMetadataBefore.filterKeys { it in removedIds }
+            )
             if (action.createdToRemovedIds.isNotEmpty()) {
                 OperationalDestinationService(coreWorld).migrateAllOnRails(action.createdToRemovedIds)
                 referencesMigrated = true
@@ -3850,6 +3905,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 restored.destroy()
                 coreWorld.removeRail(restored)
             }
+            coreWorld.basicWorldData.railMetadata.replace(
+                removals = removedIds,
+                additions = metadataAtUndo.filterKeys { it in action.createdRailIds }
+            )
             topologyAtUndo.forEach { saved ->
                 coreWorld.getRail(UUID.fromString(saved.id))?.let { saved.restoreConnections(it, dependency) }
             }
@@ -3868,6 +3927,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             RailRenderMetaStore.removeRail(player.world, action.railId)
             rail.destroy()
             coreWorld.removeRail(rail)
+            coreWorld.basicWorldData.railMetadata.remove(action.railId)
         }
         val state = getState(player)
         state.selectedRails.remove(action.railId)

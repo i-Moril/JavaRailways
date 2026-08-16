@@ -16,6 +16,12 @@ import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
+import work.art1st.javarailways.basic.rail.RailCurveKind
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitEntry
+import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -83,6 +89,34 @@ class BasicInfrastructureSnapshotTest {
             BasicInfrastructureSnapshotV1.capture(world, infrastructureRevision = 1L)
         }
         assertTrue(wayPointFailure.message.orEmpty().contains("legacy"))
+    }
+
+    @Test
+    fun `round trips rail infrastructure metadata`() {
+        val source = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(source)
+        val rail = createStraightRailFromSegments(
+            source,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val metadata = RailInfrastructureMetadata(
+            authoring = RailAuthoringMetadata(
+                curveKind = RailCurveKind.STRAIGHT,
+                designSpeedMetersPerSecond = 30.0
+            ),
+            speedLimits = SpeedLimitMetadata(
+                listOf(SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE))
+            )
+        )
+        source.basicWorldData.railMetadata.put(rail.id, metadata)
+        val snapshot = BasicInfrastructureSnapshotV1.capture(source, infrastructureRevision = 2L)
+
+        val restored = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(restored)
+        rail.save().load(CoreRail.SavedRailV1.Dependency(restored))
+        snapshot.restore(restored)
+
+        assertEquals(metadata, restored.basicWorldData.railMetadata.getValue(rail.id))
     }
 
     @Test

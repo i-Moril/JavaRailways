@@ -34,6 +34,7 @@ import work.art1st.javarailways.basic.api.ui.config.ConfigKey
 import work.art1st.javarailways.basic.api.ui.config.ConfigValueType
 import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.ui.dialog.DialogRenderer
 import work.art1st.javarailways.bukkit.util.BukkitAsyncTasks

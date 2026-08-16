@@ -16,7 +16,7 @@ data class InfrastructureFileV1(
     val coreSnapshotJson: String,
     val basicSnapshotJson: String
 ) {
-    fun core(): CoreWorld.SavedInfrastructureV1 =
+    fun core(): CoreWorld.SavedInfrastructureV2 =
         WorldSnapshotCodec.decodeInfrastructure(coreSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
@@ -52,7 +52,7 @@ data class CapturedWorldSnapshots(
 }
 
 data class WorldSnapshotCapture(
-    val coreInfrastructure: CoreWorld.SavedInfrastructureV1,
+    val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
     val basicInfrastructure: BasicInfrastructureSnapshotV1,
     val coreRuntime: CoreWorld.SavedRuntimeV1,
     val basicRuntime: BasicRuntimeSnapshotV1
@@ -76,7 +76,7 @@ object SplitWorldSnapshotCodec {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
 
     fun infrastructure(
-        core: CoreWorld.SavedInfrastructureV1,
+        core: CoreWorld.SavedInfrastructureV2,
         basic: BasicInfrastructureSnapshotV1
     ): InfrastructureFileV1 {
         require(core.infrastructureRevision == basic.infrastructureRevision)

@@ -9,14 +9,17 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.api.physics.rail.TurnoutEndpointMetadata
+import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.core.physics.rail.CoreRail
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.createTestWorld as createCoreTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import kotlin.math.cos
 import kotlin.math.sin
 
 class RailAutoConnectorTest {
+    private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+
     @Test
     fun `occupied endpoint rail must be taken out of service before connection`() {
         val world = createTestWorld()

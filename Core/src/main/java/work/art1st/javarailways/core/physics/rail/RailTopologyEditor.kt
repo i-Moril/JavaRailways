@@ -2,7 +2,6 @@ package work.art1st.javarailways.core.physics.rail
 
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.api.physics.rail.RailSplitMetadata
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import java.util.UUID
 
@@ -54,15 +53,8 @@ object RailTopologyEditor {
         val world = rail.world
         val existingRails = world.allRails.filter { it !== rail }
         val snapshots = (existingRails + rail).flatMap(::snapshotViews)
-        val parentLineage = rail.metadata.createdBySplit
-        val beforeMetadata = rail.metadata.copy(
-            createdBySplit = RailSplitMetadata(operationId, 0, parentLineage)
-        )
-        val afterMetadata = rail.metadata.copy(
-            createdBySplit = RailSplitMetadata(operationId, 1, parentLineage)
-        )
-        val before = CoreRail(world, beforeCurve, mutableListOf(), mutableListOf(), beforeMetadata)
-        val after = CoreRail(world, afterCurve, mutableListOf(), mutableListOf(), afterMetadata)
+        val before = CoreRail(world, beforeCurve, mutableListOf(), mutableListOf())
+        val after = CoreRail(world, afterCurve, mutableListOf(), mutableListOf())
 
         try {
             val replacements = mapOf(
@@ -97,15 +89,6 @@ object RailTopologyEditor {
     fun mergeEligibilityError(before: CoreRail, after: CoreRail): String? {
         if (before.world !== after.world) return "轨道不在同一世界"
         if (before === after) return "不能合并同一轨道"
-        val beforeSplit = before.metadata.createdBySplit ?: return "前段不是由分割创建"
-        val afterSplit = after.metadata.createdBySplit ?: return "后段不是由分割创建"
-        if (beforeSplit.operationId != afterSplit.operationId ||
-            beforeSplit.segmentIndex != 0 || afterSplit.segmentIndex != 1
-        ) return "两段轨道不是同一次分割产生的相邻段"
-        if (beforeSplit.parent != afterSplit.parent) return "分割谱系不一致"
-        if (before.metadata.copy(createdBySplit = beforeSplit.parent) !=
-            after.metadata.copy(createdBySplit = afterSplit.parent)
-        ) return "两段轨道元数据不一致"
         val affectedRailIds = buildSet {
             add(before.id)
             add(after.id)
@@ -137,9 +120,7 @@ object RailTopologyEditor {
         val world = before.world
         val existingRails = world.allRails.filter { it !== before && it !== after }
         val snapshots = (existingRails + before + after).flatMap(::snapshotViews)
-        val lineage = requireNotNull(before.metadata.createdBySplit)
-        val mergedMetadata = before.metadata.copy(createdBySplit = lineage.parent)
-        val merged = CoreRail(world, mergedCurve, mutableListOf(), mutableListOf(), mergedMetadata)
+        val merged = CoreRail(world, mergedCurve, mutableListOf(), mutableListOf())
 
         try {
             val replacements = mapOf(

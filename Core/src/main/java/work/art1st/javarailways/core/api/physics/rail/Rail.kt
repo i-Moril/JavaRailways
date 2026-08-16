@@ -21,9 +21,6 @@ interface Rail : Destroyable, Extendable<RenderableExtension<Rail>> {
      */
     val curve: PrimeCurve
 
-    /** Operational and geometry metadata. Mutations must follow the owning world's thread rules. */
-    var metadata: RailMetadata
-
     /** Return the directional view for [direction]. */
     fun getView(direction: ViewDirection): RailView
 }

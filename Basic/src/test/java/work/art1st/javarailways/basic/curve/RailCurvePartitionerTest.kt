@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.basic.safety.RailSpeedCalculator
-import work.art1st.javarailways.core.api.physics.rail.RailAssemblyRole
+import work.art1st.javarailways.basic.rail.RailAssemblyRole
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 
 class RailCurvePartitionerTest {

@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.route
 
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -199,7 +200,7 @@ class RoutePlanner(private val world: World) {
     }
 
     private fun allowsDirection(view: RailView): Boolean =
-        view.rail.metadata.allowedDirection?.let { it == view.viewDirection } ?: true
+        view.rail.infrastructureMetadata.operating.allowedDirection?.let { it == view.viewDirection } ?: true
 
     private fun rebuildPath(
         predecessor: Map<SearchState, SearchState?>,

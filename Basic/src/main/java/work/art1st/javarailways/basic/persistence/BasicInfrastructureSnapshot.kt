@@ -12,6 +12,7 @@ import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
@@ -151,13 +152,27 @@ data class SavedLineV1(
 }
 
 @Serializable
+data class SavedRailInfrastructureMetadataV1(
+    val railId: String,
+    val metadata: RailInfrastructureMetadata
+) {
+    fun parsedRailId(): UUID = UUID.fromString(railId)
+
+    companion object {
+        fun capture(railId: UUID, metadata: RailInfrastructureMetadata) =
+            SavedRailInfrastructureMetadataV1(railId.toString(), metadata)
+    }
+}
+
+@Serializable
 data class BasicInfrastructureSnapshotV1(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val destinations: List<SavedOperationalDestinationV1>,
     val wayPoints: List<SavedWayPointV1>,
     val lines: List<SavedLineV1>,
-    val lineRevision: Long
+    val lineRevision: Long,
+    val railMetadata: List<SavedRailInfrastructureMetadataV1> = emptyList()
 ) {
     fun restore(world: World) {
         require(formatVersion == CURRENT_FORMAT_VERSION) {
@@ -179,6 +194,15 @@ data class BasicInfrastructureSnapshotV1(
             "Infrastructure snapshot contains WayPoints on missing rails: " +
                 missingWayPointRails.joinToString { "${it.id}@${it.railId}" }
         }
+        val duplicateMetadataIds = railMetadata.groupingBy { it.railId }.eachCount().filterValues { it > 1 }.keys
+        check(duplicateMetadataIds.isEmpty()) {
+            "Infrastructure snapshot contains duplicate Rail metadata: ${duplicateMetadataIds.joinToString()}"
+        }
+        val missingMetadataRails = railMetadata.filter { world.getRail(it.parsedRailId()) == null }
+        check(missingMetadataRails.isEmpty()) {
+            "Infrastructure snapshot contains metadata for missing rails: " +
+                missingMetadataRails.joinToString { it.railId }
+        }
         val service = OperationalDestinationService(world)
         destinations.forEach { service.register(it.restore()) }
         wayPoints.forEach { world.basicWorldData.wayPoints.add(it.restore()) }
@@ -189,6 +213,9 @@ data class BasicInfrastructureSnapshotV1(
             "Infrastructure snapshot contains lines with missing stations: ${missingStations.joinToString()}"
         }
         world.basicWorldData.lines.restore(restoredLines, lineRevision)
+        world.basicWorldData.railMetadata.restore(
+            railMetadata.associate { it.parsedRailId() to it.metadata }
+        )
     }
 
     companion object {
@@ -210,6 +237,11 @@ data class BasicInfrastructureSnapshotV1(
                 "Cannot capture WayPoints on missing rails: " +
                     missingWayPointRails.joinToString { "${it.id}@${it.railId}" }
             }
+            val railMetadata = data.railMetadata.snapshot()
+            val orphanMetadata = railMetadata.keys.filter { world.getRail(it) == null }
+            check(orphanMetadata.isEmpty()) {
+                "Cannot capture metadata for missing rails: ${orphanMetadata.joinToString()}"
+            }
             val lineSnapshot = data.lines.snapshot()
             return BasicInfrastructureSnapshotV1(
                 formatVersion = CURRENT_FORMAT_VERSION,
@@ -217,7 +249,10 @@ data class BasicInfrastructureSnapshotV1(
                 destinations = destinations.map(SavedOperationalDestinationV1::capture),
                 wayPoints = standaloneWayPoints.map(SavedWayPointV1::capture),
                 lines = lineSnapshot.lines.map(SavedLineV1::capture),
-                lineRevision = lineSnapshot.revision
+                lineRevision = lineSnapshot.revision,
+                railMetadata = railMetadata.map { (railId, metadata) ->
+                    SavedRailInfrastructureMetadataV1.capture(railId, metadata)
+                }
             )
         }
     }

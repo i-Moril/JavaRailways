@@ -10,20 +10,15 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.api.physics.rail.RailMetadata
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 
 class RailTopologyEditorTest {
     @Test
-    fun `split preserves outer topology and merge restores metadata and geometry`() {
+    fun `split preserves outer topology and merge restores geometry`() {
         val world = createTestWorld()
         val previous = rail(world, -5.0, 0.0)
-        val originalMetadata = RailMetadata(
-            designSpeedMetersPerSecond = 30.0,
-            speedLimitMetersPerSecond = 25.0
-        )
-        val original = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf(), originalMetadata)
+        val original = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
         val next = rail(world, 10.0, 15.0)
         CoreRail.connect(previous, original)
         CoreRail.connect(original, next)
@@ -41,9 +36,7 @@ class RailTopologyEditorTest {
         assertEquals(4, world.allRails.size)
         assertEquals(4.25, split.before.curve.totalArcLength, 1e-12)
         assertEquals(5.75, split.after.curve.totalArcLength, 1e-12)
-        assertEquals("split-test", split.before.metadata.createdBySplit?.operationId)
-        assertEquals(0, split.before.metadata.createdBySplit?.segmentIndex)
-        assertEquals(1, split.after.metadata.createdBySplit?.segmentIndex)
+        assertEquals("split-test", split.operationId)
         assertSame(split.before.viewAB, previous.viewAB.nextActiveRail)
         assertSame(split.after.viewAB, split.before.viewAB.nextActiveRail)
         assertSame(split.before.viewBA, split.after.viewBA.nextActiveRail)
@@ -55,7 +48,6 @@ class RailTopologyEditorTest {
         assertNull(world.getRail(split.before.id))
         assertNull(world.getRail(split.after.id))
         assertEquals(3, world.allRails.size)
-        assertEquals(originalMetadata, merged.metadata)
         assertSame(merged.viewAB, previous.viewAB.nextActiveRail)
         assertSame(next.viewAB, merged.viewAB.nextActiveRail)
         for (index in 0..40) {

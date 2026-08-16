@@ -10,13 +10,6 @@ import work.art1st.javarailways.core.di.KoinWorldParentContext
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
 import work.art1st.javarailways.core.di.javaRailwaysParentScope
-import work.art1st.javarailways.core.api.physics.rail.ParallelRailMetadata
-import work.art1st.javarailways.core.api.physics.rail.RailAssemblyKind
-import work.art1st.javarailways.core.api.physics.rail.RailAssemblyMetadata
-import work.art1st.javarailways.core.api.physics.rail.RailAssemblyRole
-import work.art1st.javarailways.core.api.physics.rail.RailCurveKind
-import work.art1st.javarailways.core.api.physics.rail.RailGeometryMetadata
-import work.art1st.javarailways.core.api.physics.rail.RailMetadata
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -37,30 +30,6 @@ class WorldPersistenceRoundTripTest {
         val world = CoreWorld.createEmpty(tickManager, worldParent)
         val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         val rail = createStraightRailFromSegments(world, segments)
-        rail.metadata = RailMetadata(
-            designSpeedMetersPerSecond = 22.0,
-            speedLimitMetersPerSecond = 20.0,
-            derailSpeedMetersPerSecond = 31.0,
-            allowedDirection = ViewDirection.AB,
-            geometry = RailGeometryMetadata(
-                curveKind = RailCurveKind.FIVE_SEGMENT,
-                curveRadiusMeters = 300.0,
-                automaticSuperelevation = true,
-                allowableCantDeficiencyMeters = 0.09,
-                parallel = ParallelRailMetadata("P1", index = 0, count = 2, spacingMeters = 4.5)
-            ),
-            assembly = RailAssemblyMetadata(
-                groupId = "curve-group",
-                kind = RailAssemblyKind.FIVE_SEGMENT_CURVE,
-                laneIndex = 0,
-                laneCount = 1,
-                segmentIndex = 1,
-                segmentCount = 3,
-                role = RailAssemblyRole.CURVE
-            ),
-            gradeLockedAtA = true,
-            gradeLockedAtB = false
-        )
         val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(sourceTrain, "Player Express")
 
@@ -86,17 +55,8 @@ class WorldPersistenceRoundTripTest {
 
         assertEquals("Player Express", loaded.getTrain("persist-t1")?.name)
         assertEquals("persist-t1", loaded.getTrain("Player Express")?.id)
-        assertEquals(22.0, loaded.getRail(rail.id)?.metadata?.designSpeedMetersPerSecond)
-        assertEquals(20.0, loaded.getRail(rail.id)?.metadata?.speedLimitMetersPerSecond)
-        assertEquals(31.0, loaded.getRail(rail.id)?.metadata?.derailSpeedMetersPerSecond)
-        assertEquals(ViewDirection.AB, loaded.getRail(rail.id)?.metadata?.allowedDirection)
-        assertEquals(0.09, loaded.getRail(rail.id)?.metadata?.geometry?.allowableCantDeficiencyMeters)
-        assertEquals(300.0, loaded.getRail(rail.id)?.metadata?.geometry?.curveRadiusMeters)
-        assertEquals("P1", loaded.getRail(rail.id)?.metadata?.geometry?.parallel?.groupId)
-        assertEquals("curve-group", loaded.getRail(rail.id)?.metadata?.assembly?.groupId)
-        assertEquals(RailAssemblyRole.CURVE, loaded.getRail(rail.id)?.metadata?.assembly?.role)
-        assertEquals(true, loaded.getRail(rail.id)?.metadata?.gradeLockedAtA)
-        assertEquals(false, loaded.getRail(rail.id)?.metadata?.gradeLockedAtB)
+        assertNotNull(loaded.getRail(rail.id))
+        assertTrue(!WorldSnapshotCodec.encodeInfrastructure(infrastructure).contains("\"metadata\""))
         val roundInfrastructure = loaded.saveInfrastructure(1L)
         val roundRuntime = loaded.saveRuntime(1L, 2L)
         assertEquals(infrastructure.rails.size, roundInfrastructure.rails.size)
@@ -109,13 +69,13 @@ class WorldPersistenceRoundTripTest {
 
     @Test
     fun worldLoadReportsTheTrainThatFailedToRestore() {
-        val infrastructure = CoreWorld.SavedInfrastructureV1(
-            formatVersion = CoreWorld.SNAPSHOT_FORMAT_VERSION,
+        val infrastructure = CoreWorld.SavedInfrastructureV2(
+            formatVersion = CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             rails = emptyList()
         )
         val runtime = CoreWorld.SavedRuntimeV1(
-            formatVersion = CoreWorld.SNAPSHOT_FORMAT_VERSION,
+            formatVersion = CoreWorld.RUNTIME_SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 1L,
             trains = listOf(
@@ -156,8 +116,8 @@ class WorldPersistenceRoundTripTest {
     @Test
     fun decodeRejectsUnsupportedSnapshotVersion() {
         val encoded = WorldSnapshotCodec.encodeInfrastructure(
-            CoreWorld.SavedInfrastructureV1(
-                formatVersion = CoreWorld.SNAPSHOT_FORMAT_VERSION + 1,
+            CoreWorld.SavedInfrastructureV2(
+                formatVersion = CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION + 1,
                 infrastructureRevision = 0L,
                 rails = emptyList()
             )

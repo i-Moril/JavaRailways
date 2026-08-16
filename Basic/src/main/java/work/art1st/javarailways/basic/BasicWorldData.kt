@@ -12,6 +12,7 @@ import work.art1st.javarailways.basic.pathFinding.RailMap
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.timetable.TimetableDispatcher
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -34,7 +35,8 @@ data class BasicWorldData(
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),
     val stations: StationStore = StationStore(railObjects),
-    val turnoutSafetyDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults()
+    val turnoutSafetyDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults(),
+    val railMetadata: RailInfrastructureMetadataStore = RailInfrastructureMetadataStore()
 ) {
     init {
         require(stations.usesRailObjectStore(railObjects)) {

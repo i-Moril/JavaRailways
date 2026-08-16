@@ -15,7 +15,7 @@ import work.art1st.javarailways.core.physics.train.SavedTrainV1
 class WorldSnapshotExtensionDataTest {
     @Test
     fun `split snapshot requires one infrastructure revision and physics epoch`() {
-        val infrastructure = CoreWorld.SavedInfrastructureV1(1, 7L, emptyList())
+        val infrastructure = CoreWorld.SavedInfrastructureV2(CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION, 7L, emptyList())
         val runtime = CoreWorld.SavedRuntimeV1(1, 7L, 9L, emptyList())
         val basicInfrastructure = BasicInfrastructureSnapshotV1(
             1, 7L, emptyList(), emptyList(), emptyList(), 0L
@@ -57,7 +57,7 @@ class WorldSnapshotExtensionDataTest {
     @Test
     fun `world snapshot codec preserves bukkit render extension data`() {
         val snapshot = CoreWorld.SavedRuntimeV1(
-            formatVersion = CoreWorld.SNAPSHOT_FORMAT_VERSION,
+            formatVersion = CoreWorld.RUNTIME_SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = 1L,
             physicsEpoch = 1L,
             trains = listOf(

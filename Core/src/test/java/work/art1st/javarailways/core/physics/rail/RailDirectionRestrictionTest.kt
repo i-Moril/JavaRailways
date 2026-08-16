@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test
 import org.joml.Vector3d
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.api.physics.rail.RailMetadata
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreBogie
@@ -18,7 +17,7 @@ import work.art1st.javarailways.core.util.AsyncTickTestSupport
 
 class RailDirectionRestrictionTest {
     @Test
-    fun `physical topology and bogie geometry ignore operational direction restriction`() {
+    fun `physical topology and bogie geometry remain direction neutral`() {
         val world = createTestWorld()
         val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(40.0, segmentCount = 1))
         val secondCurve = PrimeCurve.fromPoints(listOf(
@@ -29,14 +28,12 @@ class RailDirectionRestrictionTest {
         RailView.connect(first.viewAB, second.viewBA)
         assertEquals(second.viewAB, first.viewAB.activeRail)
 
-        second.metadata = RailMetadata(allowedDirection = ViewDirection.BA)
         assertEquals(second.viewAB, first.viewAB.activeRail)
         val operationallyForbiddenBogie = CoreBogie.create(second.viewAB.getRailLocationAt(1.0))
         val operationallyAllowedBogie = CoreBogie.create(second.viewBA.getRailLocationAt(1.0))
         assertDoesNotThrow { operationallyForbiddenBogie.moveForward(1.0) }
         assertDoesNotThrow { operationallyAllowedBogie.moveForward(1.0) }
 
-        second.metadata = second.metadata.copy(allowedDirection = ViewDirection.AB)
         val behind = second.viewAB.getRailLocationAt(1.0).forward(-2.0)
         assertEquals(first.id, behind?.rail?.id)
         assertEquals(ViewDirection.AB, behind?.facing)

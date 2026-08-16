@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.basic.timetable.TimetableDepotResetApplyException
 import work.art1st.javarailways.basic.timetable.TimetableDepotResetSummary
 import work.art1st.javarailways.core.api.physics.World
@@ -142,7 +143,7 @@ class DepotResetCoordinator(private val world: World) {
                 )
             val railLength = rail.getView(ViewDirection.AB).curve.totalArcLength
             val placementDirection = destination.approachDirection
-                ?: rail.metadata.allowedDirection
+                ?: rail.infrastructureMetadata.operating.allowedDirection
                 ?: ViewDirection.AB
             val arcInView = when (placementDirection) {
                 ViewDirection.AB -> destination.arcLengthInAbMeters

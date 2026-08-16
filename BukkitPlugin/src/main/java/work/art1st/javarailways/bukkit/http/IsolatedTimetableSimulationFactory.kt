@@ -37,7 +37,7 @@ internal data class TimetableProfileSelection(
 )
 
 internal data class IsolatedTimetableSimulationSnapshot(
-    val coreInfrastructure: CoreWorld.SavedInfrastructureV1,
+    val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
     val basicInfrastructure: BasicInfrastructureSnapshotV1,
     val timetable: Timetable,
     val profilesByService: Map<String, SimulationControlProfile>,

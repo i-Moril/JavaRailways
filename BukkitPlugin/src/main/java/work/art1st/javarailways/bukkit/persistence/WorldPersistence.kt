@@ -21,6 +21,10 @@ object WorldPersistence {
     private fun worldsDir(): File = File(BukkitPlugin.INSTANCE.dataFolder, "worlds").also { it.mkdirs() }
 
     fun infrastructureFile(world: World): File = infrastructureFile(world.uid)
+    fun infrastructureFiles(): List<File> = worldsDir().listFiles()
+        .orEmpty()
+        .filter { it.isFile && it.name.endsWith("-infrastructure.json") }
+        .sortedBy(File::getName)
     fun runtimeFile(world: World): File = runtimeFile(world.uid)
     fun infrastructureFile(worldId: UUID): File = File(worldsDir(), "$worldId-infrastructure.json")
     fun runtimeFile(worldId: UUID): File = File(worldsDir(), "$worldId-runtime.json")

@@ -1,0 +1,39 @@
+package work.art1st.javarailways.bukkit.persistence
+
+import kotlinx.serialization.Serializable
+import work.art1st.javarailways.basic.rail.RailAssemblyMetadata
+import work.art1st.javarailways.basic.rail.RailGeometryMetadata
+import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.basic.rail.RailSplitMetadata
+import work.art1st.javarailways.basic.rail.TurnoutEndpointMetadata
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+
+/** Migration-only shape of the metadata embedded in Core infrastructure format 1. */
+@Serializable
+internal data class LegacyRailMetadataV1(
+    val designSpeedMetersPerSecond: Double? = null,
+    val speedLimitMetersPerSecond: Double? = designSpeedMetersPerSecond,
+    val derailSpeedMetersPerSecond: Double? = null,
+    val allowedDirection: ViewDirection? = null,
+    val geometry: RailGeometryMetadata = RailGeometryMetadata(),
+    val assembly: RailAssemblyMetadata? = null,
+    val createdBySplit: RailSplitMetadata? = null,
+    val turnoutAtA: TurnoutEndpointMetadata? = null,
+    val turnoutAtB: TurnoutEndpointMetadata? = null,
+    val gradeLockedAtA: Boolean = false,
+    val gradeLockedAtB: Boolean = false
+) {
+    fun toCurrent(): RailMetadata = RailMetadata(
+        designSpeedMetersPerSecond,
+        speedLimitMetersPerSecond,
+        derailSpeedMetersPerSecond,
+        allowedDirection,
+        geometry,
+        assembly,
+        createdBySplit,
+        turnoutAtA,
+        turnoutAtB,
+        gradeLockedAtA,
+        gradeLockedAtB
+    )
+}

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.route
 
+import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import java.util.Collections
@@ -220,9 +221,9 @@ class PlannedRouteCompiler(
                 val (stemToJoint, selectedBranch) = canonicalTurnout
                 val endpointMetadata = when (stemToJoint.viewDirection) {
                     work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB ->
-                        stemToJoint.rail.metadata.turnoutAtB
+                        stemToJoint.rail.infrastructureMetadata.operating.turnoutAtB
                     work.art1st.javarailways.core.api.physics.rail.ViewDirection.BA ->
-                        stemToJoint.rail.metadata.turnoutAtA
+                        stemToJoint.rail.infrastructureMetadata.operating.turnoutAtA
                 }
                 requirements += TurnoutRequirement(
                     from = RailViewRef.from(stemToJoint),
@@ -267,7 +268,7 @@ class PlannedRouteCompiler(
         world.getRail(ref.railId)?.getView(ref.direction)
 
     private fun allowsDirection(view: RailView): Boolean =
-        view.rail.metadata.allowedDirection?.let { it == view.viewDirection } ?: true
+        view.rail.infrastructureMetadata.operating.allowedDirection?.let { it == view.viewDirection } ?: true
 
     private fun buildBoundaries(totalLength: Double, requested: Collection<Double>): List<Double>? {
         val points = ArrayList<Double>(requested.size + 2)

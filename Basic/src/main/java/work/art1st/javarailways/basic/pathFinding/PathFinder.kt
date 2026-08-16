@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.pathFinding
 
+import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import java.util.LinkedList
 
@@ -19,7 +20,7 @@ class PathFinder(
      */
     fun findPath(start: RailView, label: String): List<RailView>? {
         fun allows(view: RailView): Boolean =
-            view.rail.metadata.allowedDirection?.let { it == view.viewDirection } ?: true
+            view.rail.infrastructureMetadata.operating.allowedDirection?.let { it == view.viewDirection } ?: true
         if (!allows(start)) return null
         val pending: ArrayDeque<State> = ArrayDeque()
         // 记录当前 view 来自哪个 view（用于路径重建）

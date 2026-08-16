@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.route
 
+import work.art1st.javarailways.basic.rail.TurnoutEndpointMetadata
+import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -9,10 +12,11 @@ import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
-import work.art1st.javarailways.core.api.physics.rail.TurnoutEndpointMetadata
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.createTestWorld as createCoreTestWorld
 
 class PlannedRouteCompilerTest {
+    private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+
     @Test
     fun `allocation trigger includes braking setup reaction and margin distances`() {
         val timing = RouteAllocationTiming(

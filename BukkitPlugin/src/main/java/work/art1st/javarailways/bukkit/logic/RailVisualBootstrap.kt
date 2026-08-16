@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.logic
 
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.RailDisplayType
 import work.art1st.javarailways.bukkit.extension.rail.RailArcSegmentMeta

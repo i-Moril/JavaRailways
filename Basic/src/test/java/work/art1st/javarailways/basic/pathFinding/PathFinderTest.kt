@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.pathFinding
 
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -24,6 +25,7 @@ class PathFinderTest {
     @BeforeEach
     fun setup() {
         world = createTestWorld()
+        TestBasicWorldDataRegistry.getOrCreate(world)
     }
 
     @Nested

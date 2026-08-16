@@ -21,6 +21,7 @@ import work.art1st.javarailways.basic.safety.RailSpeedCalculator
 import work.art1st.javarailways.basic.timetable.TimetableAtoFactory
 import work.art1st.javarailways.basic.timetable.TimetableDispatcher
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
+import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGateway
 import work.art1st.javarailways.bukkit.operation.RegionTrainOperationDispatcher
@@ -39,7 +40,7 @@ object RailWorldFactory {
     @OptIn(Heavy::class)
     fun createForBukkit(
         bukkitWorld: BukkitWorld,
-        infrastructure: CoreWorld.SavedInfrastructureV1? = null,
+        infrastructure: CoreWorld.SavedInfrastructureV2? = null,
         runtime: CoreWorld.SavedRuntimeV1? = null,
         basicInfrastructure: BasicInfrastructureSnapshotV1? = null,
         basicRuntime: BasicRuntimeSnapshotV1? = null

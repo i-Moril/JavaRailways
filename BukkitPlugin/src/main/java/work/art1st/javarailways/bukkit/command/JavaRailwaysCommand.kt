@@ -4,10 +4,7 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
-import org.bukkit.command.Command
-import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
-import org.bukkit.command.TabCompleter
 import org.bukkit.entity.Player
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.depot.DepotId
@@ -33,11 +30,13 @@ import work.art1st.javarailways.basic.timetable.TimetableWaypointProgressListene
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.diagnostics.PluginDiagnosticLog
 import work.art1st.javarailways.bukkit.config.TimetableWebUiMode
+import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.http.TimetableScriptNormalizer
 import work.art1st.javarailways.bukkit.debug.AtoStallDiagnostics
 import work.art1st.javarailways.bukkit.debug.DepotResetDiagnostics
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.control.TrainKeyItem
+import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.render.backend.PacketPlatformDiagnostics
 import work.art1st.javarailways.bukkit.render.model.SeatModel
@@ -50,14 +49,11 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
-class JavaRailwaysCommand : CommandExecutor, TabCompleter {
+class JavaRailwaysCommand {
     private val navigationCounter = AtomicLong()
-    override fun onCommand(
-        sender: CommandSender,
-        command: Command,
-        label: String,
-        args: Array<out String>
-    ): Boolean = BukkitThreadGuardBridge.runInSimulationContext {
+
+    fun execute(sender: CommandSender, label: String, args: Array<out String>): Boolean =
+        BukkitThreadGuardBridge.runInSimulationContext {
         try {
             executeCommand(sender, args)
         } catch (failure: Throwable) {
@@ -99,51 +95,84 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
         return true
     }
 
-    override fun onTabComplete(
-        sender: CommandSender,
-        command: Command,
-        alias: String,
-        args: Array<out String>
-    ): List<String> = BukkitThreadGuardBridge.runInSimulationContext {
-        completeCommand(sender, args)
-    }
+    fun suggest(sender: CommandSender, args: Array<out String>): List<String> =
+        BukkitThreadGuardBridge.runInSimulationContext {
+            completeCommand(sender, args)
+        }
 
     private fun completeCommand(sender: CommandSender, args: Array<out String>): List<String> {
-        if (args.size == 1) {
-            return listOf("rail", "train", "wand", "waypoint", "route", "navigate", "timetable", "depot", "ato", "stop", "perf", "resources", "undo", "redo", "help")
-        }
-        if (args[0].equals("resources", ignoreCase = true) || args[0].equals("resource", ignoreCase = true)) {
-            return if (args.size == 2) listOf("reload") else emptyList()
-        }
-        if (args[0].equals("navigate", ignoreCase = true) ||
-            args[0].equals("nav", ignoreCase = true)
-        ) {
-            val candidates = ArrayList<String>()
-            if (args.none { it == "--measure" || it == "-m" }) {
-                candidates += "--measure"
-                candidates += "-m"
+        val plugin = BukkitPlugin.INSTANCE
+        val prefix = args.lastOrNull().orEmpty()
+        fun filtered(values: Iterable<String>): List<String> = values.distinct()
+            .filter { it.startsWith(prefix, ignoreCase = true) }
+            .sorted()
+        fun playerWorld(): CoreWorld? = (sender as? Player)?.let { plugin.worldManager.railWorlds[it.world] as? CoreWorld }
+        fun waypoints(): List<String> = playerWorld()?.basicWorldData?.wayPoints?.all()?.map { it.id }.orEmpty()
+        fun trains(): List<String> = playerWorld()?.allTrains.orEmpty().flatMap { listOf(it.name, it.id) }
+
+        if (args.size <= 1) return filtered(ROOT_COMMANDS)
+        return when (args[0].lowercase()) {
+            "resources", "resource" -> if (args.size == 2) filtered(listOf("reload")) else emptyList()
+            "rail" -> when (args.size) {
+                2 -> filtered(listOf("create", "list", "connect", "delete"))
+                3 -> if (args[1].equals("delete", true)) filtered(playerWorld()?.allRails.orEmpty().map { it.id.toString() }) else emptyList()
+                else -> emptyList()
             }
-            if (sender is Player) {
-                BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world]?.basicWorldData
-                    ?.wayPoints?.all()?.forEach { waypoint ->
-                        candidates += waypoint.id
-                        candidates += "+${waypoint.id}"
-                    }
+            "train" -> when (args.size) {
+                2 -> filtered(listOf("create", "rename", "key", "anim", "action", "behavior", "info", "list", "delete", "sit", "stand"))
+                3 -> when (args[1].lowercase()) {
+                    "create" -> filtered(plugin.modelManager.trainPackages.keys)
+                    "rename", "delete" -> filtered(trains())
+                    "action" -> filtered(plugin.modelManager.trainPackages.values.flatMap { it.actions.keys })
+                    else -> emptyList()
+                }
+                else -> emptyList()
             }
-            val prefix = args.lastOrNull().orEmpty()
-            return candidates.filter { it.startsWith(prefix, ignoreCase = true) }
-        }
-        if (args[0].equals("ato", ignoreCase = true)) {
-            if (args.size == 2) return listOf("status", "dump", "reset")
-            if (args.size == 3) return BukkitPlugin.INSTANCE.worldManager.railWorlds.keys.map { it.name }
-        }
-        if (args[0].equals("timetable", ignoreCase = true) || args[0].equals("tt", ignoreCase = true)) {
-            if (args.size == 2) return listOf("edit", "load", "dump", "list", "start", "status", "stop", "replan")
-            if (args.size == 3 && args[1].equals("load", ignoreCase = true)) {
-                return BukkitPlugin.INSTANCE.timetableScriptSandbox.listScripts().map { it.name }
+            "wand" -> if (args.size == 2) filtered(listOf("rail", "railobject")) else emptyList()
+            "waypoint", "wp", "stop" -> when (args.size) {
+                2 -> filtered(listOf("list", "info", "remove"))
+                3 -> if (args[1].lowercase() in setOf("info", "remove")) filtered(waypoints()) else emptyList()
+                else -> emptyList()
             }
+            "route" -> when (args.size) {
+                2 -> filtered(listOf("validate"))
+                3, 4 -> if (args[1].equals("validate", true)) filtered(waypoints()) else emptyList()
+                else -> emptyList()
+            }
+            "navigate", "nav" -> {
+                val values = waypoints().flatMap { listOf(it, "+$it") }.toMutableList()
+                if (args.none { it == "--measure" || it == "-m" }) values += listOf("--measure", "-m")
+                filtered(values)
+            }
+            "depot" -> when (args.size) {
+                2 -> filtered(listOf("assign", "list", "reset", "reset-all"))
+                3 -> if (args[1].equals("assign", true)) filtered(trains()) else emptyList()
+                else -> emptyList()
+            }
+            "ato" -> when (args.size) {
+                2 -> filtered(listOf("status", "dump", "reset"))
+                3 -> filtered(plugin.worldManager.railWorlds.keys.map { it.name })
+                else -> emptyList()
+            }
+            "timetable", "tt" -> when (args.size) {
+                2 -> filtered(listOf("edit", "load", "dump", "list", "start", "reset", "status", "stop", "replan"))
+                3 -> if (args[1].lowercase() in setOf("edit", "load")) {
+                    filtered(plugin.timetableScriptSandbox.listScripts().map { it.name })
+                } else emptyList()
+                else -> emptyList()
+            }
+            "perf", "performance" -> if (args.size == 2) {
+                filtered(listOf("summary", "chunks", "trains", "player", "packettrace", "scene") + plugin.worldManager.railWorlds.keys.map { it.name })
+            } else emptyList()
+            else -> emptyList()
         }
-        return emptyList()
+    }
+
+    private companion object {
+        val ROOT_COMMANDS = listOf(
+            "rail", "train", "wand", "waypoint", "route", "navigate", "timetable", "depot",
+            "ato", "stop", "perf", "resources", "undo", "redo", "help"
+        )
     }
 
     private fun handleResources(sender: CommandSender, args: List<String>): Boolean {
@@ -155,7 +184,14 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
             sender.sendMessage("用法: /jr resources reload")
             return true
         }
-        val result = BukkitPlugin.INSTANCE.modelManager.loadAll()
+        val plugin = BukkitPlugin.INSTANCE
+        if (plugin.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
+            plugin.worldManager.railWorlds.values.flatMap { it.allTrains }.forEach { train ->
+                train.rendererOrNull?.pinCurrentPackageSnapshot()
+                train.cars.forEach { it.carRendererOrNull?.pinCurrentModelSnapshot() }
+            }
+        }
+        val result = plugin.modelManager.loadAll()
         sender.sendMessage(
             "资源重载完成：${result.trainPackages.size} 个列车包，" +
                 "${result.railPackages.size} 个轨道包（generation=${result.generation}）"

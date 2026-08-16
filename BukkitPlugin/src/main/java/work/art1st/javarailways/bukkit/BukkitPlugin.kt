@@ -8,7 +8,7 @@ import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListe
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.bukkit.behavior.TrainReverseBehaviorListener
-import work.art1st.javarailways.bukkit.command.JavaRailwaysCommand
+import work.art1st.javarailways.bukkit.command.CloudCommandRegistrar
 import work.art1st.javarailways.bukkit.config.DisplayRendererBackend
 import work.art1st.javarailways.bukkit.config.JavaRailwaysConfig
 import work.art1st.javarailways.bukkit.config.PhysicsConfig
@@ -80,6 +80,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     /** 轨道工程与物理配置，从 physics.yml 加载；仅在重启时生效。 */
     lateinit var physicsConfig: PhysicsConfig
+
+    lateinit var cloudCommands: CloudCommandRegistrar
+        private set
 
     /** 轨道可视化配置，从 rail_model.yml 加载 */
     lateinit var railModelConfig: RailModelConfig
@@ -203,14 +206,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         railObjectWand = RailObjectWand(this)
         railObjectWand.init()
 
-        // 注册命令
-        val javaRailwaysCmd = JavaRailwaysCommand()
-        listOf("javarailways", "jr").forEach { name ->
-            getCommand(name)?.apply {
-                setExecutor(javaRailwaysCmd)
-                setTabCompleter(javaRailwaysCmd)
-            }
-        }
+        // Cloud 通过 Paper Brigadier 注册完整命令树与动态补全。
+        cloudCommands = CloudCommandRegistrar(this)
 
         BukkitThreadGuardBridge.runInSimulationContext {
             server.worlds.forEach { worldManager.registerRailWorld(it) }

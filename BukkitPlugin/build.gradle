@@ -91,6 +91,7 @@ dependencies {
     implementation("org.graalvm.polyglot:js-community:24.2.2")
     implementation("io.github.tofaa2:spigot:3.0.3-SNAPSHOT") // EntityLib; version pinning is tracked in the packet renderer plan.
     implementation("net.jcip:jcip-annotations:1.0")
+    implementation("org.incendo:cloud-paper:2.0.0-beta.17")
     implementation(platform("io.insert-koin:koin-bom:4.1.1"))
     implementation("io.insert-koin:koin-core:4.1.1")
     implementation(project(":Core"))
@@ -152,6 +153,7 @@ shadowJar {
     relocate 'com.github.retrooper.packetevents', 'work.art1st.javarailways.shadow.packetevents.api'
     relocate 'io.github.retrooper.packetevents', 'work.art1st.javarailways.shadow.packetevents.impl'
     relocate 'me.tofaa.entitylib', 'work.art1st.javarailways.shadow.entitylib'
+    relocate 'org.incendo.cloud', 'work.art1st.javarailways.shadow.cloud'
     configurations = [project.configurations.runtimeClasspath, jomlShadow]
     dependencies {
         // Language selector artifacts are POM-only; their transitive runtime jars are included.
@@ -212,12 +214,6 @@ bukkitPluginYaml {
 
     // Embedded PacketEvents must load after other protocol injectors when they are present.
     softDepend.addAll("ProtocolLib", "ProtocolSupport", "ViaVersion", "ViaBackwards", "ViaRewind", "Geyser-Spigot")
-
-    // 须在 plugin.yml 中声明，getCommand("javarailways"/"jr") 才能拿到命令实例
-    commands.register("javarailways") {
-        description.set("JavaRailways 插件主命令")
-        aliases.add("jr")
-    }
 
     permissions.register("javarailways.admin") {
         description.set("允许执行 JavaRailways 管理操作")

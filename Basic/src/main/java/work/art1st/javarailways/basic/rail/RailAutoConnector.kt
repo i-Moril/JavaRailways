@@ -14,7 +14,9 @@ import kotlin.math.max
 object RailAutoConnector {
     data class Options(
         val endpointTolerance: Double = Curve.TOLERANCE,
-        val maxTangentAngleDegrees: Double = RailConnectionPolicy.DEFAULT_MAX_TANGENT_ANGLE_DEGREES
+        val maxTangentAngleDegrees: Double = RailConnectionPolicy.DEFAULT_MAX_TANGENT_ANGLE_DEGREES,
+        /** Final topology visible at commit; defaults to the world's currently published rails. */
+        val topologyRails: Collection<CoreRail>? = null
     )
 
     enum class Outcome {
@@ -52,7 +54,9 @@ object RailAutoConnector {
         second: CoreRail,
         options: Options = Options()
     ): Result {
-        first.world.awaitCurrentPhysicsEpoch()
+        if (!first.world.isRailTopologyTransactionActiveOnCurrentThread()) {
+            first.world.awaitCurrentPhysicsEpoch()
+        }
         if (first == second) return Result(Outcome.ALREADY_CONNECTED)
         require(first.world === second.world) { "rails must belong to the same world" }
 
@@ -64,7 +68,8 @@ object RailAutoConnector {
         val endpoints = endpointsAt(
             first,
             joint.firstViewToJoint.endPoint.position,
-            options.endpointTolerance
+            options.endpointTolerance,
+            options.topologyRails ?: first.world.allRails
         )
         val affectedRailIds = endpoints.mapTo(linkedSetOf()) { it.viewToJoint.rail.id }.apply {
             add(first.id)
@@ -201,8 +206,13 @@ object RailAutoConnector {
         )
     }
 
-    private fun endpointsAt(first: CoreRail, position: org.joml.Vector3dc, tolerance: Double): List<Endpoint> =
-        first.world.allRails
+    private fun endpointsAt(
+        first: CoreRail,
+        position: org.joml.Vector3dc,
+        tolerance: Double,
+        topologyRails: Collection<CoreRail>
+    ): List<Endpoint> =
+        topologyRails
             .flatMap { rail -> listOf(rail.viewAB, rail.viewBA) }
             .filter { it.endPoint.position.distance(position) <= tolerance }
             .map(::Endpoint)

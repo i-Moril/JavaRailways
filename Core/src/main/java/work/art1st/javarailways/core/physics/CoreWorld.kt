@@ -27,6 +27,9 @@ import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.LinkedHashMap
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 /**
  * 物理世界：由 [createEmpty] 或分离的 infrastructure/runtime 快照创建；Bukkit 等平台在创建后通过
@@ -42,6 +45,7 @@ class CoreWorld(
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
 ) : World, Extendable<Any> by extensionDataContainer {
     private val railSpatialIndex = RailSpatialIndex()
+    private val railTopologyLock = ReentrantReadWriteLock()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
 
@@ -193,33 +197,49 @@ class CoreWorld(
     }
 
     @MainThread
-    internal fun addRail(rail: CoreRail) {
+    internal fun addRail(rail: CoreRail) = railTopologyLock.write {
         rails[rail.id] = rail
         railSpatialIndex.addRail(rail)
     }
 
-    val allRails: Collection<CoreRail>
-        get() = rails.values
+    /**
+     * Execute a validated infrastructure commit without exposing partially replaced rails to
+     * world lookups. Expensive curve construction must finish before entering this boundary.
+     */
+    @MainThread
+    fun <T> railTopologyTransaction(action: () -> T): T {
+        awaitCurrentPhysicsEpoch()
+        return railTopologyLock.write(action)
+    }
 
-    override fun getRail(id: UUID): CoreRail? = rails[id]
+    fun isRailTopologyTransactionActiveOnCurrentThread(): Boolean =
+        railTopologyLock.isWriteLockedByCurrentThread
+
+    val allRails: Collection<CoreRail>
+        get() = railTopologyLock.read { rails.values.toList() }
+
+    override fun getRail(id: UUID): CoreRail? = railTopologyLock.read { rails[id] }
 
     fun getRailsNear(position: Vector3dc, radius: Double): Collection<CoreRail> =
-        railSpatialIndex.query(position, radius)
+        railTopologyLock.read { railSpatialIndex.query(position, radius) }
 
     fun getRailsAlongRay(origin: Vector3dc, direction: Vector3dc, maxDistance: Double, radius: Double): Collection<CoreRail> =
-        railSpatialIndex.queryAlongRay(origin, direction, maxDistance, radius)
+        railTopologyLock.read { railSpatialIndex.queryAlongRay(origin, direction, maxDistance, radius) }
 
     @OptIn(Heavy::class)
     fun getNearestRail(position: Vector3dc): CoreRail? {
         ThreadGuard.ensureOffMainThread("CoreWorld.getNearestRail")
-        return rails.values.minByOrNull { rail ->
-            rail.curve.getNearestPoint(position).position.distance(position)
+        return railTopologyLock.read {
+            rails.values.minByOrNull { rail ->
+                rail.curve.getNearestPoint(position).position.distance(position)
+            }
         }
     }
 
     @MainThread
     override fun removeRail(rail: Rail) {
-        awaitCurrentPhysicsEpoch()
+        if (!railTopologyLock.isWriteLockedByCurrentThread) awaitCurrentPhysicsEpoch()
+        railTopologyLock.write {
         val removed = rail as? CoreRail
         if (removed != null) {
             val affectedRailIds = buildSet {
@@ -252,6 +272,7 @@ class CoreWorld(
             railSpatialIndex.removeRail(removed)
         }
         rails.remove(rail.id)
+        }
     }
 
     /** Rebuilt by the physics Coordinator after all train states are published. */
@@ -297,7 +318,7 @@ class CoreWorld(
         return SavedInfrastructureV1(
             formatVersion = SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = infrastructureRevision,
-            rails = rails.values.map { it.save() }
+            rails = allRails.map { it.save() }
         )
     }
 

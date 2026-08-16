@@ -64,8 +64,8 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
                 wand.persistPlayerState(player, state)
                 player.sendActionBar(Component.text("已使用 $modelName 装饰轨道", NamedTextColor.GREEN))
             }.onFailure { error ->
-                player.sendActionBar(Component.text(
-                    "轨道装饰失败: ${error.message ?: error::class.simpleName}",
+                player.sendMessage(Component.text(
+                    "轨道装饰失败：${railWandFailureReason(error)}",
                     NamedTextColor.RED
                 ))
             }

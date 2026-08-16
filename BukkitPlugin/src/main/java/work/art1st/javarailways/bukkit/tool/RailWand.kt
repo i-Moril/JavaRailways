@@ -9,8 +9,10 @@ import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.*
 import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
+import org.bukkit.entity.Display
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
+import org.bukkit.entity.TextDisplay
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.block.Action
@@ -89,6 +91,38 @@ internal fun straightTerminalPosition(
 /** 终点复用起点的切线表示；Factory 对 T/-T 做无向归一化。 */
 internal fun straightTerminalTangent(startTangent: Vector3dc): Vector3d =
     Vector3d(startTangent)
+
+/** Returns the chord tangent, or null when a connected endpoint is not already collinear. */
+internal fun twoPointStraightTangent(
+    from: Vector3dc,
+    to: Vector3dc,
+    currentTangent: Vector3dc,
+    endpointIsEmpty: Boolean
+): Vector3d? {
+    val chord = Vector3d(to).sub(from)
+    if (chord.lengthSquared() <= 1.0e-12) return null
+    chord.normalize()
+    if (!endpointIsEmpty) {
+        val current = Vector3d(currentTangent)
+        if (current.lengthSquared() <= 1.0e-12) return null
+        current.normalize()
+        if (abs(current.dot(chord)) < 1.0 - 1.0e-6) return null
+        if (current.dot(chord) < 0.0) chord.negate()
+    }
+    return chord
+}
+
+internal fun requiresRailWandVerticalSmoothing(curves: List<PrimeCurve>): Boolean =
+    curves.zipWithNext().any { (before, after) ->
+        val beforeTangent = before.getPointAt(before.totalArcLength).tangent
+        val afterTangent = after.getPointAt(0.0).tangent
+        abs(railWandVerticalGrade(beforeTangent) - railWandVerticalGrade(afterTangent)) > 1.0e-6
+    }
+
+private fun railWandVerticalGrade(tangent: Vector3dc): Double {
+    val horizontal = hypot(tangent.x(), tangent.z())
+    return if (horizontal <= 1.0e-12) 0.0 else tangent.y() / horizontal
+}
 
 // ═══════════════════════════════════════════════════════════════
 // 工作模式
@@ -278,6 +312,7 @@ internal object RailWandStateCodec {
 // ═══════════════════════════════════════════════════════════════
 private const val TURNOUT_PROTECTION_METADATA_KEY = "javarailways.turnout.protectionDistanceMeters"
 private const val TURNOUT_LOCKING_METADATA_KEY = "javarailways.turnout.lockingDistanceMeters"
+private const val GRADE_LOCKED_METADATA_KEY = "javarailways.gradeLocked"
 
 // RailWand 主类
 // ═══════════════════════════════════════════════════════════════
@@ -326,6 +361,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     /** Per-player transient anchor marker entities: player UUID -> (anchorId -> Set<entityId>). */
     private val anchorEntities =
         ConcurrentHashMap<UUID, ConcurrentHashMap<String, MutableSet<ItemDisplay>>>()
+    private val speedLimitEntities = ConcurrentHashMap<UUID, MutableSet<TextDisplay>>()
     private val heavyOperationGate = PlayerOperationGate()
     private val anchorCreationOperations =
         ConcurrentHashMap<UUID, ConcurrentHashMap<String, RailWandOperation>>()
@@ -519,6 +555,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             group = "rail.edit"
             order = 1
         }
+        val maxSuperelevationMm = ConfigKey.build<Double>("rail.edit.maxSuperelevationMm") {
+            label = "最大超高"
+            description = "该曲线允许的最大外轨超高；并行线路会整组重建。"
+            defaultValue(150.0)
+            valueType = ConfigValueType.NUMBER
+            constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
+            group = "rail.edit"
+            order = 2
+        }
     }
 
     /** 锚点编辑配置键 */
@@ -550,15 +595,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             label = "Roll (°)"; defaultValue("0.0"); valueType = ConfigValueType.STRING
             constraints = ConfigConstraints.StringLength(1, 32); group = "anchor.edit"; order = 6
         }
+        val gradeLocked = ConfigKey.build<Boolean>("anchor.gradeLocked") {
+            label = "锁定坡度"; description = "纵断面平滑时保持该锚点当前坡度。"
+            defaultValue(false); valueType = ConfigValueType.BOOLEAN; group = "anchor.edit"; order = 7
+        }
         val turnoutProtectionDistance = ConfigKey.build<Double>("anchor.turnoutProtectionDistance") {
             label = "道岔保护距离"; description = "未取得道岔时，列车必须停在锚点之外的距离。"
             defaultValue(20.0); valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 1000.0, 1.0, "m"); group = "anchor.edit"; order = 7
+            constraints = ConfigConstraints.NumberRange(0.0, 1000.0, 1.0, "m"); group = "anchor.edit"; order = 8
         }
         val turnoutLockingDistance = ConfigKey.build<Double>("anchor.turnoutLockingDistance") {
             label = "道岔锁定距离"; description = "任何列车占用锚点前后该距离时禁止扳动道岔。"
             defaultValue(5.0); valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 1000.0, 1.0, "m"); group = "anchor.edit"; order = 8
+            constraints = ConfigConstraints.NumberRange(0.0, 1000.0, 1.0, "m"); group = "anchor.edit"; order = 9
         }
         // 批量编辑模式: 增量字段
         val deltaX = ConfigKey.build<Double>("anchor.deltaX") {
@@ -625,6 +674,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             items.add(ConfigItemImpl(editKeys.tangentYaw))
             items.add(ConfigItemImpl(editKeys.tangentPitch))
             items.add(ConfigItemImpl(editKeys.roll))
+            items.add(ConfigItemImpl(editKeys.gradeLocked))
             items.add(ConfigItemImpl(editKeys.turnoutProtectionDistance))
             items.add(ConfigItemImpl(editKeys.turnoutLockingDistance))
         }
@@ -636,7 +686,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             description = "修改轨道段的基础设施属性。修改曲线半径会重建轨道。",
             items = mutableListOf(
                 ConfigItemImpl(railEditKeys.designSpeedKmH),
-                ConfigItemImpl(railEditKeys.curveRadius)
+                ConfigItemImpl(railEditKeys.curveRadius),
+                ConfigItemImpl(railEditKeys.maxSuperelevationMm)
             )
         ))
 
@@ -718,6 +769,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     override fun onPlayerQuit(player: Player, state: WandPlayerState) {
         removeAllAnchorDisplays(player)
+        removeSpeedLimitDisplays(player)
         splitPreviewTargets.remove(player.uniqueId)
         splitPreviewRequests.remove(player.uniqueId)
         splitPreviewViewers.remove(player.uniqueId)
@@ -755,10 +807,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
         val straightStarts = getCreateModeStraightStarts(player, state)
-        val newAnchors = if (straightStarts != null) {
-            createStraightTerminalAnchorGroup(player, position, straightStarts)
-        } else {
-            createParallelAnchorGroup(player, position, getSnappedTangent(player, state), state)
+        val twoPointStarts = getCreateModeTwoPointStraightStarts(player, state)
+        val newAnchors = try {
+            when {
+                straightStarts != null -> createStraightTerminalAnchorGroup(player, position, straightStarts)
+                twoPointStarts != null -> createTwoPointStraightTerminalAnchorGroup(player, position, twoPointStarts)
+                else -> createParallelAnchorGroup(player, position, getSnappedTangent(player, state), state)
+            }
+        } catch (error: IllegalArgumentException) {
+            player.sendActionBar(Component.text(error.message ?: "两点直线不符合既有端点切线", NamedTextColor.RED))
+            return
         }
         val newAnchorIds = newAnchors.map { it.id }
 
@@ -819,6 +877,45 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val count = state.parallelCount.coerceAtLeast(1)
         if (state.selectedAnchors.size != count) return null
         return state.selectedAnchors.map { getAnchor(player.world, it) ?: return null }
+    }
+
+    private fun getCreateModeTwoPointStraightStarts(player: Player, state: WandPlayerState): List<Anchor>? {
+        if (state.curveTemplate != RailCurveTemplateType.TWO_POINT_STRAIGHT) return null
+        val count = state.parallelCount.coerceAtLeast(1)
+        if (state.selectedAnchors.size != count) return null
+        return state.selectedAnchors.map { getAnchor(player.world, it) ?: return null }
+    }
+
+    private fun createTwoPointStraightTerminalAnchorGroup(
+        player: Player,
+        centerTarget: Vector3dc,
+        starts: List<Anchor>
+    ): List<Anchor> {
+        val centerStart = Vector3d()
+        starts.forEach { centerStart.add(it.position) }
+        centerStart.div(starts.size.toDouble())
+        val displacement = Vector3d(centerTarget).sub(centerStart)
+        val plans = starts.map { start ->
+            val target = Vector3d(start.position).add(displacement)
+            val empty = isAnchorEmpty(player.world, start)
+            val startTangent = twoPointStraightTangent(start.position, target, start.tangent, empty)
+                ?: throw IllegalArgumentException("两点直线不符合非空端点 ${start.id} 的既有切线")
+            Triple(start, target, startTangent)
+        }
+        plans.forEach { (start, _, tangent) ->
+            if (!isDerivedRailAnchorId(start.id)) {
+                val updated = start.withTangent(tangent)
+                updateAnchor(player.world, updated)
+                removeAnchorDisplay(player, start.id)
+                spawnAnchorDisplay(player, updated)
+            }
+        }
+        return plans.map { (_, target, tangent) ->
+            Anchor(nextAnchorId(), target, Vector3d(tangent), worldId = player.world.uid.toString()).also { anchor ->
+                addAnchor(player.world, anchor)
+                spawnAnchorDisplay(player, anchor)
+            }
+        }
     }
 
     private fun createStraightTerminalAnchorGroup(
@@ -965,7 +1062,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     RailVisualBootstrap.unregisterRail(rail.id)
                     RailRenderMetaStore.removeRail(livePlayer.world, rail.id)
                     restoreRailConnections(connectionSnapshots)
-                    livePlayer.sendActionBar(Component.text("道岔创建失败: ${failure.message}", NamedTextColor.RED))
+                    livePlayer.sendMessage(Component.text("道岔创建失败：${railWandFailureReason(failure)}", NamedTextColor.RED))
                     return@supply
                 }
                 pushUndo(livePlayer, WandAction.CreateRail(livePlayer.world.uid, rail.id, decorationModel ?: "none"))
@@ -982,8 +1079,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("RailWand turnout build failed: ${error.message ?: error::class.simpleName}")
-                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
-                    Component.text("道岔创建失败", NamedTextColor.RED)
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(
+                    Component.text("道岔创建失败：${railWandFailureReason(error)}", NamedTextColor.RED)
                 )
             }
         )
@@ -1015,6 +1112,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     /** 连接已选择的锚点组，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
     internal fun connectSelectedAnchors(player: Player, state: WandPlayerState) {
+        if (state.mode != WandMode.CREATE && state.curveTemplate == RailCurveTemplateType.TWO_POINT_STRAIGHT) {
+            player.sendActionBar(Component.text("两点直线模板仅用于创建模式", NamedTextColor.RED))
+            return
+        }
         val expectedCount = state.parallelCount * 2
         if (state.selectedAnchors.size != expectedCount) {
             player.sendActionBar(Component.text(
@@ -1130,6 +1231,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val oldToNew = linkedMapOf<UUID, UUID>()
                 val existingConnectionSnapshots = existingRails.map(::snapshotRailConnections)
                 var destinationsMigrated = false
+                liveCoreWorld.railTopologyTransaction {
                 try {
                     connectionBuild.replacementCurves.forEach { (oldId, builtCurve) ->
                         val oldRail = liveAdjacentRails.getValue(oldId)
@@ -1161,7 +1263,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             builtCurve.curve,
                             mutableListOf(),
                             mutableListOf(),
-                            railMetadata(settingsSnapshot, builtCurve.speedLimits, parallel)
+                            railMetadata(settingsSnapshot, builtCurve.speedLimits, parallel).copy(
+                                gradeLockedAtA = isGradeLocked(startAnchors[index]),
+                                gradeLockedAtB = isGradeLocked(endAnchors[index])
+                            )
                         )
                         if (settingsSnapshot.autoDecorate) {
                             persistedMetas += RailVisualBootstrap.registerRail(rail, settingsSnapshot.decorationModel)
@@ -1227,7 +1332,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     }
                     restoreRailConnections(existingConnectionSnapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, renderMetasBefore)
-                    livePlayer.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
+                    livePlayer.sendMessage(Component.text("创建轨道失败：${railWandFailureReason(e)}", NamedTextColor.RED))
+                }
                 }
             },
             onFailure = { error ->
@@ -1235,8 +1341,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 plugin.logger.warning(
                     "RailWand connect failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
                 )
-                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
-                    Component.text("轨道连接失败，请重试", NamedTextColor.RED)
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(
+                    Component.text("轨道连接失败：${railWandFailureReason(error)}", NamedTextColor.RED)
                 )
             }
         )
@@ -1383,7 +1489,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 } else input.oldMetadata.turnoutAtA,
                                 turnoutAtB = if (input.movedEnd == 'B') {
                                     turnoutEndpointMetadata(updatedEndpoint)
-                                } else input.oldMetadata.turnoutAtB
+                                } else input.oldMetadata.turnoutAtB,
+                                gradeLockedAtA = if (input.movedEnd == 'A') {
+                                    isGradeLocked(updatedEndpoint)
+                                } else input.oldMetadata.gradeLockedAtA,
+                                gradeLockedAtB = if (input.movedEnd == 'B') {
+                                    isGradeLocked(updatedEndpoint)
+                                } else input.oldMetadata.gradeLockedAtB
                             )
                         )
                         createdRails.add(newRail)
@@ -1429,7 +1541,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     restoreRailConnections(snapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, liveExistingMetas)
                     liveExistingMetas.forEach { RailVisualBootstrap.fromPersisted(liveCoreWorld, it) }
-                    livePlayer.sendActionBar(Component.text("端点编辑失败，已回滚: ${e.message}", NamedTextColor.RED))
+                    livePlayer.sendMessage(Component.text("端点编辑失败，已回滚：${railWandFailureReason(e)}", NamedTextColor.RED))
                 }
             },
             onFailure = { error ->
@@ -1437,8 +1549,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 plugin.logger.warning(
                     "RailWand endpoint rebuild failed for player ${player.name}: ${error::class.simpleName}: ${error.message ?: ""}"
                 )
-                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
-                    Component.text("轨道端点重建失败，请重试", NamedTextColor.RED)
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(
+                    Component.text("轨道端点重建失败：${railWandFailureReason(error)}", NamedTextColor.RED)
                 )
             }
         )
@@ -1502,7 +1614,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun connectCreatedRailsToExisting(createdRails: List<CoreRail>, existingRails: List<CoreRail>): Int {
         var connected = 0
         val checkedPairs = HashSet<Pair<UUID, UUID>>()
-        val options = RailAutoConnector.Options(endpointTolerance = Curve.TOLERANCE)
+        val options = RailAutoConnector.Options(
+            endpointTolerance = Curve.TOLERANCE,
+            topologyRails = existingRails
+        )
         for (created in createdRails) {
             for (existing in existingRails) {
                 if (created == existing) continue
@@ -1548,10 +1663,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val options = railCurveBuildOptions(settings)
         val result = RailCurveFactory.build(from, to, options)
         if (!result.isSuccess) {
+            val detail = listOfNotNull(result.selectedReason, result.error)
+                .filter(String::isNotBlank)
+                .distinct()
+                .joinToString("；")
+                .ifBlank { "无法根据当前锚点和模板生成曲线" }
             plugin.logger.warning(
                 "RailWand curve build failed: template=${result.selectedTemplate ?: settings.curveTemplate}, " +
                     "reason=${result.selectedReason ?: "n/a"}, error=${result.error ?: "unknown error"}"
             )
+            throw IllegalArgumentException(detail)
         }
         return result.curve
     }
@@ -1577,10 +1698,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
         val result = RailCurveFactory.buildParallel(startAnchors, endAnchors, options)
         if (!result.isSuccess) {
+            val detail = listOfNotNull(result.selectedReason, result.error)
+                .filter(String::isNotBlank)
+                .distinct()
+                .joinToString("；")
+                .ifBlank { "无法根据当前平行锚点和模板生成曲线" }
             plugin.logger.warning(
                 "RailWand parallel curve build failed: template=${result.selectedTemplate ?: settings.curveTemplate}, " +
                     "reason=${result.selectedReason ?: "n/a"}, error=${result.error ?: "unknown error"}"
             )
+            throw IllegalArgumentException(detail)
         }
         return result.curves
     }
@@ -1621,7 +1748,18 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 add(newBuilt[index].curve)
                 end?.let { add(it.orientedCurve) }
             }
-            val rebuilt = VerticalCurveRebuilder.smooth(chain)
+            if (!requiresRailWandVerticalSmoothing(chain)) continue
+            val fixedGrades = buildMap {
+                if (isGradeLocked(startAnchors[index])) {
+                    val node = if (start == null) 0 else 1
+                    put(node, railWandVerticalGrade(startAnchors[index].tangent))
+                }
+                if (isGradeLocked(endAnchors[index])) {
+                    val node = if (end == null) chain.size else chain.lastIndex
+                    put(node, railWandVerticalGrade(endAnchors[index].tangent))
+                }
+            }
+            val rebuilt = VerticalCurveRebuilder.smooth(chain, fixedGrades = fixedGrades)
             var rebuiltIndex = 0
             if (start != null) {
                 val curve = rebuilt[rebuiltIndex++]
@@ -1633,11 +1771,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             if (end != null) {
                 val curve = rebuilt[rebuiltIndex]
                 val canonical = if (end.orientedAsAb) curve else VerticalCurveRebuilder.reversedCopy(curve)
-                if (replacements.put(end.railId, BuiltCurve(
+                require(replacements.put(end.railId, BuiltCurve(
                         canonical,
                         calculateSpeedLimits(canonical, end.metadata, settings)
-                    )) != null
-                ) return null
+                    )) == null
+                ) { "同一条相邻轨道被多个连接端重复重建" }
             }
         }
         return ConnectionCurveBuild(newBuilt, replacements)
@@ -1737,6 +1875,23 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val orientedAsAb: Boolean
     )
 
+    private fun lockedGrades(chain: List<GradeChainRail>): Map<Int, Double> = buildMap {
+        chain.forEachIndexed { index, input ->
+            val startLocked = if (input.orientedAsAb) input.rail.metadata.gradeLockedAtA
+                else input.rail.metadata.gradeLockedAtB
+            val endLocked = if (input.orientedAsAb) input.rail.metadata.gradeLockedAtB
+                else input.rail.metadata.gradeLockedAtA
+            if (startLocked) {
+                put(index, railWandVerticalGrade(input.orientedCurve.getPointAt(0.0).tangent))
+            }
+            if (endLocked) {
+                put(index + 1, railWandVerticalGrade(
+                    input.orientedCurve.getPointAt(input.orientedCurve.totalArcLength).tangent
+                ))
+            }
+        }
+    }
+
     internal fun smoothSelectedGrades(player: Player, state: WandPlayerState) {
         val count = state.parallelCount.coerceAtLeast(1)
         if (state.selectedAnchors.isEmpty() || state.selectedAnchors.size % count != 0) {
@@ -1811,7 +1966,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             supplier = {
                 val rebuilt = linkedMapOf<UUID, BuiltCurve>()
                 chains.forEach { chain ->
-                    val curves = VerticalCurveRebuilder.smooth(chain.map(GradeChainRail::orientedCurve))
+                    val curves = VerticalCurveRebuilder.smooth(
+                        chain.map(GradeChainRail::orientedCurve),
+                        fixedGrades = lockedGrades(chain)
+                    )
                     chain.zip(curves).forEach { (input, oriented) ->
                         val canonical = if (input.orientedAsAb) oriented else VerticalCurveRebuilder.reversedCopy(oriented)
                         rebuilt[input.rail.id] = BuiltCurve(
@@ -1844,7 +2002,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail grade smoothing failed: ${error.message ?: error::class.simpleName}")
-                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(Component.text("坡度平滑失败", NamedTextColor.RED))
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(
+                    Component.text("坡度平滑失败：${railWandFailureReason(error)}", NamedTextColor.RED)
+                )
             }
         )
     }
@@ -1976,7 +2136,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             }
             restoreRailConnections(connectionSnapshots)
             RailRenderMetaStore.saveAll(player.world, renderBefore)
-            player.sendActionBar(Component.text("坡度平滑失败，已回滚: ${failure.message}", NamedTextColor.RED))
+            player.sendMessage(Component.text("坡度平滑失败，已回滚：${railWandFailureReason(failure)}", NamedTextColor.RED))
         }
     }
 
@@ -1999,16 +2159,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     internal fun editRail(player: Player, rail: CoreRail, state: WandPlayerState) {
         val currentSpeedKmH = rail.metadata.designSpeedMetersPerSecond?.times(3.6) ?: state.designSpeedKmH
         val currentRadius = rail.metadata.geometry.curveRadiusMeters ?: 0.0
+        val currentMaxSuperelevationMm = rail.metadata.geometry.maxSuperelevationMeters * 1000.0
         state.selectedAnchors.clear()
         state.selectedRails.clear()
         state.selectedRails.add(rail.id)
         state.designSpeedKmH = currentSpeedKmH
         state.curveRadius = currentRadius
+        state.maxSuperelevationMm = currentMaxSuperelevationMm
         updateAnchorDisplay(player)
 
         val session = configUI.getPlayerSession(player.uniqueId)
         session.setValue(railEditKeys.designSpeedKmH, currentSpeedKmH)
         session.setValue(railEditKeys.curveRadius, currentRadius)
+        session.setValue(railEditKeys.maxSuperelevationMm, currentMaxSuperelevationMm)
         dialogRenderer.showConfigDialog(player, "rail.edit") { p ->
             val liveWorld = getCoreWorld(p) ?: return@showConfigDialog
             val liveRail = liveWorld.getRail(rail.id) ?: run {
@@ -2018,15 +2181,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val values = configUI.getPlayerSession(p.uniqueId)
             val designSpeedKmH = values.getValue(railEditKeys.designSpeedKmH) ?: currentSpeedKmH
             val curveRadius = values.getValue(railEditKeys.curveRadius) ?: currentRadius
+            val maxSuperelevationMm = values.getValue(railEditKeys.maxSuperelevationMm)
+                ?: currentMaxSuperelevationMm
             val liveState = getState(p)
             liveState.designSpeedKmH = designSpeedKmH
             liveState.curveRadius = curveRadius
+            liveState.maxSuperelevationMm = maxSuperelevationMm
             persistState(p, liveState)
 
-            if (abs(curveRadius - currentRadius) < 1.0e-6 && abs(designSpeedKmH - currentSpeedKmH) < 1.0e-6) {
+            if (abs(curveRadius - currentRadius) < 1.0e-6 &&
+                abs(designSpeedKmH - currentSpeedKmH) < 1.0e-6 &&
+                abs(maxSuperelevationMm - currentMaxSuperelevationMm) < 1.0e-6
+            ) {
                 p.sendActionBar(Component.text("轨道参数未变化", NamedTextColor.GRAY))
             } else {
-                rebuildRailGeometry(p, liveRail, designSpeedKmH, curveRadius)
+                rebuildRailGeometry(p, liveRail, designSpeedKmH, curveRadius, maxSuperelevationMm)
             }
         }
     }
@@ -2043,7 +2212,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         player: Player,
         selectedRail: CoreRail,
         designSpeedKmH: Double,
-        curveRadius: Double
+        curveRadius: Double,
+        maxSuperelevationMm: Double
     ) {
         val coreWorld = getCoreWorld(player) ?: return
         val oldRails = railsInParallelGroup(coreWorld, selectedRail)
@@ -2071,7 +2241,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             designSpeedKmH = designSpeedKmH,
             allowableCantDeficiencyMm = geometry.allowableCantDeficiencyMeters * 1000.0,
             automaticSuperelevation = geometry.automaticSuperelevation,
-            maxSuperelevationMm = geometry.maxSuperelevationMeters * 1000.0
+            maxSuperelevationMm = maxSuperelevationMm
         )
         val starts = oldRails.map { anchorFromRailEndpoint(player.world, it, 'A') }
         val ends = oldRails.map { anchorFromRailEndpoint(player.world, it, 'B') }
@@ -2120,7 +2290,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond,
                             geometry = oldMetadata[index].geometry.copy(
                                 curveRadiusMeters = curveRadius.takeIf { it > 0.0 },
-                                allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0
+                                allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
+                                maxSuperelevationMeters = settings.maxSuperelevationMm / 1000.0
                             )
                         )
                         val newRail = CoreRail(liveWorld, builtCurve.curve, mutableListOf(), mutableListOf(), metadata)
@@ -2154,7 +2325,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     persistState(livePlayer, state)
                     refreshAllAnchorsForPlayer(livePlayer)
                     updateAnchorDisplay(livePlayer)
-                    livePlayer.sendActionBar(Component.text("轨道曲线半径已更新", NamedTextColor.GREEN))
+                    livePlayer.sendActionBar(Component.text("轨道曲线参数已更新", NamedTextColor.GREEN))
                 } catch (error: Exception) {
                     created.forEach { rail ->
                         RailVisualBootstrap.unregisterRail(rail.id)
@@ -2164,14 +2335,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     restoreRailConnections(connectionSnapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, persisted)
                     persisted.forEach { RailVisualBootstrap.fromPersisted(liveWorld, it) }
-                    livePlayer.sendActionBar(Component.text("轨道重建失败，已回滚: ${error.message}", NamedTextColor.RED))
+                    livePlayer.sendMessage(Component.text("轨道重建失败，已回滚：${railWandFailureReason(error)}", NamedTextColor.RED))
                 }
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail radius rebuild failed: ${error.message ?: error::class.simpleName}")
-                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
-                    Component.text("轨道重建失败", NamedTextColor.RED)
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(
+                    Component.text("轨道重建失败：${railWandFailureReason(error)}", NamedTextColor.RED)
                 )
             }
         )
@@ -2214,6 +2385,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(editKeys.tangentYaw, formatEditNumber(yaw, digits = 1))
         session.setValue(editKeys.tangentPitch, formatEditNumber(pitch, digits = 1))
         session.setValue(editKeys.roll, formatEditNumber(roll, digits = 1))
+        session.setValue(editKeys.gradeLocked, isGradeLocked(anchor))
         val turnoutDefaults = plugin.physicsConfig.turnoutSafety
         session.setValue(
             editKeys.turnoutProtectionDistance,
@@ -2234,6 +2406,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val newYaw = parseEditDouble(s.getValue(editKeys.tangentYaw), yaw, "Yaw", p) ?: return@showConfigDialog
             val newPitch = parseEditDouble(s.getValue(editKeys.tangentPitch), pitch, "Pitch", p) ?: return@showConfigDialog
             val newRoll = parseEditDouble(s.getValue(editKeys.roll), roll, "Roll", p) ?: return@showConfigDialog
+            val gradeLocked = s.getValue(editKeys.gradeLocked) ?: isGradeLocked(anchor)
             val protectionDistance = s.getValue(editKeys.turnoutProtectionDistance)
                 ?: turnoutDefaults.defaultProtectionDistanceMeters
             val lockingDistance = s.getValue(editKeys.turnoutLockingDistance)
@@ -2248,10 +2421,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val newPos = Vector3d(x, y, z)
             val newTan = AnchorGeometry.tangentFromYawPitch(newYaw, newPitch)
             val geometryUpdated = AnchorGeometry.withRoll(anchor.withPosition(newPos).withTangent(newTan), newRoll)
-            val updated = geometryUpdated.copy(metadata = geometryUpdated.metadata + mapOf(
-                TURNOUT_PROTECTION_METADATA_KEY to protectionDistance.toString(),
-                TURNOUT_LOCKING_METADATA_KEY to lockingDistance.toString()
-            ))
+            val updatedMetadata = geometryUpdated.metadata.toMutableMap().apply {
+                put(TURNOUT_PROTECTION_METADATA_KEY, protectionDistance.toString())
+                put(TURNOUT_LOCKING_METADATA_KEY, lockingDistance.toString())
+                if (gradeLocked) put(GRADE_LOCKED_METADATA_KEY, true.toString())
+                else remove(GRADE_LOCKED_METADATA_KEY)
+            }
+            val updated = geometryUpdated.copy(metadata = updatedMetadata)
             if (isRailEndpointAnchorId(anchor.id)) {
                 rebuildRailForEndpointEdit(p, state, anchor.id, updated)
             } else {
@@ -2559,13 +2735,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text("轨道已分割为两段", NamedTextColor.GREEN))
                 } catch (error: Throwable) {
                     plugin.logger.warning("Rail split failed: ${error::class.simpleName}: ${error.message ?: ""}")
-                    livePlayer.sendActionBar(Component.text("轨道分割失败: ${error.message ?: error::class.simpleName}", NamedTextColor.RED))
+                    livePlayer.sendMessage(Component.text("轨道分割失败：${railWandFailureReason(error)}", NamedTextColor.RED))
                 }
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail curve split failed: ${error::class.simpleName}: ${error.message ?: ""}")
-                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(Component.text("轨道曲线分割失败", NamedTextColor.RED))
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(
+                    Component.text("轨道曲线分割失败：${railWandFailureReason(error)}", NamedTextColor.RED)
+                )
             }
         )
     }
@@ -2662,13 +2840,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text("已重新合并分割轨道", NamedTextColor.GREEN))
                 } catch (error: Throwable) {
                     plugin.logger.warning("Rail merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
-                    livePlayer.sendActionBar(Component.text("轨道合并失败: ${error.message ?: error::class.simpleName}", NamedTextColor.RED))
+                    livePlayer.sendMessage(Component.text("轨道合并失败：${railWandFailureReason(error)}", NamedTextColor.RED))
                 }
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
                 plugin.logger.warning("Rail curve merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
-                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(Component.text("轨道曲线合并失败", NamedTextColor.RED))
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(
+                    Component.text("轨道曲线合并失败：${railWandFailureReason(error)}", NamedTextColor.RED)
+                )
             }
         )
     }
@@ -2827,7 +3007,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 )
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
-                livePlayer.sendActionBar(Component.text("轨道查找失败，请重试", NamedTextColor.RED))
+                livePlayer.sendMessage(Component.text("轨道查找失败：${railWandFailureReason(error)}", NamedTextColor.RED))
                 onResolved(null)
             }
         )
@@ -2849,6 +3029,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun getAllAnchors(world: World): List<Anchor> =
         anchorsFor(world).values.toList() + getRailEndpointAnchors(world) + getSplitAnchors(world)
+
+    private fun isAnchorEmpty(world: World, anchor: Anchor): Boolean {
+        val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return true
+        return coreWorld.allRails.none { rail ->
+            rail.viewAB.startPoint.position.distance(anchor.position) <= Curve.TOLERANCE ||
+                rail.viewAB.endPoint.position.distance(anchor.position) <= Curve.TOLERANCE
+        }
+    }
 
     private fun updateAnchor(world: World, anchor: Anchor) {
         if (!isDerivedRailAnchorId(anchor.id)) {
@@ -2910,14 +3098,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return TurnoutEndpointMetadata(protection, locking)
     }
 
-    private fun turnoutAnchorMetadata(rail: CoreRail, end: Char): Map<String, String> {
-        val endpoint = (if (end == 'A') rail.metadata.turnoutAtA else rail.metadata.turnoutAtB)
-            ?: return emptyMap()
-        return mapOf(
-            TURNOUT_PROTECTION_METADATA_KEY to endpoint.protectionDistanceMeters.toString(),
-            TURNOUT_LOCKING_METADATA_KEY to endpoint.lockingDistanceMeters.toString()
-        )
+    private fun turnoutAnchorMetadata(rail: CoreRail, end: Char): Map<String, String> = buildMap {
+        val endpoint = if (end == 'A') rail.metadata.turnoutAtA else rail.metadata.turnoutAtB
+        if (endpoint != null) {
+            put(TURNOUT_PROTECTION_METADATA_KEY, endpoint.protectionDistanceMeters.toString())
+            put(TURNOUT_LOCKING_METADATA_KEY, endpoint.lockingDistanceMeters.toString())
+        }
+        if (if (end == 'A') rail.metadata.gradeLockedAtA else rail.metadata.gradeLockedAtB) {
+            put(GRADE_LOCKED_METADATA_KEY, true.toString())
+        }
     }
+
+    private fun isGradeLocked(anchor: Anchor): Boolean =
+        anchor.metadata[GRADE_LOCKED_METADATA_KEY].toBoolean()
 
     private fun getRailEndpointAnchors(world: World): List<Anchor> {
         val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return emptyList()
@@ -3037,6 +3230,20 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // 锚点展示实体
     // ═══════════════════════════════════════════
 
+    private fun anchorDisplayLabel(player: Player, anchor: Anchor): String? {
+        val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[player.world] as? CoreWorld
+        val endpointCount = coreWorld?.allRails?.sumOf { rail ->
+            listOf(rail.viewAB.startPoint, rail.viewAB.endPoint).count {
+                it.position.distance(anchor.position) <= Curve.TOLERANCE
+            }
+        } ?: 0
+        val turnout = endpointCount >= 3
+        return buildString {
+            if (turnout) append("🔀")
+            if (isGradeLocked(anchor)) append("🔒")
+        }.ifEmpty { null }
+    }
+
     private fun spawnAnchorDisplay(player: Player, anchor: Anchor) {
         val entities = anchorEntities
             .computeIfAbsent(player.uniqueId) { ConcurrentHashMap() }
@@ -3048,7 +3255,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             position = anchor.position,
             material = ANCHOR_DISPLAY_MATERIAL,
             scale = 1.1f,
-            showName = true,
+            displayName = anchorDisplayLabel(player, anchor),
             entities = entities
         )
 
@@ -3061,7 +3268,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 position = Vector3d(anchor.position).fma(1.35, direction),
                 material = ANCHOR_DIRECTION_MATERIAL,
                 scale = 0.8f,
-                showName = false,
+                displayName = null,
                 entities = entities
             )
         }
@@ -3073,7 +3280,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         position: Vector3dc,
         material: Material,
         scale: Float,
-        showName: Boolean,
+        displayName: String?,
         entities: MutableSet<ItemDisplay>
     ) {
         val playerId = player.uniqueId
@@ -3085,8 +3292,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 entity.setItemStack(ItemStack(material))
                 entity.isPersistent = false
                 entity.itemDisplayTransform = ItemDisplay.ItemDisplayTransform.GROUND
-                entity.customName(Component.text(anchor.id, NamedTextColor.RED))
-                entity.isCustomNameVisible = showName
+                entity.customName(displayName?.let { Component.text(it) })
+                entity.isCustomNameVisible = displayName != null
                 entity.transformation = Transformation(
                     entity.transformation.translation,
                     entity.transformation.leftRotation,
@@ -3120,6 +3327,39 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
     }
 
+    private fun removeSpeedLimitDisplays(player: Player) {
+        speedLimitEntities.remove(player.uniqueId)?.forEach { entity ->
+            plugin.platformDispatcher.runForEntity(entity, action = { entity.remove() })
+        }
+    }
+
+    private fun spawnSpeedLimitDisplays(player: Player) {
+        val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[player.world] as? CoreWorld ?: return
+        val entities = ConcurrentHashMap.newKeySet<TextDisplay>()
+        speedLimitEntities[player.uniqueId] = entities
+        coreWorld.allRails.forEach { rail ->
+            val limit = rail.metadata.speedLimitMetersPerSecond ?: return@forEach
+            if (!limit.isFinite()) return@forEach
+            val point = rail.curve.getPointAt(rail.curve.totalArcLength / 2.0)
+            val location = Location(player.world, point.position.x(), point.position.y() + 1.8, point.position.z())
+            plugin.platformDispatcher.runAt(location) spawnTask@{
+                if (speedLimitEntities[player.uniqueId] !== entities) return@spawnTask
+                val display = player.world.spawn(location, TextDisplay::class.java) { entity ->
+                    entity.text(Component.text("${limit.times(3.6).roundToInt()} km/h", NamedTextColor.YELLOW))
+                    entity.billboard = Display.Billboard.CENTER
+                    entity.isPersistent = false
+                    entity.isVisibleByDefault = false
+                    entity.isShadowed = true
+                }
+                entities.add(display)
+                plugin.platformDispatcher.runForEntity(player, action = {
+                    if (speedLimitEntities[player.uniqueId] === entities) player.showEntity(plugin, display)
+                    else display.remove()
+                }, retired = { display.remove() })
+            }
+        }
+    }
+
     private fun removeAnchorEntity(entity: ItemDisplay) {
         plugin.platformDispatcher.runForEntity(entity, action = { entity.remove() })
     }
@@ -3138,6 +3378,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun refreshAnchorsForPlayer(player: Player) {
         removeAllAnchorDisplays(player)
+        removeSpeedLimitDisplays(player)
         if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) {
             splitPreviewViewers.remove(player.uniqueId)
             decorationPreviewViewers.remove(player.uniqueId)
@@ -3147,6 +3388,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         anchorViewers.add(player.uniqueId)
         updatePreviewSubscriptions(player, getState(player))
         getAllAnchors(player.world).forEach { spawnAnchorDisplay(player, it) }
+        spawnSpeedLimitDisplays(player)
         updateAnchorDisplay(player)
     }
 
@@ -3200,7 +3442,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     /** 加载世界时刷新所有锚点展示 */
     fun refreshAllAnchorsForPlayer(player: Player) {
         removeAllAnchorDisplays(player)
+        removeSpeedLimitDisplays(player)
         getAllAnchors(player.world).forEach { spawnAnchorDisplay(player, it) }
+        spawnSpeedLimitDisplays(player)
     }
 
     // ═══════════════════════════════════════════

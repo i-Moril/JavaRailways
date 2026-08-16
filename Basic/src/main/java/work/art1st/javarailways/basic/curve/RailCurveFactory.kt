@@ -15,6 +15,7 @@ import kotlin.math.sqrt
 enum class RailCurveTemplateType(val displayName: String) {
     AUTO("自动"),
     STRAIGHT("直线"),
+    TWO_POINT_STRAIGHT("两点直线"),
     FIVE_SEGMENT("五段式曲线"),
     S_CURVE("S弯")
 }
@@ -96,7 +97,8 @@ object RailCurveFactory {
         }
 
         return when (match.template) {
-            RailCurveTemplateType.STRAIGHT -> buildStraight(prepared, options.geometry, match)
+            RailCurveTemplateType.STRAIGHT,
+            RailCurveTemplateType.TWO_POINT_STRAIGHT -> buildStraight(prepared, options.geometry, match)
             RailCurveTemplateType.FIVE_SEGMENT -> buildFiveSegment(prepared, options, match)
             RailCurveTemplateType.S_CURVE -> buildSCurve(prepared, options, match)
             RailCurveTemplateType.AUTO -> error("AUTO should be resolved before build")

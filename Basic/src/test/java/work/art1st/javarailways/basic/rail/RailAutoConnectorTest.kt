@@ -159,6 +159,22 @@ class RailAutoConnectorTest {
     }
 
     @Test
+    fun `connector validates against transaction target topology instead of unpublished rails`() {
+        val world = createTestWorld()
+        val unpublished = CoreRail(world, straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        val replacement = CoreRail(world, straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        val straight = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        val branch = CoreRail(world, angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0), mutableListOf(), mutableListOf())
+        val targetTopology = listOf(replacement, straight, branch)
+        val options = RailAutoConnector.Options(topologyRails = targetTopology)
+
+        assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(replacement, branch, options).outcome)
+        assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(replacement, straight, options).outcome)
+        assertEquals(setOf(straight.viewAB, branch.viewAB), replacement.viewAB.nextRails.toSet())
+        assertTrue(unpublished.viewAB.nextRails.isEmpty())
+    }
+
+    @Test
     fun `fourth endpoint is rejected without changing the turnout`() {
         val world = createTestWorld()
         val stem = CoreRail(world, straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)), mutableListOf(), mutableListOf())

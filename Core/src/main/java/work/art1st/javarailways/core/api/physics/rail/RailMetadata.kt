@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 enum class RailCurveKind {
     AUTO,
     STRAIGHT,
+    TWO_POINT_STRAIGHT,
     FIVE_SEGMENT,
     S_CURVE,
     UNKNOWN
@@ -87,7 +88,11 @@ data class RailMetadata(
     /** Turnout settings at the canonical AB start endpoint. */
     val turnoutAtA: TurnoutEndpointMetadata? = null,
     /** Turnout settings at the canonical AB end endpoint. */
-    val turnoutAtB: TurnoutEndpointMetadata? = null
+    val turnoutAtB: TurnoutEndpointMetadata? = null,
+    /** Whether vertical-profile solvers must preserve the canonical AB start grade. */
+    val gradeLockedAtA: Boolean = false,
+    /** Whether vertical-profile solvers must preserve the canonical AB end grade. */
+    val gradeLockedAtB: Boolean = false
 ) {
     init {
         require(designSpeedMetersPerSecond == null || designSpeedMetersPerSecond > 0.0)

@@ -89,7 +89,6 @@ object VerticalProfileSmoother {
         val fixed = linkedMapOf<Int, Double>()
         fixed[0] = startGrade
         fixed[stations.lastIndex] = endGrade
-        fixed.putAll(fixedGrades)
 
         // A selected local height extremum explicitly denotes a crest or sag.
         for (index in 1 until elevations.lastIndex) {
@@ -103,6 +102,8 @@ object VerticalProfileSmoother {
             fixed[index] = 0.0
             fixed[index + 1] = 0.0
         }
+        // Manual locks are the strongest constraints and override inferred crest/horizontal grades.
+        fixed.putAll(fixedGrades)
 
         val freeIndices = stations.indices.filterNot(fixed::containsKey)
         val freePosition = freeIndices.withIndex().associate { (position, index) -> index to position }

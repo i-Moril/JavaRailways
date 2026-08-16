@@ -15,7 +15,8 @@ object VerticalCurveRebuilder {
         sourceCurves: List<PrimeCurve>,
         horizontalSegments: Set<Int> = sourceCurves.indices.filterTo(linkedSetOf()) {
             isHorizontal(sourceCurves[it])
-        }
+        },
+        fixedGrades: Map<Int, Double> = emptyMap()
     ): List<PrimeCurve> {
         require(sourceCurves.isNotEmpty())
         val lengths = sourceCurves.map(::horizontalLength)
@@ -31,7 +32,8 @@ object VerticalCurveRebuilder {
             elevations,
             horizontalGrade(start),
             horizontalGrade(end),
-            horizontalSegments
+            horizontalSegments,
+            fixedGrades
         )
         return rebuild(sourceCurves, profile)
     }

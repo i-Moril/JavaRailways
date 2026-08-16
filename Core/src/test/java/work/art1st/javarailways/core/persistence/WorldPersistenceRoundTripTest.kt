@@ -45,7 +45,9 @@ class WorldPersistenceRoundTripTest {
                 automaticSuperelevation = true,
                 allowableCantDeficiencyMeters = 0.09,
                 parallel = ParallelRailMetadata("P1", index = 0, count = 2, spacingMeters = 4.5)
-            )
+            ),
+            gradeLockedAtA = true,
+            gradeLockedAtB = false
         )
         val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(sourceTrain, "Player Express")
@@ -79,6 +81,8 @@ class WorldPersistenceRoundTripTest {
         assertEquals(0.09, loaded.getRail(rail.id)?.metadata?.geometry?.allowableCantDeficiencyMeters)
         assertEquals(300.0, loaded.getRail(rail.id)?.metadata?.geometry?.curveRadiusMeters)
         assertEquals("P1", loaded.getRail(rail.id)?.metadata?.geometry?.parallel?.groupId)
+        assertEquals(true, loaded.getRail(rail.id)?.metadata?.gradeLockedAtA)
+        assertEquals(false, loaded.getRail(rail.id)?.metadata?.gradeLockedAtB)
         val roundInfrastructure = loaded.saveInfrastructure(1L)
         val roundRuntime = loaded.saveRuntime(1L, 2L)
         assertEquals(infrastructure.rails.size, roundInfrastructure.rails.size)

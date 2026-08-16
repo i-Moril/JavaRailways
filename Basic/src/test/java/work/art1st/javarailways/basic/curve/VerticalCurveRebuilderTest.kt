@@ -50,6 +50,22 @@ class VerticalCurveRebuilderTest {
     }
 
     @Test
+    @OptIn(Heavy::class)
+    fun `manual fixed grade overrides automatic smoothing at an interior anchor`() {
+        val source = listOf(
+            line(0.0, 0.0, 10.0, 2.0),
+            line(10.0, 2.0, 20.0, 2.0)
+        )
+
+        val rebuilt = VerticalCurveRebuilder.smooth(source, fixedGrades = mapOf(1 to 0.2))
+        val left = rebuilt[0].getPointAt(rebuilt[0].totalArcLength).tangent
+        val right = rebuilt[1].getPointAt(0.0).tangent
+
+        assertEquals(0.2, left.y() / kotlin.math.abs(left.x()), 1.0e-9)
+        assertEquals(0.2, right.y() / kotlin.math.abs(right.x()), 1.0e-9)
+    }
+
+    @Test
     fun `reversed copy remains reversed after persistence`() {
         val source = line(0.0, 1.0, 10.0, 2.0)
 

@@ -25,7 +25,8 @@ data class RailInfrastructureMetadata(
         turnoutAtA: TurnoutEndpointMetadata? = null,
         turnoutAtB: TurnoutEndpointMetadata? = null,
         gradeLockedAtA: Boolean = false,
-        gradeLockedAtB: Boolean = false
+        gradeLockedAtB: Boolean = false,
+        curveSpeedLimitAutomatic: Boolean = true
     ) : this(
         authoring = RailAuthoringMetadata(
             designSpeedMetersPerSecond,
@@ -33,7 +34,8 @@ data class RailInfrastructureMetadata(
             assembly,
             createdBySplit,
             gradeLockedAtA,
-            gradeLockedAtB
+            gradeLockedAtB,
+            curveSpeedLimitAutomatic
         ),
         operating = RailOperatingMetadata(allowedDirection, turnoutAtA, turnoutAtB),
         speedLimits = legacySpeedLimits(designSpeedMetersPerSecond, speedLimitMetersPerSecond),
@@ -64,7 +66,8 @@ data class RailInfrastructureMetadata(
         turnoutAtA: TurnoutEndpointMetadata? = this.turnoutAtA,
         turnoutAtB: TurnoutEndpointMetadata? = this.turnoutAtB,
         gradeLockedAtA: Boolean = this.gradeLockedAtA,
-        gradeLockedAtB: Boolean = this.gradeLockedAtB
+        gradeLockedAtB: Boolean = this.gradeLockedAtB,
+        curveSpeedLimitAutomatic: Boolean = authoring?.curveSpeedLimitAutomatic ?: true
     ): RailInfrastructureMetadata = RailInfrastructureMetadata(
         designSpeedMetersPerSecond,
         speedLimitMetersPerSecond,
@@ -76,7 +79,8 @@ data class RailInfrastructureMetadata(
         turnoutAtA,
         turnoutAtB,
         gradeLockedAtA,
-        gradeLockedAtB
+        gradeLockedAtB,
+        curveSpeedLimitAutomatic
     )
 
     fun isEmpty(): Boolean = this == EMPTY

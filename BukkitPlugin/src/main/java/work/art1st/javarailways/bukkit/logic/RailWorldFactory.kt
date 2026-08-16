@@ -17,7 +17,6 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.javarailways.basic.controller.SimpleATO
-import work.art1st.javarailways.basic.safety.RailSpeedCalculator
 import work.art1st.javarailways.basic.timetable.TimetableAtoFactory
 import work.art1st.javarailways.basic.timetable.TimetableDispatcher
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
@@ -114,20 +113,6 @@ object RailWorldFactory {
         coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
         basicInfrastructure?.restore(coreWorld)
         basicRuntime?.restore(coreWorld)
-        coreWorld.allRails.forEach { rail ->
-            val requestedSpeed = rail.metadata.designSpeedMetersPerSecond ?: return@forEach
-            val limits = RailSpeedCalculator.calculate(
-                rail.curve,
-                requestedSpeed,
-                rail.metadata.geometry.allowableCantDeficiencyMeters,
-                physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
-                physicsConfig.railSpeedPhysics()
-            )
-            rail.metadata = rail.metadata.copy(
-                speedLimitMetersPerSecond = limits.operatingLimitMetersPerSecond,
-                derailSpeedMetersPerSecond = limits.derailSpeedMetersPerSecond
-            )
-        }
         OperationalSpeedLimitSignalMaterializer.materialize(coreWorld)
         val persisted = RailRenderMetaStore.load(bukkitWorld)
         val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }

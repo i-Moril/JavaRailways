@@ -18,6 +18,7 @@ import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
 import work.art1st.javarailways.basic.rail.RailCurveKind
+import work.art1st.javarailways.basic.rail.RailGeometryMetadata
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
@@ -101,8 +102,9 @@ class BasicInfrastructureSnapshotTest {
         )
         val metadata = RailInfrastructureMetadata(
             authoring = RailAuthoringMetadata(
-                curveKind = RailCurveKind.STRAIGHT,
-                designSpeedMetersPerSecond = 30.0
+                designSpeedMetersPerSecond = 30.0,
+                geometry = RailGeometryMetadata(curveKind = RailCurveKind.STRAIGHT),
+                curveSpeedLimitAutomatic = false
             ),
             speedLimits = SpeedLimitMetadata(
                 listOf(SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE))

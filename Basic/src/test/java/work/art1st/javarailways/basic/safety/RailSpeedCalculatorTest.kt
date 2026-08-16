@@ -89,6 +89,19 @@ class RailSpeedCalculatorTest {
     }
 
     @Test
+    fun `manual curve limit is independent from automatic operating limit but capped by safety and subgrade`() {
+        val geometry = RailSpeedLimits(
+            operatingLimitMetersPerSecond = 12.0,
+            derailSpeedMetersPerSecond = 24.0
+        )
+
+        assertEquals(20.0, RailSpeedLimitPolicy.apply(geometry, 30.0, 20.0).operatingLimitMetersPerSecond)
+        assertEquals(22.0, RailSpeedLimitPolicy.apply(geometry, 22.0, 30.0).operatingLimitMetersPerSecond)
+        assertEquals(24.0, RailSpeedLimitPolicy.apply(geometry, 30.0, 30.0).operatingLimitMetersPerSecond)
+        assertEquals(12.0, RailSpeedLimitPolicy.apply(geometry, 30.0, null).operatingLimitMetersPerSecond)
+    }
+
+    @Test
     fun `straight geometry keeps requested limit and has no curve derail speed`() {
         val curve = PrimeCurve.fromPoints(listOf(
             Curve.RawPoint(Vector3d(), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),

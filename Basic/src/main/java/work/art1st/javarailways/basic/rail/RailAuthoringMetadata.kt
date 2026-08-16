@@ -93,7 +93,8 @@ data class RailAuthoringMetadata(
     val assembly: RailAssemblyMetadata? = null,
     val createdBySplit: RailSplitMetadata? = null,
     val gradeLockedAtA: Boolean = false,
-    val gradeLockedAtB: Boolean = false
+    val gradeLockedAtB: Boolean = false,
+    val curveSpeedLimitAutomatic: Boolean = true
 ) {
     constructor(
         curveKind: RailCurveKind,

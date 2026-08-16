@@ -30,6 +30,7 @@ class WandStateCodecTest {
             curveTemplate = RailCurveTemplateType.FIVE_SEGMENT,
             turnoutStandard = StandardTurnout.N18,
             designSpeedKmH = 160.0,
+            curveSpeedLimitKmH = 95.0,
             allowableCantDeficiencyMm = 95.0,
             automaticSuperelevation = false,
             maxSuperelevationMm = 180.0
@@ -38,6 +39,16 @@ class WandStateCodecTest {
         val restored = requireNotNull(RailWandStateCodec.decode(RailWandStateCodec.encode(state)))
 
         assertEquals(state, restored)
+    }
+
+    @Test
+    fun `state persisted before curve slider defaults to automatic`() {
+        val current = RailWandStateCodec.encode(WandPlayerState())
+        val old = current.replace(",\"curveSpeedLimitKmH\":0.0}", "}")
+
+        val restored = requireNotNull(RailWandStateCodec.decode(old))
+
+        assertEquals(0.0, restored.curveSpeedLimitKmH)
     }
 
     @Test

@@ -4,6 +4,7 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
+import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.train.CoreCar
 import kotlin.math.ceil
@@ -89,11 +90,10 @@ class SimulationControlProfileCatalog(private val plugin: BukkitPlugin) {
             car.carRendererOrNull?.carModelName
                 ?: throw IllegalArgumentException("train $id car #${index + 1} has no model control profile")
         }
-        val packageName = carModelNames.firstNotNullOfOrNull { modelName ->
-            plugin.modelManager.getCar(modelName)?.packageName
-        } ?: throw IllegalArgumentException("train $id is not associated with a train template")
+        val renderer = train.rendererOrNull
+            ?: throw IllegalArgumentException("train $id is not associated with a train template")
         val carControls = carModelNames.map { modelName ->
-            plugin.modelManager.getCar(modelName)?.control
+            renderer.resolveCarControl(modelName)
                 ?: throw IllegalArgumentException("car model has no control profile: $modelName")
         }
         val cars = train.cars.mapIndexed { index, car ->
@@ -112,10 +112,10 @@ class SimulationControlProfileCatalog(private val plugin: BukkitPlugin) {
         return SimulationControlProfile(
             SimulationProfileType.WORLD_TRAIN,
             id,
-            plugin.modelManager.getTrainControl(packageName),
+            renderer.resolveControl(),
             carControls,
             cars,
-            actionDurations(packageName)
+            actionDurations(renderer.resolveActions())
         )
     }
 
@@ -144,12 +144,12 @@ class SimulationControlProfileCatalog(private val plugin: BukkitPlugin) {
                 car.bogieBOffset ?: -car.length * 0.35,
                 controls[index]
             ) },
-            actionDurations(id)
+            actionDurations(loaded.actions)
         )
     }
 
-    private fun actionDurations(packageName: String): Map<String, Long> =
-        plugin.modelManager.trainPackages[packageName]?.actions.orEmpty().mapValues { (_, action) ->
+    private fun actionDurations(actions: Map<String, work.art1st.javarailways.bukkit.config.model.TrainActionConfig>): Map<String, Long> =
+        actions.mapValues { (_, action) ->
             ceil((action.animations.maxOfOrNull { it.at } ?: 0.0)
                 .coerceAtLeast(action.sounds.maxOfOrNull { it.at } ?: 0.0) * 20.0).toLong()
         }

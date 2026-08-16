@@ -28,8 +28,7 @@ class TrainControlDialog(
         val ownerName = ownerId?.let { Bukkit.getOfflinePlayer(it).name ?: it.toString().take(8) } ?: "无"
         val speedKmh = train.speed * 3.6
         val controller = manager.sessionFor(train)?.controller
-        val packageName = resolvePackageName(train)
-        val executableActions = plugin.modelManager.getTrainActions(packageName)
+        val executableActions = train.renderer.resolveActions()
             .values
             .filter { it.executable && (!it.requiresControl || ownedByPlayer) }
             .sortedBy { it.displayName }
@@ -170,9 +169,5 @@ class TrainControlDialog(
             .build()
     }
 
-    private fun resolvePackageName(train: Train): String? {
-        val firstModelName = train.cars.firstOrNull()?.carRendererOrNull?.carModelName ?: return null
-        return plugin.modelManager.getCar(firstModelName)?.packageName
-    }
 
 }

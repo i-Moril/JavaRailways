@@ -7,9 +7,14 @@ import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorBindings
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorRuntime
-import work.art1st.javarailways.bukkit.config.model.TrainActionAnimationConfig
+import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
+import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
+import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
+import work.art1st.javarailways.bukkit.config.model.TrainActionAnimationConfig
+import work.art1st.javarailways.bukkit.config.model.TrainActionConfig
 import work.art1st.javarailways.bukkit.config.model.TrainBehaviorScript
+import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainExtension as CoreTrainExtension
@@ -20,6 +25,7 @@ import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.api.util.tick.TickingObject
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
+import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
 import kotlin.math.max
 
 @OptIn(ExtensionData::class)
@@ -43,8 +49,15 @@ class TrainExtension : CoreTrainExtension {
     private var behaviorRuntime: TrainBehaviorRuntime? = null
     private var behaviorScript: TrainBehaviorScript? = null
     private var actionExecutionTracker: ActionExecutionTracker? = null
+    private var savedPackageName: String? = null
+    private var savedPackageSnapshotHash: String? = null
+    private var savedPackageSnapshot: SavedTrainPackageSnapshot? = null
+
     override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
+        val savedState = savedExtensionData[BukkitPlugin.EXTENSION_ID] as? SavedTrainRenderState
+        savedPackageName = savedState?.packageName
+        savedPackageSnapshotHash = savedState?.packageSnapshotHash
     }
 
     fun applyAnimation(name: String): Boolean {
@@ -56,8 +69,7 @@ class TrainExtension : CoreTrainExtension {
     }
 
     fun applyAction(name: String): Boolean {
-        val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val action = modelManager.getTrainAction(resolvePackageName(), name)
+        val action = resolveAction(name)
         if (action == null) {
             actionExecutionTracker?.record(applied = false, completionDelaySeconds = 0.0)
             return false
@@ -108,10 +120,9 @@ class TrainExtension : CoreTrainExtension {
         actionExecutionTracker = tracker
         val behaviorResult: TrainBehaviorCallResult?
         try {
-            val modelManager = BukkitPlugin.INSTANCE.modelManager
             val packageName = resolvePackageName()
                 ?: return TrainModelOperationResult.Rejected("train model package is unavailable")
-            val behavior = modelManager.getTrainBehavior(packageName)
+            val behavior = resolveBehavior()
             behaviorResult = if (behavior != null) {
                 val runtime = ensureBehaviorRuntime(behavior)
                     ?: return TrainModelOperationResult.Rejected("train behavior script failed to load")
@@ -223,8 +234,7 @@ class TrainExtension : CoreTrainExtension {
     }
 
     private fun ensureBehaviorRuntime(): TrainBehaviorRuntime? {
-        val modelManager = BukkitPlugin.INSTANCE.modelManager
-        val script = modelManager.getTrainBehavior(resolvePackageName()) ?: return null
+        val script = resolveBehavior() ?: return null
         return ensureBehaviorRuntime(script)
     }
 
@@ -262,10 +272,52 @@ class TrainExtension : CoreTrainExtension {
 
     fun modelPackageName(): String? = resolvePackageName()
 
+    fun resolveActions(): Map<String, TrainActionConfig> {
+        if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.actions.orEmpty()
+        return BukkitPlugin.INSTANCE.modelManager.getTrainActions(resolvePackageName())
+    }
+
+    fun resolveAction(name: String): TrainActionConfig? {
+        if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.actions?.get(name)
+        return BukkitPlugin.INSTANCE.modelManager.getTrainAction(resolvePackageName(), name)
+    }
+
+    fun resolveBehavior(): TrainBehaviorScript? {
+        if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.behavior
+        return BukkitPlugin.INSTANCE.modelManager.getTrainBehavior(resolvePackageName())
+    }
+
+    fun resolveControl(): TrainControlConfig {
+        if (hasPinnedOperationalSnapshot()) {
+            return operationalSnapshot()?.control
+                ?: throw IllegalStateException("Pinned train package snapshot '$savedPackageSnapshotHash' is unavailable")
+        }
+        return BukkitPlugin.INSTANCE.modelManager.getTrainControl(resolvePackageName())
+    }
+
+    fun resolveCarControl(carModelName: String): CarControlConfig? {
+        if (hasPinnedOperationalSnapshot()) {
+            return operationalSnapshot()?.carControls?.get(carModelName.substringAfterLast('/'))
+        }
+        return BukkitPlugin.INSTANCE.modelManager.getCar(carModelName)?.control
+    }
+
+    private fun hasPinnedOperationalSnapshot(): Boolean =
+        BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT &&
+            savedPackageSnapshotHash != null
+
+    private fun operationalSnapshot(): SavedTrainPackageSnapshot? {
+        if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy != TrainModelUpdatePolicy.SNAPSHOT) return null
+        savedPackageSnapshot?.let { return it }
+        val hash = savedPackageSnapshotHash ?: return null
+        return TrainPackageSnapshotStore.load(hash)?.also { savedPackageSnapshot = it }
+    }
+
     private fun resolvePackageName(): String? {
+        savedPackageName?.let { return it }
         val modelManager = BukkitPlugin.INSTANCE.modelManager
         val firstModelName = self.cars.firstOrNull()?.carRendererOrNull?.carModelName ?: return null
-        return modelManager.getCar(firstModelName)?.packageName
+        return modelManager.getCar(firstModelName)?.packageName?.also { savedPackageName = it }
     }
 
     private fun playSound(key: String, volume: Double = 1.0, pitch: Double = 1.0) {
@@ -336,7 +388,24 @@ class TrainExtension : CoreTrainExtension {
 
     override fun linkWith(otherTrain: Train) = Unit
 
+    fun pinCurrentPackageSnapshot(): String? {
+        savedPackageSnapshotHash?.let { return it }
+        return resolvePackageName()
+            ?.let { BukkitPlugin.INSTANCE.modelManager.createTrainPackageSnapshot(it) }
+            ?.let { TrainPackageSnapshotStore.save(it) }
+            ?.also { savedPackageSnapshotHash = it }
+    }
+
     override fun save(): Pair<String, SerializableExtensionData>? {
-        return BukkitPlugin.EXTENSION_ID to SavedTrainRenderState()
+        val packageName = resolvePackageName()
+        val snapshotHash = if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
+            pinCurrentPackageSnapshot()
+        } else {
+            null
+        }
+        return BukkitPlugin.EXTENSION_ID to SavedTrainRenderState(
+            packageName = packageName,
+            packageSnapshotHash = snapshotHash
+        )
     }
 }

@@ -50,6 +50,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var latestFrameRevision: Long = -1L
     private var latestFrame: CarFrameSnapshot? = null
     private var latestTrainSpeedMetersPerSecond: Double = 0.0
+    private var builtModelGeneration: Long = -1L
     private val detailAudience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
     override fun initialize(host: Car, savedExtensionData: Map<String, SerializableExtensionData>) {
@@ -65,9 +66,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     override fun save(): Pair<String, SerializableExtensionData>? {
         val modelName = carModelName ?: return null
         val snapshotHash = if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
-            BukkitPlugin.INSTANCE.modelManager.createCarModelSnapshot(modelName)?.let { snapshot ->
-                CarModelSnapshotStore.save(snapshot)
-            }
+            pinCurrentModelSnapshot()
         } else {
             null
         }
@@ -76,6 +75,14 @@ class CarExtension : TrainComponentExtension<Car>() {
             heldScenes = collectHeldScenes(),
             modelSnapshotHash = snapshotHash
         )
+    }
+
+    fun pinCurrentModelSnapshot(): String? {
+        savedModelSnapshotHash?.let { return it }
+        val modelName = carModelName ?: return null
+        return BukkitPlugin.INSTANCE.modelManager.createCarModelSnapshot(modelName)?.let { snapshot ->
+            CarModelSnapshotStore.save(snapshot)
+        }?.also { savedModelSnapshotHash = it }
     }
 
     /** Synchronous commit entry point used by explicit Core command paths. */
@@ -161,10 +168,18 @@ class CarExtension : TrainComponentExtension<Car>() {
             bogieModels.forEach { it.collectModelsOfType(this) }
         }
         applyHeldScenes(pendingHeldScenes)
+        builtModelGeneration = modelManager.generation
     }
 
     override fun updateModel() {
-        BukkitPlugin.INSTANCE.trainPacketBundles.frame(::updateModelBundled)
+        val plugin = BukkitPlugin.INSTANCE
+        if (plugin.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.FOLLOW_PACKAGE &&
+            builtModelGeneration != plugin.modelManager.generation
+        ) {
+            rebuildModelIfBuilt()
+            return
+        }
+        plugin.trainPacketBundles.frame(::updateModelBundled)
     }
 
     private fun updateModelBundled() {
@@ -264,6 +279,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         modelStateApplied = false
         detailStateCurrent = false
         forceNextModelUpdate = false
+        builtModelGeneration = -1L
         detailAudience.clear()
     }
 

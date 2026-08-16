@@ -9,51 +9,65 @@ class ModelManager(
 ) {
     val trainPackages: MutableMap<String, LoadedTrainPackage> = mutableMapOf()
     val railPackages: MutableMap<String, LoadedRailPackage> = mutableMapOf()
+    var generation: Long = 0
+        private set
 
-    fun loadAll() {
+    /** Load into isolated maps first, then publish both registries together. */
+    @Synchronized
+    fun loadAll(): ModelReloadResult {
+        val candidateTrains = loadTrainPackages()
+        val candidateRails = loadRailPackages()
+        wireCrossPackageReferences(candidateTrains)
         trainPackages.clear()
+        trainPackages.putAll(candidateTrains)
         railPackages.clear()
-
-        loadTrainPackages()
-        loadRailPackages()
-
-        wireCrossPackageReferences()
+        railPackages.putAll(candidateRails)
+        generation++
+        return ModelReloadResult(candidateTrains.keys.sorted(), candidateRails.keys.sorted(), generation)
     }
 
-    private fun loadTrainPackages() {
+    private fun loadTrainPackages(): MutableMap<String, LoadedTrainPackage> {
+        val loaded = linkedMapOf<String, LoadedTrainPackage>()
         val trainsDir = File(dataFolder, "trains")
-        if (!trainsDir.exists() || !trainsDir.isDirectory) return
+        if (!trainsDir.exists() || !trainsDir.isDirectory) return loaded
 
-        for (dir in trainsDir.listFiles() ?: emptyArray()) {
+        for (dir in trainsDir.listFiles()?.sortedBy { it.name } ?: emptyList()) {
             if (!dir.isDirectory) continue
             val manifestFile = File(dir, "manifest.yml")
             if (!manifestFile.exists()) continue
 
             val loader = PackageLoader(dir)
             val result = loader.loadTrainPackage() ?: continue
-            trainPackages[result.manifest.name] = result
+            require(loaded.putIfAbsent(result.manifest.name, result) == null) {
+                "Duplicate train package name '${result.manifest.name}'"
+            }
         }
+        return loaded
     }
 
-    private fun loadRailPackages() {
+    private fun loadRailPackages(): MutableMap<String, LoadedRailPackage> {
+        val loaded = linkedMapOf<String, LoadedRailPackage>()
         val railsDir = File(dataFolder, "rails")
-        if (!railsDir.exists() || !railsDir.isDirectory) return
+        if (!railsDir.exists() || !railsDir.isDirectory) return loaded
 
-        for (dir in railsDir.listFiles() ?: emptyArray()) {
+        for (dir in railsDir.listFiles()?.sortedBy { it.name } ?: emptyList()) {
             if (!dir.isDirectory) continue
             val manifestFile = File(dir, "manifest.yml")
             if (!manifestFile.exists()) continue
 
             val loader = PackageLoader(dir)
             val result = loader.loadRailPackage() ?: continue
-            railPackages[result.manifest.name] = result
+            require(loaded.putIfAbsent(result.manifest.name, result) == null) {
+                "Duplicate rail package name '${result.manifest.name}'"
+            }
         }
+        return loaded
     }
 
-    private fun wireCrossPackageReferences() {
-        val allRegistries: Map<String, PartRegistry> = trainPackages.mapValues { it.value.partRegistry }
+    private fun wireCrossPackageReferences(packages: Map<String, LoadedTrainPackage>) {
+        val allRegistries: Map<String, PartRegistry> = packages.mapValues { it.value.partRegistry }
 
-        for ((_, pkg) in trainPackages) {
+        for ((_, pkg) in packages) {
             pkg.partRegistry.fallbackRegistries = allRegistries - pkg.manifest.name
         }
     }
@@ -122,6 +136,17 @@ class ModelManager(
         trainPackages[packageName]?.partRegistry
             ?: throw IllegalArgumentException("Unknown train package: $packageName")
 
+    fun createTrainPackageSnapshot(packageName: String): SavedTrainPackageSnapshot? {
+        val pkg = trainPackages[packageName] ?: return null
+        return SavedTrainPackageSnapshot.build(
+            packageName = packageName,
+            actions = pkg.actions,
+            behavior = pkg.behavior,
+            control = pkg.control,
+            carControls = pkg.cars.mapValues { it.value.control }
+        )
+    }
+
     fun createCarModelSnapshot(carModelName: String): SavedCarModelTree? {
         val car = getCar(carModelName) ?: return null
         val resolver = getPartResolver(requireNotNull(car.packageName) {
@@ -133,3 +158,9 @@ class ModelManager(
     val hasPackages: Boolean get() = trainPackages.isNotEmpty() || railPackages.isNotEmpty()
     val hasRailPackages: Boolean get() = railPackages.isNotEmpty()
 }
+
+data class ModelReloadResult(
+    val trainPackages: List<String>,
+    val railPackages: List<String>,
+    val generation: Long
+)

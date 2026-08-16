@@ -126,6 +126,15 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
         destroyModel()
     }
 
+    /** Rebuild a live model tree while retaining its audience membership. */
+    @Synchronized
+    protected fun rebuildModelIfBuilt() {
+        if (retired || !modelBuilt) return
+        destroyModel()
+        buildModel()
+        updateModel()
+    }
+
     protected fun hasAudience(): Boolean = audience.isNotEmpty()
 
     open fun applyAnimation(name: String): Boolean = false

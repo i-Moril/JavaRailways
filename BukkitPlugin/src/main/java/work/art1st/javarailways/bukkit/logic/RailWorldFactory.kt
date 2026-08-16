@@ -76,8 +76,8 @@ object RailWorldFactory {
                 ),
                     atoFactory = TimetableAtoFactory { train, world ->
                         val profile = AtoSafetyProfile()
-                        val packageName = train.rendererOrNull?.modelPackageName()
-                        val maximumSpeed = plugin.modelManager.getTrainControl(packageName).maxSpeed
+                        val maximumSpeed = train.rendererOrNull?.resolveControl()?.maxSpeed
+                            ?: throw IllegalArgumentException("Train ${train.id} has no model control profile")
                         SimpleATO(
                             train,
                             world,

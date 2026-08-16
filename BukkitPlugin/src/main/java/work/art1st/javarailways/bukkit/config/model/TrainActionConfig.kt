@@ -1,10 +1,13 @@
 package work.art1st.javarailways.bukkit.config.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * Declarative train action loaded from actions.yml.
  * Actions are business-level operations such as door-left-open and can trigger
  * multiple low-level animations and sounds.
  */
+@Serializable
 data class TrainActionConfig(
     val name: String,
     val displayName: String = name,
@@ -84,6 +87,7 @@ data class TrainActionConfig(
     }
 }
 
+@Serializable
 data class TrainActionAnimationConfig(
     val name: String,
     val scene: String? = null,
@@ -91,6 +95,7 @@ data class TrainActionAnimationConfig(
     val at: Double = 0.0
 )
 
+@Serializable
 data class TrainActionSoundConfig(
     val key: String,
     val volume: Double = 1.0,

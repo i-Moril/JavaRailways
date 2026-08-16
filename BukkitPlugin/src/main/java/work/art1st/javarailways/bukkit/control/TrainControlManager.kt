@@ -20,6 +20,7 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
+import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.render.model.SeatModel
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.physics.train.CoreTrain
@@ -425,12 +426,11 @@ class TrainControlManager(
             car.carRendererOrNull?.carModelName
                 ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢缺少 carModelName，无法解析控制配置")
         }
-        val packageName = carModelNames.firstNotNullOfOrNull { modelName ->
-            plugin.modelManager.getCar(modelName)?.packageName
-        } ?: throw IllegalArgumentException("列车 ${train.id} 的车厢模型未关联到任何 train package")
-        val trainControl = plugin.modelManager.getTrainControl(packageName)
+        val renderer = train.rendererOrNull
+            ?: throw IllegalArgumentException("列车 ${train.id} 没有渲染扩展，无法解析控制配置")
+        val trainControl = renderer.resolveControl()
         val carControls = carModelNames.mapIndexed { index, modelName ->
-            plugin.modelManager.getCar(modelName)?.control
+            renderer.resolveCarControl(modelName)
                 ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢模型 '$modelName' 没有控制配置")
         }
         return trainControl to carControls

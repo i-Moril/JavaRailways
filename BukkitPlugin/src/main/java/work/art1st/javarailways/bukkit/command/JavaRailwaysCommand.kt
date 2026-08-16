@@ -90,6 +90,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
             "depot" -> return handleDepot(sender, args.drop(1))
             "ato" -> return handleAto(sender, args.drop(1))
             "perf", "performance" -> return handlePerf(sender, args.drop(1))
+            "resources", "resource" -> return handleResources(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
             "redo" -> return handleRedo(sender)
             "help" -> sendHelp(sender)
@@ -109,7 +110,10 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
 
     private fun completeCommand(sender: CommandSender, args: Array<out String>): List<String> {
         if (args.size == 1) {
-            return listOf("rail", "train", "wand", "waypoint", "route", "navigate", "timetable", "depot", "ato", "stop", "perf", "undo", "redo", "help")
+            return listOf("rail", "train", "wand", "waypoint", "route", "navigate", "timetable", "depot", "ato", "stop", "perf", "resources", "undo", "redo", "help")
+        }
+        if (args[0].equals("resources", ignoreCase = true) || args[0].equals("resource", ignoreCase = true)) {
+            return if (args.size == 2) listOf("reload") else emptyList()
         }
         if (args[0].equals("navigate", ignoreCase = true) ||
             args[0].equals("nav", ignoreCase = true)
@@ -140,6 +144,23 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
             }
         }
         return emptyList()
+    }
+
+    private fun handleResources(sender: CommandSender, args: List<String>): Boolean {
+        if (!sender.hasPermission("javarailways.admin")) {
+            sender.sendMessage("你没有权限重载 JavaRailways 资源")
+            return true
+        }
+        if (!args.firstOrNull().equals("reload", ignoreCase = true)) {
+            sender.sendMessage("用法: /jr resources reload")
+            return true
+        }
+        val result = BukkitPlugin.INSTANCE.modelManager.loadAll()
+        sender.sendMessage(
+            "资源重载完成：${result.trainPackages.size} 个列车包，" +
+                "${result.railPackages.size} 个轨道包（generation=${result.generation}）"
+        )
+        return true
     }
 
     private fun handleWand(sender: CommandSender, args: List<String>): Boolean {
@@ -504,7 +525,8 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
                     return true
                 }
                 val maximumSpeed = runCatching {
-                    BukkitPlugin.INSTANCE.modelManager.getTrainControl(packageName).maxSpeed
+                    train.rendererOrNull?.resolveControl()?.maxSpeed
+                        ?: throw IllegalArgumentException("列车没有可解析的模型包")
                 }.getOrElse {
                     sender.sendMessage("列车控制配置无效: ${it.message}")
                     return true
@@ -1314,6 +1336,7 @@ class JavaRailwaysCommand : CommandExecutor, TabCompleter {
         sender.sendMessage("/jr ato dump <world> - 写出最近一次 ATO Stall 报告")
         sender.sendMessage("/jr ato reset <world> - 手动解除 ATO Stall（不恢复列车位置）")
         sender.sendMessage("/jr perf [world] - 查看 Tick、物理和渲染耗时")
+        sender.sendMessage("/jr resources reload - 事务式重载外部列车与轨道资源")
         sender.sendMessage("/jr undo - 撤销操作")
         sender.sendMessage("/jr redo - 重做操作")
     }

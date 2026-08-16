@@ -12,5 +12,7 @@ data class SavedCarRenderState(
 
 @Serializable
 data class SavedTrainRenderState(
-    val version: Int = 1
+    val version: Int = 1,
+    val packageName: String? = null,
+    val packageSnapshotHash: String? = null
 ) : SerializableExtensionData()

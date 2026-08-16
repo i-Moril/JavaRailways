@@ -30,13 +30,21 @@ data class IsolatedLineSimulationResult(val legs: List<SimulatedLeg>) {
 
 /** Bukkit DTO adapter around Basic's pure fixed-step detailed travel simulator. */
 object IsolatedLineSimulator {
-    fun simulate(legs: List<SimulationLeg>, profile: SimulationControlProfile): IsolatedLineSimulationResult {
+    fun simulate(
+        legs: List<SimulationLeg>,
+        profile: SimulationControlProfile,
+        lineMaximumSpeedMetersPerSecond: Double? = null
+    ): IsolatedLineSimulationResult {
         val result = try {
             DetailedTrainTravelSimulator.simulate(
                 legs.map { DetailedTravelLeg(
                     it.fromStationId, it.toStationId, it.lengthMeters, it.averageGrade, it.stopAtEnd
                 ) },
-                DetailedTrainSimulationProfile(profile.trainControl, profile.carControls)
+                DetailedTrainSimulationProfile(
+                    profile.trainControl,
+                    profile.carControls,
+                    lineMaximumSpeedMetersPerSecond
+                )
             )
         } catch (limit: DetailedTrainSimulationLimitException) {
             throw SimulationComputationLimitException(limit.message ?: "line simulation exceeded its computation deadline")

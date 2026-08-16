@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.timetable.simulation
 import java.util.concurrent.CancellationException
 import work.art1st.javarailways.basic.control.TrainDynamics
 import kotlin.math.max
+import kotlin.math.min
 
 class DetailedTrainSimulationLimitException(message: String) : IllegalStateException(message)
 
@@ -25,8 +26,24 @@ data class DetailedSimulatedLeg(
 
 data class DetailedTrainSimulationProfile(
     val train: TrainDynamics.TrainProfile,
-    val cars: List<TrainDynamics.CarProfile>
-)
+    val cars: List<TrainDynamics.CarProfile>,
+    val maximumSpeedMetersPerSecond: Double? = null
+) {
+    init {
+        require(maximumSpeedMetersPerSecond == null ||
+            maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0)
+    }
+
+    fun effectiveTrainProfile(): TrainDynamics.TrainProfile {
+        val limit = maximumSpeedMetersPerSecond ?: return train
+        return SpeedCappedTrainProfile(train, min(train.maxSpeed, limit))
+    }
+}
+
+private class SpeedCappedTrainProfile(
+    private val delegate: TrainDynamics.TrainProfile,
+    override val maxSpeed: Double
+) : TrainDynamics.TrainProfile by delegate
 
 data class DetailedTravelSimulationResult(val legs: List<DetailedSimulatedLeg>) {
     val totalTravelSeconds: Double get() = legs.sumOf(DetailedSimulatedLeg::travelSeconds)
@@ -45,14 +62,15 @@ object DetailedTrainTravelSimulator {
         require(legs.isNotEmpty()) { "travel simulation requires at least one leg" }
         require(legs.all { it.lengthMeters.isFinite() && it.lengthMeters > 0.0 })
         require(profile.cars.isNotEmpty()) { "travel simulation requires at least one car" }
+        val effectiveProfile = profile.copy(train = profile.effectiveTrainProfile())
         val estimatedBrakeDeceleration = max(
             0.2,
             profile.cars.sumOf(TrainDynamics.CarProfile::brakeMaxForce) /
                 profile.cars.sumOf(TrainDynamics.CarProfile::effectiveMass) * 0.72
         )
         require(legs.last().stopAtEnd) { "the final travel leg must end at a stop" }
-        val powerHandle = findPowerHandle(profile.train)
-        val brakeHandle = findBrakeHandle(profile.train)
+        val powerHandle = findPowerHandle(effectiveProfile.train)
+        val brakeHandle = findBrakeHandle(effectiveProfile.train)
         val stoppingGroups = buildList {
             var start = 0
             legs.forEachIndexed { index, leg ->
@@ -65,7 +83,7 @@ object DetailedTrainTravelSimulator {
         return DetailedTravelSimulationResult(stoppingGroups.flatMap { group ->
             simulateStoppingGroup(
                 group,
-                profile,
+                effectiveProfile,
                 estimatedBrakeDeceleration,
                 powerHandle,
                 brakeHandle,

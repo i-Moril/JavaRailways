@@ -43,6 +43,8 @@ import work.art1st.javarailways.basic.api.station.StationCallResolutionFailure
 import work.art1st.javarailways.basic.api.station.StationCallResolutionResult
 import work.art1st.javarailways.basic.api.station.StationCallResolver
 import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
+import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
+import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
@@ -343,6 +345,12 @@ class SimpleATO(
         require((callId == null) == (missionRevision == null))
         return commands.enqueue(Command.PrepareReverse(callId, missionRevision)).revision
     }
+
+    fun setLineMaximumSpeed(
+        key: String,
+        resolver: LineMaximumSpeedResolver,
+        service: TimetableService
+    ): Long = resolver.resolve(service)?.let { setSpeedLimit(key, it) } ?: removeSpeedLimit(key)
 
     fun setSpeedLimit(key: String, speedLimitMetersPerSecond: Double): Long {
         require(key.isNotBlank())

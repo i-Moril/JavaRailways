@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
+import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.timetable.*
 import work.art1st.javarailways.basic.timetable.*
@@ -361,7 +362,9 @@ data class SavedTimetableServiceV1(
     val diagramLineId: String? = null,
     /** Presentation/editor hint only; generated runtime steps remain authoritative. */
     val lineDirection: SavedDiagramDirectionV1? = null,
-    val rows: List<SavedServiceEditorRowV1>? = null
+    val rows: List<SavedServiceEditorRowV1>? = null,
+    /** Actual Basic infrastructure line; independent from diagramLineId. */
+    val lineId: String? = null
 ) {
     fun restore(): TimetableService = TimetableService(
         id = id,
@@ -371,7 +374,8 @@ data class SavedTimetableServiceV1(
         },
         steps = steps.map(SavedTimetableStepV1::restore),
         activation = activation.restore(),
-        editorRows = rows?.map(SavedServiceEditorRowV1::restore)
+        editorRows = rows?.map(SavedServiceEditorRowV1::restore),
+        lineId = lineId?.let(::LineId)
     )
 
     companion object {
@@ -383,7 +387,8 @@ data class SavedTimetableServiceV1(
             trainId = (value.trainSelector as? TrainSelector.TrainId)?.trainId,
             steps = value.steps.map(SavedTimetableStepV1::capture),
             activation = SavedTimetableActivationV1.capture(value.activation),
-            rows = value.editorRows?.map(SavedServiceEditorRowV1::capture)
+            rows = value.editorRows?.map(SavedServiceEditorRowV1::capture),
+            lineId = value.lineId?.value
         )
     }
 }
@@ -464,6 +469,21 @@ data class SavedCompilationTraceV1(
 )
 
 @Serializable
+data class SavedTimetableLineSpeedLimitV1(
+    val lineId: String,
+    val maximumSpeedMetersPerSecond: Double
+) {
+    fun restore() = TimetableLineSpeedLimit(LineId(lineId), maximumSpeedMetersPerSecond)
+
+    companion object {
+        fun capture(value: TimetableLineSpeedLimit) = SavedTimetableLineSpeedLimitV1(
+            value.lineId.value,
+            value.maximumSpeedMetersPerSecond
+        )
+    }
+}
+
+@Serializable
 data class SavedTimetableV1(
     val id: String,
     val periodDays: Long,
@@ -472,13 +492,15 @@ data class SavedTimetableV1(
     val diagramLines: List<SavedDiagramLineV1> = emptyList(),
     val initialPositions: List<SavedInitialPositionV1> = emptyList(),
     /** Presentation-only compiler trace; ignored by restore(). */
-    val compilationTrace: List<SavedCompilationTraceV1> = emptyList()
+    val compilationTrace: List<SavedCompilationTraceV1> = emptyList(),
+    val lineSpeedLimits: List<SavedTimetableLineSpeedLimitV1> = emptyList()
 ) {
     fun restore(): Timetable = Timetable(
-        id,
-        periodDays,
-        services.map(SavedTimetableServiceV1::restore),
-        initialPositions.map(SavedInitialPositionV1::restore)
+        id = id,
+        periodDays = periodDays,
+        services = services.map(SavedTimetableServiceV1::restore),
+        initialPositions = initialPositions.map(SavedInitialPositionV1::restore),
+        lineSpeedLimits = lineSpeedLimits.map(SavedTimetableLineSpeedLimitV1::restore)
     )
 
     companion object {
@@ -486,7 +508,8 @@ data class SavedTimetableV1(
             value.id,
             value.periodDays,
             value.services.map(SavedTimetableServiceV1::capture),
-            initialPositions = value.initialPositions.map(SavedInitialPositionV1::capture)
+            initialPositions = value.initialPositions.map(SavedInitialPositionV1::capture),
+            lineSpeedLimits = value.lineSpeedLimits.map(SavedTimetableLineSpeedLimitV1::capture)
         )
     }
 }

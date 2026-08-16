@@ -52,6 +52,22 @@ class IsolatedLineSimulatorTest {
     }
 
     @Test
+    fun `applies the resolved timetable line maximum speed to detailed simulation`() {
+        val uncapped = IsolatedLineSimulator.simulate(
+            listOf(SimulationLeg("A", "B", 1_000.0)),
+            profile
+        )
+        val capped = IsolatedLineSimulator.simulate(
+            listOf(SimulationLeg("A", "B", 1_000.0)),
+            profile,
+            lineMaximumSpeedMetersPerSecond = 5.0
+        )
+
+        assertTrue(capped.legs.single().peakSpeedMetersPerSecond <= 5.0)
+        assertTrue(capped.totalTravelSeconds > uncapped.totalTravelSeconds)
+    }
+
+    @Test
     fun `honors worker interruption`() {
         Thread.currentThread().interrupt()
         try {

@@ -23,6 +23,8 @@ import work.art1st.javarailways.basic.api.depot.StablingPointRef
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.basic.api.line.Line
+import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.Station
 import work.art1st.javarailways.basic.api.station.StationBerth
@@ -82,6 +84,44 @@ class TimetableDispatcherTest {
     fun unregisterWorlds() {
         worlds.forEach(TestBasicWorldDataRegistry::unregister)
         worlds.clear()
+    }
+
+    @Test
+    fun `service infrastructure line maximum speed is installed in ATO`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-line-speed-test", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        val lineId = LineId("metro")
+        data.lines.put(
+            Line(lineId, "Metro", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
+            0L
+        )
+        val base = timetable("tt", "s1", train.id, "A", "B")
+        data.timetables.add(base.copy(
+            services = listOf(base.services.single().copy(lineId = lineId)),
+            lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, 7.5))
+        ))
+
+        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
+        val ato = train.controller as SimpleATO
+        tickAndPublish(ato)
+
+        val constraints = ato.publishedState.runtimeDiagnostics.constraints
+        assertTrue(constraints.any {
+            it.contains("external/timetable-line/tt/s1") && it.contains("maximumSpeedMetersPerSecond=7.5")
+        }, constraints.toString())
     }
 
     @Test

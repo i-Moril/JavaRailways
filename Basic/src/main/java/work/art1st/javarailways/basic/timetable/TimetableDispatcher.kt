@@ -543,6 +543,7 @@ class TimetableDispatcher(
                 existingController.removeSpeedLimit(stopKey(it))
                 existingController.removeSpeedLimit(stationPendingHoldKey(it))
                 existingController.removeSpeedLimit(scheduleHoldKey(it))
+                existingController.removeSpeedLimit(timetableLineSpeedKey(it.id))
             }
         }
         val initialOriginWayPointId = selected.originWayPointId
@@ -566,6 +567,7 @@ class TimetableDispatcher(
                 )
             }
         }
+        applyTimetableLineSpeedLimit(ato, timetable, service, runId)
         val controllerOwned = existingController == null || replaceableTrainRuns.any {
             it.ato === ato && it.controllerOwned
         }
@@ -940,6 +942,8 @@ class TimetableDispatcher(
         validateAtWayPoint(world, run.train, originWayPointId)?.let {
             return TimetableReplanResult.Failure(it)
         }
+        val timetable = world.basicWorldData.timetables[run.id.timetableId]
+            ?: return TimetableReplanResult.Failure("timetable not found: ${run.id.timetableId}")
         val factory = atoFactory
             ?: return TimetableReplanResult.Failure("timetable ATO factory is not configured")
         val replacementAto = try {
@@ -949,6 +953,7 @@ class TimetableDispatcher(
                 "failed to create replacement ATO: ${failure.message ?: failure::class.java.simpleName}"
             )
         }
+        applyTimetableLineSpeedLimit(replacementAto, timetable, run.service, run.id)
         val target = WayPointRef(run.currentRuntime.targetWayPointId)
         if (target.id == originWayPointId) {
             run.ato = replacementAto
@@ -1641,6 +1646,7 @@ class TimetableDispatcher(
         run.ato.removeSpeedLimit(stopKey(run))
         run.ato.removeSpeedLimit(stationPendingHoldKey(run))
         run.ato.removeSpeedLimit(scheduleHoldKey(run))
+        run.ato.removeSpeedLimit(timetableLineSpeedKey(run.id))
         if (run.train.controller === run.ato) run.train.setController(null)
         waypointProgressListeners.remove(run.waypointProgressKey())
         runs.entries.removeIf { (_, candidate) -> candidate === run }
@@ -1706,6 +1712,7 @@ class TimetableDispatcher(
                 run.ato.removeSpeedLimit(stopKey(run))
                 run.ato.removeSpeedLimit(stationPendingHoldKey(run))
                 run.ato.removeSpeedLimit(scheduleHoldKey(run))
+                run.ato.removeSpeedLimit(timetableLineSpeedKey(run.id))
                 if (run.train.controller === run.ato) run.train.setController(null)
             }
             val stoppedTimetables = selectedRuns.mapTo(LinkedHashSet()) { it.id.timetableId }
@@ -4026,6 +4033,24 @@ class TimetableDispatcher(
 
     private fun absoluteTimetableTick(run: ActiveRun, relativeTick: Long): Long =
         Math.addExact(run.cycleStartDispatcherTick, relativeTick)
+
+    private fun applyTimetableLineSpeedLimit(
+        ato: SimpleATO,
+        timetable: Timetable,
+        service: TimetableService,
+        runId: TimetableServiceRunId
+    ) {
+        ato.setLineMaximumSpeed(
+            timetableLineSpeedKey(runId),
+            LineMaximumSpeedResolver(timetable),
+            service
+        )
+        // TODO: through-running must update an explicit currentLineId at the infrastructure line
+        // boundary and re-resolve this cap; never retain the origin line's speed on another line.
+    }
+
+    private fun timetableLineSpeedKey(runId: TimetableServiceRunId): String =
+        "timetable-line/${runId.timetableId}/${runId.serviceId}"
 
     private fun stopKey(run: ActiveRun): String = "dispatcher:stop/${run.instanceId}"
 

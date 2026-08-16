@@ -41,5 +41,12 @@ class DetailedTrainTravelSimulatorTest {
         assertTrue(first.legs.single().travelSeconds > 0.0)
         assertEquals(0.0, first.legs.single().travelSeconds % DetailedTrainTravelSimulator.STEP_SECONDS, 1.0e-7)
         assertTrue(kotlin.math.abs(first.legs.single().stoppingErrorMeters) < 3.0)
+
+        val capped = DetailedTrainTravelSimulator.simulate(
+            legs,
+            profile.copy(maximumSpeedMetersPerSecond = 4.0)
+        )
+        assertTrue(capped.legs.single().peakSpeedMetersPerSecond <= 4.0)
+        assertTrue(capped.legs.single().peakSpeedMetersPerSecond < first.legs.single().peakSpeedMetersPerSecond)
     }
 }

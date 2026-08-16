@@ -28,6 +28,11 @@ import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitType
+import work.art1st.javarailways.basic.api.line.LineId
+import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
+import work.art1st.javarailways.basic.timetable.Timetable
+import work.art1st.javarailways.basic.timetable.TimetableLineSpeedLimit
+import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.basic.route.ConfirmedRouteWindow
 import work.art1st.javarailways.basic.route.RouteSectionAllocationKey
@@ -215,6 +220,51 @@ class SimpleATOTest {
             it.contains("infrastructure-signal/") && it.contains("maximumSpeedMetersPerSecond=5.0")
         })
         assertFalse(constraints.any { it.contains("route-speed/") })
+    }
+
+    @Test
+    fun `removing curve limit restores subgrade then timetable line maximum speed`() {
+        val fixture = fixture("layered-speed", railLengthMeters = 30.0)
+        val next = CoreRail(
+            fixture.world,
+            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        CoreRail.connect(fixture.train.head.location.rail, next)
+        val lineId = LineId("metro")
+        fixture.ato.setLineMaximumSpeed(
+            "line",
+            LineMaximumSpeedResolver(Timetable(
+                "tt",
+                lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, 8.0))
+            )),
+            TimetableService("service", lineId = lineId)
+        )
+        next.metadata = RailInfrastructureMetadata(speedLimits = SpeedLimitMetadata(listOf(
+            SpeedLimitEntry(5.0, SpeedLimitType.CURVE),
+            SpeedLimitEntry(7.0, SpeedLimitType.SUBGRADE)
+        )))
+        tickAndPublish(fixture.ato, 50.0)
+        assertTrue(fixture.ato.publishedState.runtimeDiagnostics.constraints.any {
+            it.contains("infrastructure-signal/") && it.contains("maximumSpeedMetersPerSecond=5.0")
+        })
+
+        next.metadata = RailInfrastructureMetadata(speedLimits = SpeedLimitMetadata(listOf(
+            SpeedLimitEntry(7.0, SpeedLimitType.SUBGRADE)
+        )))
+        tickAndPublish(fixture.ato, 50.0)
+        assertTrue(fixture.ato.publishedState.runtimeDiagnostics.constraints.any {
+            it.contains("infrastructure-signal/") && it.contains("maximumSpeedMetersPerSecond=7.0")
+        })
+
+        next.metadata = RailInfrastructureMetadata()
+        tickAndPublish(fixture.ato, 50.0)
+        val constraints = fixture.ato.publishedState.runtimeDiagnostics.constraints
+        assertFalse(constraints.any { it.contains("infrastructure-signal/") })
+        assertTrue(constraints.any {
+            it.contains("external/line") && it.contains("maximumSpeedMetersPerSecond=8.0")
+        })
     }
 
     @Test

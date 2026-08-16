@@ -20,6 +20,10 @@ object TimetableDumper {
             "periodDays" to JsonPrimitive(periodDays),
             "periodTicks" to JsonPrimitive(periodTicks),
             "services" to JsonArray(services.map { it.toJson() }),
+            "lineSpeedLimits" to JsonArray(lineSpeedLimits.map { limit -> JsonObject(mapOf(
+                "lineId" to JsonPrimitive(limit.lineId.value),
+                "maximumSpeedMetersPerSecond" to JsonPrimitive(limit.maximumSpeedMetersPerSecond)
+            )) }),
             "initialPositions" to JsonArray(initialPositions.map { position -> JsonObject(mapOf(
                 "trainSelector" to position.trainSelector.toJson(),
                 "wayPointSelector" to position.wayPointSelector.toJson()
@@ -48,6 +52,7 @@ object TimetableDumper {
     private fun TimetableService.toJson(): JsonObject = JsonObject(
         mapOf(
             "id" to JsonPrimitive(id),
+            "lineId" to (lineId?.value?.let(::JsonPrimitive) ?: JsonNull),
             "trainSelector" to trainSelector.toJson(),
             "activation" to activation.toJson(),
             "steps" to JsonArray(steps.map { it.toJson() })

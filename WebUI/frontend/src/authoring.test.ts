@@ -85,6 +85,18 @@ describe('timetable editor document',()=>{
     expect(first.source).toContain('scoped.at(1000).destination("a@2", { arrivalTick: 1800, doorSide: "NONE" })');
   });
 
+  it('generates infrastructure line context and its all-train maximum speed separately',()=>{
+    const document=valid();
+    document.lineSpeedLimits=[{lineId:'line-1',maximumSpeedMetersPerSecond:22}];
+    document.runs=document.runs.map((run)=>({...run,lineId:'line-1'}));
+
+    const result=generateTimetableSource(document);
+
+    expect(result.issues).toEqual([]);
+    expect(result.source).toContain('timetable.lineSpeedLimit("line-1", 22)');
+    expect(result.source).toContain('{ diagramLineId: "line-1", lineId: "line-1" }');
+  });
+
   it('uses manual arrival overrides without changing runtime departure ticks',()=>{
     const document=valid();
     document.arrivalOverrides=[{runId:'up-01',callId:'up-b',tick:760}];

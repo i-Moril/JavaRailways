@@ -29,6 +29,7 @@ import work.art1st.javarailways.basic.api.timetable.TimetableConditionProvider
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.SavedTimetableV1
 import work.art1st.javarailways.basic.persistence.TimetableSnapshotCodec
+import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.basic.timetable.TimetableValidator
 import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationRequest
 import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationResult
@@ -53,7 +54,8 @@ internal class HttpFailure(val status: Int, message: String) : RuntimeException(
 private data class LineSimulationSnapshot(
     val revision: Long,
     val profile: SimulationControlProfile,
-    val legs: List<SimulationLeg>
+    val legs: List<SimulationLeg>,
+    val lineMaximumSpeedMetersPerSecond: Double?
 )
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
@@ -574,6 +576,22 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 withWorld(worldName) { _, world ->
                     val data = world.basicWorldData
                     val line = data.lines[LineId(lineId)] ?: throw HttpFailure(404, "line not found: $lineId")
+                    val timetableId = request["timetableId"]?.jsonPrimitive?.content
+                    val serviceId = request["serviceId"]?.jsonPrimitive?.content
+                    if ((timetableId == null) != (serviceId == null)) {
+                        throw HttpFailure(400, "timetableId and serviceId must be provided together")
+                    }
+                    val lineMaximumSpeed = timetableId?.let { requestedTimetableId ->
+                        val timetable = data.timetables[requestedTimetableId]
+                            ?: throw HttpFailure(404, "timetable not found: $requestedTimetableId")
+                        val service = timetable.services.firstOrNull { it.id == serviceId }
+                            ?: throw HttpFailure(404, "service not found: $requestedTimetableId/$serviceId")
+                        if (service.lineId != line.id) {
+                            throw HttpFailure(400, "service infrastructure line does not match requested line: $lineId")
+                        }
+                        LineMaximumSpeedResolver(timetable).resolve(service)
+                            ?: throw HttpFailure(422, "service has no configured line maximum speed: $requestedTimetableId/$serviceId")
+                    }
                     val direction = request["direction"]?.jsonPrimitive?.content?.let {
                         runCatching { LineDirection.valueOf(it.uppercase()) }.getOrElse { throw HttpFailure(400, "direction must be UP or DOWN") }
                     } ?: LineDirection.UP
@@ -669,13 +687,18 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                                 weightedGrade,
                                 stopAtEnd = leg.toStationId in stopStationIds || index == selectedLegs.lastIndex
                             )
-                        }
+                        },
+                        lineMaximumSpeedMetersPerSecond = lineMaximumSpeed
                     )
                 }
             }
             val task = try {
                 simulationExecutor.submit<IsolatedLineSimulationResult> {
-                    IsolatedLineSimulator.simulate(snapshot.legs, snapshot.profile)
+                    IsolatedLineSimulator.simulate(
+                        snapshot.legs,
+                        snapshot.profile,
+                        snapshot.lineMaximumSpeedMetersPerSecond
+                    )
                 }
             } catch (_: RejectedExecutionException) {
                 throw HttpFailure(429, "line simulation queue is full; retry later")

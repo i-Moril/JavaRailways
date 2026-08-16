@@ -12,6 +12,7 @@ import work.art1st.javarailways.basic.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.basic.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.timetable.TimetableAction
@@ -77,6 +78,12 @@ internal class IsolatedTimetableSimulationFactory(
                     equivalentServices.joinToString { it.id }
             }
         }
+        val lineMaximumSpeedResolver = LineMaximumSpeedResolver(timetable)
+        timetable.services.filter { it.lineId != null }.forEach { service ->
+            requireNotNull(lineMaximumSpeedResolver.resolve(service)) {
+                "simulation service has no configured line maximum speed: ${service.id}"
+            }
+        }
         val profiles = timetable.services.associate { service ->
             val selection = selectionsByService.getValue(service.id)
             service.id to profileResolver.resolve(liveWorld, selection.profileType, selection.profileId)
@@ -113,6 +120,8 @@ internal class IsolatedTimetableSimulationFactory(
             basicDataFactory = { world ->
                 world.tickManager.register(operationGateway)
                 BasicWorldData(
+                    // The isolated world uses the same Dispatcher -> SimpleATO ->
+                    // LineMaximumSpeedResolver path as live operation; do not copy speed rules here.
                     dispatcher = TimetableDispatcher(
                     operationGateway = operationGateway,
                     atoFactory = TimetableAtoFactory { train, owningWorld ->

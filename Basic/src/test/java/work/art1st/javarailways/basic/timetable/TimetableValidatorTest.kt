@@ -16,6 +16,8 @@ import work.art1st.javarailways.basic.api.depot.StablingPointRef
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.basic.api.line.Line
+import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.Station
 import work.art1st.javarailways.basic.api.station.StationBerth
@@ -31,6 +33,26 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 
 class TimetableValidatorTest {
+    @Test
+    fun `validator rejects unknown infrastructure lines and missing line maximum speeds`() {
+        val world = createTestWorld()
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val known = LineId("known")
+        world.basicWorldData.lines.put(
+            Line(known, "Known", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
+            0L
+        )
+        val timetable = Timetable("line-validation", services = listOf(
+            TimetableService("known-service", lineId = known),
+            TimetableService("unknown-service", lineId = LineId("unknown"))
+        ))
+
+        val errors = TimetableValidator(world).validate(timetable).errors
+
+        assertTrue(errors.any { it.contains("未配置线路最高速度: known") })
+        assertTrue(errors.any { it.contains("引用不存在的 LineId: unknown") })
+    }
+
     @Test
     fun `validator expands route between checked origin and goto target`() {
         val world = createTestWorld()

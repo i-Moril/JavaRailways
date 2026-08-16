@@ -13,13 +13,14 @@ export interface ServiceEditorRowV1 {
   destinationId?:string|null; tick?:number|null; arrivalTick?:number|null; departureTick?:number|null;
   depotOperation?:'TAKE_FROM_DEPOT'|'STORE_AT_DEPOT'|null; depotId?:string|null; actions:TimetableActionV1[];
 }
-export interface TimetableServiceV1 { id: string; diagramLineId?:string|null; lineDirection?:LineDirection|null; rows?:ServiceEditorRowV1[]|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
+export interface TimetableServiceV1 { id: string; lineId?:string|null; diagramLineId?:string|null; lineDirection?:LineDirection|null; rows?:ServiceEditorRowV1[]|null; selectorType: TrainSelectorType; trainId?: string|null; steps: TimetableStepV1[]; activation: { type: 'SCHEDULED'|'MANUAL'|'CONDITIONAL'; condition?: TimetableConditionV1|null; falseBehavior?: string|null } }
 export interface DiagramLineV1 { id:string; upStationIds:string[]; downStationIds:string[] }
 export type ObjectSelectorType = 'REGEX'|'AND'|'OR'|'NOT'|'TAGS';
 export interface ObjectSelectorV1 { type:ObjectSelectorType; pattern?:string|null; selectors:ObjectSelectorV1[]; tags:string[] }
 export interface InitialPositionV1 { trainSelector:ObjectSelectorV1; wayPointSelector:ObjectSelectorV1 }
 export interface CompilationTraceV1 { serviceId:string; stepIndex:number; origin:string }
-export interface SavedTimetableV1 { id: string; periodDays: number; services: TimetableServiceV1[]; diagramLines?:DiagramLineV1[]; initialPositions?:InitialPositionV1[]; compilationTrace?:CompilationTraceV1[] }
+export interface TimetableLineSpeedLimitV1 { lineId:string; maximumSpeedMetersPerSecond:number }
+export interface SavedTimetableV1 { id: string; periodDays: number; services: TimetableServiceV1[]; diagramLines?:DiagramLineV1[]; initialPositions?:InitialPositionV1[]; compilationTrace?:CompilationTraceV1[]; lineSpeedLimits?:TimetableLineSpeedLimitV1[] }
 export interface WebSessionStatus {
  authenticated:boolean; playerName?:string; worldId?:string; expiresAtEpochMillis?:number;
 }
@@ -47,6 +48,7 @@ export interface LinePreview { valid:boolean; directions?:Partial<Record<LineDir
 export interface SavedLineResult { revision:number; line:LineV1; preview:LinePreview }
 export interface SimulationProfile {
  profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string; direction:LineDirection;
+ timetableId?:string; serviceId?:string;
  originStationId?:string; terminalStationId?:string; stopStationIds?:string[]; destinationIds?:string[];
  originDepartureMode?:'AUTO'|'CONTINUE'|'REVERSE';
 }

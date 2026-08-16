@@ -118,10 +118,18 @@ class ScriptWorkerTest {
         assertEquals(SavedLineDirectionV1.DOWN, result.services.single().lineDirection)
     }
 
+    @Test fun `infrastructure line and all-train maximum speed are serialized separately from diagram metadata`() {
+        val result = run("""
+          timetable.setPeriodDays(1);
+          timetable.lineSpeedLimit('metro', 22.0);
+          timetable.service('s','train',{lineId:'metro',diagramLineId:'diagram'},t=>t.at(1).destination('a'));
+        """)
+        assertEquals("metro", result.services.single().lineId)
+        assertEquals("diagram", result.services.single().diagramLineId)
+        assertEquals(SavedTimetableLineSpeedLimitV1("metro", 22.0), result.lineSpeedLimits.single())
+    }
+
     @Test fun `removed service options are rejected`() {
-        assertThrows(Throwable::class.java) {
-            run("timetable.setPeriodDays(1); timetable.service('s','train',{lineId:'old'},t=>t.at(1).destination('a'));")
-        }
         assertThrows(Throwable::class.java) {
             run("timetable.setPeriod(24000); timetable.service('s','train',t=>t.at(1).destination('a'));")
         }

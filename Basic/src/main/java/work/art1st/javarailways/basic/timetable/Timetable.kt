@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.timetable
 
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
+import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.timetable.TimetableCondition
 import work.art1st.javarailways.basic.api.timetable.TimetableConditionScope
@@ -28,10 +29,14 @@ data class Timetable(
     val id: String,
     val periodDays: Long = 1L,
     val services: List<TimetableService> = emptyList(),
-    val initialPositions: List<TimetableInitialPosition> = emptyList()
+    val initialPositions: List<TimetableInitialPosition> = emptyList(),
+    val lineSpeedLimits: List<TimetableLineSpeedLimit> = emptyList()
 ) {
     init {
         require(periodDays > 0L) { "Timetable periodDays must be positive" }
+        require(lineSpeedLimits.distinctBy(TimetableLineSpeedLimit::lineId).size == lineSpeedLimits.size) {
+            "Timetable contains duplicate line speed limits"
+        }
     }
 
     val periodTicks: Long
@@ -42,13 +47,37 @@ data class Timetable(
     }
 }
 
+data class TimetableLineSpeedLimit(
+    val lineId: LineId,
+    val maximumSpeedMetersPerSecond: Double
+) {
+    init {
+        require(maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0)
+    }
+}
+
 data class TimetableService(
     val id: String,
     val trainSelector: TrainSelector = TrainSelector.AnyTrain,
     val steps: List<TimetableStep> = emptyList(),
     val activation: TimetableServiceActivation = TimetableServiceActivation.Scheduled,
-    val editorRows: List<TimetableServiceEditorRow>? = null
+    val editorRows: List<TimetableServiceEditorRow>? = null,
+    /** Actual Basic infrastructure line; never substitute presentation-only diagramLineId. */
+    val lineId: LineId? = null
 )
+
+class LineMaximumSpeedResolver(private val timetable: Timetable) {
+    fun resolve(service: TimetableService): Double? {
+        val lineId = service.lineId ?: return null
+        return timetable.lineSpeedLimits.singleOrNull { it.lineId == lineId }
+            ?.maximumSpeedMetersPerSecond
+    }
+
+    companion object {
+        fun resolve(timetable: Timetable, service: TimetableService): Double? =
+            LineMaximumSpeedResolver(timetable).resolve(service)
+    }
+}
 
 enum class TimetableServiceRowType { STATION, SPECIAL_DESTINATION, DEPOT_OPERATION, ACTION_ONLY }
 enum class TimetableServiceStopStatus { ORIGIN, STOP, PASS, TERMINAL, DISABLED }
@@ -193,12 +222,33 @@ class TimetableValidator(private val world: World) {
             Long.MAX_VALUE
         }
 
+        timetable.lineSpeedLimits.forEach { limit ->
+            if (world.basicWorldData.lines[limit.lineId] == null) {
+                errors.add("线路限速引用不存在的 LineId: ${limit.lineId.value}")
+            }
+        }
         val serviceIds = mutableSetOf<String>()
         for (service in timetable.services) {
+            validateServiceLine(timetable, service, errors)
             validateService(timetable.id, periodTicks, service, errors, routes)
             if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")
         }
         return TimetableValidationResult(errors, routes)
+    }
+
+    private fun validateServiceLine(
+        timetable: Timetable,
+        service: TimetableService,
+        errors: MutableList<String>
+    ) {
+        val lineId = service.lineId ?: return
+        val prefix = "[${timetable.id}/${service.id}]"
+        if (world.basicWorldData.lines[lineId] == null) {
+            errors.add("$prefix 引用不存在的 LineId: ${lineId.value}")
+        }
+        if (LineMaximumSpeedResolver.resolve(timetable, service) == null) {
+            errors.add("$prefix 未配置线路最高速度: ${lineId.value}")
+        }
     }
 
     private fun validateService(

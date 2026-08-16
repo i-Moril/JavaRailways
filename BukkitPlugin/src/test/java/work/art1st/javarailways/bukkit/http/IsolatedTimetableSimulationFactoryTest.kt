@@ -10,13 +10,24 @@ import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.api.destination.DestinationRole
+import work.art1st.javarailways.basic.api.destination.OperationalDestination
+import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.basic.api.line.Line
+import work.art1st.javarailways.basic.api.line.LineId
+import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.timetable.TimetableAction
+import work.art1st.javarailways.basic.timetable.TimetableLineSpeedLimit
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.basic.timetable.TrainSelector
+import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationRequest
+import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationResult
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
@@ -57,6 +68,75 @@ class IsolatedTimetableSimulationFactoryTest {
             assertEquals(listOf("scheduled-train"), simulation.world.allTrains.map { it.name })
             assertFalse(simulation.world.allTrains.any { it.name == "live-transient" })
         }
+    }
+
+    @Test
+    fun `isolated timetable operation honors the shared line maximum speed resolver`() {
+        val source = createTestWorld()
+        val rail = createStraightRailFromSegments(
+            source,
+            PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1)
+        )
+        source.registerExtensionData(BasicPlugin.INSTANCE, BasicWorldData())
+        source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
+        source.basicWorldData.wayPoints.add(WayPoint("terminal", "Terminal", rail.id, 250.0))
+        val destinationService = OperationalDestinationService(source)
+        listOf("a" to 10.0, "b" to 280.0).forEach { (id, arcLength) ->
+            destinationService.register(OperationalDestination(
+                id = "$id@one",
+                displayName = id.uppercase(),
+                railId = rail.id,
+                arcLengthInAbMeters = arcLength,
+                approachDirection = ViewDirection.AB,
+                role = DestinationRole.StationBerthRole(
+                    stationId = StationId(id),
+                    stationDisplayName = id.uppercase(),
+                    berthId = "one",
+                    doorSide = DoorSide.LEFT
+                )
+            ))
+        }
+        val lineId = LineId("metro")
+        source.basicWorldData.lines.put(
+            Line(lineId, "Metro", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
+            0L
+        )
+        fun timetable(id: String, speed: Double) = Timetable(
+            id,
+            services = listOf(TimetableService(
+                "duty",
+                TrainSelector.TrainId("scheduled-$id"),
+                listOf(
+                    TimetableStep.Check("origin"),
+                    TimetableStep.At(0, TimetableAction.GoTo("terminal"))
+                ),
+                lineId = lineId
+            )),
+            lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, speed))
+        )
+        val factory = IsolatedTimetableSimulationFactory(
+            IsolatedSimulationProfileResolver { _, _, _ -> profile() }
+        )
+        fun capture(timetable: Timetable) = factory.capture(source, timetable, listOf(
+            TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")
+        ))
+        val slowTimetable = timetable("slow", 3.0)
+        val fastTimetable = timetable("fast", 9.0)
+        val slowSnapshot = capture(slowTimetable)
+        val fastSnapshot = capture(fastTimetable)
+
+        val slowTicks = factory.create(slowSnapshot, workerThreads = 1).use { simulation ->
+            (simulation.simulate(IsolatedTimetableSimulationRequest(slowTimetable)) as
+                IsolatedTimetableSimulationResult.Completed).simulatedTicks
+        }
+        val fastTicks = factory.create(fastSnapshot, workerThreads = 1).use { simulation ->
+            (simulation.simulate(IsolatedTimetableSimulationRequest(fastTimetable)) as
+                IsolatedTimetableSimulationResult.Completed).simulatedTicks
+        }
+
+        assertTrue(slowTicks > fastTicks)
+        source.physicsCoordinator.close()
+        (source.tickManager as? AutoCloseable)?.close()
     }
 
     @Test

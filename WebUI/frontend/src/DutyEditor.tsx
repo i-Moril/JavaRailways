@@ -150,6 +150,11 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError}:{world:s
     const diagramLines=sourceLine?[...current.diagramLines.filter((line)=>line.id!==sourceLine.id),{id:sourceLine.id,upStationIds:sourceLine.upStationIds,downStationIds:sourceLine.downStationIds}]:current.diagramLines;
     return {...current,diagramLines,runs:current.runs.map((run)=>run.id===next.id?next:run),arrivalOverrides:clearArrivalOverrides?current.arrivalOverrides.filter((override)=>override.runId!==next.id):current.arrivalOverrides};
   });};
+  const setRunInfrastructureLine=(lineId:string)=>{if(!selectedRunValue)return;replaceRun({...selectedRunValue,lineId:lineId||null});};
+  const setLineMaximumSpeed=(lineId:string,value:number)=>setValue((current)=>({...current,lineSpeedLimits:[
+    ...(current.lineSpeedLimits??[]).filter((limit)=>limit.lineId!==lineId),
+    ...(Number.isFinite(value)&&value>0?[{lineId,maximumSpeedMetersPerSecond:value}]:[]),
+  ]}));
   const renameRun=(previousId:string,nextId:string)=>{setValue((current)=>({...current,
     runs:current.runs.map((run)=>run.id===previousId?{...run,id:nextId}:run),
     duties:current.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>element.type==='RUN'&&element.runId===previousId?{...element,runId:nextId}:element)})),
@@ -244,6 +249,10 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError}:{world:s
               defaultProfileKey={assigned.get(selectedRunValue.id)?profileAssignments[assigned.get(selectedRunValue.id)!]:undefined}
               existingRunIds={new Set(value.runs.map((run)=>run.id))} periodTicks={value.periodDays*24_000} busy={busy} onError={onError}
               onChange={replaceRun} onRename={renameRun} onCopy={addCopiedRuns} onPreviewChange={setPreviewRun}/>
+            <div className="duty-parameter-fields">
+              <label>{t('duties.infrastructureLine')}<select value={selectedRunValue.lineId??''} onChange={(event)=>setRunInfrastructureLine(event.target.value)}><option value="">{t('common.select')}</option>{lines.map((line)=><option key={line.id} value={line.id}>{line.displayName}</option>)}</select></label>
+              <label>{t('duties.lineMaximumSpeed')}<input type="number" min="0.1" step="0.1" disabled={!selectedRunValue.lineId} value={(value.lineSpeedLimits??[]).find((limit)=>limit.lineId===selectedRunValue.lineId)?.maximumSpeedMetersPerSecond??''} onChange={(event)=>selectedRunValue.lineId&&setLineMaximumSpeed(selectedRunValue.lineId,+event.target.value)}/></label>
+            </div>
             {assigned.get(selectedRunValue.id)!==selectedDutyValue?.id&&selectedDutyValue&&<button onClick={()=>assignRun(selectedRunValue.id)}>{t('duties.assign')} {selectedDutyValue.id}</button>}
           </>}
         </div>}

@@ -17,8 +17,20 @@ class TimetableBuilder(private val id: String) {
     private val diagramLines = mutableListOf<SavedDiagramLineV1>()
     private val initialPositions = mutableListOf<SavedInitialPositionV1>()
     private val compilationTrace = mutableListOf<SavedCompilationTraceV1>()
+    private val lineSpeedLimits = mutableListOf<SavedTimetableLineSpeedLimitV1>()
 
     @HostAccess.Export fun setPeriodDays(days: Long): TimetableBuilder { require(days > 0); Math.multiplyExact(days, 24_000); periodDays = days; return this }
+    @HostAccess.Export
+    fun lineSpeedLimit(lineId: String, maximumSpeedMetersPerSecond: Double): TimetableBuilder {
+        require(lineId.isNotBlank()) { "lineId must not be blank" }
+        require(maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0) {
+            "line maximum speed must be finite and positive"
+        }
+        require(lineSpeedLimits.none { it.lineId == lineId }) { "duplicate line speed limit: $lineId" }
+        lineSpeedLimits += SavedTimetableLineSpeedLimitV1(lineId, maximumSpeedMetersPerSecond)
+        return this
+    }
+
     @HostAccess.Export
     fun diagramLine(lineId: String, options: Value): TimetableBuilder {
         require(lineId.isNotBlank()) { "diagram line id must not be blank" }
@@ -154,16 +166,19 @@ class TimetableBuilder(private val id: String) {
         val builder = ServiceBuilder()
         acquisition?.let { builder.add(it.tick, it.action) }
         callback.executeVoid(builder)
-        options?.requireOnly(setOf("activation", "diagramLineId", "lineDirection"), "service options")
+        options?.requireOnly(setOf("activation", "diagramLineId", "lineDirection", "lineId"), "service options")
         val activation = options?.member("activation")?.takeUnless { it.isNull }?.let { activation(it) } ?: SavedTimetableActivationV1()
         val diagramLineId = options?.string("diagramLineId")?.also {
             require(it.isNotBlank()) { "diagramLineId must not be blank" }
+        }
+        val lineId = options?.string("lineId")?.also {
+            require(it.isNotBlank()) { "lineId must not be blank" }
         }
         val lineDirection = options?.string("lineDirection")?.uppercase()?.let {
             runCatching { SavedLineDirectionV1.valueOf(it) }.getOrElse { error("lineDirection must be UP or DOWN") }
         }
         require(diagramLineId != null || lineDirection == null) { "lineDirection requires diagramLineId" }
-        services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.buildSteps(), activation, diagramLineId, lineDirection)
+        services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.buildSteps(), activation, diagramLineId, lineDirection, lineId)
         compilationTrace += builder.buildTrace().map { (stepIndex, origin) ->
             SavedCompilationTraceV1(serviceId, stepIndex, origin)
         }
@@ -179,7 +194,8 @@ class TimetableBuilder(private val id: String) {
             services.toList(),
             diagramLines.toList(),
             initialPositions.toList(),
-            compilationTrace.toList()
+            compilationTrace.toList(),
+            lineSpeedLimits.toList()
         )
     }
 }

@@ -27,17 +27,19 @@ import kotlinx.serialization.json.JsonObject
     val elseActions: List<SavedTimetableActionV1> = emptyList()
 )
 @Serializable data class SavedTimetableStepV1(val type: SavedTimetableStepTypeV1, val tick: Long? = null, val wayPointId: String? = null, val action: SavedTimetableActionV1? = null)
-@Serializable data class SavedTimetableServiceV1(val id: String, val selectorType: SavedTrainSelectorTypeV1, val trainId: String? = null, val steps: List<SavedTimetableStepV1>, val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(), val diagramLineId: String? = null, val lineDirection: SavedLineDirectionV1? = null)
+@Serializable data class SavedTimetableServiceV1(val id: String, val selectorType: SavedTrainSelectorTypeV1, val trainId: String? = null, val steps: List<SavedTimetableStepV1>, val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(), val diagramLineId: String? = null, val lineDirection: SavedLineDirectionV1? = null, val lineId: String? = null)
 @Serializable data class SavedDiagramLineV1(val id: String, val upStationIds: List<String>, val downStationIds: List<String>)
 @Serializable enum class SavedObjectSelectorTypeV1 { REGEX, AND, OR, NOT, TAGS }
 @Serializable data class SavedObjectSelectorV1(val type: SavedObjectSelectorTypeV1, val pattern: String? = null, val selectors: List<SavedObjectSelectorV1> = emptyList(), val tags: Set<String> = emptySet())
 @Serializable data class SavedInitialPositionV1(val trainSelector: SavedObjectSelectorV1, val wayPointSelector: SavedObjectSelectorV1)
 @Serializable data class SavedCompilationTraceV1(val serviceId: String, val stepIndex: Int, val origin: String)
+@Serializable data class SavedTimetableLineSpeedLimitV1(val lineId: String, val maximumSpeedMetersPerSecond: Double)
 @Serializable data class SavedTimetableV1(
     val id: String,
     val periodDays: Long,
     val services: List<SavedTimetableServiceV1>,
     val diagramLines: List<SavedDiagramLineV1> = emptyList(),
     val initialPositions: List<SavedInitialPositionV1> = emptyList(),
-    val compilationTrace: List<SavedCompilationTraceV1> = emptyList()
+    val compilationTrace: List<SavedCompilationTraceV1> = emptyList(),
+    val lineSpeedLimits: List<SavedTimetableLineSpeedLimitV1> = emptyList()
 )

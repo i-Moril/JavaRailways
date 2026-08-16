@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
+import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.timetable.*
 import work.art1st.javarailways.basic.timetable.*
@@ -48,14 +49,14 @@ class TimetableSnapshotTest {
     }
 
     @Test
-    fun `legacy lineId JSON is rejected`() {
-        org.junit.jupiter.api.Assertions.assertThrows(Exception::class.java) {
-            TimetableSnapshotCodec.decode("""
-                {"id":"old","periodDays":1,"services":[{
-                  "id":"S1","selectorType":"TRAIN_ID","trainId":"T1","steps":[],"lineId":"metro"
-                }]}
-            """.trimIndent())
-        }
+    fun `lineId is restored as infrastructure identity instead of diagram metadata`() {
+        val restored = TimetableSnapshotCodec.decode("""
+            {"id":"old","periodDays":1,"services":[{
+              "id":"S1","selectorType":"TRAIN_ID","trainId":"T1","steps":[],"lineId":"metro"
+            }]}
+        """.trimIndent()).restore()
+
+        assertEquals(LineId("metro"), restored.services.single().lineId)
     }
 
     @Test
@@ -100,9 +101,11 @@ class TimetableSnapshotTest {
                     activation = TimetableServiceActivation.Conditional(
                         TimetableCondition.Predicate(TimetableExtensionCall("example:demand")),
                         TimetableActivationFalseBehavior.SKIP_CYCLE
-                    )
+                    ),
+                    lineId = LineId("metro")
                 )
             ),
+            lineSpeedLimits = listOf(TimetableLineSpeedLimit(LineId("metro"), 22.0)),
             initialPositions = listOf(TimetableInitialPosition(
                 TimetableObjectSelector.And(listOf(
                     TimetableObjectSelector.Regex("T.*"),

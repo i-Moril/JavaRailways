@@ -17,6 +17,7 @@ export interface AuthoringRunCallV1 {
 export interface AuthoringRunV1 {
   id:string;
   type:'PASSENGER'|'DEADHEAD';
+  lineId?:string|null;
   diagramLineId?:string|null;
   lineDirection:LineDirection;
   originDepartureMode?:'AUTO'|'CONTINUE'|'REVERSE';
@@ -48,6 +49,7 @@ export interface TimetableAuthoringDocumentV1 {
   runs:AuthoringRunV1[];
   duties:AuthoringDutyV1[];
   diagramLines:DiagramLineV1[];
+  lineSpeedLimits?:{lineId:string;maximumSpeedMetersPerSecond:number}[];
   arrivalOverrides:ArrivalOverrideV1[];
 }
 export interface AuthoringIssue {path:string;message:string;severity:'error'|'warning'}
@@ -94,6 +96,7 @@ export const emptyAuthoringDocument = ():TimetableAuthoringDocumentV1 => ({
   runs:[],
   duties:[],
   diagramLines:[],
+  lineSpeedLimits:[],
   arrivalOverrides:[],
 });
 
@@ -243,6 +246,14 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
     if(!line.upStationIds.length||!line.downStationIds.length) issues.push(issue(path,'Diagram line directions must not be empty'));
     if(new Set(line.upStationIds).size!==line.upStationIds.length||new Set(line.downStationIds).size!==line.downStationIds.length) issues.push(issue(path,'Diagram line directions must not contain duplicate stations'));
   });
+  const lineSpeedLimitIds=new Set<string>();
+  (document.lineSpeedLimits??[]).forEach((limit,index)=>{
+    const path=`lineSpeedLimits[${index}]`;
+    if(!limit.lineId.trim()) issues.push(issue(`${path}.lineId`,'Infrastructure line ID is required'));
+    else if(lineSpeedLimitIds.has(limit.lineId)) issues.push(issue(`${path}.lineId`,`Duplicate line speed limit: ${limit.lineId}`));
+    lineSpeedLimitIds.add(limit.lineId);
+    if(!Number.isFinite(limit.maximumSpeedMetersPerSecond)||limit.maximumSpeedMetersPerSecond<=0) issues.push(issue(`${path}.maximumSpeedMetersPerSecond`,'Line maximum speed must be finite and positive'));
+  });
   const runIds=new Set<string>();
   document.runs.forEach((run,runIndex)=>{
     const path=`runs[${runIndex}]`;
@@ -250,6 +261,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
     else if(runIds.has(run.id)) issues.push(issue(`${path}.id`,`Duplicate run ID: ${run.id}`));
     runIds.add(run.id);
     if(run.calls.length<2) issues.push(issue(`${path}.calls`,'A run requires an origin and a destination'));
+    if(run.lineId&&!lineSpeedLimitIds.has(run.lineId)) issues.push(issue(`${path}.lineId`,`No maximum speed is configured for infrastructure line: ${run.lineId}`));
     if(!run.diagramLineId) issues.push(issue(`${path}.diagramLineId`,'A run requires a diagram line'));
     else if(!diagramLineIds.has(run.diagramLineId)) issues.push(issue(`${path}.diagramLineId`,`Unknown diagram line: ${run.diagramLineId}`));
     if(run.lineDirection!=='UP'&&run.lineDirection!=='DOWN') issues.push(issue(`${path}.lineDirection`,'Line direction must be UP or DOWN'));
@@ -301,6 +313,8 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
     }
     const dutyDiagramIds=new Set(duty.elements.flatMap((element)=>element.type==='RUN'?[document.runs.find((run)=>run.id===element.runId)?.diagramLineId].filter(Boolean) as string[]:[]));
     if(dutyDiagramIds.size>1) issues.push(issue(`${path}.elements`,'A duty cannot contain runs from multiple diagram lines'));
+    const dutyLineIds=new Set(duty.elements.flatMap((element)=>element.type==='RUN'?[document.runs.find((run)=>run.id===element.runId)?.lineId].filter(Boolean) as string[]:[]));
+    if(dutyLineIds.size>1) issues.push(issue(`${path}.elements`,'Through-running across infrastructure lines is not supported yet'));
     let previousRun:AuthoringRunV1|undefined;
     let previousElementEndTick:number|undefined;
     const elementIds=new Set<string>();
@@ -377,9 +391,9 @@ const graphAction=(type:TimetableActionV1['type'],overrides:Partial<TimetableAct
 /** Builds a presentation-only service per run so the graph stays live without compiling the duty document. */
 export function authoringGraphTimetable(document:TimetableAuthoringDocumentV1):SavedTimetableV1 {
   return {
-    id:document.id,periodDays:document.periodDays,diagramLines:document.diagramLines,
+    id:document.id,periodDays:document.periodDays,diagramLines:document.diagramLines,lineSpeedLimits:document.lineSpeedLimits??[],
     services:document.runs.map((run)=>{
-      if(run.calls.length===0)return {id:run.id,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY' as const,activation:{type:'SCHEDULED' as const},steps:[]};
+      if(run.calls.length===0)return {id:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY' as const,activation:{type:'SCHEDULED' as const},steps:[]};
       const fallbackLegTicks=Math.max(20,Math.floor(document.periodDays*24_000/(run.calls.length+1)));
       const periodEnd=document.periodDays*24_000-1;
       let cursor=run.calls[0].departureTick??run.calls[0].arrivalTick??0;
@@ -395,7 +409,7 @@ export function authoringGraphTimetable(document:TimetableAuthoringDocumentV1):S
         cursor=(call.status==='PASS'?call.arrivalTick:call.departureTick)??arrivalTick;
       });
       return {
-        id:run.id,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY' as const,
+        id:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY' as const,
         activation:{type:'SCHEDULED' as const},steps,
       };
     }),
@@ -430,6 +444,9 @@ function destinationOptions(call:AuthoringRunCallV1,override?:number):string {
 export function generateTimetableSource(document:TimetableAuthoringDocumentV1):GeneratedTimetableSource {
   const issues=validateAuthoringDocument(document);
   const lines:string[]=['// Generated by JavaRailways WebUI. Do not edit in structured mode.','function main(timetable) {',`    timetable.setPeriodDays(${document.periodDays})`];
+  for(const limit of document.lineSpeedLimits??[]) {
+    lines.push(`    timetable.lineSpeedLimit(${quote(limit.lineId)}, ${limit.maximumSpeedMetersPerSecond})`);
+  }
   for(const line of document.diagramLines) {
     lines.push('',`    timetable.diagramLine(${quote(line.id)}, {`,`        upStations: [${line.upStationIds.map(quote).join(', ')}],`,`        downStations: [${line.downStationIds.map(quote).join(', ')}]`,`    })`);
   }
@@ -441,7 +458,11 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1):G
   for(const duty of document.duties) {
     const assignedRuns=duty.elements.flatMap((element)=>element.type==='RUN'?[document.runs.find((run)=>run.id===element.runId)].filter(Boolean) as AuthoringRunV1[]:[]);
     const diagramIds=Array.from(new Set(assignedRuns.map((run)=>run.diagramLineId).filter(Boolean)));
-    const serviceOptions=diagramIds.length===1?`, { diagramLineId: ${quote(diagramIds[0]!)} }`:'';
+    const infrastructureLineIds=Array.from(new Set(assignedRuns.map((run)=>run.lineId).filter(Boolean)));
+    const optionFields:string[]=[];
+    if(diagramIds.length===1) optionFields.push(`diagramLineId: ${quote(diagramIds[0]!)}`);
+    if(infrastructureLineIds.length===1) optionFields.push(`lineId: ${quote(infrastructureLineIds[0]!)}`);
+    const serviceOptions=optionFields.length?`, { ${optionFields.join(', ')} }`:'';
     lines.push('',`    timetable.service(${quote(duty.id)}, ${selectorSource(duty.selector)}${serviceOptions}, t => {`);
     let emittedCheck=false;
     for(const element of duty.elements) {

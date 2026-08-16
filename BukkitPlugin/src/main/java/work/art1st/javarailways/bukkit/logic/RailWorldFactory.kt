@@ -21,6 +21,7 @@ import work.art1st.javarailways.basic.safety.RailSpeedCalculator
 import work.art1st.javarailways.basic.timetable.TimetableAtoFactory
 import work.art1st.javarailways.basic.timetable.TimetableDispatcher
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
+import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGateway
@@ -127,6 +128,7 @@ object RailWorldFactory {
                 derailSpeedMetersPerSecond = limits.derailSpeedMetersPerSecond
             )
         }
+        OperationalSpeedLimitSignalMaterializer.materialize(coreWorld)
         val persisted = RailRenderMetaStore.load(bukkitWorld)
         val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }
         if (restored.size != persisted.size) {

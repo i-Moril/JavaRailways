@@ -3,6 +3,7 @@ package work.art1st.javarailways.core.physics.rail
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.core.control.signal.Signal
 import java.util.UUID
 
 /** Atomic main-thread topology replacements used by rail editing tools. */
@@ -24,7 +25,8 @@ object RailTopologyEditor {
         rail: CoreRail,
         beforeCurve: PrimeCurve,
         afterCurve: PrimeCurve,
-        operationId: String = UUID.randomUUID().toString()
+        operationId: String = UUID.randomUUID().toString(),
+        signalCanBeRebuilt: (Signal) -> Boolean = { false }
     ): SplitResult {
         rail.world.awaitCurrentPhysicsEpoch()
         require(operationId.isNotBlank())
@@ -38,7 +40,7 @@ object RailTopologyEditor {
         require(occupyingTrainIds.isEmpty()) {
             "Cannot split rail ${rail.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
         }
-        require(rail.signals.isEmpty()) { "Cannot split a rail containing signals" }
+        require(rail.signals.all(signalCanBeRebuilt)) { "Cannot split a rail containing non-rebuildable signals" }
         require(beforeCurve.totalArcLength > Curve.TOLERANCE && afterCurve.totalArcLength > Curve.TOLERANCE) {
             "Split point is too close to a rail endpoint"
         }
@@ -86,7 +88,11 @@ object RailTopologyEditor {
         return SplitResult(before, after, operationId)
     }
 
-    fun mergeEligibilityError(before: CoreRail, after: CoreRail): String? {
+    fun mergeEligibilityError(
+        before: CoreRail,
+        after: CoreRail,
+        signalCanBeRebuilt: (Signal) -> Boolean = { false }
+    ): String? {
         if (before.world !== after.world) return "轨道不在同一世界"
         if (before === after) return "不能合并同一轨道"
         val affectedRailIds = buildSet {
@@ -96,7 +102,9 @@ object RailTopologyEditor {
             after.viewAB.nextRails.forEach { add(it.rail.id) }
         }
         if (before.world.occupyingTrainIds(affectedRailIds).isNotEmpty()) return "不能合并有列车占用的相关轨道"
-        if (before.signals.isNotEmpty() || after.signals.isNotEmpty()) return "不能合并包含信号机的轨道"
+        if (before.signals.any { !signalCanBeRebuilt(it) } ||
+            after.signals.any { !signalCanBeRebuilt(it) }
+        ) return "不能合并包含不可重建信号机的轨道"
         if (before.viewAB.mutableNextRails != listOf(after.viewAB) ||
             after.viewBA.mutableNextRails != listOf(before.viewBA)
         ) return "分割锚点还连接了其他轨道"
@@ -107,9 +115,14 @@ object RailTopologyEditor {
     }
 
     @MainThread
-    fun mergeWithPreparedCurve(before: CoreRail, after: CoreRail, mergedCurve: PrimeCurve): CoreRail {
+    fun mergeWithPreparedCurve(
+        before: CoreRail,
+        after: CoreRail,
+        mergedCurve: PrimeCurve,
+        signalCanBeRebuilt: (Signal) -> Boolean = { false }
+    ): CoreRail {
         before.world.awaitCurrentPhysicsEpoch()
-        val eligibilityError = mergeEligibilityError(before, after)
+        val eligibilityError = mergeEligibilityError(before, after, signalCanBeRebuilt)
         require(eligibilityError == null) { eligibilityError ?: "Rails cannot be merged" }
         require(before.world.getRail(before.id) === before && after.world.getRail(after.id) === after) {
             "Rail changed before merge"

@@ -48,6 +48,8 @@ import work.art1st.javarailways.basic.rail.RailAssemblyRole
 import work.art1st.javarailways.basic.rail.RailAutoConnector
 import work.art1st.javarailways.basic.rail.RailCurveKind
 import work.art1st.javarailways.basic.rail.RailGeometryMetadata
+import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
+import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataTopology
 import work.art1st.javarailways.basic.rail.RailMetadata
 import work.art1st.javarailways.basic.rail.TurnoutEndpointMetadata
@@ -2874,7 +2876,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val renderMetas = RailRenderMetaStore.load(livePlayer.world)
                 val originalRenderMeta = renderMetas.firstOrNull { it.railId == railId }
                 try {
-                    val result = RailTopologyEditor.splitWithPreparedCurves(liveRail, curves.first, curves.second)
+                    val result = RailTopologyEditor.splitWithPreparedCurves(
+                        liveRail,
+                        curves.first,
+                        curves.second,
+                        signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
+                    )
                     RailInfrastructureMetadataTopology.split(
                         liveWorld.basicWorldData.railMetadata,
                         railId,
@@ -2882,6 +2889,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         result.after.id,
                         result.operationId
                     )
+                    OperationalSpeedLimitSignalMaterializer.materializeRail(result.before)
+                    OperationalSpeedLimitSignalMaterializer.materializeRail(result.after)
                     OperationalDestinationService(liveWorld).migrateAfterRailSplit(
                         oldRailId = railId,
                         beforeRailId = result.before.id,
@@ -2933,7 +2942,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
         val (before, after) = pair
-        RailTopologyEditor.mergeEligibilityError(before, after)?.let { error ->
+        RailTopologyEditor.mergeEligibilityError(
+            before,
+            after,
+            signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
+        )?.let { error ->
             player.sendActionBar(Component.text(error, NamedTextColor.RED))
             return
         }
@@ -2982,7 +2995,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text("分割轨道已变化，请重试", NamedTextColor.YELLOW))
                     return@supply
                 }
-                RailTopologyEditor.mergeEligibilityError(livePair.first, livePair.second)?.let { error ->
+                RailTopologyEditor.mergeEligibilityError(
+                    livePair.first,
+                    livePair.second,
+                    signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
+                )?.let { error ->
                     livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
                     return@supply
                 }
@@ -3003,13 +3020,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     val beforeRailId = livePair.first.id
                     val afterRailId = livePair.second.id
                     val beforeLengthMeters = livePair.first.curve.totalArcLength
-                    val merged = RailTopologyEditor.mergeWithPreparedCurve(livePair.first, livePair.second, mergedCurve)
+                    val merged = RailTopologyEditor.mergeWithPreparedCurve(
+                        livePair.first,
+                        livePair.second,
+                        mergedCurve,
+                        signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
+                    )
                     RailInfrastructureMetadataTopology.merge(
                         liveWorld.basicWorldData.railMetadata,
                         beforeRailId,
                         afterRailId,
                         merged.id
                     )
+                    OperationalSpeedLimitSignalMaterializer.materializeRail(merged)
                     OperationalDestinationService(liveWorld).migrateAfterRailMerge(
                         beforeRailId = beforeRailId,
                         afterRailId = afterRailId,

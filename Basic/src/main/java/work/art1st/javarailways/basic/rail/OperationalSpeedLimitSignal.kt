@@ -1,0 +1,36 @@
+package work.art1st.javarailways.basic.rail
+
+import org.joml.Vector3d
+import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
+import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.control.signal.Signal
+import work.art1st.javarailways.core.physics.rail.RailLocationWithoutFacing
+
+/** Default infrastructure transition; deliberately returns the same speed for every train. */
+class OperationalSpeedLimitSignal(
+    ref: RailObjectRef,
+    location: RailLocationWithoutFacing,
+    val appliesTo: ViewDirection,
+    val resultingLimits: SpeedLimitMetadata?
+) : Signal(ref, location) {
+    @Volatile
+    private var state = RailObjectLifecycleState.ACTIVE
+
+    override val lifecycleState: RailObjectLifecycleState
+        get() = state
+
+    override val velocity = Vector3d()
+
+    override fun appliesTo(direction: ViewDirection): Boolean = direction == appliesTo
+
+    @Suppress("UNUSED_PARAMETER")
+    fun getSpeedLimit(train: Train): Double? = resultingLimits?.effectiveLimitMetersPerSecond()
+
+    override fun canDestroy(): Boolean = true
+
+    override fun destroy() {
+        state = RailObjectLifecycleState.REMOVED
+    }
+}

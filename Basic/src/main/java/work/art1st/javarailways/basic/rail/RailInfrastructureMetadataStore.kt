@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.rail
 import kotlinx.serialization.Serializable
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.physics.rail.CoreRail
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -99,12 +100,15 @@ typealias RailMetadata = RailInfrastructureMetadata
 
 var Rail.infrastructureMetadata: RailInfrastructureMetadata
     get() = world.basicWorldData.railMetadata.getOrDefault(id)
-    set(value) = world.basicWorldData.railMetadata.put(id, value)
+    set(value) {
+        world.basicWorldData.railMetadata.put(id, value)
+        (this as? CoreRail)?.let(OperationalSpeedLimitSignalMaterializer::materializeRail)
+    }
 
 fun Rail.updateInfrastructureMetadata(
     transform: (RailInfrastructureMetadata) -> RailInfrastructureMetadata
 ): RailInfrastructureMetadata = transform(infrastructureMetadata).also {
-    world.basicWorldData.railMetadata.put(id, it)
+    infrastructureMetadata = it
 }
 
 class RailInfrastructureMetadataStore {

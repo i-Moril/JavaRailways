@@ -5,6 +5,7 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.render.Renderable
 import work.art1st.javarailways.core.physics.rail.RailLocationWithoutFacing
 
@@ -19,6 +20,9 @@ abstract class Signal(
     override val location: RailLocationWithoutFacing
 ) : Renderable, RailObject {
     abstract override val lifecycleState: RailObjectLifecycleState
+
+    /** Allows one physical signal collection to expose direction-specific runtime signals. */
+    open fun appliesTo(direction: ViewDirection): Boolean = true
     override val position: Vector3dc
         get() = location.position
     override val direction: Vector3dc

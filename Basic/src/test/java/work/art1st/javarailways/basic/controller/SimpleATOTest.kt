@@ -24,6 +24,10 @@ import work.art1st.javarailways.basic.api.ato.provider.ProviderBoundaryAction
 import work.art1st.javarailways.basic.pathFinding.RailDestination
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.rail.RailAutoConnector
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitEntry
+import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.basic.route.ConfirmedRouteWindow
 import work.art1st.javarailways.basic.route.RouteSectionAllocationKey
@@ -186,6 +190,31 @@ class SimpleATOTest {
 
         assertEquals(0.0, fixture.train.speed, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
+    }
+
+    @Test
+    fun `upcoming speed signal creates a route braking constraint`() {
+        val fixture = fixture("speed-signal", railLengthMeters = 30.0)
+        val next = CoreRail(
+            fixture.world,
+            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        CoreRail.connect(fixture.train.head.location.rail, next)
+        next.metadata = RailInfrastructureMetadata(
+            speedLimits = SpeedLimitMetadata(
+                listOf(SpeedLimitEntry(5.0, SpeedLimitType.CURVE))
+            )
+        )
+
+        tickAndPublish(fixture.ato, 50.0)
+
+        val constraints = fixture.ato.publishedState.runtimeDiagnostics.constraints
+        assertTrue(constraints.any {
+            it.contains("infrastructure-signal/") && it.contains("maximumSpeedMetersPerSecond=5.0")
+        })
+        assertFalse(constraints.any { it.contains("route-speed/") })
     }
 
     @Test

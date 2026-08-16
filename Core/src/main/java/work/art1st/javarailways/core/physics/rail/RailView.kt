@@ -55,8 +55,8 @@ class RailView(
 
     val staticRailObjects: Collection<Signal>
         get() = when (viewDirection) {
-            ViewDirection.AB -> rail.signals
-            ViewDirection.BA -> rail.signals.reversed()
+            ViewDirection.AB -> rail.signals.filter { it.appliesTo(viewDirection) }
+            ViewDirection.BA -> rail.signals.reversed().filter { it.appliesTo(viewDirection) }
         }
 
     val dynamicRailObjects: Collection<TrainEnd>

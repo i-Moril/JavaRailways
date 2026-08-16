@@ -44,6 +44,7 @@ import work.art1st.javarailways.basic.api.station.StationCallResolutionResult
 import work.art1st.javarailways.basic.api.station.StationCallResolver
 import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.basic.route.ConfirmedRouteWindow
 import work.art1st.javarailways.basic.route.MissionRouteLayout
@@ -155,6 +156,10 @@ class SimpleATO(
     private val constraintManager = ConstraintManager()
     private val speedLimits = LinkedHashMap<String, Double>()
     private val stopTargets = LinkedHashMap<String, StopTarget>()
+    private var activeInfrastructureLimitMetersPerSecond: Double? = null
+    private var infrastructureLimitInitialized = false
+    private var infrastructureLimitRailId: java.util.UUID? = null
+    private var infrastructureLimitDirection: work.art1st.javarailways.core.api.physics.rail.ViewDirection? = null
     private var previousObserved: Map<RailObjectRef, Observed> = emptyMap()
     private var currentSegments: List<RailSegment> = emptyList()
     private var activeProvider: AtoProvider? = null
@@ -512,6 +517,8 @@ class SimpleATO(
         latestPerceptionSnapshot = scan.perception
         currentSegments = scan.segments
 
+        synchronizeInfrastructureLimitWithHead()
+        processSpeedLimitTransitions(scan)
         processProviderBoundaries(scan)
         updateBuiltInConstraints(scan)
         updateMissionConstraints()
@@ -559,17 +566,26 @@ class SimpleATO(
     override fun constraintSnapshot(): Map<ConstraintOwner, List<AtoConstraint>> = constraintManager.snapshot()
 
     private fun updateBuiltInConstraints(scan: ScanResult) {
-        var distanceToSegment = 0.0
-        val routeLimits = scan.segments.mapIndexed { index, segment ->
-            val limit = segment.railView.rail.infrastructureMetadata.speedLimits
-                .effectiveLimitMetersPerSecond() ?: actuator.maximumSpeedMetersPerSecond
-            RouteSpeedLimitConstraint(
-                key = ConstraintKey("basic", "route-speed/$index/${segment.railView.rail.id}"),
-                distanceToStartMeters = distanceToSegment,
-                maximumSpeedMetersPerSecond = minOf(limit, actuator.maximumSpeedMetersPerSecond)
-            ).also { distanceToSegment += segment.totalArcLength }
+        val infrastructureLimits = buildList {
+            activeInfrastructureLimitMetersPerSecond?.let { limit ->
+                add(CurrentSpeedLimitConstraint(
+                    key = ConstraintKey("basic", "infrastructure-current"),
+                    maximumSpeedMetersPerSecond = minOf(limit, actuator.maximumSpeedMetersPerSecond)
+                ))
+            }
+            scan.currentObservedByRef.values
+                .sortedBy(Observed::distanceMeters)
+                .forEach { observed ->
+                    val signal = observed.railObject as? OperationalSpeedLimitSignal ?: return@forEach
+                    val limit = signal.getSpeedLimit(train) ?: return@forEach
+                    add(RouteSpeedLimitConstraint(
+                        key = ConstraintKey("basic", "infrastructure-signal/${signal.ref.id}"),
+                        distanceToStartMeters = observed.distanceMeters.coerceAtLeast(0.0),
+                        maximumSpeedMetersPerSecond = minOf(limit, actuator.maximumSpeedMetersPerSecond)
+                    ))
+                }
         }
-        constraintManager.replace(LINE_SPEED_OWNER, routeLimits)
+        constraintManager.replace(LINE_SPEED_OWNER, infrastructureLimits)
 
         val lastSegment = scan.segments.last()
         val routeEnd = if (
@@ -818,6 +834,32 @@ class SimpleATO(
         val trainSnapshot = scan.perception.train
         val values = provider.constraints(AtoProviderContext(trainSnapshot, scan.route, scan.perception))
         constraintManager.replace(PROVIDER_OWNER, values)
+    }
+
+    private fun synchronizeInfrastructureLimitWithHead() {
+        val head = train.headLocation as? RailLocationWithFacing
+            ?: error("SimpleATO requires a facing-aware train head location")
+        val railChanged = infrastructureLimitRailId != head.rail.id
+        val directionChanged = infrastructureLimitDirection != head.facing
+        if (!infrastructureLimitInitialized || railChanged || directionChanged) {
+            activeInfrastructureLimitMetersPerSecond =
+                head.rail.infrastructureMetadata.speedLimits.effectiveLimitMetersPerSecond()
+            infrastructureLimitInitialized = true
+            infrastructureLimitRailId = head.rail.id
+            infrastructureLimitDirection = head.facing
+        }
+    }
+
+    private fun processSpeedLimitTransitions(scan: ScanResult) {
+        scan.perception.observations
+            .filter { it.transition == ObservationTransition.PASS }
+            .sortedBy(RailObservationSnapshot::routeDistanceMeters)
+            .forEach { observation ->
+                val signal = scan.eventObjectsByRef[observation.subject.ref]?.railObject
+                    as? OperationalSpeedLimitSignal ?: return@forEach
+                if (!signal.appliesTo(observation.subject.position.facing)) return@forEach
+                activeInfrastructureLimitMetersPerSecond = signal.getSpeedLimit(train)
+            }
     }
 
     private fun processProviderBoundaries(scan: ScanResult) {

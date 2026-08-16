@@ -10,7 +10,7 @@ data class RailLocationWithoutFacing private constructor(
     val point: Curve.Point,     // Point is always viewAB, guaranteed by internal constructor
 ) : RailLocation {
     // 根据 viewAB 上的弧长构造
-    internal constructor(rail: CoreRail, arcLengthInCurveAB: Double) : this(
+    constructor(rail: CoreRail, arcLengthInCurveAB: Double) : this(
         rail, rail.viewAB.curve.getPointAt(arcLengthInCurveAB)
     )
 

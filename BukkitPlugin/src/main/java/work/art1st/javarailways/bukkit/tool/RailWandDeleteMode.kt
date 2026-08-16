@@ -47,13 +47,14 @@ internal class RailWandDeleteMode(private val wand: RailWand) {
     }
 
     private fun handleRailDelete(player: Player, state: WandPlayerState, railId: UUID) {
-        if (state.pendingDeleteRail == railId) {
-            wand.deleteRail(player, railId, state)
+        val selectionId = wand.logicalRailSelectionId(player, railId)
+        if (state.pendingDeleteRail == selectionId) {
+            wand.deleteRail(player, selectionId, state)
             state.pendingDeleteRail = null
         } else {
-            state.pendingDeleteRail = railId
+            state.pendingDeleteRail = selectionId
             state.pendingDeleteAnchor = null
-            player.sendActionBar(Component.text("再次左键轨道 $railId 以确认删除", NamedTextColor.RED))
+            player.sendActionBar(Component.text("再次左键该逻辑曲线以确认删除", NamedTextColor.RED))
         }
     }
 }

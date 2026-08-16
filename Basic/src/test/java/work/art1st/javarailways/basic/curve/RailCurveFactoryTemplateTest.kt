@@ -155,6 +155,10 @@ class RailCurveFactoryTemplateTest {
         assertTrue(result.isSuccess, result.error)
         assertEquals(3, result.curves!!.size)
         assertEquals(RailCurveTemplateType.FIVE_SEGMENT, result.selectedTemplate)
+        assertEquals(2, result.logicalBreakFractions.size)
+        assertTrue(result.logicalBreakFractions[0] in 0.0..1.0)
+        assertTrue(result.logicalBreakFractions[1] in 0.0..1.0)
+        assertTrue(result.logicalBreakFractions[0] < result.logicalBreakFractions[1])
         result.curves.forEachIndexed { index, curve ->
             assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < Curve.TOLERANCE)
             assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < Curve.TOLERANCE)

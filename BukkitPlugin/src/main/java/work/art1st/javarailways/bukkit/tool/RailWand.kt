@@ -32,6 +32,7 @@ import work.art1st.javarailways.basic.curve.ParallelAnchorGeometry
 import work.art1st.javarailways.basic.curve.ParallelAnchorMatch
 import work.art1st.javarailways.basic.curve.RailCurveBuildOptions
 import work.art1st.javarailways.basic.curve.RailCurveFactory
+import work.art1st.javarailways.basic.curve.RailCurvePartitioner
 import work.art1st.javarailways.basic.curve.RailCurveTemplateType
 import work.art1st.javarailways.basic.curve.StandardTurnout
 import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
@@ -57,6 +58,9 @@ import work.art1st.javarailways.bukkit.util.PlayerOperationGate
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ParallelRailMetadata
+import work.art1st.javarailways.core.api.physics.rail.RailAssemblyKind
+import work.art1st.javarailways.core.api.physics.rail.RailAssemblyMetadata
+import work.art1st.javarailways.core.api.physics.rail.RailAssemblyRole
 import work.art1st.javarailways.core.api.physics.rail.RailCurveKind
 import work.art1st.javarailways.core.api.physics.rail.RailGeometryMetadata
 import work.art1st.javarailways.core.api.physics.rail.RailMetadata
@@ -959,7 +963,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private data class BuiltCurve(
         val curve: PrimeCurve,
-        val speedLimits: RailSpeedLimits
+        val speedLimits: RailSpeedLimits,
+        val logicalBreakFractions: List<Double> = emptyList()
+    )
+
+    private data class CurvesBuild(
+        val curves: List<PrimeCurve>,
+        val logicalBreakFractions: List<Double>
+    )
+
+    private data class BuiltRailPart(
+        val curve: PrimeCurve,
+        val speedLimits: RailSpeedLimits,
+        val role: RailAssemblyRole
     )
 
     private data class AdjacentRailBuildInput(
@@ -971,7 +987,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     )
 
     private data class ConnectionCurveBuild(
-        val newCurves: List<BuiltCurve>,
+        val newLanes: List<List<BuiltRailPart>>,
         val replacementCurves: Map<UUID, BuiltCurve>
     )
 
@@ -1205,7 +1221,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text("无法创建并平滑轨道曲线", NamedTextColor.RED))
                     return@supply
                 }
-                val builtCurves = connectionBuild.newCurves
+                val builtLanes = connectionBuild.newLanes
                 val liveAdjacentRails = connectionBuild.replacementCurves.keys.associateWith { railId ->
                     val rail = liveCoreWorld.getRail(railId) ?: run {
                         livePlayer.sendActionBar(Component.text("相邻轨道已变化，请重试", NamedTextColor.YELLOW))
@@ -1253,26 +1269,50 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         }
                     }
 
-                    val parallelGroupId = UUID.randomUUID().toString().takeIf { builtCurves.size > 1 }
-                    builtCurves.forEachIndexed { index, builtCurve ->
-                        val parallel = parallelGroupId?.let {
-                            ParallelRailMetadata(it, index, builtCurves.size, settingsSnapshot.parallelSpacing)
+                    val segmentCount = builtLanes.firstOrNull()?.size ?: 0
+                    require(segmentCount > 0 && builtLanes.all { it.size == segmentCount }) {
+                        "并行逻辑曲线的内部段数量不一致"
+                    }
+                    val assemblyGroupId = UUID.randomUUID().toString().takeIf { segmentCount > 1 }
+                    val parallelGroupIds = List(segmentCount) {
+                        UUID.randomUUID().toString().takeIf { builtLanes.size > 1 }
+                    }
+                    val newLaneRails = builtLanes.mapIndexed { laneIndex, parts ->
+                        parts.mapIndexed { segmentIndex, part ->
+                            val parallel = parallelGroupIds[segmentIndex]?.let {
+                                ParallelRailMetadata(it, laneIndex, builtLanes.size, settingsSnapshot.parallelSpacing)
+                            }
+                            val assembly = assemblyGroupId?.let {
+                                RailAssemblyMetadata(
+                                    groupId = it,
+                                    kind = RailAssemblyKind.FIVE_SEGMENT_CURVE,
+                                    laneIndex = laneIndex,
+                                    laneCount = builtLanes.size,
+                                    segmentIndex = segmentIndex,
+                                    segmentCount = segmentCount,
+                                    role = part.role
+                                )
+                            }
+                            CoreRail(
+                                liveCoreWorld,
+                                part.curve,
+                                mutableListOf(),
+                                mutableListOf(),
+                                railMetadata(settingsSnapshot, part.speedLimits, parallel).copy(
+                                    assembly = assembly,
+                                    gradeLockedAtA = segmentIndex == 0 && isGradeLocked(startAnchors[laneIndex]),
+                                    gradeLockedAtB = segmentIndex == segmentCount - 1 && isGradeLocked(endAnchors[laneIndex])
+                                )
+                            ).also { rail ->
+                                createdRails += rail
+                                newRails += rail
+                            }
                         }
-                        val rail = CoreRail(
-                            liveCoreWorld,
-                            builtCurve.curve,
-                            mutableListOf(),
-                            mutableListOf(),
-                            railMetadata(settingsSnapshot, builtCurve.speedLimits, parallel).copy(
-                                gradeLockedAtA = isGradeLocked(startAnchors[index]),
-                                gradeLockedAtB = isGradeLocked(endAnchors[index])
-                            )
-                        )
-                        if (settingsSnapshot.autoDecorate) {
+                    }
+                    if (settingsSnapshot.autoDecorate) {
+                        newLaneRails.flatten().forEach { rail ->
                             persistedMetas += RailVisualBootstrap.registerRail(rail, settingsSnapshot.decorationModel)
                         }
-                        createdRails += rail
-                        newRails += rail
                     }
 
                     val unchangedRails = existingRails.filter { it.id !in removedIds }
@@ -1302,10 +1342,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         createdToRemovedIds = oldToNew.entries.associate { (oldId, newId) -> newId to oldId }
                     ))
                     livePlayer.sendMessage(Component.text(
-                        "✓ 创建 ${newRails.size} 段并平滑 ${oldToNew.size} 段相邻轨道，自动连接 $autoConnected 条",
+                        "✓ 创建 ${builtLanes.size} 条曲线（${newRails.size} 个内部段）并平滑 ${oldToNew.size} 段相邻轨道，自动连接 $autoConnected 条",
                         NamedTextColor.GREEN
                     ))
-                    val endpointSelection = newRails.map { railEndpointAnchorId(it.id, 'B') }
+                    val endpointSelection = newLaneRails.map { lane -> railEndpointAnchorId(lane.last().id, 'B') }
                     selectionSnapshot.forEach { anchorId ->
                         if (!isRailEndpointAnchorId(anchorId)) {
                             removeAnchorDisplay(livePlayer, anchorId)
@@ -1419,7 +1459,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 for (input in rebuildInputs) {
                     val newStart = if (input.movedEnd == 'A') updatedEndpoint else input.oldStart
                     val newEnd = if (input.movedEnd == 'B') updatedEndpoint else input.oldEnd
-                    val curve = createCurveBetweenAnchors(newStart, newEnd, settingsSnapshot) ?: return@supply null
+                    val inputSettings = if (input.oldMetadata.assembly?.role == RailAssemblyRole.LEADING_TANGENT ||
+                        input.oldMetadata.assembly?.role == RailAssemblyRole.TRAILING_TANGENT
+                    ) {
+                        settingsSnapshot.copy(
+                            curveRadius = 0.0,
+                            curveTemplate = RailCurveTemplateType.STRAIGHT,
+                            automaticSuperelevation = false
+                        )
+                    } else settingsSnapshot
+                    val curve = createCurveBetweenAnchors(newStart, newEnd, inputSettings) ?: return@supply null
                     val limits = RailSpeedCalculator.calculate(
                         curve,
                         settingsSnapshot.designSpeedKmH / 3.6,
@@ -1478,12 +1527,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             builtCurve.curve,
                             mutableListOf(),
                             mutableListOf(),
-                            railMetadata(
-                                settingsSnapshot,
-                                builtCurve.speedLimits,
-                                input.oldMetadata.geometry.parallel,
-                                input.oldMetadata.allowedDirection
-                            ).copy(
+                            input.oldMetadata.copy(
+                                speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
+                                derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond,
                                 turnoutAtA = if (input.movedEnd == 'A') {
                                     turnoutEndpointMetadata(updatedEndpoint)
                                 } else input.oldMetadata.turnoutAtA,
@@ -1680,22 +1726,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun createCurvesBetweenParallelAnchors(
         startAnchors: List<Anchor>,
         endAnchors: List<Anchor>,
-        state: WandPlayerState
-    ): List<PrimeCurve>? {
-        return createCurvesBetweenParallelAnchors(startAnchors, endAnchors, snapshotCurveBuildSettings(state))
-    }
-
-    private fun createCurvesBetweenParallelAnchors(
-        startAnchors: List<Anchor>,
-        endAnchors: List<Anchor>,
         settings: CurveBuildSettingsSnapshot
-    ): List<PrimeCurve>? {
+    ): CurvesBuild? {
         val options = railCurveBuildOptions(settings)
-        if (startAnchors.size <= 1) {
-            return startAnchors.zip(endAnchors).map { (from, to) ->
-                createCurveBetweenAnchors(from, to, settings) ?: return null
-            }
-        }
         val result = RailCurveFactory.buildParallel(startAnchors, endAnchors, options)
         if (!result.isSuccess) {
             val detail = listOfNotNull(result.selectedReason, result.error)
@@ -1709,7 +1742,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             )
             throw IllegalArgumentException(detail)
         }
-        return result.curves
+        return CurvesBuild(result.curves!!, result.logicalBreakFractions)
     }
 
     private fun adjacentRailBuildInput(
@@ -1767,7 +1800,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 replacements[start.railId] = BuiltCurve(canonical, calculateSpeedLimits(canonical, start.metadata, settings))
             }
             val rebuiltNew = rebuilt[rebuiltIndex++]
-            newBuilt[index] = BuiltCurve(rebuiltNew, calculateSpeedLimits(rebuiltNew, null, settings))
+            newBuilt[index] = BuiltCurve(
+                rebuiltNew,
+                calculateSpeedLimits(rebuiltNew, null, settings),
+                newBuilt[index].logicalBreakFractions
+            )
             if (end != null) {
                 val curve = rebuilt[rebuiltIndex]
                 val canonical = if (end.orientedAsAb) curve else VerticalCurveRebuilder.reversedCopy(curve)
@@ -1778,7 +1815,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 ) { "同一条相邻轨道被多个连接端重复重建" }
             }
         }
-        return ConnectionCurveBuild(newBuilt, replacements)
+        return ConnectionCurveBuild(
+            newBuilt.map { partitionBuiltCurve(it, settings) },
+            replacements
+        )
     }
 
     @OptIn(Heavy::class)
@@ -1798,14 +1838,32 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     )
 
     @OptIn(Heavy::class)
+    private fun partitionBuiltCurve(
+        built: BuiltCurve,
+        settings: CurveBuildSettingsSnapshot,
+        metadata: RailMetadata? = null
+    ): List<BuiltRailPart> {
+        if (built.logicalBreakFractions.size != 2) {
+            return listOf(BuiltRailPart(built.curve, built.speedLimits, RailAssemblyRole.CURVE))
+        }
+        return RailCurvePartitioner.partitionFiveSegment(built.curve, built.logicalBreakFractions).map { part ->
+            BuiltRailPart(
+                part.curve,
+                calculateSpeedLimits(part.curve, metadata, settings),
+                part.role
+            )
+        }
+    }
+
+    @OptIn(Heavy::class)
     private fun createCurvesWithSpeedLimits(
         startAnchors: List<Anchor>,
         endAnchors: List<Anchor>,
         settings: CurveBuildSettingsSnapshot
     ): List<BuiltCurve>? {
-        val curves = createCurvesBetweenParallelAnchors(startAnchors, endAnchors, settings) ?: return null
+        val build = createCurvesBetweenParallelAnchors(startAnchors, endAnchors, settings) ?: return null
         val derailAcceleration = plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared
-        return curves.map { curve ->
+        return build.curves.map { curve ->
             BuiltCurve(
                 curve,
                 RailSpeedCalculator.calculate(
@@ -1814,7 +1872,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
                     derailLateralAccelerationMetersPerSecondSquared = derailAcceleration,
                     physics = plugin.physicsConfig.railSpeedPhysics()
-                )
+                ),
+                build.logicalBreakFractions
             )
         }
     }
@@ -2200,12 +2259,37 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
     }
 
-    private fun railsInParallelGroup(world: CoreWorld, rail: CoreRail): List<CoreRail> {
-        val parallel = rail.metadata.geometry.parallel ?: return listOf(rail)
+    internal fun logicalRails(player: Player, rail: CoreRail): List<CoreRail> =
+        getCoreWorld(player)?.let { logicalRails(it, rail) } ?: listOf(rail)
+
+    internal fun logicalRailSelectionId(player: Player, railId: UUID): UUID {
+        val world = getCoreWorld(player) ?: return railId
+        val rail = world.getRail(railId) ?: return railId
+        return logicalRails(world, rail).first().id
+    }
+
+    internal fun logicalRails(world: CoreWorld, rail: CoreRail): List<CoreRail> {
+        val assembly = rail.metadata.assembly ?: return listOf(rail)
+        return world.allRails
+            .filter { it.metadata.assembly?.groupId == assembly.groupId }
+            .sortedWith(compareBy({ it.metadata.assembly!!.laneIndex }, { it.metadata.assembly!!.segmentIndex }))
+    }
+
+    private fun railAssemblyLanes(world: CoreWorld, rail: CoreRail): List<List<CoreRail>> {
+        val assembly = rail.metadata.assembly
+        if (assembly != null) {
+            val lanes = logicalRails(world, rail).groupBy { it.metadata.assembly!!.laneIndex }
+            if (lanes.size != assembly.laneCount) return emptyList()
+            return (0 until assembly.laneCount).map { laneIndex ->
+                lanes[laneIndex].orEmpty().sortedBy { it.metadata.assembly!!.segmentIndex }
+                    .takeIf { it.size == assembly.segmentCount } ?: return emptyList()
+            }
+        }
+        val parallel = rail.metadata.geometry.parallel ?: return listOf(listOf(rail))
         val rails = world.allRails
             .filter { it.metadata.geometry.parallel?.groupId == parallel.groupId }
             .sortedBy { it.metadata.geometry.parallel!!.index }
-        return if (rails.size == parallel.count) rails else emptyList()
+        return if (rails.size == parallel.count) rails.map(::listOf) else emptyList()
     }
 
     private fun rebuildRailGeometry(
@@ -2216,9 +2300,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         maxSuperelevationMm: Double
     ) {
         val coreWorld = getCoreWorld(player) ?: return
-        val oldRails = railsInParallelGroup(coreWorld, selectedRail)
+        val oldLanes = railAssemblyLanes(coreWorld, selectedRail)
+        val oldRails = oldLanes.flatten()
         if (oldRails.isEmpty()) {
-            player.sendActionBar(Component.text("并行线路信息不完整，无法重建", NamedTextColor.RED))
+            player.sendActionBar(Component.text("逻辑曲线或并行线路信息不完整，无法重建", NamedTextColor.RED))
             return
         }
         if (oldRails.any { it.trains.isNotEmpty() }) {
@@ -2234,7 +2319,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val template = RailCurveTemplateType.valueOf(geometry.curveKind.name)
         val parallel = geometry.parallel
         val settings = CurveBuildSettingsSnapshot(
-            parallelCount = parallel?.count ?: 1,
+            parallelCount = oldLanes.size,
             parallelSpacing = parallel?.spacingMeters ?: 4.5,
             curveRadius = curveRadius,
             curveTemplate = template,
@@ -2243,11 +2328,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             automaticSuperelevation = geometry.automaticSuperelevation,
             maxSuperelevationMm = maxSuperelevationMm
         )
-        val starts = oldRails.map { anchorFromRailEndpoint(player.world, it, 'A') }
-        val ends = oldRails.map { anchorFromRailEndpoint(player.world, it, 'B') }
-        val oldIds = oldRails.map { it.id }.toSet()
-        val oldMetadata = oldRails.map { it.metadata }
-        val selectedIndex = oldRails.indexOfFirst { it.id == selectedRail.id }
+        val starts = oldLanes.map { anchorFromRailEndpoint(player.world, it.first(), 'A') }
+        val ends = oldLanes.map { anchorFromRailEndpoint(player.world, it.last(), 'B') }
+        val oldIds = oldRails.mapTo(linkedSetOf()) { it.id }
+        val selectedLane = selectedRail.metadata.assembly?.laneIndex
+            ?: selectedRail.metadata.geometry.parallel?.index ?: 0
+        val selectedRole = selectedRail.metadata.assembly?.role ?: RailAssemblyRole.CURVE
         val worldId = player.world.uid
         val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道曲率重建")
         if (pendingOperation != null) {
@@ -2260,14 +2346,20 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.rebuildRailGeometry",
-            supplier = { createCurvesWithSpeedLimits(starts, ends, settings) },
-            onSuccess = { builtCurves ->
+            supplier = {
+                createCurvesWithSpeedLimits(starts, ends, settings)?.map { built ->
+                    partitionBuiltCurve(built, settings)
+                }
+            },
+            onSuccess = { builtLanes ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
                 val liveWorld = getCoreWorld(livePlayer) ?: return@supply
-                if (builtCurves == null || builtCurves.size != oldRails.size) {
-                    livePlayer.sendActionBar(Component.text("无法按新半径生成曲线", NamedTextColor.RED))
+                if (builtLanes == null || builtLanes.size != oldLanes.size ||
+                    builtLanes.map { it.size }.distinct().size != 1
+                ) {
+                    livePlayer.sendActionBar(Component.text("无法按新参数生成逻辑曲线", NamedTextColor.RED))
                     return@supply
                 }
                 val liveOldRails = oldRails.map { old -> liveWorld.getRail(old.id) ?: return@supply }
@@ -2282,43 +2374,86 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val connectionSnapshots = allRails.map(::snapshotRailConnections)
                 val created = mutableListOf<CoreRail>()
                 val createdRenderMeta = mutableListOf<PersistedRailRenderMeta>()
+                val createdLanes = mutableListOf<List<CoreRail>>()
+                val oldAssemblyId = selectedRail.metadata.assembly?.groupId
+                val segmentCount = builtLanes.first().size
+                val assemblyId = if (segmentCount > 1) oldAssemblyId ?: UUID.randomUUID().toString() else null
+                val parallelIds = List(segmentCount) { UUID.randomUUID().toString().takeIf { oldLanes.size > 1 } }
+                liveWorld.railTopologyTransaction {
                 try {
-                    builtCurves.forEachIndexed { index, builtCurve ->
-                        val metadata = oldMetadata[index].copy(
-                            designSpeedMetersPerSecond = designSpeedKmH / 3.6,
-                            speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
-                            derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond,
-                            geometry = oldMetadata[index].geometry.copy(
-                                curveRadiusMeters = curveRadius.takeIf { it > 0.0 },
-                                allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
-                                maxSuperelevationMeters = settings.maxSuperelevationMm / 1000.0
+                    builtLanes.forEachIndexed { laneIndex, parts ->
+                        val oldLane = oldLanes[laneIndex]
+                        val newLane = parts.mapIndexed { segmentIndex, part ->
+                            val oldForRole = oldLane.firstOrNull { it.metadata.assembly?.role == part.role }
+                                ?: oldLane[minOf(segmentIndex, oldLane.lastIndex)]
+                            val parallelMeta = parallelIds[segmentIndex]?.let {
+                                ParallelRailMetadata(it, laneIndex, oldLanes.size, settings.parallelSpacing)
+                            }
+                            val assemblyMeta = assemblyId?.let {
+                                RailAssemblyMetadata(
+                                    it,
+                                    RailAssemblyKind.FIVE_SEGMENT_CURVE,
+                                    laneIndex,
+                                    oldLanes.size,
+                                    segmentIndex,
+                                    segmentCount,
+                                    part.role
+                                )
+                            }
+                            val metadata = oldForRole.metadata.copy(
+                                designSpeedMetersPerSecond = designSpeedKmH / 3.6,
+                                speedLimitMetersPerSecond = part.speedLimits.operatingLimitMetersPerSecond,
+                                derailSpeedMetersPerSecond = part.speedLimits.derailSpeedMetersPerSecond,
+                                geometry = oldForRole.metadata.geometry.copy(
+                                    curveRadiusMeters = curveRadius.takeIf { it > 0.0 },
+                                    allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
+                                    maxSuperelevationMeters = settings.maxSuperelevationMm / 1000.0,
+                                    parallel = parallelMeta
+                                ),
+                                assembly = assemblyMeta,
+                                turnoutAtA = oldLane.first().metadata.turnoutAtA.takeIf { segmentIndex == 0 },
+                                turnoutAtB = oldLane.last().metadata.turnoutAtB.takeIf { segmentIndex == segmentCount - 1 },
+                                gradeLockedAtA = oldLane.first().metadata.gradeLockedAtA && segmentIndex == 0,
+                                gradeLockedAtB = oldLane.last().metadata.gradeLockedAtB && segmentIndex == segmentCount - 1
                             )
-                        )
-                        val newRail = CoreRail(liveWorld, builtCurve.curve, mutableListOf(), mutableListOf(), metadata)
-                        created += newRail
-                        renderMetaByRail[oldRails[index].id]?.let { oldMeta ->
-                            createdRenderMeta += registerRailWithTemplate(newRail, oldMeta.templateSnapshot)
+                            CoreRail(liveWorld, part.curve, mutableListOf(), mutableListOf(), metadata).also {
+                                created += it
+                            }
                         }
+                        createdLanes += newLane
                     }
-
-                    RailRenderMetaStore.saveAll(
-                        livePlayer.world,
-                        persisted.filterNot { it.railId in oldIds } + createdRenderMeta
-                    )
                     detachRailReferences(oldIds, allRails.filter { it.id !in oldIds })
                     connectCreatedRailsToExisting(created, allRails.filter { it.id !in oldIds } + created)
-                    OperationalDestinationService(liveWorld).migrateAllOnRails(
-                        liveOldRails.zip(created).associate { (old, replacement) ->
+                    val oldToNew = oldLanes.flatMapIndexed { laneIndex, oldLane ->
+                        oldLane.mapIndexed { oldIndex, old ->
+                            val replacement = createdLanes[laneIndex].firstOrNull {
+                                it.metadata.assembly?.role == old.metadata.assembly?.role
+                            } ?: createdLanes[laneIndex][minOf(oldIndex, createdLanes[laneIndex].lastIndex)]
                             old.id to replacement.id
                         }
-                    )
+                    }.toMap()
+                    OperationalDestinationService(liveWorld).migrateAllOnRails(oldToNew)
                     liveOldRails.forEach { old ->
                         RailVisualBootstrap.unregisterRail(old.id)
                         old.destroy()
                         liveWorld.removeRail(old)
                     }
+                    createdLanes.forEachIndexed { laneIndex, lane ->
+                        val oldTemplate = oldLanes[laneIndex].firstNotNullOfOrNull {
+                            renderMetaByRail[it.id]?.templateSnapshot
+                        }
+                        if (oldTemplate != null) lane.forEach { newRail ->
+                            createdRenderMeta += registerRailWithTemplate(newRail, oldTemplate)
+                        }
+                    }
+                    RailRenderMetaStore.saveAll(
+                        livePlayer.world,
+                        persisted.filterNot { it.railId in oldIds } + createdRenderMeta
+                    )
 
-                    val replacement = created[selectedIndex.coerceAtLeast(0)]
+                    val replacementLane = createdLanes[selectedLane.coerceIn(createdLanes.indices)]
+                    val replacement = replacementLane.firstOrNull { it.metadata.assembly?.role == selectedRole }
+                        ?: replacementLane.first()
                     val state = getState(livePlayer)
                     state.selectedRails.clear()
                     state.selectedRails.add(replacement.id)
@@ -2337,6 +2472,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     persisted.forEach { RailVisualBootstrap.fromPersisted(liveWorld, it) }
                     livePlayer.sendMessage(Component.text("轨道重建失败，已回滚：${railWandFailureReason(error)}", NamedTextColor.RED))
                 }
+                }
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
@@ -2354,10 +2490,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         state.selectedRails.add(rail.id)
         persistState(player, state)
         updateAnchorDisplay(player)
+        val selectedLogicalRails = logicalRails(getCoreWorld(player) ?: rail.world, rail)
         val speed = rail.metadata.designSpeedMetersPerSecond?.times(3.6)
         val speedLabel = speed?.let { "%.0f km/h".format(it) } ?: "未设置"
-        val limitLabel = rail.metadata.speedLimitMetersPerSecond?.times(3.6)?.let { "%.0f km/h".format(it) } ?: "未设置"
-        val derailLabel = rail.metadata.derailSpeedMetersPerSecond?.times(3.6)?.let { "%.0f km/h".format(it) } ?: "∞"
+        val limitLabel = selectedLogicalRails.mapNotNull { it.metadata.speedLimitMetersPerSecond }
+            .minOrNull()?.times(3.6)?.let { "%.0f km/h".format(it) } ?: "未设置"
+        val derailLabel = selectedLogicalRails.mapNotNull { it.metadata.derailSpeedMetersPerSecond }
+            .minOrNull()?.times(3.6)?.let { "%.0f km/h".format(it) } ?: "∞"
         val radiusLabel = rail.metadata.geometry.curveRadiusMeters?.let { "%.0f m".format(it) } ?: "自动"
         val parallelLabel = rail.metadata.geometry.parallel?.let { "并行 ${it.index + 1}/${it.count}" } ?: "单线"
         player.sendActionBar(
@@ -2640,6 +2779,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
         val rail = getCoreWorld(player)?.getRail(target.railId)
+        if (rail?.metadata?.assembly != null) {
+            player.sendActionBar(Component.text("逻辑曲线的内部段不能单独分割", NamedTextColor.RED))
+            return
+        }
         if (rail == null || target.arcLength <= Curve.TOLERANCE ||
             target.arcLength >= rail.curve.totalArcLength - Curve.TOLERANCE
         ) {
@@ -2664,6 +2807,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val rail = coreWorld.getRail(railId) ?: run {
             clearPendingSplit(state)
             player.sendActionBar(Component.text("待分割轨道已不存在", NamedTextColor.RED))
+            return
+        }
+        if (rail.metadata.assembly != null) {
+            clearPendingSplit(state)
+            player.sendActionBar(Component.text("逻辑曲线的内部段不能单独分割", NamedTextColor.RED))
             return
         }
         splitSafetyError(coreWorld, listOf(rail))?.let { error ->
@@ -2927,28 +3075,38 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("轨道不存在，已清理残留渲染数据: $railId", NamedTextColor.YELLOW))
             return
         }
-        if (rail.trains.isNotEmpty()) {
-            player.sendActionBar(Component.text("不能删除有列车占用的轨道", NamedTextColor.RED))
+        val targetRails = logicalRails(coreWorld, rail)
+        if (targetRails.any { it.trains.isNotEmpty() }) {
+            player.sendActionBar(Component.text("不能删除有列车占用的逻辑曲线", NamedTextColor.RED))
             return
         }
 
+        val targetIds = targetRails.mapTo(linkedSetOf()) { it.id }
         val allRails = coreWorld.allRails.toList()
-        detachRailReferences(setOf(railId), allRails.filter { it.id != railId })
-        val removedDestinations = OperationalDestinationService(coreWorld)
-            .removeAllOnRail(railId).size
-        RailVisualBootstrap.unregisterRail(railId)
-        RailRenderMetaStore.removeRail(player.world, railId)
-        rail.destroy()
-        coreWorld.removeRail(rail)
+        var removedDestinations = 0
+        coreWorld.railTopologyTransaction {
+            detachRailReferences(targetIds, allRails.filter { it.id !in targetIds })
+            val destinations = OperationalDestinationService(coreWorld)
+            removedDestinations = targetIds.sumOf { destinations.removeAllOnRail(it).size }
+            val renderAfter = RailRenderMetaStore.load(player.world).filterNot { it.railId in targetIds }
+            targetRails.forEach { target ->
+                RailVisualBootstrap.unregisterRail(target.id)
+                target.destroy()
+                coreWorld.removeRail(target)
+            }
+            RailRenderMetaStore.saveAll(player.world, renderAfter)
+        }
 
-        state.selectedRails.remove(railId)
-        state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) == railId }
-        removeAnchorDisplay(player, railEndpointAnchorId(railId, 'A'))
-        removeAnchorDisplay(player, railEndpointAnchorId(railId, 'B'))
+        state.selectedRails.removeAll(targetIds)
+        state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) in targetIds }
+        targetIds.forEach { removedId ->
+            removeAnchorDisplay(player, railEndpointAnchorId(removedId, 'A'))
+            removeAnchorDisplay(player, railEndpointAnchorId(removedId, 'B'))
+        }
         refreshAllAnchorsForPlayer(player)
         pushUndo(player, WandAction.DeleteRail(player.world.uid, railId))
         player.sendActionBar(Component.text(
-            "已删除轨道 $railId" +
+            "已删除逻辑曲线（${targetRails.size} 个内部段）" +
                 if (removedDestinations > 0) "（同步删除 $removedDestinations 个 destination）" else "",
             NamedTextColor.GREEN
         ))
@@ -3117,12 +3275,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return RailRenderMetaStore.load(world).flatMap { meta ->
             val rail = coreWorld.getRail(meta.railId) ?: return@flatMap emptyList()
             val split = rail.metadata.createdBySplit
+            val assembly = rail.metadata.assembly
             val hasSiblingPair = split != null && findSplitPair(coreWorld, split.operationId) != null
             listOfNotNull(
                 getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'A'))
-                    .takeUnless { hasSiblingPair && split.segmentIndex == 1 },
+                    .takeUnless {
+                        (hasSiblingPair && split.segmentIndex == 1) ||
+                            (assembly != null && assembly.segmentIndex > 0)
+                    },
                 getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'B'))
-                    .takeUnless { hasSiblingPair && split.segmentIndex == 0 }
+                    .takeUnless {
+                        (hasSiblingPair && split.segmentIndex == 0) ||
+                            (assembly != null && assembly.segmentIndex < assembly.segmentCount - 1)
+                    }
             )
         }
     }
@@ -3339,7 +3504,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         speedLimitEntities[player.uniqueId] = entities
         coreWorld.allRails.forEach { rail ->
             val limit = rail.metadata.speedLimitMetersPerSecond ?: return@forEach
-            if (!limit.isFinite()) return@forEach
+            val design = rail.metadata.designSpeedMetersPerSecond
+            if (!limit.isFinite() || design == null || limit >= design - 1.0e-6) return@forEach
             val point = rail.curve.getPointAt(rail.curve.totalArcLength / 2.0)
             val location = Location(player.world, point.position.x(), point.position.y() + 1.8, point.position.z())
             plugin.platformDispatcher.runAt(location) spawnTask@{

@@ -68,10 +68,34 @@ object RailVisualBootstrap {
         val total = rail.curve.totalArcLength
         if (total <= 0.0) return emptyList()
         val segmentCount = kotlin.math.ceil(total / RailArcVisualSegment.SEGMENT_ARC_LENGTH).toInt()
-        val allArcs = RailDecorationLayout.endpointInclusiveArcs(
-            totalArcLength = total,
-            repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
-        )
+        val assembly = rail.metadata.assembly
+        val allArcs = if (assembly == null) {
+            RailDecorationLayout.endpointInclusiveArcs(
+                totalArcLength = total,
+                repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
+            )
+        } else {
+            val candidates = rail.world.allRails.filter { candidate ->
+                candidate.metadata.assembly?.let {
+                    it.groupId == assembly.groupId && it.laneIndex == assembly.laneIndex
+                } == true
+            }
+            val siblings = (0 until assembly.segmentCount).map { segmentIndex ->
+                val atIndex = candidates.filter { it.metadata.assembly!!.segmentIndex == segmentIndex }
+                require(atIndex.isNotEmpty()) { "Incomplete rail assembly ${assembly.groupId}" }
+                if (segmentIndex == assembly.segmentIndex) atIndex.firstOrNull { it.id == rail.id } ?: atIndex.first()
+                else atIndex.first()
+            }
+            val offset = siblings.take(assembly.segmentIndex).sumOf { it.curve.totalArcLength }
+            val assemblyTotal = siblings.sumOf { it.curve.totalArcLength }
+            RailDecorationLayout.endpointInclusiveArcs(
+                totalArcLength = assemblyTotal,
+                repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
+            ).filter { globalArc ->
+                globalArc >= offset - 1.0e-9 &&
+                    (globalArc < offset + total - 1.0e-9 || assembly.segmentIndex == assembly.segmentCount - 1)
+            }.map { it - offset }
+        }
         return (0 until segmentCount).mapNotNull { index ->
             val arcStart = index * RailArcVisualSegment.SEGMENT_ARC_LENGTH
             val arcEnd = minOf((index + 1) * RailArcVisualSegment.SEGMENT_ARC_LENGTH, total)

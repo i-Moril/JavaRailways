@@ -11,6 +11,9 @@ import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
 import work.art1st.javarailways.core.di.javaRailwaysParentScope
 import work.art1st.javarailways.core.api.physics.rail.ParallelRailMetadata
+import work.art1st.javarailways.core.api.physics.rail.RailAssemblyKind
+import work.art1st.javarailways.core.api.physics.rail.RailAssemblyMetadata
+import work.art1st.javarailways.core.api.physics.rail.RailAssemblyRole
 import work.art1st.javarailways.core.api.physics.rail.RailCurveKind
 import work.art1st.javarailways.core.api.physics.rail.RailGeometryMetadata
 import work.art1st.javarailways.core.api.physics.rail.RailMetadata
@@ -45,6 +48,15 @@ class WorldPersistenceRoundTripTest {
                 automaticSuperelevation = true,
                 allowableCantDeficiencyMeters = 0.09,
                 parallel = ParallelRailMetadata("P1", index = 0, count = 2, spacingMeters = 4.5)
+            ),
+            assembly = RailAssemblyMetadata(
+                groupId = "curve-group",
+                kind = RailAssemblyKind.FIVE_SEGMENT_CURVE,
+                laneIndex = 0,
+                laneCount = 1,
+                segmentIndex = 1,
+                segmentCount = 3,
+                role = RailAssemblyRole.CURVE
             ),
             gradeLockedAtA = true,
             gradeLockedAtB = false
@@ -81,6 +93,8 @@ class WorldPersistenceRoundTripTest {
         assertEquals(0.09, loaded.getRail(rail.id)?.metadata?.geometry?.allowableCantDeficiencyMeters)
         assertEquals(300.0, loaded.getRail(rail.id)?.metadata?.geometry?.curveRadiusMeters)
         assertEquals("P1", loaded.getRail(rail.id)?.metadata?.geometry?.parallel?.groupId)
+        assertEquals("curve-group", loaded.getRail(rail.id)?.metadata?.assembly?.groupId)
+        assertEquals(RailAssemblyRole.CURVE, loaded.getRail(rail.id)?.metadata?.assembly?.role)
         assertEquals(true, loaded.getRail(rail.id)?.metadata?.gradeLockedAtA)
         assertEquals(false, loaded.getRail(rail.id)?.metadata?.gradeLockedAtB)
         val roundInfrastructure = loaded.saveInfrastructure(1L)

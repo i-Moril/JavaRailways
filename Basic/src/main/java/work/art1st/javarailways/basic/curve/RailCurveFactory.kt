@@ -36,7 +36,9 @@ data class RailCurveBuildResult(
     val curve: PrimeCurve?,
     val error: String? = null,
     val selectedTemplate: RailCurveTemplateType? = null,
-    val selectedReason: String? = null
+    val selectedReason: String? = null,
+    /** Internal player-invisible boundaries as fractions of total arc length. */
+    val logicalBreakFractions: List<Double> = emptyList()
 ) {
     val isSuccess: Boolean get() = curve != null
 
@@ -44,8 +46,14 @@ data class RailCurveBuildResult(
         fun success(
             curve: PrimeCurve,
             template: RailCurveTemplateType,
-            reason: String? = null
-        ): RailCurveBuildResult = RailCurveBuildResult(curve, selectedTemplate = template, selectedReason = reason)
+            reason: String? = null,
+            logicalBreakFractions: List<Double> = emptyList()
+        ): RailCurveBuildResult = RailCurveBuildResult(
+            curve,
+            selectedTemplate = template,
+            selectedReason = reason,
+            logicalBreakFractions = logicalBreakFractions
+        )
 
         fun failure(
             error: String,
@@ -59,7 +67,8 @@ data class RailParallelCurveBuildResult(
     val curves: List<PrimeCurve>?,
     val error: String? = null,
     val selectedTemplate: RailCurveTemplateType? = null,
-    val selectedReason: String? = null
+    val selectedReason: String? = null,
+    val logicalBreakFractions: List<Double> = emptyList()
 ) {
     val isSuccess: Boolean get() = curves != null
 
@@ -67,8 +76,14 @@ data class RailParallelCurveBuildResult(
         fun success(
             curves: List<PrimeCurve>,
             template: RailCurveTemplateType?,
-            reason: String? = null
-        ): RailParallelCurveBuildResult = RailParallelCurveBuildResult(curves, selectedTemplate = template, selectedReason = reason)
+            reason: String? = null,
+            logicalBreakFractions: List<Double> = emptyList()
+        ): RailParallelCurveBuildResult = RailParallelCurveBuildResult(
+            curves,
+            selectedTemplate = template,
+            selectedReason = reason,
+            logicalBreakFractions = logicalBreakFractions
+        )
 
         fun failure(
             error: String,
@@ -112,7 +127,12 @@ object RailCurveFactory {
         if (fromAnchors.size == 1) {
             val result = build(fromAnchors.single(), toAnchors.single(), options)
             return if (result.isSuccess) {
-                RailParallelCurveBuildResult.success(listOf(result.curve!!), result.selectedTemplate, result.selectedReason)
+                RailParallelCurveBuildResult.success(
+                    listOf(result.curve!!),
+                    result.selectedTemplate,
+                    result.selectedReason,
+                    result.logicalBreakFractions
+                )
             } else {
                 RailParallelCurveBuildResult.failure(result.error ?: "曲线创建失败", result.selectedTemplate, result.selectedReason)
             }
@@ -169,7 +189,12 @@ object RailCurveFactory {
                 )
             }
         }
-        return RailParallelCurveBuildResult.success(curves, centerResult.selectedTemplate, centerResult.selectedReason)
+        return RailParallelCurveBuildResult.success(
+            curves,
+            centerResult.selectedTemplate,
+            centerResult.selectedReason,
+            centerResult.logicalBreakFractions
+        )
     }
 
     private data class PreparedAnchors(
@@ -429,7 +454,11 @@ object RailCurveFactory {
         if (!validateGeneratedCurve(curve, prepared.fromPos, prepared.toPos, prepared.fromTan3d, prepared.toTan3d, prepared.fromRoll, prepared.toRoll)) {
             return RailCurveBuildResult.failure("五段式模板生成后端点位置/切线/roll 校验失败", match.template, match.reason)
         }
-        return RailCurveBuildResult.success(curve, match.template, match.reason)
+        val breakFractions = listOf(
+            result.straightA / result.totalLength,
+            (result.totalLength - result.straightB) / result.totalLength
+        )
+        return RailCurveBuildResult.success(curve, match.template, match.reason, breakFractions)
     }
 
     private fun buildSCurve(

@@ -27,8 +27,10 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
             val state = wand.getState(player)
             if (state.mode != WandMode.DECORATE) return@findLookedAtRailAsync
 
-            if (state.pendingDecorationDeleteRail != rail.id) {
-                state.pendingDecorationDeleteRail = rail.id
+            val logicalRails = wand.logicalRails(player, rail)
+            val selectionId = logicalRails.first().id
+            if (state.pendingDecorationDeleteRail != selectionId) {
+                state.pendingDecorationDeleteRail = selectionId
                 wand.persistPlayerState(player, state)
                 player.sendActionBar(Component.text(
                     "已选择轨道 ${rail.id.toString().take(8)}；再次左键清除全部装饰",
@@ -37,8 +39,13 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
                 return@findLookedAtRailAsync
             }
 
-            RailVisualBootstrap.unregisterRail(rail.id)
-            RailRenderMetaStore.removeRail(player.world, rail.id)
+            logicalRails.forEach { RailVisualBootstrap.unregisterRail(it.id) }
+            RailRenderMetaStore.saveAll(
+                player.world,
+                RailRenderMetaStore.load(player.world).filterNot { meta ->
+                    logicalRails.any { it.id == meta.railId }
+                }
+            )
             state.pendingDecorationDeleteRail = null
             wand.persistPlayerState(player, state)
             player.sendActionBar(Component.text("已清除该轨道的全部装饰", NamedTextColor.GREEN))
@@ -57,8 +64,9 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
                 ?: return@findLookedAtRailAsync
 
             runCatching {
-                val meta = RailVisualBootstrap.registerRail(rail, modelName)
-                RailRenderMetaStore.upsertRail(player.world, meta)
+                val logicalRails = wand.logicalRails(player, rail)
+                val metas = logicalRails.map { RailVisualBootstrap.registerRail(it, modelName) }
+                RailRenderMetaStore.upsertRails(player.world, metas)
             }.onSuccess {
                 state.pendingDecorationDeleteRail = null
                 wand.persistPlayerState(player, state)

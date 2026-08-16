@@ -46,6 +46,38 @@ data class RailGeometryMetadata(
 }
 
 @Serializable
+enum class RailAssemblyKind {
+    FIVE_SEGMENT_CURVE
+}
+
+@Serializable
+enum class RailAssemblyRole {
+    LEADING_TANGENT,
+    CURVE,
+    TRAILING_TANGENT
+}
+
+/** Groups internal CoreRails into one player-facing RailWand curve. */
+@Serializable
+data class RailAssemblyMetadata(
+    val groupId: String,
+    val kind: RailAssemblyKind,
+    val laneIndex: Int,
+    val laneCount: Int,
+    val segmentIndex: Int,
+    val segmentCount: Int,
+    val role: RailAssemblyRole
+) {
+    init {
+        require(groupId.isNotBlank())
+        require(laneCount > 0 && laneIndex in 0 until laneCount)
+        require(segmentCount > 0 && segmentIndex in 0 until segmentCount)
+        require(role != RailAssemblyRole.LEADING_TANGENT || segmentIndex == 0)
+        require(role != RailAssemblyRole.TRAILING_TANGENT || segmentIndex == segmentCount - 1)
+    }
+}
+
+@Serializable
 data class RailSplitMetadata(
     /** Identifies the split operation that produced the two current sibling segments. */
     val operationId: String,
@@ -83,6 +115,8 @@ data class RailMetadata(
     /** Null allows both directions; otherwise only the selected RailView direction is legal. */
     val allowedDirection: ViewDirection? = null,
     val geometry: RailGeometryMetadata = RailGeometryMetadata(),
+    /** Non-null when this segment is an internal part of one player-facing RailWand curve. */
+    val assembly: RailAssemblyMetadata? = null,
     /** Non-null when this segment was created by RailWand split mode. */
     val createdBySplit: RailSplitMetadata? = null,
     /** Turnout settings at the canonical AB start endpoint. */

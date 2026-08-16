@@ -26,12 +26,15 @@ import work.art1st.javarailways.basic.api.destination.OperationalDestinationServ
 import work.art1st.javarailways.basic.api.ui.config.*
 import work.art1st.javarailways.basic.curve.Anchor
 import work.art1st.javarailways.basic.curve.AnchorGeometry
+import work.art1st.javarailways.basic.curve.ParallelAnchorGeometry
+import work.art1st.javarailways.basic.curve.ParallelAnchorMatch
 import work.art1st.javarailways.basic.curve.RailCurveBuildOptions
 import work.art1st.javarailways.basic.curve.RailCurveFactory
 import work.art1st.javarailways.basic.curve.RailCurveTemplateType
 import work.art1st.javarailways.basic.curve.StandardTurnout
 import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
 import work.art1st.javarailways.basic.curve.SuperelevationConfig
+import work.art1st.javarailways.basic.curve.VerticalCurveRebuilder
 import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
 import work.art1st.javarailways.basic.rail.RailAutoConnector
@@ -94,6 +97,7 @@ internal fun straightTerminalTangent(startTangent: Vector3dc): Vector3d =
 enum class WandMode(override val displayName: String, override val description: String) : WandModeSpec {
     CREATE("创建模式", "右键创建锚点 | 左键选择锚点 | Shift+F 切换模式"),
     CONNECT("连接模式", "选择两端锚点后右键连接 | Shift+F 切换模式"),
+    GRADE_SMOOTH("坡度平滑", "左键选择既有锚点 | 右键平滑 | Shift+F 切换模式"),
     TURNOUT("道岔模式", "靠近锚点右键创建标准道岔侧线 | Shift+F 切换模式"),
     EDIT("编辑模式", "右键编辑锚点/轨道 | 左键选择 | Shift+F 切换模式"),
     SPLIT("分割模式", "右键选择/确认分割 | 左键分割锚点合并 | Shift+F 切换模式"),
@@ -110,6 +114,14 @@ sealed class WandAction {
     data class DeleteAnchor(val worldId: UUID, val anchor: SavedAnchorData) : WandAction()
     data class CreateRail(val worldId: UUID, val railId: UUID, val railType: String) : WandAction()
     data class DeleteRail(val worldId: UUID, val railId: UUID) : WandAction()
+    data class ReplaceRails(
+        val worldId: UUID,
+        val createdRailIds: Set<UUID>,
+        val removedRails: List<CoreRail.SavedRailV1>,
+        val worldTopologyBefore: List<CoreRail.SavedRailV1>,
+        val renderMetasBefore: List<PersistedRailRenderMeta>,
+        val createdToRemovedIds: Map<UUID, UUID>
+    ) : WandAction()
     data class MultiAction(val actions: List<WandAction>) : WandAction()
 }
 
@@ -333,6 +345,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private val createMode = RailWandCreateMode(this)
     private val connectMode = RailWandConnectMode(this)
+    private val gradeSmoothMode = RailWandGradeSmoothMode(this)
     private val turnoutMode = RailWandTurnoutMode(this)
     private val editMode = RailWandEditMode(this)
     private val splitMode = RailWandSplitMode(this)
@@ -722,6 +735,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         when (state.mode) {
             WandMode.CREATE -> createMode.handle(player, state, event)
             WandMode.CONNECT -> connectMode.handle(player, state, event)
+            WandMode.GRADE_SMOOTH -> gradeSmoothMode.handle(player, state, event)
             WandMode.TURNOUT -> turnoutMode.handle(player, state, event)
             WandMode.EDIT -> editMode.handle(player, state, event)
             WandMode.SPLIT -> splitMode.handle(player, state, event)
@@ -849,6 +863,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private data class BuiltCurve(
         val curve: PrimeCurve,
         val speedLimits: RailSpeedLimits
+    )
+
+    private data class AdjacentRailBuildInput(
+        val railId: UUID,
+        val orientedCurve: PrimeCurve,
+        val orientedAsAb: Boolean,
+        val originalCurve: PrimeCurve,
+        val metadata: RailMetadata
+    )
+
+    private data class ConnectionCurveBuild(
+        val newCurves: List<BuiltCurve>,
+        val replacementCurves: Map<UUID, BuiltCurve>
     )
 
     private data class RailEndpointRebuildInput(
@@ -1007,11 +1034,23 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
 
-        val startAnchors = anchors.take(state.parallelCount)
-        val endAnchors = anchors.drop(state.parallelCount)
-        val validationError = validateParallelAnchorGroup(startAnchors, endAnchors, state)
-        if (validationError != null) {
-            player.sendActionBar(Component.text(validationError, NamedTextColor.RED))
+        val parallelMatch = ParallelAnchorGeometry.match(
+            anchors.take(state.parallelCount),
+            anchors.drop(state.parallelCount),
+            state.parallelSpacing
+        )
+        if (parallelMatch is ParallelAnchorMatch.Failure) {
+            player.sendActionBar(Component.text(parallelMatch.reason, NamedTextColor.RED))
+            return
+        }
+        parallelMatch as ParallelAnchorMatch.Success
+        val startAnchors = parallelMatch.start
+        val endAnchors = parallelMatch.end
+        val startAdjacent = startAnchors.map { adjacentRailBuildInput(coreWorld, it, connectionAtStart = true) }
+        val endAdjacent = endAnchors.map { adjacentRailBuildInput(coreWorld, it, connectionAtStart = false) }
+        val adjacentIds = (startAdjacent + endAdjacent).mapNotNull { it?.railId }
+        if (adjacentIds.size != adjacentIds.distinct().size) {
+            player.sendActionBar(Component.text("同一条相邻轨道不能在一次连接中重复重算", NamedTextColor.RED))
             return
         }
         if (state.autoDecorate && selectedDecorationModel(player, state) == null) return
@@ -1032,8 +1071,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.connectSelectedAnchors",
-            supplier = { createCurvesWithSpeedLimits(startAnchors, endAnchors, settingsSnapshot) },
-            onSuccess = { builtCurves ->
+            supplier = {
+                createConnectionCurves(
+                    startAnchors,
+                    endAnchors,
+                    startAdjacent,
+                    endAdjacent,
+                    settingsSnapshot
+                )
+            },
+            onSuccess = { connectionBuild ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -1053,55 +1100,107 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text("锚点已变化，请重试轨道连接", NamedTextColor.YELLOW))
                     return@supply
                 }
-                if (builtCurves == null) {
-                    livePlayer.sendActionBar(Component.text("无法创建并行曲线", NamedTextColor.RED))
+                if (connectionBuild == null) {
+                    livePlayer.sendActionBar(Component.text("无法创建并平滑轨道曲线", NamedTextColor.RED))
                     return@supply
+                }
+                val builtCurves = connectionBuild.newCurves
+                val liveAdjacentRails = connectionBuild.replacementCurves.keys.associateWith { railId ->
+                    val rail = liveCoreWorld.getRail(railId) ?: run {
+                        livePlayer.sendActionBar(Component.text("相邻轨道已变化，请重试", NamedTextColor.YELLOW))
+                        return@supply
+                    }
+                    val expected = (startAdjacent + endAdjacent).first { it?.railId == railId }!!
+                    if (rail.curve !== expected.originalCurve || rail.trains.isNotEmpty()) {
+                        livePlayer.sendActionBar(Component.text("相邻轨道已变化，请重试", NamedTextColor.YELLOW))
+                        return@supply
+                    }
+                    rail
                 }
 
                 val existingRails = liveCoreWorld.allRails.toList()
+                val topologyBefore = existingRails.map(CoreRail::save)
+                val renderMetasBefore = RailRenderMetaStore.load(livePlayer.world)
+                val renderMetaByRail = renderMetasBefore.associateBy { it.railId }
+                val removedIds = liveAdjacentRails.keys
+                val removedSaved = liveAdjacentRails.values.map(CoreRail::save)
                 val createdRails = mutableListOf<CoreRail>()
+                val newRails = mutableListOf<CoreRail>()
                 val persistedMetas = mutableListOf<PersistedRailRenderMeta>()
-                val undoActions = mutableListOf<WandAction>()
+                val oldToNew = linkedMapOf<UUID, UUID>()
                 val existingConnectionSnapshots = existingRails.map(::snapshotRailConnections)
+                var destinationsMigrated = false
                 try {
+                    connectionBuild.replacementCurves.forEach { (oldId, builtCurve) ->
+                        val oldRail = liveAdjacentRails.getValue(oldId)
+                        val metadata = oldRail.metadata.copy(
+                            speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
+                            derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond
+                        )
+                        val replacement = CoreRail(
+                            liveCoreWorld,
+                            builtCurve.curve,
+                            mutableListOf(),
+                            mutableListOf(),
+                            metadata
+                        )
+                        createdRails += replacement
+                        oldToNew[oldId] = replacement.id
+                        renderMetaByRail[oldId]?.let { oldMeta ->
+                            persistedMetas += registerRailWithTemplate(replacement, oldMeta.templateSnapshot)
+                        }
+                    }
+
                     val parallelGroupId = UUID.randomUUID().toString().takeIf { builtCurves.size > 1 }
                     builtCurves.forEachIndexed { index, builtCurve ->
-                        val curve = builtCurve.curve
                         val parallel = parallelGroupId?.let {
-                            ParallelRailMetadata(
-                                groupId = it,
-                                index = index,
-                                count = builtCurves.size,
-                                spacingMeters = settingsSnapshot.parallelSpacing
-                            )
+                            ParallelRailMetadata(it, index, builtCurves.size, settingsSnapshot.parallelSpacing)
                         }
                         val rail = CoreRail(
                             liveCoreWorld,
-                            curve,
+                            builtCurve.curve,
                             mutableListOf(),
                             mutableListOf(),
                             railMetadata(settingsSnapshot, builtCurve.speedLimits, parallel)
                         )
                         if (settingsSnapshot.autoDecorate) {
-                            persistedMetas.add(RailVisualBootstrap.registerRail(rail, settingsSnapshot.decorationModel))
+                            persistedMetas += RailVisualBootstrap.registerRail(rail, settingsSnapshot.decorationModel)
                         }
-                        createdRails.add(rail)
-                        undoActions.add(WandAction.CreateRail(
-                            livePlayer.world.uid,
-                            rail.id,
-                            settingsSnapshot.decorationModel.takeIf { settingsSnapshot.autoDecorate } ?: "none"
-                        ))
+                        createdRails += rail
+                        newRails += rail
                     }
 
-                    val autoConnected = connectCreatedRailsToExisting(createdRails, existingRails)
-                    RailRenderMetaStore.upsertRails(livePlayer.world, persistedMetas)
+                    val unchangedRails = existingRails.filter { it.id !in removedIds }
+                    detachRailReferences(removedIds, unchangedRails)
+                    val autoConnected = connectCreatedRailsToExisting(createdRails, unchangedRails + createdRails)
+                    RailRenderMetaStore.saveAll(
+                        livePlayer.world,
+                        renderMetasBefore.filterNot { it.railId in removedIds } + persistedMetas
+                    )
+                    if (oldToNew.isNotEmpty()) {
+                        OperationalDestinationService(liveCoreWorld).migrateAllOnRails(oldToNew)
+                        destinationsMigrated = true
+                    }
+                    liveAdjacentRails.values.forEach { oldRail ->
+                        RailVisualBootstrap.unregisterRail(oldRail.id)
+                        oldRail.destroy()
+                        liveCoreWorld.removeRail(oldRail)
+                    }
+
                     discardCreatedAnchorOperations(livePlayer, selectionSnapshot.toSet())
-                    pushUndo(livePlayer, WandAction.MultiAction(undoActions))
+                    pushUndo(livePlayer, WandAction.ReplaceRails(
+                        worldId = livePlayer.world.uid,
+                        createdRailIds = createdRails.mapTo(linkedSetOf(), CoreRail::id),
+                        removedRails = removedSaved,
+                        worldTopologyBefore = topologyBefore,
+                        renderMetasBefore = renderMetasBefore,
+                        createdToRemovedIds = oldToNew.entries.associate { (oldId, newId) -> newId to oldId }
+                    ))
                     livePlayer.sendMessage(Component.text(
-                        "✓ 创建了 ${createdRails.size} 段轨道 (${settingsSnapshot.parallelCount} 条并行线)，自动连接 $autoConnected 条",
+                        "✓ 创建 ${newRails.size} 段并平滑 ${oldToNew.size} 段相邻轨道，自动连接 $autoConnected 条",
                         NamedTextColor.GREEN
                     ))
-                    val endpointSelection = createdRails.map { railEndpointAnchorId(it.id, 'B') }
+                    val endpointSelection = newRails.map { railEndpointAnchorId(it.id, 'B') }
                     selectionSnapshot.forEach { anchorId ->
                         if (!isRailEndpointAnchorId(anchorId)) {
                             removeAnchorDisplay(livePlayer, anchorId)
@@ -1114,13 +1213,20 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     refreshAllAnchorsForPlayer(livePlayer)
                     updateAnchorDisplay(livePlayer)
                 } catch (e: Exception) {
+                    if (destinationsMigrated && oldToNew.values.all { liveCoreWorld.getRail(it) != null }) {
+                        runCatching {
+                            OperationalDestinationService(liveCoreWorld).migrateAllOnRails(
+                                oldToNew.entries.associate { (oldId, newId) -> newId to oldId }
+                            )
+                        }
+                    }
                     createdRails.forEach { rail ->
+                        RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
                         liveCoreWorld.removeRail(rail)
-                        RailVisualBootstrap.unregisterRail(rail.id)
-                        RailRenderMetaStore.removeRail(livePlayer.world, rail.id)
                     }
                     restoreRailConnections(existingConnectionSnapshots)
+                    RailRenderMetaStore.saveAll(livePlayer.world, renderMetasBefore)
                     livePlayer.sendActionBar(Component.text("创建轨道失败: ${e.message}", NamedTextColor.RED))
                 }
             },
@@ -1388,26 +1494,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
     }
 
-    private fun validateParallelAnchorGroup(
-        startAnchors: List<Anchor>,
-        endAnchors: List<Anchor>,
-        state: WandPlayerState
-    ): String? {
-        if (state.parallelCount <= 1) return null
-        val tolerance = max(0.25, state.parallelSpacing * 0.15)
-        for (i in 0 until state.parallelCount - 1) {
-            val startDistance = startAnchors[i].position.distance(startAnchors[i + 1].position)
-            if (abs(startDistance - state.parallelSpacing) > tolerance) {
-                return "起点组锚点间距应为 ${state.parallelSpacing}m (当前 %.2fm)".format(startDistance)
-            }
-            val endDistance = endAnchors[i].position.distance(endAnchors[i + 1].position)
-            if (abs(endDistance - state.parallelSpacing) > tolerance) {
-                return "终点组锚点间距应为 ${state.parallelSpacing}m (当前 %.2fm)".format(endDistance)
-            }
-        }
-        return null
-    }
-
     /**
      * 将本次新建轨道与既有轨道中端点重合的部分自动连接。
      * 创建模式每次通常只创建一段 A->B；下一次从 B->C 时，新段不会进入同一批 createdRails，
@@ -1499,6 +1585,80 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return result.curves
     }
 
+    private fun adjacentRailBuildInput(
+        world: CoreWorld,
+        anchor: Anchor,
+        connectionAtStart: Boolean
+    ): AdjacentRailBuildInput? {
+        val (railId, end) = parseRailEndpointAnchorId(anchor.id) ?: return null
+        val rail = world.getRail(railId) ?: return null
+        if (rail.metadata.turnoutAtA != null || rail.metadata.turnoutAtB != null || rail.trains.isNotEmpty()) return null
+        val orientedAsAb = if (connectionAtStart) end == 'B' else end == 'A'
+        return AdjacentRailBuildInput(
+            railId = rail.id,
+            orientedCurve = if (orientedAsAb) rail.curve else rail.curve.reversed,
+            orientedAsAb = orientedAsAb,
+            originalCurve = rail.curve,
+            metadata = rail.metadata
+        )
+    }
+
+    @OptIn(Heavy::class)
+    private fun createConnectionCurves(
+        startAnchors: List<Anchor>,
+        endAnchors: List<Anchor>,
+        startAdjacent: List<AdjacentRailBuildInput?>,
+        endAdjacent: List<AdjacentRailBuildInput?>,
+        settings: CurveBuildSettingsSnapshot
+    ): ConnectionCurveBuild? {
+        val newBuilt = createCurvesWithSpeedLimits(startAnchors, endAnchors, settings)?.toMutableList() ?: return null
+        val replacements = linkedMapOf<UUID, BuiltCurve>()
+        for (index in newBuilt.indices) {
+            val start = startAdjacent[index]
+            val end = endAdjacent[index]
+            val chain = buildList {
+                start?.let { add(it.orientedCurve) }
+                add(newBuilt[index].curve)
+                end?.let { add(it.orientedCurve) }
+            }
+            val rebuilt = VerticalCurveRebuilder.smooth(chain)
+            var rebuiltIndex = 0
+            if (start != null) {
+                val curve = rebuilt[rebuiltIndex++]
+                val canonical = if (start.orientedAsAb) curve else VerticalCurveRebuilder.reversedCopy(curve)
+                replacements[start.railId] = BuiltCurve(canonical, calculateSpeedLimits(canonical, start.metadata, settings))
+            }
+            val rebuiltNew = rebuilt[rebuiltIndex++]
+            newBuilt[index] = BuiltCurve(rebuiltNew, calculateSpeedLimits(rebuiltNew, null, settings))
+            if (end != null) {
+                val curve = rebuilt[rebuiltIndex]
+                val canonical = if (end.orientedAsAb) curve else VerticalCurveRebuilder.reversedCopy(curve)
+                if (replacements.put(end.railId, BuiltCurve(
+                        canonical,
+                        calculateSpeedLimits(canonical, end.metadata, settings)
+                    )) != null
+                ) return null
+            }
+        }
+        return ConnectionCurveBuild(newBuilt, replacements)
+    }
+
+    @OptIn(Heavy::class)
+    private fun calculateSpeedLimits(
+        curve: PrimeCurve,
+        metadata: RailMetadata?,
+        settings: CurveBuildSettingsSnapshot
+    ): RailSpeedLimits = RailSpeedCalculator.calculate(
+        curve = curve,
+        requestedLimitMetersPerSecond = metadata?.designSpeedMetersPerSecond
+            ?: settings.designSpeedKmH / 3.6,
+        allowableCantDeficiencyMeters = metadata?.geometry?.allowableCantDeficiencyMeters
+            ?: settings.allowableCantDeficiencyMm / 1000.0,
+        derailLateralAccelerationMetersPerSecondSquared =
+            plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
+        physics = plugin.physicsConfig.railSpeedPhysics()
+    )
+
     @OptIn(Heavy::class)
     private fun createCurvesWithSpeedLimits(
         startAnchors: List<Anchor>,
@@ -1566,6 +1726,259 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             parallel = parallel
         )
     )
+
+    // ═══════════════════════════════════════════
+    // 坡度平滑模式
+    // ═══════════════════════════════════════════
+
+    private data class GradeChainRail(
+        val rail: CoreRail,
+        val orientedCurve: PrimeCurve,
+        val orientedAsAb: Boolean
+    )
+
+    internal fun smoothSelectedGrades(player: Player, state: WandPlayerState) {
+        val count = state.parallelCount.coerceAtLeast(1)
+        if (state.selectedAnchors.isEmpty() || state.selectedAnchors.size % count != 0) {
+            player.sendActionBar(Component.text("请选择完整的并行锚点横断面", NamedTextColor.RED))
+            return
+        }
+        val world = getCoreWorld(player) ?: return
+        val rawGroups = state.selectedAnchors.chunked(count).map { ids ->
+            ids.map { id -> getAnchor(player.world, id) ?: run {
+                player.sendActionBar(Component.text("选中的锚点已不存在", NamedTextColor.RED))
+                return
+            } }
+        }
+        val groups = mutableListOf<List<Anchor>>()
+        if (rawGroups.size == 1) {
+            groups += rawGroups.single()
+        } else {
+            val first = ParallelAnchorGeometry.match(rawGroups[0], rawGroups[1], state.parallelSpacing)
+            if (first is ParallelAnchorMatch.Failure) {
+                player.sendActionBar(Component.text(first.reason, NamedTextColor.RED))
+                return
+            }
+            first as ParallelAnchorMatch.Success
+            groups += first.start
+            groups += first.end
+            for (index in 2 until rawGroups.size) {
+                val next = ParallelAnchorGeometry.match(groups.last(), rawGroups[index], state.parallelSpacing)
+                if (next is ParallelAnchorMatch.Failure) {
+                    player.sendActionBar(Component.text(next.reason, NamedTextColor.RED))
+                    return
+                }
+                groups += (next as ParallelAnchorMatch.Success).end
+            }
+        }
+
+        val chains = mutableListOf<List<GradeChainRail>>()
+        for (lane in 0 until count) {
+            val controls = groups.map { it[lane] }
+            val chain = findGradeSmoothingChain(world, controls) ?: run {
+                player.sendActionBar(Component.text("控制锚点之间不是唯一连续的普通轨道", NamedTextColor.RED))
+                return
+            }
+            chains += chain
+        }
+        val affectedIds = chains.flatten().map { it.rail.id }
+        if (affectedIds.size != affectedIds.distinct().size) {
+            player.sendActionBar(Component.text("并行平滑路径发生交叉或重复", NamedTextColor.RED))
+            return
+        }
+        if (chains.map(List<GradeChainRail>::size).distinct().size != 1) {
+            player.sendActionBar(Component.text("并行线路的曲线段数量不一致", NamedTextColor.RED))
+            return
+        }
+        if (chains.flatten().any { it.rail.trains.isNotEmpty() }) {
+            player.sendActionBar(Component.text("不能平滑有列车占用的轨道", NamedTextColor.RED))
+            return
+        }
+
+        val pending = heavyOperationGate.tryStart(player.uniqueId, "坡度平滑")
+        if (pending != null) {
+            player.sendActionBar(Component.text("正在执行$pending，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+        val settings = snapshotCurveBuildSettings(state)
+        val worldId = player.world.uid
+        val selectedSnapshot = state.selectedAnchors.toList()
+        player.sendActionBar(Component.text("正在联合求解纵断面...", NamedTextColor.GRAY))
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            completionEntity = player,
+            operation = "RailWand.smoothSelectedGrades",
+            supplier = {
+                val rebuilt = linkedMapOf<UUID, BuiltCurve>()
+                chains.forEach { chain ->
+                    val curves = VerticalCurveRebuilder.smooth(chain.map(GradeChainRail::orientedCurve))
+                    chain.zip(curves).forEach { (input, oriented) ->
+                        val canonical = if (input.orientedAsAb) oriented else VerticalCurveRebuilder.reversedCopy(oriented)
+                        rebuilt[input.rail.id] = BuiltCurve(
+                            canonical,
+                            calculateSpeedLimits(canonical, input.rail.metadata, settings)
+                        )
+                    }
+                }
+                rebuilt
+            },
+            onSuccess = { rebuilt ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                if (getState(livePlayer).selectedAnchors != selectedSnapshot) {
+                    livePlayer.sendActionBar(Component.text("锚点选择已变化，已取消坡度平滑", NamedTextColor.YELLOW))
+                    return@supply
+                }
+                val oldRails = affectedIds.map { id -> liveWorld.getRail(id) ?: return@supply }
+                if (oldRails.any { it.trains.isNotEmpty() } || oldRails.zip(chains.flatten()).any { (live, planned) ->
+                        live.curve !== planned.rail.curve
+                    }
+                ) {
+                    livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.YELLOW))
+                    return@supply
+                }
+                commitGradeSmoothing(livePlayer, oldRails, rebuilt, selectedSnapshot)
+            },
+            onFailure = { error ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("Rail grade smoothing failed: ${error.message ?: error::class.simpleName}")
+                plugin.server.getPlayer(player.uniqueId)?.sendActionBar(Component.text("坡度平滑失败", NamedTextColor.RED))
+            }
+        )
+    }
+
+    private fun findGradeSmoothingChain(world: CoreWorld, controls: List<Anchor>): List<GradeChainRail>? {
+        val positions = controls.map(Anchor::position)
+        if (positions.size == 1) {
+            val incident = ordinaryRailsAt(world, positions.single())
+            if (incident.size != 2) return null
+            return listOf(
+                orientRailEndingAt(incident[0], positions.single()),
+                orientRailStartingAt(incident[1], positions.single())
+            )
+        }
+        val internal = positions.zipWithNext().map { (from, to) ->
+            val matches = world.allRails.filter { rail -> connectsPositions(rail, from, to) && isOrdinaryRail(rail) }
+            if (matches.size != 1) return null
+            orientRail(matches.single(), from)
+        }.toMutableList()
+        val firstExtra = ordinaryRailsAt(world, positions.first()).filter { candidate ->
+            candidate.id != internal.first().rail.id
+        }
+        if (firstExtra.size == 1) internal.add(0, orientRailEndingAt(firstExtra.single(), positions.first()))
+        else if (firstExtra.size > 1) return null
+        val lastExtra = ordinaryRailsAt(world, positions.last()).filter { candidate ->
+            candidate.id != internal.last().rail.id
+        }
+        if (lastExtra.size == 1) internal += orientRailStartingAt(lastExtra.single(), positions.last())
+        else if (lastExtra.size > 1) return null
+        return internal
+    }
+
+    private fun ordinaryRailsAt(world: CoreWorld, position: Vector3dc): List<CoreRail> = world.allRails.filter { rail ->
+        isOrdinaryRail(rail) && (
+            rail.viewAB.startPoint.position.distance(position) <= Curve.TOLERANCE ||
+                rail.viewAB.endPoint.position.distance(position) <= Curve.TOLERANCE
+            )
+    }
+
+    private fun isOrdinaryRail(rail: CoreRail): Boolean =
+        rail.metadata.turnoutAtA == null && rail.metadata.turnoutAtB == null
+
+    private fun connectsPositions(rail: CoreRail, first: Vector3dc, second: Vector3dc): Boolean {
+        val a = rail.viewAB.startPoint.position
+        val b = rail.viewAB.endPoint.position
+        return (a.distance(first) <= Curve.TOLERANCE && b.distance(second) <= Curve.TOLERANCE) ||
+            (a.distance(second) <= Curve.TOLERANCE && b.distance(first) <= Curve.TOLERANCE)
+    }
+
+    private fun orientRail(rail: CoreRail, start: Vector3dc): GradeChainRail {
+        val asAb = rail.viewAB.startPoint.position.distance(start) <= Curve.TOLERANCE
+        return GradeChainRail(rail, if (asAb) rail.curve else rail.curve.reversed, asAb)
+    }
+
+    private fun orientRailEndingAt(rail: CoreRail, end: Vector3dc): GradeChainRail {
+        val asAb = rail.viewAB.endPoint.position.distance(end) <= Curve.TOLERANCE
+        return GradeChainRail(rail, if (asAb) rail.curve else rail.curve.reversed, asAb)
+    }
+
+    private fun orientRailStartingAt(rail: CoreRail, start: Vector3dc): GradeChainRail = orientRail(rail, start)
+
+    private fun commitGradeSmoothing(
+        player: Player,
+        oldRails: List<CoreRail>,
+        rebuilt: Map<UUID, BuiltCurve>,
+        selectedSnapshot: List<String>
+    ) {
+        val world = getCoreWorld(player) ?: return
+        val allBefore = world.allRails.toList()
+        val topologyBefore = allBefore.map(CoreRail::save)
+        val renderBefore = RailRenderMetaStore.load(player.world)
+        val renderByRail = renderBefore.associateBy { it.railId }
+        val oldIds = oldRails.mapTo(linkedSetOf(), CoreRail::id)
+        val created = mutableListOf<CoreRail>()
+        val renderAfter = mutableListOf<PersistedRailRenderMeta>()
+        val oldToNew = linkedMapOf<UUID, UUID>()
+        val connectionSnapshots = allBefore.map(::snapshotRailConnections)
+        try {
+            oldRails.forEach { old ->
+                val built = rebuilt.getValue(old.id)
+                val replacement = CoreRail(
+                    world,
+                    built.curve,
+                    mutableListOf(),
+                    mutableListOf(),
+                    old.metadata.copy(
+                        speedLimitMetersPerSecond = built.speedLimits.operatingLimitMetersPerSecond,
+                        derailSpeedMetersPerSecond = built.speedLimits.derailSpeedMetersPerSecond
+                    )
+                )
+                created += replacement
+                oldToNew[old.id] = replacement.id
+                renderByRail[old.id]?.let { renderAfter += registerRailWithTemplate(replacement, it.templateSnapshot) }
+            }
+            val unchanged = allBefore.filter { it.id !in oldIds }
+            detachRailReferences(oldIds, unchanged)
+            connectCreatedRailsToExisting(created, unchanged + created)
+            RailRenderMetaStore.saveAll(player.world, renderBefore.filterNot { it.railId in oldIds } + renderAfter)
+            OperationalDestinationService(world).migrateAllOnRails(oldToNew)
+            oldRails.forEach { old ->
+                RailVisualBootstrap.unregisterRail(old.id)
+                old.destroy()
+                world.removeRail(old)
+            }
+            pushUndo(player, WandAction.ReplaceRails(
+                player.world.uid,
+                created.mapTo(linkedSetOf(), CoreRail::id),
+                topologyBefore.filter { UUID.fromString(it.id) in oldIds },
+                topologyBefore,
+                renderBefore,
+                oldToNew.entries.associate { (oldId, newId) -> newId to oldId }
+            ))
+            val state = getState(player)
+            state.selectedAnchors.clear()
+            state.selectedAnchors += selectedSnapshot.mapNotNull { id ->
+                val parsed = parseRailEndpointAnchorId(id) ?: return@mapNotNull id
+                val replacementId = oldToNew[parsed.first] ?: return@mapNotNull id
+                railEndpointAnchorId(replacementId, parsed.second)
+            }
+            persistState(player, state)
+            refreshAllAnchorsForPlayer(player)
+            updateAnchorDisplay(player)
+            player.sendActionBar(Component.text("已平滑 ${created.size} 段轨道纵断面", NamedTextColor.GREEN))
+        } catch (failure: Exception) {
+            created.forEach { rail ->
+                RailVisualBootstrap.unregisterRail(rail.id)
+                rail.destroy()
+                world.removeRail(rail)
+            }
+            restoreRailConnections(connectionSnapshots)
+            RailRenderMetaStore.saveAll(player.world, renderBefore)
+            player.sendActionBar(Component.text("坡度平滑失败，已回滚: ${failure.message}", NamedTextColor.RED))
+        }
+    }
 
     // ═══════════════════════════════════════════
     // 编辑模式
@@ -2878,6 +3291,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             is WandAction.DeleteAnchor -> { undoDeleteAnchor(player, action); true }
             is WandAction.CreateRail -> undoCreateRail(player, action)
             is WandAction.DeleteRail -> false
+            is WandAction.ReplaceRails -> undoReplaceRails(player, action)
             is WandAction.MultiAction -> action.actions.asReversed().all { applyUndoPart(player, it) }
         }
         if (!applied) {
@@ -2912,6 +3326,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         is WandAction.DeleteAnchor -> { undoDeleteAnchor(player, action); true }
         is WandAction.CreateRail -> undoCreateRail(player, action)
         is WandAction.DeleteRail -> false
+        is WandAction.ReplaceRails -> undoReplaceRails(player, action)
         is WandAction.MultiAction -> action.actions.asReversed().all { applyUndoPart(player, it) }
     }
 
@@ -2922,7 +3337,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun canUndo(action: WandAction): Boolean = when (action) {
-        is WandAction.CreateAnchor, is WandAction.DeleteAnchor, is WandAction.CreateRail -> true
+        is WandAction.CreateAnchor, is WandAction.DeleteAnchor, is WandAction.CreateRail,
+        is WandAction.ReplaceRails -> true
         is WandAction.DeleteRail -> false
         is WandAction.MultiAction -> action.actions.isNotEmpty() && action.actions.all(::canUndo)
     }
@@ -2943,6 +3359,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         is WandAction.DeleteAnchor -> setOf(action.worldId)
         is WandAction.CreateRail -> setOf(action.worldId)
         is WandAction.DeleteRail -> setOf(action.worldId)
+        is WandAction.ReplaceRails -> setOf(action.worldId)
         is WandAction.MultiAction -> action.actions.flatMapTo(linkedSetOf(), ::actionWorldIds)
     }
 
@@ -2968,6 +3385,68 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun redoDeleteAnchor(player: Player, action: WandAction.DeleteAnchor) {
         removeAnchorDisplay(player, action.anchor.id)
         removeAnchor(player.world, action.anchor.id)
+    }
+
+    private fun undoReplaceRails(player: Player, action: WandAction.ReplaceRails): Boolean {
+        val coreWorld = getCoreWorld(player) ?: return false
+        val createdRails = action.createdRailIds.map { railId -> coreWorld.getRail(railId) ?: return false }
+        if (createdRails.any { it.trains.isNotEmpty() }) return false
+        val removedIds = action.removedRails.mapTo(linkedSetOf()) { UUID.fromString(it.id) }
+        if (removedIds.any { coreWorld.getRail(it) != null }) return false
+
+        val dependency = CoreRail.SavedRailV1.Dependency(coreWorld)
+        val restoredRails = mutableListOf<CoreRail>()
+        val topologyAtUndo = coreWorld.allRails.map(CoreRail::save)
+        val renderAtUndo = RailRenderMetaStore.load(player.world)
+        var referencesMigrated = false
+        return try {
+            action.removedRails.forEach { restoredRails += it.loadDisconnected(dependency) }
+            if (action.createdToRemovedIds.isNotEmpty()) {
+                OperationalDestinationService(coreWorld).migrateAllOnRails(action.createdToRemovedIds)
+                referencesMigrated = true
+            }
+            action.worldTopologyBefore.forEach { saved ->
+                val rail = coreWorld.getRail(UUID.fromString(saved.id)) ?: return@forEach
+                saved.restoreConnections(rail, dependency)
+            }
+            RailRenderMetaStore.saveAll(player.world, action.renderMetasBefore)
+            action.renderMetasBefore.filter { it.railId in removedIds }.forEach {
+                RailVisualBootstrap.fromPersisted(coreWorld, it)
+            }
+            val replacementSources = action.createdToRemovedIds.keys
+            createdRails.forEach { rail ->
+                if (rail.id !in replacementSources) {
+                    OperationalDestinationService(coreWorld).removeAllOnRail(rail.id)
+                }
+                RailVisualBootstrap.unregisterRail(rail.id)
+                rail.destroy()
+                coreWorld.removeRail(rail)
+            }
+            val state = getState(player)
+            state.selectedRails.removeIf { it in action.createdRailIds }
+            state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) in action.createdRailIds }
+            refreshAllAnchorsForPlayer(player)
+            updateAnchorDisplay(player)
+            true
+        } catch (failure: Exception) {
+            if (referencesMigrated && createdRails.all { coreWorld.getRail(it.id) != null }) {
+                runCatching {
+                    OperationalDestinationService(coreWorld).migrateAllOnRails(
+                        action.createdToRemovedIds.entries.associate { (createdId, removedId) -> removedId to createdId }
+                    )
+                }.onFailure(failure::addSuppressed)
+            }
+            restoredRails.forEach { restored ->
+                restored.destroy()
+                coreWorld.removeRail(restored)
+            }
+            topologyAtUndo.forEach { saved ->
+                coreWorld.getRail(UUID.fromString(saved.id))?.let { saved.restoreConnections(it, dependency) }
+            }
+            RailRenderMetaStore.saveAll(player.world, renderAtUndo)
+            plugin.logger.warning("RailWand replacement undo failed: ${failure.message ?: failure::class.simpleName}")
+            false
+        }
     }
 
     private fun undoCreateRail(player: Player, action: WandAction.CreateRail): Boolean {

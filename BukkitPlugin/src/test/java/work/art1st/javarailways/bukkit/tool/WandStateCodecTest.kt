@@ -41,6 +41,19 @@ class WandStateCodecTest {
     }
 
     @Test
+    fun `grade smoothing mode round trips without a new state schema`() {
+        val state = WandPlayerState(
+            mode = WandMode.GRADE_SMOOTH,
+            selectedAnchors = mutableListOf("rail-a:A")
+        )
+
+        val restored = requireNotNull(RailWandStateCodec.decode(RailWandStateCodec.encode(state)))
+
+        assertEquals(WandMode.GRADE_SMOOTH, restored.mode)
+        assertEquals(listOf("rail-a:A"), restored.selectedAnchors)
+    }
+
+    @Test
     fun `rail wand decoder rejects removed fields`() {
         assertNull(RailWandStateCodec.decode(
             """{"mode":"REMOVED","parallelCount":99,"parallelSpacing":-4.0,"straightUsesChordDirection":true,"designSpeedKmH":9999.0}"""

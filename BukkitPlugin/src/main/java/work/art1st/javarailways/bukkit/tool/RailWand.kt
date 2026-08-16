@@ -2144,7 +2144,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     // 编辑模式
     // ═══════════════════════════════════════════
 
-    private fun formatEditNumber(value: Double, digits: Int = 3): String =
+    private fun formatEditNumber(value: Double, digits: Int = 4): String =
         "% .${digits}f".format(Locale.US, value).trim()
 
     private fun parseEditDouble(value: String?, fallback: Double, label: String, player: Player): Double? {
@@ -2382,9 +2382,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(editKeys.posX, formatEditNumber(anchor.position.x()))
         session.setValue(editKeys.posY, formatEditNumber(anchor.position.y()))
         session.setValue(editKeys.posZ, formatEditNumber(anchor.position.z()))
-        session.setValue(editKeys.tangentYaw, formatEditNumber(yaw, digits = 1))
-        session.setValue(editKeys.tangentPitch, formatEditNumber(pitch, digits = 1))
-        session.setValue(editKeys.roll, formatEditNumber(roll, digits = 1))
+        session.setValue(editKeys.tangentYaw, formatEditNumber(yaw))
+        session.setValue(editKeys.tangentPitch, formatEditNumber(pitch))
+        session.setValue(editKeys.roll, formatEditNumber(roll))
         session.setValue(editKeys.gradeLocked, isGradeLocked(anchor))
         val turnoutDefaults = plugin.physicsConfig.turnoutSafety
         session.setValue(

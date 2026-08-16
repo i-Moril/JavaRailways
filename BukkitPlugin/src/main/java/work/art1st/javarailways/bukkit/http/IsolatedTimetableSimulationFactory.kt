@@ -13,6 +13,7 @@ import work.art1st.javarailways.basic.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.timetable.Timetable
+import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.timetable.TimetableAction
 import work.art1st.javarailways.basic.timetable.TimetableAtoFactory
 import work.art1st.javarailways.basic.timetable.TimetableDispatcher
@@ -149,6 +150,10 @@ internal class IsolatedTimetableSimulationFactory(
             val namedTrainId = (service.trainSelector as? TrainSelector.TrainId)?.trainId
             namedTrainId?.let(namedTrains::get)?.let { existingTrain ->
                 profilesByTrainId[existingTrain.id] = profile
+                world.basicWorldData.trainSpeedProfiles.put(
+                    existingTrain.id,
+                    TrainSpeedProfile(profile.trainControl.curveSpeedLimitOffset)
+                )
                 return@forEach
             }
             val acquisition = service.steps.asSequence().filterIsInstance<TimetableStep.At>()
@@ -184,6 +189,10 @@ internal class IsolatedTimetableSimulationFactory(
             )
             if (namedTrainId != null) namedTrains[namedTrainId] = train
             profilesByTrainId[train.id] = profile
+            world.basicWorldData.trainSpeedProfiles.put(
+                train.id,
+                TrainSpeedProfile(profile.trainControl.curveSpeedLimitOffset)
+            )
             placement.depotSelector?.let { selector ->
                 val point = requireNotNull(world.basicWorldData.depots.stablingPoints(selector.depotId)
                     .firstOrNull { it.point.destinationId == placement.wayPointId })

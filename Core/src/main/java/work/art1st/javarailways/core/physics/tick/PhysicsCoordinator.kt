@@ -11,6 +11,7 @@ import work.art1st.javarailways.core.util.AsyncTickThreadMarker
 import java.util.ArrayDeque
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -123,6 +124,7 @@ class PhysicsCoordinator(
 
     private val stateLock = Any()
     private val controllers = ConcurrentHashMap<String, TrainController>()
+    private val publishedFrameProcessors = CopyOnWriteArrayList<PublishedTrainFrameProcessor>()
     private val trainsPublishingMotionFrames = ConcurrentHashMap.newKeySet<String>()
     private val overloadTimesNanos = ArrayDeque<Long>()
     private val collisionClaims = ConcurrentHashMap.newKeySet<CollisionPair>()
@@ -192,6 +194,14 @@ class PhysicsCoordinator(
         trainsPublishingMotionFrames.remove(controller.profileId)
     }
 
+    fun registerPublishedFrameProcessor(processor: PublishedTrainFrameProcessor) {
+        publishedFrameProcessors.addIfAbsent(processor)
+    }
+
+    fun unregisterPublishedFrameProcessor(processor: PublishedTrainFrameProcessor) {
+        publishedFrameProcessors.remove(processor)
+    }
+
     fun wakeFromMainThread(): PhysicsTicket {
         synchronized(stateLock) {
             lastMainWakeNanos = nanoTime()
@@ -250,6 +260,23 @@ class PhysicsCoordinator(
             pendingCollisionDecisions[pair] = PendingCollisionDecision(runningEpoch, pair, event.resolution)
         }
         return true
+    }
+
+    private fun runPublishedFrameProcessors(trains: List<CoreTrain>, physicsEpoch: Long) {
+        val processors = publishedFrameProcessors.toList()
+        if (processors.isEmpty()) return
+        val futures = partition(trains, workerCount).map { batch ->
+            workerPool.submit {
+                AsyncTickThreadMarker.runInAsyncTickContext {
+                    batch.forEach { train ->
+                        processors.forEach { it.process(train, physicsEpoch) }
+                    }
+                }
+            }
+        }
+        futures.forEach(Future<*>::get)
+        val liveTrainIds = trains.mapTo(linkedSetOf(), CoreTrain::id)
+        processors.forEach { it.completeEpoch(liveTrainIds, physicsEpoch) }
     }
 
     private fun shouldPublishMotionFrame(
@@ -379,6 +406,7 @@ class PhysicsCoordinator(
                     world?.publishTrainFrame(frame)
                 }
             }
+            runPublishedFrameProcessors(publishedTrains.toList(), ticket.epoch)
             world?.rebuildSweptOccupancyIndex()
             val occupancyStats = world?.sweptOccupancyStats() ?: (0 to 0)
             val coordinatorNanos = nanoTime() - coordinatorStart

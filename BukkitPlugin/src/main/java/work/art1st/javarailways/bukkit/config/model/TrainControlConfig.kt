@@ -6,6 +6,7 @@ import work.art1st.javarailways.basic.control.TrainDynamics
 @Serializable
 data class TrainControlConfig(
     override val maxSpeed: Double = 20.0,
+    val curveSpeedLimitOffset: Double = 0.0,
     val powerNotches: List<String> = listOf("P1", "P2", "P3", "P4", "P5"),
     val brakeNotches: List<String> = listOf("B1", "B2", "B3", "B4", "B5", "B6", "B7", "EB"),
     val tractionNotchScales: Map<String, Double> = linkedMapOf(
@@ -31,6 +32,10 @@ data class TrainControlConfig(
     val adhesion: AdhesionConfig = AdhesionConfig(),
     val jerk: JerkLimitConfig = JerkLimitConfig()
 ) : TrainDynamics.TrainProfile {
+    init {
+        require(curveSpeedLimitOffset.isFinite()) { "curveSpeedLimitOffset must be finite" }
+    }
+
     override val powerHandles: List<String> get() = powerNotches
     override val brakeHandles: List<String> get() = brakeNotches
     override val adhesionCoefficient: Double get() = adhesion.coefficient
@@ -44,7 +49,10 @@ data class TrainControlConfig(
         fun parse(root: Map<String, Any>?): TrainControlConfig {
             val source = root ?: throw IllegalArgumentException("train control config is required")
             source.requireOnlyKeys(
-                setOf("config-version", "max-speed", "controller", "traction", "brake", "resistance", "adhesion", "jerk"),
+                setOf(
+                    "config-version", "max-speed", "curve-speed-limit-offset", "controller",
+                    "traction", "brake", "resistance", "adhesion", "jerk"
+                ),
                 "train control"
             )
             val version = source.requireInt("config-version", "train control")
@@ -65,6 +73,7 @@ data class TrainControlConfig(
             validateNotchScales("brake-notches", brakeNotches, brakeScales, "train control.brake.notch-scales")
             return TrainControlConfig(
                 maxSpeed = source.requireDouble("max-speed", "train control"),
+                curveSpeedLimitOffset = source.double("curve-speed-limit-offset") ?: 0.0,
                 powerNotches = powerNotches,
                 brakeNotches = brakeNotches,
                 tractionNotchScales = tractionScales,

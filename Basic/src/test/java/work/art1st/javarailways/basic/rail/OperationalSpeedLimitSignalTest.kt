@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -29,6 +31,7 @@ class OperationalSpeedLimitSignalTest {
             )
         )
         val train = createTrainWithConfig("signal-test", rail, world, listOf(8.0))
+        world.basicWorldData.trainSpeedProfiles.put(train.id, TrainSpeedProfile(10.0))
 
         OperationalSpeedLimitSignalMaterializer.materialize(world)
 

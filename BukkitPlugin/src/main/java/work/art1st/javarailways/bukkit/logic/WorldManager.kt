@@ -9,6 +9,7 @@ import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
+import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.javarailways.bukkit.BukkitPlugin
@@ -19,6 +20,7 @@ import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.extension.train.CarExtension
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.TrainExtension
+import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.persistence.WorldPersistence
 import work.art1st.javarailways.bukkit.persistence.WorldSnapshotCapture
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
@@ -143,7 +145,7 @@ class WorldManager(
         railWorlds[bukkitWorld] = railWorld
         if (railWorld is CoreWorld) {
             val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
-            speedSafetyMonitors[railWorld] = SpeedSafetyMonitor(
+            val monitor = SpeedSafetyMonitor(
                 railWorld,
                 SpeedSafetyMonitor.Config(
                     derailEnabled = config.derailEnabled,
@@ -151,10 +153,13 @@ class WorldManager(
                     graceTicks = config.graceTicks
                 )
             )
+            speedSafetyMonitors[railWorld] = monitor
+            railWorld.physicsCoordinator.registerPublishedFrameProcessor(monitor)
         }
         val restoredTrains = split?.runtime?.core()?.trains.orEmpty()
         if (restoredTrains.isNotEmpty() && railWorld is CoreWorld) {
             restoreBukkitTrainExtensions(railWorld, restoredTrains)
+            refreshTrainSpeedProfiles(railWorld)
             markSkippedPersistedTrains(bukkitWorld, railWorld, restoredTrains)
         }
     }
@@ -177,6 +182,20 @@ class WorldManager(
                 carExtension.initialize(car, savedCar.config.extension)
             }
 
+        }
+    }
+
+    fun refreshTrainSpeedProfiles(coreWorld: CoreWorld) {
+        coreWorld.allTrains.forEach { train ->
+            val control = runCatching { train.rendererOrNull?.resolveControl() }.getOrNull()
+            if (control == null) {
+                coreWorld.basicWorldData.trainSpeedProfiles.remove(train.id)
+            } else {
+                coreWorld.basicWorldData.trainSpeedProfiles.put(
+                    train.id,
+                    TrainSpeedProfile(control.curveSpeedLimitOffset)
+                )
+            }
         }
     }
 
@@ -213,7 +232,9 @@ class WorldManager(
                     }.get()
                 }
             } finally {
-                coreWorld?.let(speedSafetyMonitors::remove)
+                coreWorld?.let { world ->
+                    speedSafetyMonitors.remove(world)?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor)
+                }
                 coreWorld?.physicsCoordinator?.close()
                 try {
                     rw.renderChunkManager.close()
@@ -271,7 +292,7 @@ class WorldManager(
                 val speedSafetyNanos = measureNanoTime {
                     coreWorld.publishPendingDerailEvents()
                     speedSafetyMonitors[coreWorld]
-                        ?.evaluatePublishedEpoch(publishedPhysicsEpoch)
+                        ?.drainRequests(publishedPhysicsEpoch)
                         .orEmpty()
                         .forEach { request ->
                             val train = coreWorld.getTrain(request.trainId) ?: return@forEach

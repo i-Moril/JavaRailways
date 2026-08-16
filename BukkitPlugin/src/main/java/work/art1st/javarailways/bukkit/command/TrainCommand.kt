@@ -7,6 +7,7 @@ import org.joml.Vector3dc
 import work.art1st.javarailways.basic.controller.SimpleATO
 import work.art1st.javarailways.basic.api.depot.RollingStockState
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
+import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
@@ -307,6 +308,10 @@ object TrainCommand {
         val trainExtension = TrainExtension()
         train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
         trainExtension.initialize(train, emptyMap())
+        coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.put(
+            train.id,
+            TrainSpeedProfile(trainExtension.resolveControl().curveSpeedLimitOffset)
+        )
 
         train.commit()
         coreWorld.publishCurrentTrainFrame(train.id)
@@ -665,6 +670,7 @@ object TrainCommand {
         playerControllers.entries.removeIf { it.value.controlledTrain == train }
         BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
         AbnormalTrainMarker.clearTrain(sender.world, train.id)
+        coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id)
         train.destroy()
         sender.sendMessage("已删除列车: ${train.id}")
         return true

@@ -1,10 +1,14 @@
 package work.art1st.javarailways.basic.safety
 
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.core.physics.CoreWorld
-import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.core.physics.tick.PublishedTrainFrameProcessor
+import work.art1st.javarailways.core.physics.train.CoreTrain
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 
-/** A simulation-owned derail request derived from one published physics epoch. */
+/** A physics-owned derail request derived from one published physics epoch. */
 data class DerailRequest(
     val trainId: String,
     val reason: String,
@@ -17,11 +21,11 @@ data class DerailRequest(
     }
 }
 
-/** Optional geometry-derived derail-speed enforcement over published physics state. */
+/** Evaluates immutable published train frames on physics workers; callers only apply requests. */
 class SpeedSafetyMonitor(
     private val world: CoreWorld,
     private val config: Config
-) {
+) : PublishedTrainFrameProcessor {
     data class Config(
         val derailEnabled: Boolean,
         val toleranceMetersPerSecond: Double,
@@ -33,61 +37,64 @@ class SpeedSafetyMonitor(
         }
     }
 
-    private val overspeedEpochs = HashMap<String, Int>()
-    private var lastEvaluatedEpoch = -1L
+    private data class TrainState(val lastEpoch: Long, val consecutiveOverspeedEpochs: Int)
 
-    /**
-     * Evaluates one already-published epoch. The caller owns applying returned requests.
-     * Re-evaluating the same or an older epoch is a no-op; skipped epochs are not inferred.
-     */
-    @MainThread
-    fun evaluatePublishedEpoch(physicsEpoch: Long): List<DerailRequest> {
-        require(physicsEpoch >= 0L) { "physicsEpoch must be non-negative" }
-        if (physicsEpoch <= lastEvaluatedEpoch) return emptyList()
-        lastEvaluatedEpoch = physicsEpoch
-        if (!config.derailEnabled) return emptyList()
+    private val trainStates = ConcurrentHashMap<String, TrainState>()
+    private val requests = ConcurrentLinkedQueue<DerailRequest>()
 
-        val liveTrainIds = HashSet<String>()
-        val requests = ArrayList<DerailRequest>()
-        world.allTrains.forEach { train ->
-            liveTrainIds += train.id
-            val frame = train.publishedFrame
-            if (frame.derailed) {
-                overspeedEpochs.remove(train.id)
-                return@forEach
-            }
-
-            val derailSpeed = frame.sweptSpans.asSequence()
-                .mapNotNull { span ->
-                    world.getRail(span.railId)?.let { rail ->
-                        world.basicWorldData.railMetadata.getOrDefault(rail.id)
-                            .curveSafety.baseCurveDerailSpeedMetersPerSecond
-                    }
-                }
-                .minOrNull()
-                ?: run {
-                    overspeedEpochs.remove(train.id)
-                    return@forEach
-                }
-            val publishedSpeed = frame.speedMetersPerSecond
-            if (publishedSpeed <= derailSpeed + config.toleranceMetersPerSecond) {
-                overspeedEpochs.remove(train.id)
-                return@forEach
-            }
-
-            val epochs = (overspeedEpochs[train.id] ?: 0) + 1
-            if (epochs >= config.graceTicks) {
-                overspeedEpochs.remove(train.id)
-                requests += DerailRequest(
-                    trainId = train.id,
-                    reason = "Derail speed exceeded: %.2f m/s > %.2f m/s".format(publishedSpeed, derailSpeed),
-                    observedPhysicsEpoch = physicsEpoch
-                )
-            } else {
-                overspeedEpochs[train.id] = epochs
-            }
+    override fun process(train: CoreTrain, physicsEpoch: Long) {
+        require(physicsEpoch >= 0L)
+        trainStates.compute(train.id) { _, previous ->
+            if (previous != null && physicsEpoch <= previous.lastEpoch) return@compute previous
+            evaluate(train, physicsEpoch, previous?.consecutiveOverspeedEpochs ?: 0)
         }
-        overspeedEpochs.keys.retainAll(liveTrainIds)
-        return requests
+    }
+
+    override fun completeEpoch(liveTrainIds: Set<String>, physicsEpoch: Long) {
+        trainStates.keys.retainAll(liveTrainIds)
+    }
+
+    fun drainRequests(throughPhysicsEpoch: Long): List<DerailRequest> {
+        val ready = ArrayList<DerailRequest>()
+        val deferred = ArrayList<DerailRequest>()
+        while (true) {
+            val request = requests.poll() ?: break
+            if (request.observedPhysicsEpoch <= throughPhysicsEpoch) ready += request else deferred += request
+        }
+        requests.addAll(deferred)
+        return ready
+    }
+
+    private fun evaluate(train: CoreTrain, epoch: Long, previousCount: Int): TrainState {
+        val frame = train.publishedFrame
+        if (!config.derailEnabled || frame.derailed) return TrainState(epoch, 0)
+        val derailSpeed = frame.sweptSpans.asSequence()
+            .mapNotNull { span -> effectiveCurveDerailSpeed(train.id, span.railId) }
+            .minOrNull()
+            ?: return TrainState(epoch, 0)
+        if (frame.speedMetersPerSecond <= derailSpeed + config.toleranceMetersPerSecond) {
+            return TrainState(epoch, 0)
+        }
+        val count = previousCount + 1
+        if (count < config.graceTicks) return TrainState(epoch, count)
+        requests += DerailRequest(
+            trainId = train.id,
+            reason = "Derail speed exceeded: %.2f m/s > %.2f m/s".format(
+                frame.speedMetersPerSecond,
+                derailSpeed
+            ),
+            observedPhysicsEpoch = epoch
+        )
+        return TrainState(epoch, 0)
+    }
+
+    private fun effectiveCurveDerailSpeed(trainId: String, railId: java.util.UUID): Double? {
+        if (world.getRail(railId) == null) return null
+        val metadata = world.basicWorldData.railMetadata.getOrDefault(railId)
+        val base = metadata.curveSafety.baseCurveDerailSpeedMetersPerSecond ?: return null
+        val offset = world.basicWorldData.trainSpeedProfiles.getOrDefault(trainId)
+            .curveSpeedLimitOffsetMetersPerSecond
+        val adjusted = (base + offset).coerceAtLeast(0.0)
+        return metadata.speedLimits.value(SpeedLimitType.SUBGRADE)?.let { minOf(adjusted, it) } ?: adjusted
     }
 }

@@ -26,6 +26,7 @@ class PackageLoaderControlTest {
             """
             config-version: 1
             max-speed: 30.0
+            curve-speed-limit-offset: 2.5
             controller:
               power-notches: [P1, P2]
               brake-notches: [B1, EB]
@@ -79,6 +80,7 @@ class PackageLoaderControlTest {
         val loaded = PackageLoader(packageDir).loadTrainPackage() ?: error("train package should load")
 
         assertEquals(30.0, loaded.control.maxSpeed)
+        assertEquals(2.5, loaded.control.curveSpeedLimitOffset)
         assertEquals(0.5, loaded.control.tractionNotchScales["P2"])
         assertEquals(3.0, loaded.control.brakeReleaseTime)
         val motor = loaded.cars["motor"] ?: error("motor car should be loaded")

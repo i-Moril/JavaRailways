@@ -243,6 +243,8 @@ class JavaRailwaysCommand {
             }
         }
         val result = plugin.modelManager.loadAll()
+        plugin.worldManager.railWorlds.values.filterIsInstance<CoreWorld>()
+            .forEach(plugin.worldManager::refreshTrainSpeedProfiles)
         sender.sendMessage(
             "资源重载完成：${result.trainPackages.size} 个列车包，" +
                 "${result.railPackages.size} 个轨道包（generation=${result.generation}）"

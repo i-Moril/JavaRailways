@@ -2,6 +2,8 @@ package work.art1st.javarailways.basic.safety
 
 import work.art1st.javarailways.basic.rail.RailMetadata
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -27,7 +29,7 @@ class SpeedSafetyMonitorTest {
             PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         )
         rail.metadata = RailMetadata(
-            designSpeedMetersPerSecond = 8.0,
+            designSpeedMetersPerSecond = 15.0,
             speedLimitMetersPerSecond = 8.0,
             derailSpeedMetersPerSecond = 12.0
         )
@@ -41,7 +43,7 @@ class SpeedSafetyMonitorTest {
             SpeedSafetyMonitor.Config(true, 0.0, 1)
         )
 
-        val requests = monitor.evaluatePublishedEpoch(1L)
+        val requests = evaluate(monitor, train, 1L)
 
         assertTrue(requests.isEmpty())
         assertFalse(train.isDerailed)
@@ -73,16 +75,51 @@ class SpeedSafetyMonitorTest {
             )
         )
 
-        assertTrue(monitor.evaluatePublishedEpoch(1L).isEmpty())
+        assertTrue(evaluate(monitor, train, 1L).isEmpty())
         assertFalse(train.isDerailed)
-        assertTrue(monitor.evaluatePublishedEpoch(1L).isEmpty(), "same epoch must not consume grace twice")
+        assertTrue(evaluate(monitor, train, 1L).isEmpty(), "same epoch must not consume grace twice")
 
-        val requests = monitor.evaluatePublishedEpoch(2L)
+        val requests = evaluate(monitor, train, 2L)
 
         assertEquals(1, requests.size)
         assertEquals(train.id, requests.single().trainId)
         assertEquals(2L, requests.single().observedPhysicsEpoch)
         assertFalse(train.isDerailed, "monitor returns a request; simulation owner applies it")
+    }
+
+    @Test
+    fun `curve offset changes derail threshold but cannot exceed subgrade`() {
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
+        )
+        rail.metadata = RailMetadata(
+            designSpeedMetersPerSecond = 22.0,
+            speedLimitMetersPerSecond = 18.0,
+            derailSpeedMetersPerSecond = 20.0
+        )
+        val train = createTrainWithConfig("offset", rail, world, listOf(8.0))
+        world.basicWorldData.trainSpeedProfiles.put(train.id, TrainSpeedProfile(5.0))
+        FixedSpeedController(train, world).also {
+            train.setController(it)
+            it.publishSpeed(23.0)
+        }
+        val monitor = SpeedSafetyMonitor(world, SpeedSafetyMonitor.Config(true, 0.0, 1))
+
+        val request = evaluate(monitor, train, 1L).single()
+
+        assertTrue(request.reason.contains("22.00 m/s"), request.reason)
+    }
+
+    private fun evaluate(
+        monitor: SpeedSafetyMonitor,
+        train: CoreTrain,
+        epoch: Long
+    ): List<DerailRequest> {
+        monitor.process(train, epoch)
+        monitor.completeEpoch(setOf(train.id), epoch)
+        return monitor.drainRequests(epoch)
     }
 
     private class FixedSpeedController(train: Train, world: World) : TrainController(train, world) {

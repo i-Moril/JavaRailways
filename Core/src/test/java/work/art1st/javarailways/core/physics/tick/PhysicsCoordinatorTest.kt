@@ -55,6 +55,43 @@ class PhysicsCoordinatorTest {
     }
 
     @Test
+    fun `published frame processors run on physics workers before epoch completion`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 2,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("processor", rail, world, listOf(10.0))
+        train.setController(ConstantSpeedController(train, world))
+        val processedThreads = mutableListOf<String>()
+        var completedEpoch = -1L
+        coordinator.registerPublishedFrameProcessor(object : PublishedTrainFrameProcessor {
+            override fun process(train: CoreTrain, physicsEpoch: Long) {
+                synchronized(processedThreads) { processedThreads += Thread.currentThread().name }
+                assertEquals(physicsEpoch, train.publishedFrame.physicsEpoch)
+            }
+
+            override fun completeEpoch(liveTrainIds: Set<String>, physicsEpoch: Long) {
+                assertEquals(setOf(train.id), liveTrainIds)
+                completedEpoch = physicsEpoch
+            }
+        })
+        coordinator.start()
+        try {
+            val ticket = coordinator.stepSimulation(50.0)
+            ticket.await()
+
+            assertEquals(ticket.epoch, completedEpoch)
+            assertEquals(1, processedThreads.size)
+            assertTrue(processedThreads.single().startsWith("JavaRailways-PhysicsWorker-"))
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
     fun `physics publishes one immutable versioned frame per active train`() {
         val coordinator = PhysicsCoordinator(
             workerThreads = 1,

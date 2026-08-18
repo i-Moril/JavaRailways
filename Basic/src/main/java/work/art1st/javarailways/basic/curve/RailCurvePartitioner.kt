@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.curve
 
+import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.basic.rail.RailAssemblyRole
 import work.art1st.javarailways.core.api.util.annotation.Heavy
@@ -25,14 +26,30 @@ object RailCurvePartitioner {
         val end = curveRegionFractions[1].coerceIn(0.0, 1.0)
         require(start.isFinite() && end.isFinite() && start < end)
 
-        val plannedRoles = buildList {
-            if (start > 1.0e-6) add(RailAssemblyRole.LEADING_TANGENT)
-            add(RailAssemblyRole.CURVE)
-            if (end < 1.0 - 1.0e-6) add(RailAssemblyRole.TRAILING_TANGENT)
+        val totalLength = curve.totalArcLength
+        val startArc = start * totalLength
+        val endArc = end * totalLength
+        val curveLength = endArc - startArc
+        var keepLeading = startArc > Curve.TOLERANCE
+        var keepTrailing = totalLength - endArc > Curve.TOLERANCE
+
+        // A CoreRail shorter than the endpoint matching tolerance makes both of its ends look
+        // like separate rails at the same node. Merge such a region into the curve part instead.
+        if (keepLeading && keepTrailing && curveLength <= Curve.TOLERANCE) {
+            if (startArc >= totalLength - endArc) keepTrailing = false else keepLeading = false
         }
-        val boundaries = listOf(start, end)
-            .filter { it > 1.0e-6 && it < 1.0 - 1.0e-6 }
-            .map { it * curve.totalArcLength }
+        if (keepLeading && totalLength - startArc <= Curve.TOLERANCE) keepLeading = false
+        if (keepTrailing && endArc <= Curve.TOLERANCE) keepTrailing = false
+
+        val plannedRoles = buildList {
+            if (keepLeading) add(RailAssemblyRole.LEADING_TANGENT)
+            add(RailAssemblyRole.CURVE)
+            if (keepTrailing) add(RailAssemblyRole.TRAILING_TANGENT)
+        }
+        val boundaries = buildList {
+            if (keepLeading) add(startArc)
+            if (keepTrailing) add(endArc)
+        }
 
         val curves = mutableListOf<PrimeCurve>()
         var remainder = curve

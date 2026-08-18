@@ -35,7 +35,7 @@ class RailCurvePartitionerTest {
     fun `five segment tangent rails retain design speed while curve rail is limited`() {
         val built = RailCurveFactory.build(
             Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
-            Anchor("B", Vector3d(50.0, 0.0, 50.0), Vector3d(0.0, 0.0, 1.0)),
+            Anchor("B", Vector3d(100.0, 0.0, 50.0), Vector3d(0.0, 0.0, 1.0)),
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
         )
         assertTrue(built.isSuccess, built.error)
@@ -50,9 +50,10 @@ class RailCurvePartitionerTest {
             ).operatingLimitMetersPerSecond
         }
 
-        assertEquals(requested, limits.getValue(RailAssemblyRole.LEADING_TANGENT), 1.0e-9)
+        val tangentLimits = limits.filterKeys { it != RailAssemblyRole.CURVE }.values
+        assertTrue(tangentLimits.isNotEmpty())
+        assertTrue(tangentLimits.all { kotlin.math.abs(it - requested) < 1.0e-9 })
         assertTrue(limits.getValue(RailAssemblyRole.CURVE) < requested)
-        assertEquals(requested, limits.getValue(RailAssemblyRole.TRAILING_TANGENT), 1.0e-9)
     }
 
     @Test
@@ -62,6 +63,20 @@ class RailCurvePartitionerTest {
         val parts = RailCurvePartitioner.partitionFiveSegment(source, listOf(0.0, 0.75))
 
         assertEquals(listOf(RailAssemblyRole.CURVE, RailAssemblyRole.TRAILING_TANGENT), parts.map { it.role })
+    }
+
+    @Test
+    fun `merges sub-tolerance tangent into curve rail`() {
+        val source = line(100.0)
+        val leadingLength = Curve.TOLERANCE / 10.0
+
+        val parts = RailCurvePartitioner.partitionFiveSegment(
+            source,
+            listOf(leadingLength / source.totalArcLength, 0.75)
+        )
+
+        assertEquals(listOf(RailAssemblyRole.CURVE, RailAssemblyRole.TRAILING_TANGENT), parts.map { it.role })
+        assertTrue(parts.all { it.curve.totalArcLength > Curve.TOLERANCE })
     }
 
     private fun line(length: Double): PrimeCurve = PrimeCurve.fromPoints(listOf(

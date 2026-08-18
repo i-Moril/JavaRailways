@@ -78,7 +78,9 @@ data class RailAssemblyMetadata(
 data class RailSplitMetadata(
     val operationId: String,
     val segmentIndex: Int,
-    val parent: RailSplitMetadata? = null
+    val parent: RailSplitMetadata? = null,
+    /** Original logical role needed to rejoin assemblies after a reversible split. */
+    val sourceAssemblyRole: RailAssemblyRole? = null
 ) {
     init {
         require(operationId.isNotBlank())

@@ -179,7 +179,8 @@ object RailCommand {
                     RailAutoConnector.Outcome.TOO_MANY_ENDPOINTS,
                     RailAutoConnector.Outcome.AMBIGUOUS_TURNOUT,
                     RailAutoConnector.Outcome.TURNOUT_ANGLE_TOO_SHARP,
-                    RailAutoConnector.Outcome.TURNOUT_INVALID_TANGENT -> failed++
+                    RailAutoConnector.Outcome.TURNOUT_INVALID_TANGENT,
+                    RailAutoConnector.Outcome.TURNOUT_LOCKING_DISTANCE_UNAVAILABLE -> failed++
                     RailAutoConnector.Outcome.ALREADY_CONNECTED,
                     RailAutoConnector.Outcome.TOO_FAR -> Unit
                 }

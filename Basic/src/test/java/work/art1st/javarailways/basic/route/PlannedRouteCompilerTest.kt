@@ -116,7 +116,7 @@ class PlannedRouteCompilerTest {
     }
 
     @Test
-    fun `splits consecutive turnout selections into short protected sections by default`() {
+    fun `splits consecutive turnout selections using world turnout defaults`() {
         val world = createTestWorld()
         val first = rail(world, 0.0, 10.0)
         val second = rail(world, 10.0, 20.0)
@@ -157,8 +157,10 @@ class PlannedRouteCompilerTest {
         val sections = (result as PlannedRouteCompilationResult.Success).route.sections
         assertEquals(3, sections.size)
         assertEquals(listOf(10.0), sections[0].turnoutRequirements.map { it.routeDistanceMeters })
-        assertEquals(30.0, sections[0].turnoutRequirements.single().protectionDistanceMeters)
-        assertEquals(7.0, sections[0].turnoutRequirements.single().lockingDistanceMeters)
+        assertEquals(TurnoutSafetyDefaults.DEFAULT_PROTECTION_DISTANCE_METERS,
+            sections[0].turnoutRequirements.single().protectionDistanceMeters)
+        assertEquals(TurnoutSafetyDefaults.DEFAULT_LOCKING_DISTANCE_METERS,
+            sections[0].turnoutRequirements.single().lockingDistanceMeters)
         assertEquals(listOf(20.0), sections[1].turnoutRequirements.map { it.routeDistanceMeters })
         assertTrue(sections[2].turnoutRequirements.isEmpty())
     }

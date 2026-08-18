@@ -2,10 +2,11 @@ package work.art1st.javarailways.basic.rail
 
 import org.joml.Vector3d
 import work.art1st.javarailways.core.api.physics.curve.Curve
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
+import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
+import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -15,8 +16,17 @@ object RailAutoConnector {
         val endpointTolerance: Double = Curve.TOLERANCE,
         val maxTangentAngleDegrees: Double = RailConnectionPolicy.DEFAULT_MAX_TANGENT_ANGLE_DEGREES,
         /** Final topology visible at commit; defaults to the world's currently published rails. */
-        val topologyRails: Collection<CoreRail>? = null
-    )
+        val topologyRails: Collection<CoreRail>? = null,
+        /** Override for tests/tools; null resolves the world's default turnout locking distance. */
+        val minimumTurnoutLegLengthMeters: Double? = null
+    ) {
+        init {
+            require(endpointTolerance.isFinite() && endpointTolerance >= 0.0)
+            require(maxTangentAngleDegrees.isFinite() && maxTangentAngleDegrees >= 0.0)
+            require(minimumTurnoutLegLengthMeters == null ||
+                minimumTurnoutLegLengthMeters.isFinite() && minimumTurnoutLegLengthMeters >= 0.0)
+        }
+    }
 
     enum class Outcome {
         CONNECTED,
@@ -27,13 +37,17 @@ object RailAutoConnector {
         TOO_MANY_ENDPOINTS,
         AMBIGUOUS_TURNOUT,
         TURNOUT_ANGLE_TOO_SHARP,
-        TURNOUT_INVALID_TANGENT
+        TURNOUT_INVALID_TANGENT,
+        TURNOUT_LOCKING_DISTANCE_UNAVAILABLE
     }
 
     data class Result(
         val outcome: Outcome,
         val distance: Double? = null,
-        val angleDegrees: Double? = null
+        val angleDegrees: Double? = null,
+        val requiredLengthMeters: Double? = null,
+        val availableLengthMeters: Double? = null,
+        val railId: UUID? = null
     )
 
     private data class Joint(
@@ -150,6 +164,21 @@ object RailAutoConnector {
         val stemIndex = (endpoints.indices).single { it !in branchIndices }
         val stem = endpoints[stemIndex]
         val branches = branchIndices.map(endpoints::get)
+        val world = stem.viewToJoint.rail.world
+        val requiredLegLength = options.minimumTurnoutLegLengthMeters
+            ?: world.basicWorldDataOrNull?.turnoutSafetyDefaults?.lockingDistanceMeters
+            ?: TurnoutSafetyDefaults.DEFAULT_LOCKING_DISTANCE_METERS
+        val shortestLeg = endpoints.minBy { it.viewToJoint.curve.totalArcLength }
+        val shortestLength = shortestLeg.viewToJoint.curve.totalArcLength
+        if (shortestLength + Curve.TOLERANCE < requiredLegLength) {
+            return Result(
+                outcome = Outcome.TURNOUT_LOCKING_DISTANCE_UNAVAILABLE,
+                distance = distance,
+                requiredLengthMeters = requiredLegLength,
+                availableLengthMeters = shortestLength,
+                railId = shortestLeg.viewToJoint.rail.id
+            )
+        }
         var maximumAngle = 0.0
         for (branch in branches) {
             val angle = transitionAngle(
@@ -174,12 +203,7 @@ object RailAutoConnector {
             }
         }
 
-        val metadataCandidates = listOf(joint.firstViewToJoint, joint.secondViewToJoint) +
-            endpoints.map(Endpoint::viewToJoint)
-        val sharedMetadata = metadataCandidates.firstNotNullOfOrNull(::turnoutMetadataAtJoint)
-        var changed = endpoints.fold(false) { accumulated, endpoint ->
-            setTurnoutMetadataAtJoint(endpoint.viewToJoint, sharedMetadata) || accumulated
-        }
+        var changed = false
 
         fun preferredNext(view: RailView): RailView? = when (view) {
             joint.firstViewToJoint -> joint.secondViewToJoint.reversed
@@ -215,25 +239,6 @@ object RailAutoConnector {
             .flatMap { rail -> listOf(rail.viewAB, rail.viewBA) }
             .filter { it.endPoint.position.distance(position) <= tolerance }
             .map(::Endpoint)
-
-    private fun turnoutMetadataAtJoint(view: RailView): TurnoutEndpointMetadata? =
-        when (view.viewDirection) {
-            ViewDirection.AB -> view.rail.infrastructureMetadata.operating.turnoutAtB
-            ViewDirection.BA -> view.rail.infrastructureMetadata.operating.turnoutAtA
-        }
-
-    private fun setTurnoutMetadataAtJoint(view: RailView, value: TurnoutEndpointMetadata?): Boolean {
-        val old = turnoutMetadataAtJoint(view)
-        if (old == value) return false
-        view.rail.updateInfrastructureMetadata { metadata ->
-            val operating = when (view.viewDirection) {
-                ViewDirection.AB -> metadata.operating.copy(turnoutAtB = value)
-                ViewDirection.BA -> metadata.operating.copy(turnoutAtA = value)
-            }
-            metadata.copy(operating = operating)
-        }
-        return true
-    }
 
     private fun transitionAngle(
         firstToJoint: RailView,

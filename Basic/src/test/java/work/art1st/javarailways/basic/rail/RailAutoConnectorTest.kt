@@ -140,7 +140,66 @@ class RailAutoConnectorTest {
     }
 
     @Test
-    fun `three-leg turnout connects stem to both branches but never branch to branch`() {
+    fun `three-leg turnout requires every immediate leg to cover the locking distance`() {
+        val world = createTestWorld()
+        val stem = CoreRail(
+            world,
+            straightCurve(Vector3d(-4.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val straight = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(stem, straight).outcome)
+        val branch = CoreRail(
+            world,
+            angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0),
+            mutableListOf(),
+            mutableListOf()
+        )
+
+        val result = RailAutoConnector.connectIfAllowed(stem, branch)
+
+        assertEquals(RailAutoConnector.Outcome.TURNOUT_LOCKING_DISTANCE_UNAVAILABLE, result.outcome)
+        assertEquals(5.0, result.requiredLengthMeters)
+        assertEquals(4.0, result.availableLengthMeters)
+        assertEquals(stem.id, result.railId)
+        assertEquals(listOf(straight.viewAB), stem.viewAB.nextRails)
+        assertTrue(branch.viewBA.nextRails.isEmpty())
+    }
+
+    @Test
+    fun `three-leg turnout accepts legs exactly as long as the locking distance`() {
+        val world = createTestWorld()
+        val stem = CoreRail(
+            world,
+            straightCurve(Vector3d(-5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val straight = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        RailAutoConnector.connectIfAllowed(stem, straight)
+        val branch = CoreRail(
+            world,
+            angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0, length = 5.0),
+            mutableListOf(),
+            mutableListOf()
+        )
+
+        assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(stem, branch).outcome)
+    }
+
+    @Test
+    fun `three-leg turnout connects stem to both branches without propagating endpoint overrides`() {
         val world = createTestWorld()
         val stem = CoreRail(world, straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
         val straight = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
@@ -156,8 +215,8 @@ class RailAutoConnectorTest {
         assertEquals(listOf(stem.viewBA), branch.viewBA.nextRails)
         assertTrue(straight.viewBA.nextRails.none { it === branch.viewAB })
         assertTrue(branch.viewBA.nextRails.none { it === straight.viewAB })
-        assertEquals(settings, stem.metadata.turnoutAtB)
-        assertEquals(settings, straight.metadata.turnoutAtA)
+        assertEquals(null, stem.metadata.turnoutAtB)
+        assertEquals(null, straight.metadata.turnoutAtA)
         assertEquals(settings, branch.metadata.turnoutAtA)
     }
 

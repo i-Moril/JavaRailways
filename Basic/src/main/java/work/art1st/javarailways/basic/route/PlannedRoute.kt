@@ -219,20 +219,12 @@ class PlannedRouteCompiler(
             }
             if (canonicalTurnout != null) {
                 val (stemToJoint, selectedBranch) = canonicalTurnout
-                val endpointMetadata = when (stemToJoint.viewDirection) {
-                    work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB ->
-                        stemToJoint.rail.infrastructureMetadata.operating.turnoutAtB
-                    work.art1st.javarailways.core.api.physics.rail.ViewDirection.BA ->
-                        stemToJoint.rail.infrastructureMetadata.operating.turnoutAtA
-                }
                 requirements += TurnoutRequirement(
                     from = RailViewRef.from(stemToJoint),
                     selectedNext = RailViewRef.from(selectedBranch),
                     routeDistanceMeters = routeDistance,
-                    protectionDistanceMeters = endpointMetadata?.protectionDistanceMeters
-                        ?: turnoutDefaults.protectionDistanceMeters,
-                    lockingDistanceMeters = endpointMetadata?.lockingDistanceMeters
-                        ?: turnoutDefaults.lockingDistanceMeters
+                    protectionDistanceMeters = turnoutDefaults.protectionDistanceMeters,
+                    lockingDistanceMeters = turnoutDefaults.lockingDistanceMeters
                 )
             }
         }

@@ -24,6 +24,7 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.util.Transformation
 import org.joml.Vector3d
 import org.joml.Vector3dc
+import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
 import work.art1st.javarailways.basic.api.ui.config.*
 import work.art1st.javarailways.basic.curve.Anchor
@@ -58,7 +59,7 @@ import work.art1st.javarailways.basic.rail.RailOperatingMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitType
-import work.art1st.javarailways.basic.rail.TurnoutEndpointMetadata
+import work.art1st.javarailways.basic.rail.TurnoutTopology
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.basic.safety.RailSpeedCalculator
 import work.art1st.javarailways.basic.safety.RailSpeedLimitPolicy
@@ -333,9 +334,8 @@ internal object RailWandStateCodec {
 }
 
 // ═══════════════════════════════════════════════════════════════
-private const val TURNOUT_PROTECTION_METADATA_KEY = "javarailways.turnout.protectionDistanceMeters"
-private const val TURNOUT_LOCKING_METADATA_KEY = "javarailways.turnout.lockingDistanceMeters"
 private const val GRADE_LOCKED_METADATA_KEY = "javarailways.gradeLocked"
+private const val SPLIT_OBJECT_CLEARANCE_METERS = 1.0
 
 // RailWand 主类
 // ═══════════════════════════════════════════════════════════════
@@ -640,16 +640,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             label = "锁定坡度"; description = "纵断面平滑时保持该锚点当前坡度。"
             defaultValue(false); valueType = ConfigValueType.BOOLEAN; group = "anchor.edit"; order = 7
         }
-        val turnoutProtectionDistance = ConfigKey.build<Double>("anchor.turnoutProtectionDistance") {
-            label = "道岔保护距离"; description = "未取得道岔时，列车必须停在锚点之外的距离。"
-            defaultValue(20.0); valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 1000.0, 1.0, "m"); group = "anchor.edit"; order = 8
-        }
-        val turnoutLockingDistance = ConfigKey.build<Double>("anchor.turnoutLockingDistance") {
-            label = "道岔锁定距离"; description = "任何列车占用锚点前后该距离时禁止扳动道岔。"
-            defaultValue(5.0); valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 1000.0, 1.0, "m"); group = "anchor.edit"; order = 9
-        }
         // 批量编辑模式: 增量字段
         val deltaX = ConfigKey.build<Double>("anchor.deltaX") {
             label = "ΔX"; defaultValue(0.0); valueType = ConfigValueType.NUMBER
@@ -717,8 +707,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             items.add(ConfigItemImpl(editKeys.tangentPitch))
             items.add(ConfigItemImpl(editKeys.roll))
             items.add(ConfigItemImpl(editKeys.gradeLocked))
-            items.add(ConfigItemImpl(editKeys.turnoutProtectionDistance))
-            items.add(ConfigItemImpl(editKeys.turnoutLockingDistance))
         }
         configUI.register(editGroup)
 
@@ -1467,6 +1455,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("不能编辑有列车占用的轨道", NamedTextColor.RED))
             return
         }
+        if (affectedRails.any(TurnoutTopology::hasTurnoutEndpoint)) {
+            player.sendActionBar(Component.text("不能修改道岔节点相邻轨道的几何", NamedTextColor.RED))
+            return
+        }
 
         val rebuildInputs = affectedRails.mapNotNull { rail ->
             val moveA = rail.viewAB.startPoint.position.distance(movedPoint) <= Curve.TOLERANCE
@@ -1575,12 +1567,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         val newMetadata = input.oldMetadata.copy(
                             speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
                             derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond,
-                            turnoutAtA = if (input.movedEnd == 'A') {
-                                turnoutEndpointMetadata(updatedEndpoint)
-                            } else input.oldMetadata.turnoutAtA,
-                            turnoutAtB = if (input.movedEnd == 'B') {
-                                turnoutEndpointMetadata(updatedEndpoint)
-                            } else input.oldMetadata.turnoutAtB,
                             gradeLockedAtA = if (input.movedEnd == 'A') {
                                 isGradeLocked(updatedEndpoint)
                             } else input.oldMetadata.gradeLockedAtA,
@@ -1662,7 +1648,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 position = Vector3d(point.position),
                 tangent = Vector3d(point.tangent),
                 worldId = world.uid.toString(),
-                metadata = turnoutAnchorMetadata(rail, end)
+                metadata = railEndpointMetadata(rail, end)
             ),
             AnchorGeometry.rollDegreesFromNormal(point.tangent, point.normal)
         )
@@ -1725,7 +1711,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     existing.id to created.id
                 }
                 if (!checkedPairs.add(key)) continue
-                when (RailAutoConnector.connectIfAllowed(created, existing, options).outcome) {
+                val result = RailAutoConnector.connectIfAllowed(created, existing, options)
+                when (result.outcome) {
                     RailAutoConnector.Outcome.CONNECTED -> connected++
                     RailAutoConnector.Outcome.ALREADY_CONNECTED,
                     RailAutoConnector.Outcome.TOO_FAR,
@@ -1739,6 +1726,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         throw IllegalArgumentException("三腿节点的道岔转向角过大")
                     RailAutoConnector.Outcome.TURNOUT_INVALID_TANGENT ->
                         throw IllegalArgumentException("三腿节点包含无效的轨道方向")
+                    RailAutoConnector.Outcome.TURNOUT_LOCKING_DISTANCE_UNAVAILABLE ->
+                        throw IllegalArgumentException(
+                            "无法创建道岔：轨道 ${result.railId} 可用锁定长度 " +
+                                "${"%.3f".format(result.availableLengthMeters)}m，小于默认要求 " +
+                                "${"%.3f".format(result.requiredLengthMeters)}m；请延长轨道或更换接入位置"
+                        )
                 }
             }
         }
@@ -1804,7 +1797,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     ): AdjacentRailBuildInput? {
         val (railId, end) = parseRailEndpointAnchorId(anchor.id) ?: return null
         val rail = world.getRail(railId) ?: return null
-        if (rail.metadata.turnoutAtA != null || rail.metadata.turnoutAtB != null || rail.trains.isNotEmpty()) return null
+        if (TurnoutTopology.hasTurnoutEndpoint(rail) || rail.trains.isNotEmpty()) return null
         val orientedAsAb = if (connectionAtStart) end == 'B' else end == 'A'
         return AdjacentRailBuildInput(
             railId = rail.id,
@@ -2172,7 +2165,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun isOrdinaryRail(rail: CoreRail): Boolean =
-        rail.metadata.turnoutAtA == null && rail.metadata.turnoutAtB == null
+        !TurnoutTopology.hasTurnoutEndpoint(rail)
 
     private fun connectsPositions(rail: CoreRail, first: Vector3dc, second: Vector3dc): Boolean {
         val a = rail.viewAB.startPoint.position
@@ -2405,6 +2398,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("不能重建有列车占用的轨道", NamedTextColor.RED))
             return
         }
+        if (oldRails.any(TurnoutTopology::hasTurnoutEndpoint)) {
+            player.sendActionBar(Component.text("逻辑线路包含道岔节点，不能修改几何", NamedTextColor.RED))
+            return
+        }
 
         val geometry = selectedRail.metadata.geometry
         if (geometry.curveKind == RailCurveKind.UNKNOWN) {
@@ -2628,17 +2625,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(editKeys.tangentPitch, formatEditNumber(pitch))
         session.setValue(editKeys.roll, formatEditNumber(roll))
         session.setValue(editKeys.gradeLocked, isGradeLocked(anchor))
-        val turnoutDefaults = plugin.physicsConfig.turnoutSafety
-        session.setValue(
-            editKeys.turnoutProtectionDistance,
-            anchor.metadata[TURNOUT_PROTECTION_METADATA_KEY]?.toDoubleOrNull()
-                ?: turnoutDefaults.defaultProtectionDistanceMeters
-        )
-        session.setValue(
-            editKeys.turnoutLockingDistance,
-            anchor.metadata[TURNOUT_LOCKING_METADATA_KEY]?.toDoubleOrNull()
-                ?: turnoutDefaults.defaultLockingDistanceMeters
-        )
         dialogRenderer.showConfigDialog(player, "anchor.edit") { p ->
             // 确认回调: 读取新值并更新锚点
             val s = configUI.getPlayerSession(p.uniqueId)
@@ -2649,23 +2635,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val newPitch = parseEditDouble(s.getValue(editKeys.tangentPitch), pitch, "Pitch", p) ?: return@showConfigDialog
             val newRoll = parseEditDouble(s.getValue(editKeys.roll), roll, "Roll", p) ?: return@showConfigDialog
             val gradeLocked = s.getValue(editKeys.gradeLocked) ?: isGradeLocked(anchor)
-            val protectionDistance = s.getValue(editKeys.turnoutProtectionDistance)
-                ?: turnoutDefaults.defaultProtectionDistanceMeters
-            val lockingDistance = s.getValue(editKeys.turnoutLockingDistance)
-                ?: turnoutDefaults.defaultLockingDistanceMeters
-            if (!protectionDistance.isFinite() || protectionDistance < 0.0 ||
-                !lockingDistance.isFinite() || lockingDistance < 0.0 ||
-                lockingDistance > protectionDistance
-            ) {
-                p.sendActionBar(Component.text("道岔距离必须满足 0 ≤ 锁定距离 ≤ 保护距离", NamedTextColor.RED))
-                return@showConfigDialog
-            }
             val newPos = Vector3d(x, y, z)
             val newTan = AnchorGeometry.tangentFromYawPitch(newYaw, newPitch)
             val geometryUpdated = AnchorGeometry.withRoll(anchor.withPosition(newPos).withTangent(newTan), newRoll)
             val updatedMetadata = geometryUpdated.metadata.toMutableMap().apply {
-                put(TURNOUT_PROTECTION_METADATA_KEY, protectionDistance.toString())
-                put(TURNOUT_LOCKING_METADATA_KEY, lockingDistance.toString())
                 if (gradeLocked) put(GRADE_LOCKED_METADATA_KEY, true.toString())
                 else remove(GRADE_LOCKED_METADATA_KEY)
             }
@@ -2881,15 +2854,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("尚未指向可分割的轨道点", NamedTextColor.YELLOW))
             return
         }
-        val rail = getCoreWorld(player)?.getRail(target.railId)
-        if (rail?.metadata?.assembly != null) {
-            player.sendActionBar(Component.text("逻辑曲线的内部段不能单独分割", NamedTextColor.RED))
-            return
-        }
+        val coreWorld = getCoreWorld(player)
+        val rail = coreWorld?.getRail(target.railId)
         if (rail == null || target.arcLength <= Curve.TOLERANCE ||
             target.arcLength >= rail.curve.totalArcLength - Curve.TOLERANCE
         ) {
             player.sendActionBar(Component.text("分割点不能位于轨道端点", NamedTextColor.RED))
+            return
+        }
+        splitPointSafetyError(coreWorld, rail, target.arcLength)?.let { error ->
+            player.sendActionBar(Component.text(error, NamedTextColor.RED))
             return
         }
         state.pendingSplitRail = target.railId
@@ -2912,17 +2886,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("待分割轨道已不存在", NamedTextColor.RED))
             return
         }
-        if (rail.metadata.assembly != null) {
-            clearPendingSplit(state)
-            player.sendActionBar(Component.text("逻辑曲线的内部段不能单独分割", NamedTextColor.RED))
-            return
-        }
         splitSafetyError(coreWorld, listOf(rail))?.let { error ->
             player.sendActionBar(Component.text(error, NamedTextColor.RED))
             return
         }
         if (arcLength <= Curve.TOLERANCE || arcLength >= rail.curve.totalArcLength - Curve.TOLERANCE) {
             player.sendActionBar(Component.text("分割点过于接近轨道端点", NamedTextColor.RED))
+            return
+        }
+        splitPointSafetyError(coreWorld, rail, arcLength)?.let { error ->
+            player.sendActionBar(Component.text(error, NamedTextColor.RED))
             return
         }
         val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "轨道分割")
@@ -2954,9 +2927,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
                     return@supply
                 }
+                splitPointSafetyError(liveWorld, liveRail, arcLength)?.let { error ->
+                    livePlayer.sendActionBar(Component.text(error, NamedTextColor.RED))
+                    return@supply
+                }
 
                 val renderMetas = RailRenderMetaStore.load(livePlayer.world)
-                val originalRenderMeta = renderMetas.firstOrNull { it.railId == railId }
+                val renderMetaByRail = renderMetas.associateBy { it.railId }
+                val originalRenderMeta = renderMetaByRail[railId]
+                val railMetadataBefore = liveWorld.basicWorldData.railMetadata.snapshot()
                 try {
                     val result = RailTopologyEditor.splitWithPreparedCurves(
                         liveRail,
@@ -2979,16 +2958,26 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         afterRailId = result.after.id,
                         splitArcLengthInAbMeters = arcLength
                     )
+                    val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
+                    val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
+                        .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
                     RailVisualBootstrap.unregisterRail(railId)
-                    val replacementMetas = originalRenderMeta?.let { oldMeta ->
-                        listOf(
-                            registerRailWithTemplate(result.before, oldMeta.templateSnapshot),
-                            registerRailWithTemplate(result.after, oldMeta.templateSnapshot)
-                        )
-                    }.orEmpty()
+                    val replacementMetas = buildList {
+                        originalRenderMeta?.let { oldMeta ->
+                            add(registerRailWithTemplate(result.before, oldMeta.templateSnapshot))
+                            add(registerRailWithTemplate(result.after, oldMeta.templateSnapshot))
+                        }
+                        changedExistingIds.forEach { changedId ->
+                            val changedRail = liveWorld.getRail(changedId) ?: return@forEach
+                            val oldMeta = renderMetaByRail[changedId] ?: return@forEach
+                            RailVisualBootstrap.unregisterRail(changedId)
+                            add(registerRailWithTemplate(changedRail, oldMeta.templateSnapshot))
+                        }
+                    }
                     RailRenderMetaStore.saveAll(
                         livePlayer.world,
-                        renderMetas.filterNot { it.railId == railId } + replacementMetas
+                        renderMetas.filterNot { it.railId == railId || it.railId in changedExistingIds } +
+                            replacementMetas
                     )
                     val liveState = getState(livePlayer)
                     clearPendingSplit(liveState)
@@ -3045,8 +3034,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
         val renderMetas = RailRenderMetaStore.load(player.world)
-        val beforeRender = renderMetas.firstOrNull { it.railId == before.id }
-        val afterRender = renderMetas.firstOrNull { it.railId == after.id }
+        val renderMetaByRail = renderMetas.associateBy { it.railId }
+        val beforeRender = renderMetaByRail[before.id]
+        val afterRender = renderMetaByRail[after.id]
         if ((beforeRender == null) != (afterRender == null) ||
             beforeRender?.templateSnapshot != afterRender?.templateSnapshot
         ) {
@@ -3102,6 +3092,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     val beforeRailId = livePair.first.id
                     val afterRailId = livePair.second.id
                     val beforeLengthMeters = livePair.first.curve.totalArcLength
+                    val railMetadataBefore = liveWorld.basicWorldData.railMetadata.snapshot()
                     val merged = RailTopologyEditor.mergeWithPreparedCurve(
                         livePair.first,
                         livePair.second,
@@ -3121,16 +3112,28 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         mergedRailId = merged.id,
                         beforeLengthMeters = beforeLengthMeters
                     )
+                    val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
+                    val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
+                        .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
                     RailVisualBootstrap.unregisterRail(livePair.first.id)
                     RailVisualBootstrap.unregisterRail(livePair.second.id)
-                    val mergedMeta = beforeRender?.let { oldMeta ->
-                        registerRailWithTemplate(merged, oldMeta.templateSnapshot)
+                    val replacementMetas = buildList {
+                        beforeRender?.let { oldMeta ->
+                            add(registerRailWithTemplate(merged, oldMeta.templateSnapshot))
+                        }
+                        changedExistingIds.forEach { changedId ->
+                            val changedRail = liveWorld.getRail(changedId) ?: return@forEach
+                            val oldMeta = renderMetaByRail[changedId] ?: return@forEach
+                            RailVisualBootstrap.unregisterRail(changedId)
+                            add(registerRailWithTemplate(changedRail, oldMeta.templateSnapshot))
+                        }
                     }
                     RailRenderMetaStore.saveAll(
                         livePlayer.world,
                         renderMetas.filterNot {
-                            it.railId == livePair.first.id || it.railId == livePair.second.id
-                        } + listOfNotNull(mergedMeta)
+                            it.railId == livePair.first.id || it.railId == livePair.second.id ||
+                                it.railId in changedExistingIds
+                        } + replacementMetas
                     )
                     val liveState = getState(livePlayer)
                     clearPendingSplit(liveState)
@@ -3157,12 +3160,39 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun splitSafetyError(coreWorld: CoreWorld, rails: List<CoreRail>): String? {
         val railIds = rails.mapTo(hashSetOf()) { it.id }
         if (coreWorld.occupyingTrainIds(railIds).isNotEmpty()) return "不能操作有列车占用的轨道"
-        if (rails.any { it.signals.isNotEmpty() }) return "不能操作包含信号机的轨道"
+        if (rails.any { rail -> rail.signals.any { it !is OperationalSpeedLimitSignal } }) {
+            return "轨道包含需要玩家先处理的信号机"
+        }
         val basicData = coreWorld.basicWorldDataOrNull ?: return null
         if (basicData.dispatcher.hasRouteAllocationOn(railIds)) return "不能操作有活动进路锁的轨道"
-        if (basicData.wayPoints.all().any { it.railId in railIds }) return "不能操作包含路径点或运营目的地的轨道"
-        if (railIds.any { basicData.railObjects.objectsOnRail(it).isNotEmpty() }) return "不能操作包含运营对象的轨道"
+        val migratableRailObjectRefs = basicData.destinations.all().asSequence()
+            .filter { it.railId in railIds }
+            .mapNotNull { (it.role as? DestinationRole.StationBerthRole)?.berthRef?.railObjectRef }
+            .toSet()
+        if (railIds.any { railId ->
+                basicData.railObjects.objectsOnRail(railId).any { it.ref !in migratableRailObjectRefs }
+            }
+        ) return "轨道包含不支持迁移的运营对象"
         return null
+    }
+
+    private fun splitPointSafetyError(coreWorld: CoreWorld, rail: CoreRail, arcLength: Double): String? {
+        if (rail.metadata.assembly != null && railAssemblyLanes(coreWorld, rail).isEmpty()) {
+            return "逻辑曲线或并行线路信息不完整，不能分割"
+        }
+        val basicData = coreWorld.basicWorldDataOrNull
+        if (basicData?.wayPoints?.all()?.any {
+                it.railId == rail.id && abs(it.arcLength - arcLength) < SPLIT_OBJECT_CLEARANCE_METERS
+            } == true
+        ) return "分割点距离路径点或运营目的地不足 ${SPLIT_OBJECT_CLEARANCE_METERS.toInt()}m"
+        if (rail.signals.any { signal ->
+                signal !is OperationalSpeedLimitSignal &&
+                    abs(signal.location.arcLengthIn(ViewDirection.AB) - arcLength) < SPLIT_OBJECT_CLEARANCE_METERS
+            }
+        ) return "分割点距离信号机不足 ${SPLIT_OBJECT_CLEARANCE_METERS.toInt()}m"
+        val lockingDistance = basicData?.turnoutSafetyDefaults?.lockingDistanceMeters
+            ?: plugin.physicsConfig.turnoutSafety.defaultLockingDistanceMeters
+        return TurnoutTopology.splitLockingClearanceError(rail, arcLength, lockingDistance)
     }
 
     private fun registerRailWithTemplate(
@@ -3397,26 +3427,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 position = Vector3d(point.position),
                 tangent = Vector3d(point.tangent),
                 worldId = world.uid.toString(),
-                metadata = turnoutAnchorMetadata(rail, end)
+                metadata = railEndpointMetadata(rail, end)
             ),
             AnchorGeometry.rollDegreesFromNormal(point.tangent, point.normal)
         )
     }
 
-    private fun turnoutEndpointMetadata(anchor: Anchor): TurnoutEndpointMetadata? {
-        val protection = anchor.metadata[TURNOUT_PROTECTION_METADATA_KEY]?.toDoubleOrNull()
-            ?: return null
-        val locking = anchor.metadata[TURNOUT_LOCKING_METADATA_KEY]?.toDoubleOrNull()
-            ?: return null
-        return TurnoutEndpointMetadata(protection, locking)
-    }
-
-    private fun turnoutAnchorMetadata(rail: CoreRail, end: Char): Map<String, String> = buildMap {
-        val endpoint = if (end == 'A') rail.metadata.turnoutAtA else rail.metadata.turnoutAtB
-        if (endpoint != null) {
-            put(TURNOUT_PROTECTION_METADATA_KEY, endpoint.protectionDistanceMeters.toString())
-            put(TURNOUT_LOCKING_METADATA_KEY, endpoint.lockingDistanceMeters.toString())
-        }
+    private fun railEndpointMetadata(rail: CoreRail, end: Char): Map<String, String> = buildMap {
         if (if (end == 'A') rail.metadata.gradeLockedAtA else rail.metadata.gradeLockedAtB) {
             put(GRADE_LOCKED_METADATA_KEY, true.toString())
         }

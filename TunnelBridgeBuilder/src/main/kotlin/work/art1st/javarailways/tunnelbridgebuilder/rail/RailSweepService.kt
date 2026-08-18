@@ -34,6 +34,19 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Level
 import kotlin.math.ceil
 
+internal fun railSweepSampleArcLengths(totalArcLength: Double, sampleSpacing: Double): List<Double> {
+    require(totalArcLength.isFinite() && totalArcLength >= 0.0)
+    require(sampleSpacing.isFinite() && sampleSpacing > 0.0)
+    val segments = ceil(totalArcLength / sampleSpacing).toInt().coerceAtLeast(1)
+    return (0..segments).map { index ->
+        when (index) {
+            0 -> 0.0
+            segments -> totalArcLength
+            else -> totalArcLength * (index.toDouble() / segments)
+        }
+    }
+}
+
 class RailSweepService(
     private val plugin: TunnelBridgeBuilderPlugin,
     private val railTargets: RailTargetService,
@@ -191,9 +204,8 @@ class RailSweepService(
 
     private fun sample(rail: Rail): SampledCenterLine {
         val length = rail.curve.totalArcLength
-        val segments = ceil(length / SAMPLE_SPACING).toInt().coerceAtLeast(1)
-        val frames = (0..segments).map { index ->
-            val point = rail.curve.getPointAt(length * index / segments)
+        val frames = railSweepSampleArcLengths(length, SAMPLE_SPACING).map { arcLength ->
+            val point = rail.curve.getPointAt(arcLength)
             // Curve normals include rail superelevation. Tunnel and bridge structures stay
             // upright, while the projected world-up frame still follows the rail gradient.
             SweepFrame.upright(

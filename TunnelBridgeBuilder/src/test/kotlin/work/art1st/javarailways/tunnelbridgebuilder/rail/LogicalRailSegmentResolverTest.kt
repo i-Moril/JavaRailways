@@ -7,6 +7,7 @@ import work.art1st.javarailways.basic.rail.RailAssemblyKind
 import work.art1st.javarailways.basic.rail.RailAssemblyMetadata
 import work.art1st.javarailways.basic.rail.RailAssemblyRole
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
+import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import java.util.UUID
 
 class LogicalRailSegmentResolverTest {
@@ -16,7 +17,7 @@ class LogicalRailSegmentResolverTest {
 
         assertEquals(
             listOf(selected),
-            resolveLogicalSegmentRailIds(selected, mapOf(selected to RailInfrastructureMetadata.EMPTY))
+            resolveLogicalRailLaneIds(selected, mapOf(selected to RailInfrastructureMetadata.EMPTY))
         )
     }
 
@@ -46,7 +47,7 @@ class LogicalRailSegmentResolverTest {
 
         assertEquals(
             listOf(ids[3], ids[4], ids[5]),
-            resolveLogicalSegmentRailIds(ids[4], metadata)
+            resolveLogicalRailLaneIds(ids[4], metadata)
         )
     }
 
@@ -80,7 +81,7 @@ class LogicalRailSegmentResolverTest {
         )
 
         assertThrows(IllegalArgumentException::class.java) {
-            resolveLogicalSegmentRailIds(first, metadata)
+            resolveLogicalRailLaneIds(first, metadata)
         }
     }
 }

@@ -60,6 +60,7 @@ import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.basic.rail.TurnoutTopology
+import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.basic.safety.RailSpeedCalculator
 import work.art1st.javarailways.basic.safety.RailSpeedLimitPolicy
@@ -89,6 +90,30 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.*
+
+internal fun railGeometryParametersChanged(
+    currentDesignSpeedKmH: Double,
+    currentRadiusMeters: Double,
+    currentMaxSuperelevationMm: Double,
+    newDesignSpeedKmH: Double,
+    newRadiusMeters: Double,
+    newMaxSuperelevationMm: Double
+): Boolean = abs(newDesignSpeedKmH - currentDesignSpeedKmH) >= 1.0e-6 ||
+    abs(newRadiusMeters - currentRadiusMeters) >= 1.0e-6 ||
+    abs(newMaxSuperelevationMm - currentMaxSuperelevationMm) >= 1.0e-6
+
+internal fun curveSpeedLimitForRebuiltLane(
+    laneIndex: Int,
+    selectedLaneIndex: Int,
+    editedCurveSpeedLimitKmH: Double,
+    oldLane: List<RailMetadata>
+): Double {
+    if (laneIndex == selectedLaneIndex) return editedCurveSpeedLimitKmH
+    return oldLane.firstNotNullOfOrNull { metadata ->
+        metadata.speedLimits.value(SpeedLimitType.CURVE)
+            ?.takeIf { metadata.authoring?.curveSpeedLimitAutomatic == false }
+    }?.times(3.6) ?: 0.0
+}
 
 /**
  * 终点的水平位置投影到起点 bearing，垂直高度直接采用右键位置。
@@ -2342,14 +2367,17 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             liveState.maxSuperelevationMm = maxSuperelevationMm
             persistState(p, liveState)
 
-            if (abs(curveRadius - currentRadius) < 1.0e-6 &&
-                abs(designSpeedKmH - currentSpeedKmH) < 1.0e-6 &&
-                abs(curveSpeedLimitKmH - currentCurveSpeedKmH) < 1.0e-6 &&
-                abs(maxSuperelevationMm - currentMaxSuperelevationMm) < 1.0e-6
-            ) {
-                p.sendActionBar(Component.text("轨道参数未变化", NamedTextColor.GRAY))
-            } else {
-                rebuildRailGeometry(
+            val geometryChanged = railGeometryParametersChanged(
+                currentDesignSpeedKmH = currentSpeedKmH,
+                currentRadiusMeters = currentRadius,
+                currentMaxSuperelevationMm = currentMaxSuperelevationMm,
+                newDesignSpeedKmH = designSpeedKmH,
+                newRadiusMeters = curveRadius,
+                newMaxSuperelevationMm = maxSuperelevationMm
+            )
+            val curveSpeedChanged = abs(curveSpeedLimitKmH - currentCurveSpeedKmH) >= 1.0e-6
+            when {
+                geometryChanged -> rebuildRailGeometry(
                     p,
                     liveRail,
                     designSpeedKmH,
@@ -2357,6 +2385,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     curveRadius,
                     maxSuperelevationMm
                 )
+                curveSpeedChanged -> updateCurveSpeedLimit(
+                    p,
+                    liveRail,
+                    curveSpeedLimitKmH,
+                    snapshotCurveBuildSettings(liveState)
+                )
+                else -> p.sendActionBar(Component.text("轨道参数未变化", NamedTextColor.GRAY))
             }
         }
     }
@@ -2371,16 +2406,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     internal fun logicalRails(world: CoreWorld, rail: CoreRail): List<CoreRail> {
-        val assembly = rail.metadata.assembly ?: return listOf(rail)
-        return world.allRails
-            .filter { it.metadata.assembly?.groupId == assembly.groupId }
-            .sortedWith(compareBy({ it.metadata.assembly!!.laneIndex }, { it.metadata.assembly!!.segmentIndex }))
+        val ids = resolveLogicalRailLaneIds(
+            rail.id,
+            world.basicWorldData.railMetadata.snapshot()
+        )
+        return ids.map { railId ->
+            requireNotNull(world.getRail(railId)) { "Logical rail segment $railId is no longer loaded" }
+        }
     }
 
     private fun railAssemblyLanes(world: CoreWorld, rail: CoreRail): List<List<CoreRail>> {
         val assembly = rail.metadata.assembly
         if (assembly != null) {
-            val lanes = logicalRails(world, rail).groupBy { it.metadata.assembly!!.laneIndex }
+            val lanes = world.allRails
+                .filter { it.metadata.assembly?.groupId == assembly.groupId }
+                .groupBy { it.metadata.assembly!!.laneIndex }
             if (lanes.size != assembly.laneCount) return emptyList()
             return (0 until assembly.laneCount).map { laneIndex ->
                 lanes[laneIndex].orEmpty().sortedBy { it.metadata.assembly!!.segmentIndex }
@@ -2392,6 +2432,99 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             .filter { it.metadata.geometry.parallel?.groupId == parallel.groupId }
             .sortedBy { it.metadata.geometry.parallel!!.index }
         return if (rails.size == parallel.count) rails.map(::listOf) else emptyList()
+    }
+
+    private fun updateCurveSpeedLimit(
+        player: Player,
+        selectedRail: CoreRail,
+        curveSpeedLimitKmH: Double,
+        settings: CurveBuildSettingsSnapshot
+    ) {
+        require(curveSpeedLimitKmH.isFinite() && curveSpeedLimitKmH >= 0.0)
+        val world = getCoreWorld(player) ?: return
+        val targetRails = logicalRails(world, selectedRail)
+        val before = targetRails.associate { it.id to it.metadata }
+        val curves = targetRails.associate { it.id to it.curve }
+        val manualLimit = curveSpeedLimitKmH.takeIf { it > 0.0 }?.div(3.6)
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "曲线限速更新")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+        val worldId = player.world.uid
+        player.sendActionBar(Component.text("正在计算曲线限速...", NamedTextColor.GRAY))
+
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            completionEntity = player,
+            operation = "RailWand.updateCurveSpeedLimit",
+            supplier = {
+                targetRails.associate { rail ->
+                    val current = before.getValue(rail.id)
+                    val automatic = manualLimit == null
+                    val authoring = (current.authoring ?: RailAuthoringMetadata()).copy(
+                        curveSpeedLimitAutomatic = automatic
+                    )
+                    val requestedEntries = current.speedLimits.entries
+                        .filterNot { it.type == SpeedLimitType.CURVE }
+                        .toMutableList()
+                        .apply { manualLimit?.let { add(SpeedLimitEntry(it, SpeedLimitType.CURVE)) } }
+                    val requestedMetadata = current.copy(
+                        authoring = authoring,
+                        speedLimits = SpeedLimitMetadata(requestedEntries)
+                    )
+                    val calculated = calculateSpeedLimits(curves.getValue(rail.id), requestedMetadata, settings)
+                    val effectiveEntries = current.speedLimits.entries
+                        .filterNot { it.type == SpeedLimitType.CURVE }
+                        .toMutableList()
+                        .apply {
+                            calculated.derailSpeedMetersPerSecond?.let {
+                                add(SpeedLimitEntry(calculated.operatingLimitMetersPerSecond, SpeedLimitType.CURVE))
+                            }
+                        }
+                    rail.id to current.copy(
+                        authoring = authoring,
+                        speedLimits = SpeedLimitMetadata(effectiveEntries),
+                        curveSafety = CurveSafetyMetadata(calculated.derailSpeedMetersPerSecond)
+                    )
+                }
+            },
+            onSuccess = { updates ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                val liveRails = targetRails.map { original ->
+                    val live = liveWorld.getRail(original.id) ?: run {
+                        livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.YELLOW))
+                        return@supply
+                    }
+                    if (live.curve !== curves[original.id] || live.metadata != before[original.id]) {
+                        livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.YELLOW))
+                        return@supply
+                    }
+                    live
+                }
+                try {
+                    liveRails.forEach { rail -> rail.metadata = updates.getValue(rail.id) }
+                    livePlayer.sendActionBar(Component.text("所选线路的曲线限速已更新", NamedTextColor.GREEN))
+                } catch (failure: Exception) {
+                    liveRails.forEach { rail -> before[rail.id]?.let { rail.metadata = it } }
+                    livePlayer.sendMessage(Component.text(
+                        "曲线限速更新失败，已回滚：${railWandFailureReason(failure)}",
+                        NamedTextColor.RED
+                    ))
+                }
+            },
+            onFailure = { failure ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("Rail curve speed update failed: ${failure.message ?: failure::class.simpleName}")
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(Component.text(
+                    "曲线限速更新失败：${railWandFailureReason(failure)}",
+                    NamedTextColor.RED
+                ))
+            }
+        )
     }
 
     private fun rebuildRailGeometry(
@@ -2491,6 +2624,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 try {
                     builtLanes.forEachIndexed { laneIndex, parts ->
                         val oldLane = oldLanes[laneIndex]
+                        val laneSettings = settings.copy(
+                            curveSpeedLimitKmH = curveSpeedLimitForRebuiltLane(
+                                laneIndex,
+                                selectedLane,
+                                curveSpeedLimitKmH,
+                                oldLane.map { it.metadata }
+                            )
+                        )
                         val newLane = parts.mapIndexed { segmentIndex, part ->
                             val oldForRole = oldLane.firstOrNull { it.metadata.assembly?.role == part.role }
                                 ?: oldLane[minOf(segmentIndex, oldLane.lastIndex)]
@@ -2509,8 +2650,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 )
                             }
                             val rebuiltMetadata = railMetadata(
-                                settings,
-                                part.speedLimits,
+                                laneSettings,
+                                calculateSpeedLimits(part.curve, null, laneSettings),
                                 parallelMeta,
                                 oldForRole.metadata.allowedDirection
                             )

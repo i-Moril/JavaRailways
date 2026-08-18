@@ -1,10 +1,9 @@
-package work.art1st.javarailways.tunnelbridgebuilder.rail
+package work.art1st.javarailways.basic.rail
 
-import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import java.util.UUID
 
-/** Resolves one authored logical lane without sweeping companion parallel lanes. */
-internal fun resolveLogicalSegmentRailIds(
+/** Resolves every physical segment in one authored logical lane, excluding companion parallel lanes. */
+fun resolveLogicalRailLaneIds(
     selectedRailId: UUID,
     metadataByRail: Map<UUID, RailInfrastructureMetadata>
 ): List<UUID> {
@@ -26,5 +25,5 @@ internal fun resolveLogicalSegmentRailIds(
     ) {
         "Invalid logical rail segment order ${selectedAssembly.groupId}:${selectedAssembly.laneIndex}"
     }
-    return ordered.map(Map.Entry<UUID, RailInfrastructureMetadata>::key)
+    return ordered.map { it.key }
 }

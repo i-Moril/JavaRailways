@@ -12,6 +12,7 @@ import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.operation.UndoableOperation
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.tunnelbridgebuilder.TunnelBridgeBuilderPlugin
 import work.art1st.javarailways.tunnelbridgebuilder.algorithm.BlockPosition
@@ -105,7 +106,7 @@ class RailSweepService(
 
     private fun resolveLogicalRails(selected: Rail): List<Rail> {
         val metadata = selected.world.basicWorldData.railMetadata.snapshot()
-        return resolveLogicalSegmentRailIds(selected.id, metadata).map { railId ->
+        return resolveLogicalRailLaneIds(selected.id, metadata).map { railId ->
             requireNotNull(selected.world.getRail(railId)) {
                 "Logical rail segment $railId is no longer loaded"
             }

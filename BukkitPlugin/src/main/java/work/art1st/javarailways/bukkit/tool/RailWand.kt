@@ -108,31 +108,33 @@ internal fun straightTerminalPosition(
         .also { it.y = clickedPoint.y() }
 }
 
-/** 直线的实际三维切线由投影后的终点位置和右键高度共同确定。 */
+/** 新建终点默认使用水平 Pitch；高程变化由直线的独立纵断面处理。 */
 internal fun straightTerminalTangent(startPosition: Vector3dc, terminalPosition: Vector3dc): Vector3d {
-    val chord = Vector3d(terminalPosition).sub(startPosition)
-    require(chord.lengthSquared() >= 1.0e-12) { "直线起终点距离过短" }
-    return chord.normalize()
+    val horizontalChord = Vector3d(terminalPosition).sub(startPosition).also { it.y = 0.0 }
+    require(horizontalChord.lengthSquared() >= 1.0e-12) { "直线起终点水平距离过短" }
+    return horizontalChord.normalize()
 }
 
-/** Returns the chord tangent, or null when a connected endpoint is not already collinear. */
+/** Returns a horizontal-plan tangent, preserving manual Pitch on a connected endpoint. */
 internal fun twoPointStraightTangent(
     from: Vector3dc,
     to: Vector3dc,
     currentTangent: Vector3dc,
     endpointIsEmpty: Boolean
 ): Vector3d? {
-    val chord = Vector3d(to).sub(from)
-    if (chord.lengthSquared() <= 1.0e-12) return null
-    chord.normalize()
-    if (!endpointIsEmpty) {
-        val current = Vector3d(currentTangent)
-        if (current.lengthSquared() <= 1.0e-12) return null
-        current.normalize()
-        if (abs(current.dot(chord)) < 1.0 - 1.0e-6) return null
-        if (current.dot(chord) < 0.0) chord.negate()
-    }
-    return chord
+    val chordHorizontal = Vector3d(to).sub(from).also { it.y = 0.0 }
+    if (chordHorizontal.lengthSquared() <= 1.0e-12) return null
+    chordHorizontal.normalize()
+    if (endpointIsEmpty) return chordHorizontal
+
+    val current = Vector3d(currentTangent)
+    if (current.lengthSquared() <= 1.0e-12) return null
+    current.normalize()
+    val currentHorizontal = Vector3d(current.x, 0.0, current.z)
+    if (currentHorizontal.lengthSquared() <= 1.0e-12) return null
+    currentHorizontal.normalize()
+    if (abs(currentHorizontal.dot(chordHorizontal)) < 1.0 - 1.0e-6) return null
+    return current
 }
 
 internal fun requiresRailWandVerticalSmoothing(curves: List<PrimeCurve>): Boolean =
@@ -1733,6 +1735,17 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         throw IllegalArgumentException("三腿节点的道岔转向角过大")
                     RailAutoConnector.Outcome.TURNOUT_INVALID_TANGENT ->
                         throw IllegalArgumentException("三腿节点包含无效的轨道方向")
+                    RailAutoConnector.Outcome.TURNOUT_GRADE_DISCONTINUITY ->
+                        throw IllegalArgumentException(
+                            "无法创建道岔：轨道 ${result.railId} 的节点坡度 " +
+                                "${"%.3f".format((result.actualGrade ?: 0.0) * 100.0)}%，与主线要求 " +
+                                "${"%.3f".format((result.expectedGrade ?: 0.0) * 100.0)}% 不连续"
+                        )
+                    RailAutoConnector.Outcome.TURNOUT_GRADE_NOT_CONSTANT ->
+                        throw IllegalArgumentException(
+                            "无法创建道岔：轨道 ${result.railId} 在锁定区内坡度发生变化；" +
+                                "道岔区间必须保持 ${"%.3f".format((result.expectedGrade ?: 0.0) * 100.0)}% 恒定坡度"
+                        )
                     RailAutoConnector.Outcome.TURNOUT_LOCKING_DISTANCE_UNAVAILABLE ->
                         throw IllegalArgumentException(
                             "无法创建道岔：轨道 ${result.railId} 可用锁定长度 " +

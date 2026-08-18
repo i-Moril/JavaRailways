@@ -113,17 +113,12 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
-    fun `straight template derives grade from endpoint elevations`() {
-        val from = Anchor(
-            "A",
-            Vector3d(0.0, 2.0, 0.0),
-            Vector3d(1.0, 0.5, 0.0).normalize()
-        )
-        val to = Anchor(
-            "B",
-            Vector3d(10.0, 8.0, 0.0),
-            Vector3d(1.0, -0.25, 0.0).normalize()
-        )
+    @OptIn(Heavy::class)
+    fun `straight template keeps horizontal plan straight while honoring endpoint pitches`() {
+        val fromTangent = Vector3d(1.0, 0.25, 0.0).normalize()
+        val toTangent = Vector3d(1.0, -0.1, 0.0).normalize()
+        val from = Anchor("A", Vector3d(0.0, 2.0, 0.0), fromTangent)
+        val to = Anchor("B", Vector3d(10.0, 8.0, 0.0), toTangent)
 
         val result = RailCurveFactory.build(
             from,
@@ -132,11 +127,27 @@ class RailCurveFactoryTemplateTest {
         )
 
         assertTrue(result.isSuccess, result.error)
-        val expectedTangent = Vector3d(to.position).sub(from.position).normalize()
         val curve = result.curve!!
-        assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
-        assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
+        assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(fromTangent) > 1.0 - 1.0e-8)
+        assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(toTangent) > 1.0 - 1.0e-8)
         assertEquals(8.0, curve.getPointAt(curve.totalArcLength).position.y(), 1.0e-8)
+        assertTrue(curve.stream().allMatch { kotlin.math.abs(it.position.z()) < 1.0e-9 })
+    }
+
+    @Test
+    fun `different-height straight with level default anchors levels off at both endpoints`() {
+        val horizontal = Vector3d(1.0, 0.0, 0.0)
+        val result = RailCurveFactory.build(
+            Anchor("A", Vector3d(0.0, 10.0, 0.0), horizontal),
+            Anchor("B", Vector3d(100.0, 0.0, 0.0), horizontal),
+            RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        val curve = result.curve!!
+        assertEquals(0.0, curve.getPointAt(0.0).tangent.y(), 1.0e-9)
+        assertEquals(0.0, curve.getPointAt(curve.totalArcLength).tangent.y(), 1.0e-9)
+        assertTrue(curve.getPointAt(curve.totalArcLength / 2.0).tangent.y() < 0.0)
     }
 
     @Test

@@ -42,12 +42,12 @@ class RailWandStraightCreationTest {
         assertTrue(result.isSuccess, result.error)
         val curve = result.curve!!
         assertEquals(clickedPoint.y, curve.getPointAt(curve.totalArcLength).position.y(), 1.0e-9)
-        assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(terminalTangent) > 1.0 - 1.0e-8)
+        assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(startTangent) > 1.0 - 1.0e-8)
         assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(terminalTangent) > 1.0 - 1.0e-8)
     }
 
     @Test
-    fun `two point straight aligns an empty endpoint to the chord`() {
+    fun `two point straight gives an empty endpoint level pitch along the horizontal chord`() {
         val tangent = twoPointStraightTangent(
             Vector3d(0.0, 0.0, 0.0),
             Vector3d(4.0, 2.0, 0.0),
@@ -55,7 +55,8 @@ class RailWandStraightCreationTest {
             endpointIsEmpty = true
         )!!
 
-        assertTrue(tangent.dot(Vector3d(4.0, 2.0, 0.0).normalize()) > 1.0 - 1.0e-12)
+        assertEquals(0.0, tangent.y, 1.0e-12)
+        assertTrue(tangent.dot(Vector3d(1.0, 0.0, 0.0)) > 1.0 - 1.0e-12)
     }
 
     @Test
@@ -68,6 +69,19 @@ class RailWandStraightCreationTest {
         )
 
         assertEquals(null, tangent)
+    }
+
+    @Test
+    fun `two point straight preserves manual pitch at a connected endpoint`() {
+        val current = Vector3d(1.0, 0.2, 0.0).normalize()
+        val tangent = twoPointStraightTangent(
+            Vector3d(0.0, 0.0, 0.0),
+            Vector3d(4.0, 2.0, 0.0),
+            current,
+            endpointIsEmpty = false
+        )!!
+
+        assertTrue(tangent.dot(current) > 1.0 - 1.0e-12)
     }
 
     @Test
@@ -105,13 +119,15 @@ class RailWandStraightCreationTest {
     ).curve!!
 
     @Test
-    fun `straight terminal tangent follows the three dimensional chord`() {
+    fun `straight terminal anchor defaults to level pitch along the horizontal chord`() {
         val start = Vector3d(1.0, 2.0, 3.0)
         val terminalPosition = Vector3d(5.0, 5.0, 1.0)
 
         val terminal = straightTerminalTangent(start, terminalPosition)
+        val expected = Vector3d(terminalPosition).sub(start).also { it.y = 0.0 }.normalize()
 
         assertEquals(1.0, terminal.length(), 1.0e-12)
-        assertTrue(terminal.dot(Vector3d(terminalPosition).sub(start).normalize()) > 1.0 - 1.0e-12)
+        assertEquals(0.0, terminal.y, 1.0e-12)
+        assertTrue(terminal.dot(expected) > 1.0 - 1.0e-12)
     }
 }

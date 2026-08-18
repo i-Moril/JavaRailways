@@ -8,6 +8,7 @@ import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.util.ThreadGuard
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -376,8 +377,8 @@ object RailCurveFactory {
             return RailCurveBuildResult.failure("端点距离过短", match.template, match.reason)
         }
 
-        // 直线模板只约束水平 bearing；坡度由起终点高差决定。锚点原有的
-        // 垂直切线分量不参与校验，连接流程会按生成的 chord 平滑相邻纵断面。
+        // 直线模板只约束水平 bearing。纵断面独立通过端点高程和 Pitch 求解，
+        // 因而可以在水平投影保持直线的同时形成竖曲线。
         val chordHorizontal = Vector3d(prepared.chord.x(), 0.0, prepared.chord.z())
         val longitudinalDistance = chordHorizontal.dot(prepared.fromTan2d)
         val lateralOffset = Vector3d(chordHorizontal)
@@ -390,12 +391,11 @@ object RailCurveFactory {
         if (tangentDot < cos(Math.toRadians(0.01))) {
             return RailCurveBuildResult.failure("直线起终点的水平切线方向必须相同", match.template, match.reason)
         }
-        val tangent = Vector3d(prepared.chord).normalize()
-        val curve = createStraightCurve(
+        val curve = createHorizontallyStraightCurve(
             prepared.fromPos,
             prepared.toPos,
-            tangent,
-            length,
+            prepared.fromTan3d,
+            prepared.toTan3d,
             prepared.fromRoll,
             prepared.toRoll,
             geometry.defaultStepMeters
@@ -404,8 +404,8 @@ object RailCurveFactory {
                 curve,
                 prepared.fromPos,
                 prepared.toPos,
-                tangent,
-                tangent,
+                prepared.fromTan3d,
+                prepared.toTan3d,
                 prepared.fromRoll,
                 prepared.toRoll
             )
@@ -816,43 +816,50 @@ object RailCurveFactory {
             normalMatches(end.normal, toTangent, toRollDegrees)
     }
 
-    private fun createStraightCurve(
+    private fun createHorizontallyStraightCurve(
         from: Vector3dc,
         to: Vector3dc,
-        tangent: Vector3dc,
-        length: Double,
+        fromTangent: Vector3dc,
+        toTangent: Vector3dc,
         fromRollDegrees: Double = 0.0,
         toRollDegrees: Double = 0.0,
         step: Double = RailGeometryParameters().defaultStepMeters
     ): PrimeCurve {
         require(step.isFinite() && step > 0.0)
-        val direction = Vector3d(tangent).normalize()
-        fun rollAt(arc: Double): Double {
-            val ratio = if (length > 1e-9) (arc / length).coerceIn(0.0, 1.0) else 0.0
-            return fromRollDegrees + (toRollDegrees - fromRollDegrees) * ratio
+        val horizontalChord = Vector3d(to.x() - from.x(), 0.0, to.z() - from.z())
+        val horizontalLength = horizontalChord.length()
+        require(horizontalLength > 1.0e-12)
+        val horizontalDirection = horizontalChord.div(horizontalLength)
+        val profile = VerticalProfileSegment(
+            length = horizontalLength,
+            startElevation = from.y(),
+            endElevation = to.y(),
+            startGrade = horizontalGrade(fromTangent),
+            endGrade = horizontalGrade(toTangent)
+        )
+        val sampleCount = maxOf(1, ceil(horizontalLength / step).toInt())
+        val points = ArrayList<Curve.RawPoint>(sampleCount + 1)
+        var previousPosition: Vector3d? = null
+        var cumulativeArc = 0.0
+        for (index in 0..sampleCount) {
+            val ratio = index.toDouble() / sampleCount
+            val station = horizontalLength * ratio
+            val position = Vector3d(from)
+                .fma(station, horizontalDirection)
+                .also { it.y = profile.heightAt(station) }
+            previousPosition?.let { cumulativeArc += it.distance(position) }
+            val tangent = Vector3d(
+                horizontalDirection.x(),
+                profile.gradeAt(station),
+                horizontalDirection.z()
+            ).normalize()
+            val roll = fromRollDegrees + (toRollDegrees - fromRollDegrees) * ratio
+            val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
+            val normal = applyRollToNormal(baseNormal, tangent, roll)
+            points += Curve.RawPoint(position, tangent, normal, cumulativeArc)
+            previousPosition = position
         }
-
-        val points = mutableListOf<Curve.RawPoint>()
-        var arc = 0.0
-        while (arc < length - 1e-9) {
-            val position = Vector3d(from).fma(arc, direction)
-            points.add(straightCurvePoint(position, direction, arc, rollAt(arc)))
-            arc += minOf(step, length - arc)
-        }
-        points.add(straightCurvePoint(Vector3d(to), direction, length, toRollDegrees))
         return PrimeCurve.fromPoints(points)
-    }
-
-    private fun straightCurvePoint(
-        position: Vector3dc,
-        tangent: Vector3dc,
-        arc: Double,
-        rollDegrees: Double
-    ): Curve.RawPoint {
-        val direction = Vector3d(tangent).normalize()
-        val (_, baseNormal, _) = ConstraintSolver.computeFrame(direction)
-        val normal = applyRollToNormal(baseNormal, direction, rollDegrees)
-        return Curve.RawPoint(Vector3d(position), direction, normal, arc)
     }
 
     fun applyRollToNormal(baseNormal: Vector3dc, tangent: Vector3dc, rollDegrees: Double): Vector3d {

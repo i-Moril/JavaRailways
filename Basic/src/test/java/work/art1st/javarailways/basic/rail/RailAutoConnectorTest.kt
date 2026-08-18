@@ -173,6 +173,108 @@ class RailAutoConnectorTest {
     }
 
     @Test
+    fun `three-leg turnout rejects a branch with a discontinuous node grade`() {
+        val world = createTestWorld()
+        val stem = CoreRail(
+            world,
+            straightCurve(Vector3d(-10.0, -0.2, 0.0), Vector3d(0.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val straight = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.2, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        RailAutoConnector.connectIfAllowed(stem, straight)
+        val branch = CoreRail(
+            world,
+            angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0),
+            mutableListOf(),
+            mutableListOf()
+        )
+
+        val result = RailAutoConnector.connectIfAllowed(stem, branch)
+
+        assertEquals(RailAutoConnector.Outcome.TURNOUT_GRADE_DISCONTINUITY, result.outcome)
+        assertEquals(branch.id, result.railId)
+        assertTrue(branch.viewBA.nextRails.isEmpty())
+    }
+
+    @Test
+    fun `three-leg turnout accepts one constant grade across all legs`() {
+        val world = createTestWorld()
+        val stem = CoreRail(
+            world,
+            straightCurve(Vector3d(-10.0, -0.2, 0.0), Vector3d(0.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val straight = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.2, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        RailAutoConnector.connectIfAllowed(stem, straight)
+        val angle = Math.toRadians(20.0)
+        val branch = CoreRail(
+            world,
+            straightCurve(
+                Vector3d(),
+                Vector3d(cos(angle) * 10.0, 0.2, sin(angle) * 10.0)
+            ),
+            mutableListOf(),
+            mutableListOf()
+        )
+
+        assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(stem, branch).outcome)
+    }
+
+    @Test
+    fun `three-leg turnout rejects grade variation inside the locking interval`() {
+        val world = createTestWorld()
+        val stem = CoreRail(
+            world,
+            straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        val straight = CoreRail(
+            world,
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)),
+            mutableListOf(),
+            mutableListOf()
+        )
+        RailAutoConnector.connectIfAllowed(stem, straight)
+        val angle = Math.toRadians(20.0)
+        val direction = Vector3d(cos(angle), 0.0, sin(angle))
+        val branchCurve = PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(), Vector3d(direction), Vector3d(0.0, 1.0, 0.0), 0.0),
+            Curve.RawPoint(
+                Vector3d(direction).mul(2.5).also { it.y = 0.2 },
+                Vector3d(direction.x, 0.08, direction.z).normalize(),
+                Vector3d(0.0, 1.0, 0.0),
+                2.51
+            ),
+            Curve.RawPoint(
+                Vector3d(direction).mul(10.0).also { it.y = 0.2 },
+                Vector3d(direction),
+                Vector3d(0.0, 1.0, 0.0),
+                10.01
+            )
+        ))
+        val branch = CoreRail(world, branchCurve, mutableListOf(), mutableListOf())
+
+        val result = RailAutoConnector.connectIfAllowed(stem, branch)
+
+        assertEquals(RailAutoConnector.Outcome.TURNOUT_GRADE_NOT_CONSTANT, result.outcome)
+        assertEquals(branch.id, result.railId)
+        assertTrue(branch.viewBA.nextRails.isEmpty())
+    }
+
+    @Test
     fun `three-leg turnout accepts legs exactly as long as the locking distance`() {
         val world = createTestWorld()
         val stem = CoreRail(

@@ -31,6 +31,39 @@ class StandardTurnoutFactoryTest {
     }
 
     @Test
+    fun `turnout keeps the anchor grade constant throughout its length`() {
+        val grade = 0.025
+        val anchorTangent = Vector3d(1.0, grade, 0.0).normalize()
+        val result = requireNotNull(StandardTurnoutFactory.build(
+            Anchor("A", Vector3d(4.0, 12.0, -3.0), anchorTangent),
+            Vector3d(1.0, 0.0, 0.2),
+            StandardTurnoutGeometry(number = 9, radiusMeters = 90.0, divergingSpeedKmH = 25.0),
+            sampleStepMeters = 1.0
+        ))
+
+        val points = result.curve.stream().toList()
+        points.forEach { point ->
+            val actualGrade = point.tangent.y() / kotlin.math.hypot(point.tangent.x(), point.tangent.z())
+            assertEquals(grade, actualGrade, 1.0e-9)
+        }
+        val horizontalLength = 90.0 * StandardTurnoutGeometry(9, 90.0, 25.0).branchAngleRadians
+        assertEquals(12.0 + grade * horizontalLength, points.last().position.y(), 1.0e-8)
+    }
+
+    @Test
+    fun `reversed turnout direction reverses the represented grade`() {
+        val grade = 0.025
+        val result = requireNotNull(StandardTurnoutFactory.build(
+            Anchor("A", Vector3d(), Vector3d(1.0, grade, 0.0).normalize()),
+            Vector3d(-1.0, 0.0, 0.2),
+            StandardTurnoutGeometry(number = 9, radiusMeters = 90.0, divergingSpeedKmH = 25.0)
+        ))
+
+        val start = result.curve.getPointAt(0.0).tangent
+        assertEquals(-grade, start.y() / kotlin.math.hypot(start.x(), start.z()), 1.0e-9)
+    }
+
+    @Test
     fun `configured turnout geometry and sample step drive generated curve`() {
         val geometry = StandardTurnoutGeometry(number = 9, radiusMeters = 90.0, divergingSpeedKmH = 25.0)
         val step = 1.0

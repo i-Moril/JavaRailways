@@ -54,6 +54,7 @@ object StandardTurnoutFactory {
     private data class DirectionCandidate(
         val startTangent: Vector3d,
         val endTangent: Vector3d,
+        val directionSign: Double,
         val turnSign: Double
     )
 
@@ -82,13 +83,27 @@ object StandardTurnoutFactory {
                 DirectionCandidate(
                     startTangent = start,
                     endTangent = Vector3d(start).rotateY(turnSign * angle).normalize(),
+                    directionSign = directionSign,
                     turnSign = turnSign
                 )
             }
         }
         val selected = candidates.maxBy { it.endTangent.dot(target) }
-        val curve = circularBranch(anchor.position, selected, geometry.radiusMeters, angle, sampleStepMeters)
-        return StandardTurnoutBuildResult(curve, Vector3d(selected.startTangent), Vector3d(selected.endTangent))
+        val anchorHorizontal = kotlin.math.hypot(anchor.tangent.x(), anchor.tangent.z())
+        val representedGrade = anchor.tangent.y() / anchorHorizontal * selected.directionSign
+        val curve = circularBranch(
+            anchor.position,
+            selected,
+            geometry.radiusMeters,
+            angle,
+            representedGrade,
+            sampleStepMeters
+        )
+        return StandardTurnoutBuildResult(
+            curve,
+            Vector3d(selected.startTangent.x(), representedGrade, selected.startTangent.z()).normalize(),
+            Vector3d(selected.endTangent.x(), representedGrade, selected.endTangent.z()).normalize()
+        )
     }
 
     private fun circularBranch(
@@ -96,20 +111,28 @@ object StandardTurnoutFactory {
         direction: DirectionCandidate,
         radius: Double,
         angle: Double,
+        grade: Double,
         sampleStepMeters: Double
     ): PrimeCurve {
-        val totalLength = radius * angle
-        val sampleCount = maxOf(2, ceil(totalLength / sampleStepMeters).toInt())
+        val horizontalLength = radius * angle
+        val sampleCount = maxOf(2, ceil(horizontalLength / sampleStepMeters).toInt())
         val centerDirection = Vector3d(direction.startTangent).rotateY(direction.turnSign * PI / 2.0)
         val center = Vector3d(startPosition).fma(radius, centerDirection)
-        val startRadius = Vector3d(startPosition).sub(center)
-        val points = (0..sampleCount).map { index ->
+        val startRadius = Vector3d(startPosition).sub(center).also { it.y = 0.0 }
+        val points = ArrayList<Curve.RawPoint>(sampleCount + 1)
+        val slopeLengthFactor = kotlin.math.sqrt(1.0 + grade * grade)
+        for (index in 0..sampleCount) {
             val ratio = index.toDouble() / sampleCount
-            val arc = totalLength * ratio
+            val horizontalArc = horizontalLength * ratio
             val rotation = direction.turnSign * angle * ratio
-            val position = Vector3d(startRadius).rotateY(rotation).add(center)
-            val tangent = Vector3d(direction.startTangent).rotateY(rotation).normalize()
-            Curve.RawPoint(position, tangent, Vector3d(0.0, 1.0, 0.0), arc)
+            val position = Vector3d(startRadius).rotateY(rotation).add(center).also {
+                it.y = startPosition.y() + grade * horizontalArc
+            }
+            val cumulativeArc = horizontalArc * slopeLengthFactor
+            val horizontalTangent = Vector3d(direction.startTangent).rotateY(rotation).normalize()
+            val tangent = Vector3d(horizontalTangent.x(), grade, horizontalTangent.z()).normalize()
+            val (_, normal, _) = ConstraintSolver.computeFrame(tangent)
+            points += Curve.RawPoint(position, tangent, normal, cumulativeArc)
         }
         return PrimeCurve.fromPoints(points)
     }

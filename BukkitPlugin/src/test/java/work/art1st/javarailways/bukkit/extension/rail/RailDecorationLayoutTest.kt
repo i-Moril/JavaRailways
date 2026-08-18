@@ -34,4 +34,29 @@ class RailDecorationLayoutTest {
         assertEquals(1, (first + second).count { it == 8.0 })
         assertEquals(arcs, first + second)
     }
+
+    @Test
+    fun `render sampling clamps persisted endpoint within floating point tolerance`() {
+        val currentTotal = 28.216159744557498
+        val persistedEndpoint = 28.2161597445575
+
+        val arcs = RailDecorationLayout.sanitizeArcsInSegment(
+            listOf(0.0, persistedEndpoint),
+            arcStart = 0.0,
+            arcEnd = currentTotal
+        )
+
+        assertEquals(listOf(0.0, currentTotal), arcs)
+    }
+
+    @Test
+    fun `render sampling drops stale and non finite arc lengths`() {
+        val arcs = RailDecorationLayout.sanitizeArcsInSegment(
+            listOf(-1.0, 2.0, Double.NaN, 12.0),
+            arcStart = 0.0,
+            arcEnd = 10.0
+        )
+
+        assertEquals(listOf(2.0), arcs)
+    }
 }

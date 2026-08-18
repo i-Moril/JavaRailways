@@ -85,7 +85,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         val segmentStart = self.arcStart.coerceIn(0.0, totalLength)
         val segmentEnd = self.arcEnd.coerceIn(segmentStart, totalLength)
 
-        val pointArcs = if (self.pointArcs.isNotEmpty()) {
+        val requestedPointArcs = if (self.pointArcs.isNotEmpty()) {
             self.pointArcs
         } else {
             RailDecorationLayout.arcsInSegment(
@@ -95,6 +95,11 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
                 includeEnd = segmentEnd >= totalLength - 1.0e-9
             )
         }
+        val pointArcs = RailDecorationLayout.sanitizeArcsInSegment(
+            requestedPointArcs,
+            segmentStart,
+            segmentEnd
+        )
         val created = mutableListOf<DisplayVisual>()
         try {
             for (arc in pointArcs) {

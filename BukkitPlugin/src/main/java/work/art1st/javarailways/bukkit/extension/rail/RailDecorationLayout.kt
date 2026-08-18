@@ -1,6 +1,8 @@
 package work.art1st.javarailways.bukkit.extension.rail
 
+import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.max
 
 /** Arc-length placement shared by persistence bootstrap, rendering, and wand previews. */
 internal object RailDecorationLayout {
@@ -31,5 +33,25 @@ internal object RailDecorationLayout {
     ): List<Double> = arcs.filter { arc ->
         arc + EPSILON >= arcStart &&
             if (includeEnd) arc <= arcEnd + EPSILON else arc < arcEnd - EPSILON
+    }
+
+    /**
+     * Bound persisted render samples to the current curve segment. Curve and render metadata
+     * are serialized independently, so their endpoint doubles can differ by a few ULPs.
+     */
+    fun sanitizeArcsInSegment(
+        arcs: List<Double>,
+        arcStart: Double,
+        arcEnd: Double
+    ): List<Double> {
+        require(arcStart.isFinite() && arcEnd.isFinite() && arcStart <= arcEnd)
+        val scale = max(abs(arcStart), abs(arcEnd))
+        val tolerance = max(EPSILON, Math.ulp(scale) * 4.0)
+        return arcs.asSequence()
+            .filter(Double::isFinite)
+            .filter { it >= arcStart - tolerance && it <= arcEnd + tolerance }
+            .map { it.coerceIn(arcStart, arcEnd) }
+            .distinct()
+            .toList()
     }
 }

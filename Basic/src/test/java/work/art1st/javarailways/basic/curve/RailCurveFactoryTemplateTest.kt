@@ -109,7 +109,34 @@ class RailCurveFactoryTemplateTest {
 
         assertFalse(result.isSuccess)
         assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
-        assertTrue(result.error!!.contains("起点切线"))
+        assertTrue(result.error!!.contains("水平方向"))
+    }
+
+    @Test
+    fun `straight template derives grade from endpoint elevations`() {
+        val from = Anchor(
+            "A",
+            Vector3d(0.0, 2.0, 0.0),
+            Vector3d(1.0, 0.5, 0.0).normalize()
+        )
+        val to = Anchor(
+            "B",
+            Vector3d(10.0, 8.0, 0.0),
+            Vector3d(1.0, -0.25, 0.0).normalize()
+        )
+
+        val result = RailCurveFactory.build(
+            from,
+            to,
+            RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        val expectedTangent = Vector3d(to.position).sub(from.position).normalize()
+        val curve = result.curve!!
+        assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
+        assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
+        assertEquals(8.0, curve.getPointAt(curve.totalArcLength).position.y(), 1.0e-8)
     }
 
     @Test

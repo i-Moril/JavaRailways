@@ -91,23 +91,29 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.*
 
 /**
- * 右键点确定一个垂直于起点切线的平面；直线终点是起点切线与该平面的交点。
+ * 终点的水平位置投影到起点 bearing，垂直高度直接采用右键位置。
  */
 internal fun straightTerminalPosition(
     startPosition: Vector3dc,
     startTangent: Vector3dc,
-    planePoint: Vector3dc
+    clickedPoint: Vector3dc
 ): Vector3d {
-    val tangent = Vector3d(startTangent)
-    if (tangent.lengthSquared() < 1.0e-12) return Vector3d(startPosition)
-    tangent.normalize()
-    val distance = Vector3d(planePoint).sub(startPosition).dot(tangent)
-    return Vector3d(startPosition).fma(distance, tangent)
+    val horizontalTangent = Vector3d(startTangent.x(), 0.0, startTangent.z())
+    require(horizontalTangent.lengthSquared() >= 1.0e-12) { "起点缺少可用的水平方向" }
+    horizontalTangent.normalize()
+    val horizontalOffset = Vector3d(clickedPoint).sub(startPosition).also { it.y = 0.0 }
+    val distance = horizontalOffset.dot(horizontalTangent)
+    return Vector3d(startPosition)
+        .fma(distance, horizontalTangent)
+        .also { it.y = clickedPoint.y() }
 }
 
-/** 终点复用起点的切线表示；Factory 对 T/-T 做无向归一化。 */
-internal fun straightTerminalTangent(startTangent: Vector3dc): Vector3d =
-    Vector3d(startTangent)
+/** 直线的实际三维切线由投影后的终点位置和右键高度共同确定。 */
+internal fun straightTerminalTangent(startPosition: Vector3dc, terminalPosition: Vector3dc): Vector3d {
+    val chord = Vector3d(terminalPosition).sub(startPosition)
+    require(chord.lengthSquared() >= 1.0e-12) { "直线起终点距离过短" }
+    return chord.normalize()
+}
 
 /** Returns the chord tangent, or null when a connected endpoint is not already collinear. */
 internal fun twoPointStraightTangent(
@@ -221,7 +227,7 @@ data class WandPlayerState(
     var decorationModel: String = "standard",
     /** 曲线半径 (m)。0 = 自动选择 */
     var curveRadius: Double = 0.0,
-    /** 曲线模板。AUTO 会按端点几何自动分类；STRAIGHT 沿起点切线投影终点。 */
+    /** 曲线模板。AUTO 会按端点几何自动分类；STRAIGHT 保持水平朝向并采用右键高度。 */
     var curveTemplate: RailCurveTemplateType = RailCurveTemplateType.AUTO,
     /** 标准道岔号数，同时确定侧线半径和限速。 */
     var turnoutStandard: StandardTurnout = StandardTurnout.N9,
@@ -500,7 +506,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
         val curveTemplate = ConfigKey.build<RailCurveTemplateType>("wand.curveTemplate") {
             label = "曲线模板"
-            description = "自动/直线/五段式/S弯。直线终点由右键点所在的切线垂直平面确定。"
+            description = "自动/直线/五段式/S弯。直线保持起点水平朝向，终点采用右键位置的高度。"
             defaultValue(RailCurveTemplateType.AUTO)
             valueType = ConfigValueType.ENUM
             constraints = ConfigConstraints.EnumOptions(
@@ -903,8 +909,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     /**
-     * 直线的第二次右键只选择终点横断面：每条起点切线与经过右键点、
-     * 垂直于该切线的平面相交，得到对应终点；终点复用起点切线表示。
+     * 直线的第二次右键确定终点：水平位置沿各起点 bearing 投影，
+     * 所有终点的垂直高度直接采用右键位置。
      */
     private fun getCreateModeStraightStarts(player: Player, state: WandPlayerState): List<Anchor>? {
         if (state.curveTemplate != RailCurveTemplateType.STRAIGHT) return null
@@ -954,13 +960,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun createStraightTerminalAnchorGroup(
         player: Player,
-        planePoint: Vector3dc,
+        clickedPoint: Vector3dc,
         starts: List<Anchor>
     ): List<Anchor> = starts.map { start ->
+        val terminalPosition = straightTerminalPosition(start.position, start.tangent, clickedPoint)
         val anchor = Anchor(
             id = nextAnchorId(),
-            position = straightTerminalPosition(start.position, start.tangent, planePoint),
-            tangent = straightTerminalTangent(start.tangent),
+            position = terminalPosition,
+            tangent = straightTerminalTangent(start.position, terminalPosition),
             worldId = player.world.uid.toString()
         )
         addAnchor(player.world, anchor)

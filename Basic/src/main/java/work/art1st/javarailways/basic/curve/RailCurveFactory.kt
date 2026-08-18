@@ -376,21 +376,21 @@ object RailCurveFactory {
             return RailCurveBuildResult.failure("端点距离过短", match.template, match.reason)
         }
 
-        // RailWand 用右键点定义垂直于起点切线的平面，终点应是该平面与
-        // 起点切线的交点。Factory 只验证这个约束，不能把任意 chord 当成新切线。
-        // 锚点的 T 与 -T 表示同一切线斜率；prepareAnchors 会统一到 chord 方向。
-        val tangent = Vector3d(prepared.fromTan3d).normalize()
-        val longitudinalDistance = prepared.chord.dot(tangent)
-        val lateralOffset = Vector3d(prepared.chord)
-            .sub(Vector3d(tangent).mul(longitudinalDistance))
+        // 直线模板只约束水平 bearing；坡度由起终点高差决定。锚点原有的
+        // 垂直切线分量不参与校验，连接流程会按生成的 chord 平滑相邻纵断面。
+        val chordHorizontal = Vector3d(prepared.chord.x(), 0.0, prepared.chord.z())
+        val longitudinalDistance = chordHorizontal.dot(prepared.fromTan2d)
+        val lateralOffset = Vector3d(chordHorizontal)
+            .sub(Vector3d(prepared.fromTan2d).mul(longitudinalDistance))
             .length()
         if (lateralOffset > Curve.TOLERANCE) {
-            return RailCurveBuildResult.failure("直线终点不在起点切线上", match.template, match.reason)
+            return RailCurveBuildResult.failure("直线终点不在起点切线的水平方向上", match.template, match.reason)
         }
-        val tangentDot = tangent.dot(Vector3d(prepared.toTan3d).normalize())
+        val tangentDot = prepared.fromTan2d.dot(prepared.toTan2d)
         if (tangentDot < cos(Math.toRadians(0.01))) {
-            return RailCurveBuildResult.failure("直线起终点切线斜率必须相同", match.template, match.reason)
+            return RailCurveBuildResult.failure("直线起终点的水平切线方向必须相同", match.template, match.reason)
         }
+        val tangent = Vector3d(prepared.chord).normalize()
         val curve = createStraightCurve(
             prepared.fromPos,
             prepared.toPos,

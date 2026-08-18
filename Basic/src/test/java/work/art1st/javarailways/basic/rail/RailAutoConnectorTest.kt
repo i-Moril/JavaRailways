@@ -173,7 +173,7 @@ class RailAutoConnectorTest {
     }
 
     @Test
-    fun `three-leg turnout allows a player-authored node grade change`() {
+    fun `three-leg turnout rejects a discontinuous node grade`() {
         val world = createTestWorld()
         val stem = CoreRail(
             world,
@@ -197,8 +197,9 @@ class RailAutoConnectorTest {
 
         val result = RailAutoConnector.connectIfAllowed(stem, branch)
 
-        assertEquals(RailAutoConnector.Outcome.CONNECTED, result.outcome)
-        assertEquals(listOf(stem.viewBA), branch.viewBA.nextRails)
+        assertEquals(RailAutoConnector.Outcome.TURNOUT_GRADE_DISCONTINUITY, result.outcome)
+        assertEquals(branch.id, result.railId)
+        assertTrue(branch.viewBA.nextRails.isEmpty())
     }
 
     @Test

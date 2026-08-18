@@ -11,6 +11,7 @@ import work.art1st.javarailways.bukkit.api.operation.OperationResult
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.operation.UndoableOperation
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.tunnelbridgebuilder.TunnelBridgeBuilderPlugin
 import work.art1st.javarailways.tunnelbridgebuilder.algorithm.BlockPosition
@@ -77,9 +78,9 @@ class RailSweepService(
                 return@whenComplete
             }
 
-            sendToPlayer(player, Component.text("正在计算横断面扫掠...", NamedTextColor.GRAY))
+            sendToPlayer(player, Component.text("正在计算逻辑段横断面扫掠...", NamedTextColor.GRAY))
             plugin.server.asyncScheduler.runNow(plugin) {
-                val result = runCatching { plan(target.rail(), state) }
+                val result = runCatching { plan(resolveLogicalRails(target.rail()), state) }
                 runForPlayer(
                     player,
                     retired = { operationsInProgress.remove(player.uniqueId) }
@@ -102,7 +103,17 @@ class RailSweepService(
         }
     }
 
-    private fun plan(rail: Rail, state: BlockWandState): List<BlockPositionChange<BlockData>> {
+    private fun resolveLogicalRails(selected: Rail): List<Rail> {
+        val metadata = selected.world.basicWorldData.railMetadata.snapshot()
+        return resolveLogicalSegmentRailIds(selected.id, metadata).map { railId ->
+            requireNotNull(selected.world.getRail(railId)) {
+                "Logical rail segment $railId is no longer loaded"
+            }
+        }
+    }
+
+    private fun plan(rails: List<Rail>, state: BlockWandState): List<BlockPositionChange<BlockData>> {
+        require(rails.isNotEmpty()) { "A logical rail segment must contain at least one physical rail" }
         val section = WandCrossSectionFactory.create(state) { cell ->
             val material = requireNotNull(Material.matchMaterial(cell.key)) {
                 "Unknown block material: ${cell.key}"
@@ -116,7 +127,7 @@ class RailSweepService(
             }
             BlockPlacement(blockData, cell.placementRule)
         }
-        return resolvePlacements(SweepPlanner.plan(section, sample(rail)))
+        return resolvePlacements(rails.flatMap { rail -> SweepPlanner.plan(section, sample(rail)) })
     }
 
     private fun resolvePlacements(

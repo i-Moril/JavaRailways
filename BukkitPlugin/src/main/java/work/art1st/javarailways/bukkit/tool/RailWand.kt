@@ -1735,17 +1735,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         throw IllegalArgumentException("三腿节点的道岔转向角过大")
                     RailAutoConnector.Outcome.TURNOUT_INVALID_TANGENT ->
                         throw IllegalArgumentException("三腿节点包含无效的轨道方向")
-                    RailAutoConnector.Outcome.TURNOUT_GRADE_DISCONTINUITY ->
-                        throw IllegalArgumentException(
-                            "无法创建道岔：轨道 ${result.railId} 的节点坡度 " +
-                                "${"%.3f".format((result.actualGrade ?: 0.0) * 100.0)}%，与主线要求 " +
-                                "${"%.3f".format((result.expectedGrade ?: 0.0) * 100.0)}% 不连续"
-                        )
-                    RailAutoConnector.Outcome.TURNOUT_GRADE_NOT_CONSTANT ->
-                        throw IllegalArgumentException(
-                            "无法创建道岔：轨道 ${result.railId} 在锁定区内坡度发生变化；" +
-                                "道岔区间必须保持 ${"%.3f".format((result.expectedGrade ?: 0.0) * 100.0)}% 恒定坡度"
-                        )
                     RailAutoConnector.Outcome.TURNOUT_LOCKING_DISTANCE_UNAVAILABLE ->
                         throw IllegalArgumentException(
                             "无法创建道岔：轨道 ${result.railId} 可用锁定长度 " +

@@ -38,9 +38,7 @@ object RailAutoConnector {
         AMBIGUOUS_TURNOUT,
         TURNOUT_ANGLE_TOO_SHARP,
         TURNOUT_INVALID_TANGENT,
-        TURNOUT_LOCKING_DISTANCE_UNAVAILABLE,
-        TURNOUT_GRADE_DISCONTINUITY,
-        TURNOUT_GRADE_NOT_CONSTANT
+        TURNOUT_LOCKING_DISTANCE_UNAVAILABLE
     }
 
     data class Result(
@@ -49,9 +47,7 @@ object RailAutoConnector {
         val angleDegrees: Double? = null,
         val requiredLengthMeters: Double? = null,
         val availableLengthMeters: Double? = null,
-        val railId: UUID? = null,
-        val expectedGrade: Double? = null,
-        val actualGrade: Double? = null
+        val railId: UUID? = null
     )
 
     private data class Joint(
@@ -183,37 +179,6 @@ object RailAutoConnector {
                 railId = shortestLeg.viewToJoint.rail.id
             )
         }
-        val stemGrade = horizontalGrade(stem.viewToJoint.endPoint.tangent)
-            ?: return Result(Outcome.TURNOUT_INVALID_TANGENT, distance = distance)
-        for (branch in branches) {
-            val branchGrade = horizontalGrade(branch.nextAwayFromJoint.startPoint.tangent)
-                ?: return Result(Outcome.TURNOUT_INVALID_TANGENT, distance = distance)
-            if (abs(branchGrade - stemGrade) > TURNOUT_GRADE_TOLERANCE) {
-                return Result(
-                    outcome = Outcome.TURNOUT_GRADE_DISCONTINUITY,
-                    distance = distance,
-                    railId = branch.viewToJoint.rail.id,
-                    expectedGrade = stemGrade,
-                    actualGrade = branchGrade
-                )
-            }
-        }
-        val gradeIntervals = buildList {
-            add(stem.nextAwayFromJoint to -stemGrade)
-            branches.forEach { add(it.nextAwayFromJoint to stemGrade) }
-        }
-        for ((view, expectedGrade) in gradeIntervals) {
-            val actualGrade = firstNonConstantGrade(view, requiredLegLength, expectedGrade)
-            if (actualGrade != null) {
-                return Result(
-                    outcome = Outcome.TURNOUT_GRADE_NOT_CONSTANT,
-                    distance = distance,
-                    railId = view.rail.id,
-                    expectedGrade = expectedGrade,
-                    actualGrade = actualGrade
-                )
-            }
-        }
         var maximumAngle = 0.0
         for (branch in branches) {
             val angle = transitionAngle(
@@ -304,28 +269,6 @@ object RailAutoConnector {
         return oldNext != ordered || oldActive !== view.activeRail
     }
 
-    private fun horizontalGrade(tangent: org.joml.Vector3dc): Double? {
-        val horizontal = kotlin.math.hypot(tangent.x(), tangent.z())
-        if (horizontal <= 1.0e-12) return null
-        return tangent.y() / horizontal
-    }
-
-    private fun firstNonConstantGrade(
-        viewAwayFromIntervalStart: RailView,
-        intervalLength: Double,
-        expectedGrade: Double
-    ): Double? {
-        val curve = viewAwayFromIntervalStart.curve
-        val checkedLength = intervalLength.coerceAtMost(curve.totalArcLength)
-        val sampleCount = maxOf(1, kotlin.math.ceil(checkedLength / TURNOUT_GRADE_SAMPLE_STEP_METERS).toInt())
-        for (index in 0..sampleCount) {
-            val arc = checkedLength * index / sampleCount
-            val grade = horizontalGrade(curve.getPointAt(arc).tangent) ?: return Double.NaN
-            if (abs(grade - expectedGrade) > TURNOUT_GRADE_TOLERANCE) return grade
-        }
-        return null
-    }
-
     private fun addNextPreservingActive(fromView: RailView, nextView: RailView): Boolean {
         val added = if (!fromView.mutableNextRails.contains(nextView)) {
             fromView.mutableNextRails.add(nextView)
@@ -349,6 +292,4 @@ object RailAutoConnector {
 
     private const val MAX_ENDPOINTS_PER_ANCHOR = 3
     private const val STEM_SCORE_EPSILON = 1.0e-6
-    private const val TURNOUT_GRADE_TOLERANCE = 1.0e-4
-    private const val TURNOUT_GRADE_SAMPLE_STEP_METERS = 0.5
 }

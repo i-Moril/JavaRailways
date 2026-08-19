@@ -48,6 +48,25 @@ class ConstraintSolverTest {
             assertTrue(r.straightA >= 0, "straightA=${r.straightA}")
             assertTrue(r.straightB >= 0, "straightB=${r.straightB}")
         }
+
+        @Test fun `rounding at zero circular arc does not produce negative Lc`() {
+            val radius = 250.0
+            val angle = 1.570796326794896
+            val transitionLength = radius * angle
+            val source = StandardRailCurve(radius, transitionLength, 0.0)
+            val endpoint = source.positionAtAccurate(source.totalLength)
+            val from = Vector3d(0.0, 64.0, 0.0)
+            val to = Vector3d(endpoint.x(), 64.0, endpoint.z())
+            val fromTan = Vector3d(1.0, 0.0, 0.0)
+            val toTan = Vector3d(cos(angle), 0.0, sin(angle))
+
+            val result = assertDoesNotThrow<ConstraintSolveResult> {
+                ConstraintSolver.solve(from, fromTan, to, toTan, radius)
+            }
+
+            assertTrue(result is ConstraintSolveResult.Success, "$result")
+            assertTrue((result as ConstraintSolveResult.Success).Lc >= 0.0, "Lc=${result.Lc}")
+        }
     }
 
     @Nested inner class SolveBest {

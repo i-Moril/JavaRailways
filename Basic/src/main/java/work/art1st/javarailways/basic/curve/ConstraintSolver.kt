@@ -212,9 +212,10 @@ object ConstraintSolver {
 
     private fun straightOk(L1: Double, R: Double, dp: Double,
                            tx: Double, tz: Double, sd: Double, cd: Double): Boolean {
-        val th = dp - L1 / R
-        if (th < -1e-12) return false
-        val crv = StandardRailCurve(R, L1, R * th)
+        val rawArcAngle = dp - L1 / R
+        if (rawArcAngle < -1e-12) return false
+        val arcAngle = rawArcAngle.coerceAtLeast(0.0)
+        val crv = StandardRailCurve(R, L1, R * arcAngle)
         val e = crv.positionAtAccurate(crv.totalLength)
         val sb = if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd
         val sa = tx - e.x - sb * cd
@@ -224,13 +225,17 @@ object ConstraintSolver {
     private fun build(L1: Double, R: Double, dp: Double,
                       tx: Double, tz: Double, sd: Double, cd: Double,
                       leftTurn: Boolean): ConstraintSolveResult.Success {
-        val th = dp - L1 / R
-        val Lc = R * th
+        val rawArcAngle = dp - L1 / R
+        require(rawArcAngle >= -1e-12) { "Circular arc angle is negative: $rawArcAngle" }
+        val arcAngle = rawArcAngle.coerceAtLeast(0.0)
+        val Lc = R * arcAngle
         val crv = StandardRailCurve(R, L1, Lc)
         val e = crv.positionAtAccurate(crv.totalLength)
         val sb = maxOf(if (abs(sd) < 1e-12) 0.0 else (tz - e.z) / sd, 0.0)
         val sa = maxOf(tx - e.x - sb * cd, 0.0)
-        return ConstraintSolveResult.Success(R, sa, L1, Lc, L1, sb, th, sa + crv.totalLength + sb, dp, leftTurn)
+        return ConstraintSolveResult.Success(
+            R, sa, L1, Lc, L1, sb, arcAngle, sa + crv.totalLength + sb, dp, leftTurn
+        )
     }
 
     private fun toLocalFrame(pt: Vector3dc, o: Vector3dc, t: Vector3dc): Pair<Double, Double> {

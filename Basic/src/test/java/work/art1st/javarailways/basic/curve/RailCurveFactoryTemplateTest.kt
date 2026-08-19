@@ -71,6 +71,36 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
+    @OptIn(Heavy::class)
+    fun `s curve solves a reachable exact radius`() {
+        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
+        val to = Anchor("B", Vector3d(40.0, 0.0, 8.0), Vector3d(1.0, 0.0, 0.0))
+        val automatic = RailCurveFactory.build(
+            from,
+            to,
+            RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE)
+        )
+        val automaticRadius = requireNotNull(
+            RailGeometryMeasurementService.measure(listOf(automatic.curve!!), 1.435)
+                .minimumHorizontalRadiusMeters
+        )
+        val targetRadius = automaticRadius * 1.1
+
+        val result = RailCurveFactory.build(
+            from,
+            to,
+            RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE, radius = targetRadius)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        val actualRadius = requireNotNull(
+            RailGeometryMeasurementService.measure(listOf(result.curve!!), 1.435)
+                .minimumHorizontalRadiusMeters
+        )
+        assertEquals(targetRadius, actualRadius, maxOf(0.5, targetRadius * 0.01))
+    }
+
+    @Test
     fun `s curve treats manual radius as exact instead of minimum`() {
         val result = RailCurveFactory.build(
             Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),

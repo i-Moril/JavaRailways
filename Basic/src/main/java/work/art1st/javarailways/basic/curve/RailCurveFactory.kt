@@ -475,13 +475,13 @@ object RailCurveFactory {
             return RailCurveBuildResult.failure("端点距离过短", match.template, match.reason)
         }
 
-        val handle0 = hermiteHandleLength(
+        var handle0 = hermiteHandleLength(
             prepared.chord, prepared.fromTan2d, horizontalDistance, options.geometry
         )
-        val handle1 = hermiteHandleLength(
+        var handle1 = hermiteHandleLength(
             prepared.chord, prepared.toTan2d, horizontalDistance, options.geometry
         )
-        val minRadius = estimateHermiteMinRadius(
+        var minRadius = estimateHermiteMinRadius(
             prepared.fromPos,
             prepared.toPos,
             prepared.fromTan2d,
@@ -491,6 +491,16 @@ object RailCurveFactory {
             options.geometry.sCurveCurvatureProbeCount
         )
         if (options.radius > 0.0) {
+            val fitted = fitHermiteHandlesToExactRadius(
+                prepared,
+                handle0,
+                handle1,
+                options.radius,
+                options.geometry.sCurveCurvatureProbeCount
+            )
+            handle0 = fitted.first
+            handle1 = fitted.second
+            minRadius = fitted.third
             val tolerance = maxOf(0.5, options.radius * 0.005)
             if (abs(minRadius - options.radius) > tolerance) {
                 return RailCurveBuildResult.failure(
@@ -734,6 +744,51 @@ object RailCurveFactory {
         val speedSq = d1.x() * d1.x() + d1.z() * d1.z()
         if (speedSq < 1.0e-12) return 0.0
         return (d1.x() * d2.z() - d1.z() * d2.x()) / (speedSq * sqrt(speedSq))
+    }
+
+    private fun fitHermiteHandlesToExactRadius(
+        prepared: PreparedAnchors,
+        baseHandle0: Double,
+        baseHandle1: Double,
+        targetRadius: Double,
+        probeCount: Int
+    ): Triple<Double, Double, Double> {
+        fun radiusAt(scale: Double): Double = estimateHermiteMinRadius(
+            prepared.fromPos,
+            prepared.toPos,
+            prepared.fromTan2d,
+            prepared.toTan2d,
+            baseHandle0 * scale,
+            baseHandle1 * scale,
+            probeCount
+        )
+
+        val samples = (0..160).map { index ->
+            val scale = 0.25 + (3.0 - 0.25) * index / 160.0
+            scale to radiusAt(scale)
+        }
+        var best = samples.minBy { (_, radius) -> abs(radius - targetRadius) }
+        samples.zipWithNext().forEach { (left, right) ->
+            var lo = left.first
+            var hi = right.first
+            var loError = left.second - targetRadius
+            val hiError = right.second - targetRadius
+            if (!loError.isFinite() || !hiError.isFinite() || loError * hiError > 0.0) return@forEach
+            repeat(48) {
+                val mid = (lo + hi) / 2.0
+                val radius = radiusAt(mid)
+                if (abs(radius - targetRadius) < abs(best.second - targetRadius)) best = mid to radius
+                val error = radius - targetRadius
+                if (error == 0.0) return@repeat
+                if (loError * error <= 0.0) {
+                    hi = mid
+                } else {
+                    lo = mid
+                    loError = error
+                }
+            }
+        }
+        return Triple(baseHandle0 * best.first, baseHandle1 * best.first, best.second)
     }
 
     private fun estimateHermiteMinRadius(

@@ -32,6 +32,12 @@ interface WandState<M> {
     var mode: M
 }
 
+internal fun shouldGloballyClearSelection(
+    sneaking: Boolean,
+    action: Action,
+    modeHandlesSneakLeftClickAir: Boolean
+): Boolean = sneaking && action == Action.LEFT_CLICK_AIR && !modeHandlesSneakLeftClickAir
+
 abstract class AbstractWand<S, M>(
     protected val plugin: BukkitPlugin,
     private val wandKey: String,
@@ -42,6 +48,8 @@ abstract class AbstractWand<S, M>(
 ) : Listener where S : WandState<M>, M : Enum<M>, M : WandModeSpec {
     /** PDC is persisted by modern Paper inside the item's minecraft:custom_data component. */
     private data class BoundState<S>(val itemId: UUID, val state: S)
+
+    protected open val modeHandlesSneakLeftClickAir: Boolean = false
 
     private var initialized = false
     private val playerStates = ConcurrentHashMap<UUID, BoundState<S>>()
@@ -156,7 +164,11 @@ abstract class AbstractWand<S, M>(
                 event.isCancelled = true
                 showSettings(player, state)
             }
-            player.isSneaking && event.action == Action.LEFT_CLICK_AIR -> {
+            shouldGloballyClearSelection(
+                player.isSneaking,
+                event.action,
+                modeHandlesSneakLeftClickAir
+            ) -> {
                 event.isCancelled = true
                 clearSelection(player, state)
                 player.sendActionBar(Component.text("已清空选择", NamedTextColor.GRAY))

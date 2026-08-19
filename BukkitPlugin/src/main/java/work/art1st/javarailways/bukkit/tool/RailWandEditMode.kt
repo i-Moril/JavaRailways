@@ -10,7 +10,7 @@ internal class RailWandEditMode(private val wand: RailWand) {
     fun handle(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
         when {
             event.action == Action.RIGHT_CLICK_BLOCK || event.action == Action.RIGHT_CLICK_AIR -> {
-                val anchor = wand.findNearestAnchor(player, 3.0)
+                val anchor = wand.findTargetAnchor(player)
                 if (anchor != null) {
                     state.selectedRails.clear()
                     state.selectedAnchors.clear()
@@ -30,7 +30,7 @@ internal class RailWandEditMode(private val wand: RailWand) {
             }
 
             event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
-                val anchor = wand.findNearestAnchor(player, 3.0)
+                val anchor = wand.findTargetAnchor(player)
                 if (anchor != null) {
                     state.selectedRails.clear()
                     if (player.isSneaking) {

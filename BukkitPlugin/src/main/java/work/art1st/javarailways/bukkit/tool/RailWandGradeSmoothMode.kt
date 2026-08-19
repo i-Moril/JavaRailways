@@ -10,7 +10,7 @@ internal class RailWandGradeSmoothMode(private val wand: RailWand) {
     fun handle(player: Player, state: WandPlayerState, event: PlayerInteractEvent) {
         when (event.action) {
             Action.LEFT_CLICK_BLOCK, Action.LEFT_CLICK_AIR -> {
-                val anchor = wand.findNearestAnchor(player, 3.0)
+                val anchor = wand.findTargetAnchor(player)
                 if (anchor == null) {
                     wand.clearAnchorSelection(player, state)
                     return

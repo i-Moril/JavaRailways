@@ -20,7 +20,7 @@ internal class RailWandConnectMode(private val wand: RailWand) {
             }
             // 左键锚点 → 选择
             event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
-                val clickedAnchor = wand.findNearestAnchor(player, 3.0)
+                val clickedAnchor = wand.findTargetAnchor(player)
                 if (clickedAnchor != null) {
                     if (player.isSneaking) {
                         if (clickedAnchor.id !in state.selectedAnchors) {

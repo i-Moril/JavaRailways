@@ -385,6 +385,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     modes = WandMode.entries.toList()
 ) {
 
+    override val modeHandlesSneakLeftClickAir: Boolean = true
+
     companion object {
         private const val WAND_KEY = "javarailways_rail_wand"
         private val WAND_ITEM = Material.STICK
@@ -3650,6 +3652,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             .distinct()
             .mapNotNull { getSplitAnchor(world, splitAnchorId(it)) }
     }
+
+    internal fun findTargetAnchor(player: Player): Anchor? =
+        findLookedAtAnchor(player, 64.0, 1.5) ?: findNearestAnchor(player, 3.0)
 
     internal fun findNearestAnchor(player: Player, maxDistance: Double): Anchor? {
         val playerPos = player.location.toVector().toVector3d()

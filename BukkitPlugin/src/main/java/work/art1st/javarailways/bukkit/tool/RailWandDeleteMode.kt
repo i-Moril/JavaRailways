@@ -12,7 +12,7 @@ internal class RailWandDeleteMode(private val wand: RailWand) {
         when {
             event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR -> {
                 // 检查是否点击了锚点。轨道端点锚点在删除模式下代表其所属轨道。
-                val clickedAnchor = wand.findNearestAnchor(player, 3.0)
+                val clickedAnchor = wand.findTargetAnchor(player)
                 if (clickedAnchor != null) {
                     val endpointRailId = wand.railIdFromEndpointAnchor(clickedAnchor.id)
                     if (endpointRailId != null) {

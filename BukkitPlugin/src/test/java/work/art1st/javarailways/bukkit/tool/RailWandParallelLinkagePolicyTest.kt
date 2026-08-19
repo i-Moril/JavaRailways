@@ -2,6 +2,7 @@ package work.art1st.javarailways.bukkit.tool
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
@@ -11,6 +12,47 @@ import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitType
 
 class RailWandParallelLinkagePolicyTest {
+    @Test
+    fun `creation curve speed is a minimum while edit speed is an exact value`() {
+        val automatic = 100.0 / 3.6
+
+        assertEquals(
+            automatic,
+            resolveCurveOperatingLimitMetersPerSecond(
+                automaticLimit = automatic,
+                requestedLimit = 80.0 / 3.6,
+                automatic = false,
+                creationMinimum = true
+            ),
+            1.0e-9
+        )
+        assertEquals(
+            80.0 / 3.6,
+            resolveCurveOperatingLimitMetersPerSecond(
+                automaticLimit = automatic,
+                requestedLimit = 80.0 / 3.6,
+                automatic = false,
+                creationMinimum = false
+            ),
+            1.0e-9
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            resolveCurveOperatingLimitMetersPerSecond(
+                automaticLimit = automatic,
+                requestedLimit = 120.0 / 3.6,
+                automatic = false,
+                creationMinimum = true
+            )
+        }
+    }
+
+    @Test
+    fun `edit speed rebuilds geometry only above automatic operating limit`() {
+        assertFalse(curveSpeedRequiresGeometryRebuild(80.0, false, 100.0))
+        assertFalse(curveSpeedRequiresGeometryRebuild(120.0, true, 100.0))
+        assertTrue(curveSpeedRequiresGeometryRebuild(120.0, false, 100.0))
+    }
+
     @Test
     fun `manual curve speed alone is not a geometry edit`() {
         assertFalse(
@@ -50,6 +92,7 @@ class RailWandParallelLinkagePolicyTest {
             curveSpeedLimitForRebuiltLane(1, 0, 90.0, companionLane),
             1.0e-9
         )
+        assertFalse(curveSpeedAutomaticForRebuiltLane(1, 0, true, companionLane))
     }
 
     @Test

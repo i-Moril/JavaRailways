@@ -134,7 +134,7 @@ data class CurveTemplateMatch(
 
 ## Phase 3：实现 S 弯模板 MVP
 
-状态：已实现首版 Hermite S 弯。`RailCurveFactory` 在 AUTO 模式下对“端点切线同向但 chord 不共线”的情况选择 `S_CURVE`，使用平面三次 Hermite 生成水平线形，并叠加现有纵断面 Hermite 高度函数与 roll 插值；若 `radius > 0`，会把它作为最小半径约束进行曲率检查，不满足则拒绝创建。已添加 `RailCurveFactoryTemplateTest` 覆盖 S 弯生成。
+状态：已实现首版 Hermite S 弯。`RailCurveFactory` 在 AUTO 模式下对“端点切线同向但 chord 不共线”的情况选择 `S_CURVE`，使用平面三次 Hermite 生成水平线形，并叠加现有纵断面 Hermite 高度函数与 roll 插值；手动 `radius` 现在表示精确目标半径，生成结果超出容差时拒绝，而不是继续把它解释为最小半径。已添加 `RailCurveFactoryTemplateTest` 覆盖 S 弯生成。
 
 ### 目标
 
@@ -289,6 +289,14 @@ data class TurnoutOptions(
 - 失败只提示，不留下半创建 rail/render/meta。
 
 ---
+
+## 当前 RailWand 参数语义
+
+- 创建模式：CURVE 限速输入是最低可接受的自动运营限速；半径是精确目标；超高数值是上限。
+- 限速与半径使用独立“自动”复选框，不再使用 `0 = 自动`。
+- 编辑模式始终从最终曲线测量并显示实际运营限速、实际最小水平半径和实际最大超高。
+- 编辑限速不高于当前自动运营限速时只更新 CURVE 元数据；高于时触发几何重新计算，比较基准明确是运营限速而不是脱轨速度。
+- 逻辑 lane 的曲线中点显示实际最小水平半径。
 
 ## Phase 7：复线并行约束与交叉修复
 

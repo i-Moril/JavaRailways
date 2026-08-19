@@ -24,6 +24,7 @@ import work.art1st.javarailways.basic.api.ui.config.*
  * |-----------------|-------------|
  * | BOOLEAN | [DialogInput.bool] |
  * | NUMBER | [DialogInput.numberRange] |
+ * | NUMBER_TEXT | [DialogInput.text] with numeric validation |
  * | INTEGER | [DialogInput.numberRange] + step=1 |
  * | STRING | [DialogInput.text] |
  * | ENUM | [DialogInput.singleOption] |
@@ -53,6 +54,9 @@ class DialogRenderer(
          * Paper Dialog API 要求 key 仅含 `[a-zA-Z0-9_]+`，不允许 `.`。
          */
         private fun toInputKey(configKeyId: String): String = configKeyId.replace('.', '_')
+
+        private fun formatNumberText(value: Double): String =
+            java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
     }
 
     data class MenuEntry(val label: String, val onSelected: (Player) -> Unit)
@@ -232,7 +236,13 @@ class DialogRenderer(
         textResolver: (String) -> String,
         onConfirmed: ((Player) -> Unit)? = null
     ) {
-        val needsRebuild = captureInputs(view, builtGroup, session)
+        val needsRebuild = try {
+            captureInputs(view, builtGroup, session)
+        } catch (failure: IllegalArgumentException) {
+            player.sendMessage(Component.text(failure.message ?: "数值输入无效", NamedTextColor.RED))
+            showNativeDialog(player, builtGroup, session, textResolver, onConfirmed)
+            return
+        }
         session.commit()
         if (needsRebuild) {
             val newGroup = configUI.buildGroupForPlayer(
@@ -270,6 +280,12 @@ class DialogRenderer(
                 }
                 ConfigValueType.NUMBER -> view.getFloat(inputKey)?.let {
                     session.setValue(key as ConfigKey<Double>, it.toDouble())
+                }
+                ConfigValueType.NUMBER_TEXT -> view.getText(inputKey)?.let { raw ->
+                    val value = raw.trim().toDoubleOrNull()
+                        ?: throw IllegalArgumentException("${key.label} 不是有效数字: $raw")
+                    require(value.isFinite()) { "${key.label} 必须是有限数字" }
+                    session.setValue(key as ConfigKey<Double>, value)
                 }
                 ConfigValueType.INTEGER -> view.getFloat(inputKey)?.let {
                     session.setValue(key as ConfigKey<Int>, it.toInt())
@@ -348,6 +364,15 @@ class DialogRenderer(
                 DialogInput.numberRange(inputKey, Component.text(textResolver(key.label)), min, max)
                     .step(step)
                     .initial(value)
+                    .build()
+            }
+            ConfigValueType.NUMBER_TEXT -> {
+                val constraints = key.constraints as? ConfigConstraints.NumberRange
+                val unit = constraints?.unit?.takeIf(String::isNotBlank)?.let { " ($it)" }.orEmpty()
+                val value = (current as? Double)?.let(::formatNumberText) ?: ""
+                DialogInput.text(inputKey, Component.text(textResolver(key.label) + unit))
+                    .initial(value)
+                    .maxLength(32)
                     .build()
             }
             ConfigValueType.INTEGER -> {

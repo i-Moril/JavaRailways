@@ -114,7 +114,7 @@ object RailCurveFactory {
 
         return when (match.template) {
             RailCurveTemplateType.STRAIGHT,
-            RailCurveTemplateType.TWO_POINT_STRAIGHT -> buildStraight(prepared, options.geometry, match)
+            RailCurveTemplateType.TWO_POINT_STRAIGHT -> buildStraight(prepared, options, match)
             RailCurveTemplateType.FIVE_SEGMENT -> buildFiveSegment(prepared, options, match)
             RailCurveTemplateType.S_CURVE -> buildSCurve(prepared, options, match)
             RailCurveTemplateType.AUTO -> error("AUTO should be resolved before build")
@@ -369,9 +369,13 @@ object RailCurveFactory {
 
     private fun buildStraight(
         prepared: PreparedAnchors,
-        geometry: RailGeometryParameters,
+        options: RailCurveBuildOptions,
         match: CurveTemplateMatch
     ): RailCurveBuildResult {
+        if (options.radius > 0.0) {
+            return RailCurveBuildResult.failure("直线模板不能使用有限的精确半径", match.template, match.reason)
+        }
+        val geometry = options.geometry
         val length = prepared.chord.length()
         if (length < 1e-6) {
             return RailCurveBuildResult.failure("端点距离过短", match.template, match.reason)
@@ -486,12 +490,15 @@ object RailCurveFactory {
             handle1,
             options.geometry.sCurveCurvatureProbeCount
         )
-        if (options.radius > 0.0 && minRadius < options.radius) {
-            return RailCurveBuildResult.failure(
-                "S弯最小半径不足: %.2fm < %.2fm，请拉远锚点或减小横向偏移".format(Locale.US, minRadius, options.radius),
-                match.template,
-                match.reason
-            )
+        if (options.radius > 0.0) {
+            val tolerance = maxOf(0.5, options.radius * 0.005)
+            if (abs(minRadius - options.radius) > tolerance) {
+                return RailCurveBuildResult.failure(
+                    "S弯无法满足精确半径: 实际 %.2fm，要求 %.2fm".format(Locale.US, minRadius, options.radius),
+                    match.template,
+                    match.reason
+                )
+            }
         }
 
         val curve = createHermiteSCurve(

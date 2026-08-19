@@ -43,6 +43,18 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
+    fun `straight rejects a finite exact radius`() {
+        val result = RailCurveFactory.build(
+            Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
+            Anchor("B", Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
+            RailCurveBuildOptions(template = RailCurveTemplateType.STRAIGHT, radius = 500.0)
+        )
+
+        assertFalse(result.isSuccess)
+        assertTrue(result.error!!.contains("精确半径"))
+    }
+
+    @Test
     fun `auto builds s curve for same tangent offset`() {
         val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
         val to = Anchor("B", Vector3d(10.0, 0.0, 5.0), Vector3d(1.0, 0.0, 0.0))
@@ -56,6 +68,18 @@ class RailCurveFactoryTemplateTest {
         assertTrue(result.curve!!.getPointAt(0.0).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
         assertTrue(result.curve!!.getPointAt(result.curve!!.totalArcLength).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
         assertTangentContinuity(result.curve!!)
+    }
+
+    @Test
+    fun `s curve treats manual radius as exact instead of minimum`() {
+        val result = RailCurveFactory.build(
+            Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
+            Anchor("B", Vector3d(10.0, 0.0, 5.0), Vector3d(1.0, 0.0, 0.0)),
+            RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE, radius = 10000.0)
+        )
+
+        assertFalse(result.isSuccess)
+        assertTrue(result.error!!.contains("精确半径"))
     }
 
     @Test

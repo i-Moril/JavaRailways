@@ -34,6 +34,7 @@ import work.art1st.javarailways.basic.curve.ParallelAnchorMatch
 import work.art1st.javarailways.basic.curve.RailCurveBuildOptions
 import work.art1st.javarailways.basic.curve.RailCurveFactory
 import work.art1st.javarailways.basic.curve.RailCurvePartitioner
+import work.art1st.javarailways.basic.curve.RailGeometryMeasurementService
 import work.art1st.javarailways.basic.curve.RailCurveTemplateType
 import work.art1st.javarailways.basic.curve.StandardTurnout
 import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
@@ -63,7 +64,6 @@ import work.art1st.javarailways.basic.rail.TurnoutTopology
 import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.basic.safety.RailSpeedCalculator
-import work.art1st.javarailways.basic.safety.RailSpeedLimitPolicy
 import work.art1st.javarailways.basic.safety.RailSpeedLimits
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.operation.OperationResult
@@ -91,6 +91,29 @@ import java.util.concurrent.CompletionStage
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.*
 
+internal fun resolveCurveOperatingLimitMetersPerSecond(
+    automaticLimit: Double,
+    requestedLimit: Double?,
+    automatic: Boolean,
+    creationMinimum: Boolean
+): Double {
+    require(automaticLimit.isFinite() && automaticLimit > 0.0)
+    if (automatic) return automaticLimit
+    val requested = requireNotNull(requestedLimit) { "手动曲线限速必须大于 0" }
+    require(requested.isFinite() && requested > 0.0)
+    require(requested <= automaticLimit + 1.0e-6) {
+        "要求的曲线运营限速 ${"%.1f".format(requested * 3.6)} km/h 高于当前几何自动运营限速 " +
+            "${"%.1f".format(automaticLimit * 3.6)} km/h"
+    }
+    return if (creationMinimum) automaticLimit else requested
+}
+
+internal fun curveSpeedRequiresGeometryRebuild(
+    requestedKmH: Double,
+    automatic: Boolean,
+    automaticOperatingLimitKmH: Double
+): Boolean = !automatic && requestedKmH > automaticOperatingLimitKmH + 1.0e-6
+
 internal fun railGeometryParametersChanged(
     currentDesignSpeedKmH: Double,
     currentRadiusMeters: Double,
@@ -101,6 +124,17 @@ internal fun railGeometryParametersChanged(
 ): Boolean = abs(newDesignSpeedKmH - currentDesignSpeedKmH) >= 1.0e-6 ||
     abs(newRadiusMeters - currentRadiusMeters) >= 1.0e-6 ||
     abs(newMaxSuperelevationMm - currentMaxSuperelevationMm) >= 1.0e-6
+
+internal fun curveSpeedAutomaticForRebuiltLane(
+    laneIndex: Int,
+    selectedLaneIndex: Int,
+    selectedAutomatic: Boolean,
+    oldLane: List<RailMetadata>
+): Boolean = if (laneIndex == selectedLaneIndex) {
+    selectedAutomatic
+} else {
+    oldLane.first().authoring?.curveSpeedLimitAutomatic != false
+}
 
 internal fun curveSpeedLimitForRebuiltLane(
     laneIndex: Int,
@@ -252,16 +286,20 @@ data class WandPlayerState(
     var autoDecorate: Boolean = true,
     /** 新增装饰和自动装饰使用的已加载轨道模型名。 */
     var decorationModel: String = "standard",
-    /** 曲线半径 (m)。0 = 自动选择 */
+    /** 创建约束中的精确曲线半径 (m)；自动模式下忽略。 */
     var curveRadius: Double = 0.0,
+    /** 是否自动求解曲线半径。 */
+    var automaticCurveRadius: Boolean = true,
     /** 曲线模板。AUTO 会按端点几何自动分类；STRAIGHT 保持水平朝向并采用右键高度。 */
     var curveTemplate: RailCurveTemplateType = RailCurveTemplateType.AUTO,
     /** 标准道岔号数，同时确定侧线半径和限速。 */
     var turnoutStandard: StandardTurnout = StandardTurnout.N9,
     /** 新建轨道的 SUBGRADE 上级限速。 */
     var designSpeedKmH: Double = 80.0,
-    /** CURVE 运营限速；0 表示按曲率和超高自动计算。 */
+    /** 创建约束中的 CURVE 最低运营限速；自动模式下忽略。 */
     var curveSpeedLimitKmH: Double = 0.0,
+    /** 是否忽略最低限速并直接采用自动计算的 CURVE 运营限速。 */
+    var automaticCurveSpeedLimit: Boolean = true,
     /** 运营限速计算允许的欠超高。 */
     var allowableCantDeficiencyMm: Double = 75.0,
     /** 五段式曲线是否按设计时速生成外轨超高。 */
@@ -294,7 +332,9 @@ internal data class SavedRailWandStateV1(
     val allowableCantDeficiencyMm: Double,
     val automaticSuperelevation: Boolean,
     val maxSuperelevationMm: Double,
-    val curveSpeedLimitKmH: Double = 0.0
+    val curveSpeedLimitKmH: Double = 0.0,
+    val automaticCurveRadius: Boolean = true,
+    val automaticCurveSpeedLimit: Boolean = true
 )
 
 internal object RailWandStateCodec {
@@ -324,7 +364,9 @@ internal object RailWandStateCodec {
             allowableCantDeficiencyMm = state.allowableCantDeficiencyMm,
             automaticSuperelevation = state.automaticSuperelevation,
             maxSuperelevationMm = state.maxSuperelevationMm,
-            curveSpeedLimitKmH = state.curveSpeedLimitKmH
+            curveSpeedLimitKmH = state.curveSpeedLimitKmH,
+            automaticCurveRadius = state.automaticCurveRadius,
+            automaticCurveSpeedLimit = state.automaticCurveSpeedLimit
         )
     )
 
@@ -355,10 +397,12 @@ internal object RailWandStateCodec {
             autoDecorate = saved.autoDecorate,
             decorationModel = saved.decorationModel.trim().also { require(it.isNotEmpty()) },
             curveRadius = saved.curveRadius,
+            automaticCurveRadius = saved.automaticCurveRadius,
             curveTemplate = enumValueOf<RailCurveTemplateType>(saved.curveTemplate),
             turnoutStandard = enumValueOf<StandardTurnout>(saved.turnoutStandard),
             designSpeedKmH = saved.designSpeedKmH,
             curveSpeedLimitKmH = saved.curveSpeedLimitKmH,
+            automaticCurveSpeedLimit = saved.automaticCurveSpeedLimit,
             allowableCantDeficiencyMm = saved.allowableCantDeficiencyMm,
             automaticSuperelevation = saved.automaticSuperelevation,
             maxSuperelevationMm = saved.maxSuperelevationMm
@@ -525,13 +569,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             order = 5
         }
         val curveRadius = ConfigKey.build<Double>("wand.curveRadius") {
-            label = "曲线半径"
-            description = "圆曲线半径 (m)。设为 0 则自动选择最优半径。"
+            label = "精确曲线半径"
+            description = "手动模式下必须达到的精确水平曲线半径。"
             defaultValue(0.0)
-            valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 10000.0, 10.0, "m")
+            valueType = ConfigValueType.NUMBER_TEXT
+            constraints = ConfigConstraints.NumberRange(0.0, 10000.0, 1.0, "m")
             group = "wand.settings"
             order = 6
+        }
+        val automaticCurveRadius = ConfigKey.build<Boolean>("wand.automaticCurveRadius") {
+            label = "自动半径"
+            description = "开启时忽略前面的半径数值并自动求解。"
+            defaultValue(true)
+            valueType = ConfigValueType.BOOLEAN
+            group = "wand.settings"
+            order = 7
         }
         val curveTemplate = ConfigKey.build<RailCurveTemplateType>("wand.curveTemplate") {
             label = "曲线模板"
@@ -543,7 +595,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 RailCurveTemplateType.entries.associateWith { it.displayName }
             )
             group = "wand.settings"
-            order = 7
+            order = 8
         }
         val turnoutStandard = ConfigKey.build<StandardTurnout>("wand.turnoutStandard") {
             label = "标准道岔号数"
@@ -555,7 +607,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 turnoutLabels
             )
             group = "wand.settings"
-            order = 8
+            order = 9
         }
         val designSpeedKmH = ConfigKey.build<Double>("wand.designSpeedKmH") {
             label = "路基限速 SUBGRADE"
@@ -564,16 +616,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(5.0, 500.0, 5.0, "km/h")
             group = "wand.settings"
-            order = 9
+            order = 10
         }
         val curveSpeedLimitKmH = ConfigKey.build<Double>("wand.curveSpeedLimitKmH") {
-            label = "曲线限速 CURVE"
-            description = "0 表示按曲率和超高自动计算；人工值仍受曲线安全阈值和 SUBGRADE 限制。"
+            label = "最低曲线运营限速"
+            description = "手动模式下，自动计算的 CURVE 运营限速不得低于该值。"
             defaultValue(0.0)
-            valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 500.0, 5.0, "km/h")
+            valueType = ConfigValueType.NUMBER_TEXT
+            constraints = ConfigConstraints.NumberRange(0.0, 500.0, 1.0, "km/h")
             group = "wand.settings"
-            order = 10
+            order = 11
+        }
+        val automaticCurveSpeedLimit = ConfigKey.build<Boolean>("wand.automaticCurveSpeedLimit") {
+            label = "自动限速"
+            description = "开启时忽略前面的最低限速并采用自动计算结果。"
+            defaultValue(true)
+            valueType = ConfigValueType.BOOLEAN
+            group = "wand.settings"
+            order = 12
         }
         val allowableCantDeficiencyMm = ConfigKey.build<Double>("wand.allowableCantDeficiencyMm") {
             label = "允许欠超高"
@@ -582,63 +642,87 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
             group = "wand.settings"
-            order = 11
-        }
-        val automaticSuperelevation = ConfigKey.build<Boolean>("wand.automaticSuperelevation") {
-            label = "自动外轨超高"
-            description = "五段式曲线按设计时速和半径自动生成外轨超高。"
-            defaultValue(true)
-            valueType = ConfigValueType.BOOLEAN
-            group = "wand.settings"
-            order = 12
+            order = 13
         }
         val maxSuperelevationMm = ConfigKey.build<Double>("wand.maxSuperelevationMm") {
             label = "最大外轨超高"
-            description = "自动外轨超高的上限。"
+            description = "创建轨道时允许使用的超高上限。"
             defaultValue(150.0)
             valueType = ConfigValueType.NUMBER
             constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
             group = "wand.settings"
-            order = 13
+            order = 14
+        }
+        val automaticSuperelevation = ConfigKey.build<Boolean>("wand.automaticSuperelevation") {
+            label = "自动外轨超高"
+            description = "开启时在最大超高约束内自动计算。"
+            defaultValue(true)
+            valueType = ConfigValueType.BOOLEAN
+            group = "wand.settings"
+            order = 15
         }
     }
 
     class RailEditKeys {
         val designSpeedKmH = ConfigKey.build<Double>("rail.edit.designSpeedKmH") {
-            label = "路基限速 SUBGRADE"
-            description = "该逻辑轨道的上级基础设施限速。"
+            label = "实际路基限速 SUBGRADE"
+            description = "当前逻辑轨道的实际上级基础设施限速。"
             defaultValue(80.0)
-            valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(5.0, 500.0, 5.0, "km/h")
+            valueType = ConfigValueType.NUMBER_TEXT
+            constraints = ConfigConstraints.NumberRange(5.0, 500.0, 1.0, "km/h")
             group = "rail.edit"
             order = 0
         }
         val curveSpeedLimitKmH = ConfigKey.build<Double>("rail.edit.curveSpeedLimitKmH") {
-            label = "曲线限速 CURVE"
-            description = "0 表示自动计算；人工值仍受物理安全阈值和 SUBGRADE 限制。"
+            label = "实际曲线运营限速"
+            description = "当前 CURVE 限速；高于自动运营限速时将触发几何重新计算。"
             defaultValue(0.0)
-            valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 500.0, 5.0, "km/h")
+            valueType = ConfigValueType.NUMBER_TEXT
+            constraints = ConfigConstraints.NumberRange(0.0, 100000.0, 1.0, "km/h")
             group = "rail.edit"
             order = 1
         }
-        val curveRadius = ConfigKey.build<Double>("rail.edit.curveRadius") {
-            label = "曲线半径"
-            description = "0 表示自动选择；S弯中作为最小半径。并行线路会整组重建。"
-            defaultValue(0.0)
-            valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 10000.0, 10.0, "m")
+        val automaticCurveSpeedLimit = ConfigKey.build<Boolean>("rail.edit.automaticCurveSpeedLimit") {
+            label = "自动限速"
+            description = "确认后忽略数值框并重新计算实际 CURVE 运营限速。"
+            defaultValue(true)
+            valueType = ConfigValueType.BOOLEAN
             group = "rail.edit"
             order = 2
         }
-        val maxSuperelevationMm = ConfigKey.build<Double>("rail.edit.maxSuperelevationMm") {
-            label = "最大超高"
-            description = "该曲线允许的最大外轨超高；并行线路会整组重建。"
-            defaultValue(150.0)
-            valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 300.0, 5.0, "mm")
+        val curveRadius = ConfigKey.build<Double>("rail.edit.curveRadius") {
+            label = "实际曲线半径"
+            description = "当前最小水平曲线半径；手动模式下作为精确目标。"
+            defaultValue(0.0)
+            valueType = ConfigValueType.NUMBER_TEXT
+            constraints = ConfigConstraints.NumberRange(0.0, 1.0e9, 1.0, "m")
             group = "rail.edit"
             order = 3
+        }
+        val automaticCurveRadius = ConfigKey.build<Boolean>("rail.edit.automaticCurveRadius") {
+            label = "自动半径"
+            description = "确认后忽略数值框并重新求解曲线半径。"
+            defaultValue(true)
+            valueType = ConfigValueType.BOOLEAN
+            group = "rail.edit"
+            order = 4
+        }
+        val maxSuperelevationMm = ConfigKey.build<Double>("rail.edit.maxSuperelevationMm") {
+            label = "实际最大超高"
+            description = "当前曲线实际应用的最大超高。"
+            defaultValue(0.0)
+            valueType = ConfigValueType.NUMBER_TEXT
+            constraints = ConfigConstraints.NumberRange(0.0, 10000.0, 1.0, "mm")
+            group = "rail.edit"
+            order = 5
+        }
+        val automaticSuperelevation = ConfigKey.build<Boolean>("rail.edit.automaticSuperelevation") {
+            label = "自动超高"
+            description = "确认后忽略数值框并重新计算实际超高。"
+            defaultValue(true)
+            valueType = ConfigValueType.BOOLEAN
+            group = "rail.edit"
+            order = 6
         }
     }
 
@@ -723,13 +807,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             description = "普通曲线、标准道岔与基础设施参数",
             items = mutableListOf(
                 ConfigItemImpl(wandKeys.curveRadius),
+                ConfigItemImpl(wandKeys.automaticCurveRadius),
                 ConfigItemImpl(wandKeys.curveTemplate),
                 ConfigItemImpl(wandKeys.turnoutStandard),
                 ConfigItemImpl(wandKeys.designSpeedKmH),
                 ConfigItemImpl(wandKeys.curveSpeedLimitKmH),
+                ConfigItemImpl(wandKeys.automaticCurveSpeedLimit),
                 ConfigItemImpl(wandKeys.allowableCantDeficiencyMm),
-                ConfigItemImpl(wandKeys.automaticSuperelevation),
-                ConfigItemImpl(wandKeys.maxSuperelevationMm)
+                ConfigItemImpl(wandKeys.maxSuperelevationMm),
+                ConfigItemImpl(wandKeys.automaticSuperelevation)
             )
         ))
 
@@ -752,8 +838,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             items = mutableListOf(
                 ConfigItemImpl(railEditKeys.designSpeedKmH),
                 ConfigItemImpl(railEditKeys.curveSpeedLimitKmH),
+                ConfigItemImpl(railEditKeys.automaticCurveSpeedLimit),
                 ConfigItemImpl(railEditKeys.curveRadius),
-                ConfigItemImpl(railEditKeys.maxSuperelevationMm)
+                ConfigItemImpl(railEditKeys.automaticCurveRadius),
+                ConfigItemImpl(railEditKeys.maxSuperelevationMm),
+                ConfigItemImpl(railEditKeys.automaticSuperelevation)
             )
         ))
 
@@ -785,6 +874,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ?: (configUI.get(wandKeys.autoDecorate) ?: true)
         state.curveRadius = session.getValue(wandKeys.curveRadius)
             ?: (configUI.get(wandKeys.curveRadius) ?: 0.0)
+        state.automaticCurveRadius = session.getValue(wandKeys.automaticCurveRadius)
+            ?: (configUI.get(wandKeys.automaticCurveRadius) ?: true)
         state.curveTemplate = session.getValue(wandKeys.curveTemplate)
             ?: (configUI.get(wandKeys.curveTemplate) ?: RailCurveTemplateType.AUTO)
         state.turnoutStandard = session.getValue(wandKeys.turnoutStandard)
@@ -793,6 +884,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ?: (configUI.get(wandKeys.designSpeedKmH) ?: 80.0)
         state.curveSpeedLimitKmH = session.getValue(wandKeys.curveSpeedLimitKmH)
             ?: (configUI.get(wandKeys.curveSpeedLimitKmH) ?: 0.0)
+        state.automaticCurveSpeedLimit = session.getValue(wandKeys.automaticCurveSpeedLimit)
+            ?: (configUI.get(wandKeys.automaticCurveSpeedLimit) ?: true)
         state.allowableCantDeficiencyMm = session.getValue(wandKeys.allowableCantDeficiencyMm)
             ?: (configUI.get(wandKeys.allowableCantDeficiencyMm) ?: 75.0)
         state.automaticSuperelevation = session.getValue(wandKeys.automaticSuperelevation)
@@ -813,10 +906,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(wandKeys.openConfigAfterCreate, state.openConfigAfterCreate)
         session.setValue(wandKeys.autoDecorate, state.autoDecorate)
         session.setValue(wandKeys.curveRadius, state.curveRadius)
+        session.setValue(wandKeys.automaticCurveRadius, state.automaticCurveRadius)
         session.setValue(wandKeys.curveTemplate, state.curveTemplate)
         session.setValue(wandKeys.turnoutStandard, state.turnoutStandard)
         session.setValue(wandKeys.designSpeedKmH, state.designSpeedKmH)
         session.setValue(wandKeys.curveSpeedLimitKmH, state.curveSpeedLimitKmH)
+        session.setValue(wandKeys.automaticCurveSpeedLimit, state.automaticCurveSpeedLimit)
         session.setValue(wandKeys.allowableCantDeficiencyMm, state.allowableCantDeficiencyMm)
         session.setValue(wandKeys.automaticSuperelevation, state.automaticSuperelevation)
         session.setValue(wandKeys.maxSuperelevationMm, state.maxSuperelevationMm)
@@ -1018,9 +1113,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val parallelCount: Int,
         val parallelSpacing: Double,
         val curveRadius: Double,
+        val automaticCurveRadius: Boolean,
         val curveTemplate: RailCurveTemplateType,
         val designSpeedKmH: Double,
         val curveSpeedLimitKmH: Double,
+        val automaticCurveSpeedLimit: Boolean,
+        val curveSpeedLimitIsCreationMinimum: Boolean = true,
         val allowableCantDeficiencyMm: Double,
         val automaticSuperelevation: Boolean,
         val maxSuperelevationMm: Double,
@@ -1184,10 +1282,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return CurveBuildSettingsSnapshot(
             parallelCount = state.parallelCount,
             parallelSpacing = state.parallelSpacing,
-            curveRadius = state.curveRadius,
+            curveRadius = if (state.automaticCurveRadius) 0.0 else state.curveRadius,
+            automaticCurveRadius = state.automaticCurveRadius,
             curveTemplate = state.curveTemplate,
             designSpeedKmH = state.designSpeedKmH,
             curveSpeedLimitKmH = state.curveSpeedLimitKmH,
+            automaticCurveSpeedLimit = state.automaticCurveSpeedLimit,
+            curveSpeedLimitIsCreationMinimum = true,
             allowableCantDeficiencyMm = state.allowableCantDeficiencyMm,
             automaticSuperelevation = state.automaticSuperelevation,
             maxSuperelevationMm = state.maxSuperelevationMm,
@@ -1198,6 +1299,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     /** 连接已选择的锚点组，使用 ConstraintSolver 创建曲线 → CoreRail → 渲染 */
     internal fun connectSelectedAnchors(player: Player, state: WandPlayerState) {
+        if (!state.automaticCurveRadius && state.curveRadius <= 0.0) {
+            player.sendActionBar(Component.text("手动曲线半径必须大于 0", NamedTextColor.RED))
+            return
+        }
+        if (!state.automaticCurveSpeedLimit && state.curveSpeedLimitKmH <= 0.0) {
+            player.sendActionBar(Component.text("最低曲线运营限速必须大于 0", NamedTextColor.RED))
+            return
+        }
         if (state.mode != WandMode.CREATE && state.curveTemplate == RailCurveTemplateType.TWO_POINT_STRAIGHT) {
             player.sendActionBar(Component.text("两点直线模板仅用于创建模式", NamedTextColor.RED))
             return
@@ -1914,25 +2023,33 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         metadata: RailMetadata?,
         settings: CurveBuildSettingsSnapshot
     ): RailSpeedLimits {
-        val subgradeLimit = metadata?.speedLimits?.value(work.art1st.javarailways.basic.rail.SpeedLimitType.SUBGRADE)
-            ?: metadata?.designSpeedMetersPerSecond
-            ?: settings.designSpeedKmH / 3.6
-        val manualCurveLimit = if (metadata == null) {
-            settings.curveSpeedLimitKmH.takeIf { it > 0.0 }?.div(3.6)
-        } else {
-            metadata.speedLimits.value(work.art1st.javarailways.basic.rail.SpeedLimitType.CURVE)
-                ?.takeIf { metadata.authoring?.curveSpeedLimitAutomatic == false }
-        }
-        val geometryLimits = RailSpeedCalculator.calculate(
+        val automatic = RailSpeedCalculator.calculate(
             curve = curve,
-            requestedLimitMetersPerSecond = subgradeLimit,
+            requestedLimitMetersPerSecond = Double.MAX_VALUE,
             allowableCantDeficiencyMeters = metadata?.geometry?.allowableCantDeficiencyMeters
                 ?: settings.allowableCantDeficiencyMm / 1000.0,
             derailLateralAccelerationMetersPerSecondSquared =
                 plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
             physics = plugin.physicsConfig.railSpeedPhysics()
         )
-        return RailSpeedLimitPolicy.apply(geometryLimits, subgradeLimit, manualCurveLimit)
+        if (automatic.derailSpeedMetersPerSecond == null) {
+            return RailSpeedLimits(settings.designSpeedKmH / 3.6, null)
+        }
+
+        val automaticMode = metadata?.authoring?.curveSpeedLimitAutomatic
+            ?: settings.automaticCurveSpeedLimit
+        val requestedMetersPerSecond = if (metadata != null) {
+            metadata.speedLimits.value(SpeedLimitType.CURVE)
+        } else {
+            settings.curveSpeedLimitKmH.takeIf { it > 0.0 }?.div(3.6)
+        }
+        val resolved = resolveCurveOperatingLimitMetersPerSecond(
+            automaticLimit = automatic.operatingLimitMetersPerSecond,
+            requestedLimit = requestedMetersPerSecond,
+            automatic = automaticMode,
+            creationMinimum = metadata == null && settings.curveSpeedLimitIsCreationMinimum
+        )
+        return automatic.copy(operatingLimitMetersPerSecond = resolved)
     }
 
     @OptIn(Heavy::class)
@@ -1978,9 +2095,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return RailCurveBuildOptions(
             template = settings.curveTemplate,
             radius = settings.curveRadius,
-            superelevation = if (settings.automaticSuperelevation) {
-                SuperelevationConfig(
+            superelevation = when {
+                settings.automaticSuperelevation -> SuperelevationConfig(
                     maxSuperelevation = settings.maxSuperelevationMm / 1000.0,
+                    autoCalculate = true,
                     designSpeedKmH = (
                         settings.designSpeedKmH - physics.track.cantBalanceSpeedOffsetKmH
                     ).coerceAtLeast(0.0),
@@ -1988,8 +2106,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     gaugeMeters = physics.track.gaugeMeters,
                     gravityMetersPerSecondSquared = physics.track.gravityMetersPerSecondSquared
                 )
-            } else {
-                null
+                settings.maxSuperelevationMm > 0.0 -> SuperelevationConfig(
+                    maxSuperelevation = settings.maxSuperelevationMm / 1000.0,
+                    autoCalculate = false,
+                    maxCantGradient = physics.track.maximumCantGradient,
+                    gaugeMeters = physics.track.gaugeMeters,
+                    gravityMetersPerSecondSquared = physics.track.gravityMetersPerSecondSquared
+                )
+                else -> null
             },
             geometry = physics.railGeometryParameters()
         )
@@ -2019,7 +2143,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     allowableCantDeficiencyMeters = settings.allowableCantDeficiencyMm / 1000.0,
                     parallel = parallel
                 ),
-                curveSpeedLimitAutomatic = settings.curveSpeedLimitKmH <= 0.0
+                curveSpeedLimitAutomatic = settings.automaticCurveSpeedLimit
             ),
             operating = RailOperatingMetadata(allowedDirection = allowedDirection),
             speedLimits = SpeedLimitMetadata(limits),
@@ -2322,78 +2446,184 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
     }
 
+    private data class RailActualValues(
+        val subgradeSpeedKmH: Double,
+        val curveOperatingSpeedKmH: Double,
+        val automaticCurveOperatingSpeedKmH: Double,
+        val radiusMeters: Double,
+        val superelevationMm: Double,
+        val automaticCurveSpeed: Boolean,
+        val automaticRadius: Boolean,
+        val automaticSuperelevation: Boolean
+    )
+
+    @OptIn(Heavy::class)
+    private fun measureRailActualValues(rails: List<CoreRail>): RailActualValues {
+        val first = rails.first()
+        val measurements = RailGeometryMeasurementService.measure(
+            rails.map { it.curve },
+            plugin.physicsConfig.track.gaugeMeters
+        )
+        val automaticLimits = rails.mapNotNull { rail ->
+            RailSpeedCalculator.calculate(
+                curve = rail.curve,
+                requestedLimitMetersPerSecond = Double.MAX_VALUE,
+                allowableCantDeficiencyMeters = rail.metadata.geometry.allowableCantDeficiencyMeters,
+                derailLateralAccelerationMetersPerSecondSquared =
+                    plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
+                physics = plugin.physicsConfig.railSpeedPhysics()
+            ).takeIf { it.derailSpeedMetersPerSecond != null }?.operatingLimitMetersPerSecond
+        }
+        val automaticCurveSpeed = first.metadata.authoring?.curveSpeedLimitAutomatic != false
+        val actualCurveLimit = if (automaticCurveSpeed) {
+            automaticLimits.minOrNull()
+        } else {
+            rails.mapNotNull { it.metadata.speedLimits.value(SpeedLimitType.CURVE) }.minOrNull()
+        } ?: automaticLimits.minOrNull() ?: 0.0
+        return RailActualValues(
+            subgradeSpeedKmH = (rails.firstNotNullOfOrNull {
+                it.metadata.speedLimits.value(SpeedLimitType.SUBGRADE)
+            } ?: first.metadata.designSpeedMetersPerSecond ?: 80.0 / 3.6) * 3.6,
+            curveOperatingSpeedKmH = actualCurveLimit * 3.6,
+            automaticCurveOperatingSpeedKmH = (automaticLimits.minOrNull() ?: 0.0) * 3.6,
+            radiusMeters = measurements.minimumHorizontalRadiusMeters ?: 0.0,
+            superelevationMm = measurements.maximumSuperelevationMeters * 1000.0,
+            automaticCurveSpeed = automaticCurveSpeed,
+            automaticRadius = first.metadata.geometry.curveRadiusMeters == null,
+            automaticSuperelevation = first.metadata.geometry.automaticSuperelevation
+        )
+    }
+
     internal fun editRail(player: Player, rail: CoreRail, state: WandPlayerState) {
         val selectedLogicalRails = logicalRails(player, rail)
-        val currentSpeedKmH = selectedLogicalRails.firstNotNullOfOrNull {
-            it.metadata.speedLimits.value(SpeedLimitType.SUBGRADE)
-        }?.times(3.6) ?: state.designSpeedKmH
-        val curveMetadata = selectedLogicalRails.firstOrNull {
-            it.metadata.speedLimits.value(SpeedLimitType.CURVE) != null
-        }?.metadata
-        val currentCurveSpeedKmH = curveMetadata
-            ?.takeIf { it.authoring?.curveSpeedLimitAutomatic == false }
-            ?.speedLimits?.value(SpeedLimitType.CURVE)?.times(3.6) ?: 0.0
-        val currentRadius = rail.metadata.geometry.curveRadiusMeters ?: 0.0
-        val currentMaxSuperelevationMm = rail.metadata.geometry.maxSuperelevationMeters * 1000.0
+        val railIds = selectedLogicalRails.map(CoreRail::id)
+        val curves = selectedLogicalRails.associate { it.id to it.curve }
+        val metadata = selectedLogicalRails.associate { it.id to it.metadata }
         state.selectedAnchors.clear()
         state.selectedRails.clear()
         state.selectedRails.add(rail.id)
-        state.designSpeedKmH = currentSpeedKmH
-        state.curveSpeedLimitKmH = currentCurveSpeedKmH
-        state.curveRadius = currentRadius
-        state.maxSuperelevationMm = currentMaxSuperelevationMm
         updateAnchorDisplay(player)
 
+        val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "读取轨道实际参数")
+        if (pendingOperation != null) {
+            player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
+            return
+        }
+        val worldId = player.world.uid
+        player.sendActionBar(Component.text("正在测量轨道实际参数...", NamedTextColor.GRAY))
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            completionEntity = player,
+            operation = "RailWand.editRail.measure",
+            supplier = { measureRailActualValues(selectedLogicalRails) },
+            onSuccess = { actual ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId) return@supply
+                val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                if (railIds.any { id ->
+                        liveWorld.getRail(id)?.let { it.curve !== curves[id] || it.metadata != metadata[id] } != false
+                    }
+                ) {
+                    livePlayer.sendActionBar(Component.text("轨道已变化，请重新打开编辑器", NamedTextColor.YELLOW))
+                    return@supply
+                }
+                openRailEditDialog(livePlayer, rail.id, actual)
+            },
+            onFailure = { failure ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("Rail actual-value measurement failed: ${failure.message ?: failure::class.simpleName}")
+                plugin.server.getPlayer(player.uniqueId)?.sendMessage(Component.text(
+                    "读取轨道实际参数失败：${railWandFailureReason(failure)}",
+                    NamedTextColor.RED
+                ))
+            }
+        )
+    }
+
+    private fun openRailEditDialog(player: Player, railId: UUID, actual: RailActualValues) {
         val session = configUI.getPlayerSession(player.uniqueId)
-        session.setValue(railEditKeys.designSpeedKmH, currentSpeedKmH)
-        session.setValue(railEditKeys.curveSpeedLimitKmH, currentCurveSpeedKmH)
-        session.setValue(railEditKeys.curveRadius, currentRadius)
-        session.setValue(railEditKeys.maxSuperelevationMm, currentMaxSuperelevationMm)
+        session.setValue(railEditKeys.designSpeedKmH, actual.subgradeSpeedKmH)
+        session.setValue(railEditKeys.curveSpeedLimitKmH, actual.curveOperatingSpeedKmH)
+        session.setValue(railEditKeys.automaticCurveSpeedLimit, actual.automaticCurveSpeed)
+        session.setValue(railEditKeys.curveRadius, actual.radiusMeters)
+        session.setValue(railEditKeys.automaticCurveRadius, actual.automaticRadius)
+        session.setValue(railEditKeys.maxSuperelevationMm, actual.superelevationMm)
+        session.setValue(railEditKeys.automaticSuperelevation, actual.automaticSuperelevation)
         dialogRenderer.showConfigDialog(player, "rail.edit") { p ->
             val liveWorld = getCoreWorld(p) ?: return@showConfigDialog
-            val liveRail = liveWorld.getRail(rail.id) ?: run {
+            val liveRail = liveWorld.getRail(railId) ?: run {
                 p.sendActionBar(Component.text("轨道已不存在", NamedTextColor.RED))
                 return@showConfigDialog
             }
             val values = configUI.getPlayerSession(p.uniqueId)
-            val designSpeedKmH = values.getValue(railEditKeys.designSpeedKmH) ?: currentSpeedKmH
+            val designSpeedKmH = values.getValue(railEditKeys.designSpeedKmH) ?: actual.subgradeSpeedKmH
             val curveSpeedLimitKmH = values.getValue(railEditKeys.curveSpeedLimitKmH)
-                ?: currentCurveSpeedKmH
-            val curveRadius = values.getValue(railEditKeys.curveRadius) ?: currentRadius
-            val maxSuperelevationMm = values.getValue(railEditKeys.maxSuperelevationMm)
-                ?: currentMaxSuperelevationMm
-            val liveState = getState(p)
-            liveState.designSpeedKmH = designSpeedKmH
-            liveState.curveSpeedLimitKmH = curveSpeedLimitKmH
-            liveState.curveRadius = curveRadius
-            liveState.maxSuperelevationMm = maxSuperelevationMm
-            persistState(p, liveState)
+                ?: actual.curveOperatingSpeedKmH
+            val automaticCurveSpeed = values.getValue(railEditKeys.automaticCurveSpeedLimit)
+                ?: actual.automaticCurveSpeed
+            val curveRadius = values.getValue(railEditKeys.curveRadius) ?: actual.radiusMeters
+            val automaticRadius = values.getValue(railEditKeys.automaticCurveRadius) ?: actual.automaticRadius
+            val superelevationMm = values.getValue(railEditKeys.maxSuperelevationMm) ?: actual.superelevationMm
+            val automaticSuperelevation = values.getValue(railEditKeys.automaticSuperelevation)
+                ?: actual.automaticSuperelevation
+            if (!automaticCurveSpeed && curveSpeedLimitKmH <= 0.0) {
+                p.sendActionBar(Component.text("手动曲线限速必须大于 0", NamedTextColor.RED))
+                return@showConfigDialog
+            }
+            if (!automaticRadius && curveRadius <= 0.0) {
+                p.sendActionBar(Component.text("手动曲线半径必须大于 0", NamedTextColor.RED))
+                return@showConfigDialog
+            }
 
-            val geometryChanged = railGeometryParametersChanged(
-                currentDesignSpeedKmH = currentSpeedKmH,
-                currentRadiusMeters = currentRadius,
-                currentMaxSuperelevationMm = currentMaxSuperelevationMm,
-                newDesignSpeedKmH = designSpeedKmH,
-                newRadiusMeters = curveRadius,
-                newMaxSuperelevationMm = maxSuperelevationMm
+            val geometryChanged = automaticRadius != actual.automaticRadius ||
+                automaticSuperelevation != actual.automaticSuperelevation ||
+                (!automaticRadius && abs(curveRadius - actual.radiusMeters) >= 1.0e-6) ||
+                (!automaticSuperelevation && abs(superelevationMm - actual.superelevationMm) >= 1.0e-6) ||
+                (automaticSuperelevation && abs(designSpeedKmH - actual.subgradeSpeedKmH) >= 1.0e-6)
+            val speedRequiresGeometry = curveSpeedRequiresGeometryRebuild(
+                curveSpeedLimitKmH,
+                automaticCurveSpeed,
+                actual.automaticCurveOperatingSpeedKmH
             )
-            val curveSpeedChanged = abs(curveSpeedLimitKmH - currentCurveSpeedKmH) >= 1.0e-6
-            when {
-                geometryChanged -> rebuildRailGeometry(
-                    p,
-                    liveRail,
-                    designSpeedKmH,
-                    curveSpeedLimitKmH,
-                    curveRadius,
-                    maxSuperelevationMm
+            val speedChanged = automaticCurveSpeed != actual.automaticCurveSpeed ||
+                (!automaticCurveSpeed &&
+                    abs(curveSpeedLimitKmH - actual.curveOperatingSpeedKmH) >= 1.0e-6)
+            val subgradeChanged = abs(designSpeedKmH - actual.subgradeSpeedKmH) >= 1.0e-6
+
+            if (geometryChanged || speedRequiresGeometry) {
+                val existingGeometry = liveRail.metadata.geometry
+                rebuildRailGeometry(
+                    player = p,
+                    selectedRail = liveRail,
+                    designSpeedKmH = designSpeedKmH,
+                    curveSpeedLimitKmH = curveSpeedLimitKmH,
+                    automaticCurveSpeedLimit = automaticCurveSpeed,
+                    curveRadius = if (automaticRadius) 0.0 else curveRadius,
+                    automaticCurveRadius = automaticRadius,
+                    maxSuperelevationMm = if (automaticSuperelevation) {
+                        existingGeometry.maxSuperelevationMeters * 1000.0
+                    } else {
+                        superelevationMm
+                    },
+                    automaticSuperelevation = automaticSuperelevation
                 )
-                curveSpeedChanged -> updateCurveSpeedLimit(
-                    p,
-                    liveRail,
-                    curveSpeedLimitKmH,
-                    snapshotCurveBuildSettings(liveState)
+            } else if (speedChanged || subgradeChanged) {
+                updateCurveSpeedLimit(
+                    player = p,
+                    selectedRail = liveRail,
+                    designSpeedKmH = designSpeedKmH,
+                    curveSpeedLimitKmH = curveSpeedLimitKmH,
+                    automaticCurveSpeedLimit = automaticCurveSpeed,
+                    settings = snapshotCurveBuildSettings(getState(p)).copy(
+                        designSpeedKmH = designSpeedKmH,
+                        curveSpeedLimitKmH = curveSpeedLimitKmH,
+                        automaticCurveSpeedLimit = automaticCurveSpeed,
+                        curveSpeedLimitIsCreationMinimum = false
+                    )
                 )
-                else -> p.sendActionBar(Component.text("轨道参数未变化", NamedTextColor.GRAY))
+            } else {
+                p.sendActionBar(Component.text("轨道参数未变化", NamedTextColor.GRAY))
             }
         }
     }
@@ -2439,15 +2669,19 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun updateCurveSpeedLimit(
         player: Player,
         selectedRail: CoreRail,
+        designSpeedKmH: Double,
         curveSpeedLimitKmH: Double,
+        automaticCurveSpeedLimit: Boolean,
         settings: CurveBuildSettingsSnapshot
     ) {
+        require(designSpeedKmH.isFinite() && designSpeedKmH > 0.0)
         require(curveSpeedLimitKmH.isFinite() && curveSpeedLimitKmH >= 0.0)
         val world = getCoreWorld(player) ?: return
         val targetRails = logicalRails(world, selectedRail)
         val before = targetRails.associate { it.id to it.metadata }
         val curves = targetRails.associate { it.id to it.curve }
-        val manualLimit = curveSpeedLimitKmH.takeIf { it > 0.0 }?.div(3.6)
+        val manualLimit = curveSpeedLimitKmH.takeUnless { automaticCurveSpeedLimit }?.div(3.6)
+        val subgradeLimit = designSpeedKmH / 3.6
         val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "曲线限速更新")
         if (pendingOperation != null) {
             player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
@@ -2463,23 +2697,27 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             supplier = {
                 targetRails.associate { rail ->
                     val current = before.getValue(rail.id)
-                    val automatic = manualLimit == null
                     val authoring = (current.authoring ?: RailAuthoringMetadata()).copy(
-                        curveSpeedLimitAutomatic = automatic
+                        designSpeedMetersPerSecond = subgradeLimit,
+                        curveSpeedLimitAutomatic = automaticCurveSpeedLimit
                     )
                     val requestedEntries = current.speedLimits.entries
-                        .filterNot { it.type == SpeedLimitType.CURVE }
+                        .filterNot { it.type == SpeedLimitType.CURVE || it.type == SpeedLimitType.SUBGRADE }
                         .toMutableList()
-                        .apply { manualLimit?.let { add(SpeedLimitEntry(it, SpeedLimitType.CURVE)) } }
+                        .apply {
+                            add(SpeedLimitEntry(subgradeLimit, SpeedLimitType.SUBGRADE))
+                            manualLimit?.let { add(SpeedLimitEntry(it, SpeedLimitType.CURVE)) }
+                        }
                     val requestedMetadata = current.copy(
                         authoring = authoring,
                         speedLimits = SpeedLimitMetadata(requestedEntries)
                     )
                     val calculated = calculateSpeedLimits(curves.getValue(rail.id), requestedMetadata, settings)
                     val effectiveEntries = current.speedLimits.entries
-                        .filterNot { it.type == SpeedLimitType.CURVE }
+                        .filterNot { it.type == SpeedLimitType.CURVE || it.type == SpeedLimitType.SUBGRADE }
                         .toMutableList()
                         .apply {
+                            add(SpeedLimitEntry(subgradeLimit, SpeedLimitType.SUBGRADE))
                             calculated.derailSpeedMetersPerSecond?.let {
                                 add(SpeedLimitEntry(calculated.operatingLimitMetersPerSecond, SpeedLimitType.CURVE))
                             }
@@ -2509,7 +2747,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 }
                 try {
                     liveRails.forEach { rail -> rail.metadata = updates.getValue(rail.id) }
-                    livePlayer.sendActionBar(Component.text("所选线路的曲线限速已更新", NamedTextColor.GREEN))
+                    refreshAnchorsForAllViewers()
+                    livePlayer.sendActionBar(Component.text("所选线路的限速已更新", NamedTextColor.GREEN))
                 } catch (failure: Exception) {
                     liveRails.forEach { rail -> before[rail.id]?.let { rail.metadata = it } }
                     livePlayer.sendMessage(Component.text(
@@ -2534,8 +2773,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         selectedRail: CoreRail,
         designSpeedKmH: Double,
         curveSpeedLimitKmH: Double,
+        automaticCurveSpeedLimit: Boolean,
         curveRadius: Double,
-        maxSuperelevationMm: Double
+        automaticCurveRadius: Boolean,
+        maxSuperelevationMm: Double,
+        automaticSuperelevation: Boolean
     ) {
         val coreWorld = getCoreWorld(player) ?: return
         val oldLanes = railAssemblyLanes(coreWorld, selectedRail)
@@ -2564,11 +2806,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             parallelCount = oldLanes.size,
             parallelSpacing = parallel?.spacingMeters ?: 4.5,
             curveRadius = curveRadius,
+            automaticCurveRadius = automaticCurveRadius,
             curveTemplate = template,
             designSpeedKmH = designSpeedKmH,
             curveSpeedLimitKmH = curveSpeedLimitKmH,
+            automaticCurveSpeedLimit = automaticCurveSpeedLimit,
+            curveSpeedLimitIsCreationMinimum = false,
             allowableCantDeficiencyMm = geometry.allowableCantDeficiencyMeters * 1000.0,
-            automaticSuperelevation = geometry.automaticSuperelevation,
+            automaticSuperelevation = automaticSuperelevation,
             maxSuperelevationMm = maxSuperelevationMm
         )
         val starts = oldLanes.map { anchorFromRailEndpoint(player.world, it.first(), 'A') }
@@ -2626,13 +2871,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 try {
                     builtLanes.forEachIndexed { laneIndex, parts ->
                         val oldLane = oldLanes[laneIndex]
+                        val oldLaneMetadata = oldLane.map { it.metadata }
                         val laneSettings = settings.copy(
                             curveSpeedLimitKmH = curveSpeedLimitForRebuiltLane(
                                 laneIndex,
                                 selectedLane,
                                 curveSpeedLimitKmH,
-                                oldLane.map { it.metadata }
-                            )
+                                oldLaneMetadata
+                            ),
+                            automaticCurveSpeedLimit = curveSpeedAutomaticForRebuiltLane(
+                                laneIndex,
+                                selectedLane,
+                                automaticCurveSpeedLimit,
+                                oldLaneMetadata
+                            ),
+                            curveSpeedLimitIsCreationMinimum = false
                         )
                         val newLane = parts.mapIndexed { segmentIndex, part ->
                             val oldForRole = oldLane.firstOrNull { it.metadata.assembly?.role == part.role }
@@ -3831,34 +4084,94 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
     }
 
+    private data class RailInfoDisplayPlan(val position: Vector3d, val text: String)
+
+    @OptIn(Heavy::class)
     private fun spawnSpeedLimitDisplays(player: Player) {
         val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[player.world] as? CoreWorld ?: return
         val entities = ConcurrentHashMap.newKeySet<TextDisplay>()
         speedLimitEntities[player.uniqueId] = entities
-        coreWorld.allRails.forEach { rail ->
-            val limit = rail.metadata.speedLimits.value(SpeedLimitType.CURVE) ?: return@forEach
-            val subgrade = rail.metadata.speedLimits.value(SpeedLimitType.SUBGRADE)
-            if (!limit.isFinite() || subgrade == null || limit >= subgrade - 1.0e-6) return@forEach
-            val point = rail.curve.getPointAt(rail.curve.totalArcLength / 2.0)
-            val location = Location(player.world, point.position.x(), point.position.y() + 1.8, point.position.z())
-            plugin.platformDispatcher.runAt(location) spawnTask@{
-                if (speedLimitEntities[player.uniqueId] !== entities) return@spawnTask
-                val display = player.world.spawn(location, TextDisplay::class.java) { entity ->
-                    entity.text(Component.text(
-                        "CURVE ${limit.times(3.6).roundToInt()} / SUBGRADE ${subgrade.times(3.6).roundToInt()} km/h",
-                        NamedTextColor.YELLOW
-                    ))
-                    entity.billboard = Display.Billboard.CENTER
-                    entity.isPersistent = false
-                    entity.isVisibleByDefault = false
-                    entity.isShadowed = true
+        val groups = coreWorld.allRails.groupBy { rail ->
+            rail.metadata.assembly?.let { "${it.groupId}:${it.laneIndex}" } ?: rail.id.toString()
+        }.values.map { rails ->
+            rails.sortedBy { it.metadata.assembly?.segmentIndex ?: 0 }
+        }
+        val worldId = player.world.uid
+        plugin.server.asyncScheduler.runNow(plugin) {
+            val plans = groups.mapNotNull { rails ->
+                val measured = RailGeometryMeasurementService.measure(
+                    rails.map { it.curve },
+                    plugin.physicsConfig.track.gaugeMeters
+                )
+                val radius = measured.minimumHorizontalRadiusMeters ?: return@mapNotNull null
+                val totalLength = rails.sumOf { it.curve.totalArcLength }
+                var remaining = totalLength / 2.0
+                val middleRail = rails.firstOrNull { rail ->
+                    if (remaining <= rail.curve.totalArcLength) true
+                    else {
+                        remaining -= rail.curve.totalArcLength
+                        false
+                    }
+                } ?: rails.last()
+                val point = middleRail.curve.getPointAt(
+                    remaining.coerceIn(0.0, middleRail.curve.totalArcLength)
+                )
+                val automaticCurveSpeed = rails.first().metadata.authoring?.curveSpeedLimitAutomatic != false
+                val limit = if (automaticCurveSpeed) {
+                    rails.mapNotNull { rail ->
+                        RailSpeedCalculator.calculate(
+                            curve = rail.curve,
+                            requestedLimitMetersPerSecond = Double.MAX_VALUE,
+                            allowableCantDeficiencyMeters = rail.metadata.geometry.allowableCantDeficiencyMeters,
+                            derailLateralAccelerationMetersPerSecondSquared =
+                                plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
+                            physics = plugin.physicsConfig.railSpeedPhysics()
+                        ).takeIf { it.derailSpeedMetersPerSecond != null }?.operatingLimitMetersPerSecond
+                    }.minOrNull()
+                } else {
+                    rails.mapNotNull { it.metadata.speedLimits.value(SpeedLimitType.CURVE) }.minOrNull()
                 }
-                entities.add(display)
-                plugin.platformDispatcher.runForEntity(player, action = {
-                    if (speedLimitEntities[player.uniqueId] === entities) player.showEntity(plugin, display)
-                    else display.remove()
-                }, retired = { display.remove() })
+                val subgrade = rails.mapNotNull {
+                    it.metadata.speedLimits.value(SpeedLimitType.SUBGRADE)
+                }.minOrNull()
+                val text = buildString {
+                    append("R ").append(radius.roundToInt()).append(" m")
+                    if (limit != null && subgrade != null) {
+                        append("\nCURVE ").append((limit * 3.6).roundToInt())
+                            .append(" / SUBGRADE ").append((subgrade * 3.6).roundToInt())
+                            .append(" km/h")
+                    }
+                }
+                RailInfoDisplayPlan(Vector3d(point.position), text)
             }
+            plugin.platformDispatcher.runForEntity(player, action = showPlans@{
+                if (player.world.uid != worldId || speedLimitEntities[player.uniqueId] !== entities) {
+                    return@showPlans
+                }
+                plans.forEach { plan ->
+                    val location = Location(
+                        player.world,
+                        plan.position.x(),
+                        plan.position.y() + 1.8,
+                        plan.position.z()
+                    )
+                    plugin.platformDispatcher.runAt(location) spawnTask@{
+                        if (speedLimitEntities[player.uniqueId] !== entities) return@spawnTask
+                        val display = player.world.spawn(location, TextDisplay::class.java) { entity ->
+                            entity.text(Component.text(plan.text, NamedTextColor.YELLOW))
+                            entity.billboard = Display.Billboard.CENTER
+                            entity.isPersistent = false
+                            entity.isVisibleByDefault = false
+                            entity.isShadowed = true
+                        }
+                        entities.add(display)
+                        plugin.platformDispatcher.runForEntity(player, action = {
+                            if (speedLimitEntities[player.uniqueId] === entities) player.showEntity(plugin, display)
+                            else display.remove()
+                        }, retired = { display.remove() })
+                    }
+                }
+            })
         }
     }
 

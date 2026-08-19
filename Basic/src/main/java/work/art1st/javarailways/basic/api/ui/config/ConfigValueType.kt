@@ -7,6 +7,9 @@ enum class ConfigValueType {
     /** Double 数值，映射到 [DialogInput.numberRange]。可带单位（如 "m", "km/h", "mm"）。 */
     NUMBER,
 
+    /** Double 数值，以可精确输入的 [DialogInput.text] 呈现。 */
+    NUMBER_TEXT,
+
     /** 字符串，映射到 [DialogInput.text]。 */
     STRING,
 

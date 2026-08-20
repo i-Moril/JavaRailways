@@ -102,8 +102,15 @@ internal fun resolveCurveOperatingLimitMetersPerSecond(
     val requested = requireNotNull(requestedLimit) { "手动曲线限速必须大于 0" }
     require(requested.isFinite() && requested > 0.0)
     require(requested <= automaticLimit + 1.0e-6) {
-        "要求的曲线运营限速 ${"%.1f".format(requested * 3.6)} km/h 高于当前几何自动运营限速 " +
-            "${"%.1f".format(automaticLimit * 3.6)} km/h"
+        val requestedKmH = "%.1f".format(requested * 3.6)
+        val automaticKmH = "%.1f".format(automaticLimit * 3.6)
+        if (creationMinimum) {
+            "自动生成的几何无法满足要求的曲线运营限速 $requestedKmH km/h；" +
+                "其自动运营限速为 $automaticKmH km/h。请降低限速要求，或调整锚点、半径或超高"
+        } else {
+            "轨道重建后仍无法满足要求的曲线运营限速 $requestedKmH km/h；" +
+                "重算后的自动运营限速为 $automaticKmH km/h。请降低限速，或调整锚点、半径或超高"
+        }
     }
     return if (creationMinimum) automaticLimit else requested
 }

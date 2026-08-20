@@ -36,7 +36,7 @@ class RailWandParallelLinkagePolicyTest {
             ),
             1.0e-9
         )
-        assertThrows(IllegalArgumentException::class.java) {
+        val creationFailure = assertThrows(IllegalArgumentException::class.java) {
             resolveCurveOperatingLimitMetersPerSecond(
                 automaticLimit = automatic,
                 requestedLimit = 120.0 / 3.6,
@@ -44,6 +44,20 @@ class RailWandParallelLinkagePolicyTest {
                 creationMinimum = true
             )
         }
+        assertTrue(creationFailure.message!!.contains("自动生成的几何无法满足"))
+        assertTrue(creationFailure.message!!.contains("自动运营限速为 100.0 km/h"))
+
+        val rebuildFailure = assertThrows(IllegalArgumentException::class.java) {
+            resolveCurveOperatingLimitMetersPerSecond(
+                automaticLimit = automatic,
+                requestedLimit = 120.0 / 3.6,
+                automatic = false,
+                creationMinimum = false
+            )
+        }
+        assertTrue(rebuildFailure.message!!.contains("轨道重建后仍无法满足"))
+        assertTrue(rebuildFailure.message!!.contains("重算后的自动运营限速为 100.0 km/h"))
+        assertTrue(rebuildFailure.message!!.contains("调整锚点、半径或超高"))
     }
 
     @Test

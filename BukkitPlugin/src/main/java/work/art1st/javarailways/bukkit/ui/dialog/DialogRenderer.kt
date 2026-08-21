@@ -14,6 +14,19 @@ import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import work.art1st.javarailways.basic.api.ui.config.*
 
+internal const val DIALOG_NUMBER_TEXT_MAX_LENGTH = 32
+
+internal fun formatDialogNumberText(value: Double): String {
+    require(value.isFinite()) { "Dialog number text value must be finite: $value" }
+    val plain = java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+    if (plain.length <= DIALOG_NUMBER_TEXT_MAX_LENGTH) return plain
+    return value.toString().also { rendered ->
+        check(rendered.length <= DIALOG_NUMBER_TEXT_MAX_LENGTH) {
+            "Dialog number text exceeds $DIALOG_NUMBER_TEXT_MAX_LENGTH characters: $rendered"
+        }
+    }
+}
+
 /**
  * ConfigAPI Dialog 渲染后端。
  *
@@ -54,9 +67,6 @@ class DialogRenderer(
          * Paper Dialog API 要求 key 仅含 `[a-zA-Z0-9_]+`，不允许 `.`。
          */
         private fun toInputKey(configKeyId: String): String = configKeyId.replace('.', '_')
-
-        private fun formatNumberText(value: Double): String =
-            java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
     }
 
     data class MenuEntry(val label: String, val onSelected: (Player) -> Unit)
@@ -369,10 +379,10 @@ class DialogRenderer(
             ConfigValueType.NUMBER_TEXT -> {
                 val constraints = key.constraints as? ConfigConstraints.NumberRange
                 val unit = constraints?.unit?.takeIf(String::isNotBlank)?.let { " ($it)" }.orEmpty()
-                val value = (current as? Double)?.let(::formatNumberText) ?: ""
+                val value = (current as? Double)?.let(::formatDialogNumberText) ?: ""
                 DialogInput.text(inputKey, Component.text(textResolver(key.label) + unit))
                     .initial(value)
-                    .maxLength(32)
+                    .maxLength(DIALOG_NUMBER_TEXT_MAX_LENGTH)
                     .build()
             }
             ConfigValueType.INTEGER -> {

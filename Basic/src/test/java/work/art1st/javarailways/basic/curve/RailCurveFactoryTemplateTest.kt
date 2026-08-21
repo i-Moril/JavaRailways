@@ -28,6 +28,17 @@ class RailCurveFactoryTemplateTest {
     }
 
     @Test
+    fun `auto keeps sub-tolerance lateral endpoint noise straight`() {
+        val from = Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0))
+        val to = Anchor("B", Vector3d(100.0, 0.0, Curve.TOLERANCE * 0.8), Vector3d(1.0, 0.0, 0.0))
+
+        val result = RailCurveFactory.build(from, to, RailCurveBuildOptions())
+
+        assertTrue(result.isSuccess, result.error)
+        assertEquals(RailCurveTemplateType.STRAIGHT, result.selectedTemplate)
+    }
+
+    @Test
     @OptIn(Heavy::class)
     fun `straight template uses configured sampling step`() {
         val from = Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0))
@@ -68,6 +79,23 @@ class RailCurveFactoryTemplateTest {
         assertTrue(result.curve!!.getPointAt(0.0).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
         assertTrue(result.curve!!.getPointAt(result.curve!!.totalArcLength).tangent.normalize(Vector3d()).dot(Vector3d(1.0, 0.0, 0.0)) > 0.999)
         assertTangentContinuity(result.curve!!)
+    }
+
+    @Test
+    fun `auto builds a gentle graded s curve instead of failing the straight template`() {
+        val fromTangent = Vector3d(1.0, 0.05, 0.0).normalize()
+        val toTangent = Vector3d(1.0, -0.02, 0.0).normalize()
+        val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), fromTangent)
+        val to = Anchor("B", Vector3d(100.0, 8.0, 1.0), toTangent)
+
+        val result = RailCurveFactory.build(from, to, RailCurveBuildOptions())
+
+        assertTrue(result.isSuccess, "${result.selectedReason}；${result.error}")
+        assertEquals(RailCurveTemplateType.S_CURVE, result.selectedTemplate)
+        val curve = requireNotNull(result.curve)
+        assertEquals(8.0, curve.getPointAt(curve.totalArcLength).position.y(), 1.0e-9)
+        assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(fromTangent) > 1.0 - 1.0e-8)
+        assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(toTangent) > 1.0 - 1.0e-8)
     }
 
     @Test

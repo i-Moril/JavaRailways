@@ -358,9 +358,9 @@ object RailCurveFactory {
     private fun classify(prepared: PreparedAnchors): CurveTemplateMatch {
         return if (prepared.angle < 1e-6) {
             if (isChordAlignedWithTangent(prepared.chord, prepared.fromTan2d)) {
-                CurveTemplateMatch(RailCurveTemplateType.STRAIGHT, "两端切线同向且 chord 与切线共线")
+                CurveTemplateMatch(RailCurveTemplateType.STRAIGHT, "两端水平切线同向且 chord 横向偏移在直线容差内")
             } else {
-                CurveTemplateMatch(RailCurveTemplateType.S_CURVE, "两端切线同向但 chord 与切线不共线")
+                CurveTemplateMatch(RailCurveTemplateType.S_CURVE, "两端水平切线同向但 chord 存在横向偏移")
             }
         } else {
             CurveTemplateMatch(RailCurveTemplateType.FIVE_SEGMENT, "两端切线存在夹角")
@@ -383,11 +383,7 @@ object RailCurveFactory {
 
         // 直线模板只约束水平 bearing。纵断面独立通过端点高程和 Pitch 求解，
         // 因而可以在水平投影保持直线的同时形成竖曲线。
-        val chordHorizontal = Vector3d(prepared.chord.x(), 0.0, prepared.chord.z())
-        val longitudinalDistance = chordHorizontal.dot(prepared.fromTan2d)
-        val lateralOffset = Vector3d(chordHorizontal)
-            .sub(Vector3d(prepared.fromTan2d).mul(longitudinalDistance))
-            .length()
+        val lateralOffset = horizontalLateralOffset(prepared.chord, prepared.fromTan2d)
         if (lateralOffset > Curve.TOLERANCE) {
             return RailCurveBuildResult.failure("直线终点不在起点切线的水平方向上", match.template, match.reason)
         }
@@ -830,11 +826,20 @@ object RailCurveFactory {
     private fun isChordAlignedWithTangent(chord: Vector3dc, tangent2d: Vector3dc): Boolean {
         val chord2d = Vector3d(chord.x(), 0.0, chord.z())
         if (chord2d.lengthSquared() < 1e-12) return false
-        val chordDir = chord2d.normalize()
         val tangentDir = Vector3d(tangent2d)
         if (tangentDir.lengthSquared() < 1e-12) return false
         tangentDir.normalize()
-        return chordDir.dot(tangentDir) >= cos(Math.toRadians(1.0))
+        return Vector3d(chord2d).normalize().dot(tangentDir) >= cos(Math.toRadians(1.0)) &&
+            horizontalLateralOffset(chord, tangentDir) <= Curve.TOLERANCE
+    }
+
+    private fun horizontalLateralOffset(chord: Vector3dc, tangent2d: Vector3dc): Double {
+        val chordHorizontal = Vector3d(chord.x(), 0.0, chord.z())
+        val tangentHorizontal = Vector3d(tangent2d.x(), 0.0, tangent2d.z())
+        if (tangentHorizontal.lengthSquared() < 1e-12) return Double.POSITIVE_INFINITY
+        tangentHorizontal.normalize()
+        val longitudinalDistance = chordHorizontal.dot(tangentHorizontal)
+        return chordHorizontal.sub(tangentHorizontal.mul(longitudinalDistance)).length()
     }
 
     private fun validateGeneratedCurve(

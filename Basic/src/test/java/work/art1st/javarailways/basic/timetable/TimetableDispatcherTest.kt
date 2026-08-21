@@ -87,6 +87,36 @@ class TimetableDispatcherTest {
     }
 
     @Test
+    fun `maintenance query reports rails referenced by a live mission`() {
+        val world = createTestWorld().also(worlds::add)
+        val dispatcher = dispatcher()
+        val data = BasicWorldData(
+            dispatcher = dispatcher,
+            atoCoordinator = AtoWorldCoordinator("dispatcher-maintenance-route-test", reportSink = {})
+        )
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val unrelated = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(20.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val originArc = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
+        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+
+        assertFalse(dispatcher.hasLiveRouteOn(setOf(rail.id)))
+        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
+
+        assertTrue(dispatcher.hasLiveRouteOn(setOf(rail.id)))
+        assertFalse(dispatcher.hasLiveRouteOn(setOf(unrelated.id)))
+    }
+
+    @Test
     fun `service infrastructure line maximum speed is installed in ATO`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()

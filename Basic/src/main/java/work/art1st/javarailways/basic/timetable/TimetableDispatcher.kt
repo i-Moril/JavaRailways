@@ -265,6 +265,17 @@ class TimetableDispatcher(
     fun hasRouteAllocationOn(railIds: Set<java.util.UUID>): Boolean =
         allocator?.hasAllocationOn(railIds) == true
 
+    /** Maintenance precondition: immutable routes owned by active runs must not retain replaced Rail IDs. */
+    fun hasLiveRouteOn(railIds: Set<java.util.UUID>): Boolean {
+        if (railIds.isEmpty()) return false
+        return runs.values.asSequence()
+            .filterNot { it.state.isTerminal() }
+            .flatMap { it.runtimes.asSequence() }
+            .flatMap { it.mission.legs.asSequence() }
+            .flatMap { it.plannedRoute.expandedRoute.segments.asSequence() }
+            .any { it.railViewRef.railId in railIds }
+    }
+
     /** Capture stable logical state only; live locks, tickets, queues and controller objects are excluded. */
     fun saveCheckpoint(): SavedDispatcherV1 = SavedDispatcherV1(
         formatVersion = SavedDispatcherV1.CURRENT_FORMAT_VERSION,

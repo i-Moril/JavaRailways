@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.rail
 
 import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -38,6 +39,16 @@ class TurnoutTopologyTest {
         assertNotNull(TurnoutTopology.splitLockingClearanceError(stem, 8.0, 5.0))
         assertNotNull(TurnoutTopology.splitLockingClearanceError(straight, 2.0, 5.0))
         assertNotNull(TurnoutTopology.splitLockingClearanceError(branch, 2.0, 5.0))
+    }
+
+    @Test
+    fun `turnout closure contains all three manually connected legs from any selected leg`() {
+        val (stem, straight, branch) = turnout()
+        val expected = setOf(stem.id, straight.id, branch.id)
+
+        assertEquals(expected, TurnoutTopology.turnoutRailsTouching(listOf(stem)).mapTo(hashSetOf()) { it.id })
+        assertEquals(expected, TurnoutTopology.turnoutRailsTouching(listOf(straight)).mapTo(hashSetOf()) { it.id })
+        assertEquals(expected, TurnoutTopology.turnoutRailsTouching(listOf(branch)).mapTo(hashSetOf()) { it.id })
     }
 
     private fun turnout(): Triple<CoreRail, CoreRail, CoreRail> {

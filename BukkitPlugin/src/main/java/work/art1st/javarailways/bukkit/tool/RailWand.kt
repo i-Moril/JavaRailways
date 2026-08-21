@@ -2797,8 +2797,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             player.sendActionBar(Component.text("不能重建有列车占用的轨道", NamedTextColor.RED))
             return
         }
-        if (oldRails.any(TurnoutTopology::hasTurnoutEndpoint)) {
-            player.sendActionBar(Component.text("逻辑线路包含道岔节点，不能修改几何", NamedTextColor.RED))
+        turnoutGeometryMaintenanceError(coreWorld, oldRails)?.let { reason ->
+            player.sendActionBar(Component.text(reason, NamedTextColor.RED))
             return
         }
 
@@ -2857,9 +2857,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     livePlayer.sendActionBar(Component.text("无法按新参数生成逻辑曲线", NamedTextColor.RED))
                     return@supply
                 }
+                turnoutBoundaryFrameError(
+                    oldLanes,
+                    builtLanes.map { lane -> lane.map(BuiltRailPart::curve) }
+                )?.let { reason ->
+                    livePlayer.sendActionBar(Component.text("不能修改道岔节点几何：$reason", NamedTextColor.RED))
+                    return@supply
+                }
                 val liveOldRails = oldRails.map { old -> liveWorld.getRail(old.id) ?: return@supply }
+                if (liveOldRails.zip(oldRails).any { (live, planned) -> live !== planned || live.curve !== planned.curve }) {
+                    livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.YELLOW))
+                    return@supply
+                }
                 if (liveOldRails.any { it.trains.isNotEmpty() }) {
                     livePlayer.sendActionBar(Component.text("不能重建有列车占用的轨道", NamedTextColor.RED))
+                    return@supply
+                }
+                turnoutGeometryMaintenanceError(liveWorld, liveOldRails)?.let { reason ->
+                    livePlayer.sendActionBar(Component.text(reason, NamedTextColor.RED))
                     return@supply
                 }
 
@@ -2867,6 +2882,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val renderMetaByRail = persisted.associateBy { it.railId }
                 val allRails = liveWorld.allRails.toList()
                 val connectionSnapshots = allRails.map(::snapshotRailConnections)
+                val turnoutViewSnapshots = captureTurnoutViewSnapshots(liveOldRails)
                 val created = mutableListOf<CoreRail>()
                 val createdRenderMeta = mutableListOf<PersistedRailRenderMeta>()
                 val createdLanes = mutableListOf<List<CoreRail>>()
@@ -2936,8 +2952,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         }
                         createdLanes += newLane
                     }
-                    detachRailReferences(oldIds, allRails.filter { it.id !in oldIds })
-                    connectCreatedRailsToExisting(created, allRails.filter { it.id !in oldIds } + created)
                     val oldToNew = oldLanes.flatMapIndexed { laneIndex, oldLane ->
                         oldLane.mapIndexed { oldIndex, old ->
                             val replacement = createdLanes[laneIndex].firstOrNull {
@@ -2946,6 +2960,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             old.id to replacement.id
                         }
                     }.toMap()
+                    detachRailReferences(oldIds, allRails.filter { it.id !in oldIds })
+                    connectCreatedRailsToExisting(created, allRails.filter { it.id !in oldIds } + created)
+                    restoreMappedTurnoutViewSnapshots(liveWorld, turnoutViewSnapshots, oldToNew)
                     OperationalDestinationService(liveWorld).migrateAllOnRails(oldToNew)
                     liveOldRails.forEach { old ->
                         RailVisualBootstrap.unregisterRail(old.id)

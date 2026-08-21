@@ -540,7 +540,9 @@ object RailCurveFactory {
         geometry: RailGeometryParameters
     ): Double {
         val projection = abs(chord.x() * tangent2d.x() + chord.z() * tangent2d.z())
-        return projection
+        // Quintic zero-curvature endpoints stay flatter than cubic Hermite endpoints. A 3/4
+        // derivative handle retains comparable automatic curvature and leaves fitting headroom.
+        return (projection * 0.75)
             .coerceAtLeast(horizontalDistance * geometry.sCurveMinimumHandleFactor)
             .coerceAtMost(horizontalDistance * geometry.sCurveMaximumHandleFactor)
     }
@@ -604,40 +606,24 @@ object RailCurveFactory {
             0.0
         }
 
-        fun transitionFraction(value: Double): Double {
-            val t = value.coerceIn(0.0, 1.0)
-            return when (superelevationConfig?.superelevationTransition) {
-                SuperelevationConfig.SuperelevationTransition.SINE_KLEIN ->
-                    t - sin(2.0 * Math.PI * t) / (2.0 * Math.PI)
-                else -> t
-            }
+        // The quintic Hermite plan has zero curvature at both anchors. Target cant follows signed
+        // curvature, then each lobe is independently slew-limited from its zero-curvature bounds.
+        // Unlike global scaling, this uses all cant-gradient headroom without exceeding local balance cant.
+        val targetCantMeters = signedCurvatures.map { curvature ->
+            if (peakSuperelevation <= 0.0 || peakCurvature <= 1.0e-12) 0.0
+            else peakSuperelevation * curvature / peakCurvature
         }
-
-        // Cubic Hermite S-curves can have non-zero endpoint curvature. Keep automatic cant at
-        // zero at both anchors, reverse it through the inflection, then scale the complete profile
-        // so every sampled interval obeys the configured maximum cant gradient.
-        val rawCantMeters = cumulative.indices.map { index ->
-            if (peakSuperelevation <= 0.0 || peakCurvature <= 1.0e-12) return@map 0.0
-            val t = (cumulative[index] / totalLength).coerceIn(0.0, 1.0)
-            val endpointTransition = transitionFraction(2.0 * minOf(t, 1.0 - t))
-            peakSuperelevation * (signedCurvatures[index] / peakCurvature) * endpointTransition
-        }
-        val rawPeakGradient = rawCantMeters.indices.drop(1).maxOfOrNull { index ->
-            val deltaArc = cumulative[index] - cumulative[index - 1]
-            if (deltaArc <= 1.0e-12) 0.0
-            else abs(rawCantMeters[index] - rawCantMeters[index - 1]) / deltaArc
-        } ?: 0.0
-        val cantScale = when {
-            superelevationConfig == null || rawPeakGradient <= 0.0 -> 1.0
-            superelevationConfig.maxCantGradient <= 0.0 -> 0.0
-            else -> minOf(1.0, superelevationConfig.maxCantGradient / rawPeakGradient)
-        }
+        val cantMeters = limitSignedProfileGradient(
+            targetCantMeters,
+            cumulative,
+            superelevationConfig?.maxCantGradient ?: 0.0
+        )
 
         fun rollAt(index: Int, arc: Double): Double {
             val t = (arc / totalLength).coerceIn(0.0, 1.0)
             val anchorRoll = fromRollDegrees + (toRollDegrees - fromRollDegrees) * t
             val cantDegrees = Math.toDegrees(
-                kotlin.math.atan2(rawCantMeters[index] * cantScale, geometry.gaugeMeters)
+                kotlin.math.atan2(cantMeters[index], geometry.gaugeMeters)
             )
             return anchorRoll + cantDegrees
         }
@@ -663,6 +649,72 @@ object RailCurveFactory {
         return PrimeCurve.fromPoints(points)
     }
 
+    private fun limitSignedProfileGradient(
+        target: List<Double>,
+        stations: List<Double>,
+        maximumGradient: Double
+    ): List<Double> {
+        require(target.size == stations.size)
+        if (target.isEmpty() || maximumGradient <= 0.0) return List(target.size) { 0.0 }
+        val limited = MutableList(target.size) { 0.0 }
+
+        fun profileSign(value: Double): Int = when {
+            value > 1.0e-12 -> 1
+            value < -1.0e-12 -> -1
+            else -> 0
+        }
+
+        fun zeroStation(left: Int, right: Int): Double {
+            val leftMagnitude = abs(target[left])
+            val rightMagnitude = abs(target[right])
+            val fraction = leftMagnitude / (leftMagnitude + rightMagnitude)
+            return stations[left] + (stations[right] - stations[left]) * fraction
+        }
+
+        var start = target.indexOfFirst { profileSign(it) != 0 }
+        while (start >= 0) {
+            val lobeSign = profileSign(target[start])
+            var end = start
+            while (end + 1 < target.size && profileSign(target[end + 1]) == lobeSign) end++
+
+            val leftBoundary = when {
+                start == 0 -> stations.first()
+                profileSign(target[start - 1]) == 0 -> stations[start - 1]
+                else -> zeroStation(start - 1, start)
+            }
+            val rightBoundary = when {
+                end == target.lastIndex -> stations.last()
+                profileSign(target[end + 1]) == 0 -> stations[end + 1]
+                else -> zeroStation(end, end + 1)
+            }
+
+            var previousMagnitude = 0.0
+            var previousStation = leftBoundary
+            for (index in start..end) {
+                val targetMagnitude = abs(target[index])
+                val gradientBound = previousMagnitude +
+                    maximumGradient * (stations[index] - previousStation).coerceAtLeast(0.0)
+                previousMagnitude = minOf(targetMagnitude, gradientBound)
+                limited[index] = previousMagnitude * lobeSign
+                previousStation = stations[index]
+            }
+
+            var nextMagnitude = 0.0
+            var nextStation = rightBoundary
+            for (index in end downTo start) {
+                val gradientBound = nextMagnitude +
+                    maximumGradient * (nextStation - stations[index]).coerceAtLeast(0.0)
+                nextMagnitude = minOf(abs(limited[index]), gradientBound)
+                limited[index] = nextMagnitude * lobeSign
+                nextStation = stations[index]
+            }
+
+            start = (end + 1 until target.size).firstOrNull { profileSign(target[it]) != 0 } ?: -1
+        }
+        return limited
+    }
+
+    /** Quintic Hermite interpolation with zero second derivative at both endpoints. */
     private fun hermitePosition2d(
         from: Vector3dc,
         to: Vector3dc,
@@ -674,10 +726,12 @@ object RailCurveFactory {
     ): Vector3d {
         val u2 = u * u
         val u3 = u2 * u
-        val h00 = 2.0 * u3 - 3.0 * u2 + 1.0
-        val h10 = u3 - 2.0 * u2 + u
-        val h01 = -2.0 * u3 + 3.0 * u2
-        val h11 = u3 - u2
+        val u4 = u3 * u
+        val u5 = u4 * u
+        val h00 = 1.0 - 10.0 * u3 + 15.0 * u4 - 6.0 * u5
+        val h10 = u - 6.0 * u3 + 8.0 * u4 - 3.0 * u5
+        val h01 = 10.0 * u3 - 15.0 * u4 + 6.0 * u5
+        val h11 = -4.0 * u3 + 7.0 * u4 - 3.0 * u5
         return Vector3d(
             h00 * from.x() + h10 * fromTangent2d.x() * handle0 + h01 * to.x() + h11 * toTangent2d.x() * handle1,
             0.0,
@@ -695,10 +749,12 @@ object RailCurveFactory {
         u: Double
     ): Vector3d {
         val u2 = u * u
-        val h00 = 6.0 * u2 - 6.0 * u
-        val h10 = 3.0 * u2 - 4.0 * u + 1.0
-        val h01 = -6.0 * u2 + 6.0 * u
-        val h11 = 3.0 * u2 - 2.0 * u
+        val u3 = u2 * u
+        val u4 = u3 * u
+        val h00 = -30.0 * u2 + 60.0 * u3 - 30.0 * u4
+        val h10 = 1.0 - 18.0 * u2 + 32.0 * u3 - 15.0 * u4
+        val h01 = 30.0 * u2 - 60.0 * u3 + 30.0 * u4
+        val h11 = -12.0 * u2 + 28.0 * u3 - 15.0 * u4
         return Vector3d(
             h00 * from.x() + h10 * fromTangent2d.x() * handle0 + h01 * to.x() + h11 * toTangent2d.x() * handle1,
             0.0,
@@ -715,10 +771,12 @@ object RailCurveFactory {
         handle1: Double,
         u: Double
     ): Vector3d {
-        val h00 = 12.0 * u - 6.0
-        val h10 = 6.0 * u - 4.0
-        val h01 = -12.0 * u + 6.0
-        val h11 = 6.0 * u - 2.0
+        val u2 = u * u
+        val u3 = u2 * u
+        val h00 = -60.0 * u + 180.0 * u2 - 120.0 * u3
+        val h10 = -36.0 * u + 96.0 * u2 - 60.0 * u3
+        val h01 = 60.0 * u - 180.0 * u2 + 120.0 * u3
+        val h11 = -24.0 * u + 84.0 * u2 - 60.0 * u3
         return Vector3d(
             h00 * from.x() + h10 * fromTangent2d.x() * handle0 + h01 * to.x() + h11 * toTangent2d.x() * handle1,
             0.0,

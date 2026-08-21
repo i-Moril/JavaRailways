@@ -100,6 +100,29 @@ class RailCurveFactoryTemplateTest {
 
     @Test
     @OptIn(Heavy::class)
+    fun `s curve eases horizontal curvature to zero at both endpoints`() {
+        val result = RailCurveFactory.build(
+            Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
+            Anchor("B", Vector3d(90.0, 0.0, 6.0), Vector3d(1.0, 0.0, 0.0)),
+            RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE)
+        )
+
+        assertTrue(result.isSuccess, result.error)
+        val points = requireNotNull(result.curve).stream().toList()
+        val intervalCurvatures = points.zipWithNext { first, second ->
+            val firstDirection = Vector3d(first.tangent.x(), 0.0, first.tangent.z()).normalize()
+            val secondDirection = Vector3d(second.tangent.x(), 0.0, second.tangent.z()).normalize()
+            acos(firstDirection.dot(secondDirection).coerceIn(-1.0, 1.0)) /
+                (second.arcLength - first.arcLength)
+        }
+        val peakCurvature = intervalCurvatures.max()
+
+        assertTrue(intervalCurvatures.first() < peakCurvature * 0.05, intervalCurvatures.first().toString())
+        assertTrue(intervalCurvatures.last() < peakCurvature * 0.05, intervalCurvatures.last().toString())
+    }
+
+    @Test
+    @OptIn(Heavy::class)
     fun `s curve solves a reachable exact radius`() {
         val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0))
         val to = Anchor("B", Vector3d(40.0, 0.0, 8.0), Vector3d(1.0, 0.0, 0.0))

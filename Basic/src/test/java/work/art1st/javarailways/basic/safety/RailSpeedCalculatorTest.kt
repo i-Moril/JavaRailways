@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.curve.Anchor
+import work.art1st.javarailways.basic.curve.RailCurveBuildOptions
+import work.art1st.javarailways.basic.curve.RailCurveFactory
+import work.art1st.javarailways.basic.curve.RailCurveTemplateType
 import work.art1st.javarailways.basic.curve.StandardRailCurve
 import work.art1st.javarailways.basic.curve.StandardTurnoutGeometry
 import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
@@ -86,6 +89,33 @@ class RailSpeedCalculatorTest {
 
         assertTrue(limits.operatingLimitMetersPerSecond < requestedKmH / 3.6)
         assertEquals(77.4, limits.operatingLimitMetersPerSecond * 3.6, 0.3)
+    }
+
+    @Test
+    fun `cant raises the operating limit of an offset s curve`() {
+        fun build(cantMeters: Double?): PrimeCurve {
+            val result = RailCurveFactory.build(
+                Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
+                Anchor("B", Vector3d(90.0, 0.0, 6.0), Vector3d(1.0, 0.0, 0.0)),
+                RailCurveBuildOptions(
+                    template = RailCurveTemplateType.S_CURVE,
+                    superelevation = cantMeters?.let {
+                        SuperelevationConfig(maxSuperelevation = it, autoCalculate = false)
+                    }
+                )
+            )
+            assertTrue(result.isSuccess, result.error)
+            return requireNotNull(result.curve)
+        }
+
+        val uncanted = RailSpeedCalculator.calculate(build(null), 100.0, 0.075, 3.0)
+        val canted = RailSpeedCalculator.calculate(build(0.15), 100.0, 0.075, 3.0)
+
+        assertTrue(
+            canted.operatingLimitMetersPerSecond > uncanted.operatingLimitMetersPerSecond + 5.0 / 3.6,
+            "uncanted=${uncanted.operatingLimitMetersPerSecond * 3.6}, " +
+                "canted=${canted.operatingLimitMetersPerSecond * 3.6}"
+        )
     }
 
     @Test

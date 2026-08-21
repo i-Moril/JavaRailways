@@ -91,6 +91,31 @@ import java.util.concurrent.CompletionStage
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.*
 
+private const val MAXIMUM_GRADE_DISPLAY_EPSILON = 1.0e-9
+
+internal fun buildRailGeometryDisplayText(
+    radiusMeters: Double?,
+    maximumAbsoluteGrade: Double,
+    speedLine: String?
+): String? {
+    require(radiusMeters == null || radiusMeters.isFinite() && radiusMeters > 0.0)
+    require(maximumAbsoluteGrade.isFinite() && maximumAbsoluteGrade >= 0.0)
+    val gradePermille = maximumAbsoluteGrade
+        .takeIf { it > MAXIMUM_GRADE_DISPLAY_EPSILON }
+        ?.let { grade ->
+            java.math.BigDecimal.valueOf(grade * 1000.0)
+                .setScale(6, java.math.RoundingMode.HALF_UP)
+                .stripTrailingZeros()
+                .toPlainString()
+        }
+    if (radiusMeters == null && gradePermille == null) return null
+    return buildList {
+        radiusMeters?.let { add("R ${it.roundToInt()} m") }
+        gradePermille?.let { add("最大坡度 $it ‰") }
+        speedLine?.takeIf(String::isNotBlank)?.let(::add)
+    }.joinToString("\n")
+}
+
 internal fun resolveCurveOperatingLimitMetersPerSecond(
     automaticLimit: Double,
     requestedLimit: Double?,
@@ -2459,6 +2484,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val automaticCurveOperatingSpeedKmH: Double,
         val radiusMeters: Double,
         val superelevationMm: Double,
+        val maximumAbsoluteGrade: Double,
         val automaticCurveSpeed: Boolean,
         val automaticRadius: Boolean,
         val automaticSuperelevation: Boolean
@@ -2495,6 +2521,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             automaticCurveOperatingSpeedKmH = (automaticLimits.minOrNull() ?: 0.0) * 3.6,
             radiusMeters = measurements.minimumHorizontalRadiusMeters ?: 0.0,
             superelevationMm = measurements.maximumSuperelevationMeters * 1000.0,
+            maximumAbsoluteGrade = measurements.maximumAbsoluteGrade,
             automaticCurveSpeed = automaticCurveSpeed,
             automaticRadius = first.metadata.geometry.curveRadiusMeters == null,
             automaticSuperelevation = first.metadata.geometry.automaticSuperelevation
@@ -2557,7 +2584,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         session.setValue(railEditKeys.automaticCurveRadius, actual.automaticRadius)
         session.setValue(railEditKeys.maxSuperelevationMm, actual.superelevationMm)
         session.setValue(railEditKeys.automaticSuperelevation, actual.automaticSuperelevation)
-        dialogRenderer.showConfigDialog(player, "rail.edit") { p ->
+        val gradeBody = buildRailGeometryDisplayText(
+            radiusMeters = null,
+            maximumAbsoluteGrade = actual.maximumAbsoluteGrade,
+            speedLine = null
+        )?.let { listOf(Component.text("实际$it", NamedTextColor.YELLOW)) }.orEmpty()
+        dialogRenderer.showConfigDialog(
+            player,
+            "rail.edit",
+            additionalBody = gradeBody
+        ) { p ->
             val liveWorld = getCoreWorld(p) ?: return@showConfigDialog
             val liveRail = liveWorld.getRail(railId) ?: run {
                 p.sendActionBar(Component.text("轨道已不存在", NamedTextColor.RED))
@@ -4127,7 +4163,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     rails.map { it.curve },
                     plugin.physicsConfig.track.gaugeMeters
                 )
-                val radius = measured.minimumHorizontalRadiusMeters ?: return@mapNotNull null
+                val radius = measured.minimumHorizontalRadiusMeters
                 val totalLength = rails.sumOf { it.curve.totalArcLength }
                 var remaining = totalLength / 2.0
                 val middleRail = rails.firstOrNull { rail ->
@@ -4158,14 +4194,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val subgrade = rails.mapNotNull {
                     it.metadata.speedLimits.value(SpeedLimitType.SUBGRADE)
                 }.minOrNull()
-                val text = buildString {
-                    append("R ").append(radius.roundToInt()).append(" m")
-                    if (limit != null && subgrade != null) {
-                        append("\nCURVE ").append((limit * 3.6).roundToInt())
-                            .append(" / SUBGRADE ").append((subgrade * 3.6).roundToInt())
-                            .append(" km/h")
-                    }
-                }
+                val speedLine = if (limit != null && subgrade != null) {
+                    "CURVE ${(limit * 3.6).roundToInt()} / " +
+                        "SUBGRADE ${(subgrade * 3.6).roundToInt()} km/h"
+                } else null
+                val text = buildRailGeometryDisplayText(
+                    radiusMeters = radius,
+                    maximumAbsoluteGrade = measured.maximumAbsoluteGrade,
+                    speedLine = speedLine
+                ) ?: return@mapNotNull null
                 RailInfoDisplayPlan(Vector3d(point.position), text)
             }
             plugin.platformDispatcher.runForEntity(player, action = showPlans@{

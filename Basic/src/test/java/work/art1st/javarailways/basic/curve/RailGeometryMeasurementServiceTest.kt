@@ -10,6 +10,7 @@ import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 class RailGeometryMeasurementServiceTest {
     @OptIn(Heavy::class)
@@ -39,5 +40,25 @@ class RailGeometryMeasurementServiceTest {
 
         assertEquals(radius, requireNotNull(measured.minimumHorizontalRadiusMeters), 0.1)
         assertEquals(superelevation, measured.maximumSuperelevationMeters, 1.0e-6)
+        assertEquals(0.0, measured.maximumAbsoluteGrade, 1.0e-12)
+    }
+
+    @OptIn(Heavy::class)
+    @Test
+    fun `measures maximum absolute grade from final curve tangents`() {
+        val grades = listOf(0.01, -0.035, 0.02)
+        val points = grades.mapIndexed { index, grade ->
+            Curve.RawPoint(
+                position = Vector3d(index.toDouble(), 64.0, 0.0),
+                tangent = Vector3d(1.0, grade, 0.0).normalize(),
+                normal = Vector3d(-grade, 1.0, 0.0).normalize(),
+                arcLength = index * sqrt(1.0 + grade * grade)
+            )
+        }
+        val curve = PrimeCurve.fromPoints(points)
+
+        val measured = RailGeometryMeasurementService.measure(listOf(curve), 1.435)
+
+        assertEquals(0.035, measured.maximumAbsoluteGrade, 1.0e-12)
     }
 }

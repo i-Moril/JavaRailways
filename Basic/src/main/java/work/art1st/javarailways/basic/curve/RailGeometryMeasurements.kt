@@ -5,12 +5,15 @@ import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.hypot
 import kotlin.math.tan
 
 /** Actual values measured from final immutable rail geometry. */
 data class RailGeometryMeasurements(
     val minimumHorizontalRadiusMeters: Double?,
-    val maximumSuperelevationMeters: Double
+    val maximumSuperelevationMeters: Double,
+    /** Maximum absolute rise/run ratio sampled from the final curve tangents. */
+    val maximumAbsoluteGrade: Double
 )
 
 object RailGeometryMeasurementService {
@@ -22,12 +25,20 @@ object RailGeometryMeasurementService {
         require(gaugeMeters.isFinite() && gaugeMeters > 0.0)
         var maximumCurvature = 0.0
         var maximumSuperelevation = 0.0
+        var maximumAbsoluteGrade = 0.0
         curves.forEach { curve ->
             val points = curve.stream().toList().distinctBy { it.arcLength }
             points.indices.forEach { index ->
                 val point = points[index]
                 val tangent = Vector3d(point.tangent)
                 val normal = Vector3d(point.normal)
+                if (tangent.lengthSquared() > 1.0e-12) {
+                    val horizontalLength = hypot(tangent.x(), tangent.z())
+                    if (horizontalLength > 1.0e-12) {
+                        val grade = abs(tangent.y() / horizontalLength)
+                        if (grade.isFinite()) maximumAbsoluteGrade = maxOf(maximumAbsoluteGrade, grade)
+                    }
+                }
                 if (tangent.lengthSquared() > 1.0e-12 && normal.lengthSquared() > 1.0e-12) {
                     tangent.normalize()
                     normal.normalize()
@@ -56,7 +67,8 @@ object RailGeometryMeasurementService {
             minimumHorizontalRadiusMeters = maximumCurvature
                 .takeIf { it >= 1.0e-8 }
                 ?.let { 1.0 / it },
-            maximumSuperelevationMeters = maximumSuperelevation
+            maximumSuperelevationMeters = maximumSuperelevation,
+            maximumAbsoluteGrade = maximumAbsoluteGrade
         )
     }
 

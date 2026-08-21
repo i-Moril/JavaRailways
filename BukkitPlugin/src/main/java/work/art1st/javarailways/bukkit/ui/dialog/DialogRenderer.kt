@@ -103,11 +103,12 @@ class DialogRenderer(
         groupId: String,
         context: Map<String, Any> = emptyMap(),
         textResolver: (String) -> String = DEFAULT_TEXT_RESOLVER,
+        additionalBody: List<Component> = emptyList(),
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val session = configUI.getPlayerSession(player.uniqueId)
         val builtGroup = configUI.buildGroupForPlayer(groupId, player.uniqueId, context)
-        showNativeDialog(player, builtGroup, session, textResolver, onConfirmed)
+        showNativeDialog(player, builtGroup, session, textResolver, additionalBody, onConfirmed)
     }
 
     /**
@@ -118,6 +119,7 @@ class DialogRenderer(
         builtGroup: BuiltGroup,
         session: PlayerConfigSession,
         textResolver: (String) -> String,
+        additionalBody: List<Component>,
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val group = builtGroup.group
@@ -130,6 +132,7 @@ class DialogRenderer(
         if (group.description.isNotBlank()) {
             bodies.add(DialogBody.plainMessage(Component.text(textResolver(group.description), NamedTextColor.GRAY)))
         }
+        additionalBody.forEach { bodies.add(DialogBody.plainMessage(it)) }
 
         // 子分组作为 body section 标题
         builtGroup.effectiveSubGroups.forEach { sub ->
@@ -144,7 +147,7 @@ class DialogRenderer(
         val confirmAction = DialogAction.customClick(
             { view, audience ->
                 if (audience is Player) {
-                    onConfirm(view, builtGroup, session, audience, textResolver, onConfirmed)
+                    onConfirm(view, builtGroup, session, audience, textResolver, additionalBody, onConfirmed)
                 }
             },
             ClickCallback.Options.builder()
@@ -162,6 +165,7 @@ class DialogRenderer(
             builtGroup,
             session,
             textResolver,
+            additionalBody,
             onConfirmed
         ) + confirmButton
 
@@ -185,6 +189,7 @@ class DialogRenderer(
         builtGroup: BuiltGroup,
         session: PlayerConfigSession,
         textResolver: (String) -> String,
+        additionalBody: List<Component>,
         onConfirmed: ((Player) -> Unit)?
     ): List<ActionButton> {
         val allItems = builtGroup.effectiveItems +
@@ -224,6 +229,7 @@ class DialogRenderer(
                                 rebuilt,
                                 configUI.getPlayerSession(audience.uniqueId),
                                 textResolver,
+                                additionalBody,
                                 onConfirmed
                             )
                         }
@@ -244,13 +250,14 @@ class DialogRenderer(
         session: PlayerConfigSession,
         player: Player,
         textResolver: (String) -> String,
+        additionalBody: List<Component>,
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val needsRebuild = try {
             captureInputs(view, builtGroup, session)
         } catch (failure: IllegalArgumentException) {
             player.sendMessage(Component.text(failure.message ?: "数值输入无效", NamedTextColor.RED))
-            showNativeDialog(player, builtGroup, session, textResolver, onConfirmed)
+            showNativeDialog(player, builtGroup, session, textResolver, additionalBody, onConfirmed)
             return
         }
         session.commit()
@@ -263,6 +270,7 @@ class DialogRenderer(
                 newGroup,
                 configUI.getPlayerSession(player.uniqueId),
                 textResolver,
+                additionalBody,
                 onConfirmed
             )
             return

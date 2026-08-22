@@ -45,16 +45,20 @@ class BlockWandEditorTest {
     }
 
     @Test
-    fun `shift left normalizes unsupported rules and leaves rails unchanged`() {
+    fun `shift left edits placement rules on rail cells like other cells`() {
         val material = BlockWandState.createDefault().withCell(
             2,
-            WandCell.Material("minecraft:stone", PlacementRule.MATCH_HALF)
+            WandCell.Material("minecraft:stone_slab", PlacementRule.MATCH_HALF)
         )
         val rail = BlockWandEditor.rightClick(material, slot = 2)
 
-        val normalized = BlockWandEditor.shiftLeftClick(material, 2, listOf(PlacementRule.REGULAR))
-        assertEquals(PlacementRule.REGULAR, (normalized[2] as WandCell.Material).placementRule)
-        assertEquals(rail, BlockWandEditor.shiftLeftClick(rail, 2, PlacementRule.entries.toList()))
+        val changed = BlockWandEditor.shiftLeftClick(rail, 2, PlacementRule.entries.toList())
+
+        assertEquals(
+            WandCell.Material("minecraft:stone_slab", PlacementRule.MATCH_HALF_FILL_DOWN),
+            changed[2]
+        )
+        assertEquals(rail.primaryRailCell, changed.primaryRailCell)
     }
 
     @Test
@@ -69,9 +73,10 @@ class BlockWandEditorTest {
 
         assertEquals(GridCell(4, 0), secondary.primaryRailCell)
         assertEquals(setOf(GridCell(4, 2)), secondary.secondaryRailCells)
-        assertEquals(WandCell.Air, secondary[4])
-        assertEquals(WandCell.Air, secondary[20])
+        assertEquals(WandCell.Material("minecraft:stone"), secondary[4])
+        assertEquals(WandCell.Material("minecraft:polished_andesite"), secondary[20])
         assertEquals(emptySet<GridCell>(), removed.secondaryRailCells)
+        assertEquals(WandCell.Material("minecraft:polished_andesite"), removed[20])
     }
 
     @Test
@@ -101,16 +106,21 @@ class BlockWandEditorTest {
     }
 
     @Test
-    fun `left click cannot modify any rail cell`() {
+    fun `left click edits rail cells like other cells without removing their markers`() {
+        val initial = BlockWandState.createDefault()
+            .withCell(10, WandCell.Material("minecraft:andesite"))
+            .withCell(12, WandCell.Air)
         val state = BlockWandEditor.rightClick(
-            BlockWandEditor.rightClick(BlockWandState.createDefault(), slot = 10),
+            BlockWandEditor.rightClick(initial, slot = 10),
             slot = 12
         )
 
         val primary = BlockWandEditor.leftClick(state, 10, "minecraft:stone")
         val secondary = BlockWandEditor.leftClick(state, 12, null)
 
-        assertEquals(WandCell.Air, primary[10])
-        assertEquals(WandCell.Air, secondary[12])
+        assertEquals(WandCell.Material("minecraft:stone"), primary[10])
+        assertEquals(WandCell.Ignore, secondary[12])
+        assertEquals(state.primaryRailCell, primary.primaryRailCell)
+        assertEquals(state.secondaryRailCells, secondary.secondaryRailCells)
     }
 }

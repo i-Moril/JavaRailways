@@ -8,7 +8,6 @@ object BlockWandEditor {
         heldMaterialKey: String?
     ): BlockWandState {
         require(slot in 0 until BlockWandState.CELL_COUNT)
-        if (state.isRailCell(slot)) return state.withCell(slot, WandCell.Air)
         val next = if (heldMaterialKey != null) {
             WandCell.Material(heldMaterialKey)
         } else {
@@ -27,7 +26,6 @@ object BlockWandEditor {
     ): BlockWandState {
         require(slot in 0 until BlockWandState.CELL_COUNT)
         require(supportedRules.isNotEmpty()) { "At least one placement rule is required" }
-        if (state.isRailCell(slot)) return state
         val material = state[slot] as? WandCell.Material ?: return state
         if (supportedRules.size == 1) {
             return if (material.placementRule == supportedRules.single()) {

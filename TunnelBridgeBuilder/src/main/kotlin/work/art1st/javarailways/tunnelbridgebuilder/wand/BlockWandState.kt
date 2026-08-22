@@ -78,32 +78,26 @@ data class BlockWandState(
     fun toggleRailCell(slot: Int): BlockWandState {
         require(slot in 0 until CELL_COUNT)
         val rail = cellOf(slot)
-        val clearedCells = cells.toMutableList().also { it[slot] = WandCell.Air }
         return when {
             rail == primaryRailCell -> {
                 val promoted = secondaryRailCells.sortedWith(compareBy(GridCell::row, GridCell::column)).firstOrNull()
                 copy(
-                    cells = clearedCells,
                     primaryRailCell = promoted,
                     secondaryRailCells = promoted?.let(secondaryRailCells::minus) ?: emptySet()
                 )
             }
-            rail in secondaryRailCells -> copy(
-                cells = clearedCells,
-                secondaryRailCells = secondaryRailCells - rail
-            )
-            primaryRailCell == null -> copy(cells = clearedCells, primaryRailCell = rail)
-            else -> copy(cells = clearedCells, secondaryRailCells = secondaryRailCells + rail)
+            rail in secondaryRailCells -> copy(secondaryRailCells = secondaryRailCells - rail)
+            primaryRailCell == null -> copy(primaryRailCell = rail)
+            else -> copy(secondaryRailCells = secondaryRailCells + rail)
         }
     }
 
     fun makePrimaryRailCell(slot: Int): BlockWandState {
         require(slot in 0 until CELL_COUNT)
         val rail = cellOf(slot)
-        if (rail == primaryRailCell) return withCell(slot, WandCell.Air)
+        if (rail == primaryRailCell) return this
         val formerPrimary = primaryRailCell
         return copy(
-            cells = cells.toMutableList().also { it[slot] = WandCell.Air },
             primaryRailCell = rail,
             secondaryRailCells = (secondaryRailCells - rail) + listOfNotNull(formerPrimary)
         )

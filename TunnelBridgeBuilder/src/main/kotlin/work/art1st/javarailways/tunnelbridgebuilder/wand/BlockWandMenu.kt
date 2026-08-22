@@ -153,29 +153,34 @@ class BlockWandMenu(
                 is WandCell.Material -> cell.key
             }
             meta.displayName(Component.text(cellName, NamedTextColor.WHITE))
+            val editingLore = buildList {
+                if (cell is WandCell.Material && supportedPlacementRules(cell).size > 1) {
+                    add(Component.text(
+                        "规则：${placementRuleName(cell.placementRule)}",
+                        NamedTextColor.AQUA
+                    ))
+                    add(Component.text("Shift + 左键：切换规则", NamedTextColor.YELLOW))
+                }
+                add(Component.text("光标拿方块左键：复制材料", NamedTextColor.GRAY))
+                add(Component.text("空手左键：空气/屏障", NamedTextColor.GRAY))
+            }
             meta.lore(
                 when {
-                    state.isPrimaryRailCell(slot) -> listOf(
-                        Component.text("基准轨道格", NamedTextColor.GREEN),
-                        Component.text("左边和底边的绿色标记在此相交", NamedTextColor.GRAY),
-                        Component.text("此格固定为空气；右键删除", NamedTextColor.DARK_GRAY)
-                    )
-                    state.isSecondaryRailCell(slot) -> listOf(
-                        Component.text("附属轨道格", NamedTextColor.RED),
-                        Component.text("左边和底边的红色标记在此相交", NamedTextColor.GRAY),
-                        Component.text("Shift + 右键设为基准轨道", NamedTextColor.YELLOW),
-                        Component.text("右键删除", NamedTextColor.DARK_GRAY)
-                    )
+                    state.isPrimaryRailCell(slot) -> buildList {
+                        add(Component.text("基准轨道格", NamedTextColor.GREEN))
+                        add(Component.text("左边和底边的绿色标记在此相交", NamedTextColor.GRAY))
+                        addAll(editingLore)
+                        add(Component.text("右键：删除轨道标记", NamedTextColor.DARK_GRAY))
+                    }
+                    state.isSecondaryRailCell(slot) -> buildList {
+                        add(Component.text("附属轨道格", NamedTextColor.RED))
+                        add(Component.text("左边和底边的红色标记在此相交", NamedTextColor.GRAY))
+                        addAll(editingLore)
+                        add(Component.text("Shift + 右键：设为基准轨道", NamedTextColor.YELLOW))
+                        add(Component.text("右键：删除轨道标记", NamedTextColor.DARK_GRAY))
+                    }
                     else -> buildList {
-                        if (cell is WandCell.Material && supportedPlacementRules(cell).size > 1) {
-                            add(Component.text(
-                                "规则：${placementRuleName(cell.placementRule)}",
-                                NamedTextColor.AQUA
-                            ))
-                            add(Component.text("Shift + 左键：切换规则", NamedTextColor.YELLOW))
-                        }
-                        add(Component.text("光标拿方块左键：复制材料", NamedTextColor.GRAY))
-                        add(Component.text("空手左键：空气/屏障", NamedTextColor.GRAY))
+                        addAll(editingLore)
                         add(Component.text("右键：添加附属轨道", NamedTextColor.RED))
                         add(Component.text("Shift + 右键：设为基准轨道", NamedTextColor.GREEN))
                     }

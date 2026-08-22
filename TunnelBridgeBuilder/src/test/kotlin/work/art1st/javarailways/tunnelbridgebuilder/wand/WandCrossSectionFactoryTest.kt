@@ -15,6 +15,7 @@ class WandCrossSectionFactoryTest {
         val state = BlockWandState.createDefault()
             .withCell(0, WandCell.Air)
             .withCell(1, WandCell.Material("minecraft:stone", PlacementRule.MATCH_HALF))
+            .withCell(10, WandCell.Material("minecraft:polished_andesite"))
             .makePrimaryRailCell(10)
 
         val section = WandCrossSectionFactory.create(state) { "${it.key.uppercase()}:${it.placementRule}" }
@@ -23,7 +24,7 @@ class WandCrossSectionFactoryTest {
         assertSame(Carve, section[0, 0])
         assertEquals(Place("MINECRAFT:STONE:MATCH_HALF"), section[1, 0])
         assertSame(Ignore, section[7, 4])
-        assertSame(Carve, section[2, 1])
+        assertEquals(Place("MINECRAFT:POLISHED_ANDESITE:REGULAR"), section[2, 1])
     }
 
     @Test

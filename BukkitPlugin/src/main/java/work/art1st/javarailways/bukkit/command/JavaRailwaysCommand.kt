@@ -78,7 +78,6 @@ class JavaRailwaysCommand {
         }
 
         when (args[0].lowercase()) {
-            "rail" -> return RailCommand.onCommand(sender, args.drop(1))
             "train" -> return TrainCommand.onCommand(sender, args.drop(1))
             "wand" -> return handleWand(sender, args.drop(1))
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
@@ -119,11 +118,6 @@ class JavaRailwaysCommand {
             "migrate" -> when (args.size) {
                 2 -> filtered(listOf("rail-infrastructure-metadata"))
                 3 -> filtered(listOf("--dry-run", "--apply"))
-                else -> emptyList()
-            }
-            "rail" -> when (args.size) {
-                2 -> filtered(listOf("create", "list", "connect", "delete"))
-                3 -> if (args[1].equals("delete", true)) filtered(playerWorld()?.allRails.orEmpty().map { it.id.toString() }) else emptyList()
                 else -> emptyList()
             }
             "train" -> when (args.size) {
@@ -178,7 +172,7 @@ class JavaRailwaysCommand {
 
     private companion object {
         val ROOT_COMMANDS = listOf(
-            "rail", "train", "wand", "waypoint", "route", "navigate", "timetable", "depot",
+            "train", "wand", "waypoint", "route", "navigate", "timetable", "depot",
             "ato", "stop", "perf", "resources", "migrate", "undo", "redo", "help"
         )
     }
@@ -1401,8 +1395,6 @@ class JavaRailwaysCommand {
 
     private fun sendHelp(sender: CommandSender) {
         sender.sendMessage("=== JavaRailways 命令帮助 ===")
-        sender.sendMessage("/jr rail create <length> - 在玩家位置创建直线轨道")
-        sender.sendMessage("/jr rail connect - 连接选中的轨道")
         sender.sendMessage("/jr train create - 在轨道上创建列车")
         sender.sendMessage("/jr train start - 启动列车（手动驾驶）")
         sender.sendMessage("/jr train stop - 停止列车")

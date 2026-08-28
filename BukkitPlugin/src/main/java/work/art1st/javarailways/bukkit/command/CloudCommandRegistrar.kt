@@ -62,8 +62,6 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
             fun parent(vararg path: String) = add(Route(path.toList()))
             fun args(vararg path: String) = add(Route(path.toList(), acceptsArguments = true))
 
-            parent("rail")
-            args("rail", "create"); parent("rail", "list"); args("rail", "connect"); args("rail", "delete")
             parent("train")
             args("train", "create"); args("train", "rename"); parent("train", "key")
             args("train", "anim"); args("train", "animation"); args("train", "action"); args("train", "behavior")

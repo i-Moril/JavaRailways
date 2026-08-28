@@ -93,7 +93,7 @@ object TrainCommand {
         val railSnapshot = coreWorld.allRails.toList()
         if (railSnapshot.isEmpty()) {
             heavyOperationGate.finish(sender.uniqueId)
-            sender.sendMessage("错误: 世界中没有轨道，请先使用 /jr rail create 创建轨道")
+            sender.sendMessage("错误: 世界中没有轨道，请先使用 /jr wand rail 获取 RailWand 并铺设轨道")
             return true
         }
 
@@ -227,7 +227,7 @@ object TrainCommand {
     ) {
         val rail = nearestRail?.let { coreWorld.getRail(it.railId) }
         if (rail == null) {
-            sender.sendMessage("错误: 世界中没有轨道，请先使用 /jr rail create 创建轨道")
+            sender.sendMessage("错误: 世界中没有轨道，请先使用 /jr wand rail 获取 RailWand 并铺设轨道")
             return
         }
 

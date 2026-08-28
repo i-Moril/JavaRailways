@@ -112,7 +112,6 @@ public final class WebUiApplication {
         app.post("/api/v1/worlds/{world}/timetables/simulate", this::simulateTimetable);
         app.get("/api/v1/worlds/{world}/scripts/{script}", this::renderScript);
         app.get("/api/v1/worlds/{world}/lines", this::lines);
-        app.post("/api/v1/worlds/{world}/lines/preview", this::previewLine);
         app.post("/api/v1/worlds/{world}/lines/{line}/simulate", this::simulateLine);
         app.put("/api/v1/worlds/{world}/lines/{line}", this::putLine);
         app.delete("/api/v1/worlds/{world}/lines/{line}", this::deleteLine);
@@ -356,10 +355,6 @@ public final class WebUiApplication {
 
     private void lines(Context context) throws IOException, InterruptedException {
         respond(context, bridge.get(lineCollectionPath(context)));
-    }
-
-    private void previewLine(Context context) throws IOException, InterruptedException {
-        respond(context, bridge.post(lineCollectionPath(context) + "/preview", requestJson(context)));
     }
 
     private void simulateLine(Context context) throws IOException, InterruptedException {

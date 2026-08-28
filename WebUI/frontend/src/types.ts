@@ -42,10 +42,7 @@ export interface ValidationIssue { path?: string; message: string; severity?: st
 export interface ValidationResult { valid: boolean; errors?: ValidationIssue[]; warnings?: ValidationIssue[] }
 export interface LineV1 { id:string; displayName:string; upStationIds:string[]; downStationIds:string[]; color?:string|null }
 export interface LineCollection { revision:number; lines:LineV1[] }
-export interface LineLegPreview { fromStationId:string; toStationId:string; fromDestinationId:string; toDestinationId:string; lengthMeters:number }
-export interface DirectionLinePreview { valid:boolean; totalLengthMeters?:number; legs?:LineLegPreview[]; legIndex?:number; error?:string }
-export interface LinePreview { valid:boolean; directions?:Partial<Record<LineDirection,DirectionLinePreview>>; error?:string }
-export interface SavedLineResult { revision:number; line:LineV1; preview:LinePreview }
+export interface SavedLineResult { revision:number; line:LineV1 }
 export interface SimulationProfile {
  profileType:'WORLD_TRAIN'|'TRAIN_TEMPLATE'; profileId:string; direction:LineDirection;
  timetableId?:string; serviceId?:string;

@@ -16,7 +16,6 @@ import type {
   DraftSummary,
   LineCollection,
   LineDirection,
-  LinePreview,
   LineSimulationResult,
   LineV1,
   SimulationProfile,
@@ -279,7 +278,7 @@ function ServicesPage({ state, metadata, lines, selected, dispatch, replaceStep,
   </section>;
 }
 
-function LinesPage({ world, metadata, collection, onCollection, run }: {
+export function LinesPage({ world, metadata, collection, onCollection, run }: {
   world:string; metadata:WorldMetadata; collection:LineCollection;
   onCollection:(value:LineCollection)=>void;
   run:<T>(operation:()=>Promise<T>)=>Promise<T|undefined>;
@@ -287,10 +286,9 @@ function LinesPage({ world, metadata, collection, onCollection, run }: {
   const { t } = useI18n();
   const [selectedId, setSelectedId] = useState('');
   const [editing, setEditing] = useState<LineV1>({ id:'', displayName:'', upStationIds:[], downStationIds:[], color:'#56c5ff' });
-  const [preview, setPreview] = useState<LinePreview>();
   const stations = Array.from(new Map((metadata.stations || []).map((station) => [station.stationId, station])).values());
   const select = (id:string) => {
-    setSelectedId(id); setPreview(undefined);
+    setSelectedId(id);
     const line = collection.lines.find((item) => item.id === id);
     setEditing(line ? { ...line, upStationIds:[...line.upStationIds], downStationIds:[...line.downStationIds] } : {
       id:`line-${collection.lines.length + 1}`,
@@ -299,21 +297,21 @@ function LinesPage({ world, metadata, collection, onCollection, run }: {
     });
   };
   const updateStations = (direction:LineDirection,stationIds:string[]) => {
-    setEditing({ ...editing,[direction==='UP'?'upStationIds':'downStationIds']:stationIds }); setPreview(undefined);
+    setEditing({ ...editing,[direction==='UP'?'upStationIds':'downStationIds']:stationIds });
   };
   const saveLine = async () => {
     const result = await run(() => api.saveLine(world, editing, collection.revision));
     if (!result) return;
     const lines = [...collection.lines.filter((line) => line.id !== result.line.id), result.line]
       .sort((a,b) => a.id.localeCompare(b.id));
-    onCollection({ revision:result.revision, lines }); setSelectedId(result.line.id); setPreview(result.preview);
+    onCollection({ revision:result.revision, lines }); setSelectedId(result.line.id);
   };
   const deleteLine = async () => {
     if (!selectedId) return;
     const result = await run(() => api.deleteLine(world, selectedId, collection.revision));
     if (!result) return;
     onCollection({ revision:result.revision, lines:collection.lines.filter((line) => line.id !== selectedId) });
-    setSelectedId(''); setEditing({ id:'', displayName:'', upStationIds:[], downStationIds:[], color:'#56c5ff' }); setPreview(undefined);
+    setSelectedId(''); setEditing({ id:'', displayName:'', upStationIds:[], downStationIds:[], color:'#56c5ff' });
   };
   return <section className="page-scroll line-page">
     <aside className="line-list card">
@@ -338,14 +336,9 @@ function LinesPage({ world, metadata, collection, onCollection, run }: {
           <button className="danger" onClick={()=>updateStations(direction,values.filter((id)=>id!==stationId))}>×</button></li>;})}</ol></section>;
       })}</div>
       <div className="line-actions">
-        <button disabled={editing.upStationIds.length < 2 || editing.downStationIds.length < 2} onClick={async () => setPreview(await run(() => api.previewLine(world, editing)))}>{t('lines.preview')}</button>
         <button className="primary" disabled={editing.upStationIds.length < 2 || editing.downStationIds.length < 2 || !editing.id || !editing.displayName} onClick={() => void saveLine()}>{t('common.save')}</button>
         <button className="danger" disabled={!selectedId} onClick={() => void deleteLine()}>{t('common.delete')}</button>
       </div>
-      {preview && <div className={preview.valid ? 'line-preview valid' : 'line-preview invalid'}>
-        <strong>{preview.valid?t('lines.routeValid'):t('lines.routeInvalid')}</strong>{preview.error&&<span>{preview.error}</span>}
-        {(['UP','DOWN'] as LineDirection[]).map((direction)=>{const result=preview.directions?.[direction];return result&&<section key={direction}><b>{t(`direction.${direction}`)}</b>{result.valid?<><span>{Math.round(result.totalLengthMeters||0)} m</span><ul>{result.legs?.map((leg,index)=><li key={index}>{leg.fromStationId} → {leg.toStationId}: {Math.round(leg.lengthMeters)} m</li>)}</ul></>:<span>{result.error}</span>}</section>;})}
-      </div>}
     </article>
   </section>;
 }

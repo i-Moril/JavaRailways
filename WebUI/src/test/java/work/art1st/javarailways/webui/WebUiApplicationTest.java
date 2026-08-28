@@ -79,6 +79,49 @@ class WebUiApplicationTest {
         } finally { app.stop(); }
     }
 
+    @Test void authenticatedClientsCannotRequestStationOnlyRouteValidation() throws Exception {
+        HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        bridge.createContext("/auth/exchange", exchange -> {
+            byte[] body = "{\"playerId\":\"player\",\"playerName\":\"Player\",\"worldId\":\"world\"}".getBytes();
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        bridge.start();
+        WebUiConfig config = new WebUiConfig(
+            URI.create("http://127.0.0.1:" + bridge.getAddress().getPort() + "/"),
+            "bridge-token", drafts, "127.0.0.1", false, 0, 4096, Duration.ofSeconds(2)
+        );
+        Javalin app = new WebUiApplication(config).createApp().start(0);
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            String root = "http://127.0.0.1:" + app.port();
+            HttpResponse<String> login = client.send(
+                HttpRequest.newBuilder(URI.create(root + "/auth/exchange"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"one-time-token\"}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString()
+            );
+            assertEquals(204, login.statusCode());
+            String cookie = login.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+
+            HttpResponse<String> preview = client.send(
+                HttpRequest.newBuilder(URI.create(root + "/api/v1/worlds/world/lines/preview"))
+                    .header("Cookie", cookie)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString()
+            );
+            assertEquals(404, preview.statusCode());
+        } finally {
+            app.stop();
+            bridge.stop(0);
+        }
+    }
+
     @Test void guestsCanReadOnlyTheWorldListAndRailMapApis() throws Exception {
         HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         bridge.createContext("/worlds", exchange -> {

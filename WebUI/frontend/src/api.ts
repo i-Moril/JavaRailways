@@ -1,5 +1,5 @@
 import type { TimetableAuthoringDocumentV1 } from './authoring';
-import type { CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LinePreview, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary } from './types';
+import type { CompiledTimetableSource, DraftSummary, EditorDocumentSummary, LineCollection, LineSimulationResult, LineV1, RailMapFile, RenderedTimetableScript, SavedLineResult, SavedTimetableV1, SimulationProfile, TimetableScriptSummary, TimetableSimulationProfileAssignment, TimetableSimulationResult, ValidationResult, WebSessionStatus, WorldMetadata, WorldSummary } from './types';
 async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...init?.headers }, ...init }); if (!response.ok) { if(response.status===401&&typeof window!=='undefined')window.dispatchEvent(new Event('javarailways:unauthorized')); throw new Error((await response.text()) || `${response.status} ${response.statusText}`); } return response.status === 204 ? undefined as T : response.json(); }
 const base = (worldId: string) => `/api/v1/worlds/${encodeURIComponent(worldId)}`;
 export const api = {
@@ -11,7 +11,6 @@ export const api = {
  compileSource: (worldId:string,id:string,source:string,documentHash?:string) => request<CompiledTimetableSource>(`${base(worldId)}/scripts/compile`, {method:'POST',body:JSON.stringify({id,source,documentHash})}),
  simulateTimetable: (worldId:string,timetable:SavedTimetableV1,profileAssignments:TimetableSimulationProfileAssignment[],delayThresholdTicks:number) => request<TimetableSimulationResult>(`${base(worldId)}/timetables/simulate`,{method:'POST',body:JSON.stringify({timetable,profileAssignments,delayThresholdTicks})}),
  lines: (worldId: string) => request<LineCollection>(`${base(worldId)}/lines`),
- previewLine: (worldId: string, line: LineV1) => request<LinePreview>(`${base(worldId)}/lines/preview`, { method:'POST', body:JSON.stringify(line) }),
  simulateLine: (worldId: string, lineId: string, profile: SimulationProfile) => request<LineSimulationResult>(`${base(worldId)}/lines/${encodeURIComponent(lineId)}/simulate`, { method:'POST', body:JSON.stringify(profile) }),
  saveLine: (worldId: string, line: LineV1, expectedRevision: number) => request<SavedLineResult>(`${base(worldId)}/lines/${encodeURIComponent(line.id)}`, { method:'PUT', body:JSON.stringify({ line, expectedRevision }) }),
  deleteLine: (worldId: string, lineId: string, expectedRevision: number) => request<{revision:number;removed:boolean}>(`${base(worldId)}/lines/${encodeURIComponent(lineId)}`, { method:'DELETE', body:JSON.stringify({ expectedRevision }) }),

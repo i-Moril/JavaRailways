@@ -22,12 +22,12 @@ data class ScaleConfig(
     val z: Double = 1.0
 )
 
-/** Parse offset from YAML map. */
-internal fun parseOffset(map: Map<String, Any>): OffsetConfig {
+/** Parse an offset from a YAML map. */
+internal fun parseOffset(map: Map<String, Any>, subject: String = "offset"): OffsetConfig {
     return OffsetConfig(
-        x = numberOrDefault(map, "x", "offset", 0.0),
-        y = numberOrDefault(map, "y", "offset", 0.0),
-        z = numberOrDefault(map, "z", "offset", 0.0)
+        x = numberOrDefault(map, "x", subject, 0.0),
+        y = numberOrDefault(map, "y", subject, 0.0),
+        z = numberOrDefault(map, "z", subject, 0.0)
     )
 }
 

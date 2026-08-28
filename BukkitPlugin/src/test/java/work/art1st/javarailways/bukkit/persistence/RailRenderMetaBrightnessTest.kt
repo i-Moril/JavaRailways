@@ -46,6 +46,40 @@ class RailRenderMetaBrightnessTest {
 
         assertNull(element.brightnessBlock)
         assertNull(element.brightnessSky)
+        assertEquals(0.0, element.lightProbeOffsetX)
+        assertEquals(0.0, element.lightProbeOffsetY)
+        assertEquals(0.0, element.lightProbeOffsetZ)
+    }
+
+    @Test
+    fun `current metadata round trip retains light probe offset without version bump`() {
+        val element = RailRenderTemplateElementV2(
+            type = "BLOCK",
+            blockMaterial = "RAIL",
+            offsetX = 0.0,
+            offsetY = 0.0,
+            offsetZ = 0.0,
+            scaleX = 1.0,
+            scaleY = 1.0,
+            scaleZ = 1.0,
+            lightProbeOffsetX = 0.25,
+            lightProbeOffsetY = 1.0,
+            lightProbeOffsetZ = -0.5
+        )
+        val file = RailRenderMetaFileV2(
+            version = 2,
+            templates = listOf(RailRenderTemplateV2("probe-template", 0.95, listOf(element))),
+            rails = emptyList()
+        )
+
+        val encoded = json.encodeToString(file)
+        val restored = json.decodeFromString<RailRenderMetaFileV2>(encoded)
+            .templates.single().elements.single()
+
+        assertTrue(encoded.contains("\"version\":2"))
+        assertEquals(0.25, restored.lightProbeOffsetX)
+        assertEquals(1.0, restored.lightProbeOffsetY)
+        assertEquals(-0.5, restored.lightProbeOffsetZ)
     }
 
     @Test

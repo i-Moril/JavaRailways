@@ -52,8 +52,10 @@ data class RailElementConfig(
     val blockMaterial: String? = null,
     /** 可选的显示实体光照覆盖；null 表示使用环境光照。 */
     val brightness: RailBrightnessConfig? = null,
-    /** 相对曲线点的局部偏移 */
+    /** 相对曲线点的视觉局部偏移。 */
     val offset: OffsetConfig,
+    /** 相对视觉位置的光照采样点局部偏移；不改变模型的最终世界位置。 */
+    val lightProbeOffset: OffsetConfig = OffsetConfig(),
     /** 局部欧拉角旋转（度） */
     val rotation: RotationConfig = RotationConfig(),
     /** 模型缩放 (x=沿曲线方向长度, y=高度, z=宽度) */
@@ -110,6 +112,7 @@ private fun parseRailElement(map: Map<String, Any>): RailElementConfig {
     val type = parseRailDisplayType(map.requireString("type", "rail element"))
     val material = map.requireString("material", "rail element")
     val offsetMap = map.requireMap("offset", "rail element")
+    val lightProbeOffsetMap = map.optionalMap("light_probe_offset", "rail element")
     val rotationMap = map.requireMap("rotation", "rail element")
     val scaleMap = map.requireMap("scale", "rail element")
     val itemMap = map.optionalMap("item", "rail element")
@@ -129,6 +132,9 @@ private fun parseRailElement(map: Map<String, Any>): RailElementConfig {
         blockMaterial = blockMaterial,
         brightness = parseRailBrightness(brightnessMap),
         offset = parseOffset(offsetMap),
+        lightProbeOffset = lightProbeOffsetMap?.let {
+            parseOffset(it, "light_probe_offset")
+        } ?: OffsetConfig(),
         rotation = parseRotation(rotationMap),
         scale = parseScale(scaleMap)
     )

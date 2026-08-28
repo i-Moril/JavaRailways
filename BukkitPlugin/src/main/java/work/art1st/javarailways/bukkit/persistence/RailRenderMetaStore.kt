@@ -62,7 +62,10 @@ internal data class RailRenderTemplateElementV2(
     val rotationZ: Double = 0.0,
     val scaleX: Double,
     val scaleY: Double,
-    val scaleZ: Double
+    val scaleZ: Double,
+    val lightProbeOffsetX: Double = 0.0,
+    val lightProbeOffsetY: Double = 0.0,
+    val lightProbeOffsetZ: Double = 0.0
 )
 
 data class PersistedRailRenderMeta(
@@ -154,7 +157,10 @@ object RailRenderMetaStore {
                             rotationZ = element.rotationZ,
                             scaleX = element.scaleX,
                             scaleY = element.scaleY,
-                            scaleZ = element.scaleZ
+                            scaleZ = element.scaleZ,
+                            lightProbeOffsetX = element.lightProbeOffsetX,
+                            lightProbeOffsetY = element.lightProbeOffsetY,
+                            lightProbeOffsetZ = element.lightProbeOffsetZ
                         )
                     }
                 )
@@ -241,7 +247,10 @@ object RailRenderMetaStore {
                         rotationZ = element.rotationZ,
                         scaleX = element.scaleX,
                         scaleY = element.scaleY,
-                        scaleZ = element.scaleZ
+                        scaleZ = element.scaleZ,
+                        lightProbeOffsetX = element.lightProbeOffsetX,
+                        lightProbeOffsetY = element.lightProbeOffsetY,
+                        lightProbeOffsetZ = element.lightProbeOffsetZ
                     )
                 }
             )

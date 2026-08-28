@@ -36,6 +36,48 @@ class RailModelConfigTest {
     }
 
     @Test
+    fun `parses local light probe offset and defaults missing components`() {
+        val yaml = """
+            repeat_length: 0.95
+            elements:
+              - type: item
+                material: RAIL
+                light_probe_offset:
+                  y: 0.75
+                offset: {}
+                rotation: {}
+                scale: {}
+        """.trimIndent()
+
+        val offset = loadRailModelConfig(ByteArrayInputStream(yaml.toByteArray()))
+            .elements.single().lightProbeOffset
+
+        assertEquals(0.0, offset.x)
+        assertEquals(0.75, offset.y)
+        assertEquals(0.0, offset.z)
+    }
+
+    @Test
+    fun `defaults missing light probe offset to zero`() {
+        val yaml = """
+            repeat_length: 0.95
+            elements:
+              - type: item
+                material: RAIL
+                offset: {}
+                rotation: {}
+                scale: {}
+        """.trimIndent()
+
+        val offset = loadRailModelConfig(ByteArrayInputStream(yaml.toByteArray()))
+            .elements.single().lightProbeOffset
+
+        assertEquals(0.0, offset.x)
+        assertEquals(0.0, offset.y)
+        assertEquals(0.0, offset.z)
+    }
+
+    @Test
     fun `parses optional display brightness override`() {
         val yaml = """
             repeat_length: 0.95

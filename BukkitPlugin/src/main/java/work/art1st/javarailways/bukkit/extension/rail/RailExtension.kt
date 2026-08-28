@@ -34,6 +34,41 @@ import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
+internal data class RailDisplayPlacement(
+    val visualPosition: Vector3dc,
+    val lightProbePosition: Vector3dc,
+    val visualTranslation: Vector3dc
+)
+
+/**
+ * Computes a display's visual position and a compensated entity position used as its light probe.
+ * Both offsets use curve-local axes: tangent → x, normal → y, tangent × normal → z.
+ */
+internal fun computeRailDisplayPlacement(
+    curvePosition: Vector3dc,
+    tangent: Vector3dc,
+    normal: Vector3dc,
+    visualOffset: OffsetConfig,
+    lightProbeOffset: OffsetConfig
+): RailDisplayPlacement {
+    val binormal = Vector3d()
+    tangent.cross(normal, binormal).normalize()
+
+    fun applyLocalOffset(origin: Vector3dc, offset: OffsetConfig): Vector3d = Vector3d(
+        origin.x() + tangent.x() * offset.x + normal.x() * offset.y + binormal.x() * offset.z,
+        origin.y() + tangent.y() * offset.x + normal.y() * offset.y + binormal.y() * offset.z,
+        origin.z() + tangent.z() * offset.x + normal.z() * offset.y + binormal.z() * offset.z
+    )
+
+    val visualPosition = applyLocalOffset(curvePosition, visualOffset)
+    val lightProbePosition = applyLocalOffset(visualPosition, lightProbeOffset)
+    return RailDisplayPlacement(
+        visualPosition = visualPosition,
+        lightProbePosition = lightProbePosition,
+        visualTranslation = Vector3d(visualPosition).sub(lightProbePosition)
+    )
+}
+
 /**
  * 轨道分段渲染扩展：曲线静态时只在首次发送时构建实体。
  */
@@ -147,10 +182,20 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         point: Curve.Point,
         element: RailElementConfig
     ): DisplayVisual {
-        val worldPos = computeWorldPosition(point, element.offset)
+        val placement = computeRailDisplayPlacement(
+            curvePosition = point.position,
+            tangent = point.tangent,
+            normal = point.normal,
+            visualOffset = element.offset,
+            lightProbeOffset = element.lightProbeOffset
+        )
         val rotation = computeCurveRotation(point).mul(computeElementRotation(element.rotation))
         val transformation = Transformation(
-            Vector3f(0f, 0f, 0f),
+            Vector3f(
+                placement.visualTranslation.x().toFloat(),
+                placement.visualTranslation.y().toFloat(),
+                placement.visualTranslation.z().toFloat()
+            ),
             rotation.get(Quaternionf()),
             Vector3f(element.scale.x.toFloat(), element.scale.y.toFloat(), element.scale.z.toFloat()),
             Quaternionf()
@@ -176,7 +221,12 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         return BukkitPlugin.INSTANCE.displayRenderBackend.create(
             bukkitWorld,
             DisplayVisualDescriptor(
-                location = Location(bukkitWorld, worldPos.x(), worldPos.y(), worldPos.z()),
+                location = Location(
+                    bukkitWorld,
+                    placement.lightProbePosition.x(),
+                    placement.lightProbePosition.y(),
+                    placement.lightProbePosition.z()
+                ),
                 content = content,
                 transformation = transformation,
                 viewRange = displayViewRangeForDistance(
@@ -186,23 +236,6 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         ).also { visual ->
             element.brightness?.let { visual.setBrightness(it.block, it.sky) }
         }
-    }
-
-    /**
-     * 计算曲线点处元素的 world 坐标。
-     * tangent → local-x, normal → local-y, binormal → local-z
-     */
-    private fun computeWorldPosition(point: Curve.Point, offset: OffsetConfig): Vector3dc {
-        val tangent = point.tangent
-        val normal = point.normal
-        val binormal = Vector3d()
-        tangent.cross(normal, binormal).normalize()
-
-        return Vector3d(
-            point.position.x() + tangent.x() * offset.x + normal.x() * offset.y + binormal.x() * offset.z,
-            point.position.y() + tangent.y() * offset.x + normal.y() * offset.y + binormal.y() * offset.z,
-            point.position.z() + tangent.z() * offset.x + normal.z() * offset.y + binormal.z() * offset.z
-        )
     }
 
     /**
@@ -257,6 +290,11 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
                         )
                     } else null,
                     offset = OffsetConfig(element.offsetX, element.offsetY, element.offsetZ),
+                    lightProbeOffset = OffsetConfig(
+                        element.lightProbeOffsetX,
+                        element.lightProbeOffsetY,
+                        element.lightProbeOffsetZ
+                    ),
                     rotation = RotationConfig(element.rotationX, element.rotationY, element.rotationZ),
                     scale = ScaleConfig(element.scaleX, element.scaleY, element.scaleZ)
                 )

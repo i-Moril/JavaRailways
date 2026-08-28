@@ -32,7 +32,10 @@ data class RailElementTemplateSnapshot(
     val rotationZ: Double,
     val scaleX: Double,
     val scaleY: Double,
-    val scaleZ: Double
+    val scaleZ: Double,
+    val lightProbeOffsetX: Double = 0.0,
+    val lightProbeOffsetY: Double = 0.0,
+    val lightProbeOffsetZ: Double = 0.0
 )
 
 data class RailTemplateSnapshot(

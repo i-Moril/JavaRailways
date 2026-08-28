@@ -141,7 +141,10 @@ object RailVisualBootstrap {
                 rotationZ = element.rotation.z,
                 scaleX = element.scale.x,
                 scaleY = element.scale.y,
-                scaleZ = element.scale.z
+                scaleZ = element.scale.z,
+                lightProbeOffsetX = element.lightProbeOffset.x,
+                lightProbeOffsetY = element.lightProbeOffset.y,
+                lightProbeOffsetZ = element.lightProbeOffset.z
             )
         }
         val raw = buildString {
@@ -167,6 +170,10 @@ object RailVisualBootstrap {
                 append(e.rotationX).append(',').append(e.rotationY).append(',').append(e.rotationZ)
                 append(',')
                 append(e.scaleX).append(',').append(e.scaleY).append(',').append(e.scaleZ)
+                append(',')
+                append(e.lightProbeOffsetX).append(',')
+                    .append(e.lightProbeOffsetY).append(',')
+                    .append(e.lightProbeOffsetZ)
             }
         }
         val hash = MessageDigest.getInstance("SHA-256")

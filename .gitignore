@@ -110,6 +110,13 @@ gradle-app.setting
 .classpath
 
 .*/
+# Trellis project state and Pi integration are repository-owned.
+!.agents/
+!.agents/**
+!.pi/
+!.pi/**
+!.trellis/
+!.trellis/**
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml

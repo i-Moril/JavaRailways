@@ -1,0 +1,31 @@
+{
+  "id": "bootstrap-repository-specs",
+  "name": "bootstrap-repository-specs",
+  "title": "Bootstrap repository-wide Trellis specs",
+  "description": "Correct Trellis package mapping for the full JavaRailways repository, then bootstrap source-backed Chinese specs for every real package and layer.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": "javarailways",
+  "priority": "P2",
+  "creator": "ARTI5T",
+  "assignee": "ARTI5T",
+  "createdAt": "2026-08-28",
+  "completedAt": "2026-08-28",
+  "branch": "feat/webui-timetable-editor",
+  "base_branch": "feat/webui-timetable-editor",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/config.yaml",
+    ".trellis/spec/",
+    "AGENTS.md",
+    ".gitattributes"
+  ],
+  "notes": "Mapped the root project, all eight Gradle subprojects, and docs-site; bootstrapped and verified 26 source-backed Chinese spec documents. No product runtime code was modified and no commit was created.",
+  "meta": {}
+}

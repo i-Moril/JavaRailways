@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/archive/2026-08/08-28-bootstrap-repository-specs/research.md", "reason": "Verify final package and layer coverage against repository evidence"}
+{"file": "requirement.md", "reason": "Verify module responsibilities and API dependency direction"}
+{"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Verify persistence guidance preserves authoritative policy"}

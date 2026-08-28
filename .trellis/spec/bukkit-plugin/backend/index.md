@@ -1,0 +1,40 @@
+# BukkitPlugin Backend 规范
+
+## 适用范围
+
+适用于 `BukkitPlugin/` 的 Paper/Folia composition 与适配层：plugin lifecycle、world/tick bridge、Cloud commands、Wand/Dialog、模型和 render backend、公开 add-on service、Bukkit sidecar 与 world persistence。Core/Basic 的平台无关领域规则不得在本层重复实现。
+
+## 开发前检查
+
+- [ ] 从 `BukkitPlugin.kt`/`WorldManager.kt` 确认对象在哪个 lifecycle 阶段创建、注册、启动、停止和释放。
+- [ ] 对每个 Bukkit access 标出 global simulation、async worker、region/location owner 或 entity owner；不要把 `@MainThread` 当作 Folia ownership。
+- [ ] 命令/工具逻辑先寻找 Basic/Core API 或 Bukkit `api.*` service，避免直接扩散内部实现依赖。
+- [ ] render 变更区分 immutable Core frame、platform dispatch、backend visual、audience 与 model state。
+- [ ] persistence/config 改动阅读[交互、渲染与持久化](./interaction-render-persistence.md)和共享 Schema 政策。
+
+## 子文档索引
+
+| 文档 | 用途 |
+| --- | --- |
+| [Lifecycle 与线程归属](./lifecycle-and-threading.md) | composition root、world tick、Folia scheduler、shutdown |
+| [交互、渲染与持久化](./interaction-render-persistence.md) | Cloud/Wand/Dialog、backend/model、add-on API、snapshot/sidecar |
+
+## 核心规则
+
+- `BukkitPlugin` 是 composition root：初始化顺序与反向 shutdown 都是 contract；每个 event/service/task/executor 必须有明确 cleanup。
+- Folia 下不存在万能主线程。global task 只做 simulation/value 协调；entity/location/block side effect 使用 `PlatformDispatcher` 或 target-aware scheduler/guard。
+- Heavy geometry/query/script/JSON IO 不在 owning region 或 simulation context 执行；异步结果回到正确 owner 后再次验证 world/entity/revision。
+- add-on 能力放入 `work.art1st.javarailways.bukkit.api.*` 并通过 Bukkit service registry 提供；不要要求独立插件链接 fat JAR 内部实现。
+- corrupt persistence/config 不得静默覆盖。fail-fast、保留原数据或明确禁用受影响 world，比 fallback 到 defaults 更安全。
+
+## 质量检查
+
+- [ ] 运行 `./gradlew :BukkitPlugin:test`。
+- [ ] 打包/lifecycle/resource 变更运行 `./gradlew :BukkitPlugin:shadowJar`，检查嵌入 WebUI 与 relocation/service merge。
+- [ ] Basic/Core contract 变更连同 `:Core:test :Basic:test`；WebUI bridge 变更连同 `:WebUI:test` 和 frontend tests。
+- [ ] thread 改动覆盖 owner guard、latest-only/coalescing、retired entity、world unload、plugin disable 和 failure cleanup。
+- [ ] 命令/Wand/Dialog 改动覆盖 route/suggestion、interaction routing、PDC codec、输入校验与 locale key。
+- [ ] 需要时运行 `./gradlew :BukkitPlugin:runFolia` 做跨 region smoke，并记录未自动化场景。
+- [ ] 运行 `git diff --check`。
+
+证据：`BukkitPlugin/build.gradle`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt`、`docs-site/docs/architecture/threading-model.md`。

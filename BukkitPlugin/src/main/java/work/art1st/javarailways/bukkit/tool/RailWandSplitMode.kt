@@ -14,7 +14,10 @@ internal class RailWandSplitMode(private val wand: RailWand) {
                 val anchor = wand.findLookedAtAnchor(player, 64.0, 1.5)
                     ?: wand.findNearestAnchor(player, 3.0)
                 if (anchor == null) {
-                    player.sendActionBar(Component.text("没有指向可合并的分割锚点", NamedTextColor.YELLOW))
+                    player.sendActionBar(RailWandI18n.component(
+                        player,
+                        "message.split_merge_target_missing"
+                    ).color(NamedTextColor.YELLOW))
                 } else {
                     wand.mergeSplitAnchor(player, anchor)
                 }

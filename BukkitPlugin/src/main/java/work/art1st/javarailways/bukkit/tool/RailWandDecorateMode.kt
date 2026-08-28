@@ -1,6 +1,5 @@
 package work.art1st.javarailways.bukkit.tool
 
-import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import org.bukkit.event.block.Action
@@ -21,7 +20,10 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
     private fun prepareOrClearDecoration(player: Player) {
         wand.findLookedAtRailAsync(player) { rail ->
             if (rail == null) {
-                player.sendActionBar(Component.text("视线范围内没有轨道", NamedTextColor.RED))
+                player.sendActionBar(RailWandI18n.component(
+                    player,
+                    "message.no_rail_in_sight"
+                ).color(NamedTextColor.RED))
                 return@findLookedAtRailAsync
             }
             val state = wand.getState(player)
@@ -32,30 +34,39 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
             if (state.pendingDecorationDeleteRail != selectionId) {
                 state.pendingDecorationDeleteRail = selectionId
                 wand.persistPlayerState(player, state)
-                player.sendActionBar(Component.text(
-                    "已选择轨道 ${rail.id.toString().take(8)}；再次左键清除全部装饰",
-                    NamedTextColor.YELLOW
-                ))
+                player.sendActionBar(RailWandI18n.component(
+                    player,
+                    "message.decorate_delete_selected",
+                    rail.id.toString().take(8)
+                ).color(NamedTextColor.YELLOW))
                 return@findLookedAtRailAsync
             }
 
+            val railIds = logicalRails.mapTo(linkedSetOf()) { it.id }
+            val renderMetas = RailRenderMetaStore.load(player.world)
+            val renderMetasBefore = renderMetas.filter { it.railId in railIds }
             logicalRails.forEach { RailVisualBootstrap.unregisterRail(it.id) }
             RailRenderMetaStore.saveAll(
                 player.world,
-                RailRenderMetaStore.load(player.world).filterNot { meta ->
-                    logicalRails.any { it.id == meta.railId }
-                }
+                renderMetas.filterNot { it.railId in railIds }
             )
             state.pendingDecorationDeleteRail = null
             wand.persistPlayerState(player, state)
-            player.sendActionBar(Component.text("已清除该轨道的全部装饰", NamedTextColor.GREEN))
+            wand.recordDecorationUndo(player, railIds, renderMetasBefore, emptyList())
+            player.sendActionBar(RailWandI18n.component(
+                player,
+                "message.decorations_cleared"
+            ).color(NamedTextColor.GREEN))
         }
     }
 
     private fun applyDecoration(player: Player) {
         wand.findLookedAtRailAsync(player) { rail ->
             if (rail == null) {
-                player.sendActionBar(Component.text("视线范围内没有轨道", NamedTextColor.RED))
+                player.sendActionBar(RailWandI18n.component(
+                    player,
+                    "message.no_rail_in_sight"
+                ).color(NamedTextColor.RED))
                 return@findLookedAtRailAsync
             }
             val state = wand.getState(player)
@@ -65,17 +76,26 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
 
             runCatching {
                 val logicalRails = wand.logicalRails(player, rail)
+                val railIds = logicalRails.mapTo(linkedSetOf()) { it.id }
+                val renderMetasBefore = RailRenderMetaStore.load(player.world).filter { it.railId in railIds }
                 val metas = logicalRails.map { RailVisualBootstrap.registerRail(it, modelName) }
                 RailRenderMetaStore.upsertRails(player.world, metas)
-            }.onSuccess {
+                Triple(railIds, renderMetasBefore, metas)
+            }.onSuccess { (railIds, renderMetasBefore, expectedAfter) ->
                 state.pendingDecorationDeleteRail = null
                 wand.persistPlayerState(player, state)
-                player.sendActionBar(Component.text("已使用 $modelName 装饰轨道", NamedTextColor.GREEN))
+                wand.recordDecorationUndo(player, railIds, renderMetasBefore, expectedAfter)
+                player.sendActionBar(RailWandI18n.component(
+                    player,
+                    "message.rail_decorated",
+                    modelName
+                ).color(NamedTextColor.GREEN))
             }.onFailure { error ->
-                player.sendMessage(Component.text(
-                    "轨道装饰失败：${railWandFailureReason(error)}",
-                    NamedTextColor.RED
-                ))
+                player.sendMessage(RailWandI18n.component(
+                    player,
+                    "message.decoration_failed",
+                    railWandFailureReason(error)
+                ).color(NamedTextColor.RED))
             }
         }
     }

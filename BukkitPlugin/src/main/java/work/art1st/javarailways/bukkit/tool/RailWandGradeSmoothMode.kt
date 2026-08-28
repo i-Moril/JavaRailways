@@ -17,10 +17,12 @@ internal class RailWandGradeSmoothMode(private val wand: RailWand) {
                 }
                 if (!player.isSneaking) state.selectedAnchors.clear()
                 if (anchor.id !in state.selectedAnchors) state.selectedAnchors += anchor.id
-                player.sendActionBar(Component.text(
-                    "已选择坡度控制锚点 ${anchor.id} (${state.selectedAnchors.size})",
-                    NamedTextColor.YELLOW
-                ))
+                player.sendActionBar(RailWandI18n.component(
+                    player,
+                    "message.grade_anchor_selected",
+                    anchor.id,
+                    state.selectedAnchors.size
+                ).color(NamedTextColor.YELLOW))
                 wand.updateAnchorDisplay(player)
             }
             Action.RIGHT_CLICK_BLOCK, Action.RIGHT_CLICK_AIR -> wand.smoothSelectedGrades(player, state)

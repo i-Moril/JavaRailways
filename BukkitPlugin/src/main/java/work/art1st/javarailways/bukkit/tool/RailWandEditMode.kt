@@ -1,6 +1,5 @@
 package work.art1st.javarailways.bukkit.tool
 
-import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import org.bukkit.event.block.Action
@@ -22,7 +21,10 @@ internal class RailWandEditMode(private val wand: RailWand) {
 
                 wand.findLookedAtRailAsync(player) { rail ->
                     if (rail == null) {
-                        player.sendActionBar(Component.text("没有找到所指轨道", NamedTextColor.GRAY))
+                        player.sendActionBar(RailWandI18n.component(
+                            player,
+                            "message.no_pointed_rail"
+                        ).color(NamedTextColor.GRAY))
                     } else {
                         wand.editRail(player, rail, state)
                     }
@@ -40,14 +42,21 @@ internal class RailWandEditMode(private val wand: RailWand) {
                         state.selectedAnchors.add(anchor.id)
                     }
                     wand.updateAnchorDisplay(player)
-                    player.sendActionBar(Component.text("已选择锚点 ${anchor.id}", NamedTextColor.YELLOW))
+                    player.sendActionBar(RailWandI18n.component(
+                        player,
+                        "message.anchor_selected",
+                        anchor.id
+                    ).color(NamedTextColor.YELLOW))
                     return
                 }
 
                 wand.findLookedAtRailAsync(player) { rail ->
                     if (rail == null) {
                         wand.clearAnchorSelection(player, state)
-                        player.sendActionBar(Component.text("没有找到所指轨道", NamedTextColor.GRAY))
+                        player.sendActionBar(RailWandI18n.component(
+                            player,
+                            "message.no_pointed_rail"
+                        ).color(NamedTextColor.GRAY))
                     } else {
                         wand.selectRail(player, rail, state)
                     }

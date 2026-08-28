@@ -58,6 +58,8 @@ class DialogRenderer(
                 "dialog.confirm" -> "✓ 确认"
                 "dialog.enabled" -> "开启"
                 "dialog.disabled" -> "关闭"
+                "dialog.invalid_number" -> "%s 不是有效数字: %s"
+                "dialog.finite_number_required" -> "%s 必须是有限数字"
                 else -> key
             }
         }
@@ -215,7 +217,7 @@ class DialogRenderer(
                 val action = DialogAction.customClick(
                     { view, audience ->
                         if (audience is Player) {
-                            captureInputs(view, builtGroup, session, setOf(key.id))
+                            captureInputs(view, builtGroup, session, textResolver, setOf(key.id))
                             @Suppress("UNCHECKED_CAST")
                             session.setValue(key as ConfigKey<Any?>, option)
                             session.commit()
@@ -254,7 +256,7 @@ class DialogRenderer(
         onConfirmed: ((Player) -> Unit)? = null
     ) {
         val needsRebuild = try {
-            captureInputs(view, builtGroup, session)
+            captureInputs(view, builtGroup, session, textResolver)
         } catch (failure: IllegalArgumentException) {
             player.sendMessage(Component.text(failure.message ?: "数值输入无效", NamedTextColor.RED))
             showNativeDialog(player, builtGroup, session, textResolver, additionalBody, onConfirmed)
@@ -283,6 +285,7 @@ class DialogRenderer(
         view: io.papermc.paper.dialog.DialogResponseView,
         builtGroup: BuiltGroup,
         session: PlayerConfigSession,
+        textResolver: (String) -> String,
         ignoredKeyIds: Set<String> = emptySet()
     ): Boolean {
         val allItems = builtGroup.effectiveItems +
@@ -301,8 +304,12 @@ class DialogRenderer(
                 }
                 ConfigValueType.NUMBER_TEXT -> view.getText(inputKey)?.let { raw ->
                     val value = raw.trim().toDoubleOrNull()
-                        ?: throw IllegalArgumentException("${key.label} 不是有效数字: $raw")
-                    require(value.isFinite()) { "${key.label} 必须是有限数字" }
+                        ?: throw IllegalArgumentException(
+                            textResolver("dialog.invalid_number").format(textResolver(key.label), raw)
+                        )
+                    require(value.isFinite()) {
+                        textResolver("dialog.finite_number_required").format(textResolver(key.label))
+                    }
                     session.setValue(key as ConfigKey<Double>, value)
                 }
                 ConfigValueType.INTEGER -> view.getFloat(inputKey)?.let {

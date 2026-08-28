@@ -20,6 +20,7 @@ import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.inventory.ItemStack
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import work.art1st.javarailways.basic.DirectionRestrictionResolver
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.destination.DestinationRole
@@ -42,6 +43,7 @@ import work.art1st.javarailways.bukkit.util.HeavyRailQueries
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.PlayerOperationGate
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.rail.CoreRail
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -99,6 +101,35 @@ internal object RailObjectWandStateCodec {
             defaultWayPointType = enumValueOf<DestinationRoleType>(saved.defaultWayPointType)
         )
     }.getOrNull()
+}
+
+internal fun isDirectionRestrictionInteraction(action: Action): Boolean =
+    action == Action.RIGHT_CLICK_BLOCK || action == Action.RIGHT_CLICK_AIR ||
+        action == Action.LEFT_CLICK_BLOCK || action == Action.LEFT_CLICK_AIR
+
+internal data class DirectionRestrictionTarget(
+    val pointA: HeavyRailQueries.NearestRailMatch,
+    val pointB: HeavyRailQueries.LookedAtRailMatch
+)
+
+internal fun findDirectionRestrictionTarget(
+    candidates: Collection<CoreRail>,
+    rayOrigin: Vector3dc,
+    rayDirection: Vector3dc,
+    playerPosition: Vector3dc,
+    maxDistance: Double,
+    hitRadius: Double
+): DirectionRestrictionTarget? {
+    val pointB = HeavyRailQueries.findLookedAtRailPoint(
+        candidates,
+        rayOrigin,
+        rayDirection,
+        maxDistance,
+        hitRadius
+    ) ?: return null
+    val selectedRail = candidates.firstOrNull { it.id == pointB.railId } ?: return null
+    val pointA = HeavyRailQueries.findNearestRail(listOf(selectedRail), playerPosition) ?: return null
+    return DirectionRestrictionTarget(pointA, pointB)
 }
 
 internal object DirectionRestrictionParticleLayout {
@@ -559,14 +590,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     }
 
     private fun handleDirectionRestriction(player: Player, event: PlayerInteractEvent) {
-        if (event.action != Action.RIGHT_CLICK_BLOCK && event.action != Action.RIGHT_CLICK_AIR &&
-            event.action != Action.LEFT_CLICK_BLOCK && event.action != Action.LEFT_CLICK_AIR
-        ) return
+        if (!isDirectionRestrictionInteraction(event.action)) return
         val coreWorld = getCoreWorld(player) ?: return
-        val targetPosition = getTargetPosition(player, event) ?: run {
-            player.sendActionBar(Component.text("请点击轨道附近", NamedTextColor.RED))
-            return
-        }
         val pendingOperation = heavyOperationGate.tryStart(player.uniqueId, "方向限制查找")
         if (pendingOperation != null) {
             player.sendActionBar(Component.text("正在执行$pendingOperation，请稍候", NamedTextColor.YELLOW))
@@ -575,27 +600,36 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
         val worldId = player.world.uid
         val delete = event.action == Action.LEFT_CLICK_BLOCK || event.action == Action.LEFT_CLICK_AIR
+        val eye = player.eyeLocation
+        val rayOrigin = Vector3d(eye.x, eye.y, eye.z)
+        val rayDirection = Vector3d(eye.direction.x, eye.direction.y, eye.direction.z)
         val playerPosition = Vector3d(player.location.x, player.location.y, player.location.z)
-        val rails = coreWorld.allRails.toList()
+        val rails = coreWorld.getRailsAlongRay(
+            rayOrigin,
+            rayDirection,
+            HeavyRailQueries.DEFAULT_TARGET_MAX_DISTANCE,
+            HeavyRailQueries.DEFAULT_TARGET_HIT_RADIUS
+        ).toList()
         BukkitAsyncTasks.supply(
             plugin = plugin,
             completionEntity = player,
             operation = "RailObjectWand.handleDirectionRestriction",
             supplier = {
-                val pointB = HeavyRailQueries.findNearestRail(rails, targetPosition)
-                    ?: return@supply null
-                val selectedRail = rails.firstOrNull { it.id == pointB.railId }
-                    ?: return@supply null
-                val pointA = HeavyRailQueries.findNearestRail(listOf(selectedRail), playerPosition)
-                    ?: return@supply null
-                DirectionRestrictionLookup(pointA, pointB)
+                findDirectionRestrictionTarget(
+                    candidates = rails,
+                    rayOrigin = rayOrigin,
+                    rayDirection = rayDirection,
+                    playerPosition = playerPosition,
+                    maxDistance = HeavyRailQueries.DEFAULT_TARGET_MAX_DISTANCE,
+                    hitRadius = HeavyRailQueries.DEFAULT_TARGET_HIT_RADIUS
+                )
             },
             onSuccess = { lookup ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
-                if (lookup == null || lookup.pointB.distance > MAX_PLACE_DISTANCE) {
-                    livePlayer.sendActionBar(Component.text("点击位置附近没有轨道", NamedTextColor.RED))
+                if (lookup == null) {
+                    livePlayer.sendActionBar(Component.text("没有指向轨道", NamedTextColor.RED))
                     return@supply
                 }
                 val liveWorld = getCoreWorld(livePlayer) ?: return@supply
@@ -1016,11 +1050,6 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         @Volatile var entity: ItemDisplay? = null
     )
 
-    private data class DirectionRestrictionLookup(
-        val pointA: HeavyRailQueries.NearestRailMatch,
-        val pointB: HeavyRailQueries.NearestRailMatch
-    )
-
     private data class ApproachParticleTarget(
         val wayPointId: String,
         val rail: work.art1st.javarailways.core.physics.rail.CoreRail,
@@ -1035,7 +1064,6 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     )
 
     companion object {
-        private const val MAX_PLACE_DISTANCE = 8.0
         private const val MAX_SELECT_DISTANCE = 6.0
         private const val MIN_DIRECTION_ARC_DIFFERENCE = 0.25
         private const val PARTICLE_REFRESH_TICKS = 4L

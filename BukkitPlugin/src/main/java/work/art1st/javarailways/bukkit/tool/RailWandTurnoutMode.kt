@@ -12,7 +12,10 @@ internal class RailWandTurnoutMode(private val wand: RailWand) {
         val anchor = wand.findLookedAtAnchor(player, 128.0, 1.0)
             ?: wand.findNearestAnchor(player, 3.0)
         if (anchor == null) {
-            player.sendActionBar(Component.text("请指向要创建道岔的锚点", NamedTextColor.RED))
+            player.sendActionBar(RailWandI18n.component(
+                player,
+                "message.turnout_target_required"
+            ).color(NamedTextColor.RED))
             return
         }
         wand.createTurnoutAtAnchor(player, state, anchor)

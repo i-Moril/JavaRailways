@@ -7,6 +7,16 @@ import org.junit.jupiter.api.Test
 
 class WandInteractionRoutingTest {
     @Test
+    fun `held slot changes do not switch wand mode while scroll switching is disabled`() {
+        assertFalse(
+            shouldSwitchWandModeOnHeldSlotChange(
+                sneaking = true,
+                holdingMainHandWand = true
+            )
+        )
+    }
+
+    @Test
     fun `rail wand may handle sneak left click air for additive anchor selection`() {
         assertFalse(
             shouldGloballyClearSelection(

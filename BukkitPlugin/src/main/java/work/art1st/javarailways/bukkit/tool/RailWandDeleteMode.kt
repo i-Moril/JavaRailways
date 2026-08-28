@@ -25,7 +25,11 @@ internal class RailWandDeleteMode(private val wand: RailWand) {
                     } else {
                         state.pendingDeleteAnchor = clickedAnchor.id
                         state.pendingDeleteRail = null
-                        player.sendActionBar(Component.text("再次左键锚点 ${clickedAnchor.id} 以确认删除", NamedTextColor.RED))
+                        player.sendActionBar(RailWandI18n.component(
+                            player,
+                            "message.delete_anchor_confirm",
+                            clickedAnchor.id
+                        ).color(NamedTextColor.RED))
                     }
                     return
                 }
@@ -40,7 +44,10 @@ internal class RailWandDeleteMode(private val wand: RailWand) {
                     state.pendingDeleteAnchor = null
                     state.pendingDeleteRail = null
                     wand.persistPlayerState(player, state)
-                    player.sendActionBar(Component.text("未找到可删除的锚点或轨道", NamedTextColor.GRAY))
+                    player.sendActionBar(RailWandI18n.component(
+                        player,
+                        "message.delete_target_missing"
+                    ).color(NamedTextColor.GRAY))
                 }
             }
         }
@@ -54,7 +61,10 @@ internal class RailWandDeleteMode(private val wand: RailWand) {
         } else {
             state.pendingDeleteRail = selectionId
             state.pendingDeleteAnchor = null
-            player.sendActionBar(Component.text("再次左键该逻辑曲线以确认删除", NamedTextColor.RED))
+            player.sendActionBar(RailWandI18n.component(
+                player,
+                "message.delete_rail_confirm"
+            ).color(NamedTextColor.RED))
         }
     }
 }

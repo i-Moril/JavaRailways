@@ -14,6 +14,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -52,7 +53,8 @@ class RailWandTurnoutGeometryPolicyTest {
             replacementLanes = listOf(listOf(changed))
         )
 
-        assertTrue(error?.contains("切线") == true, error)
+        val localized = error?.let { RailWandI18n.resolve(Locale.SIMPLIFIED_CHINESE, it) }
+        assertTrue(localized?.contains("切线") == true, localized)
     }
 
     @Test
@@ -68,8 +70,10 @@ class RailWandTurnoutGeometryPolicyTest {
         val movedError = turnoutBoundaryFrameError(listOf(listOf(stem)), listOf(listOf(moved)))
         val rolledError = turnoutBoundaryFrameError(listOf(listOf(stem)), listOf(listOf(rolled)))
 
-        assertTrue(movedError?.contains("位置") == true, movedError)
-        assertTrue(rolledError?.contains("横滚") == true, rolledError)
+        val localizedMoved = movedError?.let { RailWandI18n.resolve(Locale.SIMPLIFIED_CHINESE, it) }
+        val localizedRolled = rolledError?.let { RailWandI18n.resolve(Locale.SIMPLIFIED_CHINESE, it) }
+        assertTrue(localizedMoved?.contains("位置") == true, localizedMoved)
+        assertTrue(localizedRolled?.contains("横滚") == true, localizedRolled)
     }
 
     @Test
@@ -79,7 +83,8 @@ class RailWandTurnoutGeometryPolicyTest {
 
         val error = turnoutGeometryMaintenanceError(world, listOf(stem))
 
-        assertTrue(error?.contains("occupied-turnout-branch") == true, error)
+        val localized = error?.let { RailWandI18n.resolve(Locale.US, it) }
+        assertTrue(localized?.contains("occupied-turnout-branch") == true, localized)
     }
 
     @Test

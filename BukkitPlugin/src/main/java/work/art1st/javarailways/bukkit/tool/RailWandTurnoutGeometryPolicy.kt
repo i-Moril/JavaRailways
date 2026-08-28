@@ -25,23 +25,27 @@ internal fun turnoutBoundaryFrameError(
     oldLanes: List<List<CoreRail>>,
     replacementLanes: List<List<PrimeCurve>>
 ): String? {
-    if (oldLanes.size != replacementLanes.size) return "道岔相邻线路数量发生变化"
+    if (oldLanes.size != replacementLanes.size) return "turnout.lane_count_changed"
     oldLanes.indices.forEach { laneIndex ->
         val oldLane = oldLanes[laneIndex]
         val replacementLane = replacementLanes[laneIndex]
-        if (oldLane.isEmpty() || replacementLane.isEmpty()) return "道岔相邻逻辑线路信息不完整"
+        if (oldLane.isEmpty() || replacementLane.isEmpty()) return "turnout.incomplete_lane"
         if (TurnoutTopology.isTurnoutEndpoint(oldLane.first().viewBA)) {
             frameDifference(
                 oldLane.first().viewAB.startPoint,
                 replacementLane.first().getPointAt(0.0)
-            )?.let { return "道岔 A 端${it}发生变化" }
+            )?.let { difference ->
+                return RailWandI18n.reference("turnout.boundary_$difference", "A")
+            }
         }
         if (TurnoutTopology.isTurnoutEndpoint(oldLane.last().viewAB)) {
             val replacement = replacementLane.last()
             frameDifference(
                 oldLane.last().viewAB.endPoint,
                 replacement.getPointAt(replacement.totalArcLength)
-            )?.let { return "道岔 B 端${it}发生变化" }
+            )?.let { difference ->
+                return RailWandI18n.reference("turnout.boundary_$difference", "B")
+            }
         }
     }
     return null
@@ -70,22 +74,21 @@ internal fun restoreMappedTurnoutViewSnapshots(
     oldToNew: Map<UUID, UUID>
 ) {
     fun remap(ref: RailViewRef): RailViewRef = ref.copy(railId = oldToNew[ref.railId] ?: ref.railId)
-    fun resolve(ref: RailViewRef): RailView = requireNotNull(
-        world.getRail(ref.railId)?.getView(ref.direction)
-    ) { "道岔轨道视图已不存在: $ref" }
+    fun resolve(ref: RailViewRef): RailView = world.getRail(ref.railId)?.getView(ref.direction)
+        ?: throw RailWandLocalizedException("failure.turnout_view_missing", ref)
 
     snapshots.forEach { snapshot ->
         val mappedView = remap(snapshot.view)
         val view = resolve(mappedView)
         val expectedRefs = snapshot.next.map(::remap).distinct()
         val actualRefs = view.nextRails.map(RailViewRef::from)
-        require(actualRefs.size == expectedRefs.size && actualRefs.toSet() == expectedRefs.toSet()) {
-            "道岔重建后的连接集合与原拓扑不一致: $mappedView"
+        if (actualRefs.size != expectedRefs.size || actualRefs.toSet() != expectedRefs.toSet()) {
+            throw RailWandLocalizedException("failure.turnout_topology_mismatch", mappedView)
         }
         val expectedNext = expectedRefs.map(::resolve)
         val expectedActive = snapshot.active?.let(::remap)?.let(::resolve)
-        require(expectedActive == null || expectedActive in expectedNext) {
-            "道岔重建后的活动股道不在连接集合中: $mappedView"
+        if (expectedActive != null && expectedActive !in expectedNext) {
+            throw RailWandLocalizedException("failure.turnout_active_branch_missing", mappedView)
         }
         view.activeRail = null
         view.mutableNextRails.clear()
@@ -106,18 +109,22 @@ internal fun turnoutGeometryMaintenanceError(
     }
     val occupyingTrainIds = world.occupyingTrainIds(affectedIds)
     if (occupyingTrainIds.isNotEmpty()) {
-        return "不能修改列车占用的道岔相关轨道：${occupyingTrainIds.sorted().joinToString()}"
+        return RailWandI18n.reference(
+            "turnout.occupied",
+            occupyingTrainIds.sorted().joinToString()
+        )
     }
     val dispatcher = world.basicWorldDataOrNull?.dispatcher ?: return null
-    if (dispatcher.hasRouteAllocationOn(affectedIds)) return "不能修改有活动进路锁的道岔"
-    if (dispatcher.hasLiveRouteOn(affectedIds)) return "不能修改运行中任务正在引用的道岔线路"
+    if (dispatcher.hasRouteAllocationOn(affectedIds)) return "turnout.route_locked"
+    if (dispatcher.hasLiveRouteOn(affectedIds)) return "turnout.live_route"
+
     return null
 }
 
 private fun frameDifference(original: Curve.Point, replacement: Curve.Point): String? {
-    if (original.position.distance(replacement.position) > Curve.TOLERANCE) return "位置"
-    if (!sameDirection(original.tangent, replacement.tangent)) return "切线或坡度"
-    if (!sameDirection(original.normal, replacement.normal)) return "横滚"
+    if (original.position.distance(replacement.position) > Curve.TOLERANCE) return "position"
+    if (!sameDirection(original.tangent, replacement.tangent)) return "tangent"
+    if (!sameDirection(original.normal, replacement.normal)) return "roll"
     return null
 }
 

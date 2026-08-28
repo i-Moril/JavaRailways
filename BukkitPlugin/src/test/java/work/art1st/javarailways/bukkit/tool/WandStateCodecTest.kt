@@ -34,13 +34,41 @@ class WandStateCodecTest {
             curveSpeedLimitKmH = 95.0,
             automaticCurveSpeedLimit = false,
             allowableCantDeficiencyMm = 95.0,
-            automaticSuperelevation = false,
-            maxSuperelevationMm = 180.0
+            superelevationEnabled = false
         )
 
         val restored = requireNotNull(RailWandStateCodec.decode(RailWandStateCodec.encode(state)))
 
         assertEquals(state, restored)
+    }
+
+    @Test
+    fun `legacy manual superelevation state is rejected`() {
+        val legacy = RailWandStateCodec.encode(WandPlayerState())
+            .replace(
+                "\"superelevationEnabled\":true",
+                "\"automaticSuperelevation\":false,\"maxSuperelevationMm\":180.0"
+            )
+
+        assertNull(RailWandStateCodec.decode(legacy))
+    }
+
+    @Test
+    fun `writer emits only current unversioned RailWand state`() {
+        val encoded = RailWandStateCodec.encode(WandPlayerState())
+
+        assertEquals(false, encoded.contains("schemaVersion"))
+        assertEquals(true, encoded.contains("\"superelevationEnabled\":true"))
+        assertEquals(false, encoded.contains("automaticSuperelevation"))
+        assertEquals(false, encoded.contains("maxSuperelevationMm"))
+    }
+
+    @Test
+    fun `versioned RailWand payload is rejected`() {
+        val versioned = RailWandStateCodec.encode(WandPlayerState())
+            .replaceFirst("{", "{\"schemaVersion\":2,")
+
+        assertNull(RailWandStateCodec.decode(versioned))
     }
 
     @Test

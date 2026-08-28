@@ -12,7 +12,8 @@ class RailWandGeometryDisplayTest {
             buildRailGeometryDisplayText(
                 radiusMeters = null,
                 maximumAbsoluteGrade = 0.025,
-                speedLine = "CURVE 80 / SUBGRADE 120 km/h"
+                speedLine = "CURVE 80 / SUBGRADE 120 km/h",
+                maximumGradeLabel = "最大坡度"
             )
         )
     }
@@ -24,13 +25,14 @@ class RailWandGeometryDisplayTest {
             buildRailGeometryDisplayText(
                 radiusMeters = 200.2,
                 maximumAbsoluteGrade = 0.0125,
-                speedLine = null
+                speedLine = null,
+                maximumGradeLabel = "最大坡度"
             )
         )
     }
 
     @Test
     fun `flat straight rail does not create a geometry display`() {
-        assertNull(buildRailGeometryDisplayText(null, 0.0, "SUBGRADE 120 km/h"))
+        assertNull(buildRailGeometryDisplayText(null, 0.0, "SUBGRADE 120 km/h", "Maximum grade"))
     }
 }

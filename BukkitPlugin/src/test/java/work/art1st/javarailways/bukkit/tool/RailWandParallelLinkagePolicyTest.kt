@@ -10,6 +10,7 @@ import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitType
+import java.util.Locale
 
 class RailWandParallelLinkagePolicyTest {
     @Test
@@ -44,8 +45,12 @@ class RailWandParallelLinkagePolicyTest {
                 creationMinimum = true
             )
         }
-        assertTrue(creationFailure.message!!.contains("自动生成的几何无法满足"))
-        assertTrue(creationFailure.message!!.contains("自动运营限速为 100.0 km/h"))
+        val creationMessage = RailWandI18n.resolve(
+            Locale.SIMPLIFIED_CHINESE,
+            requireNotNull(creationFailure.message)
+        )
+        assertTrue(creationMessage.contains("自动生成的几何无法满足"))
+        assertTrue(creationMessage.contains("自动运营限速为 100.0 km/h"))
 
         val rebuildFailure = assertThrows(IllegalArgumentException::class.java) {
             resolveCurveOperatingLimitMetersPerSecond(
@@ -55,9 +60,13 @@ class RailWandParallelLinkagePolicyTest {
                 creationMinimum = false
             )
         }
-        assertTrue(rebuildFailure.message!!.contains("轨道重建后仍无法满足"))
-        assertTrue(rebuildFailure.message!!.contains("重算后的自动运营限速为 100.0 km/h"))
-        assertTrue(rebuildFailure.message!!.contains("调整锚点、半径或超高"))
+        val rebuildMessage = RailWandI18n.resolve(
+            Locale.SIMPLIFIED_CHINESE,
+            requireNotNull(rebuildFailure.message)
+        )
+        assertTrue(rebuildMessage.contains("轨道重建后仍无法满足"))
+        assertTrue(rebuildMessage.contains("重算后的自动运营限速为 100.0 km/h"))
+        assertTrue(rebuildMessage.contains("调整锚点、半径或超高"))
     }
 
     @Test
@@ -73,20 +82,30 @@ class RailWandParallelLinkagePolicyTest {
             railGeometryParametersChanged(
                 currentDesignSpeedKmH = 120.0,
                 currentRadiusMeters = 800.0,
-                currentMaxSuperelevationMm = 150.0,
+                currentSuperelevationEnabled = true,
                 newDesignSpeedKmH = 120.0,
                 newRadiusMeters = 800.0,
-                newMaxSuperelevationMm = 150.0
+                newSuperelevationEnabled = true
             )
         )
         assertTrue(
             railGeometryParametersChanged(
                 currentDesignSpeedKmH = 120.0,
                 currentRadiusMeters = 800.0,
-                currentMaxSuperelevationMm = 150.0,
+                currentSuperelevationEnabled = true,
                 newDesignSpeedKmH = 120.0,
                 newRadiusMeters = 900.0,
-                newMaxSuperelevationMm = 150.0
+                newSuperelevationEnabled = true
+            )
+        )
+        assertTrue(
+            railGeometryParametersChanged(
+                currentDesignSpeedKmH = 120.0,
+                currentRadiusMeters = 800.0,
+                currentSuperelevationEnabled = true,
+                newDesignSpeedKmH = 120.0,
+                newRadiusMeters = 800.0,
+                newSuperelevationEnabled = false
             )
         )
     }

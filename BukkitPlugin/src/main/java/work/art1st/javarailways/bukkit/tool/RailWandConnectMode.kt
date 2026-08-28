@@ -15,7 +15,12 @@ internal class RailWandConnectMode(private val wand: RailWand) {
                 if (state.selectedAnchors.size >= expectedCount) {
                     wand.connectSelectedAnchors(player, state)
                 } else {
-                    player.sendActionBar(Component.text("请选择 $expectedCount 个锚点 (当前: ${state.selectedAnchors.size})", NamedTextColor.RED))
+                    player.sendActionBar(RailWandI18n.component(
+                        player,
+                        "message.required_anchor_count",
+                        expectedCount,
+                        state.selectedAnchors.size
+                    ).color(NamedTextColor.RED))
                 }
             }
             // 左键锚点 → 选择
@@ -25,12 +30,21 @@ internal class RailWandConnectMode(private val wand: RailWand) {
                     if (player.isSneaking) {
                         if (clickedAnchor.id !in state.selectedAnchors) {
                             state.selectedAnchors.add(clickedAnchor.id)
-                            player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id} (${state.selectedAnchors.size})", NamedTextColor.YELLOW))
+                            player.sendActionBar(RailWandI18n.component(
+                                player,
+                                "message.anchor_selected_count",
+                                clickedAnchor.id,
+                                state.selectedAnchors.size
+                            ).color(NamedTextColor.YELLOW))
                         }
                     } else {
                         state.selectedAnchors.clear()
                         state.selectedAnchors.add(clickedAnchor.id)
-                        player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
+                        player.sendActionBar(RailWandI18n.component(
+                            player,
+                            "message.anchor_selected",
+                            clickedAnchor.id
+                        ).color(NamedTextColor.YELLOW))
                     }
                     wand.updateAnchorDisplay(player)
                 } else {

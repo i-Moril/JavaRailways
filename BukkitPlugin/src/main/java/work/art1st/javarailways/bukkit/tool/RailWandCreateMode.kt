@@ -20,12 +20,15 @@ internal class RailWandCreateMode(private val wand: RailWand) {
                     if (clickedAnchor.id !in state.selectedAnchors) {
                         if (player.isSneaking) {
                             state.selectedAnchors.add(clickedAnchor.id)
-                            player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
                         } else {
                             state.selectedAnchors.clear()
                             state.selectedAnchors.add(clickedAnchor.id)
-                            player.sendActionBar(Component.text("已选择锚点 ${clickedAnchor.id}", NamedTextColor.YELLOW))
                         }
+                        player.sendActionBar(RailWandI18n.component(
+                            player,
+                            "message.anchor_selected",
+                            clickedAnchor.id
+                        ).color(NamedTextColor.YELLOW))
                         wand.updateAnchorDisplay(player)
                     }
                 } else {

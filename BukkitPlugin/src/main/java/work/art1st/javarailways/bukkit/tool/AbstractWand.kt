@@ -38,6 +38,14 @@ internal fun shouldGloballyClearSelection(
     modeHandlesSneakLeftClickAir: Boolean
 ): Boolean = sneaking && action == Action.LEFT_CLICK_AIR && !modeHandlesSneakLeftClickAir
 
+/** Temporarily disabled; Shift+F remains the only Wand mode-switch shortcut. */
+private const val WAND_HELD_SLOT_MODE_SWITCH_ENABLED = false
+
+internal fun shouldSwitchWandModeOnHeldSlotChange(
+    sneaking: Boolean,
+    holdingMainHandWand: Boolean
+): Boolean = WAND_HELD_SLOT_MODE_SWITCH_ENABLED && sneaking && holdingMainHandWand
+
 abstract class AbstractWand<S, M>(
     protected val plugin: BukkitPlugin,
     private val wandKey: String,
@@ -73,6 +81,17 @@ abstract class AbstractWand<S, M>(
     protected abstract fun encodeState(state: S): String
 
     protected abstract fun decodeState(encoded: String): S?
+
+    protected open fun itemDisplayNameFor(player: Player): Component = itemDisplayName
+
+    protected open fun itemLoreFor(player: Player): List<Component> = itemLore
+
+    protected open fun modeDisplayNameFor(player: Player, mode: M): String = mode.displayName
+
+    protected open fun modeDescriptionFor(player: Player, mode: M): String = mode.description
+
+    protected open fun selectionClearedMessage(player: Player): Component =
+        Component.text("已清空选择", NamedTextColor.GRAY)
 
     fun getState(player: Player): S {
         val item = findActiveWand(player) ?: return playerStates[player.uniqueId]?.state ?: createDefaultState()
@@ -131,11 +150,11 @@ abstract class AbstractWand<S, M>(
     fun giveWand(player: Player) {
         val item = ItemStack(material)
         val meta = item.itemMeta as ItemMeta
-        meta.displayName(itemDisplayName)
+        meta.displayName(itemDisplayNameFor(player))
         meta.persistentDataContainer.set(NamespacedKey(plugin, wandKey), PersistentDataType.BOOLEAN, true)
         meta.persistentDataContainer.set(itemIdKey, PersistentDataType.STRING, UUID.randomUUID().toString())
         meta.persistentDataContainer.set(itemStateKey, PersistentDataType.STRING, encodeState(createDefaultState()))
-        meta.lore(itemLore)
+        meta.lore(itemLoreFor(player))
         item.itemMeta = meta
         player.inventory.addItem(item)
     }
@@ -171,7 +190,7 @@ abstract class AbstractWand<S, M>(
             ) -> {
                 event.isCancelled = true
                 clearSelection(player, state)
-                player.sendActionBar(Component.text("已清空选择", NamedTextColor.GRAY))
+                player.sendActionBar(selectionClearedMessage(player))
             }
             else -> {
                 event.isCancelled = true
@@ -184,7 +203,11 @@ abstract class AbstractWand<S, M>(
     @EventHandler
     fun onItemHeldChange(event: PlayerItemHeldEvent) {
         val player = event.player
-        if (!player.isSneaking || !isWandItem(player.inventory.itemInMainHand)) return
+        val shouldSwitchMode = shouldSwitchWandModeOnHeldSlotChange(
+            sneaking = player.isSneaking,
+            holdingMainHandWand = isWandItem(player.inventory.itemInMainHand)
+        )
+        if (!shouldSwitchMode) return
         event.isCancelled = true
         switchToNextMode(player, getState(player))
     }
@@ -204,7 +227,10 @@ abstract class AbstractWand<S, M>(
         state.mode = modes[(currentIndex + 1) % modes.size]
         clearSelection(player, state)
         persistState(player, state)
-        player.sendActionBar(Component.text("${state.mode.displayName}: ${state.mode.description}", NamedTextColor.GREEN))
+        player.sendActionBar(Component.text(
+            "${modeDisplayNameFor(player, state.mode)}: ${modeDescriptionFor(player, state.mode)}",
+            NamedTextColor.GREEN
+        ))
     }
 
     protected open fun clearSelection(player: Player, state: S) {}

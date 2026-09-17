@@ -84,7 +84,6 @@ sealed interface DestinationRole {
         init {
             require(stationDisplayName.isNotBlank() && stationDisplayName == stationDisplayName.trim())
             StationBerthRef(stationId, berthId)
-            require(doorSide != DoorSide.NONE) { "Station Destination doorSide must not be NONE" }
             require(stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
             require(positionToleranceMeters.isFinite() && positionToleranceMeters > 0.0)
             require(usableLengthMeters == null || usableLengthMeters.isFinite() && usableLengthMeters > 0.0)

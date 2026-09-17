@@ -110,6 +110,8 @@ gradle-app.setting
 .classpath
 
 .*/
+# Project-local operational notes and credentials.
+.local/
 # Trellis project state and Pi integration are repository-owned.
 !.agents/
 !.agents/**

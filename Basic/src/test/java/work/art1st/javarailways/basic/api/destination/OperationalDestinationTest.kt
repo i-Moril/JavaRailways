@@ -108,6 +108,36 @@ class OperationalDestinationTest {
     }
 
     @Test
+    fun `station destination may register a berth without door operations`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        val service = OperationalDestinationService(world)
+        val role = DestinationRole.StationBerthRole(
+            stationId = StationId("no-door-station"),
+            berthId = "platform",
+            doorSide = DoorSide.NONE
+        )
+
+        service.register(
+            OperationalDestination(
+                id = "no-door-station@platform",
+                displayName = "No-door platform",
+                railId = rail.id,
+                arcLengthInAbMeters = 50.0,
+                approachDirection = ViewDirection.AB,
+                role = role
+            )
+        )
+
+        val berth = requireNotNull(world.basicWorldData.stations.berth(role.berthRef))
+        assertEquals(DoorSide.NONE, berth.doorSide)
+    }
+
+    @Test
     fun `station destinations atomically aggregate directed passive berths`() {
         val world = createTestWorld().also(worlds::add)
         TestBasicWorldDataRegistry.getOrCreate(world)

@@ -103,6 +103,19 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+// Compile a minimal add-on against the same classpath exposed to external Bukkit plugins.
+// Keep this source set free of BukkitPlugin implementation-package imports.
+sourceSets {
+    signalApiConsumer {
+        java.srcDir("src/signalApiConsumer/java")
+        compileClasspath = sourceSets.main.output + sourceSets.main.compileClasspath
+    }
+}
+
+tasks.named("check") {
+    dependsOn(tasks.named("compileSignalApiConsumerJava"))
+}
+
 tasks {
     compileJava {
         // Set the release flag. This configures what version bytecode the compiler will emit, as well as what JDK APIs are usable.

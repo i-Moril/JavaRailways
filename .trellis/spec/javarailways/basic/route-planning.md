@@ -4,7 +4,9 @@
 
 触发：修改WayPoint route search、direction restriction、expanded/planned route、loop progress或route compilation。
 
-用途：Mission/Station/Line/Timetable共用一个按实际弧长加权的authoritative planner；stable refs在进入ATO前重新解析并验证topology，失败不返回partial route。
+用途：记录当前Mission/Station/Line/Timetable共用的按实际弧长加权planner，并约束它向SimpleATO运营寻路迁移。长期authoritative输入是Core发布的版本化`TopologyState`；SimpleATO拥有方向、停站、线路和时刻表等路径选择策略，Basic只保留可复用的纯图算法与资源意图校验，不拥有另一张图。
+
+当前`RoutePlanner(world)`直接遍历`RailView.nextRails`，属于待迁移实现，不能被新API固化。迁移完成前现有调用继续使用本页后续合同；新增跨模块路径合同必须遵守Core[版本化铁路拓扑](../core/versioned-operational-topology.md)。
 
 ## Owner、输入输出与坐标
 
@@ -23,6 +25,8 @@ data class RouteSegment(
 `buildRoute(...): RouteBuildResult.Success(route)|Failure(reason)`使用Dijkstra actual remaining/full arc length。same view goal在start后direct；在start前可绕loop重新进入。
 
 `PlannedRouteCompiler.compile(routeId,revision,route,protectionPoints): Success|Failure`重新resolve stable views，检查segment range、connected endpoint、direction restriction并canonicalize turnout。`PlannedRoute`sections index从0连续，覆盖完整route且defensive copy。
+
+目标流程为：SimpleATO在一个`TopologyState(revision)`上生成冻结 traversal 与完整 typed `RouteResourceIntent`；Basic验证该 traversal 和受控 transition 恰好匹配同一版本，并推导物理claim/locking footprint。Basic不得在验证时另行寻路或用保护区域替调用方选择一条路径。
 
 ## Route/compile矩阵
 
@@ -60,6 +64,8 @@ return when (direction) {
 - 返回partial unreachable route；
 - 任意并发读写`RailMap`；
 - compile后跳过stable topology revalidation；
+- 新功能继续把`RailView.nextRails`或Basic复制的adjacency当成第二个authoritative graph；
+- Basic收到不完整intent后自行搜索并补齐一条运营路径；
 - repeated rail progress取第一个candidate导致倒退。
 
 ## 必需测试与验证

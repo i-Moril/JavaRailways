@@ -79,9 +79,9 @@ InfrastructureFootprint(listOf(
 
 完整region cut、目标签名、错误矩阵、transaction伪代码和release/lifecycle合同见[protected route admission](./protected-route-admission.md)。本节只保留与通用registry直接相关的约束。
 
-`ProtectedRouteRequest`描述一个冻结路径上的至多一个咽喉保护窗口。窗口包含stable region ID/revision、沿行进方向的entry/exit，以及完整列车必须越过的exit-clearance边界。`window == null`只用于resolver确认route没有controlled resource；运行时不组合多个region。若两个region之间不能容纳适用列车，SimpleATO在应用运营计划时拒绝该划分并要求合并为一个region。
+`ProtectedRouteRequest`描述一个冻结路径、其完整typed resource intent和至多一个咽喉保护窗口。窗口包含stable region ID/revision、沿行进方向的entry/exit，以及完整列车必须越过的exit-clearance边界。`window == null`只用于validator确认route没有controlled resource；运行时不组合多个region。若两个region之间不能容纳适用列车，SimpleATO在应用运营计划时拒绝该划分并要求合并为一个region。
 
-request不携带resource footprint。`ProtectedRouteRequestResolver`必须根据authoritative protection-region与topology state验证完整覆盖，并推导全部rail intervals、turnouts、fixed crossings与其他shared conflict nodes。解析前后均核对topology revision；受控资源没有完整窗口时返回`PROTECTION_REQUIRED`，resolver异常、stale、invalid member或conflict均不改变registry。
+request不携带raw `InfrastructureFootprint`。SimpleATO从Core的authoritative `TopologyState`选择路径并提交有序edge traversal及每个受控transition的intent；Basic validator证明它与同一revision的保护区域和拓扑恰好匹配，再推导全部rail intervals、turnouts、fixed crossings、physical locking legs与其他shared conflict nodes。缺失、重复或额外transition返回`INCOMPLETE_RESOURCE_INTENT`；受控资源没有完整窗口返回`PROTECTION_REQUIRED`。验证前后均核对topology revision，任何失败都不改变registry。
 
 `ProtectedRouteClaimService`现为host-side admission seam，并未替换旧`RouteSectionAllocator`调用者。迁移完成前不得声称所有自动/`MANUAL_ROUTED`进路已强制经过保护区域。后续迁移必须删除可绕过resolver的automatic overload；道岔切换只可发生在完整claim成功之后，并在后续提交失败时先恢复选择再释放claim。
 
@@ -105,7 +105,7 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - preempt已有resource；
 - 用一个虚构的rail interval表达跨rail范围，或遗漏共享conflict node；
 - add-on直接申请raw live claim绕过protected route validation；
-- caller提交自选footprint，或让列车持有一个region等待不能安全停车后才申请的下一个region；
+- caller提交自选raw footprint、Basic替caller选择路径，或让列车持有一个region等待不能安全停车后才申请的下一个region；
 - topology revision只在validation前检查一次，允许检查期间的structural edit穿过；
 - release时复位branch；
 - 只看head或direction；

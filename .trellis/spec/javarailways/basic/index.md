@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-本层由`Basic/`拥有：平台无关运营逻辑、ATO、Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable/Dispatcher/simulation与Basic snapshot。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`仍承载平台无关运营逻辑、ATO、Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable/Dispatcher/simulation与Basic snapshot。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)：ATO与运营对象会整体迁入`SimpleATO`，Basic长期只拥有平台无关底层机制、通用图算法和拓扑/资源完整性校验。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 
@@ -22,7 +22,7 @@
 | [curve authoring](./curve-authoring.md) | Anchor/template/solver/measurement | stable token、SI单位、off-main build |
 | [rail infrastructure](./rail-infrastructure.md) | metadata、split/merge/turnout | metadata ownership与Core topology同步 |
 | [speed 与 derail safety](./speed-and-derail-safety.md) | speed signal/geometry threshold/derail request | operating limit与worker→main safety |
-| [route planning](./route-planning.md) | shortest path/progress/compiler | authoritative route与stable refs |
+| [route planning](./route-planning.md) | shortest path/progress/compiler或迁移到SimpleATO | 当前route合同、目标topology输入与ownership迁移 |
 | [resource allocation](./resource-allocation.md) | turnout/section/berth locks/manual resource | atomic ownership与physical release |
 | [protected route admission](./protected-route-admission.md) | protection region、单咽喉route、clearance、turnout commit | region cut、host resolution与fail-closed transaction |
 | [timetable model 与 validation](./timetable-model-and-validation.md) | authoring/runtime model、validator | execution authority与validation gate |

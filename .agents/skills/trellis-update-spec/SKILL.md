@@ -15,6 +15,7 @@ When you learn something valuable (from debugging, implementing, or discussion),
 
 In this project, "spec" for implementation work means **code-spec**:
 - Executable contracts (not principle-only text)
+- Module working models and non-trivial internal mechanisms
 - Concrete signatures, payload fields, env keys, and boundary behavior
 - Testable validation/error behavior
 
@@ -23,21 +24,27 @@ If the change touches infra or cross-layer contracts, code-spec depth is mandato
 ### Mandatory Triggers
 
 Apply code-spec depth when the change includes any of:
+- New/changed non-trivial algorithm, index, cache, numerical method, or concurrency mechanism
 - New/changed command or API signature
 - Cross-layer request/response contract change
 - Database schema/migration change
 - Infra integration (storage, queue, cache, secrets, env wiring)
 
-### Mandatory Output (7 Sections)
+### Mandatory Output (10 Sections)
 
 For triggered tasks, include all sections below:
-1. Scope / Trigger
-2. Signatures (command/API/DB)
-3. Contracts (request/response/env)
-4. Validation & Error Matrix
-5. Good/Base/Bad Cases
-6. Tests Required (with assertion points)
-7. Wrong vs Correct (at least one pair)
+1. Status / Scope / Trigger / Owner
+2. Module Working Model (normal end-to-end flow)
+3. Internal Mechanisms & Key Algorithms
+4. Signatures and Contracts (command/API/DB/request/response/env)
+5. Invariants, Lifecycle, Threading, and Versioning
+6. Validation & Error Matrix
+7. Performance, Complexity, and Degradation Behavior
+8. Good/Base/Bad Cases
+9. Tests Required (with assertion points)
+10. Migration, Open Decisions, and Wrong vs Correct (at least one pair)
+
+The project-specific authoring rule is `.trellis/spec/guides/code-spec-authoring.md`; read it before creating or materially changing a non-trivial code-spec. A spec is incomplete if it only lists API shapes and results while omitting the internal mechanism that determines correctness or performance.
 
 ---
 
@@ -132,8 +139,9 @@ Follow these principles:
 1. **Be Specific**: Include concrete examples, not just abstract rules
 2. **Explain Why**: State the problem this prevents
 3. **Show Contracts**: Add signatures, payload fields, and error behavior
-4. **Show Code**: Add code snippets for key patterns
-5. **Keep it Short**: One concept per section
+4. **Explain Mechanisms**: Include representation, algorithm steps, assumptions, complexity, and degradation for non-trivial internals
+5. **Show Code**: Add code or pseudocode for key patterns
+6. **Keep it Short**: One concept per section
 
 ### Step 5: Update the Index (if needed)
 
@@ -148,29 +156,43 @@ If you added a new section or the code-spec status changed, update the category'
 ```markdown
 ## Scenario: <name>
 
-### 1. Scope / Trigger
+### 1. Status / Scope / Trigger / Owner
+- Status: CURRENT | TARGET | TRANSITIONAL
 - Trigger: <why this requires code-spec depth>
+- Owner: <authoritative module>
 
-### 2. Signatures
+### 2. Module Working Model
+- <input -> authoritative state -> processing -> output>
+
+### 3. Internal Mechanisms & Key Algorithms
+- Representation: ...
+- Steps and assumptions: ...
+- Complexity/degradation: ...
+
+### 4. Signatures And Contracts
 - Backend command/API/DB signature(s)
-
-### 3. Contracts
 - Request fields (name, type, constraints)
 - Response fields (name, type, constraints)
 - Environment keys (required/optional)
 
-### 4. Validation & Error Matrix
+### 5. Invariants, Lifecycle, Threading, And Versioning
+- ...
+
+### 6. Validation & Error Matrix
 - <condition> -> <error>
 
-### 5. Good/Base/Bad Cases
+### 7. Performance, Complexity, And Degradation
+- ...
+
+### 8. Good/Base/Bad Cases
 - Good: ...
 - Base: ...
 - Bad: ...
 
-### 6. Tests Required
+### 9. Tests Required
 - Unit/Integration/E2E with assertion points
 
-### 7. Wrong vs Correct
+### 10. Migration, Open Decisions, And Wrong vs Correct
 #### Wrong
 ...
 #### Correct

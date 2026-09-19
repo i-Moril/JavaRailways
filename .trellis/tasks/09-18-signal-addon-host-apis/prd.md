@@ -12,6 +12,7 @@ Improve JavaRailways so an independently compiled Signal plugin can observe cons
 - Route release currently derives protected intervals from turnout requirements and assumes a single turnout in several paths.
 - Current approach authority is derived from each turnout's default protection distance; explicit route-section protection points do not currently drive the runtime authority boundary.
 - Different rail IDs that cross geometrically do not currently share an occupancy/resource identity.
+- Physical connectivity currently exists as mutable `RailView.nextRails`; protection code can copy it into another adjacency snapshot, but there is not yet one normalized, immutable topology state shared by routing and validation.
 - Existing Bukkit add-ons obtain `bukkit.api.*` services from `ServicesManager` and use `compileOnly(project(":BukkitPlugin"))`.
 
 ## Requirements
@@ -20,7 +21,9 @@ Improve JavaRailways so an independently compiled Signal plugin can observe cons
 - Expose an owner-aware callback or subscription after a coherent physics state has been published; callbacks must document thread context and may not expose mutable Core objects across threads.
 - Replace the timetable-private turnout allocator with one world-local resource-arbitration owner used by all route consumers.
 - Support atomic claims over explicit rail intervals, turnout selections, fixed-connectivity crossing nodes, and exit-clearance resources, with stable owner/request/revision identities.
-- Introduce a generic direction-aware region-boundary and route-window contract. A request identifies one validated entry, one exit, one frozen path, and the clearance envelope beyond the exit; the host derives every required resource from authoritative region/topology state and either commits the complete set or commits nothing.
+- Introduce one authoritative, immutable, revisioned Core `TopologyState`. Normalize ordinary degree-2 chains into edges and retain stable turnout, fixed diamond, terminus, and deterministic loop-anchor nodes. A snapshot is a read-only reference to one published version, not a second independently maintained graph.
+- Treat platforms, ordinary blocks, protection regions, signal boundaries, speed limits, and operating direction as overlays referencing topology edges/subgraphs rather than structural connectivity nodes.
+- Introduce a generic direction-aware region-boundary and route-window contract. SimpleATO selects one frozen path and submits its ordered, typed resource intent. Basic proves the intent completely and exactly matches the same topology revision, derives the physical claim/locking footprint, and either commits the complete set or commits nothing.
 - Remove the timetable/runtime dependency on per-turnout protection distances and `single()` turnout assumptions. A route window's entry boundary is the sole unconfirmed-route authority limit; internal resources do not independently generate stop points.
 - Represent an at-grade diamond crossing as a stable fixed-connectivity topology node with one shared conflict identity. Placement/topology-update code must use spatial candidate lookup plus exact geometry/clearance checks to create, update, reject, or remove that node without adding cross-line routing edges.
 - Reject stale topology, occupied resources, incompatible turnout selections, conflicting owners, and invalid references without partial mutation.
@@ -42,6 +45,9 @@ Improve JavaRailways so an independently compiled Signal plugin can observe cons
 ## Acceptance criteria
 
 - [ ] A compile-only fixture plugin can consume every required contract using public packages only.
+- [ ] Route planning, protection-region resolution, and resource validation consume the same published `TopologyState(revision)`; no copied adjacency remains an independently mutable authority.
+- [ ] Degree-2 chains, turnouts, termini, diamonds, and pure loops normalize deterministically, and rail-slice projection preserves canonical AB coordinates for occupancy and editing.
+- [ ] Missing, duplicate, extra, disconnected, or stale SimpleATO resource intent is rejected without Basic choosing an alternative path or mutating any claim/selection.
 - [ ] Timetable and a simulated external owner cannot acquire conflicting rail/turnout resources.
 - [ ] Allocation is atomic and topology-revision aware; a failed request leaves no changed turnout or leaked claim.
 - [ ] Straight, zero-turnout sections and multi-turnout sections allocate and release without `single()` assumptions.

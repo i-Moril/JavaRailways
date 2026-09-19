@@ -11,14 +11,20 @@
 ## Pre-implementation design gate
 
 - [x] Freeze protection-region graph-cut, direction-boundary and non-overlap contracts.
-- [x] Freeze coherent observation/region/topology revision and host-derived footprint contracts.
+- [x] Freeze one authoritative immutable topology state, normalized node/edge model, overlay boundary and snapshot semantics.
+- [x] Freeze SimpleATO path/resource intent versus Basic exact validation/physical footprint responsibilities.
+- [x] Document module working model plus topology normalization, graph-cut, intent-validation and tail-release internal mechanisms.
+- [x] Freeze coherent observation/region/topology revision and host-derived physical footprint contracts.
 - [x] Freeze single-throat no-hold-and-wait admission, turnout rollback and fail-closed lifecycle pseudocode.
 - [x] Freeze tail-clear, single-region prefix-release and provider-disable recovery behavior.
 
 ## Next reviewable batches
 
 - [x] Region catalog and graph resolver: runtime provider registration, authoritative definition validation, unique interior derivation and overlap diagnostics. No turnout mutation.
-- [ ] Resolved plan builder: coherent observation stamp, route/window coverage, exit clearance, host-derived claim/physical-lock footprints and turnout selections. No registry mutation.
+- [ ] Versioned topology contract and migration seam: normalized nodes/edges, rail projection, immutable publication and legacy adjacency adapter. No SimpleATO policy migration.
+- [ ] Overlay/region migration: resolve protection membership from `TopologyState`, key caches by topology/region revision, then remove the duplicated authoritative adjacency assumption.
+- [ ] SimpleATO route intent: move operating route selection onto topology plus overlays and emit complete ordered typed intent. No Basic claim mutation.
+- [ ] Intent validator/plan compiler: coherent observation stamp, exact traversal/resource coverage, route/window coverage, exit clearance, host-derived claim/physical-lock footprints and turnout selections. No registry mutation and no Basic path search.
 - [ ] Admission transaction: occupancy validation, one atomic claim, all-turnout apply/rollback and typed results. No Dispatcher migration.
 - [ ] Release/recovery: entry observation, tail-clear slices, atomic footprint shrink, provider-disable and reload fail-closed behavior.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.

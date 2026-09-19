@@ -4,12 +4,12 @@
 
 触发：修改 `Rail/RailView` connection、active branch、split/merge/remove、spatial query、`SweptOccupancyIndex` 或 `RailIntervalReleaseDetector`。
 
-用途：structural mutation必须等待physics并以world write transaction发布；占用与release使用direction-independent AB区间，避免只看head、读到半成品topology或过早释放Basic资源。
+用途：structural mutation必须等待physics并以world write transaction发布；占用与release使用direction-independent AB区间，避免只看head、读到半成品topology或过早释放Basic资源。面向寻路与跨模块消费的唯一immutable图、结构节点归一化和overlay边界由[版本化铁路拓扑](./versioned-operational-topology.md)定义。
 
 ## Owner、类型与 transaction
 
 - `CoreWorld`拥有rail map、`RailSpatialIndex`、`ReentrantReadWriteLock`。
-- `CoreRail`拥有canonical curve与AB/BA views；`RailView.nextRails`是physical connection，`nextActiveRail`是selected branch。
+- `CoreRail`拥有canonical curve与AB/BA views；迁移期间`RailView.nextRails`是Core内部physical connection编辑模型，发布给consumer的authoritative连通结构是同一transaction产生的`TopologyState`；`nextActiveRail`是runtime selected branch，不进入structural state。
 - Basic `allowedDirection`/route allocation不是Core physical topology。
 - structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先await current `PhysicsTicket`，再持write lock；expensive curve build在transaction外。
 - outer structural transaction 释放 write lock 前只递增一次 `topologyRevision`；nested transaction 不重复递增。直接 add/remove rail 也递增一次。

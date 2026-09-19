@@ -2,9 +2,24 @@
 
 ## Pre-implementation contract freeze
 
-保护区域及进路准入的authoritative实现合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先满足其中的region graph cut、coherent observation stamp、单咽喉host-derived footprint、claim→turnout commit→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
+版本化铁路图合同见[`versioned-operational-topology.md`](../../spec/javarailways/core/versioned-operational-topology.md)，保护区域及进路准入合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先建立唯一`TopologyState`，再满足region graph cut、coherent observation stamp、SimpleATO typed intent、Basic exact validation与host-derived physical footprint、claim→turnout commit→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
 
-实现顺序固定为：region catalog/graph resolver → immutable resolved plan → atomic admission transaction → tail-release/recovery → Dispatcher与`MANUAL_ROUTED`迁移。前一层合同测试未通过时不得开始后一层迁移。
+实现顺序固定为：版本化topology state与旧图adapter → overlay projection与region catalog迁移 → SimpleATO路径/resource intent → Basic intent validator与physical plan compiler → atomic admission transaction → tail-release/recovery → Dispatcher与`MANUAL_ROUTED`迁移。前一层合同测试未通过时不得开始后一层迁移。
+
+## End-to-end working model
+
+```text
+Core structural edit
+  -> normalize rails into immutable TopologyState(revision)
+  -> SimpleATO projects operational overlays and selects a route
+  -> SimpleATO emits ordered RouteResourceIntent for the same revision
+  -> Basic validates intent completeness and compiles physical footprints
+  -> Basic atomically claims resources and applies turnout selections
+  -> SimpleATO converts the grant into authority/stop/speed constraints
+  -> Core occupancy publication drives Basic tail release
+```
+
+三个non-trivial机制各有唯一owner spec：Core[版本化铁路拓扑](../../spec/javarailways/core/versioned-operational-topology.md)定义二度链归一化、rail-slice位置映射和原子publication；Basic[保护区域与进路准入](../../spec/javarailways/basic/protected-route-admission.md)定义boundary graph cut、intent线性完整性校验、physical plan编译及尾部释放状态机；本页只说明它们如何串联，不复制算法细节。
 
 ## Public service surface
 
@@ -19,11 +34,13 @@ Bukkit-facing discovery belongs in `bukkit.api.*` and `ServicesManager`. Platfor
 
 ## Topology and resource model
 
-A request includes a stable request ID, owner ID, world ID, coherent observation stamp, train ID where applicable, direction-aware entry/exit boundaries, a frozen route, and an exit-clearance envelope. Rail intervals, turnout selections, fixed crossing/conflict nodes and release slices are host-derived outputs rather than caller input. Validation completes before mutation. Commit records the complete claim before applying all turnout selections, then publishes the grant; a rejection publishes no authority and records no partial ownership.
+Core/host publishes one immutable `TopologyState(revision)`. Its structural graph contains turnout, fixed diamond, terminus, and deterministic loop-anchor nodes; ordinary degree-2 rail chains become edges with lossless rail-slice projection. Runtime turnout selection, occupancy, claim and signal state remain separate. Platform, block, protection-region, signal, speed and operating-direction data are overlays over edges/subgraphs. A topology snapshot is only a read-only handle to one published state, not a copied graph with its own lifecycle.
+
+A request includes a stable request ID, owner ID, world ID, coherent observation stamp, train ID where applicable, direction-aware entry/exit boundaries, a frozen route, a typed `RouteResourceIntent`, and an exit-clearance envelope. SimpleATO owns operating route selection and enumerates ordered edge traversal plus controlled transitions. Basic validates completeness against the same topology revision and derives rail intervals, physical turnout locking legs, fixed crossing/conflict nodes and release slices. Validation completes before mutation. Commit records the complete claim before applying all turnout selections, then publishes the grant; a rejection publishes no authority and records no partial ownership.
 
 Protection stop location belongs to the route-window entry. The host no longer derives competing authority limits for each turnout inside the window. When no independent protection region exists, the host must not silently recreate the removed per-turnout stop policy; the caller receives an explicit unavailable/unprotected result according to the final operating contract.
 
-Automatic admission is capability-shaped rather than plugin-presence-shaped. `RouteResourceService` accepts an automatic request only as a validated `ProtectedRouteWindow` carrying the stable region/entry/exit IDs, topology and region revisions, frozen path, and exit-clearance envelope. The complete resource claim is a host-derived output, never caller input. There is no automatic overload equivalent to today's `allocate(owner, plannedRoute, sectionIndex)`. Before mutation, the service recomputes/validates that every controlled resource on the frozen traversal is covered exactly once; absent or partial coverage returns `PROTECTION_REQUIRED`, including when a required turnout is already aligned.
+Automatic admission is capability-shaped rather than plugin-presence-shaped. `RouteResourceService` accepts an automatic request only as a validated `ProtectedRouteWindow` carrying the stable region/entry/exit IDs, topology and region revisions, frozen path, typed intent, and exit-clearance envelope. The raw claim footprint is a Basic-derived output, never caller input. There is no automatic overload equivalent to today's `allocate(owner, plannedRoute, sectionIndex)`. Before mutation, the service proves that every controlled resource on the frozen traversal is declared exactly once; missing/duplicate/extra intent is invalid, while absent or partial protection coverage returns `PROTECTION_REQUIRED`, including when a required turnout is already aligned. Basic never searches for an alternative route on denial.
 
 Route compilation no longer inserts boundaries from each `TurnoutRequirement.protectionDistanceMeters`. It partitions automatic authority only at explicit registered region boundaries and rejects automatic activation when a turnout, diamond, or other controlled resource lies outside the one validated throat window. A route with no controlled resource needs no protection window and remains valid.
 
@@ -54,6 +71,10 @@ Each externally supplied candidate has a namespaced owner, target train, monoton
 The number of constraint candidates is not the primary performance risk. Route traversal, spatial/occupancy queries, and duplicated policy evaluation are. Implementations should reuse the existing scan and indexed world snapshots, then reduce a small candidate set without rescanning.
 
 ## Migration
+
+First introduce `TopologyState` beside the current Core edit model. Structural transactions publish both through one revision boundary while consumers migrate; the legacy `RailView.nextRails` adapter is then internalized so it cannot remain a second mutable authority. Protection-region graph caches become disposable derivations keyed by topology/region revision. Only after route and region consumers use the shared state may the duplicated protection adjacency be removed.
+
+Route selection and operating constraints move with Destination, Station, Depot, Line, Timetable and service planning into SimpleATO. A reusable platform-neutral shortest-path implementation may temporarily remain in a shared package, but its inputs are `TopologyState` and overlays; it does not own policy or resource claims. SimpleATO submits `RouteResourceIntent`; Basic validates exact traversal/resource completeness and compiles the enforcement footprint.
 
 `TimetableDispatcher` becomes a client of the shared route-window resource and restriction mechanisms. Its current request ordering remains the timetable priority policy; the shared allocator provides stable ordering/aging hooks but does not invent cross-client preemption.
 

@@ -82,6 +82,7 @@ Basic service是world-local，因此platform-neutral request不重复携带world
 ### 3.1 区域拓扑
 
 - 一个boundary位于一根rail的canonical AB坐标；`ProtectionBoundaryDefinition.position.facing`表示从边界外侧进入内部的本地方向，不表示线路运营方向，也不再保存第二份方向字段。
+- `ProtectionRegionDefinition`只表达provider/player authored source：region identity、目标topology revision与boundary集合。Basic由此推导的内部rail slices、连通分量与索引membership属于catalog内部缓存，不回填definition，也不另行暴露public resolved-region DTO；否则boundary与caller提交的subgraph会形成两份可能冲突的事实来源。SimpleATO需要的占用、reservation、限速和向前观察以后通过统一`AuthoritySection`行为接口提供，而不是读取Basic内部子图。
 - boundary必须离rail两端均大于`Curve.TOLERANCE`；端点可能连接多个分支，不能作为唯一有向half-edge，必须拒绝而不是猜测。
 - 解析器在临时拓扑视图中于所有boundary处切断穿越，不修改Core live topology。每个boundary的inside half-edge必须进入同一个连通分量，outside half-edge不得仍能到达该分量；该唯一分量就是区域内部。
 - 同一区域不得有重复或歧义boundary。不同区域内部子图必须不相交；相邻区域可以在同一物理位置使用相反inside half-edge，只要切分后的内部仍是不同分量。

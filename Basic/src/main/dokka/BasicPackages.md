@@ -52,4 +52,4 @@ Phase C3 的平台无关语义列车操作、稳定 request、可确认 ticket �
 
 # Package work.art1st.javarailways.basic.api.route
 
-受保护进路的有向边界、保护区域 revision、冻结 route window、出口净空与组合原子请求。调用方只描述路径和区域，完整 infrastructure footprint 必须由主插件按权威拓扑解析。
+受保护进路的有向边界、保护区域 provider/revision、冻结 route window、出口净空与组合原子请求。区域定义在注册或显式刷新时由主插件切分拓扑并检查内部唯一性/重叠；调用方只描述路径和区域，完整 infrastructure footprint 必须由主插件按权威拓扑解析。

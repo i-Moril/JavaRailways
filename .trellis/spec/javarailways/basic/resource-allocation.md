@@ -55,7 +55,7 @@ Manual：`MANUAL_ROUTED`仍分配/验证/release；`FULL_MANUAL`不申请new rou
 - live runtime claim：同一resource上互斥；raw acquire/replace/release只供受保护进路实现，Bukkit add-on service仅暴露read-only diagnostics；
 - edit permit：独占并跨完整mutation transaction持有，与overlap的lease、claim和其他permit冲突。
 
-`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。acquire/replace/release必须匹配platform owner与expected revision，replace保持ownerId并严格增加revision。plugin disable、world unload与service close释放对应registry state。
+`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。acquire/replace/release必须匹配platform owner与expected revision，replace保持ownerId并严格增加revision。plugin disable释放该plugin直接拥有的lease/permit；受保护进路的live claim由host token持有，requester disable后按[protected route admission](./protected-route-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
 
 每个请求携带authoritative `topologyRevision`。Registry在resource validation前后各读取一次当前revision；任一次不匹配返回`STALE_TOPOLOGY`。rail区间由world验证存在与长度；stable resource由唯一namespaced provider验证。missing返回`INVALID_RESOURCE`，provider异常返回`RESOURCE_PROVIDER_FAILED`。所有非成功结果保持registry不变，并只在`RESOURCE_CONFLICT`中返回blocker owner/revision/resource diagnostics。
 
@@ -76,6 +76,8 @@ InfrastructureFootprint(listOf(
 同rail闭区间端点相交即overlap，例如`[0,20]`与`[20,40]`冲突；不同rail interval永不因数值相同而overlap。BA行进范围必须先转换成每根rail的canonical AB坐标。
 
 ## 受保护进路解析与准入
+
+完整region cut、目标签名、错误矩阵、transaction伪代码和release/lifecycle合同见[protected route admission](./protected-route-admission.md)。本节只保留与通用registry直接相关的约束。
 
 `CompositeProtectedRouteRequest`描述一个冻结路径上的零个或多个有序保护窗口。每个窗口包含stable region ID/revision、沿行进方向的entry/exit，以及完整列车必须越过的exit-clearance边界。region实体区间允许首尾相接但不得重叠；clearance可以延伸进后续区域，完整request仍只产生一个原子claim。
 

@@ -8,6 +8,21 @@
 - [ ] Inventory every `RailView.selectNextRail` caller and route turnout mutation through either protected automatic allocation or the separately guarded manual operation.
 - [ ] Write contract tests for an external compile-only consumer before moving implementations.
 
+## Pre-implementation design gate
+
+- [x] Freeze protection-region graph-cut, direction-boundary and non-overlap contracts.
+- [x] Freeze coherent observation/region/topology revision and host-derived footprint contracts.
+- [x] Freeze composite no-hold-and-wait admission, turnout rollback and fail-closed lifecycle pseudocode.
+- [x] Freeze tail-clear, composite prefix-release and provider-disable recovery behavior.
+
+## Next reviewable batches
+
+1. Region catalog and graph resolver: runtime provider registration, authoritative definition validation, unique interior derivation and overlap diagnostics. No turnout mutation.
+2. Resolved plan builder: coherent observation stamp, route/window coverage, exit clearance, host-derived claim/physical-lock footprints and turnout selections. No registry mutation.
+3. Admission transaction: occupancy validation, one atomic claim, all-turnout apply/rollback and typed results. No Dispatcher migration.
+4. Release/recovery: entry observation, tail-clear slices, atomic footprint shrink, provider-disable and reload fail-closed behavior.
+5. Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
+
 ## Implementation
 
 - [x] Add immutable epoch/revision observation DTOs and coherent publication access.

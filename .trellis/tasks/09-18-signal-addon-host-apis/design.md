@@ -1,5 +1,11 @@
 # Stage 1 design
 
+## Pre-implementation contract freeze
+
+保护区域及进路准入的authoritative实现合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先满足其中的region graph cut、coherent observation stamp、host-derived footprint、composite no-hold-and-wait、claim→turnout commit→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
+
+实现顺序固定为：region catalog/graph resolver → immutable resolved plan → atomic admission transaction → tail-release/recovery → Dispatcher与`MANUAL_ROUTED`迁移。前一层合同测试未通过时不得开始后一层迁移。
+
 ## Public service surface
 
 The exact type names may be refined during implementation, but the contract should have three focused capabilities rather than one unrestricted facade:
@@ -13,11 +19,11 @@ Bukkit-facing discovery belongs in `bukkit.api.*` and `ServicesManager`. Platfor
 
 ## Topology and resource model
 
-A request includes a stable request ID, owner ID, world ID, topology revision, train ID where applicable, direction-aware entry/exit boundaries, a frozen route, rail-interval claims, turnout selections, fixed crossing/conflict nodes, and an exit-clearance envelope. Validation completes before mutation. Commit applies turnout selections and records every claim as one atomic operation. A rejection records no partial ownership.
+A request includes a stable request ID, owner ID, world ID, coherent observation stamp, train ID where applicable, direction-aware entry/exit boundaries, a frozen route, and an exit-clearance envelope. Rail intervals, turnout selections, fixed crossing/conflict nodes and release slices are host-derived outputs rather than caller input. Validation completes before mutation. Commit records the complete claim before applying all turnout selections, then publishes the grant; a rejection publishes no authority and records no partial ownership.
 
 Protection stop location belongs to the route-window entry. The host no longer derives competing authority limits for each turnout inside the window. When no independent protection region exists, the host must not silently recreate the removed per-turnout stop policy; the caller receives an explicit unavailable/unprotected result according to the final operating contract.
 
-Automatic admission is capability-shaped rather than plugin-presence-shaped. `RouteResourceService` accepts an automatic request only as a validated `ProtectedRouteWindow` carrying the stable region/entry/exit IDs, topology and region revisions, frozen path, complete resource claims, and exit-clearance envelope. There is no automatic overload equivalent to today's `allocate(owner, plannedRoute, sectionIndex)`. Before mutation, the service recomputes/validates that every controlled resource on the frozen traversal is covered exactly once; absent or partial coverage returns `PROTECTION_REQUIRED`, including when a required turnout is already aligned.
+Automatic admission is capability-shaped rather than plugin-presence-shaped. `RouteResourceService` accepts an automatic request only as a validated `ProtectedRouteWindow` carrying the stable region/entry/exit IDs, topology and region revisions, frozen path, and exit-clearance envelope. The complete resource claim is a host-derived output, never caller input. There is no automatic overload equivalent to today's `allocate(owner, plannedRoute, sectionIndex)`. Before mutation, the service recomputes/validates that every controlled resource on the frozen traversal is covered exactly once; absent or partial coverage returns `PROTECTION_REQUIRED`, including when a required turnout is already aligned.
 
 Route compilation no longer inserts boundaries from each `TurnoutRequirement.protectionDistanceMeters`. It partitions automatic authority only at explicit registered region boundaries and rejects automatic activation when a turnout, diamond, or other controlled resource lies outside all validated windows. A route with no controlled resource needs no protection request and remains valid.
 

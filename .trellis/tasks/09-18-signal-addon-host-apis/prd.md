@@ -20,7 +20,7 @@ Improve JavaRailways so an independently compiled Signal plugin can observe cons
 - Expose an owner-aware callback or subscription after a coherent physics state has been published; callbacks must document thread context and may not expose mutable Core objects across threads.
 - Replace the timetable-private turnout allocator with one world-local resource-arbitration owner used by all route consumers.
 - Support atomic claims over explicit rail intervals, turnout selections, fixed-connectivity crossing nodes, and exit-clearance resources, with stable owner/request/revision identities.
-- Introduce a generic direction-aware region-boundary and route-window contract. A request identifies one validated entry, one exit, one frozen path, every required resource, and the clearance envelope beyond the exit; the host either commits the complete set or commits nothing.
+- Introduce a generic direction-aware region-boundary and route-window contract. A request identifies one validated entry, one exit, one frozen path, and the clearance envelope beyond the exit; the host derives every required resource from authoritative region/topology state and either commits the complete set or commits nothing.
 - Remove the timetable/runtime dependency on per-turnout protection distances and `single()` turnout assumptions. A route window's entry boundary is the sole unconfirmed-route authority limit; internal resources do not independently generate stop points.
 - Represent an at-grade diamond crossing as a stable fixed-connectivity topology node with one shared conflict identity. Placement/topology-update code must use spatial candidate lookup plus exact geometry/clearance checks to create, update, reject, or remove that node without adding cross-line routing edges.
 - Reject stale topology, occupied resources, incompatible turnout selections, conflicting owners, and invalid references without partial mutation.
@@ -47,6 +47,7 @@ Improve JavaRailways so an independently compiled Signal plugin can observe cons
 - [ ] Straight, zero-turnout sections and multi-turnout sections allocate and release without `single()` assumptions.
 - [ ] A denied route-window request holds no subset of its resources; an admitted train has a clear exit envelope large enough to leave the region completely.
 - [ ] Adjacent regions with insufficient intermediate clearance are rejected as independent grants and can be acquired as one composite transaction.
+- [ ] A protection-region ID is not used as one exclusive whole-region lock; two paths with disjoint rail intervals and conflict nodes can be admitted concurrently, while overlapping paths cannot.
 - [ ] Diamond-node tests prove immutable same-line connectivity, no cross-line turn, shared conflict identity, placement/update detection, topology-revision invalidation, and no per-tick geometry scan.
 - [ ] A claim remains held until the owning train has occupied and then fully cleared its protected intervals.
 - [ ] Restriction updates are namespaced, revisioned, most-restrictive, and cannot silently expand authority after a stale update or owner failure.

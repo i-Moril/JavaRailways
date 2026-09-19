@@ -21,6 +21,9 @@ import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult;
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus;
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow;
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef;
+import work.art1st.javarailways.basic.api.route.ProtectionBoundaryDefinition;
+import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition;
+import work.art1st.javarailways.basic.api.route.ProtectionRegionProvider;
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
 
@@ -68,6 +71,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             // Compile the protected-route contract without gaining access to raw live claims.
             var protectedRoute = protectedRouteExample(observation.getStamp().getTopologyRevision());
             getLogger().fine("Protected-route request: " + protectedRoute.getRequestId());
+            var regionProvider = protectionRegionProviderExample(
+                protectedRoute.getRoute().getSegments().get(0).getRailId()
+            );
+            getLogger().fine("Protection-region provider: " + regionProvider.getProviderId());
         });
     }
 
@@ -119,6 +126,33 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             new RailPositionSnapshot(railId, ViewDirection.AB, metres),
             metres
         );
+    }
+
+    private static ProtectionRegionProvider protectionRegionProviderExample(UUID railId) {
+        return new ProtectionRegionProvider() {
+            @Override
+            public String getProviderId() {
+                return "example.signaladdon:regions";
+            }
+
+            @Override
+            public List<ProtectionRegionDefinition> definitions(long topologyRevision) {
+                return List.of(new ProtectionRegionDefinition(
+                    new ProtectionRegionRef("example.signaladdon:region/throat", 1L),
+                    topologyRevision,
+                    List.of(
+                        new ProtectionBoundaryDefinition(
+                            "example.signaladdon:boundary/entry",
+                            new RailPositionSnapshot(railId, ViewDirection.AB, 20.0)
+                        ),
+                        new ProtectionBoundaryDefinition(
+                            "example.signaladdon:boundary/exit",
+                            new RailPositionSnapshot(railId, ViewDirection.BA, 80.0)
+                        )
+                    )
+                ));
+            }
+        };
     }
 
     private static boolean requiresProtectionDefinition(ProtectedRouteClaimResult result) {

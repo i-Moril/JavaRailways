@@ -13,7 +13,7 @@ data class ProtectionRegionRef(
     val revision: Long
 ) {
     init {
-        require(NAMESPACED_ID.matches(regionId)) { "regionId must be namespaced" }
+        require(NAMESPACED_ROUTE_ID.matches(regionId)) { "regionId must be namespaced" }
         require(revision >= 0L) { "region revision must be non-negative" }
     }
 }
@@ -31,7 +31,7 @@ data class DirectedRouteBoundary(
     val routeDistanceMeters: Double
 ) {
     init {
-        require(NAMESPACED_ID.matches(boundaryId)) { "boundaryId must be namespaced" }
+        require(NAMESPACED_ROUTE_ID.matches(boundaryId)) { "boundaryId must be namespaced" }
         require(routeDistanceMeters.isFinite() && routeDistanceMeters >= 0.0) {
             "routeDistanceMeters must be finite and non-negative"
         }
@@ -92,7 +92,7 @@ data class CompositeProtectedRouteRequest private constructor(
     ) : this(requestId, owner, trainId, topologyRevision, route, immutableCopy(windows))
 
     init {
-        require(NAMESPACED_ID.matches(requestId)) { "requestId must be namespaced" }
+        require(NAMESPACED_ROUTE_ID.matches(requestId)) { "requestId must be namespaced" }
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
         require(route.segments.isNotEmpty()) { "protected route must contain at least one segment" }
@@ -211,4 +211,4 @@ class ProtectedRouteClaimResult(
     }
 }
 
-private val NAMESPACED_ID = Regex("[a-z0-9_.-]+:[A-Za-z0-9_./-]+")
+internal val NAMESPACED_ROUTE_ID = Regex("[a-z0-9_.-]+:[A-Za-z0-9_./-]+")

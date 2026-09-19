@@ -20,6 +20,10 @@ import java.util.UUID;
  * held until closed. Mutation methods may be called from plugin lifecycle or simulation code and
  * are serialized with JavaRailways topology changes. The protected infrastructure mutation itself
  * must still execute on its platform-required owner while the returned edit permit remains open.</p>
+ *
+ * <p>A route-spanning footprint contains one canonical-AB rail interval for each traversed rail.
+ * Turnouts, diamonds, and other shared conflict nodes must also appear as stable resources in that
+ * same footprint; adjacent rail intervals do not implicitly claim the node between them.</p>
  */
 public interface InfrastructureLeaseService {
     /**

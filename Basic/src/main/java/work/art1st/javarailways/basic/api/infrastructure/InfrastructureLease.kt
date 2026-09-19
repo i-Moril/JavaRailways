@@ -10,9 +10,13 @@ sealed interface InfrastructureResource {
 }
 
 /**
- * A closed interval measured in metres from a rail's canonical A end.
+ * One closed interval on exactly one rail, measured in metres from that rail's canonical A end.
  *
  * The endpoints are inclusive so an edit at a shared boundary cannot slip between two guards.
+ * A range that follows a route across multiple rails is represented by one [InfrastructureFootprint]
+ * containing one interval per traversed rail. If the route also crosses a turnout, diamond, or other
+ * shared conflict node, the footprint must additionally contain its [StableInfrastructureResource];
+ * the adjacent rail intervals alone do not express that shared-node conflict.
  */
 data class RailIntervalResource(
     val railId: UUID,
@@ -63,7 +67,14 @@ data class InfrastructureOwner(
     }
 }
 
-/** Complete immutable footprint. Empty footprints are rejected rather than creating invisible locks. */
+/**
+ * Complete immutable resource set acquired, replaced, released, or guarded as one atomic unit.
+ *
+ * For example, a protected range from rail A's 80 m point through its end and then to rail B's
+ * 35 m point contains `RailIntervalResource(A, 80, lengthA)` and
+ * `RailIntervalResource(B, 0, 35)`. Any required turnout or crossing resource is included in the
+ * same footprint. Failure of any member rejects the whole request; no prefix is retained.
+ */
 class InfrastructureFootprint(resources: Collection<InfrastructureResource>) {
     val resources: List<InfrastructureResource> = Collections.unmodifiableList(ArrayList(resources))
 

@@ -13,4 +13,9 @@ describe('i18n', () => {
     expect(translate('zh-CN', 'actions.REVERSE')).toBe('换向');
     expect(translate('en-US', 'actions.REVERSE')).toBe('Reverse');
   });
+
+  it('names the authoring workspace as the timetable page in both locales', () => {
+    expect(translate('zh-CN', 'nav.graph')).toBe('时刻表');
+    expect(translate('en-US', 'nav.graph')).toBe('Timetable');
+  });
 });

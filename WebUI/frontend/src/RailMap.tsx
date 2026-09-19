@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
+import { frontendDemoEnabled, frontendDemoTrains } from './frontendDev';
 import { DESTINATION_MARKER_RADIUS, MAP_PADDING, RAIL_CASING_WIDTH, RAIL_STROKE_WIDTH, STATION_MARKER_RADIUS, layoutMapLabels, railMapBounds, railSegmentVisualLayers, trainCarRectangle, zoomMapViewport, type MapLabelInput, type MapViewport, type RailMapSegment } from './railMap';
 import { useI18n } from './i18n';
 import { useTheme } from './theme';
@@ -20,6 +21,7 @@ export function RailMap({world,onError}:{world:string;onError:(message:string)=>
     setMap(undefined);setTrains([]);setViewport({zoom:1,offsetX:0,offsetY:0});
     let cancelled=false;
     void api.railMap(world).then((value)=>{if(!cancelled)setMap(value);}).catch((failure)=>onError(failure instanceof Error?failure.message:String(failure)));
+    if(frontendDemoEnabled){setTrains(frontendDemoTrains);return()=>{cancelled=true;};}
     const source=new EventSource(`/api/v1/worlds/${encodeURIComponent(world)}/rail-map/trains`);
     source.addEventListener('trains',(event)=>{try{setTrains(JSON.parse((event as MessageEvent).data) as RailMapTrain[]);}catch{/* ignore malformed frame */}});
     source.onerror=()=>{/* EventSource reconnects with browser-managed backoff. */};

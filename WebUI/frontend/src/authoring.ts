@@ -188,6 +188,32 @@ export function resetRunTimings(
 
 const shiftedTick=(tick:number|null|undefined,offsetTicks:number):number|null=>tick==null?null:tick+offsetTicks;
 export interface ShiftedRunPreview {run:AuthoringRunV1;anchorCallId:string;deltaTicks:number;affectedTimeCount:number}
+export type RunMoveEvent='ARRIVAL'|'DEPARTURE';
+export type RunMoveMode='OFFSET'|'ABSOLUTE';
+
+/** Moves every timestamp in a run by one delta derived from a selected call timestamp. */
+export function moveRunFromCall(
+  run:AuthoringRunV1,anchorCallId:string,event:RunMoveEvent,mode:RunMoveMode,value:number,periodTicks:number,
+):ShiftedRunPreview {
+  const anchor=run.calls.find((call)=>call.id===anchorCallId);
+  if(!anchor)throw new Error('move anchor does not exist');
+  const anchorTick=event==='ARRIVAL'?anchor.arrivalTick:anchor.departureTick;
+  if(anchorTick==null)throw new Error(`move anchor requires an ${event.toLowerCase()} time`);
+  if(!Number.isSafeInteger(value))throw new Error('move value must be an integer');
+  if(mode==='ABSOLUTE'&&value<0)throw new Error('target time must be a non-negative integer');
+  const deltaTicks=mode==='OFFSET'?value:value-anchorTick;
+  let affectedTimeCount=0;
+  const calls=run.calls.map((call)=>{
+    if(call.arrivalTick!=null)affectedTimeCount++;
+    if(call.departureTick!=null)affectedTimeCount++;
+    return {...call,arrivalTick:shiftedTick(call.arrivalTick,deltaTicks),departureTick:shiftedTick(call.departureTick,deltaTicks)};
+  });
+  if(calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&(tick<0||tick>=periodTicks)))) {
+    throw new Error('moved time is outside the timetable period');
+  }
+  return {run:{...run,calls},anchorCallId,deltaTicks,affectedTimeCount};
+}
+
 export function shiftRunFromDeparture(
   run:AuthoringRunV1,anchorCallId:string,targetDepartureTick:number,periodTicks:number,
 ):ShiftedRunPreview {

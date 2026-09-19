@@ -1,195 +1,106 @@
-import { useEffect, useRef, useState } from 'react';
-import { graphServiceColors, layoutGraph, zoomGraphViewport, type GraphViewport } from './graph';
+import { useMemo,useRef,useState } from 'react';
+import { Button,Tooltip } from 'antd';
+import { graphServiceColors,layoutGraph,type GraphPoint } from './graph';
 import { useI18n } from './i18n';
+import { formatTimetableTick } from './timetableTime';
 import { useTheme } from './theme';
-import type { LineV1, SavedTimetableV1, WorldMetadata } from './types';
+import type { LineV1,SavedTimetableV1,WorldMetadata } from './types';
 
-type DragState = { kind:'pan'; axis:'x'|'y'|'both'; x:number; y:number; offsetX:number; offsetY:number };
+type Pan={x:number;y:number};
+type DragState={pointerId:number;x:number;y:number;originX:number;originY:number};
+type ServicePath={serviceIndex:number;serviceId:string;points:GraphPoint[]};
+
+const pointKey=(point:GraphPoint)=>`${point.serviceIndex}:${point.stepIndex}:${point.kind}:${point.tick}:${point.location}`;
+const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  value,
-  onSelect,
-  metadata,
-  line,
-  graphLineId,
-  highlightedServiceIds,
-  previewServiceIds,
-}: {
-  value: SavedTimetableV1;
-  metadata?: WorldMetadata;
-  line?: LineV1;
-  graphLineId?: string;
+  value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,
+}:{
+  value:SavedTimetableV1;
+  metadata?:WorldMetadata;
+  line?:LineV1;
+  graphLineId?:string;
   highlightedServiceIds?:ReadonlySet<string>;
   previewServiceIds?:ReadonlySet<string>;
-  onSelect?: (service: number, step: number) => void;
+  onSelect?:(service:number,step:number)=>void;
 }) {
-  const { t } = useI18n();
-  const { theme } = useTheme();
-  const surface = useRef<HTMLDivElement>(null);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const [size, setSize] = useState({ width: 900, height: 500 });
-  const [viewport, setViewport] = useState<GraphViewport>({ scaleX:1, scaleY:1, offsetX:0, offsetY:0 });
-  const [hoveredPoint,setHoveredPoint] = useState<string|null>(null);
-  const drag = useRef<DragState | null>(null);
-  const layout = layoutGraph(value, size.width, 58, size.height, metadata, line, graphLineId);
-  const top = 54;
-  const transformX = (x:number) => layout.left + (x - layout.left) * viewport.scaleX + viewport.offsetX;
-  const transformY = (y:number) => top + (y - top) * viewport.scaleY + viewport.offsetY;
-  const transformedPoints = layout.points.map((point) => ({ ...point, x:transformX(point.x), y:transformY(point.y) }));
-  const pointKey=(point:{serviceIndex:number;stepIndex:number;kind:'DEPARTURE'|'ARRIVAL';tick:number;location:string})=>
-    `${point.serviceIndex}:${point.stepIndex}:${point.kind}:${point.tick}:${point.location}`;
-
-  useEffect(() => {
-    const element = surface.current;
-    if (!element) return;
-    const resize = () => {
-      const density=devicePixelRatio||1;
-      const maximumCssSize=Math.floor(8192/density);
-      setSize({
-        width:Math.max(1,Math.min(maximumCssSize,element.clientWidth||900)),
-        height:Math.max(1,Math.min(maximumCssSize,element.clientHeight||500)),
+  const {locale,t}=useI18n();
+  const {theme}=useTheme();
+  const [pan,setPan]=useState<Pan>({x:28,y:24});
+  const [scaleX,setScaleX]=useState(1);
+  const [scaleY,setScaleY]=useState(1);
+  const [hoveredPoint,setHoveredPoint]=useState<string|null>(null);
+  const [panning,setPanning]=useState(false);
+  const drag=useRef<DragState|null>(null);
+  const sheetWidth=Math.round(1_000*scaleX);
+  const minimumSheetHeight=Math.round(620*scaleY);
+  const layout=useMemo(()=>layoutGraph(value,sheetWidth,88*scaleY,minimumSheetHeight,metadata,line,graphLineId),[
+    value,sheetWidth,minimumSheetHeight,scaleY,metadata,line,graphLineId,
+  ]);
+  const sheetHeight=Math.ceil(layout.height);
+  const stationNames=useMemo(()=>new Map((metadata?.stations??[]).map((station)=>[
+    station.stationId,station.stationDisplayName||station.stationId,
+  ])),[metadata?.stations]);
+  const services=useMemo(()=>{
+    const grouped=new Map<number,ServicePath>();
+    layout.paths.forEach((path)=>{
+      const target=grouped.get(path.serviceIndex)??{serviceIndex:path.serviceIndex,serviceId:path.serviceId,points:[]};
+      path.points.forEach((point)=>{
+        if(!target.points.some((candidate)=>pointKey(candidate)===pointKey(point)))target.points.push(point);
       });
-    };
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+      grouped.set(path.serviceIndex,target);
+    });
+    return [...grouped.values()].map((path)=>({...path,points:path.points.sort((a,b)=>a.tick-b.tick)}));
+  },[layout.paths]);
+  const palette=graphServiceColors(theme);
+  const period=Math.max(1,value.periodDays*24_000);
+  const tickInterval=scaleX>=2?1_000:scaleX>=1.25?2_000:4_000;
+  const ticks:Array<{tick:number;x:number}>=[];
+  for(let tick=0;tick<=period;tick+=tickInterval)ticks.push({tick,x:layout.tickToX(tick)});
+  const graphColor=(serviceIndex:number)=>line?.color||palette[serviceIndex%palette.length];
+  const reset=()=>{setPan({x:28,y:24});setScaleX(1);setScaleY(1);};
 
-  useEffect(() => {
-    const element = canvas.current;
-    if (!element) return;
-    const density = devicePixelRatio || 1;
-    element.width = size.width * density;
-    element.height = size.height * density;
-    element.style.height = `${size.height}px`;
-    const context = element.getContext('2d')!;
-    context.scale(density, density);
-    context.clearRect(0, 0, size.width, size.height);
-    context.font = '12px system-ui';
-    const styles=getComputedStyle(document.documentElement);
-    const color=(name:string,fallback:string)=>styles.getPropertyValue(name).trim()||fallback;
-    const grid=color('--canvas-grid','#30445f'),minorGrid=color('--canvas-grid-minor','#24364d');
-    const label=color('--canvas-label','#a9bad0'),text=color('--canvas-text','#dbe8f7'),serviceColors=graphServiceColors(theme);
-    context.save();
-    context.beginPath();
-    context.rect(0, 0, size.width, size.height);
-    context.clip();
-
-    const period = value.periodDays * 24_000;
-    const tickInterval = viewport.scaleX >= 4 ? 500 : viewport.scaleX >= 2 ? 1_000 : viewport.scaleX < 0.75 ? 4_000 : 2_000;
-    for (let tick = 0; tick <= period; tick += tickInterval) {
-      const x = transformX(layout.tickToX(tick));
-      if (x < layout.left || x > size.width) continue;
-      context.strokeStyle = minorGrid;
-      context.beginPath();
-      context.moveTo(x, 25);
-      context.lineTo(x, size.height);
-      context.stroke();
-      context.fillStyle = label;
-      context.fillText(String(tick), x + 3, 18);
-    }
-
-    for (const lane of layout.lanes) {
-      const y = transformY(lane.y);
-      if (y < 30 || y > size.height) continue;
-      context.fillStyle = label;
-      context.fillText(lane.id, 8, y + 4);
-      context.strokeStyle = grid;
-      context.beginPath();
-      context.moveTo(layout.left, y);
-      context.lineTo(size.width, y);
-      context.stroke();
-    }
-
-    for (const path of layout.paths) {
-      const color = serviceColors[path.serviceIndex % serviceColors.length];
-      const points = path.points.map((point) => ({ ...point, x:transformX(point.x), y:transformY(point.y) }));
-      const hasHighlightSelection=(highlightedServiceIds?.size??0)>0;
-      const highlighted=!hasHighlightSelection||highlightedServiceIds!.has(path.serviceId);
-      const preview=previewServiceIds?.has(path.serviceId)??false;
-      context.globalAlpha=highlighted?1:0.16;
-      context.setLineDash(preview?[8,5]:[]);
-      if (points.length > 1) {
-        context.strokeStyle = color;
-        context.lineWidth = preview||hasHighlightSelection&&highlighted?4:2;
-        context.beginPath();
-        points.forEach((point, index) => index === 0 ? context.moveTo(point.x, point.y) : context.lineTo(point.x, point.y));
-        context.stroke();
-      }
-      for (const point of points) {
-        if (point.x < layout.left - 8 || point.x > size.width + 8 || point.y < 22 || point.y > size.height + 8) continue;
-        context.fillStyle = color;
-        context.beginPath();
-        context.arc(point.x, point.y, 7, 0, Math.PI * 2);
-        context.fill();
-        if(hoveredPoint===pointKey(point)){
-          context.fillStyle = text;
-          context.fillText(`${path.serviceId} · ${point.location} · ${point.tick}`, point.x + 9, point.y - 9);
-        }
-      }
-      context.setLineDash([]);
-    }
-    context.globalAlpha=1;
-    context.restore();
-  }, [layout, size.width, size.height, value, viewport, theme, hoveredPoint, highlightedServiceIds, previewServiceIds]);
-
-  const position = (event: React.PointerEvent | React.WheelEvent) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    return { x:event.clientX - bounds.left, y:event.clientY - bounds.top };
-  };
-  const zoom = (axis:'x'|'y', factor:number, anchor?:{x:number;y:number}) => setViewport((current) =>
-    zoomGraphViewport(current,axis,factor,axis==='x' ? anchor?.x ?? (layout.left+size.width)/2 : anchor?.y ?? (top+size.height)/2,axis==='x' ? layout.left : top));
-
-  return <div ref={surface} className="graph-surface">
-    <div className="graph-viewport-controls" aria-label={t('editor.graphViewport')}>
-      <button title={t('editor.zoomXOut')} onClick={() => zoom('x', 0.8)}>X−</button>
-      <button title={t('editor.zoomXIn')} onClick={() => zoom('x', 1.25)}>X+</button>
-      <button title={t('editor.zoomYOut')} onClick={() => zoom('y', 0.8)}>Y−</button>
-      <button title={t('editor.zoomYIn')} onClick={() => zoom('y', 1.25)}>Y+</button>
-      <button title={t('editor.graphReset')} onClick={() => setViewport({ scaleX:1, scaleY:1, offsetX:0, offsetY:0 })}>1:1</button>
+  return <div className={`graph-wrap ${panning?'is-panning':''}`}
+    onWheel={(event)=>{event.preventDefault();setPan((current)=>({x:current.x-event.deltaX,y:current.y-event.deltaY}));}}
+    onPointerDown={(event)=>{
+      if((event.target as HTMLElement).closest('.canvas-controls,[data-graph-point]'))return;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      drag.current={pointerId:event.pointerId,x:event.clientX,y:event.clientY,originX:pan.x,originY:pan.y};setPanning(true);
+    }}
+    onPointerMove={(event)=>{if(!drag.current||drag.current.pointerId!==event.pointerId)return;setPan({x:drag.current.originX+event.clientX-drag.current.x,y:drag.current.originY+event.clientY-drag.current.y});}}
+    onPointerUp={(event)=>{if(drag.current?.pointerId===event.pointerId)event.currentTarget.releasePointerCapture(event.pointerId);drag.current=null;setPanning(false);}}
+    onPointerCancel={()=>{drag.current=null;setPanning(false);}}>
+    <div className="canvas-controls" aria-label={t('editor.graphViewport')} onPointerDown={(event)=>event.stopPropagation()}>
+      <Button.Group>
+        <Tooltip title={t('editor.zoomXIn')}><Button onClick={()=>setScaleX((value)=>clamp(value*1.25))}>+X</Button></Tooltip>
+        <Tooltip title={t('editor.zoomXOut')}><Button onClick={()=>setScaleX((value)=>clamp(value*.8))}>−X</Button></Tooltip>
+        <Tooltip title={t('editor.zoomYIn')}><Button onClick={()=>setScaleY((value)=>clamp(value*1.25))}>+Y</Button></Tooltip>
+        <Tooltip title={t('editor.zoomYOut')}><Button onClick={()=>setScaleY((value)=>clamp(value*.8))}>−Y</Button></Tooltip>
+        <Button className="axis-readout" disabled>{Math.round(scaleX*100)}% · {Math.round(scaleY*100)}%</Button>
+        <Tooltip title={t('editor.graphReset')}><Button onClick={reset}>1:1</Button></Tooltip>
+      </Button.Group>
     </div>
-    <canvas
-      ref={canvas}
-      className="graph"
-      style={{ width:'100%' }}
-      onWheel={(event) => {
-        event.preventDefault();
-        const pointer = position(event);
-        if (pointer.x < layout.left) zoom('y', event.deltaY < 0 ? 1.12 : 0.89, pointer);
-        else if (pointer.y < top) zoom('x', event.deltaY < 0 ? 1.12 : 0.89, pointer);
-        else setViewport((current) => ({ ...current, offsetX:current.offsetX - event.deltaX, offsetY:current.offsetY - event.deltaY }));
-      }}
-      onPointerDown={(event) => {
-        const pointer = position(event);
-        const hit = transformedPoints.find((point) => Math.hypot(point.x - pointer.x, point.y - pointer.y) < 13);
-        if (hit) {
-          onSelect?.(hit.serviceIndex, hit.stepIndex);
-          return;
-        }
-        drag.current = {
-          kind:'pan', axis:pointer.x < layout.left ? 'y' : pointer.y < top ? 'x' : 'both',
-          x:pointer.x, y:pointer.y, offsetX:viewport.offsetX, offsetY:viewport.offsetY,
-        };
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        const pointer = position(event);
-        if(!drag.current){
-          const hit=transformedPoints.find((point)=>Math.hypot(point.x-pointer.x,point.y-pointer.y)<13);
-          setHoveredPoint(hit?pointKey(hit):null);
-          return;
-        }
-        const active = drag.current;
-        setViewport((current) => ({
-          ...current,
-          offsetX:active.axis === 'y' ? current.offsetX : active.offsetX + pointer.x - active.x,
-          offsetY:active.axis === 'x' ? current.offsetY : active.offsetY + pointer.y - active.y,
-        }));
-      }}
-      onPointerUp={() => { drag.current = null; }}
-      onPointerCancel={() => { drag.current = null; setHoveredPoint(null); }}
-      onPointerLeave={() => { if(!drag.current)setHoveredPoint(null); }}
-    />
+    <div className="canvas-sheet" style={{width:sheetWidth,height:sheetHeight,transform:`translate(${pan.x}px,${pan.y}px)`}}>
+      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role="img" aria-label={t('editor.graph')}>
+        <defs><pattern id="timetable-minor-grid" width="40" height="22" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 22" className="minor-grid-line"/></pattern></defs>
+        <rect x={layout.left} width={Math.max(0,sheetWidth-layout.left)} height={sheetHeight} fill="url(#timetable-minor-grid)"/>
+        {ticks.map(({tick,x})=><g key={tick}><line className="time-grid-line" x1={x} y1={42} x2={x} y2={sheetHeight}/><text className="time-axis tick-label" x={x+5} y={16}>{tick}</text><text className="time-axis translated-time" x={x+5} y={31}>{formatTimetableTick(tick,locale)}</text></g>)}
+        {layout.lanes.map((lane)=><g key={lane.id}><line className="station-grid-line" x1={layout.left} y1={lane.y} x2={sheetWidth} y2={lane.y}/><text className="station-label" x={layout.left-12} y={lane.y+4} textAnchor="end">{stationNames.get(lane.id)||lane.id}</text></g>)}
+        {services.map((service)=>{
+          const color=graphColor(service.serviceIndex);
+          const hasSelection=(highlightedServiceIds?.size??0)>0;
+          const selected=!hasSelection||highlightedServiceIds!.has(service.serviceId);
+          const preview=previewServiceIds?.has(service.serviceId)??false;
+          const first=service.points[0];
+          const labelWidth=Math.max(58,service.serviceId.length*7+18);
+          return <g key={`${service.serviceIndex}:${service.serviceId}`} opacity={selected?1:.28}>
+            {service.points.length>1&&<polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={color} strokeWidth={selected?5:3} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={preview?'10 7':undefined} className={selected?'selected-path':undefined}/>}
+            {first&&selected&&<g transform={`translate(${first.x+12} ${Math.max(43,first.y-34)})`}><rect width={labelWidth} height="25" rx="5" fill={color}/><text x={labelWidth/2} y="17" textAnchor="middle" fill="#fff" fontWeight="700" fontSize="12">{service.serviceId}</text></g>}
+            {service.points.map((point)=><circle key={pointKey(point)} data-graph-point cx={point.x} cy={point.y} r={selected?6:4.5} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={selected?4:3} onPointerDown={(event)=>event.stopPropagation()} onClick={()=>onSelect?.(point.serviceIndex,point.stepIndex)} onMouseEnter={()=>setHoveredPoint(pointKey(point))} onMouseLeave={()=>setHoveredPoint(null)}><title>{service.serviceId} · {stationNames.get(point.location)||point.location} · {point.tick} · {formatTimetableTick(point.tick,locale)}</title></circle>)}
+          </g>;
+        })}
+        {hoveredPoint&&layout.points.filter((point)=>pointKey(point)===hoveredPoint).map((point)=><g className="graph-point-tooltip" key={`tooltip-${pointKey(point)}`} transform={`translate(${point.x+10} ${point.y-30})`}><rect width="158" height="24" rx="5"/><text x="8" y="16">{stationNames.get(point.location)||point.location} · {point.tick}</text></g>)}
+      </svg>
+    </div>
   </div>;
 }

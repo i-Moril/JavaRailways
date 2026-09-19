@@ -1,7 +1,11 @@
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useReducer, useState, type ReactNode } from 'react';
+import { App as AntApp, Button, ConfigProvider, Flex, Layout, Select, Switch, Tabs, Tag, Tooltip, Typography } from 'antd';
+import { CodeOutlined, GlobalOutlined, MoonOutlined, NodeIndexOutlined, PlayCircleOutlined, PlusOutlined, RedoOutlined, SaveOutlined, SunOutlined, SwapOutlined, UndoOutlined } from '@ant-design/icons';
 import { api } from './api';
+import { frontendDemoEnabled } from './frontendDev';
 import { emptyAction, emptyTimetable, reducer } from './editor';
 import { DutyEditor } from './DutyEditor';
+import { LinesPage } from './LinesPage';
 import { Graph } from './Graph';
 import { filterTimetableForDiagramLine } from './graph';
 import { RailMap } from './RailMap';
@@ -11,6 +15,7 @@ import {
 } from './schedule';
 import { useI18n } from './i18n';
 import { useTheme } from './theme';
+import { antDesignLocale, antDesignTheme } from './studioShell';
 import type {
   ActionType,
   DraftSummary,
@@ -30,6 +35,7 @@ import type {
   WorldSummary,
 } from './types';
 import './styles.css';
+import './studioPages.css';
 
 const actionTypes = [
   'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'TAKE_FROM_WAYPOINT', 'STORE_AT_DEPOT',
@@ -38,8 +44,16 @@ const actionTypes = [
 export type View = 'graph' | 'map' | 'lines' | 'scripts' | 'simulation';
 export const DEFAULT_VIEW:View='map';
 export const navigationForAuthentication=(authenticated:boolean|null):View[]=>authenticated
-  ?['map','graph','lines','scripts','simulation']
+  ?['graph','map','lines','scripts','simulation']
   :['map'];
+
+export { LinesPage } from './LinesPage';
+type AuthoringCommand='new-run'|'open-move'|'undo'|'redo'|'save'|'save-formal'|'compile'|'simulate'|'publish';
+const authoringCommand=(command:AuthoringCommand)=>window.dispatchEvent(new CustomEvent('javarailways:authoring-command',{detail:command}));
+function RibbonCommand({icon,label,command,disabled=false}:{icon:ReactNode;label:string;command?:AuthoringCommand;disabled?:boolean}) {
+  return <Tooltip title={disabled?label:undefined}><Button type="text" className="ribbon-command" icon={icon} disabled={disabled} onClick={()=>command&&authoringCommand(command)}>{label}</Button></Tooltip>;
+}
+function RibbonGroup({label,children}:{label:string;children:ReactNode}) {return <div className="command-group"><div className="command-items">{children}</div><span className="group-label">{label}</span></div>;}
 
 export default function App() {
   const { locale, setLocale, t } = useI18n();
@@ -83,7 +97,7 @@ export default function App() {
         const session=await api.session();
         const values=await api.worlds();
         if(cancelled)return;
-        setAuthenticated(session.authenticated);setAuthenticatedPlayer(session.playerName||'');setWorlds(values);
+        setAuthenticated(session.authenticated);setAuthenticatedPlayer(session.playerName||'');setWorlds(values);setView(session.authenticated?'graph':'map');
         setWorld(values.find((candidate)=>candidate.id===session.worldId)?.id||values[0]?.id||'');
         if(loginError)setError(loginError);
       }catch(failure){if(!cancelled){setAuthenticated(false);setError(failure instanceof Error?failure.message:String(failure));}}
@@ -140,29 +154,43 @@ export default function App() {
     setIssues(messages.length ? messages : [{ message: t('editor.noIssues'), severity: 'success' }]);
   };
   const navigation=navigationForAuthentication(authenticated);
-  return <main className="app-shell">
-    <header className="topbar">
-      <div className="brand"><h1>{t('app.title')}</h1><span>{t('app.subtitle')}</span></div>
-      <nav aria-label={t('nav.primary')}>
-        {navigation.map((item) =>
-          <button key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{t(`nav.${item}`)}</button>)}
-      </nav>
-      <div className="top-controls">
-        <span className={`auth-state ${authenticated?'authenticated':'guest'}`}>{authenticated?t('auth.authenticated')+(authenticatedPlayer?` · ${authenticatedPlayer}`:''):t('auth.guest')}</span>
-        <label>{t('common.world')}<select value={world} onChange={(event) => setWorld(event.target.value)}>
-          {worlds.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}
-        </select></label>
-        <label>{t('common.language')}<select value={locale} onChange={(event) => setLocale(event.target.value as 'zh-CN'|'en-US')}>
-          <option value="zh-CN">中文</option><option value="en-US">English</option>
-        </select></label>
-        <label>{t('common.theme')}<select value={theme} onChange={(event)=>setTheme(event.target.value as 'dark'|'light')}>
-          <option value="dark">{t('theme.dark')}</option><option value="light">{t('theme.light')}</option>
-        </select></label>
-      </div>
-    </header>
+  const workspaceNotice=!authenticated?t('auth.mapOnly'):
+    view==='scripts'?t('scripts.readOnly'):
+    view==='graph'?t('duties.workspace'):
+    view==='lines'?t('lines.description'):
+    view==='simulation'?t('simulation.pending'):t('map.public');
+  return <ConfigProvider
+    locale={antDesignLocale(locale)}
+    theme={antDesignTheme(theme)}
+  ><AntApp><main className="app-shell">
+    <Layout.Header className="studio-topbar">
+      <Flex align="center" justify="space-between" gap={16}>
+        <Flex align="center" gap={10} className="studio-brand">
+          <span className="studio-brand-mark"><NodeIndexOutlined /></span>
+          <div><Typography.Text strong>{t('app.title')}</Typography.Text><Typography.Text type="secondary">{t('app.subtitle')}</Typography.Text></div>
+        </Flex>
+        <Flex align="center" gap={8} className="studio-controls">
+          {frontendDemoEnabled&&<Tag color="blue">{t('dev.frontendDemo')}</Tag>}
+          <Tag color={authenticated?'green':'default'}>{authenticated?t('auth.authenticated')+(authenticatedPlayer?` · ${authenticatedPlayer}`:''):t('auth.guest')}</Tag>
+          <Select aria-label={t('common.world')} value={world||undefined} placeholder={t('common.world')} onChange={setWorld}
+            options={worlds.map((item)=>({value:item.id,label:item.name||item.id}))}/>
+          <Switch aria-label={t('common.theme')} checked={theme==='dark'} onChange={(checked)=>setTheme(checked?'dark':'light')}
+            checkedChildren={<MoonOutlined />} unCheckedChildren={<SunOutlined />}/>
+          <Select aria-label={t('common.language')} value={locale} onChange={(value)=>setLocale(value as 'zh-CN'|'en-US')} suffixIcon={<GlobalOutlined />}
+            options={[{value:'zh-CN',label:'简体中文'},{value:'en-US',label:'English'}]}/>
+        </Flex>
+      </Flex>
+    </Layout.Header>
 
-    <section className="commandbar">
-      <span className="readonly-banner">{!authenticated?t('auth.mapOnly'):view==='scripts'?t('scripts.readOnly'):view==='graph'?t('duties.workspace'):t('map.public')}</span>
+    <section className={`studio-ribbon ${view==='graph'?'has-commands':''}`} aria-label={t('nav.primary')}>
+      <Tabs activeKey={view} onChange={(key)=>setView(key as View)} items={navigation.map((item)=>({key:item,label:t(`nav.${item}`)}))}/>
+      {view==='graph'?<div className="ribbon-commands">
+        <RibbonGroup label={t('ribbon.create')}><RibbonCommand icon={<PlusOutlined/>} label={t('ribbon.newRun')} command="new-run"/></RibbonGroup>
+        <RibbonGroup label={t('ribbon.history')}><RibbonCommand icon={<UndoOutlined/>} label={t('common.undo')} command="undo"/><RibbonCommand icon={<RedoOutlined/>} label={t('common.redo')} command="redo"/></RibbonGroup>
+        <RibbonGroup label={t('ribbon.move')}><RibbonCommand icon={<SwapOutlined/>} label={t('ribbon.moveRun')} command="open-move"/></RibbonGroup>
+        <RibbonGroup label={t('ribbon.tools')}><RibbonCommand icon={<CodeOutlined/>} label={t('duties.compile')} command="compile"/><RibbonCommand icon={<PlayCircleOutlined/>} label={t('duties.simulate')} command="simulate"/></RibbonGroup>
+        <RibbonGroup label={t('ribbon.document')}><RibbonCommand icon={<SaveOutlined/>} label={t('common.save')} command="save"/><RibbonCommand icon={<CodeOutlined/>} label={t('duties.saveScript')} command="save-formal"/><RibbonCommand icon={<NodeIndexOutlined/>} label={t('common.publish')} command="publish"/></RibbonGroup>
+      </div>:<div className="studio-contextbar"><Tag variant="filled">{t(`nav.${view}`)}</Tag><Typography.Text type="secondary">{workspaceNotice}</Typography.Text></div>}
     </section>
 
     <section className="notice-strip">
@@ -178,7 +206,7 @@ export default function App() {
     {view === 'simulation' && <SimulationPage world={world} lines={lineCollection.lines} metadata={metadata} run={run} />}
 
     <DataLists metadata={metadata} />
-  </main>;
+  </main></AntApp></ConfigProvider>;
 }
 
 function ServiceScheduleTable({ service, metadata, onChange }: {
@@ -276,75 +304,6 @@ function ServicesPage({ state, metadata, lines, selected, dispatch, replaceStep,
       </table>}
     </article>)}
   </section>;
-}
-
-export function LinesPage({ world, metadata, collection, onCollection, run }: {
-  world:string; metadata:WorldMetadata; collection:LineCollection;
-  onCollection:(value:LineCollection)=>void;
-  run:<T>(operation:()=>Promise<T>)=>Promise<T|undefined>;
-}) {
-  const { t } = useI18n();
-  const [selectedId, setSelectedId] = useState('');
-  const [editing, setEditing] = useState<LineV1>({ id:'', displayName:'', upStationIds:[], downStationIds:[], color:'#56c5ff' });
-  const stations = Array.from(new Map((metadata.stations || []).map((station) => [station.stationId, station])).values());
-  const select = (id:string) => {
-    setSelectedId(id);
-    const line = collection.lines.find((item) => item.id === id);
-    setEditing(line ? { ...line, upStationIds:[...line.upStationIds], downStationIds:[...line.downStationIds] } : {
-      id:`line-${collection.lines.length + 1}`,
-      displayName:`Line ${collection.lines.length + 1}`,
-      upStationIds:[], downStationIds:[], color:'#56c5ff',
-    });
-  };
-  const updateStations = (direction:LineDirection,stationIds:string[]) => {
-    setEditing({ ...editing,[direction==='UP'?'upStationIds':'downStationIds']:stationIds });
-  };
-  const saveLine = async () => {
-    const result = await run(() => api.saveLine(world, editing, collection.revision));
-    if (!result) return;
-    const lines = [...collection.lines.filter((line) => line.id !== result.line.id), result.line]
-      .sort((a,b) => a.id.localeCompare(b.id));
-    onCollection({ revision:result.revision, lines }); setSelectedId(result.line.id);
-  };
-  const deleteLine = async () => {
-    if (!selectedId) return;
-    const result = await run(() => api.deleteLine(world, selectedId, collection.revision));
-    if (!result) return;
-    onCollection({ revision:result.revision, lines:collection.lines.filter((line) => line.id !== selectedId) });
-    setSelectedId(''); setEditing({ id:'', displayName:'', upStationIds:[], downStationIds:[], color:'#56c5ff' });
-  };
-  return <section className="page-scroll line-page">
-    <aside className="line-list card">
-      <div className="section-title"><h2>{t('lines.title')}</h2><button onClick={() => select('')}>+</button></div>
-      {collection.lines.map((line) => <button key={line.id} className={selectedId === line.id ? 'active' : ''} onClick={() => select(line.id)}>
-        <i style={{ background:line.color || '#56c5ff' }} />{line.displayName}
-      </button>)}
-    </aside>
-    <article className="line-editor card">
-      <div className="fields-grid">
-        <label>{t('lines.id')}<input value={editing.id} disabled={Boolean(selectedId)} onChange={(event) => setEditing({ ...editing, id:event.target.value })} /></label>
-        <label>{t('lines.name')}<input value={editing.displayName} onChange={(event) => setEditing({ ...editing, displayName:event.target.value })} /></label>
-        <label>{t('lines.color')}<input type="color" value={editing.color || '#56c5ff'} onChange={(event) => setEditing({ ...editing, color:event.target.value })} /></label>
-      </div>
-      <div className="direction-patterns">{(['UP','DOWN'] as LineDirection[]).map((direction) => {
-        const values=direction==='UP'?editing.upStationIds:editing.downStationIds;
-        return <section className="direction-pattern" key={direction}><div className="section-title"><h3>{t(`direction.${direction}`)}</h3><select value="" onChange={(event) => {
-          if(event.target.value&&!values.includes(event.target.value)) updateStations(direction,[...values,event.target.value]);
-        }}><option value="">+ {t('lines.addStation')}</option>{stations.filter((station)=>!values.includes(station.stationId)).map((station)=><option key={station.stationId} value={station.stationId}>{station.stationDisplayName||station.stationId}</option>)}</select></div>
-        <ol className="station-order">{values.map((stationId,index)=>{const station=stations.find((item)=>item.stationId===stationId);return <li key={stationId}><span>{station?.stationDisplayName||stationId}<small>{stationId}</small></span>
-          <button disabled={index===0} onClick={()=>updateStations(direction,move(values,index,index-1))}>↑</button><button disabled={index===values.length-1} onClick={()=>updateStations(direction,move(values,index,index+1))}>↓</button>
-          <button className="danger" onClick={()=>updateStations(direction,values.filter((id)=>id!==stationId))}>×</button></li>;})}</ol></section>;
-      })}</div>
-      <div className="line-actions">
-        <button className="primary" disabled={editing.upStationIds.length < 2 || editing.downStationIds.length < 2 || !editing.id || !editing.displayName} onClick={() => void saveLine()}>{t('common.save')}</button>
-        <button className="danger" disabled={!selectedId} onClick={() => void deleteLine()}>{t('common.delete')}</button>
-      </div>
-    </article>
-  </section>;
-}
-
-function move<T>(items:T[], from:number, to:number):T[] {
-  const copy = [...items]; const [item] = copy.splice(from,1); copy.splice(to,0,item); return copy;
 }
 
 function ScriptsPage({ world, metadata, run }: {

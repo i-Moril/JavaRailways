@@ -1,7 +1,7 @@
 import { describe,expect,it } from 'vitest';
 import {
   authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource,moveRunToDuty,
-  lineSimulationRoute,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
+  lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {layoutGraph} from './graph';
 import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
@@ -217,6 +217,33 @@ describe('timetable editor document',()=>{
     expect(run.calls[1].departureTick).toBe(400);
     expect(()=>shiftRunFromDeparture(run,run.calls[1].id,320,24_000)).toThrow(/minimum dwell/);
     expect(()=>shiftRunFromDeparture(run,run.calls[1].id,24_000,24_000)).toThrow(/period/);
+  });
+
+  it('moves a whole run by an offset or to an arrival time',()=>{
+    const run=createRunFromLine('run-1',line,'UP',metadata,(station)=>`call-${station}`);
+    run.calls[0].departureTick=100;
+    run.calls[1]={...run.calls[1],arrivalTick:300,departureTick:400};
+    run.calls[2]={...run.calls[2],arrivalTick:600};
+    const offset=moveRunFromCall(run,run.calls[1].id,'DEPARTURE','OFFSET',40,24_000);
+    expect(offset.deltaTicks).toBe(40);
+    expect(offset.affectedTimeCount).toBe(4);
+    expect(offset.run.calls.slice(0,3).map((call)=>[call.arrivalTick,call.departureTick])).toEqual([
+      [null,140],[340,440],[640,null],
+    ]);
+
+    const absolute=moveRunFromCall(run,run.calls[1].id,'ARRIVAL','ABSOLUTE',500,24_000);
+    expect(absolute.deltaTicks).toBe(200);
+    expect(absolute.run.calls[0].departureTick).toBe(300);
+    expect(absolute.run.calls[1].arrivalTick).toBe(500);
+  });
+
+  it('rejects a missing move timestamp and period overflow',()=>{
+    const run=createRunFromLine('run-1',line,'UP',metadata,(station)=>`call-${station}`);
+    run.calls[0].departureTick=100;
+    run.calls[1]={...run.calls[1],arrivalTick:300,departureTick:400};
+    expect(()=>moveRunFromCall(run,run.calls[0].id,'ARRIVAL','OFFSET',10,24_000)).toThrow(/arrival/);
+    expect(()=>moveRunFromCall(run,run.calls[1].id,'DEPARTURE','OFFSET',23_700,24_000)).toThrow(/period/);
+    expect(()=>moveRunFromCall(run,run.calls[1].id,'DEPARTURE','ABSOLUTE',-1,24_000)).toThrow(/non-negative/);
   });
 
   it('copies a run with fresh identities and shifts every route time without assigning a duty',()=>{

@@ -1,2 +1,2 @@
-{"file": ".trellis/spec/basic/backend/domain-and-api.md", "reason": "Station and destination domain contract for removing the stale NONE restriction."}
-{"file": ".trellis/spec/basic/backend/persistence-and-tests.md", "reason": "Required Basic domain regression-test conventions."}
+{"file": ".trellis/spec/javarailways/basic/stations.md", "reason": "Station berth and door-side domain contract for removing the stale NONE restriction."}
+{"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "Required Basic domain regression-test conventions."}

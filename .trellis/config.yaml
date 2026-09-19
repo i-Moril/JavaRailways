@@ -164,8 +164,6 @@ packages:
     path: .
   config-lib:
     path: ConfigLib
-  basic:
-    path: Basic
   annotation:
     path: Annotation
   bukkit-plugin:

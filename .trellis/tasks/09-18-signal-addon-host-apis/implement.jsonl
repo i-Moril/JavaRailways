@@ -2,4 +2,6 @@
 {"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "Physics epoch, coherent world publication, and ticket contracts"}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "Topology revision, structural transactions, and occupancy contracts"}
 {"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Bukkit service lifecycle and Folia ownership"}
-{"file": ".trellis/spec/basic/backend/domain-and-api.md", "reason": "Basic route, safety, and public API ownership"}
+{"file": ".trellis/spec/javarailways/basic/api-boundaries.md", "reason": "Basic public API and platform-neutral value boundaries"}
+{"file": ".trellis/spec/javarailways/basic/threading-and-publication.md", "reason": "Coherent observation projection and publication ordering"}
+{"file": ".trellis/spec/javarailways/basic/resource-allocation.md", "reason": "Atomic infrastructure footprints, leases, claims, and edit guards"}

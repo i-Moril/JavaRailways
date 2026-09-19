@@ -11,6 +11,7 @@ import work.art1st.javarailways.core.api.event.processor.EventListener
 import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -179,6 +180,38 @@ class PhysicsCoordinatorTest {
 
             assertEquals(thirdTicket.epoch, coalesced.physicsEpoch)
             assertTrue(coalesced.revision > firstFrame.revision)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `ticket completes only after an exact coherent world frame is published`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val trainB = createTrainWithConfig("world-frame-b", rail, world, listOf(10.0))
+        val trainA = createTrainWithConfig("world-frame-a", rail, world, listOf(10.0))
+        trainA.setController(ConstantSpeedController(trainA, world))
+        trainB.setController(ConstantSpeedController(trainB, world))
+        coordinator.start()
+        try {
+            val ticket = coordinator.stepSimulation(50.0)
+            ticket.await()
+
+            val frame = world.latestWorldFrame()
+            assertEquals(ticket.epoch, frame.physicsEpoch)
+            assertEquals(world.topologyRevision, frame.topologyRevision)
+            assertEquals(listOf(trainA.id, trainB.id).sorted(), frame.trains.map { it.trainId })
+            assertTrue(frame.trains.all { it.physicsEpoch == ticket.epoch })
+            assertThrows(UnsupportedOperationException::class.java) {
+                @Suppress("UNCHECKED_CAST")
+                (frame.trains as MutableList<TrainFrameSnapshot>).clear()
+            }
         } finally {
             coordinator.close()
         }

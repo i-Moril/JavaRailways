@@ -5,7 +5,14 @@
 - [ ] Confirm Stage 1 API version and consumer example.
 - [x] Fix the MVP at player-authored protection regions plus the host's existing dynamic-following constraint, using one protection pipeline.
 - [ ] Load Bukkit, persistence, interaction/render, and shared cross-layer specs.
-- [ ] Scaffold the independent subproject, plugin descriptor, compile-only host dependency, and packaging test.
+
+## First deliverable: physical module extraction
+
+- [ ] Scaffold `SimpleATO` and `SimpleATOBukkit`, the independent plugin descriptor, compile-only host dependency, and packaging/boundary tests.
+- [ ] Move ATO, operating direction, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route planning, and their persistence into `SimpleATO`; retain generic pathfinding in `Basic`.
+- [ ] Move Bukkit signal/ATO rendering, `RailObjectWand`, service lookup, lifecycle, commands, and platform interaction into `SimpleATOBukkit`.
+- [ ] Remove the old Basic/BukkitPlugin owners and prove there is one implementation before starting signal JavaScript/runtime work.
+- [ ] Keep WebUI packaging and the exact signal JavaScript API explicitly undecided during this deliverable.
 
 ## Domain and runtime
 

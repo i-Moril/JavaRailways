@@ -4,8 +4,12 @@
 
 Implement a separately deployable Signal plugin that uses only the Stage 1 public host contracts to provide signalling, interlocking, train-authority integration, persistence, authoring, and rendering.
 
+The first Stage 2 deliverable is the physical extraction into two separately owned modules: platform-neutral `SimpleATO` and Bukkit adapter/plugin `SimpleATOBukkit`. Signal package/runtime features begin only after that extraction is complete and the old host-owned entry points have been removed.
+
 ## Requirements
 
+- Move ATO, operating direction, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, and their persistence into `SimpleATO`; keep generic pathfinding in `Basic`.
+- Move signal/ATO rendering, `RailObjectWand`, Bukkit lifecycle, service lookup, and platform interaction into `SimpleATOBukkit` before implementing signal JavaScript/runtime features.
 - Build as a distinct Gradle subproject/artifact with its own plugin descriptor and lifecycle.
 - Declare JavaRailways as a required host and compile-only dependency; do not shadow JavaRailways classes.
 - Fail fast with an actionable message when required Stage 1 services are missing or incompatible.
@@ -54,6 +58,7 @@ Implement a separately deployable Signal plugin that uses only the Stage 1 publi
 - Multiple national signalling systems in the initial release.
 - Permanent runtime compatibility for arbitrary pre-release Signal formats.
 - Certification-grade communications, train-integrity proving, redundant control channels, and country-specific operating regulations.
+- Deciding whether WebUI becomes a separate module or belongs to `SimpleATO`/`SimpleATOBukkit`, and finalizing the exact signal JavaScript API, during the extraction deliverable.
 
 ## Dependency
 

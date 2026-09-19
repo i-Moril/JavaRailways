@@ -20,6 +20,7 @@ object RailTopologyEditor {
         val active: RailView?
     )
 
+    /** Commits the complete split under one structural topology-revision boundary. */
     @MainThread
     fun splitWithPreparedCurves(
         rail: CoreRail,
@@ -27,8 +28,18 @@ object RailTopologyEditor {
         afterCurve: PrimeCurve,
         operationId: String = UUID.randomUUID().toString(),
         signalCanBeRebuilt: (Signal) -> Boolean = { false }
+    ): SplitResult = rail.world.railTopologyTransaction {
+        splitInTransaction(rail, beforeCurve, afterCurve, operationId, signalCanBeRebuilt)
+    }
+
+    @MainThread
+    private fun splitInTransaction(
+        rail: CoreRail,
+        beforeCurve: PrimeCurve,
+        afterCurve: PrimeCurve,
+        operationId: String,
+        signalCanBeRebuilt: (Signal) -> Boolean
     ): SplitResult {
-        rail.world.awaitCurrentPhysicsEpoch()
         require(operationId.isNotBlank())
         require(rail.world.getRail(rail.id) === rail) { "Rail is no longer registered in its world" }
         val affectedRailIds = buildSet {
@@ -120,8 +131,17 @@ object RailTopologyEditor {
         after: CoreRail,
         mergedCurve: PrimeCurve,
         signalCanBeRebuilt: (Signal) -> Boolean = { false }
+    ): CoreRail = before.world.railTopologyTransaction {
+        mergeInTransaction(before, after, mergedCurve, signalCanBeRebuilt)
+    }
+
+    @MainThread
+    private fun mergeInTransaction(
+        before: CoreRail,
+        after: CoreRail,
+        mergedCurve: PrimeCurve,
+        signalCanBeRebuilt: (Signal) -> Boolean
     ): CoreRail {
-        before.world.awaitCurrentPhysicsEpoch()
         val eligibilityError = mergeEligibilityError(before, after, signalCanBeRebuilt)
         require(eligibilityError == null) { eligibilityError ?: "Rails cannot be merged" }
         require(before.world.getRail(before.id) === before && after.world.getRail(after.id) === after) {

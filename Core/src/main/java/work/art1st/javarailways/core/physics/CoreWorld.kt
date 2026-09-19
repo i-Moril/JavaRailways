@@ -7,6 +7,7 @@ import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -27,6 +28,7 @@ import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.LinkedHashMap
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
@@ -46,12 +48,16 @@ class CoreWorld(
 ) : World, Extendable<Any> by extensionDataContainer {
     private val railSpatialIndex = RailSpatialIndex()
     private val railTopologyLock = ReentrantReadWriteLock()
+    private val topologyRevisionCounter = AtomicLong()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
 
     @Volatile
     private var sweptOccupancyIndex: SweptOccupancyIndex = SweptOccupancyIndex.EMPTY
     private val publishedTrainFrames = LatestTrainFrameMailbox(DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY)
+    @Volatile
+    private var publishedWorldFrame: RailwayWorldFrameSnapshot =
+        RailwayWorldFrameSnapshot.create(0L, 0L, emptyList())
 
     init {
         trains.values.forEach { train ->
@@ -198,20 +204,44 @@ class CoreWorld(
     }
 
     @MainThread
-    internal fun addRail(rail: CoreRail) = railTopologyLock.write {
-        rails[rail.id] = rail
-        railSpatialIndex.addRail(rail)
+    internal fun addRail(rail: CoreRail) {
+        val insideTopologyTransaction = railTopologyLock.isWriteLockedByCurrentThread
+        if (!insideTopologyTransaction) awaitCurrentPhysicsEpoch()
+        railTopologyLock.write {
+            rails[rail.id] = rail
+            railSpatialIndex.addRail(rail)
+            if (!insideTopologyTransaction) topologyRevisionCounter.incrementAndGet()
+        }
     }
 
     /**
      * Execute a validated infrastructure commit without exposing partially replaced rails to
-     * world lookups. Expensive curve construction must finish before entering this boundary.
+     * world lookups. Every structural topology edit after world construction must enter this
+     * boundary; changing only a turnout's active selection is runtime state, not a structural edit.
+     * Expensive curve construction must finish before entering this boundary.
      */
     @MainThread
     fun <T> railTopologyTransaction(action: () -> T): T {
-        awaitCurrentPhysicsEpoch()
-        return railTopologyLock.write(action)
+        val outermost = !railTopologyLock.isWriteLockedByCurrentThread
+        if (outermost) awaitCurrentPhysicsEpoch()
+        return railTopologyLock.write {
+            try {
+                action()
+            } finally {
+                // A failed structural commit may have mutated part of the topology before throwing.
+                // Advance before releasing the write lock so a reader cannot observe changed
+                // topology with the preceding revision.
+                if (outermost) topologyRevisionCounter.incrementAndGet()
+            }
+        }
     }
+
+    /**
+     * Runtime-only structural topology revision, unrelated to persisted snapshot revisions.
+     * The counter may advance conservatively after a failed or no-op topology transaction.
+     */
+    val topologyRevision: Long
+        get() = topologyRevisionCounter.get()
 
     fun isRailTopologyTransactionActiveOnCurrentThread(): Boolean =
         railTopologyLock.isWriteLockedByCurrentThread
@@ -239,40 +269,42 @@ class CoreWorld(
 
     @MainThread
     override fun removeRail(rail: Rail) {
-        if (!railTopologyLock.isWriteLockedByCurrentThread) awaitCurrentPhysicsEpoch()
+        val insideTopologyTransaction = railTopologyLock.isWriteLockedByCurrentThread
+        if (!insideTopologyTransaction) awaitCurrentPhysicsEpoch()
         railTopologyLock.write {
-        val removed = rail as? CoreRail
-        if (removed != null) {
-            val affectedRailIds = buildSet {
-                add(removed.id)
+            val removed = rail as? CoreRail
+            if (removed != null) {
+                val affectedRailIds = buildSet {
+                    add(removed.id)
+                    allRails.asSequence()
+                        .filter { it !== removed }
+                        .filter { candidate ->
+                            candidate.viewAB.nextRails.any { it.rail === removed } ||
+                                candidate.viewBA.nextRails.any { it.rail === removed }
+                        }
+                        .forEach { add(it.id) }
+                }
+                val occupyingTrainIds = occupyingTrainIds(affectedRailIds)
+                require(occupyingTrainIds.isEmpty()) {
+                    "Cannot remove rail ${removed.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
+                }
                 allRails.asSequence()
                     .filter { it !== removed }
-                    .filter { candidate ->
-                        candidate.viewAB.nextRails.any { it.rail === removed } ||
-                            candidate.viewBA.nextRails.any { it.rail === removed }
+                    .flatMap { sequenceOf(it.viewAB, it.viewBA) }
+                    .forEach { view ->
+                        val removedWasActive = view.activeRail?.rail === removed
+                        if (removedWasActive) view.activeRail = null
+                        view.mutableNextRails.removeIf { it.rail === removed }
+                        if (removedWasActive) view.activeRail = view.mutableNextRails.firstOrNull()
                     }
-                    .forEach { add(it.id) }
+                removed.viewAB.activeRail = null
+                removed.viewBA.activeRail = null
+                removed.viewAB.mutableNextRails.clear()
+                removed.viewBA.mutableNextRails.clear()
+                railSpatialIndex.removeRail(removed)
             }
-            val occupyingTrainIds = occupyingTrainIds(affectedRailIds)
-            require(occupyingTrainIds.isEmpty()) {
-                "Cannot remove rail ${removed.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
-            }
-            allRails.asSequence()
-                .filter { it !== removed }
-                .flatMap { sequenceOf(it.viewAB, it.viewBA) }
-                .forEach { view ->
-                    val removedWasActive = view.activeRail?.rail === removed
-                    if (removedWasActive) view.activeRail = null
-                    view.mutableNextRails.removeIf { it.rail === removed }
-                    if (removedWasActive) view.activeRail = view.mutableNextRails.firstOrNull()
-                }
-            removed.viewAB.activeRail = null
-            removed.viewBA.activeRail = null
-            removed.viewAB.mutableNextRails.clear()
-            removed.viewBA.mutableNextRails.clear()
-            railSpatialIndex.removeRail(removed)
-        }
-        rails.remove(rail.id)
+            val removedFromWorld = rails.remove(rail.id) != null
+            if (removedFromWorld && !insideTopologyTransaction) topologyRevisionCounter.incrementAndGet()
         }
     }
 
@@ -282,6 +314,25 @@ class CoreWorld(
             trains.values.flatMap { it.publishedSweptSpans }
         )
     }
+
+    /**
+     * Publishes the coherent world frame after train frames and swept occupancy for [physicsEpoch].
+     * Mismatched train epochs fail the physics ticket instead of exposing a mixed observation.
+     */
+    internal fun publishWorldFrame(physicsEpoch: Long): RailwayWorldFrameSnapshot {
+        val frame = railTopologyLock.read {
+            RailwayWorldFrameSnapshot.create(
+                physicsEpoch = physicsEpoch,
+                topologyRevision = topologyRevisionCounter.get(),
+                trains = trains.values.map(CoreTrain::publishedFrame)
+            )
+        }
+        publishedWorldFrame = frame
+        return frame
+    }
+
+    /** Latest complete immutable world frame. Initial value is epoch zero with no trains. */
+    fun latestWorldFrame(): RailwayWorldFrameSnapshot = publishedWorldFrame
 
     internal fun sweptOccupancyStats(): Pair<Int, Int> =
         sweptOccupancyIndex.spanCount to sweptOccupancyIndex.bucketReferenceCount

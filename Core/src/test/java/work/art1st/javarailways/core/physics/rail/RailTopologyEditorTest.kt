@@ -24,6 +24,7 @@ class RailTopologyEditorTest {
         CoreRail.connect(original, next)
         val originalCurve = original.curve
         val (beforeCurve, afterCurve) = originalCurve.splitAt(4.25)
+        val revisionBeforeSplit = world.topologyRevision
 
         val split = RailTopologyEditor.splitWithPreparedCurves(
             original,
@@ -32,6 +33,7 @@ class RailTopologyEditorTest {
             operationId = "split-test"
         )
 
+        assertEquals(revisionBeforeSplit + 1L, world.topologyRevision)
         assertNull(world.getRail(original.id))
         assertEquals(4, world.allRails.size)
         assertEquals(4.25, split.before.curve.totalArcLength, 1e-12)
@@ -43,8 +45,10 @@ class RailTopologyEditorTest {
         assertSame(next.viewAB, split.after.viewAB.nextActiveRail)
 
         val mergedCurve = split.before.curve.concatenate(split.after.curve)
+        val revisionBeforeMerge = world.topologyRevision
         val merged = RailTopologyEditor.mergeWithPreparedCurve(split.before, split.after, mergedCurve)
 
+        assertEquals(revisionBeforeMerge + 1L, world.topologyRevision)
         assertNull(world.getRail(split.before.id))
         assertNull(world.getRail(split.after.id))
         assertEquals(3, world.allRails.size)

@@ -3,6 +3,8 @@ package example.signaladdon;
 import org.bukkit.Server;
 import org.bukkit.plugin.java.JavaPlugin;
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService;
+import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService;
+import work.art1st.javarailways.bukkit.api.observation.RailwayObservationSubscription;
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService;
 
 import java.util.Objects;
@@ -15,10 +17,26 @@ import java.util.Objects;
  */
 public final class SignalApiConsumerPlugin extends JavaPlugin {
     private Services services;
+    private RailwayObservationSubscription observationSubscription;
 
     @Override
     public void onEnable() {
         services = loadServices(getServer());
+        var worldId = getServer().getWorlds().getFirst().getUID();
+        services.observations().latest(worldId).ifPresent(observation ->
+            getLogger().fine("Latest railway epoch: " + observation.getStamp().getPhysicsEpoch())
+        );
+        observationSubscription = services.observations().subscribe(this, worldId, (publishedWorldId, observation) ->
+            getLogger().fine("Observed railway epoch: " + observation.getStamp().getPhysicsEpoch())
+        );
+    }
+
+    @Override
+    public void onDisable() {
+        if (observationSubscription != null) {
+            observationSubscription.close();
+            observationSubscription = null;
+        }
     }
 
     Services services() {
@@ -36,17 +54,23 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             Objects.requireNonNull(
                 serviceManager.load(PlayerOperationService.class),
                 "JavaRailways did not register PlayerOperationService"
+            ),
+            Objects.requireNonNull(
+                serviceManager.load(RailwayObservationService.class),
+                "JavaRailways did not register RailwayObservationService"
             )
         );
     }
 
     record Services(
         RailTargetService railTargets,
-        PlayerOperationService playerOperations
+        PlayerOperationService playerOperations,
+        RailwayObservationService observations
     ) {
         Services {
             Objects.requireNonNull(railTargets, "railTargets");
             Objects.requireNonNull(playerOperations, "playerOperations");
+            Objects.requireNonNull(observations, "observations");
         }
     }
 }

@@ -2,7 +2,12 @@
 
 ## Packaging
 
-Create a separate Signal Gradle subproject that produces its own Bukkit/Paper plugin JAR. It has its own descriptor, commands, permissions, resources, configuration, persistence directory, and lifecycle. The host dependency is compile-only and resolved at runtime through Bukkit services.
+The first Stage 2 deliverable physically extracts two modules before adding signal-package runtime features:
+
+- `SimpleATO` owns platform-neutral ATO, operating direction, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route planning, and their persistence. Generic pathfinding remains in `Basic`.
+- `SimpleATOBukkit` produces the separately deployable Bukkit/Paper plugin JAR and owns Bukkit service lookup/lifecycle, signal and ATO rendering, `RailObjectWand`, commands, permissions, resources, and platform interaction.
+
+`SimpleATOBukkit` has a compile-only host dependency resolved at runtime through Bukkit services. After extraction, remove the corresponding host-owned entry points so there is no parallel implementation. WebUI packaging and the exact signal JavaScript API remain deferred and do not block this module boundary.
 
 ## Domain model
 

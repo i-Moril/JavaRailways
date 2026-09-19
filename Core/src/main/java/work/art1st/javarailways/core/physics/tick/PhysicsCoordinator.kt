@@ -454,6 +454,9 @@ class PhysicsCoordinator(
                 return
             }
 
+            // This is the final coherent publication boundary for a successful epoch. Ticket
+            // completion below guarantees platform consumers cannot observe it before all work ends.
+            world?.publishWorldFrame(ticket.epoch)
             synchronized(stateLock) {
                 latestCompleted = ticket
                 inFlight = null

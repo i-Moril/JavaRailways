@@ -13,6 +13,7 @@ import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
 import work.art1st.javarailways.bukkit.debug.JavaRailwaysServerTickMetrics
 import work.art1st.javarailways.bukkit.debug.TrainDebugLog
@@ -47,8 +48,9 @@ data class CarFrameDispatchMetrics(
     val scheduledTasks: Long
 )
 
-class WorldManager(
-    val railWorlds: MutableMap<BukkitWorld, World> = ConcurrentHashMap()
+class WorldManager internal constructor(
+    val railWorlds: MutableMap<BukkitWorld, World> = ConcurrentHashMap(),
+    private val observationService: DefaultRailwayObservationService? = null
 ) : Listener {
     private var serverTickIndex: Long = 0L
     private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()
@@ -245,6 +247,7 @@ class WorldManager(
         }
         AbnormalTrainMarker.clearWorld(bukkitWorld)
         railWorlds.remove(bukkitWorld)
+        observationService?.removeWorld(bukkitWorld.uid)
     }
 
     @EventHandler
@@ -288,6 +291,16 @@ class WorldManager(
                 publishedPhysicsEpoch = physicsTicket.epoch
                 phaseBreakdown["world:${world.name}:physics_wait"] = physicsWaitNanos
                 blockedWaitAsyncNanos += physicsWaitNanos
+
+                val observationPublishNanos = measureNanoTime {
+                    observationService?.publish(
+                        world.uid,
+                        coreWorld.latestWorldFrame(),
+                        physicsTicket.epoch
+                    )
+                }
+                phaseBreakdown["world:${world.name}:observation_publish"] = observationPublishNanos
+                computeNanos += observationPublishNanos
 
                 val speedSafetyNanos = measureNanoTime {
                     coreWorld.publishPendingDerailEvents()

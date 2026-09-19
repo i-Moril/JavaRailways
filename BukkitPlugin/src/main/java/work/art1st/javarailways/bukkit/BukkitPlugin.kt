@@ -5,6 +5,9 @@ import org.bukkit.plugin.ServicePriority
 import work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetService
 import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationService
 import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
+import work.art1st.javarailways.bukkit.api.internal.ObservationOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.bukkit.behavior.TrainReverseBehaviorListener
@@ -66,6 +69,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var playerOperationService: PlayerOperationService
         private set
     private lateinit var playerOperationServiceImpl: DefaultPlayerOperationService
+    lateinit var railwayObservationService: RailwayObservationService
+        private set
+    private lateinit var railwayObservationServiceImpl: DefaultRailwayObservationService
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
@@ -141,11 +147,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         INSTANCE = this
         ThreadGuard.installPlatformBridge(BukkitThreadGuardBridge)
         viewDistanceManager = ViewDistanceManager(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks)
-        worldManager = WorldManager()
-        server.pluginManager.registerEvents(worldManager, this)
         railTargetService = BukkitRailTargetService(this)
         playerOperationServiceImpl = DefaultPlayerOperationService(logger)
         playerOperationService = playerOperationServiceImpl
+        railwayObservationServiceImpl = DefaultRailwayObservationService(logger)
+        railwayObservationService = railwayObservationServiceImpl
+        worldManager = WorldManager(observationService = railwayObservationServiceImpl)
+        server.pluginManager.registerEvents(worldManager, this)
         server.servicesManager.register(RailTargetService::class.java, railTargetService, this, ServicePriority.Normal)
         server.servicesManager.register(
             PlayerOperationService::class.java,
@@ -153,7 +161,14 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             this,
             ServicePriority.Normal
         )
+        server.servicesManager.register(
+            RailwayObservationService::class.java,
+            railwayObservationService,
+            this,
+            ServicePriority.Normal
+        )
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
+        server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
         trainControlManager = TrainControlManager(this)
         trainControlManager.start()
         trainHandleInputListener = TrainHandleInputListener(trainControlManager)
@@ -246,6 +261,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
                 }
             }
             runShutdownStep("world snapshot writer") { worldManager.finishStopping() }
+        }
+        if (::railwayObservationServiceImpl.isInitialized) {
+            runShutdownStep("railway observation service") { railwayObservationServiceImpl.close() }
         }
         if (::trainHandleInputListener.isInitialized) {
             runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }

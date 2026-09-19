@@ -1,0 +1,29 @@
+{
+  "id": "independent-signal-system",
+  "name": "independent-signal-system",
+  "title": "Independent signal system",
+  "description": "Deliver an independently installable Signal add-on through staged host API improvements and add-on implementation.",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "javarailways",
+  "priority": "P1",
+  "creator": "ARTI5T",
+  "assignee": "ARTI5T",
+  "createdAt": "2026-09-18",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "feat/webui-timetable-editor",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-18-signal-addon-host-apis",
+    "09-18-signal-addon-implementation"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/reuse-and-ownership.md", "reason": "Verify public add-on service ownership and prevent internal imports"}
+{"file": ".trellis/spec/guides/cross-layer.md", "reason": "Verify every producer, consumer, thread, revision, and lifecycle boundary"}

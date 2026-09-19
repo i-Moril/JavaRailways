@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Verify service, world, rendering, disable, and Folia cleanup semantics"}
+{"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Verify Signal-owned schema and migration behavior"}

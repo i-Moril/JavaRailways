@@ -1,0 +1,77 @@
+# Stage 1: Signal add-on host APIs
+
+## Goal
+
+Improve JavaRailways so an independently compiled Signal plugin can observe consistent railway state, arbitrate routes with the timetable, and submit enforceable train restrictions through documented public APIs.
+
+## Confirmed facts
+
+- Train head, tail, speed, and occupied rail intervals are already public Core API.
+- `SimpleATO` already combines movement-authority, following, stop, and speed constraints.
+- `RouteSectionAllocator` is currently instantiated privately by `TimetableDispatcher`, locks only turnout source views, and cannot be shared with an add-on.
+- Route release currently derives protected intervals from turnout requirements and assumes a single turnout in several paths.
+- Current approach authority is derived from each turnout's default protection distance; explicit route-section protection points do not currently drive the runtime authority boundary.
+- Different rail IDs that cross geometrically do not currently share an occupancy/resource identity.
+- Existing Bukkit add-ons obtain `bukkit.api.*` services from `ServicesManager` and use `compileOnly(project(":BukkitPlugin"))`.
+
+## Requirements
+
+- Define immutable observation DTOs containing world identity, physics epoch/topology revision, rail topology references, train identity, speed, direction, and occupied intervals needed by signalling.
+- Expose an owner-aware callback or subscription after a coherent physics state has been published; callbacks must document thread context and may not expose mutable Core objects across threads.
+- Replace the timetable-private turnout allocator with one world-local resource-arbitration owner used by all route consumers.
+- Support atomic claims over explicit rail intervals, turnout selections, fixed-connectivity crossing nodes, and exit-clearance resources, with stable owner/request/revision identities.
+- Introduce a generic direction-aware region-boundary and route-window contract. A request identifies one validated entry, one exit, one frozen path, every required resource, and the clearance envelope beyond the exit; the host either commits the complete set or commits nothing.
+- Remove the timetable/runtime dependency on per-turnout protection distances and `single()` turnout assumptions. A route window's entry boundary is the sole unconfirmed-route authority limit; internal resources do not independently generate stop points.
+- Represent an at-grade diamond crossing as a stable fixed-connectivity topology node with one shared conflict identity. Placement/topology-update code must use spatial candidate lookup plus exact geometry/clearance checks to create, update, reject, or remove that node without adding cross-line routing edges.
+- Reject stale topology, occupied resources, incompatible turnout selections, conflicting owners, and invalid references without partial mutation.
+- Generalize occupancy handoff and tail release so zero-, one-, and multi-turnout sections are valid.
+- Expose an add-on-facing train-restriction service for movement authority, stop targets, and speed restrictions with namespaced owners and revisions.
+- Reuse one route perception pass per controlled train. Vehicle, signal, route-end, turnout/interlocking, and external-provider inputs contribute immutable constraint candidates to one arbitration step; they must not trigger parallel full-route scans.
+- Compute world occupancy once per published epoch using rail-indexed intervals; route/resource recomputation should be driven by occupancy, request, release, or topology transitions rather than repeated unchanged full-world work.
+- Compose restrictions using the most restrictive result and define behavior for stale updates, owner removal, plugin disable, world unload, train removal, and ATO stall.
+- Publish the required services through Bukkit `ServicesManager`; service interfaces and value/result types live under `bukkit.api.*` or another documented public API package.
+- Migrate `TimetableDispatcher` to the shared service and retain existing route priority, turnout safety, authority, and tail-release behavior.
+- Preserve the physical invariant that a turnout cannot change beneath a train, but replace fixed per-turnout approach/release policy with region-window admission and tail-clear/exit-clear release.
+- Remove, internalize, or clearly deprecate competing signal registries only where necessary to make the public ownership unambiguous.
+- Do not expose a raw automatic allocation operation that accepts only a planned route/section. Any automatic or `MANUAL_ROUTED` request that selects or claims a turnout, diamond, or other controlled resource must carry one validated, topology-revision-matched protection-region entry-to-exit window covering the complete resource set. Missing or partial coverage returns a typed `PROTECTION_REQUIRED` denial without changing a turnout or claim.
+- Remove automatic per-turnout protection-point synthesis from route compilation. Routes with controlled resources but no complete explicit protection coverage are invalid for automatic activation; routes without controlled resources remain valid.
+- Separate explicit manual turnout selection from automatic route allocation. Manual selection may proceed only when physical occupancy and active claims permit it, does not create movement authority, and cannot bypass an existing protected-route lock.
+- Expose a world-local shared infrastructure-lease service. One revisioned owner can atomically acquire/release a set of stable rail intervals, topology nodes, turnout/diamond resources, protection/signal references, and referenced operational objects. Leases are compatible with other read/configuration leases but block mutation or deletion of any covered resource.
+- Route every topology/infrastructure editing path through a common edit guard that reports both active runtime claims and applied-timetable leases. A failed edit performs no partial topology or persistence mutation and identifies the owning timetable/revision.
+
+## Acceptance criteria
+
+- [ ] A compile-only fixture plugin can consume every required contract using public packages only.
+- [ ] Timetable and a simulated external owner cannot acquire conflicting rail/turnout resources.
+- [ ] Allocation is atomic and topology-revision aware; a failed request leaves no changed turnout or leaked claim.
+- [ ] Straight, zero-turnout sections and multi-turnout sections allocate and release without `single()` assumptions.
+- [ ] A denied route-window request holds no subset of its resources; an admitted train has a clear exit envelope large enough to leave the region completely.
+- [ ] Adjacent regions with insufficient intermediate clearance are rejected as independent grants and can be acquired as one composite transaction.
+- [ ] Diamond-node tests prove immutable same-line connectivity, no cross-line turn, shared conflict identity, placement/update detection, topology-revision invalidation, and no per-tick geometry scan.
+- [ ] A claim remains held until the owning train has occupied and then fully cleared its protected intervals.
+- [ ] Restriction updates are namespaced, revisioned, most-restrictive, and cannot silently expand authority after a stale update or owner failure.
+- [ ] Profiling/tests show one route perception pass per controlled train per physics step; adding Signal does not add a second per-train route traversal.
+- [ ] Occupancy/resource processing is rail-indexed and avoids `allTrains × allRegions`; unchanged state does not produce repeated rendering or unbounded scheduler submissions.
+- [ ] Service registration, lookup, world unload, plugin disable, and cleanup/fail-safe behavior have focused tests.
+- [ ] Existing Core, Basic, BukkitPlugin, timetable, and ATO tests pass.
+- [ ] Public API documentation states units, direction basis, snapshot/live semantics, thread ownership, lifecycle, and failure results.
+- [ ] An automatic or `MANUAL_ROUTED` request across an uncovered or partially covered turnout/diamond returns `PROTECTION_REQUIRED`, leaves every selection/claim unchanged even when the turnout is already aligned, and does not retry every tick while the relevant protection/topology revision is unchanged.
+- [ ] A route with no controlled resource remains usable without SimpleATO; explicit manual turnout selection remains available only through the physical-lock/active-claim checked manual operation and grants no automatic authority.
+- [ ] Shared infrastructure leases can overlap across timetables, coexist with runtime route arbitration, block every covered edit path, survive/recover according to the applied-plan lifecycle, and are acquired/released atomically with no partial lease set.
+
+## Out of scope
+
+- Signal aspects, protection-region policy, signal models, Signal commands/tools, and Signal persistence.
+- Player-facing region-boundary authoring and diamond diagnostics; Stage 1 supplies only topology/resource contracts and validation primitives.
+- A JavaRailways-owned national signalling rule set.
+- WebUI Signal editing.
+
+## Dependency and handoff
+
+- This stage has no dependency on the Stage 2 plugin.
+- Completion must provide a short consumer example and API contract notes for `09-18-signal-addon-implementation`.
+
+## Agreed absence behavior
+
+- When SimpleATO is absent, no component requests automatic protected routes. Basic/Bukkit may expose explicit manual turnout operation only through the shared physical-lock/claim guard.
+- When SimpleATO is present but a route lacks complete protection-region coverage, automatic mission activation/route assistance reports `PROTECTION_REQUIRED`; the host neither changes the turnout nor invents a stop boundary around it.

@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
 import work.art1st.javarailways.basic.api.route.NAMESPACED_ROUTE_ID
+import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectionRegionCatalogResult
 import work.art1st.javarailways.basic.api.route.ProtectionRegionCatalogStatus
 import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition
@@ -24,7 +25,7 @@ internal class ProtectionRegionCatalog(
     private val providers = linkedMapOf<String, ProtectionRegionProvider>()
 
     @Volatile
-    private var published = CatalogSnapshot(currentTopologyRevision(), emptyMap())
+    private var published = CatalogSnapshot(currentTopologyRevision(), null, emptyMap())
 
     fun register(provider: ProtectionRegionProvider): ProtectionRegionCatalogResult = synchronized(lock) {
         if (!NAMESPACED_ROUTE_ID.matches(provider.providerId)) {
@@ -102,6 +103,59 @@ internal class ProtectionRegionCatalog(
     fun definitions(): List<ProtectionRegionDefinition> =
         published.regions.values.map { it.region.definition }.sortedBy { it.region.regionId }
 
+    fun resolveWindow(request: ProtectedRouteRequest): ProtectionRegionWindowResolution {
+        val snapshot = published
+        val currentRevision = currentTopologyRevision()
+        if (snapshot.topologyRevision != request.topologyRevision ||
+            currentRevision != request.topologyRevision
+        ) {
+            return ProtectionRegionWindowResolution.Rejected(
+                ProtectionRegionWindowRejection.STALE_TOPOLOGY,
+                "request topology revision ${request.topologyRevision} does not match catalog " +
+                    "revision ${snapshot.topologyRevision} and current revision $currentRevision"
+            )
+        }
+        val window = request.window
+            ?: return ProtectionRegionWindowResolution.Resolved(null)
+        val topology = snapshot.topology ?: return ProtectionRegionWindowResolution.Rejected(
+            ProtectionRegionWindowRejection.MISSING_REGION,
+            "region catalog contains no protection regions"
+        )
+        val owned = snapshot.regions[window.region.regionId]
+            ?: return ProtectionRegionWindowResolution.Rejected(
+                ProtectionRegionWindowRejection.MISSING_REGION,
+                "protection region is not registered: ${window.region.regionId}"
+            )
+        val currentRegionRevision = owned.region.definition.region.revision
+        if (currentRegionRevision != window.region.revision) {
+            return ProtectionRegionWindowResolution.Rejected(
+                ProtectionRegionWindowRejection.STALE_REGION,
+                "protection region ${window.region.regionId} revision ${window.region.revision} " +
+                    "does not match $currentRegionRevision"
+            )
+        }
+        val resolution = ProtectionRegionWindowResolver.resolve(
+            request.route,
+            topology,
+            ResolvedProtectionWindow(window, owned.region)
+        )
+        val confirmedRevision = currentTopologyRevision()
+        if (confirmedRevision != request.topologyRevision) {
+            return ProtectionRegionWindowResolution.Rejected(
+                ProtectionRegionWindowRejection.STALE_TOPOLOGY,
+                "topology changed while resolving protection window from " +
+                    "${request.topologyRevision} to $confirmedRevision"
+            )
+        }
+        if (published !== snapshot) {
+            return ProtectionRegionWindowResolution.Rejected(
+                ProtectionRegionWindowRejection.STALE_REGION,
+                "protection region catalog changed while resolving route window"
+            )
+        }
+        return resolution
+    }
+
     private fun rebuild(candidateProviders: Map<String, ProtectionRegionProvider>): RebuildResult {
         val topologyRevision = currentTopologyRevision()
         val definitionsById = linkedMapOf<String, OwnedRegionDefinition>()
@@ -145,7 +199,7 @@ internal class ProtectionRegionCatalog(
             }
         }
         if (definitionsById.isEmpty()) {
-            return RebuildResult.Valid(CatalogSnapshot(topologyRevision, emptyMap()))
+            return RebuildResult.Valid(CatalogSnapshot(topologyRevision, null, emptyMap()))
         }
         val definitions = definitionsById.values
             .sortedBy { it.definition.region.regionId }
@@ -189,7 +243,7 @@ internal class ProtectionRegionCatalog(
                 )
             )
         }
-        return RebuildResult.Valid(CatalogSnapshot(topologyRevision, resolved.toMap()))
+        return RebuildResult.Valid(CatalogSnapshot(topologyRevision, topology, resolved.toMap()))
     }
 
     private fun rejected(code: ProtectionRegionValidationCode, detail: String) =
@@ -210,6 +264,7 @@ internal class ProtectionRegionCatalog(
 
     private data class CatalogSnapshot(
         val topologyRevision: Long,
+        val topology: ProtectionRegionTopologySnapshot?,
         val regions: Map<String, OwnedResolvedRegion>
     ) {
         fun withoutProvider(providerId: String): CatalogSnapshot = copy(

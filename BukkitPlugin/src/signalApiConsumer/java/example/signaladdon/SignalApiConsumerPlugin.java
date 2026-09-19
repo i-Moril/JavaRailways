@@ -14,12 +14,12 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
-import work.art1st.javarailways.basic.api.route.CompositeProtectedRouteRequest;
 import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary;
 import work.art1st.javarailways.basic.api.route.ExitClearanceEnvelope;
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult;
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus;
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow;
+import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest;
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef;
 import work.art1st.javarailways.basic.api.route.ProtectionBoundaryDefinition;
 import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition;
@@ -94,7 +94,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         return Objects.requireNonNull(services, "plugin is not enabled");
     }
 
-    private static CompositeProtectedRouteRequest protectedRouteExample(long topologyRevision) {
+    private static ProtectedRouteRequest protectedRouteExample(long topologyRevision) {
         var railId = UUID.randomUUID();
         var route = new RouteSnapshot(
             "example.signaladdon:route/main",
@@ -110,13 +110,13 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             exit,
             new ExitClearanceEnvelope(clearance)
         );
-        return new CompositeProtectedRouteRequest(
+        return new ProtectedRouteRequest(
             "example.signaladdon:request/main",
             new InfrastructureOwner("example.signaladdon:route/main", 1L),
             "example-train",
             topologyRevision,
             route,
-            List.of(window)
+            window
         );
     }
 

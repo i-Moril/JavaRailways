@@ -2,7 +2,7 @@
 
 ## Pre-implementation contract freeze
 
-保护区域及进路准入的authoritative实现合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先满足其中的region graph cut、coherent observation stamp、host-derived footprint、composite no-hold-and-wait、claim→turnout commit→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
+保护区域及进路准入的authoritative实现合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先满足其中的region graph cut、coherent observation stamp、单咽喉host-derived footprint、claim→turnout commit→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
 
 实现顺序固定为：region catalog/graph resolver → immutable resolved plan → atomic admission transaction → tail-release/recovery → Dispatcher与`MANUAL_ROUTED`迁移。前一层合同测试未通过时不得开始后一层迁移。
 
@@ -25,7 +25,7 @@ Protection stop location belongs to the route-window entry. The host no longer d
 
 Automatic admission is capability-shaped rather than plugin-presence-shaped. `RouteResourceService` accepts an automatic request only as a validated `ProtectedRouteWindow` carrying the stable region/entry/exit IDs, topology and region revisions, frozen path, and exit-clearance envelope. The complete resource claim is a host-derived output, never caller input. There is no automatic overload equivalent to today's `allocate(owner, plannedRoute, sectionIndex)`. Before mutation, the service recomputes/validates that every controlled resource on the frozen traversal is covered exactly once; absent or partial coverage returns `PROTECTION_REQUIRED`, including when a required turnout is already aligned.
 
-Route compilation no longer inserts boundaries from each `TurnoutRequirement.protectionDistanceMeters`. It partitions automatic authority only at explicit registered region boundaries and rejects automatic activation when a turnout, diamond, or other controlled resource lies outside all validated windows. A route with no controlled resource needs no protection request and remains valid.
+Route compilation no longer inserts boundaries from each `TurnoutRequirement.protectionDistanceMeters`. It partitions automatic authority only at explicit registered region boundaries and rejects automatic activation when a turnout, diamond, or other controlled resource lies outside the one validated throat window. A route with no controlled resource needs no protection window and remains valid.
 
 Turnout mutation is centralized behind the host service. The public read model may expose selected connectivity, but automatic callers cannot directly call a mutable `selectNextRail` path. A distinct manual operation checks physical train occupancy and active route claims before applying an operator-selected branch; it creates no route grant or movement authority. `MANUAL_ROUTED` remains automatic route assistance and therefore requires the same protected window as fully automatic operation, whereas `FULL_MANUAL` creates no new route request.
 
@@ -33,7 +33,7 @@ A diamond node connects each incoming rail only to its same-line continuation an
 
 Release uses the train's complete occupied intervals and region boundary progress. A resource becomes releasable only after the intended train was observed entering and later fully clears the relevant conflict/release envelope; the window completes only when the tail crosses its exit. Administrative cancellation and plugin-disable behavior are separate explicit operations.
 
-No request may hold one region while waiting for a resource omitted from its original claim set. The admission check proves exit clearance. If adjacent regions lack enough intermediate capacity for the train, callers submit one composite request and the service commits both regions atomically. Deterministic request ordering/aging prevents starvation but does not preempt a live grant.
+No request may hold one region while waiting for a resource omitted from its original claim set. One request covers one complete throat region and proves exit clearance. If adjacent regions lack an ordinary section that can hold the applicable train, SimpleATO rejects the operational plan and requires the player to author the continuous conflict area as one region; runtime admission does not combine regions. Deterministic request ordering/aging prevents starvation but does not preempt a live grant.
 
 ## Applied-plan infrastructure leases
 

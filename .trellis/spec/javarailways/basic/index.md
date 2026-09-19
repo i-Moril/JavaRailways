@@ -24,7 +24,7 @@
 | [speed 与 derail safety](./speed-and-derail-safety.md) | speed signal/geometry threshold/derail request | operating limit与worker→main safety |
 | [route planning](./route-planning.md) | shortest path/progress/compiler | authoritative route与stable refs |
 | [resource allocation](./resource-allocation.md) | turnout/section/berth locks/manual resource | atomic ownership与physical release |
-| [protected route admission](./protected-route-admission.md) | protection region、composite route、clearance、turnout commit | region cut、host resolution与fail-closed transaction |
+| [protected route admission](./protected-route-admission.md) | protection region、单咽喉route、clearance、turnout commit | region cut、host resolution与fail-closed transaction |
 | [timetable model 与 validation](./timetable-model-and-validation.md) | authoring/runtime model、validator | execution authority与validation gate |
 | [Dispatcher runtime](./dispatcher-runtime.md) | clocks/run state/station/depot/control | main-thread operational transitions |
 | [simulation](./simulation.md) | detailed/isolated simulation | clone boundary、determinism、provider opt-in |

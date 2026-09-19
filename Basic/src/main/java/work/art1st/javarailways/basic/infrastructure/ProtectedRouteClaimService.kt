@@ -4,7 +4,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.route.CompositeProtectedRouteRequest
+import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequestResolver
@@ -22,7 +22,7 @@ class ProtectedRouteClaimService(
     private val currentTopologyRevision: () -> Long,
     private val resolver: ProtectedRouteRequestResolver
 ) {
-    fun acquire(platformOwner: Any, request: CompositeProtectedRouteRequest): ProtectedRouteClaimResult {
+    fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteClaimResult {
         return when (val resolved = resolve(request)) {
             is ResolutionResult.Finished -> resolved.result
             is ResolutionResult.Footprint -> mapMutation(
@@ -37,7 +37,7 @@ class ProtectedRouteClaimService(
     fun replace(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
-        request: CompositeProtectedRouteRequest
+        request: ProtectedRouteRequest
     ): ProtectedRouteClaimResult {
         return when (val resolved = resolve(request)) {
             is ResolutionResult.Finished -> {
@@ -63,7 +63,7 @@ class ProtectedRouteClaimService(
     fun release(platformOwner: Any, owner: InfrastructureOwner): ProtectedRouteClaimResult =
         mapMutation(registry.releaseClaim(platformOwner, owner))
 
-    private fun resolve(request: CompositeProtectedRouteRequest): ResolutionResult {
+    private fun resolve(request: ProtectedRouteRequest): ResolutionResult {
         if (request.topologyRevision != currentTopologyRevision()) {
             return ResolutionResult.Finished(
                 result(ProtectedRouteClaimStatus.STALE_TOPOLOGY, "request topology revision is stale")
@@ -90,13 +90,13 @@ class ProtectedRouteClaimService(
         }
         return when (resolution) {
             ProtectedRouteResolution.NotRequired -> {
-                if (request.windows.isEmpty()) {
+                if (request.window == null) {
                     ResolutionResult.Finished(result(ProtectedRouteClaimStatus.NOT_REQUIRED))
                 } else {
                     ResolutionResult.Finished(
                         result(
                             ProtectedRouteClaimStatus.INVALID_REQUEST,
-                            "request contains protection windows for a route with no controlled resource"
+                            "request contains a protection window for a route with no controlled resource"
                         )
                     )
                 }
@@ -110,7 +110,7 @@ class ProtectedRouteClaimService(
                     result(ProtectedRouteClaimStatus.INVALID_REQUEST, resolution.detail)
                 )
             is ProtectedRouteResolution.Resolved -> {
-                if (request.windows.isEmpty()) {
+                if (request.window == null) {
                     ResolutionResult.Finished(
                         result(
                             ProtectedRouteClaimStatus.PROTECTION_REQUIRED,

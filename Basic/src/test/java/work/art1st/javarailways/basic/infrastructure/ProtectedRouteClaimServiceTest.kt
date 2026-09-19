@@ -8,10 +8,10 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.route.CompositeProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary
 import work.art1st.javarailways.basic.api.route.ExitClearanceEnvelope
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
+import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectedRouteResolution
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
@@ -35,7 +35,7 @@ class ProtectedRouteClaimServiceTest {
     fun `route without controlled resources succeeds without creating a claim`() {
         val service = service { ProtectedRouteResolution.NotRequired }
 
-        val result = service.acquire(Any(), request(emptyList()))
+        val result = service.acquire(Any(), request(null))
 
         assertEquals(ProtectedRouteClaimStatus.NOT_REQUIRED, result.status)
         assertTrue(result.successful)
@@ -45,10 +45,10 @@ class ProtectedRouteClaimServiceTest {
     @Test
     fun `missing protection is typed and leaves no partial claim`() {
         val service = service {
-            ProtectedRouteResolution.ProtectionRequired("turnout/a is outside every protection window")
+            ProtectedRouteResolution.ProtectionRequired("turnout/a is outside the protection window")
         }
 
-        val result = service.acquire(Any(), request(emptyList()))
+        val result = service.acquire(Any(), request(null))
 
         assertEquals(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, result.status)
         assertTrue(registry.claimSnapshots().isEmpty())
@@ -60,14 +60,14 @@ class ProtectedRouteClaimServiceTest {
             ProtectedRouteResolution.Resolved(InfrastructureFootprint(listOf(resource("turnout/a"))))
         }
 
-        val result = service.acquire(Any(), request(emptyList()))
+        val result = service.acquire(Any(), request(null))
 
         assertEquals(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, result.status)
         assertTrue(registry.claimSnapshots().isEmpty())
     }
 
     @Test
-    fun `composite windows acquire one atomic footprint and release by exact owner`() {
+    fun `one throat window acquires one atomic footprint and releases by exact owner`() {
         val platformOwner = Any()
         val routeOwner = InfrastructureOwner("test:route/main", 1L)
         val service = service {
@@ -76,10 +76,7 @@ class ProtectedRouteClaimServiceTest {
             )
         }
         val request = request(
-            listOf(
-                window("test:region/a", 0.0, 40.0, 60.0),
-                window("test:region/b", 40.0, 80.0, 100.0)
-            ),
+            window("test:region/a", 0.0, 80.0, 100.0),
             routeOwner
         )
 
@@ -104,7 +101,7 @@ class ProtectedRouteClaimServiceTest {
 
         val result = service.acquire(
             Any(),
-            request(listOf(window("test:region/a", 0.0, 80.0, 100.0)))
+            request(window("test:region/a", 0.0, 80.0, 100.0))
         )
 
         assertEquals(ProtectedRouteClaimStatus.INVALID_RESOURCE, result.status)
@@ -122,7 +119,7 @@ class ProtectedRouteClaimServiceTest {
 
         val result = service.acquire(
             Any(),
-            request(listOf(window("test:region/a", 0.0, 80.0, 100.0)))
+            request(window("test:region/a", 0.0, 80.0, 100.0))
         )
 
         assertEquals(ProtectedRouteClaimStatus.STALE_TOPOLOGY, result.status)
@@ -134,7 +131,7 @@ class ProtectedRouteClaimServiceTest {
         val service = service {
             ProtectedRouteResolution.Resolved(InfrastructureFootprint(listOf(resource("turnout/a"))))
         }
-        val window = listOf(window("test:region/a", 0.0, 80.0, 100.0))
+        val window = window("test:region/a", 0.0, 80.0, 100.0)
         val first = service.acquire(Any(), request(window, InfrastructureOwner("test:route/first", 1L)))
 
         val second = service.acquire(Any(), request(window, InfrastructureOwner("test:route/second", 1L)))
@@ -145,7 +142,7 @@ class ProtectedRouteClaimServiceTest {
         assertEquals(listOf("test:route/first"), registry.claimSnapshots().map { it.owner.ownerId })
     }
 
-    private fun service(resolve: (CompositeProtectedRouteRequest) -> ProtectedRouteResolution) =
+    private fun service(resolve: (ProtectedRouteRequest) -> ProtectedRouteResolution) =
         ProtectedRouteClaimService(
             registry,
             currentTopologyRevision = { topologyRevision },
@@ -153,9 +150,9 @@ class ProtectedRouteClaimServiceTest {
         )
 
     private fun request(
-        windows: Collection<ProtectedRouteWindow>,
+        window: ProtectedRouteWindow?,
         owner: InfrastructureOwner = InfrastructureOwner("test:route/main", 1L)
-    ) = CompositeProtectedRouteRequest(
+    ) = ProtectedRouteRequest(
         requestId = "test:request/main",
         owner = owner,
         trainId = "train",
@@ -165,7 +162,7 @@ class ProtectedRouteClaimServiceTest {
             2L,
             listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
         ),
-        windows = windows
+        window = window
     )
 
     private fun window(

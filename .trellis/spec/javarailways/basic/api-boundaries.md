@@ -13,7 +13,7 @@
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；不得包含render car或live Core对象。
 - `InfrastructureResource`、lease/edit request、typed result与read-only snapshot属于公开host contract；raw live-claim mutation只属于受保护进路实现，不进入add-on API。
-- `CompositeProtectedRouteRequest`公开冻结route、有向entry/exit、区域revision与exit-clearance；调用方不得直接提供live-claim footprint，host resolver必须从权威区域/拓扑状态推导完整资源集合。
+- `ProtectedRouteRequest`公开冻结route和至多一个咽喉window；window包含有向entry/exit、区域revision与exit-clearance。调用方不得直接提供live-claim footprint，host resolver必须从权威区域/拓扑状态推导完整资源集合。
 - Basic production不得import Bukkit/Paper/Minecraft；platform side effect只经`TrainOperationGateway`等semantic adapter。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。
@@ -41,7 +41,7 @@ Basic只知道semantic request/result；region scheduling与model action完成�
 | extension identity | namespaced stable ID/version | JVM FQCN reflection |
 | 世界观察 | 同一`RailwayStateStamp`下的immutable train values | 分别读取live train与latest topology再拼装 |
 | 基础设施仲裁 | immutable footprint + typed atomic result | 向add-on暴露raw claim mutation或registry implementation |
-| 受保护进路 | frozen route + ordered region windows；host解析后一次claim | add-on自报turnout/diamond footprint或逐区域申请 |
+| 受保护进路 | frozen route + 至多一个完整咽喉window；host解析后一次claim | add-on自报turnout/diamond footprint或组合多个region |
 
 每个signature/KDoc必须包含world/host owner、stable identity、字段类型和单位、thread/blocking、live/value、failure/result、register/unregister、persistence含义。annotation不能替代文字。
 
@@ -77,7 +77,7 @@ data class TimetableExtensionCall(
 - API value tests断言identity、units、defensive copy、invalid input和sealed failure。
 - observation tests断言epoch/topology不混用、投影不保留render/live对象、collection不可变。
 - infrastructure tests断言typed denial无partial mutation，外部consumer只能使用公开request/result/snapshot。
-- protected-route tests断言有向边界、ordered non-overlap region、exit clearance、host-derived composite footprint、双重topology检查和`PROTECTION_REQUIRED`。
+- protected-route tests断言有向边界、单region连续穿越、exit clearance、host-derived footprint、双重topology检查和`PROTECTION_REQUIRED`。
 - import scan确认Basic production无platform types，新consumer优先`core.api.*`。
 - Dokka人工检查`api.line`、`api.timetable`及所有新增package。
 

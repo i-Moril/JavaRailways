@@ -46,7 +46,7 @@ Improve JavaRailways so an independently compiled Signal plugin can observe cons
 - [ ] Allocation is atomic and topology-revision aware; a failed request leaves no changed turnout or leaked claim.
 - [ ] Straight, zero-turnout sections and multi-turnout sections allocate and release without `single()` assumptions.
 - [ ] A denied route-window request holds no subset of its resources; an admitted train has a clear exit envelope large enough to leave the region completely.
-- [ ] Adjacent regions with insufficient intermediate clearance are rejected as independent grants and can be acquired as one composite transaction.
+- [ ] Adjacent regions without an ordinary section that can hold the applicable train are rejected when the operational plan is applied and must be authored as one protection region; runtime admission never combines multiple regions.
 - [ ] A protection-region ID is not used as one exclusive whole-region lock; two paths with disjoint rail intervals and conflict nodes can be admitted concurrently, while overlapping paths cannot.
 - [ ] Diamond-node tests prove immutable same-line connectivity, no cross-line turn, shared conflict identity, placement/update detection, topology-revision invalidation, and no per-tick geometry scan.
 - [ ] A claim remains held until the owning train has occupied and then fully cleared its protected intervals.

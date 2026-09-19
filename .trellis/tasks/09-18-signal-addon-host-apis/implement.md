@@ -12,8 +12,8 @@
 
 - [x] Freeze protection-region graph-cut, direction-boundary and non-overlap contracts.
 - [x] Freeze coherent observation/region/topology revision and host-derived footprint contracts.
-- [x] Freeze composite no-hold-and-wait admission, turnout rollback and fail-closed lifecycle pseudocode.
-- [x] Freeze tail-clear, composite prefix-release and provider-disable recovery behavior.
+- [x] Freeze single-throat no-hold-and-wait admission, turnout rollback and fail-closed lifecycle pseudocode.
+- [x] Freeze tail-clear, single-region prefix-release and provider-disable recovery behavior.
 
 ## Next reviewable batches
 
@@ -27,7 +27,7 @@
 
 - [x] Add immutable epoch/revision observation DTOs and coherent publication access.
 - [x] Add atomic shared infrastructure leases plus one edit-permit/diagnostic service covering applied-plan leases and live route claims.
-- [x] Add direction-aware boundary, bounded-region, frozen route-window, exit-clearance, and composite-request public contracts.
+- [x] Add direction-aware boundary, bounded-region, frozen single-throat route-window and exit-clearance public contracts.
 - [ ] Add a typed `PROTECTION_REQUIRED` result and make a validated complete protected window mandatory for every automatic/`MANUAL_ROUTED` controlled-resource request; provide no raw planned-section automatic overload.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.
 - [ ] Remove turnout-derived protection-point synthesis from route compilation and reject automatic mission activation when any controlled resource lacks complete explicit region coverage.
@@ -44,7 +44,7 @@
 ## Validation
 
 - [ ] Focused Core tests for immutable publication, epochs, occupancy, diamond topology connectivity, detection/update, and controller enforcement.
-- [ ] Focused Basic tests for no-partial atomic claims, conflicts, zero/one/multi-turnout windows, exit clearance, composite adjacent regions, stale revisions, tail release, and timetable migration.
+- [ ] Focused Basic tests for no-partial atomic claims, conflicts, zero/one/multi-turnout throat paths, exit clearance, invalid adjacent-region clearance, stale revisions, tail release, and timetable migration.
 - [ ] Tests for uncovered/partially covered/already-aligned turnout denial, no mutation on `PROTECTION_REQUIRED`, revision-driven rather than per-tick retry, no-controlled-resource routes, and guarded manual selection.
 - [ ] Tests for overlapping shared timetable leases, atomic lease acquisition/release, edit denial diagnostics, reload reconstruction, and no partial mutation across every supported infrastructure editor.
 - [ ] Bukkit tests for service registration/lookup, plugin disable, world unload, and target-aware dispatch.

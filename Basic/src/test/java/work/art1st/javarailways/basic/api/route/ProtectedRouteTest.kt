@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.api.route
 
-import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -14,42 +15,25 @@ class ProtectedRouteTest {
     private val railId = UUID.randomUUID()
 
     @Test
-    fun `composite request copies ordered windows and allows clearance into next region`() {
-        val mutable = mutableListOf(
-            window("test:region/a", 0.0, 40.0, 60.0),
-            window("test:region/b", 40.0, 80.0, 100.0)
-        )
+    fun `request carries one throat window`() {
+        val window = window("test:region/a", 0.0, 80.0, 100.0)
 
-        val request = request(mutable)
-        mutable.clear()
-
-        assertEquals(2, request.windows.size)
-        assertThrows(UnsupportedOperationException::class.java) {
-            @Suppress("UNCHECKED_CAST")
-            (request.windows as MutableList<ProtectedRouteWindow>).clear()
-        }
+        assertSame(window, request(window).window)
     }
 
     @Test
-    fun `region extents cannot overlap even when submitted as one composite request`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            request(
-                listOf(
-                    window("test:region/a", 0.0, 50.0, 70.0),
-                    window("test:region/b", 40.0, 80.0, 100.0)
-                )
-            )
-        }
+    fun `route without a controlled throat may omit window`() {
+        assertNull(request(null).window)
     }
 
     @Test
     fun `clearance must remain inside frozen route`() {
         assertThrows(IllegalArgumentException::class.java) {
-            request(listOf(window("test:region/a", 0.0, 80.0, 101.0)))
+            request(window("test:region/a", 0.0, 80.0, 101.0))
         }
     }
 
-    private fun request(windows: Collection<ProtectedRouteWindow>) = CompositeProtectedRouteRequest(
+    private fun request(window: ProtectedRouteWindow?) = ProtectedRouteRequest(
         requestId = "test:request/main",
         owner = InfrastructureOwner("test:route/main", 1L),
         trainId = "train",
@@ -59,7 +43,7 @@ class ProtectedRouteTest {
             2L,
             listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
         ),
-        windows = windows
+        window = window
     )
 
     private fun window(

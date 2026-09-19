@@ -23,7 +23,9 @@ data class ProtectionRegionRef(
  *
  * [position] uses canonical rail AB metres while [routeDistanceMeters] is measured forward from
  * the beginning of the request's [RouteSnapshot]. Keeping both values explicit prevents callers
- * from treating a BA-local distance as a canonical AB coordinate.
+ * from treating a BA-local distance as a canonical AB coordinate. [RailPositionSnapshot.facing]
+ * is the train's travel direction while crossing this route point: it matches a region boundary's
+ * inward facing at entry and is opposite that inward facing at exit.
  */
 data class DirectedRouteBoundary(
     val boundaryId: String,
@@ -66,50 +68,28 @@ data class ProtectedRouteWindow(
 }
 
 /**
- * Immutable all-or-nothing request for zero or more ordered protection windows on one frozen path.
+ * Immutable all-or-nothing request for at most one throat protection region on one frozen path.
  *
- * Empty [windows] is valid only when the authoritative resolver confirms that [route] traverses no
- * controlled resource. Region extents may meet at one boundary but must not overlap. Exit-clearance
- * envelopes may extend into a later window; the resolver then combines every required resource
- * into one atomic footprint.
+ * A null [window] is valid only when the authoritative resolver confirms that [route] traverses no
+ * controlled resource. A route that cannot safely wait before another throat must use one larger
+ * authored protection region; runtime requests never combine multiple regions.
  */
-@ConsistentCopyVisibility
-data class CompositeProtectedRouteRequest private constructor(
+data class ProtectedRouteRequest(
     val requestId: String,
     val owner: InfrastructureOwner,
     val trainId: String,
     val topologyRevision: Long,
     val route: RouteSnapshot,
-    val windows: List<ProtectedRouteWindow>
+    val window: ProtectedRouteWindow?
 ) {
-    constructor(
-        requestId: String,
-        owner: InfrastructureOwner,
-        trainId: String,
-        topologyRevision: Long,
-        route: RouteSnapshot,
-        windows: Collection<ProtectedRouteWindow>
-    ) : this(requestId, owner, trainId, topologyRevision, route, immutableCopy(windows))
-
     init {
         require(NAMESPACED_ROUTE_ID.matches(requestId)) { "requestId must be namespaced" }
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
         require(route.segments.isNotEmpty()) { "protected route must contain at least one segment" }
-        require(windows.map(ProtectedRouteWindow::region).distinct().size == windows.size) {
-            "a protection region may appear at most once in one request"
+        require(window == null || window.exitClearance.clearUntil.routeDistanceMeters <= route.totalLengthMeters) {
+            "protection window or exit clearance exceeds the frozen route"
         }
-        require(windows.zipWithNext().all { (current, next) ->
-            current.exit.routeDistanceMeters <= next.entry.routeDistanceMeters
-        }) { "protection-region extents must be ordered and non-overlapping" }
-        require(windows.all { window ->
-            window.exitClearance.clearUntil.routeDistanceMeters <= route.totalLengthMeters
-        }) { "protection window or exit clearance exceeds the frozen route" }
-    }
-
-    private companion object {
-        fun immutableCopy(source: Collection<ProtectedRouteWindow>): List<ProtectedRouteWindow> =
-            Collections.unmodifiableList(ArrayList(source))
     }
 }
 
@@ -122,7 +102,7 @@ data class CompositeProtectedRouteRequest private constructor(
  * implementations must return promptly and must not wait for a later world tick.
  */
 fun interface ProtectedRouteRequestResolver {
-    fun resolve(request: CompositeProtectedRouteRequest): ProtectedRouteResolution
+    fun resolve(request: ProtectedRouteRequest): ProtectedRouteResolution
 }
 
 sealed interface ProtectedRouteResolution {

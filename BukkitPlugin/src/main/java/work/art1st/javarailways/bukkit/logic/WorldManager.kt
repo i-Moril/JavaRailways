@@ -14,6 +14,9 @@ import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
+import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureLeaseService
+import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
 import work.art1st.javarailways.bukkit.debug.JavaRailwaysServerTickMetrics
 import work.art1st.javarailways.bukkit.debug.TrainDebugLog
@@ -50,7 +53,8 @@ data class CarFrameDispatchMetrics(
 
 class WorldManager internal constructor(
     val railWorlds: MutableMap<BukkitWorld, World> = ConcurrentHashMap(),
-    private val observationService: DefaultRailwayObservationService? = null
+    private val observationService: DefaultRailwayObservationService? = null,
+    private val infrastructureLeaseService: DefaultInfrastructureLeaseService? = null
 ) : Listener {
     private var serverTickIndex: Long = 0L
     private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()
@@ -146,6 +150,17 @@ class WorldManager internal constructor(
         )
         railWorlds[bukkitWorld] = railWorld
         if (railWorld is CoreWorld) {
+            infrastructureLeaseService?.registerWorld(
+                bukkitWorld.uid,
+                railWorld::topologyRevision
+            ) { resource ->
+                when (resource) {
+                    is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength
+                        ?.let { resource.endAbMeters <= it } == true
+                    is StableInfrastructureResource ->
+                        infrastructureLeaseService.stableResourceExists(bukkitWorld.uid, resource)
+                }
+            }
             val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
             val monitor = SpeedSafetyMonitor(
                 railWorld,
@@ -248,6 +263,7 @@ class WorldManager internal constructor(
         AbnormalTrainMarker.clearWorld(bukkitWorld)
         railWorlds.remove(bukkitWorld)
         observationService?.removeWorld(bukkitWorld.uid)
+        infrastructureLeaseService?.removeWorld(bukkitWorld.uid)
     }
 
     @EventHandler

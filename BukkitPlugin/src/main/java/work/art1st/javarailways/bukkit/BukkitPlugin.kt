@@ -7,6 +7,9 @@ import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationServic
 import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.ObservationOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService
+import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureLeaseService
+import work.art1st.javarailways.bukkit.api.internal.InfrastructureOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
@@ -72,6 +75,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var railwayObservationService: RailwayObservationService
         private set
     private lateinit var railwayObservationServiceImpl: DefaultRailwayObservationService
+    lateinit var infrastructureLeaseService: InfrastructureLeaseService
+        private set
+    private lateinit var infrastructureLeaseServiceImpl: DefaultInfrastructureLeaseService
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
@@ -152,7 +158,12 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         playerOperationService = playerOperationServiceImpl
         railwayObservationServiceImpl = DefaultRailwayObservationService(logger)
         railwayObservationService = railwayObservationServiceImpl
-        worldManager = WorldManager(observationService = railwayObservationServiceImpl)
+        infrastructureLeaseServiceImpl = DefaultInfrastructureLeaseService()
+        infrastructureLeaseService = infrastructureLeaseServiceImpl
+        worldManager = WorldManager(
+            observationService = railwayObservationServiceImpl,
+            infrastructureLeaseService = infrastructureLeaseServiceImpl
+        )
         server.pluginManager.registerEvents(worldManager, this)
         server.servicesManager.register(RailTargetService::class.java, railTargetService, this, ServicePriority.Normal)
         server.servicesManager.register(
@@ -167,8 +178,15 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             this,
             ServicePriority.Normal
         )
+        server.servicesManager.register(
+            InfrastructureLeaseService::class.java,
+            infrastructureLeaseService,
+            this,
+            ServicePriority.Normal
+        )
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
+        server.pluginManager.registerEvents(InfrastructureOwnerLifecycleListener(infrastructureLeaseServiceImpl), this)
         trainControlManager = TrainControlManager(this)
         trainControlManager.start()
         trainHandleInputListener = TrainHandleInputListener(trainControlManager)
@@ -264,6 +282,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         }
         if (::railwayObservationServiceImpl.isInitialized) {
             runShutdownStep("railway observation service") { railwayObservationServiceImpl.close() }
+        }
+        if (::infrastructureLeaseServiceImpl.isInitialized) {
+            runShutdownStep("infrastructure lease service") { infrastructureLeaseServiceImpl.close() }
         }
         if (::trainHandleInputListener.isInitialized) {
             runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }

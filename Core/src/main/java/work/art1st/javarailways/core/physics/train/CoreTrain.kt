@@ -556,8 +556,8 @@ open class CoreTrain @MainThread internal constructor(
                 bogies = car.bogies.map(RenderableFrameSnapshot::capture)
             )
         },
-        head = RailPositionSnapshot.capture(head.location, ViewDirection.AB),
-        tail = RailPositionSnapshot.capture(tail.location, ViewDirection.AB),
+        head = RailPositionSnapshot.capture(head.location, head.location.facing),
+        tail = RailPositionSnapshot.capture(tail.location, tail.location.facing),
         sweptSpans = publishedSweptSpans.map { span ->
             SweptRailSpanSnapshot(span.railId, span.minArcAB, span.maxArcAB)
         }

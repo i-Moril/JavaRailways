@@ -12,9 +12,21 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource;
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
+import work.art1st.javarailways.basic.api.route.CompositeProtectedRouteRequest;
+import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary;
+import work.art1st.javarailways.basic.api.route.ExitClearanceEnvelope;
+import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult;
+import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus;
+import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow;
+import work.art1st.javarailways.basic.api.route.ProtectionRegionRef;
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Compile-only fixture for an independently built JavaRailways add-on.
@@ -52,6 +64,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             );
             var result = services.infrastructure().acquireLease(this, worldId, request);
             getLogger().fine("Infrastructure lease result: " + result.getStatus());
+
+            // Compile the protected-route contract without gaining access to raw live claims.
+            var protectedRoute = protectedRouteExample(observation.getStamp().getTopologyRevision());
+            getLogger().fine("Protected-route request: " + protectedRoute.getRequestId());
         });
     }
 
@@ -69,6 +85,44 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
 
     Services services() {
         return Objects.requireNonNull(services, "plugin is not enabled");
+    }
+
+    private static CompositeProtectedRouteRequest protectedRouteExample(long topologyRevision) {
+        var railId = UUID.randomUUID();
+        var route = new RouteSnapshot(
+            "example.signaladdon:route/main",
+            1L,
+            List.of(new RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 120.0))
+        );
+        var entry = boundary("example.signaladdon:boundary/entry", railId, 20.0);
+        var exit = boundary("example.signaladdon:boundary/exit", railId, 80.0);
+        var clearance = boundary("example.signaladdon:boundary/clear", railId, 100.0);
+        var window = new ProtectedRouteWindow(
+            new ProtectionRegionRef("example.signaladdon:region/throat", 1L),
+            entry,
+            exit,
+            new ExitClearanceEnvelope(clearance)
+        );
+        return new CompositeProtectedRouteRequest(
+            "example.signaladdon:request/main",
+            new InfrastructureOwner("example.signaladdon:route/main", 1L),
+            "example-train",
+            topologyRevision,
+            route,
+            List.of(window)
+        );
+    }
+
+    private static DirectedRouteBoundary boundary(String id, UUID railId, double metres) {
+        return new DirectedRouteBoundary(
+            id,
+            new RailPositionSnapshot(railId, ViewDirection.AB, metres),
+            metres
+        );
+    }
+
+    private static boolean requiresProtectionDefinition(ProtectedRouteClaimResult result) {
+        return result.getStatus() == ProtectedRouteClaimStatus.PROTECTION_REQUIRED;
     }
 
     private static Services loadServices(Server server) {

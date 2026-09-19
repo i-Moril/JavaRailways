@@ -12,7 +12,7 @@
 
 - [x] Add immutable epoch/revision observation DTOs and coherent publication access.
 - [x] Add atomic shared infrastructure leases plus one edit-permit/diagnostic service covering applied-plan leases and live route claims.
-- [ ] Add direction-aware boundary, bounded-region, frozen route-window, exit-clearance, and composite-request public contracts.
+- [x] Add direction-aware boundary, bounded-region, frozen route-window, exit-clearance, and composite-request public contracts.
 - [ ] Add a typed `PROTECTION_REQUIRED` result and make a validated complete protected window mandatory for every automatic/`MANUAL_ROUTED` controlled-resource request; provide no raw planned-section automatic overload.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.
 - [ ] Remove turnout-derived protection-point synthesis from route compilation and reject automatic mission activation when any controlled resource lacks complete explicit region coverage.

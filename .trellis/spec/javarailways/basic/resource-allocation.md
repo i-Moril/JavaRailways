@@ -75,6 +75,14 @@ InfrastructureFootprint(listOf(
 
 同rail闭区间端点相交即overlap，例如`[0,20]`与`[20,40]`冲突；不同rail interval永不因数值相同而overlap。BA行进范围必须先转换成每根rail的canonical AB坐标。
 
+## 受保护进路解析与准入
+
+`CompositeProtectedRouteRequest`描述一个冻结路径上的零个或多个有序保护窗口。每个窗口包含stable region ID/revision、沿行进方向的entry/exit，以及完整列车必须越过的exit-clearance边界。region实体区间允许首尾相接但不得重叠；clearance可以延伸进后续区域，完整request仍只产生一个原子claim。
+
+request不携带resource footprint。`ProtectedRouteRequestResolver`必须根据authoritative protection-region与topology state验证完整覆盖，并推导全部rail intervals、turnouts、fixed crossings与其他shared conflict nodes。解析前后均核对topology revision；受控资源没有完整窗口时返回`PROTECTION_REQUIRED`，resolver异常、stale、invalid member或conflict均不改变registry。
+
+`ProtectedRouteClaimService`现为host-side admission seam，并未替换旧`RouteSectionAllocator`调用者。迁移完成前不得声称所有自动/`MANUAL_ROUTED`进路已强制经过保护区域。后续迁移必须删除可绕过resolver的automatic overload；道岔切换只可发生在完整claim成功之后，并在后续提交失败时先恢复选择再释放claim。
+
 ## 项目内正确示例
 
 Allocator先检查所有owner conflict，再apply：
@@ -95,6 +103,7 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - preempt已有resource；
 - 用一个虚构的rail interval表达跨rail范围，或遗漏共享conflict node；
 - add-on直接申请raw live claim绕过protected route validation；
+- caller提交自选footprint，或把一个composite request拆成逐区域claim；
 - topology revision只在validation前检查一次，允许检查期间的structural edit穿过；
 - release时复位branch；
 - 只看head或direction；

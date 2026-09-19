@@ -41,3 +41,15 @@ Phase C2/T2 的 Station 聚合、被动 StationBerth RailObject、StationCall/Dw
 # Package work.art1st.javarailways.basic.api.operation
 
 Phase C3 的平台无关语义列车操作、稳定 request、可确认 ticket 和主线程 Gateway 边界。
+
+# Package work.art1st.javarailways.basic.api.infrastructure
+
+共享 applied-plan lease、独占 live claim/edit permit 使用的稳定资源、原子 footprint、owner revision、typed result 与只读诊断快照。跨多根轨道的范围由每根轨道各自的 canonical AB interval 和必要的共享节点资源共同表达。
+
+# Package work.art1st.javarailways.basic.api.observation
+
+由同一个 Core world frame 投影得到的不可变铁路观察；物理 epoch、拓扑 revision、frame revision、列车位置与占用始终来自同一次发布。
+
+# Package work.art1st.javarailways.basic.api.route
+
+受保护进路的有向边界、保护区域 revision、冻结 route window、出口净空与组合原子请求。调用方只描述路径和区域，完整 infrastructure footprint 必须由主插件按权威拓扑解析。

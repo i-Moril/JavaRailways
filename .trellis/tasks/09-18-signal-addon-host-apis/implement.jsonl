@@ -1,3 +1,5 @@
-{"file": ".trellis/spec/core/backend/api-and-runtime.md", "reason": "Core API, physics publication, and runtime contracts"}
+{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "Core public API ownership and immutable value boundaries"}
+{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "Physics epoch, coherent world publication, and ticket contracts"}
+{"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "Topology revision, structural transactions, and occupancy contracts"}
 {"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Bukkit service lifecycle and Folia ownership"}
 {"file": ".trellis/spec/basic/backend/domain-and-api.md", "reason": "Basic route, safety, and public API ownership"}

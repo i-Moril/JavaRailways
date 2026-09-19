@@ -162,8 +162,6 @@ channel:
 packages:
   javarailways:
     path: .
-  core:
-    path: Core
   config-lib:
     path: ConfigLib
   basic:

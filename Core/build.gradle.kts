@@ -34,7 +34,45 @@ dependencies {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("physics-stress")
+    }
+}
+
+val physicsStressProperties = listOf(
+    "physicsStress.trainCounts",
+    "physicsStress.workerThreads",
+    "physicsStress.carCount",
+    "physicsStress.warmupEpochs",
+    "physicsStress.measurementEpochs",
+    "physicsStress.repetitions",
+    "physicsStress.budgetMillis",
+    "physicsStress.scenarios",
+    "physicsStress.speedMetersPerSecond",
+    "physicsStress.sharedSpacingMeters",
+    "physicsStress.trackShape",
+    "physicsStress.requiredTrainCount"
+)
+
+tasks.register<Test>("physicsStressTest") {
+    description = "Runs the opt-in Core headless physics capacity stress suite."
+    group = "verification"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("physics-stress")
+    }
+    physicsStressProperties.forEach { propertyName ->
+        project.findProperty(propertyName)?.toString()?.let { propertyValue ->
+            systemProperty(propertyName, propertyValue)
+        }
+    }
+    systemProperty(
+        "physicsStress.reportDir",
+        layout.buildDirectory.dir("reports/physics-stress").get().asFile.absolutePath
+    )
+    outputs.upToDateWhen { false }
+    shouldRunAfter(tasks.test)
 }
 kotlin {
     jvmToolchain(17)

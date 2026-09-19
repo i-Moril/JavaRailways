@@ -19,14 +19,69 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class PhysicsCoordinatorTest {
+    @Test
+    fun `configured workers execute controller batches concurrently`() {
+        val workerThreads = 4
+        val controllerCount = 8
+        val coordinator = PhysicsCoordinator(
+            workerThreads = workerThreads,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val enteredWorkers = CountDownLatch(workerThreads)
+        val releaseWorkers = CountDownLatch(1)
+        val inFlight = AtomicInteger()
+        val peakInFlight = AtomicInteger()
+        val invocations = AtomicInteger()
+        val workerNames = ConcurrentHashMap.newKeySet<String>()
+
+        repeat(controllerCount) { index ->
+            val train = createTrainWithConfig("concurrent-$index", rail, world, listOf(10.0))
+            train.setController(object : TrainController(train, world) {
+                override fun tick(deltaT: Double) {
+                    val currentInFlight = inFlight.incrementAndGet()
+                    peakInFlight.accumulateAndGet(currentInFlight, ::maxOf)
+                    workerNames += Thread.currentThread().name
+                    enteredWorkers.countDown()
+                    try {
+                        check(releaseWorkers.await(5, TimeUnit.SECONDS)) { "timed out waiting to release workers" }
+                        invocations.incrementAndGet()
+                    } finally {
+                        inFlight.decrementAndGet()
+                    }
+                }
+            })
+        }
+
+        coordinator.start()
+        try {
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(enteredWorkers.await(5, TimeUnit.SECONDS), "all configured workers should enter the epoch")
+            assertEquals(workerThreads, peakInFlight.get())
+            assertEquals(workerThreads, workerNames.size)
+            assertTrue(workerNames.all { it.startsWith("JavaRailways-PhysicsWorker-") })
+
+            releaseWorkers.countDown()
+            ticket.await()
+            assertEquals(controllerCount, invocations.get())
+        } finally {
+            releaseWorkers.countDown()
+            coordinator.close()
+        }
+    }
+
     @Test
     fun `isolated simulation advances with caller supplied logical delta`() {
         val coordinator = PhysicsCoordinator(

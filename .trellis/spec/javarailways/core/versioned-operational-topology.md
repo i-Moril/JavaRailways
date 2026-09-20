@@ -8,7 +8,7 @@
 
 触发：新增或修改铁路图、寻路输入、道岔/尽头身份、菱形交叉资源绑定、拓扑 revision、保护区域解析，或把 `RailView.nextRails` 传给 Core 以外的长期运行逻辑。
 
-本页定义唯一 authoritative 的物理连通结构。Core/host 拥有并发布一个不可变、带 revision 的 `TopologyState`；SimpleATO 在该状态上选择运营路径并形成资源意图；Basic 只验证意图是否完整匹配该状态、推导物理锁闭 footprint，并原子执行。站台、闭塞区间、保护区域、信号边界、限速和运行方向是引用拓扑的运营 overlay，不是第二张连通图。
+本页定义唯一 authoritative 的物理连通结构。Core/host 拥有并发布一个不可变、带 revision 的 `TopologyState`；SimpleATO 在该状态上选择并冻结运营路径；Basic 只验证该路径、从同一状态派生全部route-bound资源与物理锁闭footprint，并原子执行。站台、闭塞区间、保护区域、信号边界、限速和运行方向是引用拓扑的运营 overlay，不是第二张连通图。
 
 ## 2. 模块工作方式
 
@@ -23,7 +23,7 @@ rail structural transaction
   -> invalidate revision-keyed derived caches and notify consumers
 ```
 
-SimpleATO读取一个已发布版本及其运营overlay，选择冻结路径并生成typed resource intent；Basic针对同一版本验证intent、编译物理footprint并执行claim。验证过程中若当前revision变化，整个请求失败并由SimpleATO在新版本上重算；Basic不修改旧state，也不替SimpleATO换路。
+SimpleATO读取一个已发布版本及其运营overlay，选择冻结路径并将该路径绑定到topology revision；Basic针对同一版本验证路径，在一次线性扫描中投影资源、编译物理footprint并执行claim。验证过程中若当前revision变化，整个请求失败并由SimpleATO在新版本上重算；Basic不修改旧state，也不替SimpleATO换路。
 
 构建失败时，candidate不得替换当前state。当前已发布state继续可读，但触发编辑的事务必须报告失败/回滚，不能让Core connection与published state永久分叉。
 
@@ -43,13 +43,15 @@ At-grade diamond在rail放置/更新时通过spatial candidate index加exact geo
 
 路径起点、终点或停车点位于edge内部时，查询层创建仅属于该次计算的virtual node/edge slices，不修改或发布新的`TopologyState`。
 
-### 3.3 intent完整性验证
+### 3.3 冻结路线验证与资源投影
 
-Basic以线性zipper同时遍历冻结route、`DirectedTrackEdgeRef`和controlled transitions：每跨过一个结构节点就根据入/出port得到期望transition；普通连接期望无资源，turnout期望恰好一个同ID selection intent。与此同时按edge/rail interval反向索引收集diamond等route-bound共享资源。缺失、重复、额外或顺序不同立即拒绝。只有验证完成后才能从rail projection、resource binding和node conflict envelope编译claim、physical locking与release slices。
+Basic以一个单调游标线性遍历冻结route。每个edge occurrence必须存在于指定`TopologyState`、方向合法，并与前后occurrence共享预期port；每跨过一个结构节点，Basic根据入/出port验证continuation，并把turnout选择派生成内部resource projection。与此同时按edge/rail interval反向索引收集diamond等route-bound共享资源，再从rail projection、resource binding和node conflict envelope累积claim、physical locking与release slices。调用方不提交第二份controlled-transition/resource列表，因此不存在“route正确但资源漏报”的可接受状态；任何断裂、非法continuation、无法解析的资源binding或revision变化均在mutation前拒绝。
+
+验证和投影必须复用同一次route扫描；资源投影是不可变的内部编译结果，不是另一份authoritative route DTO。保护区域、固定闭塞和移动闭塞等contributor只消费已验证occurrence并扩展closure，不得重新寻路或重新解释connectivity。
 
 ## 4. 概念数据模型与所有权
 
-下列拓扑读取模型已经位于`core.api.physics.rail.topology`；构建input/builder仍是Core internal。后续route intent类型仍是概念shape，不能由本页示例推断为已经开放：
+下列拓扑读取模型已经位于`core.api.physics.rail.topology`；构建input/builder仍是Core internal。后续冻结route引用仍是概念shape，不能由本页示例推断为已经开放：
 
 ```kotlin
 data class TopologyState(
@@ -74,11 +76,10 @@ data class TrackEdge(
     val railSlices: List<RailSliceRef>
 )
 
-data class RouteResourceIntent(
+data class TopologyBoundRoutePlan(
     val topologyRevision: Long,
     val routeRevision: Long,
-    val traversal: List<DirectedTrackEdgeRef>,
-    val transitions: List<ControlledTransitionIntent>
+    val traversal: List<DirectedTrackEdgeRef>
 )
 
 data class RouteBoundInfrastructureResource(
@@ -91,8 +92,8 @@ data class RouteBoundInfrastructureResource(
 - 普通二度连接折叠进 `TrackEdge`；edge 仍保存对每段 Core rail 及 canonical AB 范围的投影，保证占用、编辑和持久化诊断可回到物理 rail。
 - `Turnout`和`Terminus`是结构节点。菱形交叉是绑定到edge/rail slices的共享冲突资源，不是节点。纯环没有结构节点时插入一个可确定重建的`LoopAnchor`，避免把整环表示成无端点edge。
 - 路径起点、终点或停车点落在 edge 内部时，寻路查询创建临时 virtual node；不得为每个站台或信号永久切分 authoritative graph。
-- SimpleATO 拥有运营寻路、方向限制、停站/时刻表路线选择及 `RouteResourceIntent` 的生成。通用的纯图算法可以暂时作为共享实现复用，但不能拥有运营策略或 Basic 资源状态。
-- Basic 拥有 intent validator、物理占用/冲突 footprint 编译、claim、道岔执行、回滚和释放；Basic 不替调用方选择或发现运营路径。
+- SimpleATO 拥有运营寻路、方向限制、停站/时刻表路线选择及 topology-bound frozen route 的生成。通用的纯图算法可以暂时作为共享实现复用，但不能拥有运营策略或 Basic 资源状态。
+- Basic 拥有 route validator、route-bound resource projection、物理占用/冲突 footprint 编译、claim、道岔执行、回滚和释放；Basic 不替调用方选择或发现运营路径。
 
 ## 5. 不变量、生命周期、线程与版本
 
@@ -121,29 +122,29 @@ data class RouteBoundInfrastructureResource(
 
 不同 overlay 可以合法重叠，例如站台位于闭塞区间内；重叠是否冲突由各自 authoring contract 决定。普通闭塞区间与保护区域不得重叠，是 SimpleATO 配置校验规则，不是 Core 通过拆分结构节点强制的规则。
 
-### 5.3 路径意图与完整性校验
+### 5.3 冻结路径与资源投影
 
-SimpleATO 提交有序 traversal 和每个受控 transition 的 typed intent。Basic 使用同一个 `TopologyState(intent.topologyRevision)` 做确定性验证：
+SimpleATO提交一份有序traversal，并以`topologyRevision`绑定它读取的`TopologyState`。Basic使用同一个状态做确定性验证和资源投影：
 
-1. edge 连续、方向和起终点与冻结 route 一致；
-2. 每个声明的turnout身份、port和continuation存在且合法；route-bound diamond身份与anchor来自host索引而非caller伪造；
-3. route实际经过的每个受控节点和绑定资源恰好出现一次，不得缺失、重复或额外声明；
-4. 保护区域 entry/exit 与 traversal 相交结果完整，出口净空可由 rail projection 推导；
-5. 由验证后的 traversal 推导 rail intervals、共享 conflict nodes、physical locking intervals 和 release slices。
+1. edge存在、方向合法，起终点及相邻edge port连续；
+2. traversal跨越turnout时，入/出port对应一个合法continuation，Basic由此派生同一稳定turnout身份和目标selection；
+3. traversal经过diamond或其他route-bound共享资源anchor时，Basic从host-owned反向索引派生稳定资源身份；caller不能声明、遗漏或伪造该身份；
+4. 保护区域entry/exit与traversal相交结果完整，出口净空可由rail projection推导；
+5. 同一次扫描累积rail intervals、共享conflict resources、physical locking intervals和release slices，生成只属于本次编译的内部projection。
 
-Basic 不能只逐项检查“调用方报的资源存在”，否则漏报一个未选支路的物理锁闭范围仍会被接受。Basic 也不能自行搜索另一条可行路径来修正 intent；不匹配必须 typed denial，由 SimpleATO 在新状态上重算。
+Basic不能要求SimpleATO同时提交route与资源列表：两者重复表达同一事实，可能产生漏报和冲突。Basic也不能自行搜索另一条可行路径来修正非法traversal；不匹配必须typed denial，由SimpleATO在新状态上重算。
 
 ## 6. 校验与错误矩阵
 
 | 条件 | 结果 | mutation |
 | --- | --- | --- |
-| intent revision 不是当前已发布 revision | `STALE_TOPOLOGY` | 无 |
+| route绑定的topology revision不是当前已发布revision | `STALE_TOPOLOGY` | 无 |
 | edge 不连续、port/continuation 非法 | `INVALID_ROUTE` | 无 |
-| controlled transition 缺失、重复或额外 | `INCOMPLETE_RESOURCE_INTENT` | 无 |
+| route-bound resource index缺失或与topology coverage不一致 | topology/configuration fault，准入fail closed | 无 |
 | route plan试图在diamond空间交点跨线 | 因图中不存在该continuation而返回`INVALID_ROUTE` | 无 |
 | overlay 引用不存在的 edge/slice | 对应配置 `INVALID_REFERENCE` | 不应用配置 |
 | validation 后、commit 前 revision 改变 | `STALE_TOPOLOGY` | 无 claim、无 selection |
-| intent 完整但物理占用或 claim 冲突 | `PHYSICALLY_OCCUPIED` / `RESOURCE_CONFLICT` | 无 partial mutation |
+| route有效但物理占用或claim冲突 | `PHYSICALLY_OCCUPIED` / `RESOURCE_CONFLICT` | 无partial mutation |
 | 纯环无法得到确定 anchor | topology build 失败 | 旧 state 保持 published |
 
 校验/编译结果若缓存，cache identity必须覆盖所有会改变语义的topology、route、region revision及clearance输入；精确key shape属于实现。任一相关revision改变即失效，不能跨版本复用node/edge对象身份。
@@ -153,7 +154,7 @@ Basic 不能只逐项检查“调用方报的资源存在”，否则漏报一�
 - graph normalization对输入rail slices与connections做一次`O(V + E)`遍历；为生成不依赖输入集合顺序的revision-local ID，还需`O(V log V)`确定性排序。该工作只发生在structural edit，不进入每tick路径。diamond几何检测先用spatial index缩小候选，再做exact geometry/vertical-clearance检查，禁止每tick全图两两相交扫描。
 - 初版可以在structural edit时重建完整candidate state；不得在寻路、信号查询或每列车tick时重建。后续增量化只能改变构建成本，不能改变原子publication和完整覆盖校验。
 - edge位置查询应利用累计距离索引而不是线性扫描长edge；目标签名冻结时必须明确边界规则和复杂度。
-- intent完整性验证对route长度为线性复杂度；物理footprint编译复用同一次遍历，不得再做第二次全图寻路。
+- route验证与资源投影对扫描到的route长度为线性复杂度；物理footprint编译复用同一次遍历，不得再做第二次全图寻路或要求caller预扫描生成资源清单。
 - 旧state可在读者持有期间继续存在；实现必须有有界保留策略或正常对象生命周期，不能为每个tick复制整图或永久保存所有revision。
 - 任一索引缺失、coverage不完整或revision不一致均fail closed；不得退化为读取live mutable adjacency补齐。
 
@@ -163,7 +164,7 @@ Basic 不能只逐项检查“调用方报的资源存在”，否则漏报一�
 - Good：菱形交叉不切分原有edge；两条rail anchors通过反向索引命中同一个conflict ID，因此不能互相转线，但claim会在共享资源上冲突。
 - Base：无节点纯环生成一个 deterministic `LoopAnchor`；查询起终点再用 virtual nodes 临时切分 edge。
 - Bad：Core 更新 `nextRails`，Basic 继续使用自己早先复制的 adjacency 并称其为当前 snapshot；必须由同一次 topology publication 产生新 state 并让旧 revision 失效。
-- Bad：ATO 只提交所选 turnout branch，Basic 因资源存在便批准，却没有核对 route 穿越的全部 controlled nodes 和物理锁闭 legs。
+- Bad：ATO同时提交route与自己枚举的turnout/diamond资源，Basic只检查这些资源存在便批准；应由Basic从route和host索引派生完整资源及物理锁闭legs。
 
 ## 9. 必需测试与验证
 
@@ -173,8 +174,8 @@ Basic 不能只逐项检查“调用方报的资源存在”，否则漏报一�
 - edge lookup：累计距离边界、首尾slice、正反方向、二分命中和virtual split不修改published state。
 - diamond：不新增continuation/结构节点、禁止跨线、双anchor共享conflict ID、放置/更新几何检测、resource反向索引与revision失效。
 - overlay：edge 内 virtual node 查询不修改 state；站台与闭塞可重叠；保护区域与普通闭塞重叠被 SimpleATO 配置层拒绝。
-- intent validator：零/一/多受控节点，正反方向获得同一资源身份，缺失/重复/额外 transition，stale-before 和 stale-before-commit。
-- transaction：完整 intent 编译成 footprint 后原子 claim/apply；任何失败不留 claim、不改变 selection。
+- route validator/projector：零/一/多受控节点，正反方向获得同一资源身份，非法continuation、断裂route、route-bound resource index缺失、stale-before和stale-before-commit。
+- transaction：验证后的route projection编译成footprint后原子claim/apply；任何失败不留claim、不改变selection。
 
 ```bash
 ./gradlew :Core:test :Basic:test
@@ -194,6 +195,6 @@ git diff --check
 错误：把菱形交叉、站台、信号、闭塞边界全部做成永久结构节点
 正确：结构图只保留改变连通选择的道岔、尽头和环锚点；菱形交叉是route-bound共享资源，运营对象以overlay引用edge interval
 
-错误：Basic 根据保护区域再次寻路并替 ATO 选择资源
-正确：SimpleATO 提交有序 typed intent；Basic 证明完整性、推导物理 footprint 并原子执行
+错误：SimpleATO提交route和第二份resource intent，Basic尝试证明两份重复事实一致
+正确：SimpleATO只提交topology-bound frozen route；Basic验证route并从同一TopologyState派生完整resource/physical footprint
 ```

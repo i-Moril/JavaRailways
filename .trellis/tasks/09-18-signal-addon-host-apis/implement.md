@@ -13,8 +13,8 @@
 - [x] Require explicit user/design review before adding compatibility, automatic repair, legacy-data interpretation, or migration behavior; default to strict current-model validation.
 - [x] Freeze protection-region graph-cut, direction-boundary and non-overlap contracts.
 - [x] Freeze one authoritative immutable topology state, normalized node/edge model, overlay boundary and snapshot semantics.
-- [x] Freeze SimpleATO path/resource intent versus Basic exact validation/physical footprint responsibilities.
-- [x] Document module working model plus topology normalization, graph-cut, intent-validation and tail-release internal mechanisms.
+- [x] Freeze SimpleATO topology-bound route versus Basic validation/resource projection/physical footprint responsibilities.
+- [x] Document module working model plus topology normalization, graph-cut, frozen-route validation/resource projection and tail-release internal mechanisms.
 - [x] Freeze coherent observation/region/topology revision and host-derived physical footprint contracts.
 - [x] Freeze generic route-resource closure, no-hold-and-wait admission, turnout rollback and fail-closed lifecycle pseudocode.
 - [x] Freeze tail-clear, compiled-plan prefix-release and provider-disable recovery behavior.
@@ -24,8 +24,8 @@
 - [x] Region catalog and graph resolver: runtime provider registration, authoritative definition validation, unique interior derivation and overlap diagnostics. No turnout mutation.
 - [x] Versioned topology contract and migration seam: normalized nodes/edges, rail projection, immutable `CoreWorld` publication, public read API and the current `RailView` capture adapter are implemented. Raw adjacency encapsulation and SimpleATO policy migration remain.
 - [x] Overlay/region migration: protection membership/window validation now derives from one retained public `TopologyState` root per catalog rebuild; topology and region revisions fail stale, and the live copied-adjacency source has been removed.
-- [ ] SimpleATO route intent: move operating route selection onto topology plus overlays and emit complete ordered typed intent. No Basic claim mutation.
-- [ ] Intent validator/plan compiler: coherent observation stamp, authoritative train envelope, exact traversal/resource coverage, generic contributor closure, safe authority-boundary selection, host-derived claim/physical-lock footprints and turnout selections. No registry mutation and no Basic path search.
+- [ ] SimpleATO frozen route: move operating route selection onto topology plus overlays and emit one ordered traversal bound to that topology revision. No caller-supplied resource list and no Basic claim mutation.
+- [ ] Route validator/resource-closure compiler: coherent observation stamp, authoritative train envelope, exact traversal validation, host-derived controlled-resource projection, generic contributor closure, safe authority-boundary selection, claim/physical-lock footprints and turnout selections. No registry mutation and no Basic path search.
 - [ ] Admission transaction: occupancy validation, one atomic claim, all-turnout apply/rollback and typed results. No Dispatcher migration.
 - [ ] Release/recovery: entry observation, tail-clear slices, atomic footprint shrink, provider-disable and reload fail-closed behavior.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.

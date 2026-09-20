@@ -21,7 +21,7 @@
 ## Next reviewable batches
 
 - [x] Region catalog and graph resolver: runtime provider registration, authoritative definition validation, unique interior derivation and overlap diagnostics. No turnout mutation.
-- [ ] Versioned topology contract and migration seam: normalized nodes/edges, rail projection, immutable publication and legacy adjacency adapter. No SimpleATO policy migration.
+- [ ] Versioned topology contract and migration seam: normalized nodes/edges and rail projection are implemented as a pure internal builder; immutable `CoreWorld` publication and the legacy adjacency adapter remain. No SimpleATO policy migration.
 - [ ] Overlay/region migration: resolve protection membership from `TopologyState`, key caches by topology/region revision, then remove the duplicated authoritative adjacency assumption.
 - [ ] SimpleATO route intent: move operating route selection onto topology plus overlays and emit complete ordered typed intent. No Basic claim mutation.
 - [ ] Intent validator/plan compiler: coherent observation stamp, authoritative train envelope, exact traversal/resource coverage, generic contributor closure, safe authority-boundary selection, host-derived claim/physical-lock footprints and turnout selections. No registry mutation and no Basic path search.

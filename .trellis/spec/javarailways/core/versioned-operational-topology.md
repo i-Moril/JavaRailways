@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`TARGET`；当前只有`topologyRevision`和`RailView.nextRails`，尚无本页描述的统一`TopologyState`。
+- **Status**：`PARTIAL`；已有revision-scoped内部`TopologyState`数据模型及纯归一化构建器，尚未接入`CoreWorld`原子publication，也尚未开放consumer读取API。
 - **Owner**：Core/host拥有物理结构及其publication；SimpleATO和Basic只能消费指定revision。
 - **Non-goals**：本页不定义运营寻路策略、信号显示规则、claim公平性或持久化schema。
 
@@ -146,7 +146,7 @@ Basic 不能只逐项检查“调用方报的资源存在”，否则漏报一�
 
 ## 7. 性能、复杂度与退化行为
 
-- graph normalization对输入rail slices与connections至少是`O(V + E)`；diamond几何检测先用spatial index缩小候选，再做exact geometry/vertical-clearance检查，禁止每tick全图两两相交扫描。
+- graph normalization对输入rail slices与connections做一次`O(V + E)`遍历；为生成不依赖输入集合顺序的revision-local ID，还需`O(V log V)`确定性排序。该工作只发生在structural edit，不进入每tick路径。diamond几何检测先用spatial index缩小候选，再做exact geometry/vertical-clearance检查，禁止每tick全图两两相交扫描。
 - 初版可以在structural edit时重建完整candidate state；不得在寻路、信号查询或每列车tick时重建。后续增量化只能改变构建成本，不能改变原子publication和完整覆盖校验。
 - edge位置查询应利用累计距离索引而不是线性扫描长edge；目标签名冻结时必须明确边界规则和复杂度。
 - intent完整性验证对route长度为线性复杂度；物理footprint编译复用同一次遍历，不得再做第二次全图寻路。

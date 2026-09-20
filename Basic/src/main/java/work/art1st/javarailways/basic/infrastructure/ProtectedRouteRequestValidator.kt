@@ -103,7 +103,11 @@ internal class ProtectedRouteRequestValidator(
                     StableInfrastructureResource::resourceId
                 )
             )
-        return ProtectedRouteValidation.Validated(InfrastructureFootprint(resources))
+        val footprint = InfrastructureFootprint(resources)
+        val turnoutSelections = relevantTurnouts.map { it.toResolvedSelection() }
+        return ProtectedRouteValidation.Validated(
+            ValidatedRouteClaim.create(footprint, turnoutSelections)
+        )
     }
 
     private fun routeIntervals(
@@ -149,6 +153,13 @@ internal class ProtectedRouteRequestValidator(
         }
     }
 
+    private fun ProjectedTurnoutTraversal.toResolvedSelection() = ResolvedTurnoutSelection(
+        resource = resource,
+        fromPort = fromPort,
+        toPort = toPort,
+        routeDistanceMeters = routeDistanceMeters
+    )
+
     private fun rejectedProtection(detail: String) = ProtectedRouteValidation.Rejected(
         ProtectedRouteClaimStatus.PROTECTION_REQUIRED,
         detail
@@ -163,7 +174,7 @@ internal class ProtectedRouteRequestValidator(
 internal sealed interface ProtectedRouteValidation {
     data object NotRequired : ProtectedRouteValidation
 
-    data class Validated(val resources: InfrastructureFootprint) : ProtectedRouteValidation
+    data class Validated(val claim: ValidatedRouteClaim) : ProtectedRouteValidation
 
     data class Rejected(
         val status: ProtectedRouteClaimStatus,

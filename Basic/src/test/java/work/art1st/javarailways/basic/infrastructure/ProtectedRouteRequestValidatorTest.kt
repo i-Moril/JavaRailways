@@ -63,10 +63,21 @@ class ProtectedRouteRequestValidatorTest {
                 RailIntervalResource(fixture.straight, 0.0, 10.0),
                 RailIntervalResource(fixture.straightClearance, 0.0, 5.0)
             ),
-            validated.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
+            validated.claim.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
         )
-        val turnout = validated.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
+        val turnout = validated.claim.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
         assertEquals(TurnoutResourceIdentity.TYPE_ID, turnout.typeId)
+        assertEquals(
+            listOf(
+                ResolvedTurnoutSelection(
+                    turnout,
+                    endpoint(fixture.trunk, RailEndpoint.B),
+                    endpoint(fixture.straight, RailEndpoint.A),
+                    10.0
+                )
+            ),
+            validated.claim.turnoutSelections
+        )
     }
 
     @Test
@@ -112,11 +123,96 @@ class ProtectedRouteRequestValidatorTest {
                 RailIntervalResource(fixture.trunk, 0.0, 10.0),
                 RailIntervalResource(fixture.west, 5.0, 10.0)
             ),
-            reverse.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
+            reverse.claim.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
         )
         assertEquals(
-            forward.resources.resources.filterIsInstance<StableInfrastructureResource>().single(),
-            reverse.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
+            forward.claim.resources.resources.filterIsInstance<StableInfrastructureResource>().single(),
+            reverse.claim.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
+        )
+        val forwardSelection = forward.claim.turnoutSelections.single()
+        val reverseSelection = reverse.claim.turnoutSelections.single()
+        assertEquals(endpoint(fixture.trunk, RailEndpoint.B), forwardSelection.fromPort)
+        assertEquals(endpoint(fixture.branch, RailEndpoint.A), forwardSelection.toPort)
+        assertEquals(endpoint(fixture.branch, RailEndpoint.A), reverseSelection.fromPort)
+        assertEquals(endpoint(fixture.trunk, RailEndpoint.B), reverseSelection.toPort)
+        assertEquals(forwardSelection.resource, reverseSelection.resource)
+    }
+
+    @Test
+    fun `one validation plan preserves ordered selections for every turnout in a throat`() {
+        val west = UUID(0L, 40L)
+        val firstTrunk = UUID(0L, 41L)
+        val middle = UUID(0L, 42L)
+        val firstBranch = UUID(0L, 43L)
+        val secondTrunk = UUID(0L, 44L)
+        val east = UUID(0L, 45L)
+        val secondBranch = UUID(0L, 46L)
+        val clearance = UUID(0L, 47L)
+        val topology = topologyState(
+            revision,
+            listOf(west, firstTrunk, middle, firstBranch, secondTrunk, east, secondBranch, clearance),
+            listOf(
+                endpoint(west, RailEndpoint.B) to endpoint(firstTrunk, RailEndpoint.A),
+                endpoint(firstTrunk, RailEndpoint.B) to endpoint(middle, RailEndpoint.A),
+                endpoint(firstTrunk, RailEndpoint.B) to endpoint(firstBranch, RailEndpoint.A),
+                endpoint(middle, RailEndpoint.B) to endpoint(secondTrunk, RailEndpoint.A),
+                endpoint(secondTrunk, RailEndpoint.B) to endpoint(east, RailEndpoint.A),
+                endpoint(secondTrunk, RailEndpoint.B) to endpoint(secondBranch, RailEndpoint.A),
+                endpoint(east, RailEndpoint.B) to endpoint(clearance, RailEndpoint.A)
+            )
+        )
+        val validator = validator(
+            topology,
+            ProtectionRegionDefinition(
+                ProtectionRegionRef("test:region/double-throat", 1L),
+                revision,
+                listOf(
+                    authored("test:boundary/entry", firstTrunk, ViewDirection.AB, 5.0),
+                    authored("test:boundary/first-branch", firstBranch, ViewDirection.BA, 5.0),
+                    authored("test:boundary/second-branch", secondBranch, ViewDirection.BA, 5.0),
+                    authored("test:boundary/exit", east, ViewDirection.BA, 5.0)
+                )
+            )
+        )
+        val route = RouteSnapshot(
+            "test:route/double-throat",
+            1L,
+            revision,
+            listOf(
+                segment(firstTrunk, ViewDirection.AB),
+                segment(middle, ViewDirection.AB),
+                segment(secondTrunk, ViewDirection.AB),
+                segment(east, ViewDirection.AB),
+                segment(clearance, ViewDirection.AB)
+            )
+        )
+
+        val validated = assertInstanceOf(
+            ProtectedRouteValidation.Validated::class.java,
+            validator.validate(
+                request(
+                    route,
+                    window(
+                        boundary("test:boundary/entry", firstTrunk, ViewDirection.AB, 5.0, 5.0),
+                        boundary("test:boundary/exit", east, ViewDirection.AB, 5.0, 35.0),
+                        boundary("test:boundary/clear", clearance, ViewDirection.AB, 5.0, 45.0),
+                        ProtectionRegionRef("test:region/double-throat", 1L)
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            listOf(
+                endpoint(firstTrunk, RailEndpoint.B) to endpoint(middle, RailEndpoint.A),
+                endpoint(secondTrunk, RailEndpoint.B) to endpoint(east, RailEndpoint.A)
+            ),
+            validated.claim.turnoutSelections.map { it.fromPort to it.toPort }
+        )
+        assertEquals(listOf(10.0, 30.0), validated.claim.turnoutSelections.map { it.routeDistanceMeters })
+        assertEquals(
+            validated.claim.turnoutSelections.map(ResolvedTurnoutSelection::resource).toSet(),
+            validated.claim.resources.resources.filterIsInstance<StableInfrastructureResource>().toSet()
         )
     }
 
@@ -276,7 +372,9 @@ class ProtectedRouteRequestValidatorTest {
             validator.validate(request)
         )
 
-        assertEquals(1, validated.resources.resources.count { it == diamond })
+        assertEquals(1, validated.claim.resources.resources.count { it == diamond })
+        assertEquals(1, validated.claim.turnoutSelections.size)
+        assertEquals(TurnoutResourceIdentity.TYPE_ID, validated.claim.turnoutSelections.single().resource.typeId)
     }
 
     @Test
@@ -348,7 +446,7 @@ class ProtectedRouteRequestValidatorTest {
             )
         )
 
-        assertEquals(1, validated.resources.resources.count { it == turnout })
+        assertEquals(1, validated.claim.resources.resources.count { it == turnout })
     }
 
     @Test

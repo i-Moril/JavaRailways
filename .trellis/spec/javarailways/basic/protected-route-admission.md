@@ -47,7 +47,9 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 当前transitional `ProtectedRouteRequestValidator`从catalog取得同一topology root上的临时route occurrences和window。窗口存在时，它把`entry..clearUntil`与occurrences相交，按facing换算为每根rail的canonical AB interval，再按rail UUID排序并合并重叠或容差内相邻区间；`entry..exit`内的turnout resource加入同一个`InfrastructureFootprint`。`clearUntil`以前但窗口外的turnout返回`PROTECTION_REQUIRED`，同一turnout重复出现返回`INVALID_REQUEST`。窗口为空时，route没有turnout才返回`NOT_REQUIRED`。资源收集为`O(n log n)`最坏复杂度，其中`n`是截取范围内的route occurrences；它不读取live rail或扫描world。
 
-该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`；它尚未接入occupancy geometry、turnout selections、authoritative train envelope或多contributor closure。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint或第二份physical footprint。
+该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`。每个受保护的`ProjectedTurnoutTraversal`同时派生一个`ResolvedTurnoutSelection(resource, fromPort, toPort, routeDistanceMeters)`；selection保持route顺序和行驶方向，但不保留revision-local `TopologyNodeId`或mutable `RailView`。footprint与selection一起封装成不可变`ValidatedRouteClaim`，且每个selection的稳定turnout resource必须在该footprint内且只出现一次。`ProtectedRouteClaimService`在resolution中保留整个plan，只把`plan.resources`提交给现有atomic registry；本阶段尚不执行selection。
+
+该validator尚未接入occupancy geometry、authoritative train envelope、多contributor closure、turnout apply/rollback或grant publication。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 

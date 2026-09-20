@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -16,6 +17,8 @@ import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import java.util.UUID
 
 class ProtectedRouteClaimServiceTest {
@@ -73,9 +76,7 @@ class ProtectedRouteClaimServiceTest {
         val platformOwner = Any()
         val routeOwner = InfrastructureOwner("test:route/main", 1L)
         val service = service {
-            ProtectedRouteValidation.Validated(
-                InfrastructureFootprint(listOf(resource("turnout/a"), resource("turnout/b")))
-            )
+            validated(resource("turnout/a"), resource("turnout/b"))
         }
         val request = request(
             window("test:region/a", 0.0, 80.0, 100.0),
@@ -96,9 +97,7 @@ class ProtectedRouteClaimServiceTest {
     @Test
     fun `invalid member rejects the whole resolved footprint`() {
         val service = service {
-            ProtectedRouteValidation.Validated(
-                InfrastructureFootprint(listOf(resource("turnout/a"), resource("turnout/missing")))
-            )
+            validated(resource("turnout/a"), resource("turnout/missing"))
         }
 
         val result = service.acquire(
@@ -114,9 +113,7 @@ class ProtectedRouteClaimServiceTest {
     fun `topology change during resolution rejects before claim mutation`() {
         val service = service {
             topologyRevision = 5L
-            ProtectedRouteValidation.Validated(
-                InfrastructureFootprint(listOf(resource("turnout/a")))
-            )
+            validated(resource("turnout/a"))
         }
 
         val result = service.acquire(
@@ -131,9 +128,7 @@ class ProtectedRouteClaimServiceTest {
     @Test
     fun `conflicting complete requests expose blocker and preserve first claim`() {
         val service = service {
-            ProtectedRouteValidation.Validated(
-                InfrastructureFootprint(listOf(resource("turnout/a")))
-            )
+            validated(resource("turnout/a"))
         }
         val window = window("test:region/a", 0.0, 80.0, 100.0)
         val first = service.acquire(Any(), request(window, InfrastructureOwner("test:route/first", 1L)))
@@ -144,6 +139,52 @@ class ProtectedRouteClaimServiceTest {
         assertEquals(ProtectedRouteClaimStatus.RESOURCE_CONFLICT, second.status)
         assertEquals("test:route/first", second.blockers.single().owner.ownerId)
         assertEquals(listOf("test:route/first"), registry.claimSnapshots().map { it.owner.ownerId })
+    }
+
+    @Test
+    fun `validated plan copies selection order and requires each selection in its footprint`() {
+        val turnout = StableInfrastructureResource(TurnoutResourceIdentity.TYPE_ID, "test:turnout/main")
+        val selection = ResolvedTurnoutSelection(
+            turnout,
+            RailEndpointRef(UUID(0L, 10L), RailEndpoint.B),
+            RailEndpointRef(UUID(0L, 11L), RailEndpoint.A),
+            12.0
+        )
+        val source = mutableListOf(selection)
+        val plan = ValidatedRouteClaim.create(InfrastructureFootprint(listOf(turnout)), source)
+
+        source.clear()
+
+        assertEquals(listOf(selection), plan.turnoutSelections)
+        assertThrows(IllegalArgumentException::class.java) {
+            ValidatedRouteClaim.create(
+                InfrastructureFootprint(listOf(resource("turnout/a"))),
+                listOf(selection)
+            )
+        }
+    }
+
+    @Test
+    fun `claim service submits the plan footprint without applying turnout metadata`() {
+        val turnout = StableInfrastructureResource(TurnoutResourceIdentity.TYPE_ID, "test:turnout/service")
+        validResources += turnout
+        val selection = ResolvedTurnoutSelection(
+            turnout,
+            RailEndpointRef(UUID(0L, 12L), RailEndpoint.B),
+            RailEndpointRef(UUID(0L, 13L), RailEndpoint.A),
+            8.0
+        )
+        val plan = ValidatedRouteClaim.create(
+            InfrastructureFootprint(listOf(turnout)),
+            listOf(selection)
+        )
+        val service = service { ProtectedRouteValidation.Validated(plan) }
+
+        val acquired = service.acquire(Any(), request(window("test:region/a", 0.0, 80.0, 100.0)))
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, acquired.status)
+        assertEquals(plan.resources, registry.claimSnapshots().single().footprint)
+        assertEquals(listOf(selection), plan.turnoutSelections)
     }
 
     private fun service(validate: (ProtectedRouteRequest) -> ProtectedRouteValidation) =
@@ -188,4 +229,12 @@ class ProtectedRouteClaimServiceTest {
     )
 
     private fun resource(id: String) = StableInfrastructureResource("test:controlled", id)
+
+    private fun validated(vararg resources: StableInfrastructureResource) =
+        ProtectedRouteValidation.Validated(
+            ValidatedRouteClaim.create(
+                InfrastructureFootprint(resources.toList()),
+                emptyList()
+            )
+        )
 }

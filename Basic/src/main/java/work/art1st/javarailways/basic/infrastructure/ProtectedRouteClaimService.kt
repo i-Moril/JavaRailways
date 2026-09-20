@@ -1,6 +1,5 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
@@ -11,9 +10,10 @@ import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 /**
  * Validates one protected-route request and atomically submits its single resource set.
  *
- * This is the host-side admission seam for the future public route-resource service. It does not
- * mutate turnout selections; callers may do so only after a successful claim and must roll the
- * selection back before releasing the claim if their later commit fails.
+ * This is the host-side admission seam for the future public route-resource service. It retains
+ * the validated plan through resolution but submits only its resource footprint. The later
+ * host-owned admission transaction will apply and, if necessary, roll back turnout selections;
+ * this transitional service does not mutate them.
  */
 internal class ProtectedRouteClaimService(
     private val registry: InfrastructureLeaseRegistry,
@@ -23,10 +23,14 @@ internal class ProtectedRouteClaimService(
     fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteClaimResult {
         return when (val resolved = resolve(request)) {
             is ResolutionResult.Finished -> resolved.result
-            is ResolutionResult.Resources -> mapMutation(
+            is ResolutionResult.Plan -> mapMutation(
                 registry.acquireClaim(
                     platformOwner,
-                    InfrastructureClaimRequest(request.route.topologyRevision, request.owner, resolved.value)
+                    InfrastructureClaimRequest(
+                        request.route.topologyRevision,
+                        request.owner,
+                        resolved.value.resources
+                    )
                 )
             )
         }
@@ -48,11 +52,15 @@ internal class ProtectedRouteClaimService(
                     resolved.result
                 }
             }
-            is ResolutionResult.Resources -> mapMutation(
+            is ResolutionResult.Plan -> mapMutation(
                 registry.replaceClaim(
                     platformOwner,
                     expectedOwner,
-                    InfrastructureClaimRequest(request.route.topologyRevision, request.owner, resolved.value)
+                    InfrastructureClaimRequest(
+                        request.route.topologyRevision,
+                        request.owner,
+                        resolved.value.resources
+                    )
                 )
             )
         }
@@ -92,7 +100,7 @@ internal class ProtectedRouteClaimService(
             is ProtectedRouteValidation.Rejected ->
                 ResolutionResult.Finished(result(validation.status, validation.detail))
             is ProtectedRouteValidation.Validated ->
-                ResolutionResult.Resources(validation.resources)
+                ResolutionResult.Plan(validation.claim)
         }
     }
 
@@ -123,6 +131,6 @@ internal class ProtectedRouteClaimService(
 
     private sealed interface ResolutionResult {
         data class Finished(val result: ProtectedRouteClaimResult) : ResolutionResult
-        data class Resources(val value: InfrastructureFootprint) : ResolutionResult
+        data class Plan(val value: ValidatedRouteClaim) : ResolutionResult
     }
 }

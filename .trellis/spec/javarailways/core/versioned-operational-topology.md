@@ -127,7 +127,7 @@ data class RouteBoundInfrastructureResource(
 SimpleATO提交一份有序traversal，并以`topologyRevision`绑定它读取的`TopologyState`。Basic使用同一个状态做确定性验证和资源投影：
 
 1. edge存在、方向合法，起终点及相邻edge port连续；
-2. traversal跨越turnout时，入/出port对应一个合法continuation，Basic由此派生同一稳定turnout身份和目标selection；
+2. traversal跨越turnout时，入/出port对应一个合法continuation；Basic保留revision-local node ID用于本次验证，并按[保护区域与进路准入](../basic/protected-route-admission.md)派生方向无关的稳定turnout资源身份和目标selection；
 3. traversal经过diamond或其他route-bound共享资源anchor时，Basic从host-owned反向索引派生稳定资源身份；caller不能声明、遗漏或伪造该身份；
 4. 保护区域entry/exit与traversal相交结果完整，出口净空可由rail projection推导；
 5. 同一次扫描累积rail intervals、共享conflict resources、physical locking intervals和release slices，生成只属于本次编译的内部projection。

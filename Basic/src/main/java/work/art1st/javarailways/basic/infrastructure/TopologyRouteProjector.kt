@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.infrastructure
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
@@ -36,6 +37,7 @@ internal data class ProjectedRouteOccurrence(
 /** A legal caller-selected traversal through one turnout node. */
 internal data class ProjectedTurnoutTraversal(
     val nodeId: TopologyNodeId,
+    val resource: StableInfrastructureResource,
     val fromPort: RailEndpointRef,
     val toPort: RailEndpointRef,
     val routeDistanceMeters: Double
@@ -233,6 +235,7 @@ internal object TopologyRouteProjector {
                     TransitionResult.Turnout(
                         ProjectedTurnoutTraversal(
                             nodeId = node.id,
+                            resource = TurnoutResourceIdentity.fromPorts(node.ports),
                             fromPort = arrival.port,
                             toPort = departure.port,
                             routeDistanceMeters = current.routeEndMeters

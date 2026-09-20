@@ -75,6 +75,10 @@ InfrastructureFootprint(listOf(
 
 同rail闭区间端点相交即overlap，例如`[0,20]`与`[20,40]`冲突；不同rail interval永不因数值相同而overlap。BA行进范围必须先转换成每根rail的canonical AB坐标。
 
+turnout的方向无关资源身份由[保护区域与进路准入](./protected-route-admission.md)唯一规定；这里仅要求
+footprint使用其`StableInfrastructureResource`，不得改用revision-local `TopologyNodeId`。diamond资源
+由独立binding提供。
+
 ## 受保护进路解析与准入
 
 完整region cut、目标签名、错误矩阵、transaction伪代码和release/lifecycle合同见[protected route admission](./protected-route-admission.md)。本节只保留与通用registry直接相关的约束。

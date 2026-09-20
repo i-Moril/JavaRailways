@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.infrastructure
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -71,6 +72,15 @@ class TopologyRouteProjectorTest {
         val turnout = fixture.topology.nodes.values.filterIsInstance<TopologyNode.Turnout>().single()
 
         assertEquals(turnout.id, traversal.nodeId)
+        assertEquals("javarailways:turnout", traversal.resource.typeId)
+        assertEquals(
+            listOf(
+                endpoint(fixture.trunk, RailEndpoint.B),
+                endpoint(fixture.straight, RailEndpoint.A),
+                endpoint(fixture.branch, RailEndpoint.A)
+            ).sorted().joinToString("|") { "${it.railId}@${it.endpoint.name}" },
+            traversal.resource.resourceId
+        )
         assertEquals(endpoint(fixture.trunk, RailEndpoint.B), traversal.fromPort)
         assertEquals(endpoint(fixture.straight, RailEndpoint.A), traversal.toPort)
         assertEquals(10.0, traversal.routeDistanceMeters)
@@ -95,8 +105,59 @@ class TopologyRouteProjectorTest {
         ).turnoutTraversals.single()
 
         assertEquals(forward.nodeId, reverse.nodeId)
+        assertEquals(forward.resource, reverse.resource)
         assertEquals(forward.fromPort, reverse.toPort)
         assertEquals(forward.toPort, reverse.fromPort)
+    }
+
+    @Test
+    fun `turnout resource identity survives topology revision rebuild`() {
+        val fixture = turnoutFixture()
+        val rebuilt = topologyState(
+            revision = revision + 1L,
+            railIds = listOf(fixture.trunk, fixture.straight, fixture.branch),
+            connections = listOf(
+                endpoint(fixture.trunk, RailEndpoint.B) to endpoint(fixture.straight, RailEndpoint.A),
+                endpoint(fixture.trunk, RailEndpoint.B) to endpoint(fixture.branch, RailEndpoint.A)
+            )
+        )
+        val before = project(
+            route(
+                segment(fixture.trunk, ViewDirection.AB),
+                segment(fixture.branch, ViewDirection.AB)
+            ),
+            fixture.topology
+        ).turnoutTraversals.single()
+        val after = project(
+            route(
+                segment(fixture.branch, ViewDirection.BA),
+                segment(fixture.trunk, ViewDirection.BA),
+                topologyRevision = revision + 1L
+            ),
+            rebuilt
+        ).turnoutTraversals.single()
+
+        assertTrue(before.nodeId != after.nodeId)
+        assertEquals(before.resource, after.resource)
+    }
+
+    @Test
+    fun `turnout resource identity is order independent and changes with its port set`() {
+        val first = endpoint(rail(1), RailEndpoint.B)
+        val second = endpoint(rail(2), RailEndpoint.A)
+        val third = endpoint(rail(3), RailEndpoint.A)
+
+        val canonical = TurnoutResourceIdentity.fromPorts(listOf(first, second, third))
+        val reordered = TurnoutResourceIdentity.fromPorts(listOf(third, first, second))
+        val changed = TurnoutResourceIdentity.fromPorts(
+            listOf(first, second, endpoint(rail(4), RailEndpoint.A))
+        )
+
+        assertEquals(canonical, reordered)
+        assertNotEquals(canonical, changed)
+        assertThrows(IllegalArgumentException::class.java) {
+            TurnoutResourceIdentity.fromPorts(listOf(first, second, second))
+        }
     }
 
     @Test

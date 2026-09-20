@@ -41,7 +41,9 @@ provider publishes boundary definition for topology revision T
 
 ### 3.2 route验证、资源投影与resource dependency closure
 
-当前内部`TopologyRouteProjector`已按route顺序推进单一edge traversal：它把每个facing-local rail segment通过`railProjection`换算为canonical AB及edge distance，验证同edge连续性或结构节点入/出port，并由合法continuation派生同一revision-local turnout node/from/to traversal。edge方向由segment facing与rail slice的AB朝向组合确定，不能用投影起终点的数值差推断，否则合法的零长度segment没有确定方向。结果是不可变occurrence列表，不读取live selection、不搜索候选路径；`ProtectionRegionWindowResolver`复用该结果而不再通过region adjacency独立解释连接。后续rail/edge interval反向索引仍需在同一pass中加入diamond等非结构资源。Basic只能编译调用方已选路径，也不接收caller枚举的第二份资源清单。
+当前内部`TopologyRouteProjector`已按route顺序推进单一edge traversal：它把每个facing-local rail segment通过`railProjection`换算为canonical AB及edge distance，验证同edge连续性或结构节点入/出port，并由合法continuation派生同一revision-local turnout node/from/to traversal及稳定turnout resource。turnout使用`typeId = "javarailways:turnout"`；resource ID把全部persistent `RailEndpointRef`先按rail UUID和endpoint排序，再把每个port编码为`<rail UUID>@<A|B>`并以`|`连接。该ID不包含遍历方向或topology revision；相同port集合在正反遍历及无结构变化的rebuild中相同，split、merge或reconnect改变port集合时产生新资源。重复port是无效拓扑输入并fail closed。`TopologyNodeId`只服务本次验证，不能进入claim、lease、持久化或跨revision cache；diamond使用独立binding，不套用turnout编码。
+
+edge方向由segment facing与rail slice的AB朝向组合确定，不能用投影起终点的数值差推断，否则合法的零长度segment没有确定方向。结果是不可变occurrence列表，不读取live selection、不搜索候选路径；`ProtectionRegionWindowResolver`复用该结果而不再通过region adjacency独立解释连接。后续rail/edge interval反向索引仍需在同一pass中加入diamond等非结构资源。Basic只能编译调用方已选路径，也不接收caller枚举的第二份资源清单。port canonicalization对每个遇到的turnout为`O(p log p)`，其中`p`为该节点端口数；不扫描world或未经过的节点。
 
 编译器从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与派生的受控资源直接加入footprint；遇到`RouteResourceContributor`时，将其选定traversal的资源、selection、physical locking envelope和clearance obligation合入计划。保护区域入口贡献至少到`regionExitDistance + occupiedLengthMeters + clearanceMargin`的义务。若扫描尚未达到该义务就遇到另一个贡献者，继续合入并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许贡献者反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
@@ -283,6 +285,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - closure tests：精确最小列车长度、短1个容差单位、断开route、出口后固定闭塞整段提升、出口后移动闭塞精确interval/MA下限、连续两个保护区域、贡献链扩展、合法authority endpoint选择与循环检测；断言每个occurrence至多处理一次且失败不产生claim。
 - epoch tests：physics epoch、topology revision、region revision任一stale均fail closed；解析前后revision变化不穿透。
 - route binding tests：route revision与topology revision可取不同值；projector只从route字段拒绝stale topology，request没有第二个可冲突的revision。
+- turnout identity tests：正反向及无结构变化的topology rebuild得到同一resource；revision-local node ID不同也不改变resource identity。
 - transaction tests：resource conflict、physical occupancy、第二个turnout apply失败、rollback成功/失败；断言selection、claim和authority三者满足矩阵。
 - release tests：未进入取消、头部过exit但尾部未过、tail clear、单region prefix shrink、train消失、provider disable、world reload recovery。
 - dispatcher tests：automatic和`MANUAL_ROUTED`只能调用新service；不存在接受raw planned section的overload；`FULL_MANUAL`不申请新grant。

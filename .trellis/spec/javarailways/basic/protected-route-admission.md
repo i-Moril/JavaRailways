@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation和单window资源收集已存在，通用contributor closure、route-bound非结构资源索引、atomic turnout admission与release/recovery尚未实现。
+- **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation、route-bound非结构资源索引和单window资源收集已存在，通用contributor closure、atomic turnout admission与release/recovery尚未实现。
 - **Owner**：Basic拥有固定闭塞与`ProtectionRegionDefinition`、统一`AuthoritySection` catalog、路线验证、唯一claim资源集合与执行机制；SimpleATO只拥有运营路径选择、信号策略和section消费；Core拥有结构拓扑和物理观察。
 - **Non-goals**：本页不定义信号aspect、JS策略、玩家编辑UI或替SimpleATO选择运营路径。
 
@@ -47,7 +47,7 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 当前transitional `ProtectedRouteRequestValidator`从catalog取得同一topology root上的临时route occurrences和window。窗口存在时，它把`entry..clearUntil`与occurrences相交，按facing换算为每根rail的canonical AB interval，再按rail UUID排序并合并重叠或容差内相邻区间；`entry..exit`内的turnout resource加入同一个`InfrastructureFootprint`。`clearUntil`以前但窗口外的turnout返回`PROTECTION_REQUIRED`，同一turnout重复出现返回`INVALID_REQUEST`。窗口为空时，route没有turnout才返回`NOT_REQUIRED`。资源收集为`O(n log n)`最坏复杂度，其中`n`是截取范围内的route occurrences；它不读取live rail或扫描world。
 
-该validator目前只证明rail intervals与turnout resources，尚未接入diamond route-bound index、occupancy geometry、turnout selections、authoritative train envelope或多contributor closure。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint或第二份physical footprint。
+该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`；它尚未接入occupancy geometry、turnout selections、authoritative train envelope或多contributor closure。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint或第二份physical footprint。
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
@@ -81,7 +81,7 @@ return one validated claim only after the full loop succeeds
 
 重建时先捕获一个topology root，验证每个anchor位于该root中一段且仅一段rail projection内，再构造candidate maps；完成后再次确认root identity，只有全部成功才一次替换published snapshot。route validation捕获一个catalog snapshot并要求它与region/projector使用同一topology root；查询结束后再次确认两者仍current。任一检查失败都拒绝本次准入，不读取live rail或临时做几何检测。
 
-查询时，每个`ProjectedRouteOccurrence`先换算为无方向canonical AB范围，只在同rail的排序anchors中二分第一个可能重叠项，再顺序读取到anchor起点越过occurrence终点。闭区间在`Curve.TOLERANCE`内接触按命中处理以fail safe。相同resource在相邻occurrences产生的route-distance命中先合并；离开anchor后再次命中同一resource视为重复受控资源并返回`INVALID_ROUTE`，不能静默去重一个循环进路。
+当前runtime实现让`ProjectedTopologyRoute`保留本次验证使用的不可变`TopologyState`根引用；catalog查询要求route、catalog snapshot与current topology三者对象身份相同，不能只比较revision数值。查询时，每个`ProjectedRouteOccurrence`先换算为无方向canonical AB范围；同rail索引按anchor起点排序并保存prefix maximum end，通过二分跳过不可能重叠的前缀，再顺序读取到anchor起点越过occurrence终点。闭区间在`Curve.TOLERANCE`内接触按命中处理以fail safe。相同resource的route-distance命中先合并；离开anchor后再次命中同一resource视为重复受控资源并返回`INVALID_ROUTE`，不能静默去重一个循环进路。
 
 ### 3.4 admission与release状态机
 
@@ -212,7 +212,7 @@ fallback到caller resources或partial rail-only claim。
 - entry必须以该boundary的`insideFacing`跨入内部；exit必须反向跨出另一个boundary。entry到exit之间的每个route segment都必须在该region内部。
 - 每个沿route遇到的turnout、diamond或其他controlled resource必须能由`TopologyState`和host resource index完整派生并受有效保护覆盖；道岔已经处于目标方向也不能豁免。没有任何资源贡献且无需claim的route可返回`NOT_REQUIRED`。
 - region identity本身不是一把排他的全区锁。claim只包含实际路径rail intervals和共享冲突资源，使同一咽喉中不冲突的进路仍可并行；region仍可向SimpleATO暴露类似闭塞区间的occupancy/reservation观察。
-- 普通闭塞区间与保护区域的空间不得重叠，这一authoring约束由SimpleATO在应用配置时验证；Basic不得通过同时创建两套重叠claim来补救错误配置。
+- 普通闭塞区间与保护区域的空间不得重叠；Basic在统一authority partition的create、update与load publication前原子验证该authoring约束，SimpleATO不得通过独立store或运行时重叠claim补救错误配置。
 
 ### 5.3 净空义务与区域划分
 
@@ -281,7 +281,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 
 - region definition注册或revision变化时做一次graph cut，复杂度为捕获连通分量的`O(V + E)`；不得在每次列车tick或信号查询重跑。
 - boundary在同rail内先排序；重复检测为排序后的相邻比较。region overlap通过rail ID索引后做slice exact comparison，不扫描无关rail。
-- route-bound anchors按rail分组并按canonical start排序；每个route occurrence二分定位后只扫描可能重叠的anchors，成本为`O(log a + h)`，其中`a`是该rail的anchor数、`h`是命中数。不得每次准入扫描全部bindings。
+- route-bound anchors按rail分组并按canonical start排序，同时维护prefix maximum end；每个route occurrence先以二分跳过不可能命中的前缀，再扫描起点不晚于occurrence终点的candidate，成本为`O(log a + c)`，其中`a`是该rail的anchor数、`c`是二分后仍可能重叠的candidate数。不得每次准入扫描全部bindings；若实测出现大量嵌套anchor导致`c`显著大于真实命中数，再以区间树替换内部索引，不改变catalog合同。
 - 一次route admission对实际扫描到closure终点的冻结traversal做单调线性validation和资源收集；每个route occurrence至多处理一次，因此复杂度为`O(scanned edges + bound resources)`。occupancy通过rail-indexed intervals查询，禁止`allTrains × allRegions`。
 - unchanged stale region/topology是配置事件驱动的拒绝，不逐tick重算；资源冲突才按明确调度策略重试。
 - candidate/occupancy索引报告不完整、provider异常或revision变化时fail closed，不退化到live图扫描并继续授权。

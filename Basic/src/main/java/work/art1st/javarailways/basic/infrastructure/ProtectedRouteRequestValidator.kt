@@ -14,7 +14,8 @@ import kotlin.math.min
 
 /** Validates one frozen route/window and returns the single resource set that may be claimed. */
 internal class ProtectedRouteRequestValidator(
-    private val catalog: ProtectionRegionCatalog
+    private val catalog: ProtectionRegionCatalog,
+    private val routeBoundResources: RouteBoundResourceCatalog
 ) {
     fun validate(request: ProtectedRouteRequest): ProtectedRouteValidation =
         when (val resolved = catalog.resolveWindow(request)) {
@@ -36,11 +37,24 @@ internal class ProtectedRouteRequestValidator(
         resolved: ProtectionRegionWindowResolution.Resolved
     ): ProtectedRouteValidation {
         val window = resolved.window?.request
+        val queryEnd = window?.exitClearance?.clearUntil?.routeDistanceMeters
+            ?: resolved.projection.occurrences.last().routeEndMeters
+        val routeBoundHits = when (
+            val queried = routeBoundResources.query(resolved.projection, 0.0, queryEnd)
+        ) {
+            is RouteBoundResourceQuery.Complete -> queried.hits
+            is RouteBoundResourceQuery.Unavailable -> return rejectedStale(queried.detail)
+            is RouteBoundResourceQuery.StaleTopology -> return rejectedStale(queried.detail)
+            is RouteBoundResourceQuery.InvalidRoute -> return ProtectedRouteValidation.Rejected(
+                ProtectedRouteClaimStatus.INVALID_REQUEST,
+                queried.detail
+            )
+        }
         if (window == null) {
-            return if (resolved.projection.turnoutTraversals.isEmpty()) {
+            return if (resolved.projection.turnoutTraversals.isEmpty() && routeBoundHits.isEmpty()) {
                 ProtectedRouteValidation.NotRequired
             } else {
-                rejectedProtection("route contains a turnout but no protection window")
+                rejectedProtection("route contains a controlled resource but no protection window")
             }
         }
 
@@ -60,6 +74,17 @@ internal class ProtectedRouteRequestValidator(
                     "${unprotected.routeDistanceMeters} is outside the protected entry-to-exit window"
             )
         }
+        val unprotectedRouteBound = routeBoundHits.firstOrNull { hit ->
+            hit.routeStartMeters < entry - Curve.TOLERANCE ||
+                hit.routeEndMeters > exit + Curve.TOLERANCE
+        }
+        if (unprotectedRouteBound != null) {
+            return rejectedProtection(
+                "resource ${unprotectedRouteBound.resource.resourceId} at route distance " +
+                    "${unprotectedRouteBound.routeStartMeters}..${unprotectedRouteBound.routeEndMeters} " +
+                    "is outside the protected entry-to-exit window"
+            )
+        }
 
         val turnoutResources = relevantTurnouts.map(ProjectedTurnoutTraversal::resource)
         if (turnoutResources.distinct().size != turnoutResources.size) {
@@ -70,9 +95,14 @@ internal class ProtectedRouteRequestValidator(
         }
         val resources = ArrayList<InfrastructureResource>()
         resources += routeIntervals(resolved.projection.occurrences, entry, clearUntil)
-        resources += turnoutResources.sortedWith(
-            compareBy(StableInfrastructureResource::typeId, StableInfrastructureResource::resourceId)
-        )
+        resources += (turnoutResources + routeBoundHits.map(RouteBoundResourceHit::resource))
+            .distinct()
+            .sortedWith(
+                compareBy(
+                    StableInfrastructureResource::typeId,
+                    StableInfrastructureResource::resourceId
+                )
+            )
         return ProtectedRouteValidation.Validated(InfrastructureFootprint(resources))
     }
 
@@ -121,6 +151,11 @@ internal class ProtectedRouteRequestValidator(
 
     private fun rejectedProtection(detail: String) = ProtectedRouteValidation.Rejected(
         ProtectedRouteClaimStatus.PROTECTION_REQUIRED,
+        detail
+    )
+
+    private fun rejectedStale(detail: String) = ProtectedRouteValidation.Rejected(
+        ProtectedRouteClaimStatus.STALE_TOPOLOGY,
         detail
     )
 }

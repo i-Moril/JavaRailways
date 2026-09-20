@@ -21,6 +21,7 @@ import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
 
@@ -199,7 +200,10 @@ class ProtectedRouteRequestValidatorTest {
     fun `route without a protection window is allowed only when it has no turnout`() {
         val straight = UUID(0L, 20L)
         val topology = lineTopologyState(revision, straight)
-        val validator = ProtectedRouteRequestValidator(ProtectionRegionCatalog { topology })
+        val validator = ProtectedRouteRequestValidator(
+            ProtectionRegionCatalog { topology },
+            emptyRouteBoundCatalog(topology)
+        )
         val plain = validator.validate(
             request(RouteSnapshot("test:route/plain", 1L, revision, listOf(segment(straight, ViewDirection.AB))), null)
         )
@@ -217,6 +221,198 @@ class ProtectedRouteRequestValidatorTest {
 
         assertEquals(ProtectedRouteValidation.NotRequired, plain)
         val rejected = assertInstanceOf(ProtectedRouteValidation.Rejected::class.java, controlled)
+        assertEquals(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, rejected.status)
+    }
+
+    @Test
+    fun `route-bound resource inside the window joins the single footprint`() {
+        val fixture = throatFixture()
+        val diamond = StableInfrastructureResource("javarailways:diamond", "test:diamond/main")
+        val routeBound = RouteBoundResourceCatalog { fixture.topology }
+        assertEquals(
+            RouteBoundResourceCatalogUpdate.Published,
+            routeBound.publish(
+                fixture.topology,
+                listOf(
+                    RouteBoundResourceBinding(
+                        diamond,
+                        listOf(
+                            RailSliceRef(fixture.trunk, 6.0, 7.0),
+                            RailSliceRef(fixture.branchClearance, 1.0, 2.0)
+                        )
+                    )
+                )
+            )
+        )
+        val validator = validator(
+            fixture.topology,
+            routeBound,
+            ProtectionRegionDefinition(
+                ProtectionRegionRef("test:region/main", 1L),
+                revision,
+                listOf(
+                    authored("test:boundary/entry", fixture.trunk, ViewDirection.AB, 5.0),
+                    authored("test:boundary/straight", fixture.straight, ViewDirection.BA, 5.0),
+                    authored("test:boundary/branch", fixture.branch, ViewDirection.BA, 5.0)
+                )
+            )
+        )
+        val request = request(
+            route(
+                fixture,
+                segment(fixture.trunk, ViewDirection.AB),
+                segment(fixture.straight, ViewDirection.AB),
+                segment(fixture.straightClearance, ViewDirection.AB)
+            ),
+            window(
+                boundary("test:boundary/entry", fixture.trunk, ViewDirection.AB, 5.0, 5.0),
+                boundary("test:boundary/straight", fixture.straight, ViewDirection.AB, 5.0, 15.0),
+                boundary("test:boundary/clear", fixture.straightClearance, ViewDirection.AB, 5.0, 25.0)
+            )
+        )
+
+        val validated = assertInstanceOf(
+            ProtectedRouteValidation.Validated::class.java,
+            validator.validate(request)
+        )
+
+        assertEquals(1, validated.resources.resources.count { it == diamond })
+    }
+
+    @Test
+    fun `one stable resource discovered by topology and route binding is claimed once`() {
+        val fixture = throatFixture()
+        val projected = assertInstanceOf(
+            TopologyRouteProjectionResult.Projected::class.java,
+            TopologyRouteProjector.project(
+                route(
+                    fixture,
+                    segment(fixture.trunk, ViewDirection.AB),
+                    segment(fixture.straight, ViewDirection.AB),
+                    segment(fixture.straightClearance, ViewDirection.AB)
+                ),
+                fixture.topology
+            )
+        ).route
+        val turnout = projected.turnoutTraversals.single().resource
+        val routeBound = RouteBoundResourceCatalog { fixture.topology }
+        assertEquals(
+            RouteBoundResourceCatalogUpdate.Published,
+            routeBound.publish(
+                fixture.topology,
+                listOf(
+                    RouteBoundResourceBinding(
+                        turnout,
+                        listOf(RailSliceRef(fixture.trunk, 6.0, 7.0))
+                    )
+                )
+            )
+        )
+        val validator = validator(
+            fixture.topology,
+            routeBound,
+            ProtectionRegionDefinition(
+                ProtectionRegionRef("test:region/main", 1L),
+                revision,
+                listOf(
+                    authored("test:boundary/entry", fixture.trunk, ViewDirection.AB, 5.0),
+                    authored("test:boundary/straight", fixture.straight, ViewDirection.BA, 5.0),
+                    authored("test:boundary/branch", fixture.branch, ViewDirection.BA, 5.0)
+                )
+            )
+        )
+
+        val validated = assertInstanceOf(
+            ProtectedRouteValidation.Validated::class.java,
+            validator.validate(
+                request(
+                    projected.route,
+                    window(
+                        boundary("test:boundary/entry", fixture.trunk, ViewDirection.AB, 5.0, 5.0),
+                        boundary(
+                            "test:boundary/straight",
+                            fixture.straight,
+                            ViewDirection.AB,
+                            5.0,
+                            15.0
+                        ),
+                        boundary(
+                            "test:boundary/clear",
+                            fixture.straightClearance,
+                            ViewDirection.AB,
+                            5.0,
+                            25.0
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals(1, validated.resources.resources.count { it == turnout })
+    }
+
+    @Test
+    fun `missing route-bound snapshot fails closed instead of behaving like empty`() {
+        val rail = UUID(0L, 30L)
+        val topology = lineTopologyState(revision, rail)
+        val validator = ProtectedRouteRequestValidator(
+            ProtectionRegionCatalog { topology },
+            RouteBoundResourceCatalog { topology }
+        )
+
+        val rejected = assertInstanceOf(
+            ProtectedRouteValidation.Rejected::class.java,
+            validator.validate(
+                request(
+                    RouteSnapshot(
+                        "test:route/plain",
+                        1L,
+                        revision,
+                        listOf(segment(rail, ViewDirection.AB))
+                    ),
+                    null
+                )
+            )
+        )
+
+        assertEquals(ProtectedRouteClaimStatus.STALE_TOPOLOGY, rejected.status)
+    }
+
+    @Test
+    fun `route-bound resource without a protection window requires protection`() {
+        val first = UUID(0L, 31L)
+        val second = UUID(0L, 32L)
+        val topology = topologyState(revision, listOf(first, second), emptyList())
+        val routeBound = RouteBoundResourceCatalog { topology }
+        assertEquals(
+            RouteBoundResourceCatalogUpdate.Published,
+            routeBound.publish(
+                topology,
+                listOf(
+                    RouteBoundResourceBinding(
+                        StableInfrastructureResource("javarailways:diamond", "test:diamond/unprotected"),
+                        listOf(RailSliceRef(first, 2.0, 4.0), RailSliceRef(second, 2.0, 4.0))
+                    )
+                )
+            )
+        )
+        val validator = ProtectedRouteRequestValidator(ProtectionRegionCatalog { topology }, routeBound)
+
+        val rejected = assertInstanceOf(
+            ProtectedRouteValidation.Rejected::class.java,
+            validator.validate(
+                request(
+                    RouteSnapshot(
+                        "test:route/unprotected",
+                        1L,
+                        revision,
+                        listOf(segment(first, ViewDirection.AB))
+                    ),
+                    null
+                )
+            )
+        )
+
         assertEquals(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, rejected.status)
     }
 
@@ -265,6 +461,16 @@ class ProtectedRouteRequestValidatorTest {
     private fun validator(
         topology: TopologyState,
         vararg definitions: ProtectionRegionDefinition
+    ): ProtectedRouteRequestValidator = validator(
+        topology,
+        emptyRouteBoundCatalog(topology),
+        *definitions
+    )
+
+    private fun validator(
+        topology: TopologyState,
+        routeBoundResources: RouteBoundResourceCatalog,
+        vararg definitions: ProtectionRegionDefinition
     ): ProtectedRouteRequestValidator {
         val catalog = ProtectionRegionCatalog { topology }
         val provider = object : ProtectionRegionProvider {
@@ -274,8 +480,13 @@ class ProtectedRouteRequestValidatorTest {
                 definitions.asList()
         }
         assertEquals(ProtectionRegionCatalogStatus.REGISTERED, catalog.register(provider).status)
-        return ProtectedRouteRequestValidator(catalog)
+        return ProtectedRouteRequestValidator(catalog, routeBoundResources)
     }
+
+    private fun emptyRouteBoundCatalog(topology: TopologyState) =
+        RouteBoundResourceCatalog { topology }.also { catalog ->
+            assertEquals(RouteBoundResourceCatalogUpdate.Published, catalog.publish(topology, emptyList()))
+        }
 
     private fun request(route: RouteSnapshot, window: ProtectedRouteWindow?) = ProtectedRouteRequest(
         "test:request/main",

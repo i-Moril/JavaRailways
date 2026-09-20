@@ -41,6 +41,7 @@ class TopologyRouteProjectorTest {
         assertEquals(25.0, projected.occurrences.last().routeEndMeters)
         assertTrue(projected.turnoutTraversals.isEmpty())
         assertSame(route, projected.route)
+        assertSame(topology, projected.topology)
     }
 
     @Test

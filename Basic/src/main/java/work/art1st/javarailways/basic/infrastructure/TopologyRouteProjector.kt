@@ -46,19 +46,22 @@ internal data class ProjectedTurnoutTraversal(
 /** Immutable result of validating one frozen route against exactly one topology root. */
 @ConsistentCopyVisibility
 internal data class ProjectedTopologyRoute private constructor(
-    val topologyRevision: Long,
+    val topology: TopologyState,
     val route: RouteSnapshot,
     val occurrences: List<ProjectedRouteOccurrence>,
     val turnoutTraversals: List<ProjectedTurnoutTraversal>
 ) {
+    val topologyRevision: Long
+        get() = topology.revision
+
     companion object {
         fun create(
-            topologyRevision: Long,
+            topology: TopologyState,
             route: RouteSnapshot,
             occurrences: Collection<ProjectedRouteOccurrence>,
             turnoutTraversals: Collection<ProjectedTurnoutTraversal>
         ): ProjectedTopologyRoute = ProjectedTopologyRoute(
-            topologyRevision = topologyRevision,
+            topology = topology,
             route = route,
             occurrences = java.util.List.copyOf(occurrences),
             turnoutTraversals = java.util.List.copyOf(turnoutTraversals)
@@ -126,7 +129,7 @@ internal object TopologyRouteProjector {
         }
         return TopologyRouteProjectionResult.Projected(
             ProjectedTopologyRoute.create(
-                topologyRevision = topology.revision,
+                topology = topology,
                 route = route,
                 occurrences = occurrences,
                 turnoutTraversals = turnoutTraversals

@@ -2,7 +2,7 @@
 
 ## Pre-implementation contract freeze
 
-版本化铁路图合同见[`versioned-operational-topology.md`](../../spec/javarailways/core/versioned-operational-topology.md)，保护区域及进路准入合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先建立唯一`TopologyState`，再满足region graph cut、coherent observation stamp、SimpleATO frozen route、Basic一次路线验证与唯一资源集合、claim→turnout commit→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
+Core版本化铁路图合同见[`versioned-operational-topology.md`](../../spec/javarailways/core/versioned-operational-topology.md)，SimpleATO选路与授权客户端合同见[`operational-routing-and-authority.md`](../../spec/javarailways/simpleato/operational-routing-and-authority.md)，Basic保护区域及进路准入合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先建立唯一`TopologyState`，再满足region graph cut、coherent observation stamp、SimpleATO frozen route、Basic一次路线验证与唯一资源集合、claim→turnout commit→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
 
 实现顺序固定为：版本化topology state与旧图adapter → overlay projection与region catalog迁移 → SimpleATO topology-bound frozen route → Basic route validation/claim assembly → atomic admission transaction → tail-release/recovery → Dispatcher与`MANUAL_ROUTED`迁移。前一层合同测试未通过时不得开始后一层迁移。
 
@@ -19,14 +19,14 @@ Core structural edit
   -> Core occupancy publication drives Basic tail release
 ```
 
-三个non-trivial机制各有唯一owner spec：Core[版本化铁路拓扑](../../spec/javarailways/core/versioned-operational-topology.md)定义二度链归一化、rail-slice位置映射和原子publication；Basic[保护区域与进路准入](../../spec/javarailways/basic/protected-route-admission.md)定义boundary graph cut、冻结路线线性验证/资源投影、closure编译及尾部释放状态机；本页只说明它们如何串联，不复制算法细节。
+三个non-trivial机制各有唯一owner spec：Core[版本化铁路拓扑](../../spec/javarailways/core/versioned-operational-topology.md)定义二度链归一化、rail-slice位置映射和原子publication；SimpleATO[运营选路与行车授权](../../spec/javarailways/simpleato/operational-routing-and-authority.md)定义运营overlay、对Basic保护区域观察的消费、冻结路线生成、准入客户端和单一列车保护管线；Basic[保护区域与进路准入](../../spec/javarailways/basic/protected-route-admission.md)定义`ProtectionRegionDefinition`、boundary graph cut、冻结路线线性验证、route-bound resource catalog、唯一资源集合及尾部释放状态机。本页只说明它们如何串联，不复制算法细节。
 
 ## Public service surface
 
 The exact type names may be refined during implementation, but the contract should have three focused capabilities rather than one unrestricted facade:
 
 - `RailwayObservationService`: immutable, epoch-tagged world/train/topology observations after physics publication.
-- `RouteResourceService`: compile, atomically claim, confirm, inspect, and release route-resource closures containing rail intervals, turnout selections, route-bound crossings, and clearance obligations.
+- `RouteResourceService`: validate, atomically claim, confirm, inspect, and release routes containing rail intervals, turnout selections, route-bound crossings, and clearance obligations.
 - `TrainRestrictionService`: namespaced, revisioned movement-authority, stop, and speed constraints enforced by the active train protection/controller layer.
 - `InfrastructureLeaseService`: shared revisioned configuration leases and mutation guards for infrastructure referenced by applied operational plans.
 
@@ -46,7 +46,7 @@ Route compilation no longer inserts boundaries from each `TurnoutRequirement.pro
 
 Turnout mutation is centralized behind the host service. The public read model may expose selected connectivity, but automatic callers cannot directly call a mutable `selectNextRail` path. A distinct manual operation checks physical train occupancy and active route claims before applying an operator-selected branch; it creates no route grant or movement authority. `MANUAL_ROUTED` remains automatic route assistance and therefore requires the same protected window as fully automatic operation, whereas `FULL_MANUAL` creates no new route request.
 
-A diamond resource binds anchors on two otherwise unchanged route edges to one exclusive conflict identity. The graph contains no cross-line continuation and no selectable diamond branch. Detection runs in topology-edit transactions: spatial lookup produces candidates, exact geometry and vertical-clearance checks distinguish an at-grade conflict from non-conflicting or grade-separated geometry, and the committed binding advances topology revision.
+A diamond resource binds anchors on two otherwise unchanged route edges to one exclusive conflict identity. The graph contains no cross-line continuation and no selectable diamond branch. Basic's world-local route-bound resource catalog publishes complete snapshots bound to an exact `TopologyState` root; unavailable or stale snapshots reject admission instead of behaving like empty catalogs. Detection runs in topology-edit transactions: spatial lookup produces candidates, exact geometry and vertical-clearance checks distinguish an at-grade conflict from non-conflicting or grade-separated geometry, and the committed binding advances topology revision.
 
 Release uses the train's complete occupied intervals and region boundary progress. A resource becomes releasable only after the intended train was observed entering and later fully clears the relevant conflict/release envelope; the window completes only when the tail crosses its exit. Administrative cancellation and plugin-disable behavior are separate explicit operations.
 

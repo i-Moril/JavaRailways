@@ -15,7 +15,7 @@
 | [runtime publication](./runtime-publication.md) | 改 coordinator、ticket、epoch、TickManager、mailbox | physics/generic Tick 顺序与成功边界 |
 | [curve geometry](./curve-geometry.md) | 改 `Curve`/`PrimeCurve` 或 AB/BA 数值转换 | curve 输入输出、米制弧长与 surgery |
 | [rail topology 与 occupancy](./rail-topology-and-occupancy.md) | 改 connection、split/merge/remove、占用 | topology transaction、swept interval、release |
-| [版本化铁路拓扑](./versioned-operational-topology.md) | 改寻路图、结构节点、拓扑 snapshot、运营 overlay 或route-bound资源投影 | 唯一 immutable state、edge/node 归一化、SimpleATO/Basic 职责 |
+| [版本化铁路拓扑](./versioned-operational-topology.md) | 改寻路图、结构节点、拓扑 snapshot 或外部 rail-slice 引用 | 唯一 immutable state、edge/node 归一化与原子 publication |
 | [train physics](./train-physics.md) | 改 consist movement、collision、derail、reverse、结构生命周期 | 列车物理与两阶段碰撞 |
 | [train controller](./train-controller.md) | 实现/替换 controller 或 command | `TrainController`/`ControlCommand` worker contract |
 | [render publication](./render-publication.md) | 增加 frame 字段或平台消费 | value frame、revision、latest mailbox |

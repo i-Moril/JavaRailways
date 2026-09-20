@@ -7,7 +7,7 @@
 | 模块 | 主要职责 | 关键证据 |
 | --- | --- | --- |
 | `Core` | 平台无关物理、车辆、轨道、事件、Tick 与底层 API | `Core/src/main/java/work/art1st/javarailways/core/api/`、`Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt` |
-| `Basic` | 当前承载曲线、寻路、安全、线路、ATO、时刻表及扩展 API；重构目标只保留平台无关底层机制、拓扑资源校验与通用算法 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
+| `Basic` | 当前承载曲线、寻路、安全、线路、ATO、时刻表及扩展 API；重构目标保留平台无关底层机制、保护区域基础设施定义、拓扑资源校验与通用算法 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
 | `ConfigLib` | kotlinx.serialization 的持久化代理辅助 | `ConfigLib/src/main/kotlin/work/art1st/configLib/persistence/Persistence.kt` |
 | `Annotation` | 独立 KSP 代码生成实验 | `Annotation/src/main/kotlin/work/art1st/javarailways/annotation/processor/PersistentByProcessor.kt` |
 | `BukkitPlugin` | Paper/Folia composition、命令/工具、渲染、世界生命周期与持久化 | `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt` |
@@ -17,7 +17,7 @@
 
 `docs-site` 不在 Gradle `include` 中；它由 `.gitmodules` 声明为独立 Git submodule。
 
-`SimpleATO`与`SimpleATOBukkit`是本次信号系统重构的目标模块，尚未进入`settings.gradle`，因此不能写成当前已存在能力。迁移完成后的ownership是：`SimpleATO`拥有ATO、运行方向、Destination/Station/Depot/Line/Timetable、运营寻路、保护区域/闭塞/信号抽象；`SimpleATOBukkit`拥有其Bukkit适配、渲染、RailObjectWand及JS/Java扩展加载；`BukkitPlugin`只保留RailWand、手动驾驶、world/composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得先制造两个运行owner。
+`SimpleATO`与`SimpleATOBukkit`是本次信号系统重构的目标模块，尚未进入`settings.gradle`，因此不能写成当前已存在能力。迁移完成后的ownership是：`Basic`保留保护区域定义、拓扑校验与资源准入；`SimpleATO`拥有ATO、运行方向、Destination/Station/Depot/Line/Timetable、运营寻路、闭塞/信号抽象以及保护区域的运营消费，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`拥有其Bukkit适配、渲染、RailObjectWand及JS/Java扩展加载，并通过Basic API编辑保护区域；`BukkitPlugin`只保留RailWand、手动驾驶、world/composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得先制造两个运行owner。
 
 ## 依赖方向
 

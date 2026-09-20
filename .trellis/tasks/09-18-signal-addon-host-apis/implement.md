@@ -13,6 +13,7 @@
 - [x] Require explicit user/design review before adding compatibility, automatic repair, legacy-data interpretation, or migration behavior; default to strict current-model validation.
 - [x] Freeze protection-region graph-cut, direction-boundary and non-overlap contracts.
 - [x] Freeze one authoritative immutable topology state, normalized node/edge model, overlay boundary and snapshot semantics.
+- [x] Create the target SimpleATO owner spec for operational overlays, frozen-route selection, admission-client behavior and the single train-protection pipeline; keep Core and Basic mechanisms in their own specs.
 - [x] Freeze SimpleATO topology-bound route versus Basic validation and single claim-resource-set responsibilities.
 - [x] Document module working model plus topology normalization, graph-cut, single-pass frozen-route validation/resource collection and tail-release internal mechanisms.
 - [x] Freeze coherent observation/region/topology revision and authoritative resource-validation contracts.
@@ -30,6 +31,7 @@
   - [x] Basic internal route projection validates one frozen `RouteSnapshot` against `TopologyState` in one linear pass, emits immutable edge occurrences and derives turnout node/from/to traversals; protection-window validation reuses this projection. Public request shape, route-bound diamond index and closure compilation remain.
   - [x] Turnout traversals derive one direction-independent `javarailways:turnout` resource identity from the sorted persistent endpoint set; revision-local topology node IDs remain validation-only. Route validation and diamond identities remain.
   - [x] Route validation clips canonical rail intervals from entry through exit clearance, adds protected turnout resources to the one final set, and rejects uncovered turnouts before registry mutation. Projection is temporary validation state; diamond/occupancy/selection/contributor closure remains, so automatic callers are not migrated yet.
+  - [x] Freeze the Basic-owned route-bound resource catalog contract: complete snapshots bind one exact topology root, rail-indexed anchors map either traversal side to one stable resource, and stale/unavailable indexes fail closed. Runtime catalog and diamond detection remain.
 - [ ] Admission transaction: occupancy validation, one atomic claim, all-turnout apply/rollback and typed results. No Dispatcher migration.
 - [ ] Release/recovery: entry observation, tail-clear slices, atomic footprint shrink, provider-disable and reload fail-closed behavior.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.

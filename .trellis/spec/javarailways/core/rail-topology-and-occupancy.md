@@ -12,8 +12,8 @@
 - `CoreRail`拥有canonical curve与AB/BA views；迁移期间`RailView.nextRails`是Core内部physical connection编辑模型，发布给consumer的authoritative连通结构是同一transaction产生的`TopologyState`；`nextActiveRail`是runtime selected branch，不进入structural state。
 - Basic `allowedDirection`/route allocation不是Core physical topology。
 - structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先await current `PhysicsTicket`，再持write lock；expensive curve build在transaction外。
-- outer structural transaction 释放 write lock 前只递增一次 `topologyRevision`；nested transaction 不重复递增。直接 add/remove rail 也递增一次。
-- transaction exception不自动rollback，并保守递增 `topologyRevision`；上层必须在第一次mutation前capture undo并恢复Core + Basic metadata/destination。
+- outer structural transaction在释放write lock前比较进入/退出时的rail identity与structural adjacency；只有成功且结构确实变化时才递增一次`topologyRevision`。nested transaction不重复递增，直接add/remove rail也进入同一边界；成功no-op与完整rollback不发布新revision。
+- transaction exception不自动rollback。若异常前结构未变化，revision不变且world仍可用；若结构已经变化，revision仍保持旧值、world topology进入`RailTopologyHealth.Faulted`并Stall physics，禁止继续发布world frame或执行新结构事务，直到reload/recovery。fault record只保留稳定reason、最后成功revision、异常类型和消息，不长期持有原始`Throwable`；嵌套失败只存在于当前`RailTopologyTransactionContext`。不得把失败后的部分结构伪装成一个正常新revision。
 - `removeRail`检查target及affected rails的full train placement envelope，修复links/spatial index后移除。
 - `publishWorldFrame` 持 topology read lock 同时捕获 `topologyRevision` 与已发布列车 frames，因此不会观察到 structural transaction 的中间状态。
 
@@ -38,7 +38,8 @@ data class RailInterval(
 | topology edit有in-flight physics | await exact ticket后进write transaction | await前不改rail |
 | nested structural transaction | 由 outer transaction 统一发布 | topology revision 只递增一次 |
 | affected rail有body occupancy | fail-fast | rail/link/index不变 |
-| action中途失败 | revision 仍递增，上层rollback到capture | 不依赖world自动rollback |
+| action失败且结构未变化/已完整rollback | revision不变，原异常传播 | world保持可用 |
+| action失败且结构已经变化 | revision不变，topology fault + physics Stall | 禁止frame publication和新结构事务，等待reload/recovery |
 | world frame 与 topology edit 并发 | reader 等待 write transaction 完成 | frame 携带完成后的 revision，不暴露中间图 |
 | release detector未见过占用 | `BEFORE_OCCUPANCY` | 不release |
 | overlap出现 | `OCCUPIED` | 保留claim |

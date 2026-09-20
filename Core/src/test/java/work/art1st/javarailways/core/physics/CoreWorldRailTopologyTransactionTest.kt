@@ -4,10 +4,12 @@ import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
@@ -35,7 +37,27 @@ class CoreWorldRailTopologyTransactionTest {
     }
 
     @Test
-    fun `failed outer transaction conservatively invalidates topology revision`() {
+    fun `runtime branch selection does not publish a structural revision`() {
+        val world = createTestWorld()
+        val source = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+        val first = CoreRail(world, straightCurve(10.0, 20.0), mutableListOf(), mutableListOf())
+        val second = CoreRail(world, straightCurve(20.0, 30.0), mutableListOf(), mutableListOf())
+
+        world.railTopologyTransaction {
+            source.viewAB.mutableNextRails.addAll(listOf(first.viewAB, second.viewAB))
+            source.viewAB.activeRail = first.viewAB
+        }
+        val structuralRevision = world.topologyRevision
+
+        world.railTopologyTransaction {
+            source.viewAB.activeRail = second.viewAB
+        }
+
+        assertEquals(structuralRevision, world.topologyRevision)
+    }
+
+    @Test
+    fun `failed transaction without structural mutation keeps revision and world usable`() {
         val world = createTestWorld()
         val before = world.topologyRevision
 
@@ -43,7 +65,56 @@ class CoreWorldRailTopologyTransactionTest {
             world.railTopologyTransaction<Unit> { error("partial structural commit") }
         }
 
-        assertEquals(before + 1L, world.topologyRevision)
+        assertEquals(before, world.topologyRevision)
+        assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
+
+        world.railTopologyTransaction { }
+        assertEquals(before, world.topologyRevision)
+    }
+
+    @Test
+    fun `failed transaction after structural mutation keeps revision and stalls world`() {
+        val world = createTestWorld()
+        val before = world.topologyRevision
+
+        assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction {
+                CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+                error("partial structural commit")
+            }
+        }
+
+        assertEquals(before, world.topologyRevision)
+        assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
+        assertThrows(IllegalStateException::class.java) { world.publishWorldFrame(0L) }
+        val editFailure = assertThrows(RailTopologyFaultedException::class.java) {
+            world.railTopologyTransaction { }
+        }
+        assertEquals(
+            RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,
+            editFailure.fault.reason
+        )
+        assertEquals(before, editFailure.fault.lastPublishedRevision)
+        assertEquals(IllegalStateException::class.qualifiedName, editFailure.fault.failureType)
+        assertEquals("partial structural commit", editFailure.fault.failureMessage)
+    }
+
+    @Test
+    fun `caught nested transaction failure aborts outer publication`() {
+        val world = createTestWorld()
+        val before = world.topologyRevision
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction {
+                runCatching {
+                    world.railTopologyTransaction<Unit> { error("nested failure") }
+                }
+            }
+        }
+
+        assertTrue(failure.message.orEmpty().contains("nested rail topology transaction failed"))
+        assertEquals(before, world.topologyRevision)
+        assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
     }
 
     @Test

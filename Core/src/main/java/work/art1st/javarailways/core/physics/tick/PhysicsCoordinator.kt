@@ -232,6 +232,21 @@ class PhysicsCoordinator(
 
     fun latestControllerDurationsNanos(): Map<String, Long> = lastControllerNanos
 
+    /**
+     * Fail closed after a host-side invariant breach outside the normal epoch pipeline.
+     * The caller owns recovery; this coordinator will not publish another physics epoch.
+     */
+    internal fun stall(message: String, cause: Throwable? = null): PhysicsStalledException {
+        val failure = PhysicsStalledException(message, cause)
+        synchronized(stateLock) {
+            if (status == PhysicsCoordinatorStatus.CLOSED) return failure
+            status = PhysicsCoordinatorStatus.STALLED
+            inFlight?.completion?.completeExceptionally(failure)
+            inFlight = null
+        }
+        return failure
+    }
+
     /** Called by a train worker before movement; collision resolution is applied next epoch. */
     @OptIn(AsyncEventApi::class)
     internal fun detectSweptCollision(train: CoreTrain): Boolean {

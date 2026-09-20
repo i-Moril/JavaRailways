@@ -98,7 +98,7 @@ data class RouteBoundInfrastructureResource(
 
 ### 5.1 唯一版本与发布
 
-每次 structural transaction 基于当前 state 构造新版本并原子发布；revision 严格递增。实现可以让未变化的 immutable maps、nodes 和 edges 结构共享（copy-on-write），不得为每次请求深拷贝整图。读者持有旧 state 时内容永不变化；需要当前性时显式比较 revision。
+每次 structural transaction 基于当前 state 构造候选版本；只有成功且结构确实变化时才原子发布`revision + 1`。成功no-op、完整rollback及失败prepare都保持root与revision不变。若旧的live-action seam在抛错前已经改变结构且Core不能证明回滚完整，world必须进入topology fault并Stall physics，禁止发布frame或继续编辑，不能通过增加revision把部分mutation包装成正常新状态。实现可以让未变化的 immutable maps、nodes 和 edges 结构共享（copy-on-write），不得为每次请求深拷贝整图。读者持有旧 state 时内容永不变化；需要当前性时显式比较 revision。
 
 迁移期间 `RailView.nextRails` 可以作为 Core 内部编辑模型或构建新 state 的适配输入，但不得与 `TopologyState` 长期并列为两个可独立修改的 authoritative graph。完成迁移后，所有结构编辑必须在同一 transaction 中产生下一 state；Basic 的保护区域缓存只按 `(topologyRevision, regionRevision)` 派生并可丢弃重建。
 
@@ -164,6 +164,7 @@ Basic 不能只逐项检查“调用方报的资源存在”，否则漏报一�
 ## 9. 必需测试与验证
 
 - state publication：读者永远看到完整旧版或完整新版；同一 transaction 只发布一个 revision；旧 state 内容不变。
+- transaction failure：prepare/no-op/完整rollback不增加revision；mutation后异常保持旧revision并fault/Stall，后续frame与edit均fail closed。
 - graph normalization：二度链折叠、terminus、turnout、纯环anchor、diamond不切edge、rail slice/AB投影往返。
 - edge lookup：累计距离边界、首尾slice、正反方向、二分命中和virtual split不修改published state。
 - diamond：不新增continuation/结构节点、禁止跨线、双anchor共享conflict ID、放置/更新几何检测、resource反向索引与revision失效。

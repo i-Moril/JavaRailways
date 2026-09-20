@@ -18,6 +18,7 @@ import work.art1st.javarailways.core.control.signal.Signal
 import work.art1st.javarailways.core.di.WorldParentContext
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailSpatialIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyQueryResult
@@ -49,6 +50,7 @@ class CoreWorld(
     private val railSpatialIndex = RailSpatialIndex()
     private val railTopologyLock = ReentrantReadWriteLock()
     private val topologyRevisionCounter = AtomicLong()
+    private val railTopologyTransactionContext = ThreadLocal<RailTopologyTransactionContext?>()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
 
@@ -58,6 +60,8 @@ class CoreWorld(
     @Volatile
     private var publishedWorldFrame: RailwayWorldFrameSnapshot =
         RailwayWorldFrameSnapshot.create(0L, 0L, emptyList())
+    @Volatile
+    private var railTopologyHealth: RailTopologyHealth = RailTopologyHealth.Healthy
 
     init {
         trains.values.forEach { train ->
@@ -205,13 +209,16 @@ class CoreWorld(
 
     @MainThread
     internal fun addRail(rail: CoreRail) {
-        val insideTopologyTransaction = railTopologyLock.isWriteLockedByCurrentThread
-        if (!insideTopologyTransaction) awaitCurrentPhysicsEpoch()
-        railTopologyLock.write {
-            rails[rail.id] = rail
-            railSpatialIndex.addRail(rail)
-            if (!insideTopologyTransaction) topologyRevisionCounter.incrementAndGet()
+        if (railTopologyLock.isWriteLockedByCurrentThread) {
+            addRailInTransaction(rail)
+        } else {
+            railTopologyTransaction { addRailInTransaction(rail) }
         }
+    }
+
+    private fun addRailInTransaction(rail: CoreRail) {
+        rails[rail.id] = rail
+        railSpatialIndex.addRail(rail)
     }
 
     /**
@@ -222,23 +229,59 @@ class CoreWorld(
      */
     @MainThread
     fun <T> railTopologyTransaction(action: () -> T): T {
-        val outermost = !railTopologyLock.isWriteLockedByCurrentThread
-        if (outermost) awaitCurrentPhysicsEpoch()
-        return railTopologyLock.write {
-            try {
+        val activeContext = railTopologyTransactionContext.get()
+        if (activeContext != null) {
+            return try {
                 action()
+            } catch (failure: Throwable) {
+                activeContext.recordNestedFailure(failure)
+                throw failure
+            }
+        }
+
+        ensureTopologyHealthy()
+        awaitCurrentPhysicsEpoch()
+        return railTopologyLock.write {
+            ensureTopologyHealthy()
+            val context = RailTopologyTransactionContext(captureRailTopologyFingerprint())
+            railTopologyTransactionContext.set(context)
+            try {
+                val result = action()
+                context.nestedFailure?.let { nestedFailure ->
+                    throw IllegalStateException(
+                        "A nested rail topology transaction failed even though its caller caught the exception",
+                        nestedFailure
+                    )
+                }
+                if (captureRailTopologyFingerprint() != context.before) {
+                    topologyRevisionCounter.incrementAndGet()
+                }
+                result
+            } catch (failure: Throwable) {
+                if (captureRailTopologyFingerprint() != context.before) {
+                    railTopologyHealth = RailTopologyHealth.Faulted(
+                        RailTopologyFault(
+                            reason = RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,
+                            lastPublishedRevision = topologyRevisionCounter.get(),
+                            failureType = failure::class.qualifiedName ?: failure::class.simpleName ?: "unknown",
+                            failureMessage = failure.message
+                        )
+                    )
+                    physicsCoordinator.stall(
+                        "Rail topology transaction failed after structural mutation; reload the world to recover",
+                        failure
+                    )
+                }
+                throw failure
             } finally {
-                // A failed structural commit may have mutated part of the topology before throwing.
-                // Advance before releasing the write lock so a reader cannot observe changed
-                // topology with the preceding revision.
-                if (outermost) topologyRevisionCounter.incrementAndGet()
+                railTopologyTransactionContext.remove()
             }
         }
     }
 
     /**
      * Runtime-only structural topology revision, unrelated to persisted snapshot revisions.
-     * The counter may advance conservatively after a failed or no-op topology transaction.
+     * The counter advances only when a successful outer transaction publishes a changed graph.
      */
     val topologyRevision: Long
         get() = topologyRevisionCounter.get()
@@ -269,43 +312,46 @@ class CoreWorld(
 
     @MainThread
     override fun removeRail(rail: Rail) {
-        val insideTopologyTransaction = railTopologyLock.isWriteLockedByCurrentThread
-        if (!insideTopologyTransaction) awaitCurrentPhysicsEpoch()
-        railTopologyLock.write {
-            val removed = rail as? CoreRail
-            if (removed != null) {
-                val affectedRailIds = buildSet {
-                    add(removed.id)
-                    allRails.asSequence()
-                        .filter { it !== removed }
-                        .filter { candidate ->
-                            candidate.viewAB.nextRails.any { it.rail === removed } ||
-                                candidate.viewBA.nextRails.any { it.rail === removed }
-                        }
-                        .forEach { add(it.id) }
-                }
-                val occupyingTrainIds = occupyingTrainIds(affectedRailIds)
-                require(occupyingTrainIds.isEmpty()) {
-                    "Cannot remove rail ${removed.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
-                }
+        if (railTopologyLock.isWriteLockedByCurrentThread) {
+            removeRailInTransaction(rail)
+        } else {
+            railTopologyTransaction { removeRailInTransaction(rail) }
+        }
+    }
+
+    private fun removeRailInTransaction(rail: Rail) {
+        val removed = rail as? CoreRail
+        if (removed != null) {
+            val affectedRailIds = buildSet {
+                add(removed.id)
                 allRails.asSequence()
                     .filter { it !== removed }
-                    .flatMap { sequenceOf(it.viewAB, it.viewBA) }
-                    .forEach { view ->
-                        val removedWasActive = view.activeRail?.rail === removed
-                        if (removedWasActive) view.activeRail = null
-                        view.mutableNextRails.removeIf { it.rail === removed }
-                        if (removedWasActive) view.activeRail = view.mutableNextRails.firstOrNull()
+                    .filter { candidate ->
+                        candidate.viewAB.nextRails.any { it.rail === removed } ||
+                            candidate.viewBA.nextRails.any { it.rail === removed }
                     }
-                removed.viewAB.activeRail = null
-                removed.viewBA.activeRail = null
-                removed.viewAB.mutableNextRails.clear()
-                removed.viewBA.mutableNextRails.clear()
-                railSpatialIndex.removeRail(removed)
+                    .forEach { add(it.id) }
             }
-            val removedFromWorld = rails.remove(rail.id) != null
-            if (removedFromWorld && !insideTopologyTransaction) topologyRevisionCounter.incrementAndGet()
+            val occupyingTrainIds = occupyingTrainIds(affectedRailIds)
+            require(occupyingTrainIds.isEmpty()) {
+                "Cannot remove rail ${removed.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
+            }
+            allRails.asSequence()
+                .filter { it !== removed }
+                .flatMap { sequenceOf(it.viewAB, it.viewBA) }
+                .forEach { view ->
+                    val removedWasActive = view.activeRail?.rail === removed
+                    if (removedWasActive) view.activeRail = null
+                    view.mutableNextRails.removeIf { it.rail === removed }
+                    if (removedWasActive) view.activeRail = view.mutableNextRails.firstOrNull()
+                }
+            removed.viewAB.activeRail = null
+            removed.viewBA.activeRail = null
+            removed.viewAB.mutableNextRails.clear()
+            removed.viewBA.mutableNextRails.clear()
+            railSpatialIndex.removeRail(removed)
         }
+        rails.remove(rail.id)
     }
 
     /** Rebuilt by the physics Coordinator after all train states are published. */
@@ -321,6 +367,7 @@ class CoreWorld(
      */
     internal fun publishWorldFrame(physicsEpoch: Long): RailwayWorldFrameSnapshot {
         val frame = railTopologyLock.read {
+            ensureTopologyHealthy()
             RailwayWorldFrameSnapshot.create(
                 physicsEpoch = physicsEpoch,
                 topologyRevision = topologyRevisionCounter.get(),
@@ -329,6 +376,43 @@ class CoreWorld(
         }
         publishedWorldFrame = frame
         return frame
+    }
+
+    private fun ensureTopologyHealthy() {
+        when (val health = railTopologyHealth) {
+            RailTopologyHealth.Healthy -> Unit
+            is RailTopologyHealth.Faulted -> throw RailTopologyFaultedException(health.fault)
+        }
+    }
+
+    private fun captureRailTopologyFingerprint(): RailTopologyFingerprint =
+        RailTopologyFingerprint(
+            rails.values
+                .sortedBy { it.id.toString() }
+                .map { rail ->
+                    RailTopologyFingerprint.Entry(
+                        rail = rail,
+                        nextAtA = rail.viewBA.mutableNextRails.toList(),
+                        nextAtB = rail.viewAB.mutableNextRails.toList()
+                    )
+                }
+        )
+
+    private data class RailTopologyFingerprint(val rails: List<Entry>) {
+        data class Entry(
+            val rail: CoreRail,
+            val nextAtA: List<RailView>,
+            val nextAtB: List<RailView>
+        )
+    }
+
+    private class RailTopologyTransactionContext(val before: RailTopologyFingerprint) {
+        var nestedFailure: Throwable? = null
+            private set
+
+        fun recordNestedFailure(failure: Throwable) {
+            if (nestedFailure == null) nestedFailure = failure
+        }
     }
 
     /** Latest complete immutable world frame. Initial value is epoch zero with no trains. */

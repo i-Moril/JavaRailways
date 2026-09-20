@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`PARTIAL`；已有revision-scoped public read-only `TopologyState`、纯归一化构建器及`CoreWorld`原子publication；尚未迁移Basic/SimpleATO，也尚未实现edge-distance查询层。
+- **Status**：`PARTIAL`；已有revision-scoped public read-only `TopologyState`、纯归一化构建器及`CoreWorld`原子publication；Basic保护区域与内部冻结路线投影已读取该state，SimpleATO迁移、route-bound非结构资源索引及通用edge-distance查询层尚未实现。
 - **Owner**：Core/host拥有物理结构及其publication；SimpleATO和Basic只能消费指定revision。
 - **Non-goals**：本页不定义运营寻路策略、信号显示规则、claim公平性或持久化schema。
 

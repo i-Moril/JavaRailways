@@ -1,12 +1,10 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -43,9 +41,23 @@ internal object ProtectionRegionWindowResolver {
         topology: ProtectionRegionTopology,
         resolved: ResolvedProtectionWindow
     ): ProtectionRegionWindowResolution {
-        val traversal = when (val built = buildTraversal(route, topology)) {
-            is TraversalBuildResult.Built -> built.slices
-            is TraversalBuildResult.Rejected -> return rejected(built.detail)
+        val traversal = when (
+            val projection = TopologyRouteProjector.project(
+                route = route,
+                topology = topology.topologyState,
+                expectedTopologyRevision = topology.topologyRevision
+            )
+        ) {
+            is TopologyRouteProjectionResult.Projected -> projection.route.occurrences
+            is TopologyRouteProjectionResult.Rejected -> {
+                val reason = when (projection.reason) {
+                    TopologyRouteProjectionRejection.STALE_TOPOLOGY ->
+                        ProtectionRegionWindowRejection.STALE_TOPOLOGY
+                    TopologyRouteProjectionRejection.INVALID_ROUTE ->
+                        ProtectionRegionWindowRejection.INVALID_ROUTE
+                }
+                return ProtectionRegionWindowResolution.Rejected(reason, projection.detail)
+            }
         }
         validateBoundary(
             resolved.request.entry,
@@ -86,7 +98,7 @@ internal object ProtectionRegionWindowResolver {
     private fun validateBoundary(
         requested: DirectedRouteBoundary,
         region: ResolvedProtectionRegion,
-        traversal: List<RouteTraversalSlice>,
+        traversal: List<ProjectedRouteOccurrence>,
         entering: Boolean
     ): String? {
         val authored = region.definition.boundaries.singleOrNull { it.boundaryId == requested.boundaryId }
@@ -113,7 +125,7 @@ internal object ProtectionRegionWindowResolver {
 
     private fun validateRoutePoint(
         boundary: DirectedRouteBoundary,
-        traversal: List<RouteTraversalSlice>
+        traversal: List<ProjectedRouteOccurrence>
     ): String? {
         val candidates = traversal.filter { slice ->
             slice.segment.railId == boundary.position.railId &&
@@ -123,10 +135,9 @@ internal object ProtectionRegionWindowResolver {
         val matching = candidates.filter { slice ->
             val localOffset = (boundary.routeDistanceMeters - slice.routeStartMeters)
                 .coerceIn(0.0, slice.segment.lengthMeters)
-            val localArc = slice.segment.startArcLengthMeters + localOffset
             val canonicalArc = when (slice.segment.facing) {
-                ViewDirection.AB -> localArc
-                ViewDirection.BA -> slice.railLengthMeters - localArc
+                ViewDirection.AB -> slice.canonicalStartAbMeters + localOffset
+                ViewDirection.BA -> slice.canonicalStartAbMeters - localOffset
             }
             samePosition(canonicalArc, boundary.position.arcLengthInAbMeters) &&
                 slice.segment.facing == boundary.position.facing
@@ -140,13 +151,13 @@ internal object ProtectionRegionWindowResolver {
 
     private fun interiorIntervals(
         region: ResolvedProtectionRegion,
-        traversal: List<RouteTraversalSlice>
+        traversal: List<ProjectedRouteOccurrence>
     ): List<RouteDistanceInterval> {
         val interiorByRail = region.interior.groupBy(ProtectionRegionInteriorSlice::railId)
         val intersections = ArrayList<RouteDistanceInterval>()
         for (routeSlice in traversal) {
-            val canonicalStart = routeSlice.canonicalStartMeters
-            val canonicalEnd = routeSlice.canonicalEndMeters
+            val canonicalStart = routeSlice.canonicalStartAbMeters
+            val canonicalEnd = routeSlice.canonicalEndAbMeters
             val routeLow = min(canonicalStart, canonicalEnd)
             val routeHigh = max(canonicalStart, canonicalEnd)
             for (interior in interiorByRail[routeSlice.segment.railId].orEmpty()) {
@@ -180,52 +191,6 @@ internal object ProtectionRegionWindowResolver {
         return merged
     }
 
-    private fun buildTraversal(
-        route: RouteSnapshot,
-        topology: ProtectionRegionTopology
-    ): TraversalBuildResult {
-        val slices = ArrayList<RouteTraversalSlice>(route.segments.size)
-        var routeDistance = 0.0
-        for (segment in route.segments) {
-            val rail = topology.rails[segment.railId]
-                ?: return TraversalBuildResult.Rejected("route references missing rail ${segment.railId}")
-            if (segment.endArcLengthMeters > rail.lengthMeters + Curve.TOLERANCE) {
-                return TraversalBuildResult.Rejected("route segment exceeds rail ${segment.railId}")
-            }
-            slices += RouteTraversalSlice(
-                segment = segment,
-                railLengthMeters = rail.lengthMeters,
-                routeStartMeters = routeDistance,
-                routeEndMeters = routeDistance + segment.lengthMeters
-            )
-            routeDistance += segment.lengthMeters
-        }
-        for ((current, next) in slices.zipWithNext()) {
-            if (!samePosition(current.segment.endArcLengthMeters, current.railLengthMeters) ||
-                !samePosition(next.segment.startArcLengthMeters, 0.0)
-            ) {
-                return TraversalBuildResult.Rejected(
-                    "route transition ${current.segment.railId} -> ${next.segment.railId} is not at rail endpoints"
-                )
-            }
-            val rail = topology.rails.getValue(current.segment.railId)
-            val connections = when (current.segment.facing) {
-                ViewDirection.AB -> rail.connectionsFromB
-                ViewDirection.BA -> rail.connectionsFromA
-            }
-            if (connections.none {
-                    it.railId == next.segment.railId &&
-                        it.enteringFacing == next.segment.facing
-                }
-            ) {
-                return TraversalBuildResult.Rejected(
-                    "route rails are not connected: ${current.segment.railId} -> ${next.segment.railId}"
-                )
-            }
-        }
-        return TraversalBuildResult.Built(slices)
-    }
-
     private fun rejected(detail: String) = ProtectionRegionWindowResolution.Rejected(
         ProtectionRegionWindowRejection.INVALID_ROUTE,
         detail
@@ -239,32 +204,9 @@ internal object ProtectionRegionWindowResolver {
         ViewDirection.BA -> ViewDirection.AB
     }
 
-    private data class RouteTraversalSlice(
-        val segment: RouteSegmentSnapshot,
-        val railLengthMeters: Double,
-        val routeStartMeters: Double,
-        val routeEndMeters: Double
-    ) {
-        val canonicalStartMeters: Double
-            get() = when (segment.facing) {
-                ViewDirection.AB -> segment.startArcLengthMeters
-                ViewDirection.BA -> railLengthMeters - segment.startArcLengthMeters
-            }
-
-        val canonicalEndMeters: Double
-            get() = when (segment.facing) {
-                ViewDirection.AB -> segment.endArcLengthMeters
-                ViewDirection.BA -> railLengthMeters - segment.endArcLengthMeters
-            }
-    }
-
     private data class RouteDistanceInterval(
         val startMeters: Double,
         val endMeters: Double
     )
 
-    private sealed interface TraversalBuildResult {
-        data class Built(val slices: List<RouteTraversalSlice>) : TraversalBuildResult
-        data class Rejected(val detail: String) : TraversalBuildResult
-    }
 }

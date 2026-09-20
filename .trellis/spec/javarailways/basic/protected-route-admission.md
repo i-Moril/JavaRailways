@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`TRANSITIONAL`；region catalog、graph cut和单window validation已存在，通用resource-contribution closure、frozen-route validator/resource projector、physical plan compiler、atomic turnout admission与release/recovery尚未实现。
+- **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validator/resource projector和单window validation已存在，通用resource-contribution closure、route-bound非结构资源索引、physical plan compiler、atomic turnout admission与release/recovery尚未实现。
 - **Owner**：Basic拥有验证、资源投影与执行机制；SimpleATO拥有保护区域authoring与运营路径选择；Core拥有结构拓扑和物理观察。
 - **Non-goals**：本页不定义信号aspect、JS策略、玩家编辑UI或替SimpleATO选择运营路径。
 
@@ -41,7 +41,7 @@ provider publishes boundary definition for topology revision T
 
 ### 3.2 route验证、资源投影与resource dependency closure
 
-validator按route顺序推进单一edge traversal，在每个结构节点验证入/出port形成合法continuation，并由此派生turnout identity与目标selection；rail/edge interval反向索引发现绑定在路径上的diamond等非结构资源。Basic只能编译调用方已选路径，不能进行候选路径搜索，也不接收caller枚举的第二份资源清单。
+当前内部`TopologyRouteProjector`已按route顺序推进单一edge traversal：它把每个facing-local rail segment通过`railProjection`换算为canonical AB及edge distance，验证同edge连续性或结构节点入/出port，并由合法continuation派生同一revision-local turnout node/from/to traversal。edge方向由segment facing与rail slice的AB朝向组合确定，不能用投影起终点的数值差推断，否则合法的零长度segment没有确定方向。结果是不可变occurrence列表，不读取live selection、不搜索候选路径；`ProtectionRegionWindowResolver`复用该结果而不再通过region adjacency独立解释连接。后续rail/edge interval反向索引仍需在同一pass中加入diamond等非结构资源。Basic只能编译调用方已选路径，也不接收caller枚举的第二份资源清单。
 
 编译器从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与派生的受控资源直接加入footprint；遇到`RouteResourceContributor`时，将其选定traversal的资源、selection、physical locking envelope和clearance obligation合入计划。保护区域入口贡献至少到`regionExitDistance + occupiedLengthMeters + clearanceMargin`的义务。若扫描尚未达到该义务就遇到另一个贡献者，继续合入并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许贡献者反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
@@ -269,7 +269,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 ## 9. 必需测试及断言点
 
 - region graph tests：多入口咽喉得到唯一内部；inside seeds不连通、outside回连、内部重叠和歧义boundary被拒绝；合法相邻区域允许共享物理边界。
-- route validator/projector tests：零/一/多turnout、route-bound diamond resource、正反向stable identity、BA canonical转换、already-aligned turnout、非法continuation、断裂route、resource index缺失、route离开/重入和重复occurrence。
+- route validator/projector tests：零/一/多turnout、route-bound diamond resource、正反向stable identity、BA canonical转换、零长度segment的deterministic方向、already-aligned turnout、非法continuation、断裂route、resource index缺失、route离开/重入和重复occurrence。
 - closure tests：精确最小列车长度、短1个容差单位、断开route、出口后固定闭塞整段提升、出口后移动闭塞精确interval/MA下限、连续两个保护区域、贡献链扩展、合法authority endpoint选择与循环检测；断言每个occurrence至多处理一次且失败不产生claim。
 - epoch tests：physics epoch、topology revision、region revision任一stale均fail closed；解析前后revision变化不穿透。
 - transaction tests：resource conflict、physical occupancy、第二个turnout apply失败、rollback成功/失败；断言selection、claim和authority三者满足矩阵。

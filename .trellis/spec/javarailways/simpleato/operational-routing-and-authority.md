@@ -4,7 +4,7 @@
 
 - **Status**：`TARGET`；现有 ATO、路线、时刻表与运营对象仍在 Basic，目标 `SimpleATO` Gradle 模块尚未创建。
 - **Owner**：SimpleATO 拥有运营路线选择、运行方向、任务/时刻表决策和列车保护约束合成。
-- **Inputs**：Core 发布的不可变 `TopologyState` 与同 epoch 物理观察；SimpleATO 自己发布的运营 overlay/plan revision；Basic 发布的保护区域观察与资源准入结果。
+- **Inputs**：Core 发布的不可变 `TopologyState` 与同 epoch 物理观察；SimpleATO 自己发布的运营 overlay/plan revision；Basic 发布的统一`AuthoritySection`观察与资源准入结果。
 - **Outputs**：一份绑定 topology revision 的冻结路线、资源准入请求，以及交给控制器的统一 authority/stop/speed constraint 结果。
 - **Non-goals**：本页不定义 Core 图构建、Basic 资源推导/claim、Bukkit 渲染、信号模型、JS API 或持久化 schema。
 
@@ -33,7 +33,7 @@ SimpleATO 决定“列车准备走哪条路”，Basic 只证明“这条路在�
 
 ### 3.1 运营 overlay 与选路
 
-运行方向、站台/停车点、线路、闭塞区间、信号边界和限速是SimpleATO拥有、并引用Core edge/rail slice的运营overlay，不是另一张可独立修改的物理连通图。保护区域是例外：其definition、boundary graph cut和安全catalog由Basic拥有；SimpleATO只通过统一`AuthoritySection`读取已验证区域状态并将其纳入运营决策。路线起终点落在edge内部时，选路查询使用临时virtual split；不得为了站台或信号永久切分`TopologyState`。
+运行方向、站台/停车点、线路、信号边界和限速是SimpleATO拥有、并引用Core edge/rail slice的运营overlay，不是另一张可独立修改的物理连通图。固定闭塞与保护区域由Basic拥有：Basic发布统一`AuthoritySection`观察，SimpleATO只读取已验证section状态并应用信号/闭塞运用策略。路线起终点落在edge内部时，选路查询使用临时virtual split；不得为了站台或信号永久切分`TopologyState`。
 
 选路输入固定为一个 topology root、一个运营 overlay/plan revision、列车属性和当前运营目标。算法只在 Core 声明的合法 continuation 中搜索，再按方向、线路、车辆能力、停站与计划约束过滤或计权。通用最短路实现可以来自共享算法包，但运营 cost、约束和候选选择由 SimpleATO 拥有。结果必须是一条明确的有向 traversal；不得只给目的地让 Basic 自行寻找可行路线。
 
@@ -47,7 +47,7 @@ SimpleATO 将普通固定闭塞、保护区域和移动闭塞视为统一 author
 - 保护区域从入口到满足出口净空的资源由 Basic 根据冻结路线验证并原子取得；
 - 移动闭塞在没有不可分割区间时允许按路线与制动/跟车约束形成更精细的 authority。
 
-普通闭塞区间与保护区域不得在同一方向上重叠。SimpleATO在应用普通闭塞配置时必须查询Basic的区域catalog并拒绝重叠；这项跨配置检查不转移保护区域ownership。保护区域对信号策略可暴露与普通区间一致的占用、长度和下游限制读取面，但definition、资源推导和claim始终只有Basic一个owner。
+固定闭塞与保护区域不得在同一方向上重叠；Basic在同一个authority-partition transaction中校验并拒绝冲突，SimpleATO不维护第二套section store或重复执行空间校验。两种section向信号策略暴露一致的占用、长度、`canEnter`和下游限制读取面；definition、资源推导和claim始终只有Basic一个owner。
 
 ### 3.3 单一列车保护管线
 

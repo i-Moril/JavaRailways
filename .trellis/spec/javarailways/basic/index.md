@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-当前`Basic/`仍承载平台无关运营逻辑、ATO、Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable/Dispatcher/simulation与Basic snapshot。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：ATO与运营对象会整体迁入`SimpleATO`；Basic长期保留平台无关底层机制、通用图算法、保护区域基础设施定义以及拓扑/资源完整性校验。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`仍承载平台无关运营逻辑、ATO、Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable/Dispatcher/simulation与Basic snapshot。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：ATO与运营对象会整体迁入`SimpleATO`；Basic长期保留平台无关底层机制、通用图算法、固定闭塞/保护区域组成的`AuthoritySection`基础设施层以及拓扑/资源完整性校验。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 

@@ -19,7 +19,7 @@ Core structural edit
   -> Core occupancy publication drives Basic tail release
 ```
 
-三个non-trivial机制各有唯一owner spec：Core[版本化铁路拓扑](../../spec/javarailways/core/versioned-operational-topology.md)定义二度链归一化、rail-slice位置映射和原子publication；SimpleATO[运营选路与行车授权](../../spec/javarailways/simpleato/operational-routing-and-authority.md)定义运营overlay、对Basic保护区域观察的消费、冻结路线生成、准入客户端和单一列车保护管线；Basic[保护区域与进路准入](../../spec/javarailways/basic/protected-route-admission.md)定义`ProtectionRegionDefinition`、boundary graph cut、冻结路线线性验证、route-bound resource catalog、唯一资源集合及尾部释放状态机。本页只说明它们如何串联，不复制算法细节。
+三个non-trivial机制各有唯一owner spec：Core[版本化铁路拓扑](../../spec/javarailways/core/versioned-operational-topology.md)定义二度链归一化、rail-slice位置映射和原子publication；SimpleATO[运营选路与行车授权](../../spec/javarailways/simpleato/operational-routing-and-authority.md)定义运营overlay、对Basic `AuthoritySection`观察的消费、冻结路线生成、准入客户端和单一列车保护管线；Basic[保护区域与进路准入](../../spec/javarailways/basic/protected-route-admission.md)定义固定闭塞/保护区域authority partition、boundary graph cut、冻结路线线性验证、route-bound resource catalog、唯一资源集合及尾部释放状态机。本页只说明它们如何串联，不复制算法细节。
 
 ## Public service surface
 

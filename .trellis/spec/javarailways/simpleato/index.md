@@ -2,9 +2,9 @@
 
 ## 范围与加载条件
 
-本层描述目标 `SimpleATO/` 模块；该 Gradle 模块尚未创建，因此本层所有合同均标为 `TARGET`，不能据此声称运行时已经完成解耦。新增或迁移 ATO、运行方向、Destination、Station、Depot、Line、Timetable、运营寻路、保护区域的运营消费、闭塞区间、信号规则或列车限制仲裁时，必须加载本层。保护区域定义及安全校验由Basic拥有，不属于本层。
+本层描述目标 `SimpleATO/` 模块；该 Gradle 模块尚未创建，因此本层所有合同均标为 `TARGET`，不能据此声称运行时已经完成解耦。新增或迁移 ATO、运行方向、Destination、Station、Depot、Line、Timetable、运营寻路、`AuthoritySection`消费、信号/闭塞运用规则或列车限制仲裁时，必须加载本层。固定闭塞与保护区域定义及其安全校验由Basic拥有，不属于本层。
 
-SimpleATO 只拥有平台无关的运营模型与决策。物理铁路图和列车动力学由 Core 拥有；保护区域定义、资源身份校验、物理占用、原子 claim、道岔执行与尾部释放由 Basic 拥有；Bukkit 命令、RailObjectWand、信号模型渲染和 JS/Java 扩展加载由目标 `SimpleATOBukkit` 拥有。RailObjectWand通过Basic API编辑保护区域，不因此取得领域ownership。
+SimpleATO 只拥有平台无关的运营模型与决策。物理铁路图和列车动力学由 Core 拥有；固定闭塞/保护区域定义、authority partition、资源身份校验、物理占用、原子 claim、道岔执行与尾部释放由 Basic 拥有；Bukkit 命令、RailObjectWand、信号模型渲染和 JS/Java 扩展加载由目标 `SimpleATOBukkit` 拥有。RailObjectWand通过Basic API编辑sections，不因此取得领域ownership。
 
 ## 主题导航
 

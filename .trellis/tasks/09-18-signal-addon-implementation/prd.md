@@ -13,13 +13,13 @@ The first Stage 2 deliverable is the physical extraction into two separately own
 - Build as a distinct Gradle subproject/artifact with its own plugin descriptor and lifecycle.
 - Declare JavaRailways as a required host and compile-only dependency; do not shadow JavaRailways classes.
 - Fail fast with an actionable message when required Stage 1 services are missing or incompatible.
-- Own a world-local store for signal definitions, direction-aware protection-region boundaries, compiled region routes, authority policy, aspects, and renderer state.
-- Persist Signal data in a separate versioned sidecar with stable namespaced IDs, rail UUIDs, canonical AB arc lengths, directions, and explicit references.
+- Own a world-local store for signal definitions, authority policy, aspects, renderer state, and other SimpleATO operational objects. Consume fixed-block/protection-region definitions and compiled section/route observations from Basic public APIs; do not create a second section store.
+- Persist Signal/operations data in a separate versioned sidecar with stable namespaced IDs, rail UUIDs, canonical AB arc lengths, directions, and explicit references. Fixed-block and protection-region definitions remain in the Basic-owned infrastructure persistence boundary.
 - Validate duplicate IDs, missing rails, invalid arc lengths, direction errors, overlapping/conflicting definitions, and orphan references before activation.
 - Derive every permissive aspect from a confirmed host resource allocation and valid train authority.
-- Let players define all interlocking protection regions by placing direction-aware boundaries on rails and selecting the bounded interior. Do not synthesize one protection/stop boundary for every turnout.
-- Validate that cutting all registered gates yields the selected bounded interior, that no unregistered topology escape exists, and that entry-to-exit paths and exit clearances are valid for the requesting train.
-- Compile each request into one all-or-nothing route-resource closure. Denied requests remain outside the entry and own no subset; protection regions contribute their own path resources and minimum tail-clearance obligation, while a generic compiler naturally includes any later contributor reached before all obligations are satisfied.
+- Let players edit fixed blocks and interlocking protection regions through SimpleATOBukkit tools backed by Basic create/update/delete APIs. Do not synthesize one protection/stop boundary for every turnout.
+- Present Basic validation that cutting all registered gates yields the selected bounded interior, that no unregistered topology escape exists, and that entry-to-exit paths and exit clearances are valid for the requesting train; SimpleATOBukkit must not duplicate the graph-cut implementation.
+- Submit one frozen route request to the Basic service, which compiles one all-or-nothing route-resource closure. Denied requests remain outside the entry and own no subset; protection regions contribute their own path resources and minimum tail-clearance obligation, while the host compiler naturally includes any later contributor reached before all obligations are satisfied.
 - Surface host-detected at-grade diamonds as route-bound shared conflict resources rather than connectivity nodes. Players may inspect and diagnose them, but cannot create a line-to-line connection or select them as if they were turnouts.
 - Feed Signal/interlocking restrictions into the host's single train-protection pipeline; do not introduce a Signal-owned per-train forward scanner parallel to ATO perception.
 - Treat missing, stale, corrupt, unavailable, or conflicting state as restrictive.
@@ -44,7 +44,7 @@ The first Stage 2 deliverable is the physical extraction into two separately own
 - [ ] At-grade diamonds are detected/updated outside the runtime tick loop, appear in route resource sets, prevent conflicting passages, and never create a cross-line route.
 - [ ] ATO obeys Signal-owned authority/stop/speed constraints and stops before an unavailable route.
 - [ ] Signal disable, failure, world unload, and stale-state tests prove that authority never widens silently.
-- [ ] Signal configuration round-trips across restart; corrupt and orphaned data is preserved/rejected with actionable diagnostics.
+- [ ] Signal/operations configuration round-trips across restart, while Basic-owned authority-section definitions restore through the host boundary; corrupt and orphaned data is preserved/rejected with actionable diagnostics at its owning boundary.
 - [ ] Authoring supports dry-run validation and creates a recovery point before destructive topology-related migration.
 - [ ] Rendering reflects the authoritative aspect and cleans up every spawned resource.
 - [ ] Unit, integration, packaging, and Folia smoke checks pass.
@@ -53,7 +53,7 @@ The first Stage 2 deliverable is the physical extraction into two separately own
 
 ## Out of scope
 
-- Embedding Signal storage or presentation into JavaRailways snapshots or WebUI.
+- Embedding Signal-specific storage or presentation into JavaRailways snapshots or WebUI. Basic-owned authority-section infrastructure is not Signal storage.
 - Overlapping or nested protection regions in the first release; adjacent no-clearance regions must be merged or compiled as one interlocking group.
 - Multiple national signalling systems in the initial release.
 - Permanent runtime compatibility for arbitrary pre-release Signal formats.

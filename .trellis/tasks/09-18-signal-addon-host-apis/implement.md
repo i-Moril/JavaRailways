@@ -12,6 +12,7 @@
 
 - [x] Require explicit user/design review before adding compatibility, automatic repair, legacy-data interpretation, or migration behavior; default to strict current-model validation.
 - [x] Freeze protection-region graph-cut, direction-boundary and non-overlap contracts.
+- [x] Freeze Basic ownership of fixed-block/protection-region definitions and their single non-overlapping `AuthoritySection` partition; SimpleATO owns only section consumption and signalling policy.
 - [x] Freeze one authoritative immutable topology state, normalized node/edge model, overlay boundary and snapshot semantics.
 - [x] Create the target SimpleATO owner spec for operational overlays, frozen-route selection, admission-client behavior and the single train-protection pipeline; keep Core and Basic mechanisms in their own specs.
 - [x] Freeze SimpleATO topology-bound route versus Basic validation and single claim-resource-set responsibilities.
@@ -42,6 +43,7 @@
 - [x] Add atomic shared infrastructure leases plus one edit-permit/diagnostic service covering applied-plan leases and live route claims.
 - [x] Add direction-aware boundary, bounded-region, frozen route-window and exit-clearance public contracts.
 - [ ] Replace the transitional single-window seam with a generic `RouteResourceRequest`/contributor closure; add typed `PROTECTION_REQUIRED` and provide no raw planned-section automatic overload.
+- [ ] Add Basic-owned fixed-block definitions and merge them with protection regions in one revisioned authority-partition catalog, with atomic overlap validation and common traversal-scoped snapshots.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.
 - [ ] Remove turnout-derived protection-point synthesis from route compilation and reject automatic mission activation when any controlled resource lacks complete explicit region coverage.
 - [ ] Centralize turnout mutation and add the physical-lock/active-claim checked manual operation that produces no automatic authority.
@@ -58,6 +60,7 @@
 
 - [ ] Focused Core tests for immutable publication, epochs, occupancy, diamond resource binding/no-connectivity-change, detection/update, and controller enforcement.
 - [ ] Focused Basic tests for no-partial atomic claims, conflicts, zero/one/multi-turnout throat paths, contributor closure across adjacent regions, cyclic/unfinishable closure, stale revisions, tail release, and timetable migration.
+- [ ] Authority-partition tests for fixed-block/protection-region adjacency, directional overlap rejection, atomic create/update/load failure, common snapshot semantics, and no duplicate SimpleATO section store.
 - [ ] Tests for uncovered/partially covered/already-aligned turnout denial, no mutation on `PROTECTION_REQUIRED`, revision-driven rather than per-tick retry, no-controlled-resource routes, and guarded manual selection.
 - [ ] Tests for overlapping shared timetable leases, atomic lease acquisition/release, edit denial diagnostics, reload reconstruction, and no partial mutation across every supported infrastructure editor.
 - [ ] Bukkit tests for service registration/lookup, plugin disable, world unload, and target-aware dispatch.

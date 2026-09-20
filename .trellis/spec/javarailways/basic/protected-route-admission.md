@@ -3,12 +3,12 @@
 ## 1. 状态、范围、触发条件与Owner
 
 - **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation和单window资源收集已存在，通用contributor closure、route-bound非结构资源索引、atomic turnout admission与release/recovery尚未实现。
-- **Owner**：Basic拥有`ProtectionRegionDefinition`、区域catalog、路线验证、唯一claim资源集合与执行机制；SimpleATO只拥有运营路径选择和保护区域的运营消费；Core拥有结构拓扑和物理观察。
+- **Owner**：Basic拥有固定闭塞与`ProtectionRegionDefinition`、统一`AuthoritySection` catalog、路线验证、唯一claim资源集合与执行机制；SimpleATO只拥有运营路径选择、信号策略和section消费；Core拥有结构拓扑和物理观察。
 - **Non-goals**：本页不定义信号aspect、JS策略、玩家编辑UI或替SimpleATO选择运营路径。
 
 触发：实现或修改保护区域定义、自动/`MANUAL_ROUTED`进路准入、道岔/菱形交叉资源解析、出口净空、进路回滚、尾部释放或`TimetableDispatcher`迁移。
 
-本页定义Stage 1 host contract。保护区域是Basic基础设施安全定义：Basic保存其current model，校验boundary和内部子图，并发布可供准入与观察使用的world-local catalog。SimpleATOBukkit只通过Basic API提供玩家编辑、可视化和诊断；SimpleATO只消费已验证区域并将其视为`AuthoritySection`。信号显示和普通闭塞策略仍属于SimpleATO/SimpleATOBukkit。具体持久化格式尚未冻结，但其领域ownership不能因编辑入口位于附属插件而转移。
+本页定义Stage 1 host contract。固定闭塞和保护区域是Basic基础设施安全定义：Basic保存两者的current model，在一个world-local authority-partition catalog中校验方向、范围和互不重叠，并发布可供准入与观察使用的统一`AuthoritySection`视图。SimpleATOBukkit只通过Basic API提供玩家编辑、可视化和诊断；SimpleATO消费已验证section，并负责信号显示与闭塞运用策略。具体持久化格式尚未冻结，但领域ownership不能因编辑入口位于附属插件而转移。
 
 设计目标：一个玩家定义的保护区域通常覆盖一个完整咽喉。SimpleATO提交已选且绑定topology revision的route plan、列车身份、当前进度和期望authority boundary；Basic从同一观察解析列车实际占用包络，在一次验证中证明冻结路径与同一版本拓扑一致，并把沿途资源收集到唯一的`InfrastructureFootprint`。保护区域只增加本区域的路径资源、“尾部必须越过出口”的释放条件和出口后的最小净空前沿；它不查看下一个区域，SimpleATO也不按资源具体类型写特判。若完成当前净空前沿前又遇到固定闭塞、移动闭塞或另一个保护区域，同一次验证继续前进并把资源加入同一集合。活跃grant不被抢占；公平性由确定性排序与aging处理。
 
@@ -192,6 +192,7 @@ fallback到caller resources或partial rail-only claim。
 
 - 一个boundary位于一根rail的canonical AB坐标；`ProtectionBoundaryDefinition.position.facing`表示从边界外侧进入内部的本地方向，不表示线路运营方向，也不再保存第二份方向字段。
 - `ProtectionRegionDefinition`是Basic-owned current model，只表达region identity、目标topology revision与boundary集合；SimpleATOBukkit提交编辑命令，但不是definition owner。Basic由此推导的内部rail slices、连通分量与索引membership属于catalog内部缓存，不回填definition，也不接受caller提交第二份subgraph；否则boundary与subgraph会形成两份可能冲突的事实来源。SimpleATO需要的占用、reservation、限速和向前观察以后通过统一`AuthoritySection`行为接口提供，而不是读取Basic内部子图。
+- 固定闭塞定义同样是Basic-owned current model，以stable ID、topology binding和有向边界/extent描述一个不可分割区间；精确public shape留到API批次冻结。Basic把固定闭塞和保护区域编入同一个authority partition，创建、更新和加载时原子拒绝任何受控extent重叠，并返回冲突stable IDs与位置；不得由SimpleATO在两个独立store之间事后补偿。
 - `ProtectionRegionCatalog`在一次rebuild开始时捕获一个public Core `TopologyState`根；内部`ProtectionRegionTopology`保留该根，并只从edge的有序rail slices及`Terminus`/`Turnout`/`LoopAnchor`transition派生endpoint adjacency和region membership索引。catalog publication与window resolver始终使用同一根，返回前以根身份和revision检查currentness；旧根可被既有读者安全保留，但不得与新根混合。该索引可按`(topology revision, region revision)`丢弃重建，不是第二张authoritative铁路图，也不再读取live `RailView.nextRails`。
 - boundary必须离rail两端均大于`Curve.TOLERANCE`；端点可能连接多个分支，不能作为唯一有向half-edge，必须拒绝而不是猜测。
 - 解析器在临时拓扑视图中于所有boundary处切断穿越，不修改Core live topology。每个boundary的inside half-edge必须进入同一个连通分量，outside half-edge不得仍能到达该分量；该唯一分量就是区域内部。

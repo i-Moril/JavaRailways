@@ -9,10 +9,10 @@ Core
   physics / topology / occupancy / extension primitives
    |
 Basic
-  physical topology / geometry / train dynamics / manual railway mechanisms
+  physical topology / authority sections / resource arbitration / manual railway mechanisms
    |
 SimpleATO
-  operational domain / ATO / timetable / interlocking / protection regions
+  operational domain / ATO / timetable / signalling and interlocking policy
 
 BukkitPlugin
   world adapter / RailWand / manual driving / generic render and operation services
@@ -28,7 +28,7 @@ All arrows are consumer-to-provider dependencies only; the base modules publish 
 
 ```text
 Signal add-on
-  directional region boundaries / routes / aspects / persistence / rendering
+  operational routes / signal aspects / Signal persistence / rendering
              |
              | Bukkit ServicesManager public contracts
              v
@@ -49,8 +49,8 @@ The target is a game-grade safety model: atomic conflict prevention, conservativ
 ## Ownership
 
 - Core owns platform-neutral topology, rail coordinates, train placement, occupancy intervals, physics epochs, generic controller attachment, and extension primitives.
-- Basic owns reusable physical topology/geometry, physical/design rail metadata, train dynamics/safety calculations, and manual-operation mechanisms.
-- SimpleATO owns operating direction, destinations, stations, depots, lines, timetables, rolling-stock allocation, operational routes and pathfinding, route-resource arbitration, constraint enforcement policy, protection regions, signal policy contracts, and their platform-neutral persistence schemas.
+- Basic owns reusable physical topology/geometry, physical/design rail metadata, fixed-block and protection-region definitions, the unified authority partition, resource arbitration, train dynamics/safety calculations, and manual-operation mechanisms.
+- SimpleATO owns operating direction, destinations, stations, depots, lines, timetables, rolling-stock allocation, operational routes and pathfinding, constraint enforcement policy, signal/interlocking policy contracts, and their platform-neutral persistence schemas.
 - BukkitPlugin exposes generic world, topology-event, player-operation, render, and platform-dispatch services while retaining RailWand and manual driving.
 - SimpleATOBukkit owns RailObjectWand, ATO/signal commands, signal packages, rendering, WebUI integration, and all Bukkit-facing SimpleATO lifecycle/persistence adapters.
 - SimpleATOWebUI owns frontend source, frontend-only dependencies, build tooling, and UI tests. Its production assets are embedded into SimpleATOBukkit; it has no independent server lifecycle, persistence boundary, or installation artifact.
@@ -69,13 +69,13 @@ Do not retain or create a parallel generic pathfinder in Basic. If a future seco
 
 ## Protection-region and topology model
 
-The MVP removes the automatic "one turnout, one approach stop boundary" operating model. Signal authors a set of direction-aware boundary gates around an interlocking region. Cutting every gate from the directed topology must leave a validated, bounded interior subgraph. A route window has one entry boundary, one exit boundary, a frozen path through that interior, the complete resource claim set for that path, and enough downstream clearance for the whole train to leave the region.
+The MVP removes the automatic "one turnout, one approach stop boundary" operating model. Players author direction-aware boundary gates through SimpleATOBukkit, which submits edits to the Basic-owned protection-region store. Basic cuts every gate from the directed topology and requires one validated, bounded interior subgraph. A route window has one entry boundary, one exit boundary, a frozen path through that interior, the complete resource claim set for that path, and enough downstream clearance for the whole train to leave the region.
 
 Turnouts remain selectable topology nodes and stable resources. An at-grade diamond crossing does not change connectivity and therefore is not a topology node: both crossing lines retain their original route edges, no turn between lines is introduced, and route-bound anchors on both passages share one exclusive resource identity. Candidate diamonds are found only when rails are placed or topology is updated, using the rail spatial index followed by exact curve/clearance validation; accepted resource bindings are indexed by rail/edge interval and referenced at runtime.
 
 Allocation is all-or-nothing. A denied request acquires nothing and remains outside the entry boundary. A granted train never waits for a newly discovered resource inside the region because a generic compiler follows the frozen route, folds every resource contribution, and extends a monotonic minimum-claim boundary until the complete train clears every encountered obligation. A region never inspects its successor and SimpleATO never builds a hand-written composite window; adjacent contributors are naturally included in one closure before entry.
 
-RailWand commits generic topology only. A public topology-change event carries the affected stable rail/node references and revision; SimpleATOBukkit listens and creates editable protection-boundary suggestions in its own store. Removing or changing those suggestions never mutates the base rail topology.
+RailWand commits generic topology only. A public topology-change event carries the affected stable rail/node references and revision; SimpleATOBukkit may create editable protection-boundary suggestions, but accepted create/update/delete operations go through the Basic authority-section API and store. Removing or changing those definitions never mutates the base rail topology.
 
 ### Composition with fixed blocks
 
@@ -97,7 +97,7 @@ Internal signals may indicate route/resource state, but they are not automatical
 
 ### Common authority-section contract
 
-Fixed blocks and protection regions implement one platform-neutral `AuthoritySection` provider contract. The implementation differences stay behind this boundary:
+Basic stores fixed blocks and protection regions in one non-overlapping authority partition and exposes one platform-neutral `AuthoritySection` contract. The implementation differences stay behind this boundary:
 
 - A fixed block resolves one ordinary directional traversal and claims its whole block resource.
 - A protection region resolves one directional entry-to-selected-exit traversal and claims the frozen path's resource set, allowing another non-conflicting traversal in the same region.
@@ -113,7 +113,7 @@ The common runtime value is an immutable, traversal-scoped `AuthoritySectionSnap
 
 `kind` and the detailed availability/reservation enums may be retained for diagnostics, WebUI, and specialized Java providers, but ordinary JavaScript signal logic must not need them. `canEnter()` is the deliberately collapsed safety result for the current traversal context: fixed-block occupancy/reservation and protection-region route/resource conflicts are already resolved by their providers. An empty protection region with no confirmed entry-to-exit grant therefore reports `canEnter() == false`; `hasTrain() == false` alone is never interpreted as permission.
 
-The Java/provider side owns route resolution, admission, atomic claims, release, and snapshots. The JavaScript side receives only a bounded `SectionView` over compiled snapshot handles. A proposed ergonomic surface is:
+The Basic side owns section definitions, route resolution, admission, atomic claims, release, and snapshots. The SimpleATO/JavaScript side receives only a bounded `SectionView` over compiled snapshot handles. A proposed ergonomic surface is:
 
 ```text
 SectionView
@@ -267,7 +267,7 @@ Pure indication signals observe route/resource state but do not create extra aut
 
 ## Persistence and compatibility
 
-Signal stores a separate versioned world sidecar using stable namespaced IDs, rail UUIDs, canonical AB arc lengths, and directions. Compatible fields with defaults do not require a version bump. Breaking field, type, semantic, or structure changes upgrade only the Signal persistence boundary and are handled by an auditable one-way migration.
+Signal stores its operational and presentation data in a separate versioned world sidecar using stable namespaced IDs, rail UUIDs, canonical AB arc lengths, and directions. Fixed-block and protection-region definitions remain in the Basic infrastructure persistence boundary and are referenced by stable IDs; they are not duplicated into the Signal sidecar. Compatible fields with defaults do not require a version bump. Breaking field, type, semantic, or structure changes upgrade only the affected independent persistence boundary and are handled by an auditable one-way migration.
 
 ## Rollout and rollback
 

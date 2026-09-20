@@ -18,8 +18,8 @@
 
 - [ ] Add whole-timetable compile/audit results, immutable applied-plan revisions, exact infrastructure-footprint derivation, and atomic host lease acquisition/replacement/unapply.
 - [ ] Separate draft storage from applied-plan state and implement explicit apply plus draining/unapply transitions; draft save/validate must not mutate leases.
-- [ ] Implement stable Signal-owned boundary/region/route definition and store types plus bounded-subgraph validators.
-- [ ] Implement directional gate authoring, interior selection/flood-fill, leak detection, and entry/exit/clearance diagnostics.
+- [ ] Integrate Basic-owned fixed-block/protection-region definitions and `AuthoritySection` snapshots; do not add a Signal-owned section store.
+- [ ] Implement directional gate/block authoring adapters and diagnostics through Basic APIs; reuse Basic interior selection/flood-fill, leak detection, overlap, entry/exit, and clearance validation.
 - [ ] Implement occupancy/authority policy for player-authored regions without per-turnout stop synthesis.
 - [ ] Implement all-or-nothing route requests through the host's generic contributor closure, including adjacent-region obligations, exit clearance, conflict handling, tail release, deterministic waiting, and recovery state.
 - [ ] Integrate host route-bound diamond resources into route compilation, inspection, and conflict claims without changing connectivity or exposing turnout-like switching.
@@ -42,10 +42,10 @@
 
 ## Validation
 
-- [ ] Unit tests for region partitioning, directional boundaries, leak/ambiguity rejection, policy, aspects, conflicts, exit clearance, authority calculation, and fail-safe defaults.
+- [ ] Unit tests for Signal policy, aspects, authority calculation and fail-safe defaults; host contract tests cover region partitioning, directional boundaries and leak/ambiguity rejection.
 - [ ] Integration tests for host observations, no-partial atomic allocation, adjacent contributors folded without region-specific composition, ATO enforcement, tail release, topology revisions, and diamond conflict/no-turn behavior.
 - [ ] Lifecycle tests for enable/disable, missing host service, world unload/reload, host shutdown, and failure recovery.
-- [ ] Persistence tests for fixed fixtures, strict decode, round-trip, orphan references, corruption, backup recovery, and migration.
+- [ ] Persistence tests for Signal/operations fixtures, strict decode, round-trip, orphan references, corruption, backup recovery, and migration; do not duplicate Basic authority-section persistence fixtures.
 - [ ] Packaging test proving separate JARs and no shadowed host classes.
 - [ ] Folia smoke test for authoring, rendering, train passage, and cleanup.
 - [ ] Apply/replace/unapply tests for all-or-nothing validation/lease commit, shared-lease overlap, edit blocking, reload reconstruction, and transient runtime conflict separation.

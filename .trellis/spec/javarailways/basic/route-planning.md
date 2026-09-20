@@ -26,7 +26,7 @@ data class RouteSegment(
 
 `PlannedRouteCompiler.compile(routeId,revision,route,protectionPoints): Success|Failure`重新resolve stable views，检查segment range、connected endpoint、direction restriction并canonicalize turnout。`PlannedRoute`sections index从0连续，覆盖完整route且defensive copy。
 
-目标流程为：SimpleATO在一个`TopologyState(revision)`上生成一份绑定该revision的冻结traversal；Basic验证该traversal连续且每个continuation合法，并从同一state派生沿途受控transition、route-bound shared resources及物理claim/locking footprint。Basic不得要求调用方另报一份可能与route冲突的资源清单，也不得在验证时另行寻路或用保护区域替调用方选择路径。
+目标流程为：SimpleATO在一个`TopologyState(revision)`上生成一份绑定该revision的冻结traversal；Basic验证该traversal连续且每个continuation合法，并在同一次pass中把沿途rail intervals、受控transition与route-bound shared resources加入唯一claim集合。物理占用范围只是资源binding的验证数据，不是第二份footprint。Basic不得要求调用方另报资源清单，也不得在验证时另行寻路或用保护区域替调用方选择路径。
 
 ## Route/compile矩阵
 

@@ -7,28 +7,26 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
-import work.art1st.javarailways.basic.api.route.ProtectedRouteRequestResolver
-import work.art1st.javarailways.basic.api.route.ProtectedRouteResolution
 
 /**
- * Resolves complete protected-route footprints before atomically delegating to the shared registry.
+ * Validates one protected-route request and atomically submits its single resource set.
  *
  * This is the host-side admission seam for the future public route-resource service. It does not
  * mutate turnout selections; callers may do so only after a successful claim and must roll the
  * selection back before releasing the claim if their later commit fails.
  */
-class ProtectedRouteClaimService(
+internal class ProtectedRouteClaimService(
     private val registry: InfrastructureLeaseRegistry,
     private val currentTopologyRevision: () -> Long,
-    private val resolver: ProtectedRouteRequestResolver
+    private val validate: (ProtectedRouteRequest) -> ProtectedRouteValidation
 ) {
     fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteClaimResult {
         return when (val resolved = resolve(request)) {
             is ResolutionResult.Finished -> resolved.result
-            is ResolutionResult.Footprint -> mapMutation(
+            is ResolutionResult.Resources -> mapMutation(
                 registry.acquireClaim(
                     platformOwner,
-                    InfrastructureClaimRequest(request.route.topologyRevision, request.owner, resolved.footprint)
+                    InfrastructureClaimRequest(request.route.topologyRevision, request.owner, resolved.value)
                 )
             )
         }
@@ -50,11 +48,11 @@ class ProtectedRouteClaimService(
                     resolved.result
                 }
             }
-            is ResolutionResult.Footprint -> mapMutation(
+            is ResolutionResult.Resources -> mapMutation(
                 registry.replaceClaim(
                     platformOwner,
                     expectedOwner,
-                    InfrastructureClaimRequest(request.route.topologyRevision, request.owner, resolved.footprint)
+                    InfrastructureClaimRequest(request.route.topologyRevision, request.owner, resolved.value)
                 )
             )
         }
@@ -69,13 +67,13 @@ class ProtectedRouteClaimService(
                 result(ProtectedRouteClaimStatus.STALE_TOPOLOGY, "request topology revision is stale")
             )
         }
-        val resolution = try {
-            resolver.resolve(request)
+        val validation = try {
+            validate(request)
         } catch (failure: Exception) {
             return ResolutionResult.Finished(
                 result(
-                    ProtectedRouteClaimStatus.RESOLVER_FAILED,
-                    "protected-route resolver failed: " +
+                    ProtectedRouteClaimStatus.VALIDATION_FAILED,
+                    "protected-route validation failed: " +
                         failure::class.simpleName + ": " + failure.message.orEmpty()
                 )
             )
@@ -88,39 +86,13 @@ class ProtectedRouteClaimService(
                 )
             )
         }
-        return when (resolution) {
-            ProtectedRouteResolution.NotRequired -> {
-                if (request.window == null) {
-                    ResolutionResult.Finished(result(ProtectedRouteClaimStatus.NOT_REQUIRED))
-                } else {
-                    ResolutionResult.Finished(
-                        result(
-                            ProtectedRouteClaimStatus.INVALID_REQUEST,
-                            "request contains a protection window for a route with no controlled resource"
-                        )
-                    )
-                }
-            }
-            is ProtectedRouteResolution.ProtectionRequired ->
-                ResolutionResult.Finished(
-                    result(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, resolution.detail)
-                )
-            is ProtectedRouteResolution.Invalid ->
-                ResolutionResult.Finished(
-                    result(ProtectedRouteClaimStatus.INVALID_REQUEST, resolution.detail)
-                )
-            is ProtectedRouteResolution.Resolved -> {
-                if (request.window == null) {
-                    ResolutionResult.Finished(
-                        result(
-                            ProtectedRouteClaimStatus.PROTECTION_REQUIRED,
-                            "controlled resources require at least one complete protection window"
-                        )
-                    )
-                } else {
-                    ResolutionResult.Footprint(resolution.footprint)
-                }
-            }
+        return when (validation) {
+            ProtectedRouteValidation.NotRequired ->
+                ResolutionResult.Finished(result(ProtectedRouteClaimStatus.NOT_REQUIRED))
+            is ProtectedRouteValidation.Rejected ->
+                ResolutionResult.Finished(result(validation.status, validation.detail))
+            is ProtectedRouteValidation.Validated ->
+                ResolutionResult.Resources(validation.resources)
         }
     }
 
@@ -151,6 +123,6 @@ class ProtectedRouteClaimService(
 
     private sealed interface ResolutionResult {
         data class Finished(val result: ProtectedRouteClaimResult) : ResolutionResult
-        data class Footprint(val footprint: InfrastructureFootprint) : ResolutionResult
+        data class Resources(val value: InfrastructureFootprint) : ResolutionResult
     }
 }

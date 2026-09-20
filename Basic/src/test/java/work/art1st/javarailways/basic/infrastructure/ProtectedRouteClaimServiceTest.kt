@@ -12,7 +12,6 @@ import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary
 import work.art1st.javarailways.basic.api.route.ExitClearanceEnvelope
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
-import work.art1st.javarailways.basic.api.route.ProtectedRouteResolution
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -33,7 +32,7 @@ class ProtectedRouteClaimServiceTest {
 
     @Test
     fun `route without controlled resources succeeds without creating a claim`() {
-        val service = service { ProtectedRouteResolution.NotRequired }
+        val service = service { ProtectedRouteValidation.NotRequired }
 
         val result = service.acquire(Any(), request(null))
 
@@ -45,7 +44,10 @@ class ProtectedRouteClaimServiceTest {
     @Test
     fun `missing protection is typed and leaves no partial claim`() {
         val service = service {
-            ProtectedRouteResolution.ProtectionRequired("turnout/a is outside the protection window")
+            ProtectedRouteValidation.Rejected(
+                ProtectedRouteClaimStatus.PROTECTION_REQUIRED,
+                "turnout/a is outside the protection window"
+            )
         }
 
         val result = service.acquire(Any(), request(null))
@@ -55,14 +57,14 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `resolved controlled resources still require a protection window`() {
+    fun `validation failure is typed and leaves no partial claim`() {
         val service = service {
-            ProtectedRouteResolution.Resolved(InfrastructureFootprint(listOf(resource("turnout/a"))))
+            error("broken validator")
         }
 
         val result = service.acquire(Any(), request(null))
 
-        assertEquals(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, result.status)
+        assertEquals(ProtectedRouteClaimStatus.VALIDATION_FAILED, result.status)
         assertTrue(registry.claimSnapshots().isEmpty())
     }
 
@@ -71,7 +73,7 @@ class ProtectedRouteClaimServiceTest {
         val platformOwner = Any()
         val routeOwner = InfrastructureOwner("test:route/main", 1L)
         val service = service {
-            ProtectedRouteResolution.Resolved(
+            ProtectedRouteValidation.Validated(
                 InfrastructureFootprint(listOf(resource("turnout/a"), resource("turnout/b")))
             )
         }
@@ -94,7 +96,7 @@ class ProtectedRouteClaimServiceTest {
     @Test
     fun `invalid member rejects the whole resolved footprint`() {
         val service = service {
-            ProtectedRouteResolution.Resolved(
+            ProtectedRouteValidation.Validated(
                 InfrastructureFootprint(listOf(resource("turnout/a"), resource("turnout/missing")))
             )
         }
@@ -112,7 +114,7 @@ class ProtectedRouteClaimServiceTest {
     fun `topology change during resolution rejects before claim mutation`() {
         val service = service {
             topologyRevision = 5L
-            ProtectedRouteResolution.Resolved(
+            ProtectedRouteValidation.Validated(
                 InfrastructureFootprint(listOf(resource("turnout/a")))
             )
         }
@@ -129,7 +131,9 @@ class ProtectedRouteClaimServiceTest {
     @Test
     fun `conflicting complete requests expose blocker and preserve first claim`() {
         val service = service {
-            ProtectedRouteResolution.Resolved(InfrastructureFootprint(listOf(resource("turnout/a"))))
+            ProtectedRouteValidation.Validated(
+                InfrastructureFootprint(listOf(resource("turnout/a")))
+            )
         }
         val window = window("test:region/a", 0.0, 80.0, 100.0)
         val first = service.acquire(Any(), request(window, InfrastructureOwner("test:route/first", 1L)))
@@ -142,11 +146,11 @@ class ProtectedRouteClaimServiceTest {
         assertEquals(listOf("test:route/first"), registry.claimSnapshots().map { it.owner.ownerId })
     }
 
-    private fun service(resolve: (ProtectedRouteRequest) -> ProtectedRouteResolution) =
+    private fun service(validate: (ProtectedRouteRequest) -> ProtectedRouteValidation) =
         ProtectedRouteClaimService(
             registry,
             currentTopologyRevision = { topologyRevision },
-            resolver = { request -> resolve(request) }
+            validate = validate
         )
 
     private fun request(

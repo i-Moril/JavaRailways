@@ -13,9 +13,9 @@
 - [x] Require explicit user/design review before adding compatibility, automatic repair, legacy-data interpretation, or migration behavior; default to strict current-model validation.
 - [x] Freeze protection-region graph-cut, direction-boundary and non-overlap contracts.
 - [x] Freeze one authoritative immutable topology state, normalized node/edge model, overlay boundary and snapshot semantics.
-- [x] Freeze SimpleATO topology-bound route versus Basic validation/resource projection/physical footprint responsibilities.
-- [x] Document module working model plus topology normalization, graph-cut, frozen-route validation/resource projection and tail-release internal mechanisms.
-- [x] Freeze coherent observation/region/topology revision and host-derived physical footprint contracts.
+- [x] Freeze SimpleATO topology-bound route versus Basic validation and single claim-resource-set responsibilities.
+- [x] Document module working model plus topology normalization, graph-cut, single-pass frozen-route validation/resource collection and tail-release internal mechanisms.
+- [x] Freeze coherent observation/region/topology revision and authoritative resource-validation contracts.
 - [x] Freeze generic route-resource closure, no-hold-and-wait admission, turnout rollback and fail-closed lifecycle pseudocode.
 - [x] Freeze tail-clear, compiled-plan prefix-release and provider-disable recovery behavior.
 
@@ -26,9 +26,10 @@
 - [x] Overlay/region migration: protection membership/window validation now derives from one retained public `TopologyState` root per catalog rebuild; topology and region revisions fail stale, and the live copied-adjacency source has been removed.
 - [ ] SimpleATO frozen route: move operating route selection onto topology plus overlays and emit one ordered traversal bound to that topology revision. No caller-supplied resource list and no Basic claim mutation.
   - [x] `RouteSnapshot` now carries the producer-captured topology revision independently from its route revision; `ProtectedRouteRequest` and the projector consume that single binding without a duplicate expected-revision field. Full topology/overlay route selection remains.
-- [ ] Route validator/resource-closure compiler: coherent observation stamp, authoritative train envelope, exact traversal validation, host-derived controlled-resource projection, generic contributor closure, safe authority-boundary selection, claim/physical-lock footprints and turnout selections. No registry mutation and no Basic path search.
+- [ ] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one canonical resource set, generic contributor closure, safe authority-boundary selection and turnout selections. Occupancy geometry is validation evidence, not a second footprint. No registry mutation and no Basic path search.
   - [x] Basic internal route projection validates one frozen `RouteSnapshot` against `TopologyState` in one linear pass, emits immutable edge occurrences and derives turnout node/from/to traversals; protection-window validation reuses this projection. Public request shape, route-bound diamond index and closure compilation remain.
-  - [x] Turnout traversals derive one direction-independent `javarailways:turnout` resource identity from the sorted persistent endpoint set; revision-local topology node IDs remain validation-only. Footprint compilation and diamond identities remain.
+  - [x] Turnout traversals derive one direction-independent `javarailways:turnout` resource identity from the sorted persistent endpoint set; revision-local topology node IDs remain validation-only. Route validation and diamond identities remain.
+  - [x] Route validation clips canonical rail intervals from entry through exit clearance, adds protected turnout resources to the one final set, and rejects uncovered turnouts before registry mutation. Projection is temporary validation state; diamond/occupancy/selection/contributor closure remains, so automatic callers are not migrated yet.
 - [ ] Admission transaction: occupancy validation, one atomic claim, all-turnout apply/rollback and typed results. No Dispatcher migration.
 - [ ] Release/recovery: entry observation, tail-clear slices, atomic footprint shrink, provider-disable and reload fail-closed behavior.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.

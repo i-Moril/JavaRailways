@@ -123,8 +123,30 @@ internal class ProtectionRegionCatalog(
                     currentTopology.revision
             )
         }
+        val projection = when (
+            val result = TopologyRouteProjector.project(request.route, snapshot.topology.topologyState)
+        ) {
+            is TopologyRouteProjectionResult.Projected -> result.route
+            is TopologyRouteProjectionResult.Rejected -> {
+                val reason = when (result.reason) {
+                    TopologyRouteProjectionRejection.STALE_TOPOLOGY ->
+                        ProtectionRegionWindowRejection.STALE_TOPOLOGY
+                    TopologyRouteProjectionRejection.INVALID_ROUTE ->
+                        ProtectionRegionWindowRejection.INVALID_ROUTE
+                }
+                return confirmWindowResolution(
+                    snapshot,
+                    currentTopology,
+                    ProtectionRegionWindowResolution.Rejected(reason, result.detail)
+                )
+            }
+        }
         val window = request.window
-            ?: return ProtectionRegionWindowResolution.Resolved(null)
+            ?: return confirmWindowResolution(
+                snapshot,
+                currentTopology,
+                ProtectionRegionWindowResolution.Resolved(projection, null)
+            )
         val owned = snapshot.regions[window.region.regionId]
             ?: return ProtectionRegionWindowResolution.Rejected(
                 ProtectionRegionWindowRejection.MISSING_REGION,
@@ -138,17 +160,22 @@ internal class ProtectionRegionCatalog(
                     "does not match $currentRegionRevision"
             )
         }
-        val resolution = ProtectionRegionWindowResolver.resolve(
-            request.route,
-            snapshot.topology,
-            ResolvedProtectionWindow(window, owned.region)
-        )
+        val resolvedWindow = ResolvedProtectionWindow(window, owned.region)
+        val resolution = ProtectionRegionWindowResolver.resolve(projection, resolvedWindow)
+        return confirmWindowResolution(snapshot, currentTopology, resolution)
+    }
+
+    private fun confirmWindowResolution(
+        snapshot: CatalogSnapshot,
+        capturedTopology: TopologyState,
+        resolution: ProtectionRegionWindowResolution
+    ): ProtectionRegionWindowResolution {
         val confirmedTopology = topologyState()
-        if (confirmedTopology !== currentTopology) {
+        if (confirmedTopology !== capturedTopology) {
             return ProtectionRegionWindowResolution.Rejected(
                 ProtectionRegionWindowRejection.STALE_TOPOLOGY,
                 "topology changed while resolving protection window from " +
-                    "${request.route.topologyRevision} to ${confirmedTopology.revision}"
+                    "${capturedTopology.revision} to ${confirmedTopology.revision}"
             )
         }
         if (published !== snapshot) {

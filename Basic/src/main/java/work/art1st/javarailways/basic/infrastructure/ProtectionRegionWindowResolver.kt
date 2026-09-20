@@ -1,6 +1,5 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -22,7 +21,10 @@ internal enum class ProtectionRegionWindowRejection {
 }
 
 internal sealed interface ProtectionRegionWindowResolution {
-    data class Resolved(val window: ResolvedProtectionWindow?) : ProtectionRegionWindowResolution
+    data class Resolved(
+        val projection: ProjectedTopologyRoute,
+        val window: ResolvedProtectionWindow?
+    ) : ProtectionRegionWindowResolution
 
     data class Rejected(
         val reason: ProtectionRegionWindowRejection,
@@ -37,27 +39,10 @@ internal sealed interface ProtectionRegionWindowResolution {
 /** Validates one authored entry/exit window against one route and one revision-bound topology derivation. */
 internal object ProtectionRegionWindowResolver {
     fun resolve(
-        route: RouteSnapshot,
-        topology: ProtectionRegionTopology,
+        projection: ProjectedTopologyRoute,
         resolved: ResolvedProtectionWindow
     ): ProtectionRegionWindowResolution {
-        val traversal = when (
-            val projection = TopologyRouteProjector.project(
-                route = route,
-                topology = topology.topologyState
-            )
-        ) {
-            is TopologyRouteProjectionResult.Projected -> projection.route.occurrences
-            is TopologyRouteProjectionResult.Rejected -> {
-                val reason = when (projection.reason) {
-                    TopologyRouteProjectionRejection.STALE_TOPOLOGY ->
-                        ProtectionRegionWindowRejection.STALE_TOPOLOGY
-                    TopologyRouteProjectionRejection.INVALID_ROUTE ->
-                        ProtectionRegionWindowRejection.INVALID_ROUTE
-                }
-                return ProtectionRegionWindowResolution.Rejected(reason, projection.detail)
-            }
-        }
+        val traversal = projection.occurrences
         validateBoundary(
             resolved.request.entry,
             resolved.region,
@@ -91,7 +76,7 @@ internal object ProtectionRegionWindowResolver {
                     resolved.request.exit.routeDistanceMeters
             )
         }
-        return ProtectionRegionWindowResolution.Resolved(resolved)
+        return ProtectionRegionWindowResolution.Resolved(projection, resolved)
     }
 
     private fun validateBoundary(

@@ -2,7 +2,6 @@ package work.art1st.javarailways.basic.api.route
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlocker
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import java.util.Collections
@@ -48,8 +47,8 @@ data class ExitClearanceEnvelope(
 /**
  * One authored protection region traversed from [entry] to [exit].
  *
- * Resources are deliberately absent from this caller-owned value. The host resolver derives the
- * complete footprint from the frozen route and authoritative region/topology state.
+ * This caller-owned value identifies the selected route window. Basic validates it and collects
+ * the one resource set used by the claim registry.
  */
 data class ProtectedRouteWindow(
     val region: ProtectionRegionRef,
@@ -70,7 +69,7 @@ data class ProtectedRouteWindow(
 /**
  * Immutable all-or-nothing request for at most one throat protection region on one frozen path.
  *
- * A null [window] is valid only when the authoritative resolver confirms that [route] traverses no
+ * A null [window] is valid only when authoritative validation confirms that [route] traverses no
  * controlled resource. A route that cannot safely wait before another throat must use one larger
  * authored protection region; runtime requests never combine multiple regions.
  */
@@ -91,42 +90,8 @@ data class ProtectedRouteRequest(
     }
 }
 
-/**
- * Authoritative host resolution of a protected-route request.
- *
- * Implementations validate region identity/revision, entry and exit positions, controlled-resource
- * coverage, and exit clearance against the request's frozen topology revision. They must not mutate
- * turnouts or acquire resources. Resolution is synchronous on the host's route-admission thread;
- * implementations must return promptly and must not wait for a later world tick.
- */
-fun interface ProtectedRouteRequestResolver {
-    fun resolve(request: ProtectedRouteRequest): ProtectedRouteResolution
-}
-
-sealed interface ProtectedRouteResolution {
-    /** The route traverses no controlled resource and therefore needs no claim. */
-    data object NotRequired : ProtectedRouteResolution
-
-    /** Complete footprint derived by the authoritative resolver. */
-    data class Resolved(val footprint: InfrastructureFootprint) : ProtectedRouteResolution
-
-    /** At least one controlled resource lacks complete entry-to-exit protection. */
-    data class ProtectionRequired(val detail: String) : ProtectedRouteResolution {
-        init {
-            require(detail.isNotBlank())
-        }
-    }
-
-    /** Region, boundary, frozen path, or exit-clearance data is internally inconsistent. */
-    data class Invalid(val detail: String) : ProtectedRouteResolution {
-        init {
-            require(detail.isNotBlank())
-        }
-    }
-}
-
 enum class ProtectedRouteClaimStatus {
-    /** The authoritative resolver found no controlled resource on this route. */
+    /** Authoritative validation found no controlled resource on this route. */
     NOT_REQUIRED,
     /** A new complete route footprint was acquired. */
     ACQUIRED,
@@ -142,8 +107,8 @@ enum class ProtectedRouteClaimStatus {
     STALE_TOPOLOGY,
     /** Region, boundary, route, or replacement semantics were invalid. */
     INVALID_REQUEST,
-    /** The authoritative resolver threw; no footprint was submitted. */
-    RESOLVER_FAILED,
+    /** Host route validation threw; no resource set was submitted. */
+    VALIDATION_FAILED,
     /** The world-local claim registry is unavailable. */
     WORLD_UNAVAILABLE,
     /** At least one resolved footprint member no longer exists. */

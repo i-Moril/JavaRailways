@@ -21,8 +21,8 @@
 - [ ] Implement stable Signal-owned boundary/region/route definition and store types plus bounded-subgraph validators.
 - [ ] Implement directional gate authoring, interior selection/flood-fill, leak detection, and entry/exit/clearance diagnostics.
 - [ ] Implement occupancy/authority policy for player-authored regions without per-turnout stop synthesis.
-- [ ] Implement all-or-nothing route requests, composite adjacent-region claims, exit clearance, conflict handling, tail release, deterministic waiting, and recovery state.
-- [ ] Integrate host diamond nodes into route compilation, inspection, and conflict claims without exposing turnout-like switching.
+- [ ] Implement all-or-nothing route requests through the host's generic contributor closure, including adjacent-region obligations, exit clearance, conflict handling, tail release, deterministic waiting, and recovery state.
+- [ ] Integrate host route-bound diamond resources into route compilation, inspection, and conflict claims without changing connectivity or exposing turnout-like switching.
 - [ ] Publish namespaced train restrictions through the Stage 1 service.
 - [ ] Derive aspects from confirmed allocations and authority state.
 - [ ] Before implementing the signal-package runtime slice, finalize its downstream indication interoperability and guided/shunting scope without reopening the completed host/module extraction.
@@ -43,7 +43,7 @@
 ## Validation
 
 - [ ] Unit tests for region partitioning, directional boundaries, leak/ambiguity rejection, policy, aspects, conflicts, exit clearance, authority calculation, and fail-safe defaults.
-- [ ] Integration tests for host observations, no-partial atomic allocation, composite adjacent regions, ATO enforcement, tail release, topology revisions, and diamond conflict/no-turn behavior.
+- [ ] Integration tests for host observations, no-partial atomic allocation, adjacent contributors folded without region-specific composition, ATO enforcement, tail release, topology revisions, and diamond conflict/no-turn behavior.
 - [ ] Lifecycle tests for enable/disable, missing host service, world unload/reload, host shutdown, and failure recovery.
 - [ ] Persistence tests for fixed fixtures, strict decode, round-trip, orphan references, corruption, backup recovery, and migration.
 - [ ] Packaging test proving separate JARs and no shadowed host classes.

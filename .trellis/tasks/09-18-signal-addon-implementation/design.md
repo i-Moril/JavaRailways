@@ -15,7 +15,7 @@ The first Stage 2 deliverable physically extracts two modules before adding sign
 - `RegionBoundary`: stable ID, rail position, controlled direction, region ID, and entry/exit capability.
 - `ProtectionRegion`: stable ID, validated bounded interior topology, boundary set, and composition group.
 - `RegionRoute`: entry, exit, frozen path, complete resource bundle, exit-clearance envelope, and conflict identity.
-- `DiamondNodeRef`: stable host topology-node identity for an at-grade, fixed-connectivity shared conflict.
+- `DiamondResourceRef`: stable host resource identity bound to both at-grade crossing traversals without changing graph connectivity.
 - `SignalAspect`: restrictive-to-permissive value derived from confirmed state.
 - `SignalWorldRuntime`: observations, requests, allocations, authorities, aspects, and renderer handles for one world.
 
@@ -23,11 +23,11 @@ Stable persisted `kind/type` values describe capability; class names and `V1/V2`
 
 Player authoring cuts the directed topology at every boundary in a draft region, flood-fills the explicitly selected interior, and rejects unbounded, leaking, or ambiguous results before commit. Protection signals bind to entry boundaries; pure indicators observe state without creating additional authority limits. The route compiler does not add automatic per-turnout stops inside an active region.
 
-Host topology edits detect diamond candidates outside the physics tick and publish stable fixed-connectivity nodes. Signal consumes those nodes as route conflicts: each line continues through the crossing, no cross-line turn is present, and both passages claim the same diamond resource.
+Host topology edits detect diamond candidates outside the physics tick and publish stable route-bound conflict resources. Signal consumes the host index while validating a route: each line retains its original edge continuity, no cross-line turn is present, and both passages claim the same diamond resource.
 
 ## Runtime flow
 
-For each coherent host observation, the host aggregates rail-indexed occupancy once. Signal updates only regions/resources touched by changed occupancy, evaluates pending entry-to-exit requests, reconciles confirmed allocations, and publishes immutable constraint candidates into the host's single train-protection pipeline. A request is granted only when its entire frozen resource bundle and exit-clearance envelope can commit atomically; denial leaves no partial claims and keeps authority outside the entry. Regions without enough space between them for the complete train are submitted as one composite transaction. Signal does not run another per-train route scan. The host combines those candidates with vehicle following and its existing bounded route-local observations, exposes the consolidated authority boundary, and computes one control demand. Signal derives aspects from confirmed state and submits rendering changes only when their value changes. Every derived value records the host epoch/topology revision used to compute it.
+For each coherent host observation, the host aggregates rail-indexed occupancy once. Signal updates only regions/resources touched by changed occupancy, evaluates pending route-resource requests, reconciles confirmed allocations, and publishes immutable constraint candidates into the host's single train-protection pipeline. Basic's generic route compiler folds direct resources and contributor obligations along the frozen route until it reaches a complete authority boundary satisfying all tail-clearance obligations. A request is granted only when that complete closure can commit atomically; denial leaves no partial claims and keeps authority outside the entry. A protection region contributes only its own resources and minimum clearance obligation; it does not inspect the next region, and Signal does not special-case region chains. The host combines confirmed candidates with vehicle following, exposes the consolidated authority boundary, and computes one control demand. Signal derives aspects from confirmed state and submits rendering changes only when their value changes. Every derived value records the host epoch/topology revision used to compute it.
 
 ## Timetable apply lifecycle
 

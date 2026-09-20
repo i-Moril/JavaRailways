@@ -13,7 +13,7 @@
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；不得包含render car或live Core对象。
 - `InfrastructureResource`、lease/edit request、typed result与read-only snapshot属于公开host contract；raw live-claim mutation只属于受保护进路实现，不进入add-on API。
-- `ProtectedRouteRequest`公开冻结route、完整typed `RouteResourceIntent`和至多一个咽喉window；window包含有向entry/exit、区域revision与exit-clearance。调用方不直接提供live-claim footprint；Basic验证intent与权威`TopologyState`恰好匹配，再推导完整物理资源集合。
+- `RouteResourceRequest`公开冻结route plan引用、完整typed `RouteResourceIntent`、train ID、同一观察stamp、当前进度与期望authority boundary。调用方不直接提供live-claim footprint或可信列车长度；Basic验证intent与权威`TopologyState`恰好匹配，从同一观察解析列车包络，并通过通用resource-contribution closure推导完整物理资源集合。
 - Basic production不得import Bukkit/Paper/Minecraft；platform side effect只经`TrainOperationGateway`等semantic adapter。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。
@@ -41,7 +41,7 @@ Basic只知道semantic request/result；region scheduling与model action完成�
 | extension identity | namespaced stable ID/version | JVM FQCN reflection |
 | 世界观察 | 同一`RailwayStateStamp`下的immutable train values | 分别读取live train与latest topology再拼装 |
 | 基础设施仲裁 | immutable footprint + typed atomic result | 向add-on暴露raw claim mutation或registry implementation |
-| 受保护进路 | frozen route + typed完整资源意图 + 至多一个完整咽喉window；Basic精确验证后一次claim | add-on自报raw footprint、Basic替其寻路或组合多个region |
+| 受保护进路 | frozen route + typed完整资源意图 + train/observation/boundary；Basic沿route计算贡献闭包后一次claim | add-on自报raw footprint/列车长度、Basic替其寻路、caller或region手工组合多个region |
 
 每个signature/KDoc必须包含world/host owner、stable identity、字段类型和单位、thread/blocking、live/value、failure/result、register/unregister、persistence含义。annotation不能替代文字。
 
@@ -61,7 +61,7 @@ data class TimetableExtensionCall(
 
 `RailwayObservation.fromCore(worldId, frame)`是另一个正确边界：它保留同一Core world frame的physics epoch、topology revision、列车位置/占用与frame revision，但主动丢弃render-only car数据。Infrastructure API同样只暴露stable resource identity、owner revision和immutable diagnostics；Bukkit service负责plugin owner与lifecycle，不把`InfrastructureLeaseRegistry`公开给add-on。
 
-目标`ProtectedRouteIntentValidator`是host-owned证明边界：它不选择路径，而是校验调用方 traversal 的region identity/revision、entry/exit方向、edge连续性、controlled transition完整性和出口净空，再从同一`TopologyState`推导完整footprint或typed denial。`ProtectedRouteClaimService`在验证前后核对topology revision，再把完整footprint作为一个raw claim原子提交；`PROTECTION_REQUIRED`、`INCOMPLETE_RESOURCE_INTENT`、stale或任一资源失败都不得留下partial claim。
+目标`RouteResourcePlanCompiler`是host-owned证明边界：它不选择路径，而是校验调用方traversal的region identity/revision、entry/exit方向、edge连续性与controlled transition完整性，从同一观察解析列车包络，再沿同一`TopologyState`单调折叠所有route-bound资源和contributor净空义务。它只在满足全部义务的完整authority boundary结束，并生成完整footprint或typed denial。claim service在验证前后核对topology revision，再把footprint作为一个raw claim原子提交；`PROTECTION_REQUIRED`、`INCOMPLETE_RESOURCE_INTENT`、stale、循环依赖或任一资源失败都不得留下partial claim。
 
 ## 禁止实现
 

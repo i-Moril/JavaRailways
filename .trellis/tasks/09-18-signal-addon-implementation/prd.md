@@ -19,8 +19,8 @@ The first Stage 2 deliverable is the physical extraction into two separately own
 - Derive every permissive aspect from a confirmed host resource allocation and valid train authority.
 - Let players define all interlocking protection regions by placing direction-aware boundaries on rails and selecting the bounded interior. Do not synthesize one protection/stop boundary for every turnout.
 - Validate that cutting all registered gates yields the selected bounded interior, that no unregistered topology escape exists, and that entry-to-exit paths and exit clearances are valid for the requesting train.
-- Compile each request into one all-or-nothing entry-to-exit resource bundle. Denied requests remain outside the entry and own no subset; adjacent regions without full-train intermediate clearance are merged or jointly requested.
-- Surface host-detected at-grade diamond nodes as immutable-connectivity conflict nodes. Players may inspect and diagnose them, but cannot change their line-to-line connection direction as if they were turnouts.
+- Compile each request into one all-or-nothing route-resource closure. Denied requests remain outside the entry and own no subset; protection regions contribute their own path resources and minimum tail-clearance obligation, while a generic compiler naturally includes any later contributor reached before all obligations are satisfied.
+- Surface host-detected at-grade diamonds as route-bound shared conflict resources rather than connectivity nodes. Players may inspect and diagnose them, but cannot create a line-to-line connection or select them as if they were turnouts.
 - Feed Signal/interlocking restrictions into the host's single train-protection pipeline; do not introduce a Signal-owned per-train forward scanner parallel to ATO perception.
 - Treat missing, stale, corrupt, unavailable, or conflicting state as restrictive.
 - Release locks from complete train occupancy/tail-clear evidence through the Stage 1 service.

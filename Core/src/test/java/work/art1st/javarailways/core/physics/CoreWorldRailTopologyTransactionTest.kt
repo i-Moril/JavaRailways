@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import java.util.concurrent.CompletableFuture
@@ -41,10 +42,11 @@ class CoreWorldRailTopologyTransactionTest {
         val world = createTestWorld()
         val source = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
         val first = CoreRail(world, straightCurve(10.0, 20.0), mutableListOf(), mutableListOf())
-        val second = CoreRail(world, straightCurve(20.0, 30.0), mutableListOf(), mutableListOf())
+        val second = CoreRail(world, straightCurve(10.0, 30.0), mutableListOf(), mutableListOf())
 
         world.railTopologyTransaction {
-            source.viewAB.mutableNextRails.addAll(listOf(first.viewAB, second.viewAB))
+            RailView.connect(source.viewAB, first.viewBA)
+            RailView.connect(source.viewAB, second.viewBA)
             source.viewAB.activeRail = first.viewAB
         }
         val structuralRevision = world.topologyRevision

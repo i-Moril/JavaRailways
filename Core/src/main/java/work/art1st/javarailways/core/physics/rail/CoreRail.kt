@@ -122,11 +122,12 @@ class CoreRail @MainThread private constructor(
         val activeTrackAtA: String?,
         val activeTrackAtB: String?
     ) : Loads<CoreRail, SavedRailV1.Dependency> {
-        override fun load(dependency: Dependency): CoreRail {
-            val rail = loadDisconnected(dependency)
-            restoreConnections(rail, dependency)
-            return rail
-        }
+        override fun load(dependency: Dependency): CoreRail =
+            dependency.world.railTopologyTransaction {
+                val rail = loadDisconnected(dependency)
+                restoreConnections(rail, dependency)
+                rail
+            }
 
         fun loadDisconnected(dependency: Dependency): CoreRail {
             val curve = curveAB.load(Unit)
@@ -142,6 +143,13 @@ class CoreRail @MainThread private constructor(
         }
 
         fun restoreConnections(rail: CoreRail, dependency: Dependency) {
+            require(rail.world === dependency.world) { "rail belongs to a different world" }
+            dependency.world.railTopologyTransaction {
+                restoreConnectionsInTransaction(rail, dependency)
+            }
+        }
+
+        private fun restoreConnectionsInTransaction(rail: CoreRail, dependency: Dependency) {
             val pointA = rail.curve.getPointAt(0.0)
             val pointB = rail.curve.getPointAt(rail.curve.totalArcLength)
             val nextAtA = nextRailAtA.mapNotNull { resolveRailView(pointA, it, dependency) }

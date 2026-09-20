@@ -104,6 +104,15 @@ class RailView(
          */
         @Throws(CannotConnectRailException::class)
         fun connect(viewIJ: RailView, viewKJ: RailView) {
+            require(viewIJ.rail.world === viewKJ.rail.world) {
+                "cannot connect rails from different worlds"
+            }
+            viewIJ.rail.world.railTopologyTransaction {
+                connectInTransaction(viewIJ, viewKJ)
+            }
+        }
+
+        private fun connectInTransaction(viewIJ: RailView, viewKJ: RailView) {
             val j1 = viewIJ.endPoint.position
             val j2 = viewKJ.endPoint.position
             if (j1.distance(j2) > Curve.TOLERANCE) {

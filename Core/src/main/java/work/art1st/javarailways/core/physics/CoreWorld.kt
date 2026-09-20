@@ -22,6 +22,9 @@ import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailSpatialIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyQueryResult
+import work.art1st.javarailways.core.physics.rail.topology.CoreTopologyInputAdapter
+import work.art1st.javarailways.core.physics.rail.topology.TopologyState
+import work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilder
 import work.art1st.javarailways.core.util.ThreadGuard
 import work.art1st.javarailways.core.physics.train.SavedTrainV1
 import work.art1st.javarailways.core.physics.tick.LatestTrainFrameMailbox
@@ -29,7 +32,6 @@ import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.LinkedHashMap
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
@@ -49,7 +51,6 @@ class CoreWorld(
 ) : World, Extendable<Any> by extensionDataContainer {
     private val railSpatialIndex = RailSpatialIndex()
     private val railTopologyLock = ReentrantReadWriteLock()
-    private val topologyRevisionCounter = AtomicLong()
     private val railTopologyTransactionContext = ThreadLocal<RailTopologyTransactionContext?>()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
@@ -62,6 +63,10 @@ class CoreWorld(
         RailwayWorldFrameSnapshot.create(0L, 0L, emptyList())
     @Volatile
     private var railTopologyHealth: RailTopologyHealth = RailTopologyHealth.Healthy
+    @Volatile
+    private var publishedTopologyState: TopologyState = TopologyStateBuilder.build(
+        CoreTopologyInputAdapter.capture(revision = 0L, sourceRails = rails.values)
+    )
 
     init {
         trains.values.forEach { train ->
@@ -112,10 +117,12 @@ class CoreWorld(
                 dependency.physicsCoordinator,
                 dependency.worldParent
             )
-            val railDependency = CoreRail.SavedRailV1.Dependency(world)
-            val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
-            infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
-                savedRail.restoreConnections(rail, railDependency)
+            world.railTopologyTransaction {
+                val railDependency = CoreRail.SavedRailV1.Dependency(world)
+                val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
+                infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
+                    savedRail.restoreConnections(rail, railDependency)
+                }
             }
             runtime?.trains.orEmpty().forEach { savedTrain ->
                 val train = try {
@@ -254,7 +261,11 @@ class CoreWorld(
                     )
                 }
                 if (captureRailTopologyFingerprint() != context.before) {
-                    topologyRevisionCounter.incrementAndGet()
+                    val nextRevision = Math.addExact(publishedTopologyState.revision, 1L)
+                    val candidate = TopologyStateBuilder.build(
+                        CoreTopologyInputAdapter.capture(nextRevision, rails.values)
+                    )
+                    publishedTopologyState = candidate
                 }
                 result
             } catch (failure: Throwable) {
@@ -262,7 +273,7 @@ class CoreWorld(
                     railTopologyHealth = RailTopologyHealth.Faulted(
                         RailTopologyFault(
                             reason = RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,
-                            lastPublishedRevision = topologyRevisionCounter.get(),
+                            lastPublishedRevision = publishedTopologyState.revision,
                             failureType = failure::class.qualifiedName ?: failure::class.simpleName ?: "unknown",
                             failureMessage = failure.message
                         )
@@ -281,10 +292,13 @@ class CoreWorld(
 
     /**
      * Runtime-only structural topology revision, unrelated to persisted snapshot revisions.
-     * The counter advances only when a successful outer transaction publishes a changed graph.
+     * The value advances only when a successful outer transaction publishes a changed graph.
      */
     val topologyRevision: Long
-        get() = topologyRevisionCounter.get()
+        get() = publishedTopologyState.revision
+
+    /** Current immutable topology root for Core-internal migration; not a public consumer API. */
+    internal fun currentTopologyState(): TopologyState = publishedTopologyState
 
     fun isRailTopologyTransactionActiveOnCurrentThread(): Boolean =
         railTopologyLock.isWriteLockedByCurrentThread
@@ -370,7 +384,7 @@ class CoreWorld(
             ensureTopologyHealthy()
             RailwayWorldFrameSnapshot.create(
                 physicsEpoch = physicsEpoch,
-                topologyRevision = topologyRevisionCounter.get(),
+                topologyRevision = publishedTopologyState.revision,
                 trains = trains.values.map(CoreTrain::publishedFrame)
             )
         }

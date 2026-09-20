@@ -3,6 +3,7 @@ package work.art1st.javarailways.core.physics.rail
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -35,7 +36,10 @@ class RailConnectTest {
         val first = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
         val second = CoreRail(world, straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
 
+        val beforeConnect = world.currentTopologyState()
+
         CoreRail.connect(first, second)
+        val afterConnect = world.currentTopologyState()
         CoreRail.connect(first, second)
 
         assertEquals(1, first.viewAB.nextRails.size)
@@ -44,6 +48,10 @@ class RailConnectTest {
         assertEquals(1, second.viewBA.nextRails.size)
         assertEquals(second.viewAB, first.viewAB.nextActiveRail)
         assertEquals(first.viewBA, second.viewBA.nextActiveRail)
+        assertEquals(beforeConnect.revision + 1L, afterConnect.revision)
+        assertEquals(afterConnect.revision, world.topologyRevision)
+        assertSame(afterConnect, world.currentTopologyState())
+        assertEquals(1, afterConnect.edges.size)
     }
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {

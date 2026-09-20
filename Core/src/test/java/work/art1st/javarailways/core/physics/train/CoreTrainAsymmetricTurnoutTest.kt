@@ -78,7 +78,9 @@ class CoreTrainAsymmetricTurnoutTest {
         val restoredWorld = createTestWorld()
         val dependency = CoreRail.SavedRailV1.Dependency(restoredWorld)
         val restored = saved.associateWith { it.loadDisconnected(dependency) }
-        restored.forEach { (snapshot, rail) -> snapshot.restoreConnections(rail, dependency) }
+        restoredWorld.railTopologyTransaction {
+            restored.forEach { (snapshot, rail) -> snapshot.restoreConnections(rail, dependency) }
+        }
         val restoredStem = restoredWorld.getRail(stem.id)!!
 
         assertEquals(listOf(first.id, second.id), restoredStem.viewAB.nextRails.map { it.rail.id })

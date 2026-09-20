@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`PARTIAL`；已有revision-scoped内部`TopologyState`数据模型及纯归一化构建器，尚未接入`CoreWorld`原子publication，也尚未开放consumer读取API。
+- **Status**：`PARTIAL`；已有revision-scoped内部`TopologyState`、纯归一化构建器及`CoreWorld`原子publication；当前仅有Core内部读取seam，尚未开放consumer API，也尚未迁移Basic/SimpleATO。
 - **Owner**：Core/host拥有物理结构及其publication；SimpleATO和Basic只能消费指定revision。
 - **Non-goals**：本页不定义运营寻路策略、信号显示规则、claim公平性或持久化schema。
 
@@ -100,9 +100,13 @@ data class RouteBoundInfrastructureResource(
 
 每次 structural transaction 基于当前 state 构造候选版本；只有成功且结构确实变化时才原子发布`revision + 1`。成功no-op、完整rollback及失败prepare都保持root与revision不变。若旧的live-action seam在抛错前已经改变结构且Core不能证明回滚完整，world必须进入topology fault并Stall physics，禁止发布frame或继续编辑，不能通过增加revision把部分mutation包装成正常新状态。实现可以让未变化的 immutable maps、nodes 和 edges 结构共享（copy-on-write），不得为每次请求深拷贝整图。读者持有旧 state 时内容永不变化；需要当前性时显式比较 revision。
 
-迁移期间 `RailView.nextRails` 可以作为 Core 内部编辑模型或构建新 state 的适配输入，但不得与 `TopologyState` 长期并列为两个可独立修改的 authoritative graph。完成迁移后，所有结构编辑必须在同一 transaction 中产生下一 state；Basic 的保护区域缓存只按 `(topologyRevision, regionRevision)` 派生并可丢弃重建。
+当前迁移实现用一个volatile `TopologyState`作为revision与图内容的共同publication root；`topologyRevision`从该root派生，不另维护可漂移的counter。事务持write lock捕获live rails，经adapter映射为`TopologyInput`并构建candidate，构建成功后只替换一次root。adapter将source view终点（AB→B、BA→A）连接到target view起点（AB→A、BA→B），但不补写缺失的反向关系；非对称连接是无效物理拓扑，必须拒绝publication，不能只在派生state中自动修复。引用当前world之外rail同样使构建失败。`activeRail`不进入input或fingerprint。
+
+迁移期间 `RailView.nextRails` 可以作为 Core 内部编辑模型或构建新 state 的适配输入，但不得与 `TopologyState` 长期并列为两个可独立修改的 authoritative graph。`RailView.connect`、单rail restore和world bulk load已经进入同一transaction/publication边界；`mutableNextRails`仍有直接写入caller，这是明确的后续封装缺口，不得把它解释成受支持的旁路authority。完成迁移后，所有结构编辑必须在同一 transaction 中产生下一 state；Basic 的保护区域缓存只按 `(topologyRevision, regionRevision)` 派生并可丢弃重建。
 
 `nextActiveRail`、列车占用、资源 claim、信号显示、方向限制和临时限速都不是 structural topology。它们携带对应 topology revision，以独立 runtime/overlay state 发布；不能通过修改 `TopologyState` 表达一次道岔选择或一个信号变色。
+
+`TopologyState`是从current rail infrastructure派生的runtime索引，不是独立持久化边界。world load先恢复持久化rail UUID、geometry和双向physical connections，再在同一个structural transaction中重建并校验state；runtime `topologyRevision`随本次world实例重新开始。长期overlay不得持久化revision-local node/edge ID，应保存stable rail UUID加canonical AB interval或独立stable infrastructure ID，并在load/apply时投影到current state。若未来需要跨重启stable node/edge identity，必须先单独冻结身份与migration合同，不能直接把当前派生state写入存档。
 
 ### 5.2 连通与 overlay
 

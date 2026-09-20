@@ -9,23 +9,23 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
-import work.art1st.javarailways.core.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class CoreWorldTopologyStatePublicationTest {
     @Test
     fun `empty world starts with one revision zero topology root`() = withWorld { world ->
-        val state = world.currentTopologyState()
+        val state = world.topologyState
 
         assertEquals(0L, world.topologyRevision)
         assertEquals(0L, state.revision)
         assertTrue(state.nodes.isEmpty())
         assertTrue(state.edges.isEmpty())
         assertTrue(state.railProjection.isEmpty())
-        assertSame(state, world.currentTopologyState())
+        assertSame(state, world.topologyState)
     }
 
     @Test
@@ -40,7 +40,7 @@ class CoreWorldTopologyStatePublicationTest {
                 RailView.connect(first.viewAB, second.viewBA)
             }
 
-            val state = world.currentTopologyState()
+            val state = world.topologyState
             assertEquals(1L, world.topologyRevision)
             assertEquals(world.topologyRevision, state.revision)
             assertEquals(2, state.nodes.values.count { it is TopologyNode.Terminus })
@@ -56,7 +56,7 @@ class CoreWorldTopologyStatePublicationTest {
         withWorld { world ->
             val first = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
             val second = CoreRail(world, straightCurve(10.0, 30.0), mutableListOf(), mutableListOf())
-            val before = world.currentTopologyState()
+            val before = world.topologyState
 
             val failure = assertThrows(IllegalArgumentException::class.java) {
                 world.railTopologyTransaction {
@@ -65,7 +65,7 @@ class CoreWorldTopologyStatePublicationTest {
             }
 
             assertTrue(failure.message.orEmpty().contains("not symmetric"))
-            assertSame(before, world.currentTopologyState())
+            assertSame(before, world.topologyState)
             assertEquals(before.revision, world.topologyRevision)
             assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
         }
@@ -73,11 +73,11 @@ class CoreWorldTopologyStatePublicationTest {
     @Test
     fun `later publication does not mutate a previously observed topology root`() = withWorld { world ->
         val first = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
-        val previous = world.currentTopologyState()
+        val previous = world.topologyState
         val previousProjection = previous.railProjection
 
         val second = CoreRail(world, straightCurve(20.0, 30.0), mutableListOf(), mutableListOf())
-        val current = world.currentTopologyState()
+        val current = world.topologyState
 
         assertNotSame(previous, current)
         assertEquals(1L, previous.revision)
@@ -100,32 +100,32 @@ class CoreWorldTopologyStatePublicationTest {
             RailView.connect(source.viewAB, second.viewBA)
             source.viewAB.activeRail = first.viewAB
         }
-        val before = world.currentTopologyState()
+        val before = world.topologyState
 
         world.railTopologyTransaction {
             source.viewAB.activeRail = second.viewAB
         }
-        assertSame(before, world.currentTopologyState())
+        assertSame(before, world.topologyState)
 
         world.railTopologyTransaction { }
-        assertSame(before, world.currentTopologyState())
+        assertSame(before, world.topologyState)
     }
 
     @Test
     fun `failure before mutation preserves topology root and keeps world healthy`() = withWorld { world ->
-        val before = world.currentTopologyState()
+        val before = world.topologyState
 
         assertThrows(IllegalStateException::class.java) {
             world.railTopologyTransaction<Unit> { error("prepare failed") }
         }
 
-        assertSame(before, world.currentTopologyState())
+        assertSame(before, world.topologyState)
         assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
     }
 
     @Test
     fun `failure after mutation preserves topology root and faults world`() = withWorld { world ->
-        val before = world.currentTopologyState()
+        val before = world.topologyState
 
         assertThrows(IllegalStateException::class.java) {
             world.railTopologyTransaction {
@@ -134,7 +134,7 @@ class CoreWorldTopologyStatePublicationTest {
             }
         }
 
-        assertSame(before, world.currentTopologyState())
+        assertSame(before, world.topologyState)
         assertEquals(before.revision, world.topologyRevision)
         assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
     }
@@ -146,7 +146,7 @@ class CoreWorldTopologyStatePublicationTest {
         try {
             val source = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
             val outside = CoreRail(otherWorld, straightCurve(10.0, 20.0), mutableListOf(), mutableListOf())
-            val before = world.currentTopologyState()
+            val before = world.topologyState
 
             val failure = assertThrows(IllegalArgumentException::class.java) {
                 world.railTopologyTransaction {
@@ -155,7 +155,7 @@ class CoreWorldTopologyStatePublicationTest {
             }
 
             assertTrue(failure.message.orEmpty().contains("outside the captured world"))
-            assertSame(before, world.currentTopologyState())
+            assertSame(before, world.topologyState)
             assertEquals(before.revision, world.topologyRevision)
             assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
         } finally {

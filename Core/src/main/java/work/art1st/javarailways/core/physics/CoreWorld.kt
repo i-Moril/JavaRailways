@@ -6,6 +6,7 @@ import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
@@ -23,7 +24,6 @@ import work.art1st.javarailways.core.physics.rail.RailSpatialIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyQueryResult
 import work.art1st.javarailways.core.physics.rail.topology.CoreTopologyInputAdapter
-import work.art1st.javarailways.core.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilder
 import work.art1st.javarailways.core.util.ThreadGuard
 import work.art1st.javarailways.core.physics.train.SavedTrainV1
@@ -297,8 +297,8 @@ class CoreWorld(
     val topologyRevision: Long
         get() = publishedTopologyState.revision
 
-    /** Current immutable topology root for Core-internal migration; not a public consumer API. */
-    internal fun currentTopologyState(): TopologyState = publishedTopologyState
+    override val topologyState: TopologyState
+        get() = publishedTopologyState
 
     fun isRailTopologyTransactionActiveOnCurrentThread(): Boolean =
         railTopologyLock.isWriteLockedByCurrentThread

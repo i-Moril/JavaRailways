@@ -36,10 +36,10 @@ class RailConnectTest {
         val first = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
         val second = CoreRail(world, straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
 
-        val beforeConnect = world.currentTopologyState()
+        val beforeConnect = world.topologyState
 
         CoreRail.connect(first, second)
-        val afterConnect = world.currentTopologyState()
+        val afterConnect = world.topologyState
         CoreRail.connect(first, second)
 
         assertEquals(1, first.viewAB.nextRails.size)
@@ -50,7 +50,7 @@ class RailConnectTest {
         assertEquals(first.viewBA, second.viewBA.nextActiveRail)
         assertEquals(beforeConnect.revision + 1L, afterConnect.revision)
         assertEquals(afterConnect.revision, world.topologyRevision)
-        assertSame(afterConnect, world.currentTopologyState())
+        assertSame(afterConnect, world.topologyState)
         assertEquals(1, afterConnect.edges.size)
     }
 

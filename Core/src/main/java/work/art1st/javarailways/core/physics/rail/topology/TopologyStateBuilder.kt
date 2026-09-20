@@ -1,5 +1,15 @@
 package work.art1st.javarailways.core.physics.rail.topology
 
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyEdgeEnd
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNodeId
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import work.art1st.javarailways.core.api.physics.rail.topology.TrackEdge
+import work.art1st.javarailways.core.api.physics.rail.topology.TrackEdgeId
+import work.art1st.javarailways.core.api.physics.rail.topology.TrackEdgeSlice
 import java.util.UUID
 
 /** Pure normalizer. It never reads live rails or runtime turnout selection. */
@@ -29,13 +39,13 @@ internal object TopologyStateBuilder {
             val id = nodeIdByGroup.getValue(group)
             val ports = endpointGroups.getValue(group).sorted()
             val node = when (nodeKinds.getValue(group)) {
-                NodeKind.TERMINUS -> TopologyNode.Terminus(id, ports)
-                NodeKind.TURNOUT -> TopologyNode.Turnout(
+                NodeKind.TERMINUS -> TopologyNode.Terminus.create(id, ports)
+                NodeKind.TURNOUT -> TopologyNode.Turnout.create(
                     id = id,
                     ports = ports,
                     legalContinuations = ports.associateWith { continuations.getValue(it) }
                 )
-                NodeKind.LOOP_ANCHOR -> TopologyNode.LoopAnchor(id, ports)
+                NodeKind.LOOP_ANCHOR -> TopologyNode.LoopAnchor.create(id, ports)
                 NodeKind.ORDINARY -> error("ordinary group cannot own a node")
             }
             id to node
@@ -65,21 +75,21 @@ internal object TopologyStateBuilder {
                 )
                 offset = endOffset
             }
-            edges[edgeId] = TrackEdge(
+            edges[edgeId] = TrackEdge.create(
                 id = edgeId,
                 first = TopologyEdgeEnd(nodeIdByGroup.getValue(raw.firstGroup), raw.firstPort),
                 second = TopologyEdgeEnd(nodeIdByGroup.getValue(raw.secondGroup), raw.secondPort),
                 lengthMeters = offset,
-                railSlices = raw.slices.toList()
+                railSlices = raw.slices
             )
         }
 
         check(projection.values.all { it.size == 1 }) { "every physical rail must project to exactly one edge slice" }
-        return TopologyState(
+        return TopologyState.create(
             revision = input.revision,
-            nodes = nodes.toMap(),
-            edges = edges.toMap(),
-            railProjection = projection.mapValues { (_, slices) -> slices.toList() }
+            nodes = nodes,
+            edges = edges,
+            railProjection = projection
         )
     }
 

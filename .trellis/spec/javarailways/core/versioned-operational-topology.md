@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`PARTIAL`；已有revision-scoped内部`TopologyState`、纯归一化构建器及`CoreWorld`原子publication；当前仅有Core内部读取seam，尚未开放consumer API，也尚未迁移Basic/SimpleATO。
+- **Status**：`PARTIAL`；已有revision-scoped public read-only `TopologyState`、纯归一化构建器及`CoreWorld`原子publication；尚未迁移Basic/SimpleATO，也尚未实现edge-distance查询层。
 - **Owner**：Core/host拥有物理结构及其publication；SimpleATO和Basic只能消费指定revision。
 - **Non-goals**：本页不定义运营寻路策略、信号显示规则、claim公平性或持久化schema。
 
@@ -49,7 +49,7 @@ Basic以线性zipper同时遍历冻结route、`DirectedTrackEdgeRef`和controlle
 
 ## 4. 概念数据模型与所有权
 
-下列代码是尚待字段冻结的概念shape，不是已经存在的公开API；职责和数据方向已经冻结：
+下列拓扑读取模型已经位于`core.api.physics.rail.topology`；构建input/builder仍是Core internal。后续route intent类型仍是概念shape，不能由本页示例推断为已经开放：
 
 ```kotlin
 data class TopologyState(
@@ -185,7 +185,7 @@ git diff --check
 
 迁移顺序：先让Core transaction同时生成唯一state，再让保护区域与route planner改读该state，随后删除Basic复制adjacency作为权威来源的可能性。迁移期adapter必须共享同一revision boundary，不能允许两边分别更新。
 
-实现前仍需冻结：node/edge稳定ID在split/merge后的规则、edge slice边界归属、state获取/订阅API、旧revision保留策略，以及topology build失败时Core结构编辑的rollback接口。这些未决项不能由首个实现私自决定后反向固化成API。
+实现前仍需冻结：edge slice边界归属、订阅API、旧revision保留策略，以及topology build失败时Core结构编辑的rollback接口。当前node/edge ID明确为revision-local runtime identity，不承诺split/merge或restart后稳定。这些未决项不能由首个实现私自决定后反向固化成API。
 
 ```text
 错误：Core live adjacency + Basic copied snapshot + SimpleATO private graph 三者分别更新

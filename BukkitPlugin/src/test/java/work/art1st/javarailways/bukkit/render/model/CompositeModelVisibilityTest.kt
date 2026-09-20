@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.Plugin
@@ -78,6 +79,8 @@ class CompositeModelVisibilityTest {
     @OptIn(ExtensionData::class)
     private class FakeWorld : World {
         override val tickManager: TickManager = FakeTickManager()
+        override val topologyState: TopologyState
+            get() = error("Topology is not used by this render test")
         override val allTrains: Collection<Train> = emptyList()
         override fun getTrain(name: String): Train? = null
         override fun removeTrain(train: Train) = Unit

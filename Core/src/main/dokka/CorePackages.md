@@ -6,6 +6,10 @@
 
 轨道、方向视图、位置、运营对象稳定引用与不可变快照。弧长单位为米，并以 Rail 的 AB 曲线作为持久化基准。
 
+# Package work.art1st.javarailways.core.api.physics.rail.topology
+
+按 runtime revision 原子发布的不可变物理连通图。Node/edge ID 只在所属 revision 内有效，不是持久化身份。
+
 # Package work.art1st.javarailways.core.api.physics.train
 
 列车、车厢、转向架与渲染扩展接口。结构修改必须遵守宿主提供的线程边界。

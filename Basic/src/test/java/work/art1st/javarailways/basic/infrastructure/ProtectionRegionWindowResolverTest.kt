@@ -25,8 +25,9 @@ class ProtectionRegionWindowResolverTest {
     private val railB = UUID.randomUUID()
     private val railC = UUID.randomUUID()
     private val east = UUID.randomUUID()
-    private var topologyRevision = 7L
-    private val topology = lineTopology(topologyRevision, west, railA, railB, railC, east)
+    private var topology = lineTopologyState(7L, west, railA, railB, railC, east)
+    private val topologyRevision: Long
+        get() = topology.revision
 
     @Test
     fun `catalog resolves one forward traversal against authored boundaries`() {
@@ -163,7 +164,7 @@ class ProtectionRegionWindowResolverTest {
                 clearUntil = routeBoundary("test:boundary/clear", east, ViewDirection.AB, 5.0, 35.0)
             )
         )
-        topologyRevision = 8L
+        topology = lineTopologyState(8L, west, railA, railB, railC, east)
 
         val rejected = assertInstanceOf(
             ProtectionRegionWindowResolution.Rejected::class.java,
@@ -175,11 +176,7 @@ class ProtectionRegionWindowResolverTest {
 
     private fun catalog(): ProtectionRegionCatalog {
         val catalog = ProtectionRegionCatalog(
-            currentTopologyRevision = { topologyRevision },
-            topologySource = ProtectionRegionTopologySource { _, expectedRevision ->
-                check(expectedRevision == topologyRevision)
-                ProtectionRegionTopologyCapture.Captured(topology)
-            }
+            topologyState = { topology }
         )
         val provider = object : ProtectionRegionProvider {
             override val providerId: String = "test:provider/main"
@@ -263,19 +260,4 @@ class ProtectionRegionWindowResolverTest {
         routeDistanceMeters = routeDistanceMeters
     )
 
-    private fun lineTopology(revision: Long, vararg railIds: UUID): ProtectionRegionTopologySnapshot {
-        val rails = railIds.mapIndexed { index, railId ->
-            railId to ProtectionTopologyRail(
-                railId = railId,
-                lengthMeters = 10.0,
-                connectionsFromA = if (index == 0) emptyList() else {
-                    listOf(ProtectionTopologyConnection(railIds[index - 1], ViewDirection.BA))
-                },
-                connectionsFromB = if (index == railIds.lastIndex) emptyList() else {
-                    listOf(ProtectionTopologyConnection(railIds[index + 1], ViewDirection.AB))
-                }
-            )
-        }.toMap()
-        return ProtectionRegionTopologySnapshot(revision, rails)
-    }
 }

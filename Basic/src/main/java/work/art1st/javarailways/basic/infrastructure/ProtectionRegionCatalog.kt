@@ -9,6 +9,7 @@ import work.art1st.javarailways.basic.api.route.ProtectionRegionDiagnostic
 import work.art1st.javarailways.basic.api.route.ProtectionRegionProvider
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
 import work.art1st.javarailways.basic.api.route.ProtectionRegionValidationCode
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 
 /**
  * World-local provider catalog that atomically publishes only fully validated region graphs.
@@ -18,14 +19,16 @@ import work.art1st.javarailways.basic.api.route.ProtectionRegionValidationCode
  * provider ownership nor resolved regions.
  */
 internal class ProtectionRegionCatalog(
-    private val currentTopologyRevision: () -> Long,
-    private val topologySource: ProtectionRegionTopologySource
+    private val topologyState: () -> TopologyState
 ) {
     private val lock = Any()
     private val providers = linkedMapOf<String, ProtectionRegionProvider>()
 
     @Volatile
-    private var published = CatalogSnapshot(currentTopologyRevision(), null, emptyMap())
+    private var published = CatalogSnapshot(
+        topology = ProtectionRegionTopology.derive(topologyState()),
+        regions = emptyMap()
+    )
 
     fun register(provider: ProtectionRegionProvider): ProtectionRegionCatalogResult = synchronized(lock) {
         if (!NAMESPACED_ROUTE_ID.matches(provider.providerId)) {
@@ -85,9 +88,12 @@ internal class ProtectionRegionCatalog(
 
     fun lookup(region: ProtectionRegionRef): ProtectionRegionLookup {
         val snapshot = published
-        val currentRevision = currentTopologyRevision()
-        if (snapshot.topologyRevision != currentRevision) {
-            return ProtectionRegionLookup.StaleTopology(snapshot.topologyRevision, currentRevision)
+        val currentTopology = topologyState()
+        if (snapshot.topology.topologyState !== currentTopology) {
+            return ProtectionRegionLookup.StaleTopology(
+                snapshot.topology.topologyRevision,
+                currentTopology.revision
+            )
         }
         val resolved = snapshot.regions[region.regionId]
             ?: return ProtectionRegionLookup.Missing
@@ -105,22 +111,20 @@ internal class ProtectionRegionCatalog(
 
     fun resolveWindow(request: ProtectedRouteRequest): ProtectionRegionWindowResolution {
         val snapshot = published
-        val currentRevision = currentTopologyRevision()
-        if (snapshot.topologyRevision != request.topologyRevision ||
-            currentRevision != request.topologyRevision
+        val currentTopology = topologyState()
+        if (snapshot.topology.topologyRevision != request.topologyRevision ||
+            currentTopology.revision != request.topologyRevision ||
+            snapshot.topology.topologyState !== currentTopology
         ) {
             return ProtectionRegionWindowResolution.Rejected(
                 ProtectionRegionWindowRejection.STALE_TOPOLOGY,
                 "request topology revision ${request.topologyRevision} does not match catalog " +
-                    "revision ${snapshot.topologyRevision} and current revision $currentRevision"
+                    "revision ${snapshot.topology.topologyRevision} and current revision " +
+                    currentTopology.revision
             )
         }
         val window = request.window
             ?: return ProtectionRegionWindowResolution.Resolved(null)
-        val topology = snapshot.topology ?: return ProtectionRegionWindowResolution.Rejected(
-            ProtectionRegionWindowRejection.MISSING_REGION,
-            "region catalog contains no protection regions"
-        )
         val owned = snapshot.regions[window.region.regionId]
             ?: return ProtectionRegionWindowResolution.Rejected(
                 ProtectionRegionWindowRejection.MISSING_REGION,
@@ -136,15 +140,15 @@ internal class ProtectionRegionCatalog(
         }
         val resolution = ProtectionRegionWindowResolver.resolve(
             request.route,
-            topology,
+            snapshot.topology,
             ResolvedProtectionWindow(window, owned.region)
         )
-        val confirmedRevision = currentTopologyRevision()
-        if (confirmedRevision != request.topologyRevision) {
+        val confirmedTopology = topologyState()
+        if (confirmedTopology !== currentTopology) {
             return ProtectionRegionWindowResolution.Rejected(
                 ProtectionRegionWindowRejection.STALE_TOPOLOGY,
                 "topology changed while resolving protection window from " +
-                    "${request.topologyRevision} to $confirmedRevision"
+                    "${request.topologyRevision} to ${confirmedTopology.revision}"
             )
         }
         if (published !== snapshot) {
@@ -157,7 +161,8 @@ internal class ProtectionRegionCatalog(
     }
 
     private fun rebuild(candidateProviders: Map<String, ProtectionRegionProvider>): RebuildResult {
-        val topologyRevision = currentTopologyRevision()
+        val capturedTopology = topologyState()
+        val topologyRevision = capturedTopology.revision
         val definitionsById = linkedMapOf<String, OwnedRegionDefinition>()
         for ((providerId, provider) in candidateProviders) {
             val definitions = try {
@@ -198,20 +203,13 @@ internal class ProtectionRegionCatalog(
                 }
             }
         }
-        if (definitionsById.isEmpty()) {
-            return RebuildResult.Valid(CatalogSnapshot(topologyRevision, null, emptyMap()))
+        val topology = if (published.topology.topologyState === capturedTopology) {
+            published.topology
+        } else {
+            ProtectionRegionTopology.derive(capturedTopology)
         }
-        val definitions = definitionsById.values
-            .sortedBy { it.definition.region.regionId }
-            .map(OwnedRegionDefinition::definition)
-        val topology = when (
-            val captured = topologySource.capture(
-                definitions.flatMap(ProtectionRegionDefinition::boundaries),
-                topologyRevision
-            )
-        ) {
-            is ProtectionRegionTopologyCapture.Captured -> captured.topology
-            is ProtectionRegionTopologyCapture.Rejected -> return RebuildResult.Rejected(captured.diagnostic)
+        if (definitionsById.isEmpty()) {
+            return confirmCurrent(capturedTopology, CatalogSnapshot(topology, emptyMap()))
         }
         val resolved = linkedMapOf<String, OwnedResolvedRegion>()
         for ((regionId, ownedDefinition) in definitionsById) {
@@ -233,17 +231,24 @@ internal class ProtectionRegionCatalog(
                 )?.let { return RebuildResult.Rejected(it) }
             }
         }
-        val confirmedRevision = currentTopologyRevision()
-        if (confirmedRevision != topologyRevision) {
+        return confirmCurrent(capturedTopology, CatalogSnapshot(topology, resolved.toMap()))
+    }
+
+    private fun confirmCurrent(
+        capturedTopology: TopologyState,
+        snapshot: CatalogSnapshot
+    ): RebuildResult {
+        val confirmedTopology = topologyState()
+        if (confirmedTopology !== capturedTopology) {
             return RebuildResult.Rejected(
                 ProtectionRegionDiagnostic(
                     code = ProtectionRegionValidationCode.STALE_TOPOLOGY,
                     detail = "topology changed during region resolution from " +
-                        "$topologyRevision to $confirmedRevision"
+                        "${capturedTopology.revision} to ${confirmedTopology.revision}"
                 )
             )
         }
-        return RebuildResult.Valid(CatalogSnapshot(topologyRevision, topology, resolved.toMap()))
+        return RebuildResult.Valid(snapshot)
     }
 
     private fun rejected(code: ProtectionRegionValidationCode, detail: String) =
@@ -263,8 +268,7 @@ internal class ProtectionRegionCatalog(
     )
 
     private data class CatalogSnapshot(
-        val topologyRevision: Long,
-        val topology: ProtectionRegionTopologySnapshot?,
+        val topology: ProtectionRegionTopology,
         val regions: Map<String, OwnedResolvedRegion>
     ) {
         fun withoutProvider(providerId: String): CatalogSnapshot = copy(

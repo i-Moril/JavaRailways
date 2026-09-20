@@ -27,11 +27,11 @@ internal sealed interface ProtectionRegionGraphResolution {
     data class Rejected(val diagnostic: ProtectionRegionDiagnostic) : ProtectionRegionGraphResolution
 }
 
-/** Pure graph-cut resolver. It reads only one immutable topology snapshot and performs no mutation. */
+/** Pure graph-cut resolver. It reads one revision-bound Core topology derivation and performs no mutation. */
 internal object ProtectionRegionGraphResolver {
     fun resolve(
         definition: ProtectionRegionDefinition,
-        topology: ProtectionRegionTopologySnapshot
+        topology: ProtectionRegionTopology
     ): ProtectionRegionGraphResolution {
         if (definition.topologyRevision != topology.topologyRevision) {
             return rejected(
@@ -137,7 +137,7 @@ internal object ProtectionRegionGraphResolver {
     private fun component(
         start: SegmentKey,
         cuts: Map<UUID, List<Double>>,
-        topology: ProtectionRegionTopologySnapshot
+        topology: ProtectionRegionTopology
     ): Set<SegmentKey> {
         val visited = linkedSetOf<SegmentKey>()
         val queue = ArrayDeque<SegmentKey>()
@@ -193,7 +193,7 @@ internal object ProtectionRegionGraphResolver {
 
     private fun SegmentKey.toSlice(
         cuts: Map<UUID, List<Double>>,
-        topology: ProtectionRegionTopologySnapshot
+        topology: ProtectionRegionTopology
     ): ProtectionRegionInteriorSlice {
         val railCuts = cuts[railId].orEmpty()
         val railLength = topology.rails.getValue(railId).lengthMeters

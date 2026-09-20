@@ -1,20 +1,21 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.route.ProtectionBoundaryDefinition
-import work.art1st.javarailways.basic.api.route.ProtectionRegionDiagnostic
-import work.art1st.javarailways.basic.api.route.ProtectionRegionValidationCode
-import work.art1st.javarailways.core.api.physics.curve.Curve
-import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import java.util.ArrayDeque
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
+import kotlin.math.max
+import kotlin.math.min
 
 internal data class ProtectionTopologyConnection(
     val railId: UUID,
     val enteringFacing: ViewDirection
 )
 
-internal data class ProtectionTopologyRail(
+internal class ProtectionTopologyRail private constructor(
     val railId: UUID,
     val lengthMeters: Double,
     val connectionsFromA: List<ProtectionTopologyConnection>,
@@ -23,84 +24,128 @@ internal data class ProtectionTopologyRail(
     init {
         require(lengthMeters.isFinite() && lengthMeters > 0.0)
     }
-}
-
-internal data class ProtectionRegionTopologySnapshot(
-    val topologyRevision: Long,
-    val rails: Map<UUID, ProtectionTopologyRail>
-)
-
-internal sealed interface ProtectionRegionTopologyCapture {
-    data class Captured(val topology: ProtectionRegionTopologySnapshot) : ProtectionRegionTopologyCapture
-    data class Rejected(val diagnostic: ProtectionRegionDiagnostic) : ProtectionRegionTopologyCapture
-}
-
-internal fun interface ProtectionRegionTopologySource {
-    fun capture(
-        boundaries: Collection<ProtectionBoundaryDefinition>,
-        expectedTopologyRevision: Long
-    ): ProtectionRegionTopologyCapture
-}
-
-/** Captures one immutable connected topology snapshot from live public Rail API values. */
-internal class LiveRailProtectionRegionTopologySource(
-    private val currentTopologyRevision: () -> Long,
-    private val railLookup: (UUID) -> Rail?
-) : ProtectionRegionTopologySource {
-    override fun capture(
-        boundaries: Collection<ProtectionBoundaryDefinition>,
-        expectedTopologyRevision: Long
-    ): ProtectionRegionTopologyCapture {
-        val before = currentTopologyRevision()
-        if (before != expectedTopologyRevision) {
-            return stale(expectedTopologyRevision, before)
-        }
-        val queue = ArrayDeque<UUID>()
-        boundaries.mapTo(queue) { it.position.railId }
-        val rails = linkedMapOf<UUID, ProtectionTopologyRail>()
-        while (queue.isNotEmpty()) {
-            val railId = queue.removeFirst()
-            if (railId in rails) continue
-            val rail = railLookup(railId) ?: return ProtectionRegionTopologyCapture.Rejected(
-                ProtectionRegionDiagnostic(
-                    code = ProtectionRegionValidationCode.MISSING_RAIL,
-                    detail = "protection boundary references missing rail $railId",
-                    railId = railId
-                )
-            )
-            val node = rail.toTopologyRail()
-            rails[railId] = node
-            node.connectionsFromA.forEach { queue.addLast(it.railId) }
-            node.connectionsFromB.forEach { queue.addLast(it.railId) }
-        }
-        val after = currentTopologyRevision()
-        if (after != expectedTopologyRevision) {
-            return stale(expectedTopologyRevision, after)
-        }
-        return ProtectionRegionTopologyCapture.Captured(
-            ProtectionRegionTopologySnapshot(expectedTopologyRevision, rails.toMap())
-        )
-    }
-
-    private fun Rail.toTopologyRail(): ProtectionTopologyRail = ProtectionTopologyRail(
-        railId = id,
-        lengthMeters = curve.totalArcLength,
-        connectionsFromA = getView(ViewDirection.BA).nextRails.map { next ->
-            ProtectionTopologyConnection(next.rail.id, next.viewDirection)
-        },
-        connectionsFromB = getView(ViewDirection.AB).nextRails.map { next ->
-            ProtectionTopologyConnection(next.rail.id, next.viewDirection)
-        }
-    )
-
-    private fun stale(expected: Long, actual: Long) = ProtectionRegionTopologyCapture.Rejected(
-        ProtectionRegionDiagnostic(
-            code = ProtectionRegionValidationCode.STALE_TOPOLOGY,
-            detail = "requested topology revision $expected does not match current $actual"
-        )
-    )
 
     companion object {
-        internal val BOUNDARY_TOLERANCE_METERS: Double = Curve.TOLERANCE
+        fun create(
+            railId: UUID,
+            lengthMeters: Double,
+            connectionsFromA: Collection<ProtectionTopologyConnection>,
+            connectionsFromB: Collection<ProtectionTopologyConnection>
+        ): ProtectionTopologyRail = ProtectionTopologyRail(
+            railId,
+            lengthMeters,
+            java.util.List.copyOf(connectionsFromA),
+            java.util.List.copyOf(connectionsFromB)
+        )
+    }
+}
+
+/**
+ * Disposable protection-region index derived from, and retaining, exactly one published Core root.
+ *
+ * [rails] accelerates graph-cut and route-window queries. It is never authored or refreshed
+ * independently: currentness is determined only by the retained [topologyState] root.
+ */
+internal class ProtectionRegionTopology private constructor(
+    val topologyState: TopologyState,
+    val rails: Map<UUID, ProtectionTopologyRail>
+) {
+    val topologyRevision: Long
+        get() = topologyState.revision
+
+    companion object {
+        fun derive(topologyState: TopologyState): ProtectionRegionTopology {
+            val connections = topologyState.railProjection.keys.associateWithTo(linkedMapOf()) {
+                linkedSetOf<RailEndpointRef>() to linkedSetOf<RailEndpointRef>()
+            }
+            val slicesByRail = linkedMapOf<UUID, RailSliceRef>()
+
+            topologyState.edges.values.forEach { edge ->
+                edge.railSlices.forEach { slice ->
+                    check(slicesByRail.putIfAbsent(slice.railId, slice) == null) {
+                        "rail ${slice.railId} appears more than once in topology edges"
+                    }
+                }
+                edge.railSlices.zipWithNext().forEach { (current, next) ->
+                    connect(connections, current.endEndpoint(), next.startEndpoint())
+                }
+            }
+
+            topologyState.nodes.values.forEach { node ->
+                when (node) {
+                    is TopologyNode.Terminus -> Unit
+                    is TopologyNode.Turnout -> node.legalContinuations.forEach { (from, targets) ->
+                        targets.forEach { to -> connectOneWay(connections, from, to) }
+                    }
+                    is TopologyNode.LoopAnchor -> {
+                        val (first, second) = node.ports
+                        connect(connections, first, second)
+                    }
+                }
+            }
+
+            check(slicesByRail.keys == topologyState.railProjection.keys) {
+                "topology rail projection and edge slices disagree"
+            }
+            val rails = slicesByRail.mapValuesTo(linkedMapOf()) { (railId, slice) ->
+                val lengthMeters = max(slice.startAbMeters, slice.endAbMeters)
+                check(min(slice.startAbMeters, slice.endAbMeters) == 0.0) {
+                    "rail $railId topology slice does not cover canonical endpoint A"
+                }
+                val (fromA, fromB) = connections.getValue(railId)
+                ProtectionTopologyRail.create(
+                    railId = railId,
+                    lengthMeters = lengthMeters,
+                    connectionsFromA = fromA.map(::toConnection).sortedWith(connectionOrder),
+                    connectionsFromB = fromB.map(::toConnection).sortedWith(connectionOrder)
+                )
+            }
+            return ProtectionRegionTopology(topologyState, java.util.Map.copyOf(rails))
+        }
+
+        private fun connect(
+            connections: Map<UUID, Pair<MutableSet<RailEndpointRef>, MutableSet<RailEndpointRef>>>,
+            first: RailEndpointRef,
+            second: RailEndpointRef
+        ) {
+            connectOneWay(connections, first, second)
+            connectOneWay(connections, second, first)
+        }
+
+        private fun connectOneWay(
+            connections: Map<UUID, Pair<MutableSet<RailEndpointRef>, MutableSet<RailEndpointRef>>>,
+            from: RailEndpointRef,
+            to: RailEndpointRef
+        ) {
+            val endpoints = connections.getValue(from.railId)
+            when (from.endpoint) {
+                RailEndpoint.A -> endpoints.first += to
+                RailEndpoint.B -> endpoints.second += to
+            }
+        }
+
+        private fun RailSliceRef.startEndpoint(): RailEndpointRef = RailEndpointRef(
+            railId,
+            if (startAbMeters < endAbMeters) RailEndpoint.A else RailEndpoint.B
+        )
+
+        private fun RailSliceRef.endEndpoint(): RailEndpointRef {
+            val start = startEndpoint()
+            return start.copy(endpoint = start.endpoint.opposite())
+        }
+
+        private fun toConnection(endpoint: RailEndpointRef): ProtectionTopologyConnection =
+            ProtectionTopologyConnection(
+                railId = endpoint.railId,
+                enteringFacing = when (endpoint.endpoint) {
+                    RailEndpoint.A -> ViewDirection.AB
+                    RailEndpoint.B -> ViewDirection.BA
+                }
+            )
+
+        private val connectionOrder = compareBy<ProtectionTopologyConnection>(
+            { it.railId.toString() },
+            ProtectionTopologyConnection::enteringFacing
+        )
     }
 }

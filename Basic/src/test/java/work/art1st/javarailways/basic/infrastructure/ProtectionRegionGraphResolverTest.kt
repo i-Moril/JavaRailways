@@ -10,13 +10,14 @@ import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
 import work.art1st.javarailways.basic.api.route.ProtectionRegionValidationCode
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import java.util.UUID
 
 class ProtectionRegionGraphResolverTest {
     private val railA = UUID.randomUUID()
     private val railB = UUID.randomUUID()
     private val railC = UUID.randomUUID()
-    private val topology = lineTopology(7L, railA, railB, railC)
+    private val topology = ProtectionRegionTopology.derive(lineTopologyState(7L, railA, railB, railC))
 
     @Test
     fun `multi-rail boundaries derive one connected interior`() {
@@ -102,10 +103,14 @@ class ProtectionRegionGraphResolverTest {
     @Test
     fun `disconnected inward half-edges are rejected`() {
         val isolatedRail = UUID.randomUUID()
-        val disconnected = ProtectionRegionTopologySnapshot(
-            topology.topologyRevision,
-            topology.rails + (
-                isolatedRail to ProtectionTopologyRail(isolatedRail, 10.0, emptyList(), emptyList())
+        val disconnected = ProtectionRegionTopology.derive(
+            topologyState(
+                revision = topology.topologyRevision,
+                railIds = listOf(railA, railB, railC, isolatedRail),
+                connections = listOf(
+                    endpoint(railA, RailEndpoint.B) to endpoint(railB, RailEndpoint.A),
+                    endpoint(railB, RailEndpoint.B) to endpoint(railC, RailEndpoint.A)
+                )
             )
         )
         val result = ProtectionRegionGraphResolver.resolve(
@@ -127,20 +132,13 @@ class ProtectionRegionGraphResolverTest {
     fun `loop reconnecting inward and outward half-edges is rejected`() {
         val loopA = UUID.randomUUID()
         val loopB = UUID.randomUUID()
-        val loop = ProtectionRegionTopologySnapshot(
-            topology.topologyRevision,
-            mapOf(
-                loopA to ProtectionTopologyRail(
-                    loopA,
-                    10.0,
-                    listOf(connection(loopB, ViewDirection.AB)),
-                    listOf(connection(loopB, ViewDirection.BA))
-                ),
-                loopB to ProtectionTopologyRail(
-                    loopB,
-                    10.0,
-                    listOf(connection(loopA, ViewDirection.AB)),
-                    listOf(connection(loopA, ViewDirection.BA))
+        val loop = ProtectionRegionTopology.derive(
+            topologyState(
+                revision = topology.topologyRevision,
+                railIds = listOf(loopA, loopB),
+                connections = listOf(
+                    endpoint(loopA, RailEndpoint.A) to endpoint(loopB, RailEndpoint.A),
+                    endpoint(loopA, RailEndpoint.B) to endpoint(loopB, RailEndpoint.B)
                 )
             )
         )
@@ -170,22 +168,4 @@ class ProtectionRegionGraphResolverTest {
     private fun boundary(id: String, railId: UUID, arc: Double, facing: ViewDirection) =
         ProtectionBoundaryDefinition(id, RailPositionSnapshot(railId, facing, arc))
 
-    private fun lineTopology(revision: Long, vararg railIds: UUID): ProtectionRegionTopologySnapshot {
-        val rails = railIds.mapIndexed { index, railId ->
-            railId to ProtectionTopologyRail(
-                railId,
-                10.0,
-                connectionsFromA = if (index == 0) emptyList() else {
-                    listOf(connection(railIds[index - 1], ViewDirection.BA))
-                },
-                connectionsFromB = if (index == railIds.lastIndex) emptyList() else {
-                    listOf(connection(railIds[index + 1], ViewDirection.AB))
-                }
-            )
-        }.toMap()
-        return ProtectionRegionTopologySnapshot(revision, rails)
-    }
-
-    private fun connection(railId: UUID, facing: ViewDirection) =
-        ProtectionTopologyConnection(railId, facing)
 }

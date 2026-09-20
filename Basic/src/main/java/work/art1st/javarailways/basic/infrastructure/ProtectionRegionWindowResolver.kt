@@ -36,11 +36,11 @@ internal sealed interface ProtectionRegionWindowResolution {
     }
 }
 
-/** Validates one authored entry/exit window against one immutable route and region topology snapshot. */
+/** Validates one authored entry/exit window against one route and one revision-bound topology derivation. */
 internal object ProtectionRegionWindowResolver {
     fun resolve(
         route: RouteSnapshot,
-        topology: ProtectionRegionTopologySnapshot,
+        topology: ProtectionRegionTopology,
         resolved: ResolvedProtectionWindow
     ): ProtectionRegionWindowResolution {
         val traversal = when (val built = buildTraversal(route, topology)) {
@@ -182,7 +182,7 @@ internal object ProtectionRegionWindowResolver {
 
     private fun buildTraversal(
         route: RouteSnapshot,
-        topology: ProtectionRegionTopologySnapshot
+        topology: ProtectionRegionTopology
     ): TraversalBuildResult {
         val slices = ArrayList<RouteTraversalSlice>(route.segments.size)
         var routeDistance = 0.0

@@ -18,11 +18,11 @@ class ProtectionRegionCatalogTest {
     private val railA = UUID.randomUUID()
     private val railB = UUID.randomUUID()
     private val railC = UUID.randomUUID()
-    private var topologyRevision = 7L
-    private val topology = lineTopology(topologyRevision, railA, railB, railC)
+    private var topology = lineTopologyState(7L, railA, railB, railC)
+    private val topologyRevision: Long
+        get() = topology.revision
     private val catalog = ProtectionRegionCatalog(
-        currentTopologyRevision = { topologyRevision },
-        topologySource = fixedTopology(topology)
+        topologyState = { topology }
     )
 
     @Test
@@ -100,7 +100,7 @@ class ProtectionRegionCatalogTest {
         )
         assertEquals(ProtectionRegionCatalogStatus.REGISTERED, catalog.register(provider).status)
 
-        topologyRevision = 8L
+        topology = lineTopologyState(8L, railA, railB, railC)
         val rejected = catalog.refresh()
 
         assertEquals(ProtectionRegionCatalogStatus.REJECTED, rejected.status)
@@ -108,6 +108,54 @@ class ProtectionRegionCatalogTest {
         assertInstanceOf(
             ProtectionRegionLookup.StaleTopology::class.java,
             catalog.lookup(ProtectionRegionRef("test:region/main", 1L))
+        )
+    }
+
+    @Test
+    fun `topology publication during provider callback rejects the whole rebuild`() {
+        val provider = object : ProtectionRegionProvider {
+            override val providerId: String = "test:provider/racing"
+
+            override fun definitions(topologyRevision: Long): Collection<ProtectionRegionDefinition> {
+                val definition = ProtectionRegionDefinition(
+                    ProtectionRegionRef("test:region/racing", 1L),
+                    topologyRevision,
+                    listOf(boundary("test:boundary/racing", railA, 5.0, ViewDirection.AB))
+                )
+                topology = lineTopologyState(topologyRevision + 1L, railA, railB, railC)
+                return listOf(definition)
+            }
+        }
+
+        val result = catalog.register(provider)
+
+        assertEquals(ProtectionRegionCatalogStatus.REJECTED, result.status)
+        assertEquals(ProtectionRegionValidationCode.STALE_TOPOLOGY, result.diagnostics.single().code)
+        assertTrue(catalog.definitions().isEmpty())
+    }
+
+    @Test
+    fun `refresh rebuilds regions entirely on the newly published root`() {
+        val provider = object : ProtectionRegionProvider {
+            override val providerId: String = "test:provider/dynamic"
+
+            override fun definitions(topologyRevision: Long): Collection<ProtectionRegionDefinition> = listOf(
+                ProtectionRegionDefinition(
+                    ProtectionRegionRef("test:region/dynamic", topologyRevision),
+                    topologyRevision,
+                    listOf(boundary("test:boundary/dynamic", railA, 5.0, ViewDirection.AB))
+                )
+            )
+        }
+        assertEquals(ProtectionRegionCatalogStatus.REGISTERED, catalog.register(provider).status)
+
+        topology = lineTopologyState(8L, railA, railB, railC)
+        val refreshed = catalog.refresh()
+
+        assertEquals(ProtectionRegionCatalogStatus.REFRESHED, refreshed.status)
+        assertInstanceOf(
+            ProtectionRegionLookup.Found::class.java,
+            catalog.lookup(ProtectionRegionRef("test:region/dynamic", 8L))
         )
     }
 
@@ -202,36 +250,4 @@ class ProtectionRegionCatalogTest {
                 definitions.toList()
         }
 
-    private fun fixedTopology(topology: ProtectionRegionTopologySnapshot) =
-        ProtectionRegionTopologySource { _, expectedRevision ->
-            if (expectedRevision == topology.topologyRevision) {
-                ProtectionRegionTopologyCapture.Captured(topology)
-            } else {
-                ProtectionRegionTopologyCapture.Rejected(
-                    work.art1st.javarailways.basic.api.route.ProtectionRegionDiagnostic(
-                        ProtectionRegionValidationCode.STALE_TOPOLOGY,
-                        "expected $expectedRevision but fixture has ${topology.topologyRevision}"
-                    )
-                )
-            }
-        }
-
-    private fun lineTopology(revision: Long, vararg railIds: UUID): ProtectionRegionTopologySnapshot {
-        val rails = railIds.mapIndexed { index, railId ->
-            railId to ProtectionTopologyRail(
-                railId = railId,
-                lengthMeters = 10.0,
-                connectionsFromA = if (index == 0) emptyList() else {
-                    listOf(connection(railIds[index - 1], ViewDirection.BA))
-                },
-                connectionsFromB = if (index == railIds.lastIndex) emptyList() else {
-                    listOf(connection(railIds[index + 1], ViewDirection.AB))
-                }
-            )
-        }.toMap()
-        return ProtectionRegionTopologySnapshot(revision, rails)
-    }
-
-    private fun connection(railId: UUID, facing: ViewDirection) =
-        ProtectionTopologyConnection(railId, facing)
 }

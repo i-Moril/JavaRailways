@@ -112,13 +112,13 @@ internal class ProtectionRegionCatalog(
     fun resolveWindow(request: ProtectedRouteRequest): ProtectionRegionWindowResolution {
         val snapshot = published
         val currentTopology = topologyState()
-        if (snapshot.topology.topologyRevision != request.topologyRevision ||
-            currentTopology.revision != request.topologyRevision ||
+        if (snapshot.topology.topologyRevision != request.route.topologyRevision ||
+            currentTopology.revision != request.route.topologyRevision ||
             snapshot.topology.topologyState !== currentTopology
         ) {
             return ProtectionRegionWindowResolution.Rejected(
                 ProtectionRegionWindowRejection.STALE_TOPOLOGY,
-                "request topology revision ${request.topologyRevision} does not match catalog " +
+                "route topology revision ${request.route.topologyRevision} does not match catalog " +
                     "revision ${snapshot.topology.topologyRevision} and current revision " +
                     currentTopology.revision
             )
@@ -148,7 +148,7 @@ internal class ProtectionRegionCatalog(
             return ProtectionRegionWindowResolution.Rejected(
                 ProtectionRegionWindowRejection.STALE_TOPOLOGY,
                 "topology changed while resolving protection window from " +
-                    "${request.topologyRevision} to ${confirmedTopology.revision}"
+                    "${request.route.topologyRevision} to ${confirmedTopology.revision}"
             )
         }
         if (published !== snapshot) {

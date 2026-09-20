@@ -37,10 +37,10 @@ class ProtectedRouteTest {
         requestId = "test:request/main",
         owner = InfrastructureOwner("test:route/main", 1L),
         trainId = "train",
-        topologyRevision = 4L,
         route = RouteSnapshot(
             "route",
             2L,
+            4L,
             listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
         ),
         window = window

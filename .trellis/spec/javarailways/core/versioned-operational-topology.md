@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`PARTIAL`；已有revision-scoped public read-only `TopologyState`、纯归一化构建器及`CoreWorld`原子publication；Basic保护区域与内部冻结路线投影已读取该state，SimpleATO迁移、route-bound非结构资源索引及通用edge-distance查询层尚未实现。
+- **Status**：`PARTIAL`；已有revision-scoped public read-only `TopologyState`、纯归一化构建器及`CoreWorld`原子publication；Basic保护区域与内部冻结路线投影已读取该state，当前SimpleATO实时扫描生成的`RouteSnapshot`已显式绑定该state revision；基于topology与overlay的完整运营寻路迁移、route-bound非结构资源索引及通用edge-distance查询层尚未实现。
 - **Owner**：Core/host拥有物理结构及其publication；SimpleATO和Basic只能消费指定revision。
 - **Non-goals**：本页不定义运营寻路策略、信号显示规则、claim公平性或持久化schema。
 
@@ -133,6 +133,11 @@ SimpleATO提交一份有序traversal，并以`topologyRevision`绑定它读取�
 5. 同一次扫描累积rail intervals、共享conflict resources、physical locking intervals和release slices，生成只属于本次编译的内部projection。
 
 Basic不能要求SimpleATO同时提交route与资源列表：两者重复表达同一事实，可能产生漏报和冲突。Basic也不能自行搜索另一条可行路径来修正非法traversal；不匹配必须typed denial，由SimpleATO在新状态上重算。
+
+当前过渡`RouteSnapshot`同时携带互相独立的`revision`与`topologyRevision`：前者是路径版本，后者是
+冻结路径所依据的结构版本。`ProtectedRouteRequest`不复制topology revision，projector也不接收单独的
+expected revision；所有验证从route读取唯一绑定并与指定`TopologyState.revision`比较。producer必须在
+构造route时显式捕获版本，consumer不得稍后读取latest state替旧route补版本。
 
 ## 6. 校验与错误矩阵
 

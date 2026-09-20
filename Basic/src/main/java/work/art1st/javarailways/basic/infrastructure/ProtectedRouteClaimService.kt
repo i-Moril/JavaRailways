@@ -28,7 +28,7 @@ class ProtectedRouteClaimService(
             is ResolutionResult.Footprint -> mapMutation(
                 registry.acquireClaim(
                     platformOwner,
-                    InfrastructureClaimRequest(request.topologyRevision, request.owner, resolved.footprint)
+                    InfrastructureClaimRequest(request.route.topologyRevision, request.owner, resolved.footprint)
                 )
             )
         }
@@ -54,7 +54,7 @@ class ProtectedRouteClaimService(
                 registry.replaceClaim(
                     platformOwner,
                     expectedOwner,
-                    InfrastructureClaimRequest(request.topologyRevision, request.owner, resolved.footprint)
+                    InfrastructureClaimRequest(request.route.topologyRevision, request.owner, resolved.footprint)
                 )
             )
         }
@@ -64,7 +64,7 @@ class ProtectedRouteClaimService(
         mapMutation(registry.releaseClaim(platformOwner, owner))
 
     private fun resolve(request: ProtectedRouteRequest): ResolutionResult {
-        if (request.topologyRevision != currentTopologyRevision()) {
+        if (request.route.topologyRevision != currentTopologyRevision()) {
             return ResolutionResult.Finished(
                 result(ProtectedRouteClaimStatus.STALE_TOPOLOGY, "request topology revision is stale")
             )
@@ -80,7 +80,7 @@ class ProtectedRouteClaimService(
                 )
             )
         }
-        if (request.topologyRevision != currentTopologyRevision()) {
+        if (request.route.topologyRevision != currentTopologyRevision()) {
             return ResolutionResult.Finished(
                 result(
                     ProtectedRouteClaimStatus.STALE_TOPOLOGY,

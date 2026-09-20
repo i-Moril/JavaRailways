@@ -895,6 +895,7 @@ class SimpleATO(
     }
 
     private fun scanRouteAndObjects(): ScanResult {
+        val topology = world.topologyState
         val head = train.headLocation as? RailLocationWithFacing
             ?: error("SimpleATO requires a facing-aware train head location")
         val horizon = brakingDistance(
@@ -913,6 +914,7 @@ class SimpleATO(
         val route = RouteSnapshot(
             routeId = "simple-ato/${train.id}",
             revision = routeRevision,
+            topologyRevision = topology.revision,
             segments = segments.map { segment ->
                 RouteSegmentSnapshot(
                     segment.railView.rail.id,

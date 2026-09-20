@@ -27,24 +27,29 @@ data class RouteSegmentSnapshot(
 /**
  * Immutable selected route used by one planning pass.
  *
- * [revision] changes whenever the selected path or turnout state relevant to the route changes.
+ * [revision] is the route/path revision and changes whenever the selected traversal changes.
+ * [topologyRevision] identifies the immutable Core topology against which [segments] were selected;
+ * it is independent from [revision] and must match the topology used to validate the route.
  * The constructor defensively copies [segments].
  */
 @ConsistentCopyVisibility
 data class RouteSnapshot private constructor(
     val routeId: String,
     val revision: Long,
+    val topologyRevision: Long,
     val segments: List<RouteSegmentSnapshot>
 ) {
     constructor(
         routeId: String,
         revision: Long,
+        topologyRevision: Long,
         segments: Collection<RouteSegmentSnapshot>
-    ) : this(routeId, revision, immutableCopy(segments))
+    ) : this(routeId, revision, topologyRevision, immutableCopy(segments))
 
     init {
         require(routeId.isNotBlank()) { "RouteSnapshot routeId must not be blank" }
         require(revision >= 0L) { "RouteSnapshot revision must be non-negative" }
+        require(topologyRevision >= 0L) { "RouteSnapshot topologyRevision must be non-negative" }
     }
 
     val totalLengthMeters: Double

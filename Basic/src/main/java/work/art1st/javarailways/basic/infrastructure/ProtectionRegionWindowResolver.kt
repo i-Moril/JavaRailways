@@ -44,8 +44,7 @@ internal object ProtectionRegionWindowResolver {
         val traversal = when (
             val projection = TopologyRouteProjector.project(
                 route = route,
-                topology = topology.topologyState,
-                expectedTopologyRevision = topology.topologyRevision
+                topology = topology.topologyState
             )
         ) {
             is TopologyRouteProjectionResult.Projected -> projection.route.occurrences

@@ -14,6 +14,7 @@ import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwnerType
 import work.art1st.javarailways.basic.api.ato.constraint.CurrentSpeedLimitConstraint
 import work.art1st.javarailways.basic.api.ato.constraint.RouteSpeedLimitConstraint
 import work.art1st.javarailways.basic.api.ato.constraint.StopConstraint
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import kotlin.math.sqrt
 
 class PhaseBConstraintTest {
@@ -135,7 +136,7 @@ class PhaseBConstraintTest {
             stackTrace = "stack",
             initialTrain = null,
             currentTrain = null,
-            route = null,
+            route = RouteSnapshot("test:route", 4L, 9L, emptyList()),
             perception = null,
             activeProviderId = "test:provider",
             constraints = emptyMap(),
@@ -148,5 +149,9 @@ class PhaseBConstraintTest {
         assertEquals("world-id", root.getValue("worldId").jsonPrimitive.content)
         assertEquals("broken", root.getValue("error").jsonObject.getValue("message").jsonPrimitive.content)
         assertEquals(123L, root.getValue("occurredAtEpochMillis").jsonPrimitive.content.toLong())
+        assertEquals(
+            9L,
+            root.getValue("route").jsonObject.getValue("topologyRevision").jsonPrimitive.content.toLong()
+        )
     }
 }

@@ -156,10 +156,10 @@ class ProtectedRouteClaimServiceTest {
         requestId = "test:request/main",
         owner = owner,
         trainId = "train",
-        topologyRevision = 4L,
         route = RouteSnapshot(
             "route",
             2L,
+            4L,
             listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
         ),
         window = window

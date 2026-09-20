@@ -90,13 +90,12 @@ internal sealed interface TopologyRouteProjectionResult {
 internal object TopologyRouteProjector {
     fun project(
         route: RouteSnapshot,
-        topology: TopologyState,
-        expectedTopologyRevision: Long
+        topology: TopologyState
     ): TopologyRouteProjectionResult {
-        if (topology.revision != expectedTopologyRevision) {
+        if (topology.revision != route.topologyRevision) {
             return rejected(
                 TopologyRouteProjectionRejection.STALE_TOPOLOGY,
-                "route expects topology revision $expectedTopologyRevision, found ${topology.revision}"
+                "route expects topology revision ${route.topologyRevision}, found ${topology.revision}"
             )
         }
         if (route.segments.isEmpty()) {

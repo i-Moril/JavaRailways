@@ -72,7 +72,11 @@ publish immutable plan only after the full loop succeeds
 
 ## 4. 目标签名与合同
 
-以下是进入实现前仍需字段审查的目标shape，不是当前公开API。当前`ProtectedRouteRequest`只有`topologyRevision`；接入物理占用前必须升级为完整`RailwayStateStamp`，不能把不同epoch的occupancy与topology拼接。
+以下是进入实现前仍需字段审查的目标shape，不是当前完整公开API。当前冻结路径
+`RouteSnapshot`已经携带自己的`topologyRevision`，`ProtectedRouteRequest`不得再复制该字段；
+catalog、projector和claim检查全部读取`request.route.topologyRevision`。接入物理占用前，请求仍须
+升级为完整`RailwayStateStamp`，并要求stamp的topology revision与route一致，不能把不同epoch的
+occupancy与topology拼接。
 
 ```kotlin
 data class ProtectionBoundaryDefinition(
@@ -162,6 +166,11 @@ Basic service是world-local，因此platform-neutral request不重复携带world
 
 上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal；不得再增加调用方提交的controlled-resource intent。调用方提供`trainId`，Basic必须从`observationStamp`对应的authoritative observation解析长度、方向和occupied intervals；不得相信调用方自由填写的列车长度。
 
+当前过渡API的唯一拓扑绑定也遵守同一规则：`RouteSnapshot.topologyRevision`是路径选择时捕获的
+版本，`RouteSnapshot.revision`是路径本身的版本。projector直接比较前者与传入`TopologyState.revision`；
+不存在额外的`expectedTopologyRevision`参数，也不存在request层的重复字段。这样stale拒绝来自冻结
+路径本身，避免caller提交两份互相矛盾的拓扑版本。
+
 `request.owner`是调用方计划revision，不承担release过程中的registry CAS revision。每个成功grant获得独立稳定`grantId`和host-owned internal claim owner；同一plan内按车尾执行的prefix shrink只增加`claimRevision`。因此尾部逐段释放不会伪造新的调用方计划revision，cancel也不会因内部shrink而失去目标。
 
 ## 5. 不变量、生命周期、线程与版本
@@ -182,6 +191,7 @@ Basic service是world-local，因此platform-neutral request不重复携带world
 ### 5.2 路径窗口与覆盖
 
 - `route`是一次解析使用的冻结、有方向路径。`routeDistanceMeters`从路径起点递增；boundary的`position`仍使用单根rail canonical AB坐标，两者不得混用。
+- `route.revision`与`route.topologyRevision`语义独立；前者改变不要求Core结构变化，后者改变也不能由Basic自动改写旧route。
 - entry必须以该boundary的`insideFacing`跨入内部；exit必须反向跨出另一个boundary。entry到exit之间的每个route segment都必须在该region内部。
 - 每个沿route遇到的turnout、diamond或其他controlled resource必须能由`TopologyState`和host resource index完整派生并受有效保护覆盖；道岔已经处于目标方向也不能豁免。没有任何资源贡献且无需claim的route可返回`NOT_REQUIRED`。
 - region identity本身不是一把排他的全区锁。claim只包含实际路径rail intervals和共享冲突资源，使同一咽喉中不冲突的进路仍可并行；region仍可向SimpleATO暴露类似闭塞区间的occupancy/reservation观察。
@@ -272,6 +282,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - route validator/projector tests：零/一/多turnout、route-bound diamond resource、正反向stable identity、BA canonical转换、零长度segment的deterministic方向、already-aligned turnout、非法continuation、断裂route、resource index缺失、route离开/重入和重复occurrence。
 - closure tests：精确最小列车长度、短1个容差单位、断开route、出口后固定闭塞整段提升、出口后移动闭塞精确interval/MA下限、连续两个保护区域、贡献链扩展、合法authority endpoint选择与循环检测；断言每个occurrence至多处理一次且失败不产生claim。
 - epoch tests：physics epoch、topology revision、region revision任一stale均fail closed；解析前后revision变化不穿透。
+- route binding tests：route revision与topology revision可取不同值；projector只从route字段拒绝stale topology，request没有第二个可冲突的revision。
 - transaction tests：resource conflict、physical occupancy、第二个turnout apply失败、rollback成功/失败；断言selection、claim和authority三者满足矩阵。
 - release tests：未进入取消、头部过exit但尾部未过、tail clear、单region prefix shrink、train消失、provider disable、world reload recovery。
 - dispatcher tests：automatic和`MANUAL_ROUTED`只能调用新service；不存在接受raw planned section的overload；`FULL_MANUAL`不申请新grant。

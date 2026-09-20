@@ -13,7 +13,7 @@
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；不得包含render car或live Core对象。
 - `InfrastructureResource`、lease/edit request、typed result与read-only snapshot属于公开host contract；raw live-claim mutation只属于受保护进路实现，不进入add-on API。
-- `RouteResourceRequest`公开一个绑定topology revision的冻结route plan、train ID、同一观察stamp、当前进度与期望authority boundary。route是调用方提交的唯一路径事实；调用方不再提交第二份controlled-resource intent、live-claim footprint或可信列车长度。Basic验证route与权威`TopologyState`匹配，从同一观察解析列车包络，并通过通用resource-contribution closure推导完整物理资源集合。
+- `RouteResourceRequest`公开一个自身携带topology revision的冻结route plan、train ID、同一观察stamp、当前进度与期望authority boundary。route是调用方提交的唯一路径及拓扑绑定事实；request不得复制第二个topology revision，调用方也不再提交controlled-resource intent、live-claim footprint或可信列车长度。Basic验证route与权威`TopologyState`匹配，从同一观察解析列车包络，并通过通用resource-contribution closure推导完整物理资源集合。
 - Basic production不得import Bukkit/Paper/Minecraft；platform side effect只经`TrainOperationGateway`等semantic adapter。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。

@@ -78,14 +78,12 @@ data class ProtectedRouteRequest(
     val requestId: String,
     val owner: InfrastructureOwner,
     val trainId: String,
-    val topologyRevision: Long,
     val route: RouteSnapshot,
     val window: ProtectedRouteWindow?
 ) {
     init {
         require(NAMESPACED_ROUTE_ID.matches(requestId)) { "requestId must be namespaced" }
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
         require(route.segments.isNotEmpty()) { "protected route must contain at least one segment" }
         require(window == null || window.exitClearance.clearUntil.routeDistanceMeters <= route.totalLengthMeters) {
             "protection window or exit clearance exceeds the frozen route"

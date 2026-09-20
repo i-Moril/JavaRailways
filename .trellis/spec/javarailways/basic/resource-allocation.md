@@ -79,7 +79,7 @@ InfrastructureFootprint(listOf(
 
 完整region cut、目标签名、错误矩阵、transaction伪代码和release/lifecycle合同见[protected route admission](./protected-route-admission.md)。本节只保留与通用registry直接相关的约束。
 
-`RouteResourceRequest`描述一个绑定topology revision的冻结route plan、列车身份、同一观察stamp、当前进度和期望authority boundary。SimpleATO只提供有序traversal；Basic从authoritative observation解析列车实际占用包络，在验证route时派生资源，并沿同一路径运行通用resource-contribution closure。保护区域入口只贡献自己的路径资源及“尾部必须越过出口”的最小净空义务，不读取下一个区域；若义务范围内遇到另一保护区域或其他contributor，compiler自然把它加入同一次原子claim。
+`RouteResourceRequest`描述一个自身携带topology revision的冻结route plan、列车身份、同一观察stamp、当前进度和期望authority boundary；request本身不再复制第二个topology revision。SimpleATO只提供有序traversal；Basic从authoritative observation解析列车实际占用包络，在验证route时派生资源，并沿同一路径运行通用resource-contribution closure。保护区域入口只贡献自己的路径资源及“尾部必须越过出口”的最小净空义务，不读取下一个区域；若义务范围内遇到另一保护区域或其他contributor，compiler自然把它加入同一次原子claim。
 
 request不携带raw `InfrastructureFootprint`、受控资源清单或可信列车长度。SimpleATO从Core的authoritative `TopologyState`选择路径并提交有序edge traversal；Basic validator证明它在同一revision内连续、方向正确且每个continuation合法，再通过拓扑节点与route-bound resource index派生全部rail intervals、turnouts、fixed crossings、physical locking legs与其他shared conflicts。非法或断裂traversal返回`INVALID_ROUTE`；受控资源没有有效保护覆盖返回`PROTECTION_REQUIRED`。验证前后均核对topology revision，任何失败都不改变registry。
 

@@ -99,6 +99,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         var route = new RouteSnapshot(
             "example.signaladdon:route/main",
             1L,
+            topologyRevision,
             List.of(new RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 120.0))
         );
         var entry = boundary("example.signaladdon:boundary/entry", railId, 20.0);
@@ -114,7 +115,6 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             "example.signaladdon:request/main",
             new InfrastructureOwner("example.signaladdon:route/main", 1L),
             "example-train",
-            topologyRevision,
             route,
             window
         );

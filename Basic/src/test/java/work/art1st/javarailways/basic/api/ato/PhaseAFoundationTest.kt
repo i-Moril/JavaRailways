@@ -24,14 +24,27 @@ import java.util.concurrent.TimeUnit
 
 class PhaseAFoundationTest {
     @Test
+    fun `route revision and topology revision are independent non-negative identities`() {
+        val route = RouteSnapshot("route", 3L, 11L, emptyList())
+
+        assertEquals(3L, route.revision)
+        assertEquals(11L, route.topologyRevision)
+        assertThrows(IllegalArgumentException::class.java) {
+            RouteSnapshot("route", 3L, -1L, emptyList())
+        }
+    }
+
+    @Test
     fun `route and perception snapshots defensively copy collections`() {
         val railId = UUID.randomUUID()
         val mutableSegments = mutableListOf(
             RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0)
         )
-        val route = RouteSnapshot("route-1", 4L, mutableSegments)
+        val route = RouteSnapshot("route-1", 4L, 9L, mutableSegments)
         mutableSegments.clear()
         assertEquals(1, route.segments.size)
+        assertEquals(4L, route.revision)
+        assertEquals(9L, route.topologyRevision)
 
         val train = TrainSnapshot(
             trainId = "T1",
@@ -66,6 +79,7 @@ class PhaseAFoundationTest {
         val route = RouteSnapshot(
             "route-2",
             1L,
+            3L,
             listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
         )
         val train = TrainSnapshot(

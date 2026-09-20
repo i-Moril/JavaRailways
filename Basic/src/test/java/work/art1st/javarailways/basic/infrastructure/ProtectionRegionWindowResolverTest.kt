@@ -108,6 +108,7 @@ class ProtectionRegionWindowResolverTest {
         val disconnected = RouteSnapshot(
             "test:route/disconnected",
             1L,
+            topologyRevision,
             listOf(
                 segment(railA, ViewDirection.AB),
                 segment(railC, ViewDirection.AB)
@@ -207,7 +208,6 @@ class ProtectionRegionWindowResolverTest {
             requestId = "test:request/main",
             owner = InfrastructureOwner("test:route/main", 1L),
             trainId = "train",
-            topologyRevision = topologyRevision,
             route = route,
             window = window
         )
@@ -226,6 +226,7 @@ class ProtectionRegionWindowResolverTest {
     private fun forwardRoute() = RouteSnapshot(
         "test:route/forward",
         1L,
+        topologyRevision,
         listOf(
             segment(railA, ViewDirection.AB),
             segment(railB, ViewDirection.AB),
@@ -237,6 +238,7 @@ class ProtectionRegionWindowResolverTest {
     private fun reverseRoute() = RouteSnapshot(
         "test:route/reverse",
         1L,
+        topologyRevision,
         listOf(
             segment(railC, ViewDirection.BA),
             segment(railB, ViewDirection.BA),

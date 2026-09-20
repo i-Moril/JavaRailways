@@ -86,6 +86,7 @@ object AtoStallReportJson {
         mapOf(
             "routeId" to JsonPrimitive(routeId),
             "revision" to JsonPrimitive(revision),
+            "topologyRevision" to JsonPrimitive(topologyRevision),
             "segments" to JsonArray(segments.map { segment ->
                 JsonObject(
                     mapOf(

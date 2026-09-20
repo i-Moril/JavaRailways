@@ -43,7 +43,12 @@ data class PerceptionSnapshot private constructor(
 | same `RailObjectRef`对应different live object | world Stall、freeze | 不shadow旧object |
 | provider boundary direction不匹配 | 非PASS activation | provider不切换 |
 
-`RouteSnapshot(routeId,revision,segments)`的segment字段为rail UUID、`ViewDirection`、view-local start/end arc meters，满足finite、`0<=start<=end`。
+`RouteSnapshot(routeId,revision,topologyRevision,segments)`中`revision`只标识所选路径版本，
+`topologyRevision`只标识生成该冻结路径时读取的Core结构拓扑版本；二者是独立的非负runtime计数，
+不得因数值相同而合并或互相推导。segment字段为rail UUID、`ViewDirection`、view-local
+start/end arc meters，满足finite、`0<=start<=end`。SimpleATO在开始扫描route前捕获一次不可变
+`world.topologyState`根，并把该根的revision写入snapshot；其他producer也必须显式传入，禁止helper
+在路线生成后猜测“最新”拓扑。若扫描期间发布新根，旧绑定将在后续校验中作为stale fail closed。
 
 ## 项目内正确示例
 
@@ -61,6 +66,7 @@ is RouteBuildResult.Failure ->
 - 持久化/live传`RailLocation`或mutable`PlannedRoute`；
 - main直接设`activeMission`；
 - stale revision覆盖新mission；
+- 只保存route revision，或由consumer在稍后读取latest topology并拼接；
 - unresolved leg仍激活前半条route；
 - observation未排序或collection可变；
 - same ref不同object悄悄替换。

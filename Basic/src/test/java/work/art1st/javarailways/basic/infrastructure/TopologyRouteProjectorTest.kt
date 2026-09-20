@@ -142,9 +142,13 @@ class TopologyRouteProjectorTest {
     fun `stale missing and out of range rails are rejected`() {
         val rail = rail(1)
         val topology = lineTopologyState(revision, rail)
+        val staleRoute = route(
+            segment(rail, ViewDirection.AB),
+            topologyRevision = revision + 1L
+        )
         val stale = assertInstanceOf(
             TopologyRouteProjectionResult.Rejected::class.java,
-            TopologyRouteProjector.project(route(segment(rail, ViewDirection.AB)), topology, revision + 1)
+            TopologyRouteProjector.project(staleRoute, topology)
         )
         val missing = reject(
             route(segment(rail(99), ViewDirection.AB)),
@@ -200,7 +204,7 @@ class TopologyRouteProjectorTest {
         topology: TopologyState
     ): ProjectedTopologyRoute = assertInstanceOf(
         TopologyRouteProjectionResult.Projected::class.java,
-        TopologyRouteProjector.project(route, topology, revision)
+        TopologyRouteProjector.project(route, topology)
     ).route
 
     private fun reject(
@@ -208,11 +212,13 @@ class TopologyRouteProjectorTest {
         topology: TopologyState
     ): TopologyRouteProjectionResult.Rejected = assertInstanceOf(
         TopologyRouteProjectionResult.Rejected::class.java,
-        TopologyRouteProjector.project(route, topology, revision)
+        TopologyRouteProjector.project(route, topology)
     )
 
-    private fun route(vararg segments: RouteSegmentSnapshot) =
-        RouteSnapshot("test:route", 1L, segments.asList())
+    private fun route(
+        vararg segments: RouteSegmentSnapshot,
+        topologyRevision: Long = revision
+    ) = RouteSnapshot("test:route", 1L, topologyRevision, segments.asList())
 
     private fun segment(
         railId: UUID,

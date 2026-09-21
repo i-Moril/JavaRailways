@@ -45,6 +45,9 @@
   - [x] Compile one immutable tail-clear queue entry per claimed resource in the same validation
     pass and add a pure head-prefix inspector. It never pops before a future registry shrink;
     explicit clearance-margin source, grant integration, provider-disable and reload recovery remain.
+  - [x] Add an internal synchronous removal-only registry shrink that atomically removes exact
+    resource identities while preserving the remaining claim order and logical owner revision.
+    Tail queue/grant integration and fail-closed lifecycle ownership remain.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation
@@ -60,6 +63,8 @@
 - [ ] Replace turnout-derived release assumptions with region-entry/tail-exit and generic conflict-envelope release tracking.
   - [x] Add internal generic tail-clear queue metadata and immutable eligible-prefix inspection
     without per-resource occupancy state or live-claim mutation.
+  - [x] Add exact-identity atomic live-claim shrink without topology revalidation, conflict lookup,
+    preparation changes, or queue/grant integration.
 - [ ] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
 - [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.

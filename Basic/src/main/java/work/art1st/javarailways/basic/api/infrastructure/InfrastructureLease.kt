@@ -141,7 +141,7 @@ class InfrastructureBlocker(
 enum class InfrastructureMutationStatus {
     /** A new complete footprint was recorded. */
     ACQUIRED,
-    /** An expected older owner revision was atomically replaced. */
+    /** An existing footprint was atomically replaced, possibly without changing its owner revision. */
     REPLACED,
     /** The exact owner revision was released. */
     RELEASED,

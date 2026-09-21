@@ -291,6 +291,281 @@ class InfrastructureLeaseRegistryTest {
     }
 
     @Test
+    fun `claim shrink removes an exact overlapping interval and preserves original order`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val first = interval(0.0, 40.0)
+        val overlapping = interval(20.0, 60.0)
+        val last = interval(70.0, 80.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(
+                4L,
+                routeOwner,
+                InfrastructureFootprint(listOf(first, overlapping, last))
+            )
+        )
+
+        val result = registry.shrinkClaim(platform, routeOwner, listOf(overlapping))
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, result.status)
+        val snapshot = registry.claimSnapshots().single()
+        assertEquals(routeOwner, snapshot.owner)
+        assertEquals(listOf(first, last), snapshot.footprint.resources)
+        assertEquals(
+            InfrastructureMutationStatus.RESOURCE_CONFLICT,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(
+                    4L,
+                    owner("test:overlapping-route", 1),
+                    InfrastructureFootprint(listOf(interval(30.0, 35.0)))
+                )
+            ).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(
+                    4L,
+                    owner("test:released-overlap", 1),
+                    InfrastructureFootprint(listOf(interval(50.0, 55.0)))
+                )
+            ).status
+        )
+    }
+
+    @Test
+    fun `claim shrink releases the claim when every exact resource is removed`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val resources = listOf(interval(0.0, 10.0), interval(20.0, 30.0))
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(resources))
+        )
+
+        assertEquals(
+            InfrastructureMutationStatus.RELEASED,
+            registry.shrinkClaim(platform, routeOwner, resources.reversed()).status
+        )
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `claim shrink rejects missing exact resource without mutation`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val held = interval(0.0, 40.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(held)))
+        )
+
+        val result = registry.shrinkClaim(platform, routeOwner, listOf(interval(10.0, 20.0)))
+
+        assertEquals(InfrastructureMutationStatus.NOT_FOUND, result.status)
+        assertEquals(listOf(held), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink validates every requested identity before removing any`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second)))
+        )
+
+        val result = registry.shrinkClaim(
+            platform,
+            routeOwner,
+            listOf(first, interval(40.0, 50.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.NOT_FOUND, result.status)
+        assertEquals(listOf(first, second), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink reports a missing claim without mutation`() {
+        val result = registry.shrinkClaim(
+            Any(),
+            owner("test:missing-route", 1),
+            listOf(interval(0.0, 10.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.NOT_FOUND, result.status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `claim shrink rejects wrong owner without mutation`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val held = interval(0.0, 10.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(held)))
+        )
+
+        assertEquals(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+            registry.shrinkClaim(Any(), routeOwner, listOf(held)).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+            registry.shrinkClaim(platform, owner("test:route", 2), listOf(held)).status
+        )
+        assertEquals(routeOwner, registry.claimSnapshots().single().owner)
+        assertEquals(listOf(held), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink rejects pending admission without mutation`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val held = interval(0.0, 10.0)
+        val mutation = registry.beginAcquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(held)))
+        )
+
+        val result = registry.shrinkClaim(platform, routeOwner, listOf(held))
+
+        assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, result.status)
+        assertEquals(listOf(held), registry.claimSnapshots().single().footprint.resources)
+        assertTrue(registry.completeClaimMutation(mutation))
+    }
+
+    @Test
+    fun `claim shrink rejects pending replacement and preserves both reservations`() {
+        val platform = Any()
+        val oldOwner = owner("test:route", 1)
+        val oldResource = interval(0.0, 10.0)
+        val newOwner = owner("test:route", 2)
+        val newResource = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, oldOwner, InfrastructureFootprint(listOf(oldResource)))
+        )
+        val mutation = registry.beginReplaceClaim(
+            platform,
+            oldOwner,
+            InfrastructureClaimRequest(4L, newOwner, InfrastructureFootprint(listOf(newResource)))
+        )
+
+        val result = registry.shrinkClaim(platform, newOwner, listOf(newResource))
+
+        assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, result.status)
+        assertEquals(newOwner, registry.claimSnapshots().single().owner)
+        assertEquals(listOf(newResource), registry.claimSnapshots().single().footprint.resources)
+        assertEquals(
+            InfrastructureMutationStatus.RESOURCE_CONFLICT,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(
+                    4L,
+                    owner("test:old-reservation", 1),
+                    InfrastructureFootprint(listOf(oldResource))
+                )
+            ).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.RESOURCE_CONFLICT,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(
+                    4L,
+                    owner("test:new-reservation", 1),
+                    InfrastructureFootprint(listOf(newResource))
+                )
+            ).status
+        )
+        assertTrue(registry.completeClaimMutation(mutation))
+    }
+
+    @Test
+    fun `claim shrink does not revalidate topology or resource providers`() {
+        var revision = 4L
+        var revisionReads = 0
+        var providerCalls = 0
+        val independentRegistry = InfrastructureLeaseRegistry(
+            currentTopologyRevision = {
+                revisionReads += 1
+                revision
+            },
+            resourceExists = {
+                providerCalls += 1
+                true
+            }
+        )
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        independentRegistry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second)))
+        )
+        revision = 5L
+        revisionReads = 0
+        providerCalls = 0
+
+        val result = independentRegistry.shrinkClaim(platform, routeOwner, listOf(first))
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, result.status)
+        assertEquals(0, revisionReads)
+        assertEquals(0, providerCalls)
+        assertEquals(listOf(second), independentRegistry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink requires a nonempty unique release collection`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val held = interval(0.0, 10.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(held)))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.shrinkClaim(platform, routeOwner, emptyList())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.shrinkClaim(platform, routeOwner, listOf(held, held))
+        }
+        assertEquals(listOf(held), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `claim shrink reports closed registry without consulting resource providers`() {
+        var providerCalls = 0
+        val closedRegistry = InfrastructureLeaseRegistry(
+            currentTopologyRevision = { 4L },
+            resourceExists = {
+                providerCalls += 1
+                true
+            }
+        )
+        closedRegistry.close()
+
+        val result = closedRegistry.shrinkClaim(
+            Any(),
+            owner("test:route", 1),
+            listOf(interval(0.0, 10.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.SERVICE_CLOSED, result.status)
+        assertEquals(0, providerCalls)
+        assertTrue(closedRegistry.claimSnapshots().isEmpty())
+    }
+
+    @Test
     fun `public footprint cannot be mutated through Java collection view`() {
         val footprint = footprint(0.0, 10.0)
         assertThrows(UnsupportedOperationException::class.java) {

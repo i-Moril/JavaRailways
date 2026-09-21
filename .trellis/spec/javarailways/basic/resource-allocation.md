@@ -91,6 +91,18 @@ request不携带raw `InfrastructureFootprint`、受控资源清单或可信列�
 
 同一个`CompiledRouteAdmission`现在还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。immutable queue helper从队首返回连续eligible prefix但不自行pop；future grant owner必须先完成registry原子shrink再丢弃该前缀。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；它尚未调用registry replace/shrink，因此不能把当前状态描述成live claim已经自动尾部释放。
 
+Registry现已提供internal同步、只减不增的live-claim shrink primitive。调用方提交platform owner、完全匹配的
+`InfrastructureOwner`以及非空、无重复的**准确资源身份**集合；它不是重建一份remaining footprint。registry在
+同一把锁内拒绝closed、missing claim、owner不匹配和pending admission，证明每个待释放身份当前确实被该
+claim持有，然后按原footprint顺序过滤这些身份。若仍有资源，以相同platform owner和相同logical owner
+revision替换`Held`并返回`REPLACED`；若为空则删除claim并返回`RELEASED`。任一失败都不产生partial mutation。
+
+Shrink不读取topology revision、不调用resource provider、不做overlap blocker查询，也不修改infrastructure
+preparation；删除既有身份不可能产生新冲突。它按`InfrastructureResource.equals`匹配身份，而不是按
+`overlaps`匹配范围，所以同一rail上两个不同但重叠的`RailIntervalResource`可以共存：释放其中一个后，
+另一个仍留在claim中继续保护其覆盖范围。当前pure tail queue尚未接入这个primitive；未来grant owner负责
+把eligible prefix提交给shrink，只在成功后推进自己的queue state，unexpected failure必须fail closed。
+
 ## 项目内正确示例
 
 Allocator先检查所有owner conflict，再apply：
@@ -125,6 +137,7 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - `TimetableDispatcherTest.kt`：protection-point stop/retry、stable priority、short claim tail release、sameTick Stall停止后续allocation、manual modes。
 - `TimetableStationCallDispatcherTest.kt`：berth/old mission tail release。
 - `InfrastructureLeaseRegistryTest.kt`：shared leases、exclusive claims、held edit permit、owner revision、双重topology check、provider failure和无partial mutation。
+- `InfrastructureLeaseRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
 - public consumer fixture：能构造多rail footprint并申请lease，但不能导入raw `InfrastructureClaimRequest`。
 
 ```bash

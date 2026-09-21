@@ -116,8 +116,11 @@ conflict route extent；明确的运营安全余量来源、单位与组合规�
 `CompiledTailReleaseQueue`是immutable纯helper。它只接收同一冻结路线上的车尾route progress，从队首开始
 读取连续满足阈值的entry并返回immutable eligible prefix；遇到首个未清除entry立即停止，不扫描后续项，
 也不自行pop。非有限或负进度fail closed；进度单调性、倒车/传送/路线失配处理属于未来stateful grant
-owner，因为pure queue没有跨tick observation lifecycle。owner必须先对返回前缀执行registry原子shrink，
-成功后才能丢弃对应队首；失败时queue与claim均保持原状。本批尚未接入registry shrink或grant lifecycle。
+owner，因为pure queue没有跨tick observation lifecycle。registry现已提供internal同步removal-only shrink：
+owner必须提交eligible prefix中的准确resource identities，registry在锁内验证exact claim/owner、pending状态和
+完整membership，并保持remaining footprint原顺序；部分清除保持同一个logical owner revision，全部清除删除
+claim。该操作不重验topology/provider或冲突，因为删除不会制造新冲突；重叠interval按身份独立删除。owner只
+能在成功后丢弃对应队首，unexpected failure必须fail closed。本批仍未把queue、grant owner与shrink串联。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail

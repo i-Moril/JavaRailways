@@ -221,6 +221,63 @@ class InfrastructureLeaseRegistry(
         result(InfrastructureMutationStatus.RELEASED)
     }
 
+    /**
+     * Atomically removes exact resource identities from an established live claim.
+     *
+     * This is deliberately removal-only: it does not revalidate topology, query providers, look for
+     * blockers, or change infrastructure preparation. Those checks cannot become newly necessary
+     * when an existing claim only loses resources.
+     */
+    internal fun shrinkClaim(
+        platformOwner: Any,
+        expectedOwner: InfrastructureOwner,
+        resourcesToRelease: Collection<InfrastructureResource>
+    ): InfrastructureMutationResult {
+        val requested = resourcesToRelease.toList()
+        require(requested.isNotEmpty()) { "resourcesToRelease must not be empty" }
+        require(requested.distinct().size == requested.size) {
+            "resourcesToRelease contains duplicate resources"
+        }
+
+        return synchronized(lock) {
+            if (closed) {
+                return@synchronized result(InfrastructureMutationStatus.SERVICE_CLOSED, "registry is closed")
+            }
+            val existing = claims[expectedOwner.ownerId]
+                ?: return@synchronized result(InfrastructureMutationStatus.NOT_FOUND, "claim does not exist")
+            if (existing.platformOwner !== platformOwner || existing.owner != expectedOwner) {
+                return@synchronized result(
+                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                    "claim owner or expected revision does not match"
+                )
+            }
+            if (pendingForOwner(expectedOwner.ownerId) != null) {
+                return@synchronized result(
+                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                    "claim owner ${expectedOwner.ownerId} has an admission transaction in progress"
+                )
+            }
+
+            val releaseSet = requested.toHashSet()
+            val heldResources = existing.footprint.resources
+            val missing = requested.firstOrNull { it !in heldResources }
+            if (missing != null) {
+                return@synchronized result(
+                    InfrastructureMutationStatus.NOT_FOUND,
+                    "claim does not hold exact resource: $missing"
+                )
+            }
+
+            val remaining = heldResources.filterNot(releaseSet::contains)
+            if (remaining.isEmpty()) {
+                claims.remove(expectedOwner.ownerId)
+                return@synchronized result(InfrastructureMutationStatus.RELEASED)
+            }
+            claims[expectedOwner.ownerId] = existing.copy(footprint = InfrastructureFootprint(remaining))
+            result(InfrastructureMutationStatus.REPLACED)
+        }
+    }
+
     /** Finalizes a successful admission so its exact-before rollback state can be discarded. */
     internal fun completeClaimMutation(mutation: ClaimMutation): Boolean = synchronized(lock) {
         val token = mutation.rollbackToken ?: return@synchronized true

@@ -95,6 +95,21 @@ internal class RouteProgressCursor internal constructor(
         get() = RouteProgressCursorState(currentOccurrenceIndex, currentRouteDistanceMeters)
 
     fun update(position: RailPositionSnapshot): RouteProgressCursorUpdate {
+        val projected = project(position)
+        if (projected is RouteProgressCursorUpdate.Resolved) {
+            commit(projected)
+        }
+        return projected
+    }
+
+    /**
+     * Resolves [position] without advancing accepted cursor state.
+     *
+     * This split lets a live claim shrink its registry footprint before committing the matching
+     * local route progress. Projection failures still latch immediately because they are terminal
+     * frozen-route invariant failures rather than retryable registry outcomes.
+     */
+    fun project(position: RailPositionSnapshot): RouteProgressCursorUpdate {
         latchedFailure?.let { return it }
         for (candidateIndex in currentOccurrenceIndex until occurrences.size) {
             val routeDistanceMeters = occurrences[candidateIndex].project(position) ?: continue
@@ -104,12 +119,25 @@ internal class RouteProgressCursor internal constructor(
                     attemptedRouteDistanceMeters = routeDistanceMeters
                 ).also { latchedFailure = it }
             }
-            currentOccurrenceIndex = candidateIndex
-            currentRouteDistanceMeters = routeDistanceMeters
-            return RouteProgressCursorUpdate.Resolved(state)
+            return RouteProgressCursorUpdate.Resolved(
+                RouteProgressCursorState(candidateIndex, routeDistanceMeters)
+            )
         }
         return RouteProgressCursorUpdate.PositionNotOnCurrentOrForwardPath(state)
             .also { latchedFailure = it }
+    }
+
+    /** Commits a successful [project] result after the caller's authoritative mutation succeeds. */
+    fun commit(projected: RouteProgressCursorUpdate.Resolved) {
+        check(latchedFailure == null) { "cannot commit a route cursor after a latched failure" }
+        check(projected.state.occurrenceIndex >= currentOccurrenceIndex) {
+            "route cursor occurrence cannot move backward"
+        }
+        check(projected.state.routeDistanceMeters >= currentRouteDistanceMeters) {
+            "route cursor distance cannot move backward"
+        }
+        currentOccurrenceIndex = projected.state.occurrenceIndex
+        currentRouteDistanceMeters = projected.state.routeDistanceMeters
     }
 }
 

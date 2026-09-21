@@ -56,8 +56,11 @@
     retain it in `CompiledRouteAdmission`. Every admission/replacement route must start at the
     authoritative same-epoch train tail; Basic verifies the first occurrence and initializes the
     cursor at zero before claim mutation. The request carries neither progress nor occurrence index.
-    Retaining that cursor in a live grant, consuming later observations, clearance margin and Stall
-    wiring remain separate lifecycle work.
+  - [x] Retain the host-initialized cursor in an internal live-claim owner after immediate or pending
+    acquire/replace success. Explicit coherent observations project the named train tail and drive
+    atomic prefix release; wrong stamp/epoch, missing train, cursor failure or shrink failure latch
+    fail closed and Stall exactly once. Automatic observation subscription, active-owner dispatch,
+    persistence/reload recovery, provider-disable takeover and clearance margin remain.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation
@@ -82,6 +85,10 @@
     tolerance boundary, advances only to the earliest forward match, never scans backward, and
     latches an unmatched suffix fail closed. Basic verifies the frozen route starts at the same
     observation's physical train tail before claim mutation and initializes progress at zero.
+  - [x] Carry that cursor through admission preparation and expose an internal live claim only on
+    successful acquire/replace completion. The owner consumes explicitly supplied coherent
+    observations, invokes tail release, makes repeated epochs/completion idempotent and translates
+    all observation/projection/release invariant failures into one latched Stall callback.
 - [ ] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
 - [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.

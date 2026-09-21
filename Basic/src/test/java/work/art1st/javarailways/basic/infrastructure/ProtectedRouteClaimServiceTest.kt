@@ -2,6 +2,9 @@ package work.art1st.javarailways.basic.infrastructure
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -119,6 +122,88 @@ class ProtectedRouteClaimServiceTest {
         )
         assertEquals(ProtectedRouteClaimStatus.RELEASED, service.release(platformOwner, routeOwner).status)
         assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `immediate successful admission carries the initialized live claim owner`() {
+        val start = service { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+        val release = terminal.liveClaim!!.consume(
+            observation(epoch = observation.stamp.physicsEpoch + 1L)
+        )
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
+        assertInstanceOf(LiveProtectedRouteClaimUpdate.Completed::class.java, release)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertSame(terminal.liveClaim, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).liveClaim)
+    }
+
+    @Test
+    fun `pending successful admission carries the same live claim only after ready`() {
+        val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator {
+                InfrastructurePreparationStart.Accepted(ticket)
+            }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        assertTrue(start is ProtectedRouteAdmissionStart.Pending)
+        assertEquals(ProtectedRouteAdmissionProgress.Pending, start.poll())
+        ticket.state = InfrastructurePreparationState.READY
+        val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
+        assertNotNull(terminal.liveClaim)
+        assertSame(terminal.liveClaim, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).liveClaim)
+    }
+
+    @Test
+    fun `successful replacement carries a new live claim owner`() {
+        val platformOwner = Any()
+        val oldOwner = InfrastructureOwner("test:route/replace", 1L)
+        val newOwner = InfrastructureOwner("test:route/replace", 2L)
+        var validation = validated(resource("turnout/a"))
+        val service = service { validation }
+        val acquired = service.acquire(platformOwner, request(null, oldOwner)).poll()
+            as ProtectedRouteAdmissionProgress.Terminal
+        validation = validated(resource("turnout/b"))
+
+        val replaced = service.replace(platformOwner, oldOwner, request(null, newOwner)).poll()
+            as ProtectedRouteAdmissionProgress.Terminal
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, acquired.result.status)
+        assertNotNull(acquired.liveClaim)
+        assertEquals(ProtectedRouteClaimStatus.REPLACED, replaced.result.status)
+        assertNotNull(replaced.liveClaim)
+        assertTrue(replaced.liveClaim !== acquired.liveClaim)
+        assertEquals(listOf(newOwner), registry.claimSnapshots().map { it.owner })
+    }
+
+    @Test
+    fun `failed not-required and unchanged admissions do not invent live claim owners`() {
+        val platformOwner = Any()
+        val owner = InfrastructureOwner("test:route/live-owner", 1L)
+        val admittedService = service { validated(resource("turnout/a")) }
+        val admitted = admittedService.acquire(platformOwner, request(null, owner))
+        assertNotNull((admitted.poll() as ProtectedRouteAdmissionProgress.Terminal).liveClaim)
+
+        val unchanged = admittedService.acquire(platformOwner, request(null, owner)).poll()
+            as ProtectedRouteAdmissionProgress.Terminal
+        val notRequired = service { ProtectedRouteValidation.NotRequired }
+            .acquire(Any(), request(null, InfrastructureOwner("test:none", 1L)))
+            .poll() as ProtectedRouteAdmissionProgress.Terminal
+        val rejected = service {
+            ProtectedRouteValidation.Rejected(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, "missing protection")
+        }.acquire(Any(), request(null, InfrastructureOwner("test:rejected", 1L)))
+            .poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        assertEquals(ProtectedRouteClaimStatus.UNCHANGED, unchanged.result.status)
+        assertNull(unchanged.liveClaim)
+        assertEquals(ProtectedRouteClaimStatus.NOT_REQUIRED, notRequired.result.status)
+        assertNull(notRequired.liveClaim)
+        assertEquals(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, rejected.result.status)
+        assertNull(rejected.liveClaim)
     }
 
     @Test
@@ -477,9 +562,11 @@ class ProtectedRouteClaimServiceTest {
             stallWorld = { _, _ -> stalled = true }
         ) { validated(resource("turnout/a")) }
 
-        val result = service.acquire(Any(), request(window("test:region/a", 0.0, 80.0, 100.0)))
+        val terminal = service.acquire(Any(), request(window("test:region/a", 0.0, 80.0, 100.0))).poll()
+            as ProtectedRouteAdmissionProgress.Terminal
 
-        assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, result.status)
+        assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, terminal.result.status)
+        assertNull(terminal.liveClaim)
         assertTrue(registry.claimSnapshots().isEmpty())
         assertFalse(stalled)
     }

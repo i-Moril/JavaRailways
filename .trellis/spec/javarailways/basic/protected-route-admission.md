@@ -144,7 +144,16 @@ cursor每次更新先按rail、facing、canonical AB边界与`Curve.TOLERANCE`�
 时才按路线顺序向后扫描，取第一个匹配occurrence并推进index；它从不向前跳过仍匹配的重复rail，也从不回扫。
 匹配结果低于已接受route distance，或没有当前/后续匹配时，均保留原state并锁存fail closed；后续调用不再
 扫描suffix，不得把任一失败解释为路线完成。
-当前尚未把已验证初始位置保留到grant，也尚未消费后续`RailwayObservation`或调用`LiveClaimTailRelease`。
+`ProtectedRouteClaimService.resolve`现在把该已验证cursor连同`CompiledRouteAdmission`交给后续transaction，
+不再在claim前验证后丢弃。成功`ACQUIRED`/`REPLACED`的terminal result携带internal
+`LiveProtectedRouteClaim`；pending preparation只保留创建owner所需的已验证状态，ticket到达`READY`后才创建
+并交出owner，而`NOT_REQUIRED`、
+`UNCHANGED`及失败结果没有新owner。该owner只接受绑定world与topology的后续coherent observation，要求
+physics epoch不倒退，按稳定train ID取得物理tail，经cursor投影后调用`LiveClaimTailRelease`。重复epoch为
+幂等no-op；route cursor先只投影候选进度，registry shrink成功后才提交该本地cursor进度，失败时保留原进度。
+完成后不再投影。错误stamp、train消失、cursor或release失败均锁存并恰好一次触发Stall callback。
+这仍是transitional显式驱动接口：本批没有自动订阅publication、active-owner dispatcher、持久化/reload
+恢复、provider-disable接管或clearance-margin策略。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail

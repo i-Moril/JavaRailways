@@ -120,8 +120,20 @@ Stall响应和grant持久化仍属于后续grant lifecycle集成。
 的route start并把cursor初始化为`0`，caller不提供初始route coordinate或occurrence index。之后cursor先匹配
 当前occurrence，只在不匹配时向后顺序扫描并
 选择第一个匹配项，从不回退。匹配结果低于已接受route distance或未匹配到当前位置都会锁存fail closed并
-保留原state。本批尚未把已验证初始位置保留到live grant，也尚未消费后续observation或连接
-`LiveClaimTailRelease`。
+保留原state。
+
+成功完成`ACQUIRED`或`REPLACED`的terminal admission现在携带一个Basic internal
+`LiveProtectedRouteClaim`；`NOT_REQUIRED`、`UNCHANGED`及任一失败结果均不创建新owner。pending preparation
+期间handle只保留已验证cursor和owner构造输入，只有ticket进入`READY`才创建owner，并在成功finalize claim后
+随terminal result交出。
+该owner持有上述已初始化cursor、claim的world/topology/train identity及`LiveClaimTailRelease`，显式消费后续
+`RailwayObservation`：先拒绝错误world/topology和倒退epoch，再从同一coherent observation查找目标train，
+把物理tail投影为候选单调route progress，先完成tail release的registry shrink，成功后才提交本地cursor进度。
+重复epoch返回幂等unchanged，不重复投影或shrink；
+全部释放后后续调用保持completed且不再检查observation。缺train、cursor失败、tail-release失败或stamp违约只
+锁存一个fail-closed结果并调用一次Stall callback。当前仍没有自动observation订阅、world-local active-owner
+registry、持久化/reload恢复或clearance margin；未来host必须在成功replace时原子换掉旧owner，并在每次完整
+physics publication后显式驱动当前owner。
 
 ## 项目内正确示例
 

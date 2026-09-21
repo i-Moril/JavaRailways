@@ -180,6 +180,22 @@ class CompiledRouteProgressPathTest {
     }
 
     @Test
+    fun `projection does not advance accepted state until committed`() {
+        val rail = rail(1)
+        val path = path(lineTopologyState(revision, rail), segment(rail, ViewDirection.AB))
+        val cursor = initializedCursor(path, position(rail, ViewDirection.AB, 0.0))
+
+        val projected = assertInstanceOf(
+            RouteProgressCursorUpdate.Resolved::class.java,
+            cursor.project(position(rail, ViewDirection.AB, 6.0))
+        )
+
+        assertEquals(RouteProgressCursorState(0, 0.0), cursor.state)
+        cursor.commit(projected)
+        assertEquals(RouteProgressCursorState(0, 6.0), cursor.state)
+    }
+
+    @Test
     fun `off-path update preserves state and latches fail closed`() {
         val first = rail(1)
         val second = rail(2)

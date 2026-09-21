@@ -1,6 +1,8 @@
 package work.art1st.javarailways.core.physics.rail
 
 import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
+import java.util.TreeSet
 import java.util.UUID
 import kotlin.math.floor
 
@@ -42,19 +44,22 @@ class SweptOccupancyIndex(
     private data class BucketKey(val railId: UUID, val bucket: Long)
 
     private val buckets: Map<BucketKey, List<SweptRailSpan>>
-    val spanCount: Int = spans.size
+    internal val indexedSpans: List<SweptRailSpan> = java.util.List.copyOf(
+        spans.sortedWith(
+            compareBy<SweptRailSpan> { it.railId }
+                .thenBy { it.trainId }
+                .thenBy { it.minArcAB }
+                .thenBy { it.maxArcAB }
+        )
+    )
+    val spanCount: Int = indexedSpans.size
     val bucketReferenceCount: Int
 
     init {
         require(bucketSize.isFinite() && bucketSize > 0.0) { "bucketSize must be finite and > 0" }
         val mutableBuckets = HashMap<BucketKey, MutableList<SweptRailSpan>>()
         var references = 0
-        spans.sortedWith(
-            compareBy<SweptRailSpan> { it.railId }
-                .thenBy { it.trainId }
-                .thenBy { it.minArcAB }
-                .thenBy { it.maxArcAB }
-        ).forEach { span ->
+        indexedSpans.forEach { span ->
             for (bucket in bucketRange(span)) {
                 mutableBuckets.getOrPut(BucketKey(span.railId, bucket)) { ArrayList() }.add(span)
                 references++
@@ -109,6 +114,37 @@ class SweptOccupancyIndex(
         return SweptOccupancyQueryResult(null, checked, candidateLimitReached = false)
     }
 
+    /** Returns every other train whose indexed span overlaps any requested interval. */
+    fun blockingTrainIds(
+        intervals: Collection<RailInterval>,
+        excludedTrainId: String?,
+        tolerance: Double = Curve.TOLERANCE
+    ): List<String> {
+        require(excludedTrainId == null || excludedTrainId.isNotBlank()) {
+            "excludedTrainId must be null or non-blank"
+        }
+        require(tolerance >= 0.0 && tolerance.isFinite()) { "tolerance must be finite and >= 0" }
+
+        val candidates = LinkedHashSet<SweptRailSpan>()
+        intervals.forEach { interval ->
+            for (bucket in bucketRange(interval, tolerance)) {
+                buckets[BucketKey(interval.railId, bucket)]?.let(candidates::addAll)
+            }
+        }
+        val blockers = TreeSet<String>()
+        candidates.forEach { candidate ->
+            if (candidate.trainId != excludedTrainId && intervals.any { interval ->
+                    candidate.railId == interval.railId &&
+                        candidate.minArcAB <= interval.maxArcLengthInAbMeters + tolerance &&
+                        interval.minArcLengthInAbMeters <= candidate.maxArcAB + tolerance
+                }
+            ) {
+                blockers += candidate.trainId
+            }
+        }
+        return java.util.List.copyOf(blockers)
+    }
+
     private fun minimumSeparation(ownSpans: Collection<SweptRailSpan>, candidates: Collection<SweptRailSpan>): Double {
         var minimum = Double.POSITIVE_INFINITY
         for (own in ownSpans) {
@@ -134,6 +170,12 @@ class SweptOccupancyIndex(
     private fun bucketRange(span: SweptRailSpan): LongRange {
         val first = floor(span.minArcAB / bucketSize).toLong()
         val last = floor(span.maxArcAB / bucketSize).toLong()
+        return first..last
+    }
+
+    private fun bucketRange(interval: RailInterval, tolerance: Double): LongRange {
+        val first = floor((interval.minArcLengthInAbMeters - tolerance) / bucketSize).toLong()
+        val last = floor((interval.maxArcLengthInAbMeters + tolerance) / bucketSize).toLong()
         return first..last
     }
 

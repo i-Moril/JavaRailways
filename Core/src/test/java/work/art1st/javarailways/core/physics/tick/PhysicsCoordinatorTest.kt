@@ -12,6 +12,7 @@ import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -206,8 +207,17 @@ class PhysicsCoordinatorTest {
             val frame = world.latestWorldFrame()
             assertEquals(ticket.epoch, frame.physicsEpoch)
             assertEquals(world.topologyRevision, frame.topologyRevision)
+            assertEquals(ticket.epoch, frame.occupancy.physicsEpoch)
             assertEquals(listOf(trainA.id, trainB.id).sorted(), frame.trains.map { it.trainId })
             assertTrue(frame.trains.all { it.physicsEpoch == ticket.epoch })
+            val trainASpan = frame.trains.single { it.trainId == trainA.id }.sweptSpans.single()
+            assertEquals(
+                listOf(trainB.id),
+                frame.occupancy.blockingTrainIds(
+                    listOf(RailInterval(trainASpan.railId, trainASpan.minArcAB, trainASpan.maxArcAB)),
+                    excludedTrainId = trainA.id
+                )
+            )
             assertThrows(UnsupportedOperationException::class.java) {
                 @Suppress("UNCHECKED_CAST")
                 (frame.trains as MutableList<TrainFrameSnapshot>).clear()

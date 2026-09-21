@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import java.util.UUID
 
 class SweptOccupancyIndexTest {
@@ -111,6 +113,45 @@ class SweptOccupancyIndexTest {
         assertNull(result.collidingTrainId)
         assertEquals(2, result.checkedCandidates)
         assertTrue(result.candidateLimitReached)
+    }
+
+    @Test
+    fun `blocking query excludes owner and returns every distinct blocker in stable order`() {
+        val occupancy = SweptOccupancyIndex(
+            listOf(
+                span("requesting", railA, 0.0, 40.0),
+                span("z-train", railA, 20.0, 70.0),
+                span("z-train", railA, 75.0, 80.0),
+                span("a-train", railB, 5.0, 10.0)
+            )
+        )
+
+        assertEquals(
+            listOf("a-train", "z-train"),
+            occupancy.blockingTrainIds(
+                listOf(
+                    RailInterval(railA, 30.0, 78.0),
+                    RailInterval(railB, 0.0, 6.0)
+                ),
+                excludedTrainId = "requesting"
+            )
+        )
+    }
+
+    @Test
+    fun `blocking query expands buckets by overlap tolerance`() {
+        val occupancy = SweptOccupancyIndex(
+            listOf(span("next-bucket", railA, 32.0, 33.0)),
+            bucketSize = 32.0
+        )
+
+        assertEquals(
+            listOf("next-bucket"),
+            occupancy.blockingTrainIds(
+                listOf(RailInterval(railA, 31.0, 32.0 - Curve.TOLERANCE)),
+                excludedTrainId = null
+            )
+        )
     }
 
     private fun span(trainId: String, railId: UUID, min: Double, max: Double) =

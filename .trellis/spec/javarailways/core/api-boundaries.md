@@ -10,7 +10,7 @@
 
 - owner：Core 定义 API；consumer 只消费。Core production 不得 import Basic、Bukkit、Paper 或 Minecraft。
 - Dokka publication 只保留 `work.art1st.javarailways.core.api.*`；普通 `public` implementation 不成为 API。
-- 认可的跨线程 value 类型：`RailPositionSnapshot(UUID, ViewDirection, Double)`、`RailObjectRef(namespace,id)`、`RailObjectSnapshot`、`TrainSnapshot`、`Vector3Snapshot`、`RenderableFrameSnapshot`、`CarFrameSnapshot`、`TrainFrameSnapshot`、`RailwayWorldFrameSnapshot`。
+- 认可的跨线程 value 类型：`RailPositionSnapshot(UUID, ViewDirection, Double)`、`RailObjectRef(namespace,id)`、`RailObjectSnapshot`、`TrainSnapshot`、`Vector3Snapshot`、`RenderableFrameSnapshot`、`CarFrameSnapshot`、`TrainFrameSnapshot`、`RailwayOccupancySnapshot`、`RailwayWorldFrameSnapshot`。
 - live 类型：`World`、`Train`、`Rail`、`RailView`。`World.allTrains` 与 `RailView.nextRails` 不得当 immutable collection 缓存。
 - `@MainThread`、`@Heavy`、`@Concurrent`、`@Pure` 只表达 contract，不调度；只有实现显式调用 `ThreadGuard.ensure*` 才 runtime fail-fast。
 
@@ -26,7 +26,7 @@ data class RailPositionSnapshot(
 
 `arcLengthInAbMeters` 必须 finite、`>= 0`；它不保留 live `Rail`。完整 render frame contract 归[render publication](./render-publication.md)。
 
-`RailwayWorldFrameSnapshot(physicsEpoch, topologyRevision, trains)` 是世界级一致发布，不是若干独立 getter 的容器。它要求所有 train frame 属于同一 physics epoch、train ID 唯一、集合不可变并按稳定 ID 排序。`topologyRevision` 仅表示 runtime structural topology，不得当作持久化 schema version 或 Basic infrastructure revision。
+`RailwayWorldFrameSnapshot(physicsEpoch,topologyRevision,trains,occupancy)`是世界级一致发布，不是若干独立getter的容器。它要求所有train frame与occupancy属于同一physics epoch、train ID唯一、集合不可变并按稳定ID排序。`occupancy`与Core collision共享一次构建的immutable bucket index，consumer只做局部区间查询，不从`trains`重建world index。`topologyRevision`仅表示runtime structural topology，不得当作持久化schema version或Basic infrastructure revision。
 
 ## 边界结果矩阵
 

@@ -87,13 +87,12 @@ return one validated claim only after the full loop succeeds
 
 ### 3.4 admission与release状态机
 
-当前`RailwayOccupancyIndex`从一份完整`RailwayObservation`构建不可变rail索引，并保留该
-observation的精确`RailwayStateStamp`供上层做epoch/topology一致性校验。每根rail上的swept span
-按canonical AB起点排序并维护prefix maximum end；查询一个rail interval时先对prefix maximum做
-二分，跳过end早于查询起点的前缀，再只扫描start不晚于查询终点的candidate。闭区间在
-`Curve.TOLERANCE`内接触按占用处理；结果排除请求列车、去重并按train ID稳定排序。该索引当前尚未
-接入world-local composition或admission transaction；道岔、菱形交叉等resource的完整authoritative
-physical geometry仍须由后续binding批次补齐，不能用本索引已有的rail footprint冒充。
+当前Core在完整physics epoch后构建一次`RailwayOccupancySnapshot`，并把同一immutable bucket index
+同时交给collision与`RailwayWorldFrameSnapshot`；Basic observation只保留该同epoch引用，不从train
+spans重建第二份world index。准入把同rail重叠的occupancy query geometry先合并，再调用
+`blockingTrainIds`做bucket-local candidate lookup与exact overlap；该安全查询无candidate cap，结果排除
+明确指定的train、去重并按train ID稳定排序。它当前尚未接入admission transaction；道岔、菱形交叉等
+resource的完整authoritative physical geometry仍须由后续binding批次补齐，不能用claim rail footprint冒充。
 
 准入顺序固定为`validate revisions -> occupancy -> atomic claim -> snapshot selections -> apply selections -> publish grant`。尾部释放不是看到“当前无车”就释放：每个release slice必须先观察到目标列车占用，再观察到目标列车完全分离，经历`BEFORE_OCCUPANCY -> OCCUPIED -> RELEASED`。prefix shrink只能删除已清除资源，不能添加原计划外资源。
 
@@ -292,7 +291,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - region definition注册或revision变化时做一次graph cut，复杂度为捕获连通分量的`O(V + E)`；不得在每次列车tick或信号查询重跑。
 - boundary在同rail内先排序；重复检测为排序后的相邻比较。region overlap通过rail ID索引后做slice exact comparison，不扫描无关rail。
 - route-bound anchors按rail分组并按canonical start排序，同时维护prefix maximum end；每个route occurrence先以二分跳过不可能命中的前缀，再扫描起点不晚于occurrence终点的candidate，成本为`O(log a + c)`，其中`a`是该rail的anchor数、`c`是二分后仍可能重叠的candidate数。不得每次准入扫描全部bindings；若实测出现大量嵌套anchor导致`c`显著大于真实命中数，再以区间树替换内部索引，不改变catalog合同。
-- 一次route admission对实际扫描到closure终点的冻结traversal做单调线性validation和资源收集；每个route occurrence至多处理一次，因此复杂度为`O(scanned edges + bound resources)`。occupancy index按rail分组并使用prefix maximum end二分，每个查询interval成本为`O(log s + c)`，其中`s`是该rail的span数、`c`是二分后仍可能重叠的candidate数；candidate通过callback直接汇总，不为每个interval分配临时列表。禁止`allTrains × allRegions`。
+- 一次route admission对实际扫描到closure终点的冻结traversal做单调线性validation和资源收集；每个route occurrence至多处理一次，因此复杂度为`O(scanned edges + bound resources)`。occupancy复用Core每epoch已构建的32 m bucket index；合并后的每个查询interval成本为`O(covered buckets + unique local candidates)`，candidate按span去重后exact check，不扫描无关rail或全world trains。禁止`allTrains × allRegions`及Basic重复建索引。
 - unchanged stale region/topology是配置事件驱动的拒绝，不逐tick重算；资源冲突才按明确调度策略重试。
 - candidate/occupancy索引报告不完整、provider异常或revision变化时fail closed，不退化到live图扫描并继续授权。
 

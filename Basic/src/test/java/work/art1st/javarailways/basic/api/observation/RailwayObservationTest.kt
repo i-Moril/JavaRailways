@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.api.observation
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
@@ -36,6 +37,7 @@ class RailwayObservationTest {
         assertEquals(train.publishedFrame.tail.arcLengthInAbMeters, projected.tail.arcLengthInAbMeters)
         assertEquals(train.publishedFrame.revision, projected.frameRevision)
         assertEquals(train.publishedFrame.sweptSpans, projected.sweptSpans)
+        assertSame(coreFrame.occupancy, observation.occupancy)
     }
 
     @Test

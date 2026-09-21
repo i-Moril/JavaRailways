@@ -31,7 +31,7 @@ data class RailInterval(
 
 ## Occupancy、release与结果矩阵
 
-`SweptRailSpan(trainId,railId,minArcAB,maxArcAB)` 在完整epoch后形成immutable index；默认32 m bucket、query最多32 train candidates，exact overlap后返回 `SweptOccupancyQueryResult(collidingTrainId,checkedCandidates,candidateLimitReached)`。
+`SweptRailSpan(trainId,railId,minArcAB,maxArcAB)`在完整epoch后只形成一次immutable index；默认32 m bucket、collision query最多32 train candidates，exact overlap后返回`SweptOccupancyQueryResult(collidingTrainId,checkedCandidates,candidateLimitReached)`。同一index由`RailwayOccupancySnapshot`绑定到world frame的physics epoch并共享给Core collision与Basic admission/release consumer，后者通过`blockingTrainIds`查询任意canonical `RailInterval`且不设candidate cap。区间查询以`tolerance`扩展首尾bucket，再对去重candidate做exact overlap；返回不可变、按train ID排序的完整blocker集合。consumer不得从frame trains另建第二份world occupancy index。
 
 | 条件 | 结果 | mutation |
 | --- | --- | --- |
@@ -66,6 +66,7 @@ state = when {
 - transaction内运行heavy curve solver；
 - 失败后仅修Core map、不恢复Basic metadata/destination；
 - occupancy只看head、direction或单个bogie；
+- consumer从`RailwayWorldFrameSnapshot.trains`重复建立另一份全world occupancy index；
 - release时强制把turnout切回旧branch；
 - `getNearestRail`在main/per-Tick调用；coarse index候选仍须exact check。
 

@@ -9,6 +9,7 @@ import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -21,7 +22,6 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailSpatialIndex
-import work.art1st.javarailways.core.physics.rail.SweptOccupancyIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyQueryResult
 import work.art1st.javarailways.core.physics.rail.topology.CoreTopologyInputAdapter
 import work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilder
@@ -55,12 +55,12 @@ class CoreWorld(
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
 
-    @Volatile
-    private var sweptOccupancyIndex: SweptOccupancyIndex = SweptOccupancyIndex.EMPTY
     private val publishedTrainFrames = LatestTrainFrameMailbox(DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY)
     @Volatile
     private var publishedWorldFrame: RailwayWorldFrameSnapshot =
         RailwayWorldFrameSnapshot.create(0L, 0L, emptyList())
+    @Volatile
+    private var sweptOccupancy: RailwayOccupancySnapshot = publishedWorldFrame.occupancy
     @Volatile
     private var railTopologyHealth: RailTopologyHealth = RailTopologyHealth.Healthy
     @Volatile
@@ -369,9 +369,10 @@ class CoreWorld(
     }
 
     /** Rebuilt by the physics Coordinator after all train states are published. */
-    internal fun rebuildSweptOccupancyIndex() {
-        sweptOccupancyIndex = SweptOccupancyIndex(
-            trains.values.flatMap { it.publishedSweptSpans }
+    internal fun rebuildSweptOccupancyIndex(physicsEpoch: Long) {
+        sweptOccupancy = RailwayOccupancySnapshot.create(
+            physicsEpoch,
+            trains.values.map(CoreTrain::publishedFrame)
         )
     }
 
@@ -382,10 +383,11 @@ class CoreWorld(
     internal fun publishWorldFrame(physicsEpoch: Long): RailwayWorldFrameSnapshot {
         val frame = railTopologyLock.read {
             ensureTopologyHealthy()
-            RailwayWorldFrameSnapshot.create(
+            RailwayWorldFrameSnapshot.createWithOccupancy(
                 physicsEpoch = physicsEpoch,
                 topologyRevision = publishedTopologyState.revision,
-                trains = trains.values.map(CoreTrain::publishedFrame)
+                trains = trains.values.map(CoreTrain::publishedFrame),
+                occupancy = sweptOccupancy
             )
         }
         publishedWorldFrame = frame
@@ -433,13 +435,12 @@ class CoreWorld(
     fun latestWorldFrame(): RailwayWorldFrameSnapshot = publishedWorldFrame
 
     internal fun sweptOccupancyStats(): Pair<Int, Int> =
-        sweptOccupancyIndex.spanCount to sweptOccupancyIndex.bucketReferenceCount
+        sweptOccupancy.spanCount to sweptOccupancy.bucketReferenceCount
 
     internal fun querySweptCollision(train: CoreTrain): SweptOccupancyQueryResult =
-        sweptOccupancyIndex.queryFirstCollision(
+        sweptOccupancy.queryFirstCollision(
             trainId = train.id,
-            ownSpans = train.publishedSweptSpans,
-            maxCandidates = SweptOccupancyIndex.DEFAULT_MAX_CANDIDATES
+            ownSpans = train.publishedSweptSpans
         )
 
     /** Called by the Coordinator after atomically publishing an active train frame. */

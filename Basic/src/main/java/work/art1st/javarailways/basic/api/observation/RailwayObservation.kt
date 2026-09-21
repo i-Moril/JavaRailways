@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.api.observation
 
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -80,34 +81,45 @@ data class RailwayTrainObservation private constructor(
  *
  * @property stamp coherent world identity, physics epoch, and topology revision
  * @property trains immutable train observations sorted by stable train ID
+ * @property occupancy immutable Core occupancy query for the same physics epoch
  */
 @ConsistentCopyVisibility
 data class RailwayObservation private constructor(
     val stamp: RailwayStateStamp,
-    val trains: List<RailwayTrainObservation>
+    val trains: List<RailwayTrainObservation>,
+    val occupancy: RailwayOccupancySnapshot
 ) {
     init {
         require(trains.map(RailwayTrainObservation::trainId).toSet().size == trains.size) {
             "train IDs must be unique within one railway observation"
         }
+        require(occupancy.physicsEpoch == stamp.physicsEpoch) {
+            "occupancy snapshot must belong to physics epoch ${stamp.physicsEpoch}"
+        }
+        require(occupancy.trainIds == trains.map(RailwayTrainObservation::trainId).toSet()) {
+            "occupancy snapshot must contain exactly the railway observation train IDs"
+        }
     }
 
     companion object {
-        /** Creates a validated observation and defensively copies [trains]. */
+        /** Creates a defensive observation whose [occupancy] has the same epoch and train IDs. */
         @JvmStatic
         fun create(
             stamp: RailwayStateStamp,
-            trains: Collection<RailwayTrainObservation>
+            trains: Collection<RailwayTrainObservation>,
+            occupancy: RailwayOccupancySnapshot
         ): RailwayObservation = RailwayObservation(
             stamp,
-            java.util.List.copyOf(trains.sortedBy(RailwayTrainObservation::trainId))
+            java.util.List.copyOf(trains.sortedBy(RailwayTrainObservation::trainId)),
+            occupancy
         )
 
         /** Projects a coherent Core frame without retaining render data or mutable Core objects. */
         @JvmStatic
         fun fromCore(worldId: String, frame: RailwayWorldFrameSnapshot): RailwayObservation = create(
             RailwayStateStamp(worldId, frame.physicsEpoch, frame.topologyRevision),
-            frame.trains.map(::projectTrain)
+            frame.trains.map(::projectTrain),
+            frame.occupancy
         )
 
         private fun projectTrain(frame: TrainFrameSnapshot): RailwayTrainObservation =

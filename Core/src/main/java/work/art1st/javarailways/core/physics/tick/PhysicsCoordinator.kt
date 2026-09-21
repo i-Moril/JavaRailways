@@ -169,7 +169,7 @@ class PhysicsCoordinator(
             check(status != PhysicsCoordinatorStatus.CLOSED) { "PhysicsCoordinator is closed" }
             if (started) return
             check(world != null) { "PhysicsCoordinator must be attached to a world before start" }
-            world!!.rebuildSweptOccupancyIndex()
+            world!!.rebuildSweptOccupancyIndex(0L)
             started = true
         }
         if (automaticFallback) {
@@ -422,7 +422,7 @@ class PhysicsCoordinator(
                 }
             }
             runPublishedFrameProcessors(publishedTrains.toList(), ticket.epoch)
-            world?.rebuildSweptOccupancyIndex()
+            world?.rebuildSweptOccupancyIndex(ticket.epoch)
             val occupancyStats = world?.sweptOccupancyStats() ?: (0 to 0)
             val coordinatorNanos = nanoTime() - coordinatorStart
             val wallNanos = nanoTime() - epochStartNanos

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.api.physics
 
+import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 
 /**
@@ -12,12 +13,14 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
  * @property physicsEpoch completed physics epoch represented by every train frame
  * @property topologyRevision runtime structural topology revision used by this publication
  * @property trains immutable train frames sorted by stable train ID
+ * @property occupancy immutable swept-occupancy index built once from these train frames
  */
 @ConsistentCopyVisibility
 data class RailwayWorldFrameSnapshot private constructor(
     val physicsEpoch: Long,
     val topologyRevision: Long,
-    val trains: List<TrainFrameSnapshot>
+    val trains: List<TrainFrameSnapshot>,
+    val occupancy: RailwayOccupancySnapshot
 ) {
     init {
         require(physicsEpoch >= 0L) { "physicsEpoch must be non-negative" }
@@ -28,6 +31,12 @@ data class RailwayWorldFrameSnapshot private constructor(
         require(trains.map(TrainFrameSnapshot::trainId).toSet().size == trains.size) {
             "train IDs must be unique within one world frame"
         }
+        require(occupancy.physicsEpoch == physicsEpoch) {
+            "occupancy snapshot must belong to physics epoch $physicsEpoch"
+        }
+        require(occupancy.trainIds == trains.map(TrainFrameSnapshot::trainId).toSet()) {
+            "occupancy snapshot must contain exactly the world frame train IDs"
+        }
     }
 
     companion object {
@@ -37,10 +46,26 @@ data class RailwayWorldFrameSnapshot private constructor(
             physicsEpoch: Long,
             topologyRevision: Long,
             trains: Collection<TrainFrameSnapshot>
+        ): RailwayWorldFrameSnapshot {
+            val copiedTrains = java.util.List.copyOf(trains.sortedBy(TrainFrameSnapshot::trainId))
+            return RailwayWorldFrameSnapshot(
+                physicsEpoch = physicsEpoch,
+                topologyRevision = topologyRevision,
+                trains = copiedTrains,
+                occupancy = RailwayOccupancySnapshot.create(physicsEpoch, copiedTrains)
+            )
+        }
+
+        internal fun createWithOccupancy(
+            physicsEpoch: Long,
+            topologyRevision: Long,
+            trains: Collection<TrainFrameSnapshot>,
+            occupancy: RailwayOccupancySnapshot
         ): RailwayWorldFrameSnapshot = RailwayWorldFrameSnapshot(
             physicsEpoch = physicsEpoch,
             topologyRevision = topologyRevision,
-            trains = java.util.List.copyOf(trains.sortedBy(TrainFrameSnapshot::trainId))
+            trains = java.util.List.copyOf(trains.sortedBy(TrainFrameSnapshot::trainId)),
+            occupancy = occupancy
         )
     }
 }

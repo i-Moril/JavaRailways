@@ -35,8 +35,8 @@ apply prior collision decisions
 → flip controller/train CommitBuffer
 → publish TrainFrameSnapshot
 → process frames per train；completeEpoch once
-→ rebuild SweptOccupancyIndex
-→ publish RailwayWorldFrameSnapshot(physicsEpoch, topologyRevision, trains)
+→ build one shared RailwayOccupancySnapshot
+→ publish RailwayWorldFrameSnapshot(physicsEpoch, topologyRevision, trains, occupancy)
 → complete exact PhysicsTicket
 ```
 

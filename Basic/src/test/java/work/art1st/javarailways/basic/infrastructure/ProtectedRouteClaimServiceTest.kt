@@ -1,13 +1,17 @@
 package work.art1st.javarailways.basic.infrastructure
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
@@ -31,13 +35,15 @@ class ProtectedRouteClaimServiceTest {
     private val railId = UUID.randomUUID()
     private var topologyRevision = 4L
     private var observation = observation()
-    private val validResources = mutableSetOf(
+    private val validResources = mutableSetOf<InfrastructureResource>(
         resource("turnout/a"),
         resource("turnout/b")
     )
     private val registry = InfrastructureLeaseRegistry(
         currentTopologyRevision = { topologyRevision },
-        resourceExists = { it in validResources }
+        resourceExists = { resource ->
+            resource in validResources || resource is RailIntervalResource && resource.railId == railId
+        }
     )
 
     @Test
@@ -322,7 +328,7 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `claim service submits the plan footprint without applying turnout metadata`() {
+    fun `claim service submits the plan footprint and commits selections in route order`() {
         val turnout = StableInfrastructureResource(TurnoutResourceIdentity.TYPE_ID, "test:turnout/service")
         validResources += turnout
         val selection = ResolvedTurnoutSelection(
@@ -336,24 +342,206 @@ class ProtectedRouteClaimServiceTest {
             listOf(selection),
             OccupancyQueryGeometry.create(listOf(RailInterval(railId, 0.0, 1.0)))
         )
-        val service = service { ProtectedRouteValidation.Validated(plan) }
+        val committed = mutableListOf<List<ResolvedTurnoutSelection>>()
+        val service = service(
+            turnoutCommitter = TurnoutSelectionCommitter { selections ->
+                committed += selections
+                TurnoutCommitResult.Committed
+            }
+        ) { ProtectedRouteValidation.Validated(plan) }
 
         val acquired = service.acquire(Any(), request(window("test:region/a", 0.0, 80.0, 100.0)))
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, acquired.status)
         assertEquals(plan.resources, registry.claimSnapshots().single().footprint)
-        assertEquals(listOf(selection), plan.turnoutSelections)
+        assertEquals(listOf(listOf(selection)), committed)
+    }
+
+    @Test
+    fun `zero and multiple turnout admissions preserve compiled operation order`() {
+        val first = turnoutSelection("test:turnout/first", 21L, 22L, 4.0)
+        val second = turnoutSelection("test:turnout/second", 23L, 24L, 9.0)
+        validResources += first.resource
+        validResources += second.resource
+        val committed = mutableListOf<List<ResolvedTurnoutSelection>>()
+        var plan = CompiledRouteAdmission.create(
+            InfrastructureFootprint(listOf(resource("turnout/a"))),
+            emptyList(),
+            OccupancyQueryGeometry.create(emptyList())
+        )
+        val service = service(
+            turnoutCommitter = TurnoutSelectionCommitter { selections ->
+                committed += selections
+                TurnoutCommitResult.Committed
+            }
+        ) { ProtectedRouteValidation.Validated(plan) }
+        val platform = Any()
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, service.acquire(platform, request(null)).status)
+        service.release(platform, request(null).owner)
+        plan = CompiledRouteAdmission.create(
+            InfrastructureFootprint(listOf(first.resource, second.resource)),
+            listOf(first, second),
+            OccupancyQueryGeometry.create(emptyList())
+        )
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, service.acquire(platform, request(null)).status)
+
+        assertEquals(listOf(emptyList(), listOf(first, second)), committed)
+    }
+
+    @Test
+    fun `turnout apply failure restores a newly acquired claim`() {
+        val failure = IllegalStateException("second turnout failed")
+        var stalled = false
+        val service = service(
+            turnoutCommitter = TurnoutSelectionCommitter {
+                TurnoutCommitResult.Failed(failure, emptyList())
+            },
+            stallWorld = { _, _ -> stalled = true }
+        ) { validated(resource("turnout/a")) }
+
+        val result = service.acquire(Any(), request(window("test:region/a", 0.0, 80.0, 100.0)))
+
+        assertEquals(ProtectedRouteClaimStatus.TURNOUT_COMMIT_FAILED, result.status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertFalse(stalled)
+    }
+
+    @Test
+    fun `turnout apply failure restores the exact claim replaced before admission`() {
+        val platformOwner = Any()
+        val oldOwner = InfrastructureOwner("test:route/main", 1L)
+        val newOwner = InfrastructureOwner("test:route/main", 2L)
+        val oldPlan = validated(resource("turnout/a"))
+        val newPlan = validated(resource("turnout/b"))
+        var validation: ProtectedRouteValidation = oldPlan
+        var commitResult: TurnoutCommitResult = TurnoutCommitResult.Committed
+        val service = service(
+            turnoutCommitter = TurnoutSelectionCommitter { commitResult }
+        ) { validation }
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(platformOwner, request(null, oldOwner)).status
+        )
+        validation = newPlan
+        commitResult = TurnoutCommitResult.Failed(IllegalStateException("apply failed"), emptyList())
+
+        val result = service.replace(platformOwner, oldOwner, request(null, newOwner))
+
+        assertEquals(ProtectedRouteClaimStatus.TURNOUT_COMMIT_FAILED, result.status)
+        val restored = registry.claimSnapshots().single()
+        assertEquals(oldOwner, restored.owner)
+        assertEquals(oldPlan.admission.resources, restored.footprint)
+    }
+
+    @Test
+    fun `turnout rollback failure stalls world and retains the acquired claim`() {
+        val platformOwner = Any()
+        val owner = InfrastructureOwner("test:route/main", 1L)
+        val stalls = mutableListOf<String>()
+        val service = service(
+            turnoutCommitter = TurnoutSelectionCommitter {
+                TurnoutCommitResult.Failed(
+                    IllegalStateException("apply failed"),
+                    listOf(IllegalStateException("rollback failed"))
+                )
+            },
+            stallWorld = { detail, _ -> stalls += detail }
+        ) { validated(resource("turnout/a")) }
+
+        val result = service.acquire(platformOwner, request(null, owner))
+
+        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, result.status)
+        assertEquals(listOf(owner), registry.claimSnapshots().map { it.owner })
+        assertEquals(1, stalls.size)
+    }
+
+    @Test
+    fun `replacement rollback failure reserves both old and new footprints`() {
+        val platformOwner = Any()
+        val oldOwner = InfrastructureOwner("test:route/main", 1L)
+        val newOwner = InfrastructureOwner("test:route/main", 2L)
+        val oldResource = railResource(0.0, 10.0)
+        val newResource = railResource(20.0, 30.0)
+        validResources += oldResource
+        validResources += newResource
+        val oldPlan = validated(oldResource)
+        val newPlan = validated(newResource)
+        var validation: ProtectedRouteValidation = oldPlan
+        var commitResult: TurnoutCommitResult = TurnoutCommitResult.Committed
+        val service = service(
+            turnoutCommitter = TurnoutSelectionCommitter { commitResult },
+            stallWorld = { _, _ -> }
+        ) { validation }
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(platformOwner, request(null, oldOwner)).status
+        )
+        validation = newPlan
+        commitResult = TurnoutCommitResult.Failed(
+            IllegalStateException("apply failed"),
+            listOf(IllegalStateException("rollback failed"))
+        )
+
+        assertEquals(
+            ProtectedRouteClaimStatus.WORLD_STALLED,
+            service.replace(platformOwner, oldOwner, request(null, newOwner)).status
+        )
+
+        val oldConflict = registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(
+                topologyRevision,
+                InfrastructureOwner("test:other-old", 1L),
+                railFootprint(5.0, 6.0)
+            )
+        )
+        val newConflict = registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(
+                topologyRevision,
+                InfrastructureOwner("test:other-new", 1L),
+                railFootprint(25.0, 26.0)
+            )
+        )
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, oldConflict.status)
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, newConflict.status)
+        assertEquals(listOf(newOwner), registry.claimSnapshots().map { it.owner })
+    }
+
+    @Test
+    fun `identical retry is unchanged and does not reapply turnouts`() {
+        var commits = 0
+        val service = service(
+            turnoutCommitter = TurnoutSelectionCommitter {
+                commits++
+                TurnoutCommitResult.Committed
+            }
+        ) { validated(resource("turnout/a")) }
+        val platformOwner = Any()
+        val request = request(null)
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, service.acquire(platformOwner, request).status)
+        assertEquals(ProtectedRouteClaimStatus.UNCHANGED, service.acquire(platformOwner, request).status)
+        assertEquals(1, commits)
+        assertEquals(1, registry.claimSnapshots().size)
     }
 
     private fun service(
         latestObservation: () -> RailwayObservation? = { observation },
+        turnoutCommitter: TurnoutSelectionCommitter = TurnoutSelectionCommitter {
+            TurnoutCommitResult.Committed
+        },
+        stallWorld: (String, Exception) -> Unit = { _, _ -> error("unexpected world stall") },
         validate: (ProtectedRouteRequest) -> ProtectedRouteValidation
     ) =
         ProtectedRouteClaimService(
             registry,
             currentTopologyRevision = { topologyRevision },
             latestObservation = latestObservation,
-            validate = validate
+            validate = validate,
+            turnoutCommitter = turnoutCommitter,
+            stallWorld = stallWorld
         )
 
     private fun request(
@@ -394,6 +582,24 @@ class ProtectedRouteClaimServiceTest {
 
     private fun resource(id: String) = StableInfrastructureResource("test:controlled", id)
 
+    private fun railResource(startMeters: Double, endMeters: Double) =
+        RailIntervalResource(railId, startMeters, endMeters)
+
+    private fun railFootprint(startMeters: Double, endMeters: Double) =
+        InfrastructureFootprint(listOf(railResource(startMeters, endMeters)))
+
+    private fun turnoutSelection(
+        id: String,
+        fromRail: Long,
+        toRail: Long,
+        distance: Double
+    ) = ResolvedTurnoutSelection(
+        StableInfrastructureResource(TurnoutResourceIdentity.TYPE_ID, id),
+        RailEndpointRef(UUID(0L, fromRail), RailEndpoint.B),
+        RailEndpointRef(UUID(0L, toRail), RailEndpoint.A),
+        distance
+    )
+
     private fun observation(
         vararg trains: TrainFrameSnapshot,
         epoch: Long = 7L,
@@ -433,7 +639,7 @@ class ProtectedRouteClaimServiceTest {
         sweptSpans = listOf(SweptRailSpanSnapshot(railId, minArcMeters, maxArcMeters))
     )
 
-    private fun validated(vararg resources: StableInfrastructureResource) =
+    private fun validated(vararg resources: InfrastructureResource) =
         ProtectedRouteValidation.Validated(
             CompiledRouteAdmission.create(
                 InfrastructureFootprint(resources.toList()),

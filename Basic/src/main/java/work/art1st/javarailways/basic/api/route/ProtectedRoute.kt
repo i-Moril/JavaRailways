@@ -108,6 +108,10 @@ enum class ProtectedRouteClaimStatus {
     RELEASED,
     /** The identical complete request was already held. */
     UNCHANGED,
+    /** Claim succeeded, turnout application failed, and both selections and claim were restored. */
+    TURNOUT_COMMIT_FAILED,
+    /** Admission compensation failed; the world was stalled and no authority may be published. */
+    WORLD_STALLED,
     /** A controlled resource was not enclosed by a complete protection window. */
     PROTECTION_REQUIRED,
     /** The request did not use the current authoritative topology revision. */
@@ -136,7 +140,14 @@ enum class ProtectedRouteClaimStatus {
     SERVICE_CLOSED
 }
 
-/** Typed claim result; every denial leaves the protected-route registry unchanged. */
+/**
+ * Typed protected-route admission result.
+ *
+ * Ordinary denials occur before mutation. [ProtectedRouteClaimStatus.TURNOUT_COMMIT_FAILED]
+ * confirms that both selections and claim were restored. [ProtectedRouteClaimStatus.WORLD_STALLED]
+ * is the fail-closed exception: compensation was incomplete; the safest available claim remains
+ * while the registry is available, and no authority may be published.
+ */
 class ProtectedRouteClaimResult(
     val status: ProtectedRouteClaimStatus,
     blockers: Collection<InfrastructureBlocker> = emptyList(),

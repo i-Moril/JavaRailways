@@ -7,37 +7,43 @@ import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
+import work.art1st.javarailways.core.api.util.annotation.MainThread
 
 /**
- * Validates one protected-route request and atomically submits its single resource set.
+ * Validates one protected-route request, claims its resource set, and commits every turnout.
  *
- * This is the host-side admission seam for the future public route-resource service. It retains
- * the validated plan through resolution but submits only its resource footprint. The later
- * host-owned admission transaction will apply and, if necessary, roll back turnout selections;
- * this transitional service does not mutate them.
+ * This is the host-side admission seam for the future public route-resource service. A grant is
+ * not visible yet, so a successful return is the first point at which both the claim and all
+ * direction-symmetric turnout selections have committed.
  */
 internal class ProtectedRouteClaimService(
     private val registry: InfrastructureLeaseRegistry,
     private val currentTopologyRevision: () -> Long,
     private val latestObservation: () -> RailwayObservation?,
-    private val validate: (ProtectedRouteRequest) -> ProtectedRouteValidation
+    private val validate: (ProtectedRouteRequest) -> ProtectedRouteValidation,
+    private val turnoutCommitter: TurnoutSelectionCommitter,
+    private val stallWorld: (String, Exception) -> Unit
 ) {
+    @MainThread
     fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteClaimResult {
         return when (val resolved = resolve(request)) {
             is ResolutionResult.Finished -> resolved.result
-            is ResolutionResult.Plan -> mapMutation(
-                registry.acquireClaim(
+            is ResolutionResult.Plan -> commitAdmission(
+                resolved.value,
+                registry.beginAcquireClaim(
                     platformOwner,
                     InfrastructureClaimRequest(
                         request.route.topologyRevision,
                         request.owner,
                         resolved.value.resources
                     )
-                )
+                ),
+                request
             )
         }
     }
 
+    @MainThread
     fun replace(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
@@ -54,8 +60,9 @@ internal class ProtectedRouteClaimService(
                     resolved.result
                 }
             }
-            is ResolutionResult.Plan -> mapMutation(
-                registry.replaceClaim(
+            is ResolutionResult.Plan -> commitAdmission(
+                resolved.value,
+                registry.beginReplaceClaim(
                     platformOwner,
                     expectedOwner,
                     InfrastructureClaimRequest(
@@ -63,13 +70,95 @@ internal class ProtectedRouteClaimService(
                         request.owner,
                         resolved.value.resources
                     )
-                )
+                ),
+                request
             )
         }
     }
 
+    @MainThread
     fun release(platformOwner: Any, owner: InfrastructureOwner): ProtectedRouteClaimResult =
         mapMutation(registry.releaseClaim(platformOwner, owner))
+
+    private fun commitAdmission(
+        admission: CompiledRouteAdmission,
+        claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
+        request: ProtectedRouteRequest
+    ): ProtectedRouteClaimResult {
+        val mutation = claimMutation.result
+        if (!mutation.successful) return mapMutation(mutation)
+        if (mutation.status == InfrastructureMutationStatus.UNCHANGED) {
+            return mapMutation(mutation)
+        }
+        val turnoutCommit = try {
+            turnoutCommitter.commit(admission.turnoutSelections)
+        } catch (failure: Exception) {
+            TurnoutCommitResult.Failed(
+                failure,
+                listOf(IllegalStateException("turnout committer escaped without confirming rollback"))
+            )
+        }
+        return when (val commit = turnoutCommit) {
+            TurnoutCommitResult.Committed -> {
+                if (registry.completeClaimMutation(claimMutation)) {
+                    mapMutation(mutation)
+                } else {
+                    worldStalled(
+                        request,
+                        IllegalStateException("claim transaction disappeared after turnout commit"),
+                        "turnouts committed but the claim transaction could not be finalized"
+                    )
+                }
+            }
+            is TurnoutCommitResult.Failed -> compensateFailedTurnoutCommit(request, claimMutation, commit)
+        }
+    }
+
+    private fun compensateFailedTurnoutCommit(
+        request: ProtectedRouteRequest,
+        claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
+        commit: TurnoutCommitResult.Failed
+    ): ProtectedRouteClaimResult {
+        if (!commit.rollbackSucceeded) {
+            val failure = TurnoutRollbackException(commit.applyFailure, commit.rollbackFailures)
+            return worldStalled(
+                request,
+                failure,
+                "turnout commit failed and ${commit.rollbackFailures.size} selection rollback(s) failed; " +
+                    "claim and rollback reservation retained"
+            )
+        }
+        val claimRollback = registry.rollbackClaimMutation(claimMutation)
+        if (claimRollback.status in CLAIM_ROLLBACK_SUCCESS_STATUSES) {
+            return result(
+                ProtectedRouteClaimStatus.TURNOUT_COMMIT_FAILED,
+                "turnout commit failed and admission was restored: ${failureDetail(commit.applyFailure)}"
+            )
+        }
+        val failure = IllegalStateException(
+            "turnout selections were restored but claim rollback failed: " +
+                "${claimRollback.status}: ${claimRollback.detail}",
+            commit.applyFailure
+        )
+        return worldStalled(
+            request,
+            failure,
+            "turnout commit failed; selections were restored but the safest claim was retained"
+        )
+    }
+
+    private fun worldStalled(
+        request: ProtectedRouteRequest,
+        failure: Exception,
+        detail: String
+    ): ProtectedRouteClaimResult {
+        stallWorld(
+            "protected-route admission ${request.requestId} for ${request.owner.ownerId}@${request.owner.revision} " +
+                "entered fail-closed recovery: $detail",
+            failure
+        )
+        return result(ProtectedRouteClaimStatus.WORLD_STALLED, detail)
+    }
 
     private fun resolve(request: ProtectedRouteRequest): ResolutionResult {
         if (request.route.topologyRevision != request.observationStamp.topologyRevision ||
@@ -193,5 +282,28 @@ internal class ProtectedRouteClaimService(
     private sealed interface ResolutionResult {
         data class Finished(val result: ProtectedRouteClaimResult) : ResolutionResult
         data class Plan(val value: CompiledRouteAdmission) : ResolutionResult
+    }
+
+    private companion object {
+        val CLAIM_ROLLBACK_SUCCESS_STATUSES = setOf(
+            InfrastructureMutationStatus.RELEASED,
+            InfrastructureMutationStatus.REPLACED,
+            InfrastructureMutationStatus.UNCHANGED
+        )
+
+        fun failureDetail(failure: Exception): String =
+            failure::class.simpleName + ": " + failure.message.orEmpty()
+    }
+}
+
+private class TurnoutRollbackException(
+    applyFailure: Exception,
+    rollbackFailures: List<Exception>
+) : IllegalStateException(
+    "turnout commit failed and ${rollbackFailures.size} rollback(s) failed",
+    applyFailure
+) {
+    init {
+        rollbackFailures.forEach(::addSuppressed)
     }
 }

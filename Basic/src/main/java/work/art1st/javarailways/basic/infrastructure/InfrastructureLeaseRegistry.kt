@@ -35,15 +35,27 @@ class InfrastructureLeaseRegistry(
 ) {
     class EditPermit internal constructor(val id: UUID, val result: InfrastructureMutationResult)
 
+    /** Opaque handle for undoing only the exact claim mutation that created it. */
+    internal class ClaimMutation internal constructor(
+        val result: InfrastructureMutationResult,
+        internal val rollbackToken: UUID?
+    )
+
     private data class Held(
         val platformOwner: Any,
         val owner: InfrastructureOwner,
         val footprint: InfrastructureFootprint
     )
 
+    private data class PendingClaimMutation(
+        val before: Held?,
+        val after: Held
+    )
+
     private val lock = Any()
     private val leases = linkedMapOf<String, Held>()
     private val claims = linkedMapOf<String, Held>()
+    private val pendingClaimMutations = linkedMapOf<UUID, PendingClaimMutation>()
     private val editPermits = linkedMapOf<UUID, Held>()
     private var closed = false
 
@@ -109,58 +121,94 @@ class InfrastructureLeaseRegistry(
     }
 
     fun acquireClaim(platformOwner: Any, request: InfrastructureClaimRequest): InfrastructureMutationResult =
-        synchronized(lock) {
-            validate(request.topologyRevision, request.footprint)?.let { return@synchronized it }
-            claims[request.owner.ownerId]?.let { existing ->
-                if (existing.platformOwner === platformOwner && existing.owner == request.owner &&
-                    existing.footprint == request.footprint
-                ) return@synchronized result(InfrastructureMutationStatus.UNCHANGED)
-                return@synchronized result(
-                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                    "claim owner ${request.owner.ownerId} already has revision ${existing.owner.revision}"
-                )
-            }
-            val blockers = blockers(
-                request.footprint,
-                claims.values,
-                InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
-            ) + blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
-            if (blockers.isNotEmpty()) return@synchronized conflict(blockers)
-            claims[request.owner.ownerId] = Held(platformOwner, request.owner, request.footprint)
-            result(InfrastructureMutationStatus.ACQUIRED)
-        }
+        acquireClaimMutation(platformOwner, request, rollbackTracked = false).result
+
+    internal fun beginAcquireClaim(
+        platformOwner: Any,
+        request: InfrastructureClaimRequest
+    ): ClaimMutation = acquireClaimMutation(platformOwner, request, rollbackTracked = true)
 
     fun replaceClaim(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
         request: InfrastructureClaimRequest
-    ): InfrastructureMutationResult = synchronized(lock) {
-        validate(request.topologyRevision, request.footprint)?.let { return@synchronized it }
+    ): InfrastructureMutationResult = replaceClaimMutation(
+        platformOwner,
+        expectedOwner,
+        request,
+        rollbackTracked = false
+    ).result
+
+    internal fun beginReplaceClaim(
+        platformOwner: Any,
+        expectedOwner: InfrastructureOwner,
+        request: InfrastructureClaimRequest
+    ): ClaimMutation = replaceClaimMutation(platformOwner, expectedOwner, request, rollbackTracked = true)
+
+    private fun replaceClaimMutation(
+        platformOwner: Any,
+        expectedOwner: InfrastructureOwner,
+        request: InfrastructureClaimRequest,
+        rollbackTracked: Boolean
+    ): ClaimMutation = synchronized(lock) {
+        validate(request.topologyRevision, request.footprint)?.let {
+            return@synchronized ClaimMutation(it, null)
+        }
+        pendingForOwner(expectedOwner.ownerId)?.let {
+            return@synchronized ClaimMutation(
+                result(
+                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                    "claim owner ${expectedOwner.ownerId} has an admission transaction in progress"
+                ),
+                null
+            )
+        }
         if (expectedOwner.ownerId != request.owner.ownerId || request.owner.revision <= expectedOwner.revision) {
-            return@synchronized result(
-                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                "replacement must keep ownerId and advance its revision"
+            return@synchronized ClaimMutation(
+                result(
+                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                    "replacement must keep ownerId and advance its revision"
+                ),
+                null
             )
         }
         val existing = claims[expectedOwner.ownerId]
-            ?: return@synchronized result(InfrastructureMutationStatus.NOT_FOUND, "claim does not exist")
+            ?: return@synchronized ClaimMutation(
+                result(InfrastructureMutationStatus.NOT_FOUND, "claim does not exist"),
+                null
+            )
         if (existing.platformOwner !== platformOwner || existing.owner != expectedOwner) {
-            return@synchronized result(
-                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                "claim owner or expected revision does not match"
+            return@synchronized ClaimMutation(
+                result(
+                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                    "claim owner or expected revision does not match"
+                ),
+                null
             )
         }
         val blockers = blockers(
             request.footprint,
-            claims.values.filterNot { it === existing },
+            claims.values.filterNot { it === existing } + rollbackReservations(),
             InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
         ) + blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
-        if (blockers.isNotEmpty()) return@synchronized conflict(blockers)
-        claims[request.owner.ownerId] = Held(platformOwner, request.owner, request.footprint)
-        result(InfrastructureMutationStatus.REPLACED)
+        if (blockers.isNotEmpty()) return@synchronized ClaimMutation(conflict(blockers), null)
+        val replacement = Held(platformOwner, request.owner, request.footprint)
+        claims[request.owner.ownerId] = replacement
+        trackedMutation(
+            result(InfrastructureMutationStatus.REPLACED),
+            before = existing,
+            after = replacement,
+            rollbackTracked = rollbackTracked
+        )
     }
 
     fun releaseClaim(platformOwner: Any, owner: InfrastructureOwner): InfrastructureMutationResult = synchronized(lock) {
+        if (pendingForOwner(owner.ownerId) != null) {
+            return@synchronized result(
+                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                "claim owner ${owner.ownerId} has an admission transaction in progress"
+            )
+        }
         val existing = claims[owner.ownerId]
             ?: return@synchronized result(InfrastructureMutationStatus.NOT_FOUND, "claim does not exist")
         if (existing.platformOwner !== platformOwner || existing.owner != owner) {
@@ -173,10 +221,51 @@ class InfrastructureLeaseRegistry(
         result(InfrastructureMutationStatus.RELEASED)
     }
 
+    /** Finalizes a successful admission so its exact-before rollback state can be discarded. */
+    internal fun completeClaimMutation(mutation: ClaimMutation): Boolean = synchronized(lock) {
+        val token = mutation.rollbackToken ?: return@synchronized true
+        val pending = pendingClaimMutations[token] ?: return@synchronized false
+        if (!sameHeld(claims[pending.after.owner.ownerId], pending.after)) return@synchronized false
+        pendingClaimMutations.remove(token)
+        true
+    }
+
+    /** Restores the exact pre-mutation claim without revalidating its older owner revision. */
+    internal fun rollbackClaimMutation(mutation: ClaimMutation): InfrastructureMutationResult = synchronized(lock) {
+        val token = mutation.rollbackToken
+            ?: return@synchronized result(InfrastructureMutationStatus.UNCHANGED)
+        val pending = pendingClaimMutations[token]
+            ?: return@synchronized result(
+                InfrastructureMutationStatus.NOT_FOUND,
+                "claim admission rollback token does not exist"
+            )
+        val current = claims[pending.after.owner.ownerId]
+        if (!sameHeld(current, pending.after)) {
+            return@synchronized result(
+                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                "claim changed while its admission transaction was in progress"
+            )
+        }
+        if (pending.before == null) {
+            claims.remove(pending.after.owner.ownerId)
+        } else {
+            claims[pending.before.owner.ownerId] = pending.before
+        }
+        pendingClaimMutations.remove(token)
+        result(
+            if (pending.before == null) InfrastructureMutationStatus.RELEASED
+            else InfrastructureMutationStatus.REPLACED
+        )
+    }
+
     fun acquireEditPermit(platformOwner: Any, request: InfrastructureEditRequest): EditPermit = synchronized(lock) {
         validate(request.topologyRevision, request.footprint)?.let { return@synchronized EditPermit(UUID(0L, 0L), it) }
         val blockers = blockers(request.footprint, leases.values, InfrastructureBlockerKind.APPLIED_PLAN_LEASE) +
-            blockers(request.footprint, claims.values, InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM) +
+            blockers(
+                request.footprint,
+                claims.values + rollbackReservations(),
+                InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
+            ) +
             blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
         if (blockers.isNotEmpty()) return@synchronized EditPermit(UUID(0L, 0L), conflict(blockers))
         val id = UUID.randomUUID()
@@ -200,8 +289,11 @@ class InfrastructureLeaseRegistry(
     }
 
     fun releasePlatformOwner(platformOwner: Any) = synchronized(lock) {
+        val pendingOwnerIds = pendingClaimMutations.values.mapTo(hashSetOf()) { it.after.owner.ownerId }
         leases.values.removeIf { it.platformOwner === platformOwner }
-        claims.values.removeIf { it.platformOwner === platformOwner }
+        claims.values.removeIf { held ->
+            held.platformOwner === platformOwner && held.owner.ownerId !in pendingOwnerIds
+        }
         editPermits.values.removeIf { it.platformOwner === platformOwner }
     }
 
@@ -209,8 +301,78 @@ class InfrastructureLeaseRegistry(
         closed = true
         leases.clear()
         claims.clear()
+        pendingClaimMutations.clear()
         editPermits.clear()
     }
+
+    private fun acquireClaimMutation(
+        platformOwner: Any,
+        request: InfrastructureClaimRequest,
+        rollbackTracked: Boolean
+    ): ClaimMutation = synchronized(lock) {
+        validate(request.topologyRevision, request.footprint)?.let {
+            return@synchronized ClaimMutation(it, null)
+        }
+        pendingForOwner(request.owner.ownerId)?.let {
+            return@synchronized ClaimMutation(
+                result(
+                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                    "claim owner ${request.owner.ownerId} has an admission transaction in progress"
+                ),
+                null
+            )
+        }
+        claims[request.owner.ownerId]?.let { existing ->
+            if (existing.platformOwner === platformOwner && existing.owner == request.owner &&
+                existing.footprint == request.footprint
+            ) {
+                return@synchronized ClaimMutation(result(InfrastructureMutationStatus.UNCHANGED), null)
+            }
+            return@synchronized ClaimMutation(
+                result(
+                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                    "claim owner ${request.owner.ownerId} already has revision ${existing.owner.revision}"
+                ),
+                null
+            )
+        }
+        val blockers = blockers(
+            request.footprint,
+            claims.values + rollbackReservations(),
+            InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
+        ) + blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
+        if (blockers.isNotEmpty()) return@synchronized ClaimMutation(conflict(blockers), null)
+        val acquired = Held(platformOwner, request.owner, request.footprint)
+        claims[request.owner.ownerId] = acquired
+        trackedMutation(
+            result(InfrastructureMutationStatus.ACQUIRED),
+            before = null,
+            after = acquired,
+            rollbackTracked = rollbackTracked
+        )
+    }
+
+    private fun trackedMutation(
+        result: InfrastructureMutationResult,
+        before: Held?,
+        after: Held,
+        rollbackTracked: Boolean
+    ): ClaimMutation {
+        if (!rollbackTracked) return ClaimMutation(result, null)
+        val token = UUID.randomUUID()
+        pendingClaimMutations[token] = PendingClaimMutation(before, after)
+        return ClaimMutation(result, token)
+    }
+
+    private fun pendingForOwner(ownerId: String): PendingClaimMutation? =
+        pendingClaimMutations.values.firstOrNull { it.after.owner.ownerId == ownerId }
+
+    private fun rollbackReservations(): List<Held> =
+        pendingClaimMutations.values.mapNotNull(PendingClaimMutation::before)
+
+    private fun sameHeld(first: Held?, second: Held): Boolean =
+        first != null && first.platformOwner === second.platformOwner &&
+            first.owner == second.owner && first.footprint == second.footprint
 
     private fun validate(
         topologyRevision: Long,

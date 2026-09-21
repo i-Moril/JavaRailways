@@ -189,6 +189,108 @@ class InfrastructureLeaseRegistryTest {
     }
 
     @Test
+    fun `tracked replacement restores exact older owner and footprint`() {
+        val platform = Any()
+        val oldOwner = owner("test:route", 3)
+        val newOwner = owner("test:route", 4)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, oldOwner, footprint(0.0, 10.0))
+        )
+
+        val mutation = registry.beginReplaceClaim(
+            platform,
+            oldOwner,
+            InfrastructureClaimRequest(4L, newOwner, footprint(20.0, 30.0))
+        )
+        assertEquals(InfrastructureMutationStatus.REPLACED, mutation.result.status)
+        assertEquals(
+            InfrastructureMutationStatus.REPLACED,
+            registry.rollbackClaimMutation(mutation).status
+        )
+
+        val restored = registry.claimSnapshots().single()
+        assertEquals(oldOwner, restored.owner)
+        assertEquals(footprint(0.0, 10.0), restored.footprint)
+    }
+
+    @Test
+    fun `pending admission survives platform cleanup and completed token cannot remove its claim`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 1)
+        val mutation = registry.beginAcquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, footprint(0.0, 10.0))
+        )
+
+        assertEquals(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+            registry.releaseClaim(platform, routeOwner).status
+        )
+        registry.releasePlatformOwner(platform)
+        assertEquals(listOf(routeOwner), registry.claimSnapshots().map { it.owner })
+        assertTrue(registry.completeClaimMutation(mutation))
+        assertFalse(registry.completeClaimMutation(mutation))
+        assertEquals(listOf(routeOwner), registry.claimSnapshots().map { it.owner })
+    }
+
+    @Test
+    fun `pending replacement reserves both old and new footprints until completion`() {
+        val platform = Any()
+        val oldOwner = owner("test:route", 1)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, oldOwner, footprint(0.0, 10.0))
+        )
+        val mutation = registry.beginReplaceClaim(
+            platform,
+            oldOwner,
+            InfrastructureClaimRequest(4L, owner("test:route", 2), footprint(20.0, 30.0))
+        )
+
+        val oldConflict = registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(4L, owner("test:other-old", 1), footprint(5.0, 6.0))
+        )
+        val newConflict = registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(4L, owner("test:other-new", 1), footprint(25.0, 26.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, oldConflict.status)
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, newConflict.status)
+        assertTrue(registry.completeClaimMutation(mutation))
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(4L, owner("test:after-old", 1), footprint(5.0, 6.0))
+            ).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.RESOURCE_CONFLICT,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(4L, owner("test:after-new", 1), footprint(25.0, 26.0))
+            ).status
+        )
+    }
+
+    @Test
+    fun `registry close invalidates an unfinished admission token`() {
+        val mutation = registry.beginAcquireClaim(
+            Any(),
+            InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 10.0))
+        )
+
+        registry.close()
+
+        assertFalse(registry.completeClaimMutation(mutation))
+        assertEquals(InfrastructureMutationStatus.NOT_FOUND, registry.rollbackClaimMutation(mutation).status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
     fun `public footprint cannot be mutated through Java collection view`() {
         val footprint = footprint(0.0, 10.0)
         assertThrows(UnsupportedOperationException::class.java) {

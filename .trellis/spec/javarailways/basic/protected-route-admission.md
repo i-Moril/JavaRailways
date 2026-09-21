@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation、route-bound非结构资源索引和单window资源收集已存在，通用contributor closure、atomic turnout admission与release/recovery尚未实现。
+- **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation、route-bound非结构资源索引、单window资源收集和atomic turnout admission已存在，通用contributor closure、grant publication与release/recovery尚未实现。
 - **Owner**：Basic拥有固定闭塞与`ProtectionRegionDefinition`、统一`AuthoritySection` catalog、路线验证、唯一claim资源集合与执行机制；SimpleATO只拥有运营路径选择、信号策略和section消费；Core拥有结构拓扑和物理观察。
 - **Non-goals**：本页不定义信号aspect、JS策略、玩家编辑UI或替SimpleATO选择运营路径。
 
@@ -47,11 +47,11 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 当前transitional `ProtectedRouteRequestValidator`从catalog取得同一topology root上的临时route occurrences和window。窗口存在时，它把`entry..clearUntil`与occurrences相交，按facing换算为每根rail的canonical AB interval，再按rail UUID排序并合并重叠或容差内相邻区间；`entry..exit`内的turnout resource加入同一个`InfrastructureFootprint`。`clearUntil`以前但窗口外的turnout返回`PROTECTION_REQUIRED`，同一turnout重复出现返回`INVALID_REQUEST`。窗口为空时，route没有turnout才返回`NOT_REQUIRED`。资源收集为`O(n log n)`最坏复杂度，其中`n`是截取范围内的route occurrences；它不读取live rail或扫描world。
 
-该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`。每个受保护的`ProjectedTurnoutTraversal`同时派生一个`ResolvedTurnoutSelection(resource, fromPort, toPort, routeDistanceMeters)`；selection保持route顺序和行驶方向，但不保留revision-local `TopologyNodeId`或mutable `RailView`。footprint与selection一起封装成不可变`CompiledRouteAdmission`，且每个selection的稳定turnout resource必须在该footprint内且只出现一次。该名称表示验证完成但尚未取得资源；只有atomic registry成功记录owner与footprint后才存在live claim。`ProtectedRouteClaimService`在resolution中保留整个admission，只把`admission.resources`提交给现有atomic registry；本阶段尚不执行selection。
+该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`。每个受保护的`ProjectedTurnoutTraversal`同时派生一个`ResolvedTurnoutSelection(resource, fromPort, toPort, routeDistanceMeters)`；selection保持route顺序和行驶方向，但不保留revision-local `TopologyNodeId`或mutable `RailView`。footprint与selection一起封装成不可变`CompiledRouteAdmission`，且每个selection的稳定turnout resource必须在该footprint内且只出现一次。该名称表示验证完成但尚未取得资源；只有atomic registry成功记录owner与footprint后才存在live claim。`ProtectedRouteClaimService`在resolution中保留整个admission，只把`admission.resources`作为唯一claim集合提交给atomic registry；claim成功后再消费同admission的selection元数据。
 
 同一次验证还把物理查询范围编译为一个normalized `OccupancyQueryGeometry`。它由`entry..clearUntil`的已选路线interval、每个相关turnout全部port的零长度端点interval，以及每个route-bound resource binding的全部anchors组成；同rail重叠或容差内相邻interval会合并。turnout在当前Core模型中是端点间的零长度selectable continuation，因此检查全部port既能捕获跨在未选支路端点上的列车，也不重新引入固定`lockingDistance`。diamond两臂不改变拓扑连接，必须从同一个retained catalog snapshot加入全部anchors，不能只检查route命中的一臂。该geometry只用于authoritative occupancy查询，不进入`InfrastructureFootprint`、claim identity或持久化。
 
-当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。validator仍未用完整train envelope实现多contributor closure，也尚未实现turnout apply/rollback或grant publication。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
+当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。它在atomic claim后按路线顺序提交全部turnout selections，失败时恢复selection和claim；补偿不完则保留最安全的资源状态并Stall。validator仍未用完整train envelope实现多contributor closure，也尚未实现grant publication和release/recovery。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
@@ -267,7 +267,22 @@ validate immutable route and collect one resource set
   -> publish admitted grant / expand authority
 ```
 
-apply失败时先恢复所有已修改selection。恢复成功后释放claim并返回`TURNOUT_COMMIT_FAILED`；恢复失败时保留claim、禁止扩大authority并Stall该world，不能释放资源后让未知道岔状态暴露给其他进路。
+apply失败时先恢复所有已修改selection。恢复成功后再恢复精确的claim前状态（新acquire删除，replace恢复旧claim）并返回`TURNOUT_COMMIT_FAILED`；恢复失败时保留claim、禁止扩大authority并Stall该world，不能释放资源后让未知道岔状态暴露给其他进路。
+
+Core把同一个物理continuation分别保存在两个到达方向的`RailView.nextActiveRail`中，因此一次
+`fromPort -> toPort`提交必须同时设置`from-arriving -> to-departing`和
+`to-arriving -> from-departing`。端点映射固定为：到达A端使用BA view、到达B端使用AB view；
+departing view是对应到达view的`reversed`。事务在第一次写入前解析全部live view并保存两个方向的
+原selection，按冻结路线顺序提交，失败后逆序尝试恢复所有快照，不能因其中一次rollback失败而停止
+其余恢复。
+
+claim registry为admission mutation返回内部opaque rollback token。replace token保留精确的旧
+platform owner identity、逻辑owner revision和footprint，不得通过普通“revision必须递增”的
+`replaceClaim`伪造反向替换。token完成以前，旧footprint继续作为rollback reservation阻止冲突claim
+或edit；platform owner cleanup不得拆除正在提交的claim。成功提交后销毁token；selection rollback
+成功后用token恢复精确旧状态。selection rollback失败时不得销毁token：当前claim与旧
+rollback reservation必须同时保留，覆盖可能混合的新旧物理选择。registry close会使未完成token失效，调用方必须Stall而不能报告普通
+commit failure。
 
 provider/plugin disable只停止新grant并使相关自动authority fail closed。已进入或可能进入的live claim转为host-owned recovery state，直到authoritative occupancy证明尾部清除；未进入的grant也只能由host在确认没有列车越过entry后取消。world unload期间没有运动，reload必须先恢复/重建claim与限制，再允许新departure或编辑。
 
@@ -293,9 +308,13 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 | closure到route末端仍未满足净空、找不到合法authority endpoint或检测到循环 | `INSUFFICIENT_EXIT_CLEARANCE` / `CYCLIC_RESOURCE_DEPENDENCY` | 全不变 |
 | 任一physical locking interval被列车占用 | `PHYSICALLY_OCCUPIED` | 全不变；返回train IDs |
 | footprint与live claim冲突 | `RESOURCE_CONFLICT` | 全不变；返回owner/revision/resource |
-| claim成功但turnout apply失败且rollback成功 | `TURNOUT_COMMIT_FAILED` | selection恢复，claim释放，authority不扩大 |
+| claim成功但turnout apply失败且rollback成功 | `TURNOUT_COMMIT_FAILED` | selection与claim前状态恢复，authority不扩大 |
 | turnout rollback失败 | `WORLD_STALLED` | claim保留，authority fail closed，停止后续准入 |
 | 相同request/revision重复提交 | `UNCHANGED` | 返回原grant，不重复切换 |
+
+`UNCHANGED`只表示同一platform owner已经持有完全相同owner revision与footprint，是幂等重试；它
+不会重新应用道岔，也不是修复claim之外selection漂移的机制。所有手动/编辑路径必须由同一claim guard
+阻止这种漂移。
 
 具体enum可以扩展当前`ProtectedRouteClaimStatus`或由更高层`ProtectedRouteAdmissionResult`包装，但上述failure identity不得压缩成日志字符串。
 

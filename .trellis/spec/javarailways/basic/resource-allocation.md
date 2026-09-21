@@ -52,10 +52,10 @@ Manual：`MANUAL_ROUTED`仍分配/验证/release；`FULL_MANUAL`不申请new rou
 `InfrastructureLeaseRegistry`是world-local原子registry，现阶段与尚未迁移的`RouteSectionAllocator`并存；不得把两者并存误写成进路资源统一已经完成。它区分三类持有：
 
 - applied-plan lease：共享、长生命周期，可彼此重叠，不预留turnout方向，也不阻止正常live claim；
-- live runtime claim：同一resource上互斥；raw acquire/replace/release只供受保护进路实现，Bukkit add-on service仅暴露read-only diagnostics；
+- live runtime claim：同一resource上互斥；raw registry acquire/replace/release属于Basic内部能力，Bukkit add-on service仅暴露read-only diagnostics。受保护进路runtime使用acquire、shrink/release，不调用整份claim replace；
 - edit permit：独占并跨完整mutation transaction持有，与overlap的lease、claim和其他permit冲突。
 
-`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。acquire/replace/release必须匹配platform owner与expected revision，replace保持ownerId并严格增加revision。plugin disable释放该plugin直接拥有的lease/permit；受保护进路的live claim由host token持有，requester disable后按[protected route admission](./protected-route-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
+`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。generic registry的acquire/replace/release必须匹配platform owner与expected revision，replace保持ownerId并严格增加revision；该replace能力不等于protected-route正常生命周期。plugin disable释放该plugin直接拥有的lease/permit；受保护进路的live claim由host token持有，requester disable后按[protected route admission](./protected-route-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
 
 每个请求携带authoritative `topologyRevision`。Registry在resource validation前后各读取一次当前revision；任一次不匹配返回`STALE_TOPOLOGY`。rail区间由world验证存在与长度；stable resource由唯一namespaced provider验证。missing返回`INVALID_RESOURCE`，provider异常返回`RESOURCE_PROVIDER_FAILED`。所有非成功结果保持registry不变，并只在`RESOURCE_CONFLICT`中返回blocker owner/revision/resource diagnostics。
 
@@ -87,7 +87,7 @@ footprint使用其`StableInfrastructureResource`，不得改用revision-local `T
 
 request不携带raw `InfrastructureFootprint`、受控资源清单或可信列车长度。SimpleATO从Core的authoritative `TopologyState`选择路径并提交有序edge traversal；Basic validator证明它在同一revision内连续、方向正确且每个continuation合法，再通过拓扑节点与绑定同一topology root的route-bound resource catalog，把rail intervals、turnouts、fixed crossings与其他shared conflicts加入唯一资源集合。physical occupancy geometry只用于检查，不形成第二个footprint。非法或断裂traversal返回`INVALID_ROUTE`；受控资源没有有效保护覆盖返回`PROTECTION_REQUIRED`。验证前后均核对topology root，任何失败都不改变registry。
 
-`ProtectedRouteClaimService`现为host-side admission seam，并未替换旧`RouteSectionAllocator`调用者。service消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/RESTORING/READY/RESTORED/UNSAFE`，pending admission handle持有claim mutation token，只有`READY`才完成claim，只有`RESTORED`才恢复精确claim前状态。当前live actuator只处理turnout requirement，但会在任何side effect前拒绝未知类型。执行未完成时不会返回成功claim结果，也不存在grant；任一异常、ticket identity/state违约或`UNSAFE`均保留最安全的新旧资源保留并Stall world。当前仍缺通用contributor closure、grant/release/recovery和调用方迁移，因此不得声称所有自动/`MANUAL_ROUTED`进路已强制经过保护区域。后续迁移必须删除可绕过该validation的automatic overload。
+`ProtectedRouteClaimService`现为host-side admission seam，并未替换旧`RouteSectionAllocator`调用者。service消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/RESTORING/READY/RESTORED/UNSAFE`，pending admission handle持有claim mutation token，只有`READY`才完成claim，只有`RESTORED`才删除本次新claim并恢复claim前状态。当前live actuator只处理turnout requirement，但会在任何side effect前拒绝未知类型。执行未完成时不会返回成功claim结果，也不存在grant；任一异常、ticket identity/state违约或`UNSAFE`均保留当前claim及rollback reservation并Stall world。当前仍缺通用contributor closure、grant/release/recovery和调用方迁移，因此不得声称所有自动/`MANUAL_ROUTED`进路已强制经过保护区域。后续迁移必须删除可绕过该validation的automatic overload。
 
 同一个`CompiledRouteAdmission`还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。immutable queue helper从队首返回连续eligible prefix但不自行pop；world-local claim service持有的释放控制器必须先完成registry原子shrink再丢弃该前缀。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；service已有显式observation驱动入口，但尚未自动接入publication。
 
@@ -116,21 +116,22 @@ Stall响应和grant持久化仍属于后续grant lifecycle集成。
 
 `CompiledRouteAdmission`现保留一次性从已验证冻结路线编译的`CompiledRouteProgressPath`。它只按路线
 顺序保存cursor所需的rail、facing、canonical AB边界和累计route distance，不建立按rail反向查询的第二份
-索引。每次新准入或replace的冻结路线必须从同epoch observation的物理车尾开始；Basic只验证首个occurrence
+索引。每次初次准入的冻结路线必须从同epoch observation的物理车尾开始；Basic只验证首个occurrence
 的route start并把cursor初始化为`0`，caller不提供初始route coordinate或occurrence index。之后cursor先匹配
 当前occurrence，只在不匹配时向后顺序扫描并
 选择第一个匹配项，从不回退。匹配结果低于已接受route distance或未匹配到当前位置都会锁存fail closed并
 保留原state。
 
 `ProtectedRouteClaimService`内部按logical owner ID持有`ProtectedRouteTailRelease`，terminal admission只返回
-claim结果。成功acquire在READY/finalize后安装，成功replace在同一点换成新revision与train identity；
-UNCHANGED保留原项。pending claim mutation在任何preparation side effect前暂停旧项，完整restore后恢复，
-不安全或不完整恢复保持暂停。service显式消费后续`RailwayObservation`，一次建立train ID lookup并按owner稳定
-顺序驱动未暂停控制器；controller仍校验stamp/train identity，把tail投影为候选进度，registry shrink成功后才
+claim结果。成功acquire在READY/finalize后安装，UNCHANGED保留原项。service显式消费后续
+`RailwayObservation`，一次建立train ID lookup并按owner稳定顺序驱动active控制器；controller仍校验stamp/train
+identity，把tail投影为候选进度，registry shrink成功后才
 提交cursor。Completed后移除；fail-closed项保留并停止当前dispatch。显式release仅在registry成功释放精确owner
 后清理对应控制器。该层不创建第二个claim或footprint，registry中的claim仍是唯一资源所有权。
 
-当前仍没有自动publication订阅、持久化/reload恢复、provider-disable takeover或clearance margin。
+当前仍没有自动publication订阅、持久化/reload恢复、provider-disable takeover、clearance margin或same-route
+suffix extension。未来extension只沿同一冻结路线验证并原子追加；route plan变化在安全运营边界结束旧claim后
+重新准入，不通过whole-claim replace实现。
 
 ## 项目内正确示例
 

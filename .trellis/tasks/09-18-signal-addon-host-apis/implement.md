@@ -39,7 +39,7 @@
 - [x] Admission transaction: occupancy validation, one atomic claim, all-turnout apply/rollback and typed results. No Dispatcher migration.
   - [x] Publish Core's once-per-epoch swept-occupancy index through the immutable world frame and retain that exact snapshot in Basic observation; arbitrary interval queries return deterministic complete blocker IDs without rebuilding a second Basic index.
   - [x] Bind each transitional protected-route request to one exact observation stamp, reject stale/missing train state, and query the compiled occupancy geometry before atomic registry mutation; blockers return deterministic `PHYSICALLY_OCCUPIED` train IDs.
-  - [x] After a successful claim, resolve each stable turnout port to both live directional views, snapshot every selection, apply all operations in frozen-route order, and compensate claim plus selections on failure. Exact acquire/replace rollback uses an opaque registry token; incomplete compensation retains the safest claim and returns `WORLD_STALLED` through the injected Stall owner.
+  - [x] After a successful claim, resolve each stable turnout port to both live directional views, snapshot every selection, apply all operations in frozen-route order, and compensate claim plus selections on failure. Protected-route acquire rollback uses an opaque registry token; incomplete compensation retains the safest claim and returns `WORLD_STALLED` through the injected Stall owner. Generic registry replacement remains separate from this runtime flow.
   - [x] Generalize post-claim physical work to one internal ordered infrastructure-preparation batch: pending admission retains its claim mutation until `READY` or `RESTORED`, cancel initiates restoration, and identity/state/actuator failures retain rollback reservations and Stall. Turnout selection is the first requirement and the live `RailView` handler is the immediate implementation; duration, timeout, public handler registration and persistence remain outside this batch.
 - [ ] Release/recovery: tail-clear queue, atomic footprint shrink, provider-disable and reload fail-closed behavior.
   - [x] Compile one immutable tail-clear queue entry per claimed resource in the same validation
@@ -53,19 +53,20 @@
     unexpected results latch fail closed. Route-position projection, Stall wiring, grant
     persistence, provider-disable and reload recovery remain.
   - [x] Compile one immutable ordered progress path from the already validated frozen route and
-    retain it in `CompiledRouteAdmission`. Every admission/replacement route must start at the
+    retain it in `CompiledRouteAdmission`. Every initial admission route must start at the
     authoritative same-epoch train tail; Basic verifies the first occurrence and initializes the
     cursor at zero before claim mutation. The request carries neither progress nor occurrence index.
   - [x] Retain the host-initialized cursor in an internal tail-release controller after immediate or
-    pending acquire/replace success. It creates no second claim or footprint. Explicit coherent
+    pending acquire success. It creates no second claim or footprint. Explicit coherent
     observations project the named train tail and drive atomic prefix release; wrong stamp/epoch,
     missing train, cursor failure or shrink failure latch fail closed and Stall exactly once.
     Automatic observation subscription, persistence/reload recovery, provider-disable takeover and
     clearance margin remain.
-  - [x] Make the world-local claim service own controllers by logical owner, pause old release while
-    replacement preparation is pending, swap only after READY/finalize, and resume only after exact
-    restoration. One explicit observation dispatch builds one train lookup, drives unpaused owners in
-    stable order, removes only completed/released controllers and stops after the first fail-closed Stall.
+  - [x] Make the world-local claim service own controllers by logical owner after acquire READY/finalize.
+    One explicit observation dispatch builds one train lookup, drives owners in stable order, removes
+    only completed/released controllers and stops after the first fail-closed Stall. Whole-claim
+    replacement is not part of the protected-route runtime lifecycle; future same-route rolling
+    acquisition will append a validated suffix to the existing claim/release queue.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation
@@ -91,7 +92,7 @@
     latches an unmatched suffix fail closed. Basic verifies the frozen route starts at the same
     observation's physical train tail before claim mutation and initializes progress at zero.
   - [x] Carry that cursor through admission preparation and expose an internal tail-release
-    controller only on successful acquire/replace completion. The controller creates no second
+    controller only on successful acquire completion. The controller creates no second
     claim or footprint; it consumes explicitly supplied coherent observations, invokes release on
     the existing registry claim, makes repeated epochs/completion idempotent and translates all
     observation/projection/release invariant failures into one latched Stall callback.

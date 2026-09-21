@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
@@ -159,27 +158,6 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `successful replacement swaps the service-owned tail release controller`() {
-        val platformOwner = Any()
-        val oldOwner = InfrastructureOwner("test:route/replace", 1L)
-        val newOwner = InfrastructureOwner("test:route/replace", 2L)
-        var validation = validated(resource("turnout/a"))
-        val service = service { validation }
-        val acquired = service.acquire(platformOwner, request(null, oldOwner)).poll()
-            as ProtectedRouteAdmissionProgress.Terminal
-        validation = validated(resource("turnout/b"))
-
-        val replaced = service.replace(platformOwner, oldOwner, request(null, newOwner)).poll()
-            as ProtectedRouteAdmissionProgress.Terminal
-
-        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, acquired.result.status)
-        assertEquals(ProtectedRouteClaimStatus.REPLACED, replaced.result.status)
-        assertEquals(listOf(newOwner), registry.claimSnapshots().map { it.owner })
-        val dispatch = service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).single()
-        assertEquals(newOwner, dispatch.owner)
-    }
-
-    @Test
     fun `unchanged admission retains existing controller while other failures install nothing`() {
         val platformOwner = Any()
         val owner = InfrastructureOwner("test:route/live-owner", 1L)
@@ -204,6 +182,31 @@ class ProtectedRouteClaimServiceTest {
             observation(epoch = observation.stamp.physicsEpoch + 1L)
         ).single()
         assertEquals(owner, retained.owner)
+    }
+
+    @Test
+    fun `acquire cannot replace an existing protected route owner`() {
+        val platformOwner = Any()
+        val currentOwner = InfrastructureOwner("test:route/frozen", 1L)
+        val nextOwner = currentOwner.copy(revision = 2L)
+        var validation = validated(resource("turnout/a"))
+        val service = service { validation }
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(platformOwner, request(null, currentOwner)).status
+        )
+        validation = validated(resource("turnout/b"))
+
+        val rejected = service.acquire(platformOwner, request(null, nextOwner))
+
+        assertEquals(ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT, rejected.status)
+        val retained = registry.claimSnapshots().single()
+        assertEquals(currentOwner, retained.owner)
+        assertEquals(setOf(resource("turnout/a")), retained.footprint.resources.toSet())
+        val dispatch = service.consumeObservation(
+            observation(epoch = observation.stamp.physicsEpoch + 1L)
+        ).single()
+        assertEquals(currentOwner, dispatch.owner)
     }
 
     @Test
@@ -395,40 +398,6 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `replacement with a mismatched route start preserves the existing claim`() {
-        val platformOwner = Any()
-        val oldOwner = InfrastructureOwner("test:route/main", 1L)
-        val newOwner = InfrastructureOwner("test:route/main", 2L)
-        val service = service { request ->
-            ProtectedRouteValidation.Validated(
-                compiledAdmission(
-                    InfrastructureFootprint(listOf(resource("turnout/a"))),
-                    emptyList(),
-                    OccupancyQueryGeometry.create(emptyList()),
-                    testRouteProgressPath(
-                        railId,
-                        100.0,
-                        request.route.segments.first().startArcLengthMeters
-                    )
-                )
-            )
-        }
-        assertEquals(
-            ProtectedRouteClaimStatus.ACQUIRED,
-            service.acquire(platformOwner, request(null, oldOwner)).status
-        )
-
-        val rejected = service.replace(
-            platformOwner,
-            oldOwner,
-            request(null, newOwner, routeStartMeters = 10.0)
-        )
-
-        assertEquals(ProtectedRouteClaimStatus.INVALID_REQUEST, rejected.status)
-        assertEquals(listOf(oldOwner), registry.claimSnapshots().map { it.owner })
-    }
-
-    @Test
     fun `physical blockers are sorted immutable and prevent registry validation`() {
         observation = observation(
             train("train", 20.0, 30.0),
@@ -465,46 +434,6 @@ class ProtectedRouteClaimServiceTest {
         val result = service { ProtectedRouteValidation.Validated(plan) }.acquire(Any(), request(null))
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, result.status)
-    }
-
-    @Test
-    fun `physical blocker prevents replacement and preserves the existing claim`() {
-        val platformOwner = Any()
-        val oldOwner = InfrastructureOwner("test:route/main", 1L)
-        val newOwner = InfrastructureOwner("test:route/main", 2L)
-        val service = service { request ->
-            ProtectedRouteValidation.Validated(
-                compiledAdmission(
-                    InfrastructureFootprint(listOf(resource("turnout/a"))),
-                    emptyList(),
-                    OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0))),
-                    testRouteProgressPath(
-                        railId,
-                        100.0,
-                        request.route.segments.first().startArcLengthMeters
-                    )
-                )
-            )
-        }
-        assertEquals(
-            ProtectedRouteClaimStatus.ACQUIRED,
-            service.acquire(platformOwner, request(null, oldOwner)).status
-        )
-        observation = observation(
-            train("train", 20.0, 30.0),
-            train("blocker", 25.0, 35.0),
-            epoch = observation.stamp.physicsEpoch + 1L
-        )
-
-        val result = service.replace(
-            platformOwner,
-            oldOwner,
-            request(null, newOwner, observation.stamp)
-        )
-
-        assertEquals(ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED, result.status)
-        assertEquals(listOf("blocker"), result.occupyingTrainIds)
-        assertEquals(listOf(oldOwner), registry.claimSnapshots().map { it.owner })
     }
 
     @Test
@@ -652,33 +581,6 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `turnout apply failure restores the exact claim replaced before admission`() {
-        val platformOwner = Any()
-        val oldOwner = InfrastructureOwner("test:route/main", 1L)
-        val newOwner = InfrastructureOwner("test:route/main", 2L)
-        val oldPlan = validated(resource("turnout/a"))
-        val newPlan = validated(resource("turnout/b"))
-        var validation: ProtectedRouteValidation = oldPlan
-        var preparationState = InfrastructurePreparationState.READY
-        val service = service(
-            preparationActuator = InfrastructurePreparationActuator { accepted(preparationState) }
-        ) { validation }
-        assertEquals(
-            ProtectedRouteClaimStatus.ACQUIRED,
-            service.acquire(platformOwner, request(null, oldOwner)).status
-        )
-        validation = newPlan
-        preparationState = InfrastructurePreparationState.RESTORED
-
-        val result = service.replace(platformOwner, oldOwner, request(null, newOwner))
-
-        assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, result.status)
-        val restored = registry.claimSnapshots().single()
-        assertEquals(oldOwner, restored.owner)
-        assertEquals(oldPlan.admission.resources, restored.footprint)
-    }
-
-    @Test
     fun `turnout rollback failure stalls world and retains the acquired claim`() {
         val platformOwner = Any()
         val owner = InfrastructureOwner("test:route/main", 1L)
@@ -693,56 +595,6 @@ class ProtectedRouteClaimServiceTest {
         assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, result.status)
         assertEquals(listOf(owner), registry.claimSnapshots().map { it.owner })
         assertEquals(1, stalls.size)
-    }
-
-    @Test
-    fun `replacement rollback failure reserves both old and new footprints`() {
-        val platformOwner = Any()
-        val oldOwner = InfrastructureOwner("test:route/main", 1L)
-        val newOwner = InfrastructureOwner("test:route/main", 2L)
-        val oldResource = railResource(0.0, 10.0)
-        val newResource = railResource(20.0, 30.0)
-        validResources += oldResource
-        validResources += newResource
-        val oldPlan = validated(oldResource)
-        val newPlan = validated(newResource)
-        var validation: ProtectedRouteValidation = oldPlan
-        var preparationState = InfrastructurePreparationState.READY
-        val service = service(
-            preparationActuator = InfrastructurePreparationActuator { accepted(preparationState) },
-            stallWorld = { _, _ -> }
-        ) { validation }
-        assertEquals(
-            ProtectedRouteClaimStatus.ACQUIRED,
-            service.acquire(platformOwner, request(null, oldOwner)).status
-        )
-        validation = newPlan
-        preparationState = InfrastructurePreparationState.UNSAFE
-
-        assertEquals(
-            ProtectedRouteClaimStatus.WORLD_STALLED,
-            service.replace(platformOwner, oldOwner, request(null, newOwner)).status
-        )
-
-        val oldConflict = registry.acquireClaim(
-            Any(),
-            InfrastructureClaimRequest(
-                topologyRevision,
-                InfrastructureOwner("test:other-old", 1L),
-                railFootprint(5.0, 6.0)
-            )
-        )
-        val newConflict = registry.acquireClaim(
-            Any(),
-            InfrastructureClaimRequest(
-                topologyRevision,
-                InfrastructureOwner("test:other-new", 1L),
-                railFootprint(25.0, 26.0)
-            )
-        )
-        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, oldConflict.status)
-        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, newConflict.status)
-        assertEquals(listOf(newOwner), registry.claimSnapshots().map { it.owner })
     }
 
     @Test
@@ -831,154 +683,6 @@ class ProtectedRouteClaimServiceTest {
         assertEquals(1, ticket.cancelCalls)
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
         assertEquals(1, registry.claimSnapshots().size)
-    }
-
-    @Test
-    fun `pending restored replacement recovers exact previous owner and footprint`() {
-        val platformOwner = Any()
-        val oldOwner = InfrastructureOwner("test:route/main", 1L)
-        val newOwner = InfrastructureOwner("test:route/main", 2L)
-        val oldPlan = validated(resource("turnout/a"))
-        val newPlan = validated(resource("turnout/b"))
-        var validation: ProtectedRouteValidation = oldPlan
-        var ticket = FakePreparationTicket(state = InfrastructurePreparationState.READY)
-        val service = service(
-            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) }
-        ) { validation }
-        assertEquals(
-            ProtectedRouteClaimStatus.ACQUIRED,
-            service.acquire(platformOwner, request(null, oldOwner)).status
-        )
-        validation = newPlan
-        ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
-
-        val replacement = service.replace(platformOwner, oldOwner, request(null, newOwner))
-        assertTrue(replacement is ProtectedRouteAdmissionStart.Pending)
-        assertTrue(
-            service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).isEmpty(),
-            "the old controller must pause while replacement preparation is pending"
-        )
-        assertEquals(
-            InfrastructureMutationStatus.RESOURCE_CONFLICT,
-            registry.acquireClaim(
-                Any(),
-                InfrastructureClaimRequest(
-                    topologyRevision,
-                    InfrastructureOwner("test:other-old", 1L),
-                    oldPlan.admission.resources
-                )
-            ).status
-        )
-        assertEquals(
-            InfrastructureMutationStatus.RESOURCE_CONFLICT,
-            registry.acquireClaim(
-                Any(),
-                InfrastructureClaimRequest(
-                    topologyRevision,
-                    InfrastructureOwner("test:other-new", 1L),
-                    newPlan.admission.resources
-                )
-            ).status
-        )
-        ticket.state = InfrastructurePreparationState.RESTORING
-        assertEquals(ProtectedRouteAdmissionProgress.Pending, replacement.poll())
-        ticket.state = InfrastructurePreparationState.RESTORED
-        assertEquals(
-            ProtectedRouteClaimStatus.PREPARATION_FAILED,
-            (replacement.poll() as ProtectedRouteAdmissionProgress.Terminal).result.status
-        )
-
-        val restored = registry.claimSnapshots().single()
-        assertEquals(oldOwner, restored.owner)
-        assertEquals(oldPlan.admission.resources, restored.footprint)
-        val resumed = service.consumeObservation(
-            observation(epoch = observation.stamp.physicsEpoch + 1L)
-        ).single()
-        assertEquals(oldOwner, resumed.owner)
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, resumed.update)
-    }
-
-    @Test
-    fun `immediate rejected replacement resumes old controller while unsafe starts keep it paused`() {
-        val platformOwner = Any()
-        val ownerIds = listOf("test:route/rejected", "test:route/throws", "test:route/invalid-ticket")
-        val resources = ownerIds.flatMap { ownerId ->
-            listOf(resource("$ownerId/old"), resource("$ownerId/new"))
-        }
-        validResources += resources
-        var mode = "ready"
-        val stalls = mutableListOf<String>()
-        val service = service(
-            preparationActuator = InfrastructurePreparationActuator {
-                when (mode) {
-                    "ready" -> accepted(InfrastructurePreparationState.READY)
-                    "rejected" -> InfrastructurePreparationStart.Rejected(
-                        IllegalStateException("rejected")
-                    )
-                    "throws" -> error("start failed")
-                    "invalid-ticket" -> InfrastructurePreparationStart.Accepted(
-                        object : InfrastructurePreparationTicket {
-                            override val ticketId = ""
-                            override fun snapshot() = InfrastructurePreparationSnapshot(
-                                "unreachable",
-                                InfrastructurePreparationState.PREPARING
-                            )
-                            override fun cancel() = Unit
-                        }
-                    )
-                    else -> error("unknown mode $mode")
-                }
-            },
-            stallWorld = { detail, _ -> stalls += detail }
-        ) { request ->
-            val suffix = if (request.owner.revision == 1L) "old" else "new"
-            validatedRequest(request, resource("${request.owner.ownerId}/$suffix"), 0.0)
-        }
-
-        ownerIds.forEach { ownerId ->
-            assertEquals(
-                ProtectedRouteClaimStatus.ACQUIRED,
-                service.acquire(platformOwner, request(null, InfrastructureOwner(ownerId, 1L))).status
-            )
-        }
-
-        mode = "rejected"
-        assertEquals(
-            ProtectedRouteClaimStatus.PREPARATION_FAILED,
-            service.replace(
-                platformOwner,
-                InfrastructureOwner(ownerIds[0], 1L),
-                request(null, InfrastructureOwner(ownerIds[0], 2L))
-            ).status
-        )
-        mode = "throws"
-        assertEquals(
-            ProtectedRouteClaimStatus.WORLD_STALLED,
-            service.replace(
-                platformOwner,
-                InfrastructureOwner(ownerIds[1], 1L),
-                request(null, InfrastructureOwner(ownerIds[1], 2L))
-            ).status
-        )
-        mode = "invalid-ticket"
-        assertEquals(
-            ProtectedRouteClaimStatus.WORLD_STALLED,
-            service.replace(
-                platformOwner,
-                InfrastructureOwner(ownerIds[2], 1L),
-                request(null, InfrastructureOwner(ownerIds[2], 2L))
-            ).status
-        )
-
-        val dispatch = service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L))
-
-        assertEquals(listOf(InfrastructureOwner(ownerIds[0], 1L)), dispatch.map { it.owner })
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, dispatch.single().update)
-        assertEquals(2, stalls.size)
-        assertEquals(
-            setOf(InfrastructureOwner(ownerIds[1], 2L), InfrastructureOwner(ownerIds[2], 2L)),
-            registry.claimSnapshots().map { it.owner }.toSet()
-        )
     }
 
     @Test

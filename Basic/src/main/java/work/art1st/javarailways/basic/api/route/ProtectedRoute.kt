@@ -77,8 +77,8 @@ data class ProtectedRouteWindow(
  *
  * The frozen route must begin at the authoritative train tail in that observation. Basic verifies
  * that invariant before claiming any resource, so a caller never supplies an occurrence index or
- * initial route-progress value. Replanning and replacement freeze a new route from the then-current
- * tail rather than carrying a caller-owned coordinate across route versions.
+ * initial route-progress value. A different route plan starts a new admission only at a safe
+ * operating boundary rather than carrying a caller-owned coordinate across route versions.
  *
  * A null [window] is valid only when authoritative validation confirms that [route] traverses no
  * controlled resource. A route that cannot safely wait before another throat must use one larger
@@ -107,8 +107,6 @@ enum class ProtectedRouteClaimStatus {
     NOT_REQUIRED,
     /** A new complete route footprint was acquired. */
     ACQUIRED,
-    /** The expected older owner revision was atomically replaced. */
-    REPLACED,
     /** The exact route owner revision was released. */
     RELEASED,
     /** The identical complete request was already held. */
@@ -125,7 +123,7 @@ enum class ProtectedRouteClaimStatus {
     STALE_OBSERVATION,
     /** Another train physically overlaps the compiled route occupancy geometry. */
     PHYSICALLY_OCCUPIED,
-    /** Region, boundary, route, or replacement semantics were invalid. */
+    /** Region, boundary, or route semantics were invalid. */
     INVALID_REQUEST,
     /** Host route validation threw; no resource set was submitted. */
     VALIDATION_FAILED,
@@ -139,7 +137,7 @@ enum class ProtectedRouteClaimStatus {
     OWNER_REVISION_CONFLICT,
     /** Another live route owns an overlapping resource. */
     RESOURCE_CONFLICT,
-    /** The exact claim requested for replacement or release was absent. */
+    /** The exact claim requested for release was absent. */
     NOT_FOUND,
     /** The world-local claim service has already closed. */
     SERVICE_CLOSED
@@ -187,7 +185,6 @@ class ProtectedRouteClaimResult(
         val SUCCESS_STATUSES = setOf(
             ProtectedRouteClaimStatus.NOT_REQUIRED,
             ProtectedRouteClaimStatus.ACQUIRED,
-            ProtectedRouteClaimStatus.REPLACED,
             ProtectedRouteClaimStatus.RELEASED,
             ProtectedRouteClaimStatus.UNCHANGED
         )

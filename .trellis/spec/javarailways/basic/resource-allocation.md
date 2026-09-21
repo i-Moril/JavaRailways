@@ -89,7 +89,7 @@ request不携带raw `InfrastructureFootprint`、受控资源清单或可信列�
 
 `ProtectedRouteClaimService`现为host-side admission seam，并未替换旧`RouteSectionAllocator`调用者。service消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/RESTORING/READY/RESTORED/UNSAFE`，pending admission handle持有claim mutation token，只有`READY`才完成claim，只有`RESTORED`才恢复精确claim前状态。当前live actuator只处理turnout requirement，但会在任何side effect前拒绝未知类型。执行未完成时不会返回成功claim结果，也不存在grant；任一异常、ticket identity/state违约或`UNSAFE`均保留最安全的新旧资源保留并Stall world。当前仍缺通用contributor closure、grant/release/recovery和调用方迁移，因此不得声称所有自动/`MANUAL_ROUTED`进路已强制经过保护区域。后续迁移必须删除可绕过该validation的automatic overload。
 
-同一个`CompiledRouteAdmission`现在还携带validation同期生成的有序release slices：唯一footprint中的每个resource恰好出现一次，slice只附加物理占用geometry和最后一次route occurrence的进度门槛。内部tracker复用Core的`BEFORE_OCCUPANCY -> OCCUPIED -> RELEASED`检测，但只返回新清除的连续前缀；它尚未调用registry replace/shrink，因此不能把当前状态描述成live claim已经自动尾部释放。
+同一个`CompiledRouteAdmission`现在还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。immutable queue helper从队首返回连续eligible prefix但不自行pop；future grant owner必须先完成registry原子shrink再丢弃该前缀。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；它尚未调用registry replace/shrink，因此不能把当前状态描述成live claim已经自动尾部释放。
 
 ## 项目内正确示例
 

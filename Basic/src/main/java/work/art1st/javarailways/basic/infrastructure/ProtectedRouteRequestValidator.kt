@@ -119,12 +119,11 @@ internal class ProtectedRouteRequestValidator(
                     }
                 }
         )
-        val releaseSlices = releaseSlices(
+        val tailReleaseEntries = tailReleaseEntries(
             footprint = footprint,
             occurrences = resolved.projection.occurrences,
             entryRouteMeters = entry,
             clearUntilRouteMeters = clearUntil,
-            topology = resolved.projection.topology,
             turnouts = relevantTurnouts,
             routeBoundHits = routeBoundHits
         )
@@ -133,22 +132,21 @@ internal class ProtectedRouteRequestValidator(
                 footprint,
                 preparations,
                 occupancyGeometry,
-                releaseSlices
+                tailReleaseEntries
             )
         )
     }
 
     /** Compiles one lifecycle entry for every member of the already-final claim footprint. */
-    private fun releaseSlices(
+    private fun tailReleaseEntries(
         footprint: InfrastructureFootprint,
         occurrences: List<ProjectedRouteOccurrence>,
         entryRouteMeters: Double,
         clearUntilRouteMeters: Double,
-        topology: TopologyState,
         turnouts: List<ProjectedTurnoutTraversal>,
         routeBoundHits: List<RouteBoundResourceHit>
-    ): List<ResolvedReleaseSlice> {
-        val evidence = LinkedHashMap<InfrastructureResource, MutableReleaseEvidence>()
+    ): List<ResolvedTailReleaseEntry> {
+        val finalTailClearBoundaries = LinkedHashMap<InfrastructureResource, Double>()
 
         val railResourcesByRail = footprint.resources.filterIsInstance<RailIntervalResource>()
             .groupBy(RailIntervalResource::railId)
@@ -162,7 +160,7 @@ internal class ProtectedRouteRequestValidator(
                 }
             }
         railResourcesByRail.values.flatten().forEach { resource ->
-            evidence.getOrPut(resource, ::MutableReleaseEvidence).intervals += resource.toRailInterval()
+            finalTailClearBoundaries[resource] = Double.NaN
         }
         occurrences.forEach { occurrence ->
             val clippedStart = max(entryRouteMeters, occurrence.routeStartMeters)
@@ -185,8 +183,8 @@ internal class ProtectedRouteRequestValidator(
                 if (overlapEnd >= overlapStart) {
                     val firstRoute = occurrence.routeAtCanonical(overlapStart)
                     val secondRoute = occurrence.routeAtCanonical(overlapEnd)
-                    evidence.getValue(resource).recordPassage(
-                        min(firstRoute, secondRoute),
+                    finalTailClearBoundaries[resource] = laterBoundary(
+                        finalTailClearBoundaries.getValue(resource),
                         max(firstRoute, secondRoute)
                     )
                 }
@@ -195,41 +193,31 @@ internal class ProtectedRouteRequestValidator(
         }
 
         turnouts.forEach { traversal ->
-            val accumulator = evidence.getOrPut(traversal.resource, ::MutableReleaseEvidence)
-            turnoutOccupancyIntervals(topology, listOf(traversal)).forEach { interval ->
-                accumulator.record(interval, traversal.routeDistanceMeters, traversal.routeDistanceMeters)
-            }
+            finalTailClearBoundaries[traversal.resource] = laterBoundary(
+                finalTailClearBoundaries[traversal.resource] ?: Double.NaN,
+                traversal.routeDistanceMeters
+            )
         }
         routeBoundHits.forEach { hit ->
-            val accumulator = evidence.getOrPut(hit.resource, ::MutableReleaseEvidence)
-            hit.occupancyAnchors.forEach { anchor ->
-                accumulator.record(
-                    RailInterval(anchor.railId, anchor.startAbMeters, anchor.endAbMeters),
-                    hit.routeStartMeters,
-                    hit.routeEndMeters
-                )
-            }
+            finalTailClearBoundaries[hit.resource] = laterBoundary(
+                finalTailClearBoundaries[hit.resource] ?: Double.NaN,
+                hit.routeEndMeters
+            )
         }
 
         return footprint.resources.map { resource ->
-            val resolved = checkNotNull(evidence[resource]) {
+            val tailClearRouteMeters = checkNotNull(finalTailClearBoundaries[resource]) {
                 "claimed resource has no release evidence: $resource"
             }
-            check(resolved.hasPassage) {
+            check(tailClearRouteMeters.isFinite()) {
                 "claimed resource has no validated route occurrence: $resource"
             }
-            ResolvedReleaseSlice.create(
-                resources = listOf(resource),
-                occupancyGeometry = OccupancyQueryGeometry.create(resolved.intervals),
-                observeFromRouteMeters = resolved.observeFromRouteMeters,
-                releaseAfterRouteMeters = resolved.releaseAfterRouteMeters
-            )
-        }.sortedWith(
-            compareBy<ResolvedReleaseSlice>(ResolvedReleaseSlice::releaseAfterRouteMeters)
-                .thenBy(ResolvedReleaseSlice::observeFromRouteMeters)
-                .thenBy { it.resources.single().toString() }
-        )
+            ResolvedTailReleaseEntry(resource, tailClearRouteMeters)
+        }.sortedWith(TAIL_RELEASE_ENTRY_ORDER)
     }
+
+    private fun laterBoundary(current: Double, candidate: Double): Double =
+        if (current.isNaN() || candidate > current) candidate else current
 
     private fun routeIntervals(
         occurrences: List<ProjectedRouteOccurrence>,
@@ -332,30 +320,6 @@ internal class ProtectedRouteRequestValidator(
             }
         }
         return low
-    }
-
-    private class MutableReleaseEvidence {
-        val intervals = ArrayList<RailInterval>()
-        var observeFromRouteMeters: Double = Double.NaN
-            private set
-        var releaseAfterRouteMeters: Double = Double.NaN
-            private set
-        val hasPassage: Boolean
-            get() = releaseAfterRouteMeters.isFinite()
-
-        fun record(interval: RailInterval, observeFrom: Double, releaseAfter: Double) {
-            intervals += interval
-            recordPassage(observeFrom, releaseAfter)
-        }
-
-        fun recordPassage(observeFrom: Double, releaseAfter: Double) {
-            if (releaseAfterRouteMeters.isNaN() || releaseAfter > releaseAfterRouteMeters ||
-                releaseAfter == releaseAfterRouteMeters && observeFrom > observeFromRouteMeters
-            ) {
-                observeFromRouteMeters = observeFrom
-                releaseAfterRouteMeters = releaseAfter
-            }
-        }
     }
 
     private fun rejectedProtection(detail: String) = ProtectedRouteValidation.Rejected(

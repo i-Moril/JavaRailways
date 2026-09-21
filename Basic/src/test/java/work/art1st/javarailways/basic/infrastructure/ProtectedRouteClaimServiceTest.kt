@@ -984,14 +984,12 @@ class ProtectedRouteClaimServiceTest {
         preparations: Collection<InfrastructurePreparationRequirement>,
         occupancyGeometry: OccupancyQueryGeometry
     ): CompiledRouteAdmission {
-        val releaseGeometry = occupancyGeometry.takeIf { it.intervals.isNotEmpty() }
-            ?: OccupancyQueryGeometry.create(listOf(RailInterval(railId, 0.0, 0.0)))
         return CompiledRouteAdmission.create(
             footprint,
             preparations,
             occupancyGeometry,
             footprint.resources.map { resource ->
-                ResolvedReleaseSlice.create(listOf(resource), releaseGeometry, 0.0, 0.0)
+                ResolvedTailReleaseEntry(resource, 0.0)
             }
         )
     }

@@ -91,24 +91,21 @@ class ProtectedRouteRequestValidatorTest {
         )
         assertEquals(
             validated.admission.resources.resources.toSet(),
-            validated.admission.releaseSlices.flatMap(ResolvedReleaseSlice::resources).toSet()
+            validated.admission.tailReleaseEntries.map(ResolvedTailReleaseEntry::resource).toSet()
         )
         assertEquals(
             validated.admission.resources.resources.size,
-            validated.admission.releaseSlices.sumOf { it.resources.size }
+            validated.admission.tailReleaseEntries.size
         )
         assertEquals(
-            validated.admission.releaseSlices.sortedBy { it.releaseAfterRouteMeters }
-                .map { it.releaseAfterRouteMeters },
-            validated.admission.releaseSlices.map { it.releaseAfterRouteMeters }
+            validated.admission.tailReleaseEntries.sortedBy { it.tailClearRouteMeters }
+                .map { it.tailClearRouteMeters },
+            validated.admission.tailReleaseEntries.map { it.tailClearRouteMeters }
         )
-        val turnoutRelease = validated.admission.releaseSlices.single { turnout in it.resources }
-        assertEquals(10.0, turnoutRelease.observeFromRouteMeters)
-        assertEquals(10.0, turnoutRelease.releaseAfterRouteMeters)
-        assertEquals(
-            setOf(fixture.trunk, fixture.straight, fixture.branch),
-            turnoutRelease.occupancyGeometry.intervals.map(RailInterval::railId).toSet()
-        )
+        val turnoutRelease = validated.admission.tailReleaseEntries.single {
+            it.resource == turnout
+        }
+        assertEquals(10.0, turnoutRelease.tailClearRouteMeters)
     }
 
     @Test
@@ -201,16 +198,13 @@ class ProtectedRouteRequestValidatorTest {
         assertEquals(endpoint(fixture.branch, RailEndpoint.A), reverseSelection.fromPort)
         assertEquals(endpoint(fixture.trunk, RailEndpoint.B), reverseSelection.toPort)
         assertEquals(forwardSelection.resource, reverseSelection.resource)
-        val reverseRailRelease = reverse.admission.releaseSlices
-            .associateBy { slice ->
-                (slice.resources.single() as? RailIntervalResource)?.railId
+        val reverseRailRelease = reverse.admission.tailReleaseEntries
+            .associateBy { entry ->
+                (entry.resource as? RailIntervalResource)?.railId
             }
-        assertEquals(5.0, reverseRailRelease.getValue(fixture.branch).observeFromRouteMeters)
-        assertEquals(10.0, reverseRailRelease.getValue(fixture.branch).releaseAfterRouteMeters)
-        assertEquals(10.0, reverseRailRelease.getValue(fixture.trunk).observeFromRouteMeters)
-        assertEquals(20.0, reverseRailRelease.getValue(fixture.trunk).releaseAfterRouteMeters)
-        assertEquals(20.0, reverseRailRelease.getValue(fixture.west).observeFromRouteMeters)
-        assertEquals(25.0, reverseRailRelease.getValue(fixture.west).releaseAfterRouteMeters)
+        assertEquals(10.0, reverseRailRelease.getValue(fixture.branch).tailClearRouteMeters)
+        assertEquals(20.0, reverseRailRelease.getValue(fixture.trunk).tailClearRouteMeters)
+        assertEquals(25.0, reverseRailRelease.getValue(fixture.west).tailClearRouteMeters)
     }
 
     @Test
@@ -595,12 +589,10 @@ class ProtectedRouteRequestValidatorTest {
         val repeatedRailResource = validated.admission.resources.resources
             .filterIsInstance<RailIntervalResource>()
             .single { it.railId == first }
-        val release = validated.admission.releaseSlices.single {
-            repeatedRailResource in it.resources
+        val release = validated.admission.tailReleaseEntries.single {
+            it.resource == repeatedRailResource
         }
-        assertEquals(30.0, release.observeFromRouteMeters)
-        assertEquals(35.0, release.releaseAfterRouteMeters)
-        assertEquals(listOf(RailInterval(first, 0.0, 10.0)), release.occupancyGeometry.intervals)
+        assertEquals(35.0, release.tailClearRouteMeters)
     }
 
     @Test

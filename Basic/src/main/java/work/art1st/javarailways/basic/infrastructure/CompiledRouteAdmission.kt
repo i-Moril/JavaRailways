@@ -33,7 +33,7 @@ internal data class ResolvedTurnoutSelection(
  *
  * [resources] is the only footprint submitted to the atomic registry. [preparations] is ordered
  * operation metadata, [occupancyGeometry] is admission-time physical validation metadata, and
- * [releaseSlices] is ordered lifecycle metadata derived by the same validation pass; none is
+ * [tailReleaseEntries] is ordered lifecycle metadata derived by the same validation pass; none is
  * another resource set. Preparation requirements use stable claim resource identities and
  * deliberately contain no revision-local topology node identity.
  */
@@ -41,17 +41,17 @@ internal class CompiledRouteAdmission private constructor(
     val resources: InfrastructureFootprint,
     val preparations: List<InfrastructurePreparationRequirement>,
     val occupancyGeometry: OccupancyQueryGeometry,
-    val releaseSlices: List<ResolvedReleaseSlice>
+    val tailReleaseEntries: List<ResolvedTailReleaseEntry>
 ) {
     companion object {
         fun create(
             resources: InfrastructureFootprint,
             preparations: Collection<InfrastructurePreparationRequirement>,
             occupancyGeometry: OccupancyQueryGeometry,
-            releaseSlices: Collection<ResolvedReleaseSlice>
+            tailReleaseEntries: Collection<ResolvedTailReleaseEntry>
         ): CompiledRouteAdmission {
             val immutablePreparations = java.util.List.copyOf(preparations)
-            val immutableReleaseSlices = java.util.List.copyOf(releaseSlices)
+            val immutableTailReleaseEntries = java.util.List.copyOf(tailReleaseEntries)
             val uniqueResourceCount = immutablePreparations
                 .map(InfrastructurePreparationRequirement::resource)
                 .distinct()
@@ -62,26 +62,26 @@ internal class CompiledRouteAdmission private constructor(
             require(immutablePreparations.all { it.resource in resources.resources }) {
                 "every infrastructure preparation must be represented in the claim footprint"
             }
-            require(immutableReleaseSlices.isNotEmpty()) {
+            require(immutableTailReleaseEntries.isNotEmpty()) {
                 "validated route claim requires release metadata"
             }
-            val releasedResources = immutableReleaseSlices.flatMap(ResolvedReleaseSlice::resources)
+            val releasedResources = immutableTailReleaseEntries.map(ResolvedTailReleaseEntry::resource)
             require(releasedResources.size == releasedResources.distinct().size) {
                 "each claimed resource must appear in release metadata exactly once"
             }
             require(releasedResources.toSet() == resources.resources.toSet()) {
                 "release metadata must cover the complete claim footprint exactly once"
             }
-            require(immutableReleaseSlices.zipWithNext().all { (first, second) ->
-                first.releaseAfterRouteMeters <= second.releaseAfterRouteMeters
+            require(immutableTailReleaseEntries.zipWithNext().all { (first, second) ->
+                TAIL_RELEASE_ENTRY_ORDER.compare(first, second) <= 0
             }) {
-                "release slices must be ordered by route progress"
+                "tail release entries must use deterministic compiled tail-clear order"
             }
             return CompiledRouteAdmission(
                 resources,
                 immutablePreparations,
                 occupancyGeometry,
-                immutableReleaseSlices
+                immutableTailReleaseEntries
             )
         }
     }

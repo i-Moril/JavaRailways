@@ -55,7 +55,7 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
-通过后，同一次route pass已经得到唯一`InfrastructureFootprint`，另附有序infrastructure preparations和release slices。turnout/diamond的占用范围从authoritative binding临时查询，只用于准入检查，不成为可申请或持久化的第二资源集合。验证必须记录已处理的`(resourceId, traversal occurrence)`；route循环、重复贡献或无法到达满足义务的合法authority endpoint时typed拒绝，不能无限迭代。
+通过后，同一次route pass已经得到唯一`InfrastructureFootprint`，另附有序infrastructure preparations和tail-release entries。turnout/diamond的占用范围从authoritative binding临时查询，只用于准入检查，不成为可申请或持久化的第二资源集合。验证必须记录已处理的`(resourceId, traversal occurrence)`；route循环、重复贡献或无法到达满足义务的合法authority endpoint时typed拒绝，不能无限迭代。
 
 ```text
 minimum = max(currentProgress, desiredAuthorityBoundary.distance)
@@ -99,30 +99,31 @@ resource全部anchors合并为一个immutable query geometry；构建时按rail�
 `ProtectedRouteClaimService`保留request stamp完全匹配的同一`RailwayObservation`，并在registry mutation前
 直接查询`CompiledRouteAdmission`中的这一份geometry；它不能从claim footprint重建或再次扫描route。
 
-准入顺序固定为`validate revisions -> occupancy -> atomic claim -> snapshot selections -> apply selections -> publish grant`。尾部释放不是看到“当前无车”就释放：每个release slice必须先观察到目标列车占用，再观察到目标列车完全分离，经历`BEFORE_OCCUPANCY -> OCCUPIED -> RELEASED`。prefix shrink只能删除已清除资源，不能添加原计划外资源。
+准入顺序固定为`validate revisions -> occupancy -> atomic claim -> snapshot selections -> apply selections -> publish grant`。准入前的物理占用检查继续使用唯一的全局`OccupancyQueryGeometry`；正常尾部释放不再为每个资源复制geometry或维护占用detector。prefix shrink只能删除车尾已经越过完整清除边界的队列前缀，不能跳过队首或添加原计划外资源。
 
 当前内部实现已在生成`CompiledRouteAdmission`的同一次validation pass中编译有序
-`ResolvedReleaseSlice`。最终`InfrastructureFootprint`中的每个resource必须恰好出现在一个slice中；slice
-保存stable claimed resource、该resource的authoritative physical occupancy geometry，以及
-`observeFromRouteMeters..releaseAfterRouteMeters`门槛。rail interval使用其claim区间作为geometry；turnout
-使用同一topology root中全部port端点；route-bound resource使用retained binding的全部anchors。若同一
-resource由多个证据命中，geometry取并集，门槛取冻结路线上的最后一次命中，从而第一次经过同一rail或
-resource不会提前arm release。release metadata只是唯一footprint的生命周期索引，不可作为第二个claim。
+`ResolvedTailReleaseEntry`。最终`InfrastructureFootprint`中的每个resource必须恰好对应一个entry；entry
+只保存stable claimed resource与`tailClearRouteMeters`。该阈值表示车尾沿同一冻结路线至少到达哪个完整
+清除坐标后，资源才有资格释放。rail interval取其在冻结路线上的最后claimed extent终点，turnout取最后
+traversal位置，route-bound resource取最后conflict extent终点；同一rail/resource重复出现时取最大最终
+路线距离，因此第一次经过不会提前释放。release metadata只是唯一footprint的生命周期索引，不是第二个
+claim，也不保存逐资源occupancy geometry或运行时状态。
 
-`CompiledRouteReleaseTracker`是main-owner confined纯状态机，只消费单调route progress与目标列车当前
-immutable `RailInterval`集合，不读取live `Train`、`RailView`或world index。进度到达slice最后一次命中的
-observe gate后才把物理interval交给Core `RailIntervalReleaseDetector`；即使head已经越过release gate，
-只要tail仍重叠，状态仍是`OCCUPIED`。完全分离后slice内部可变成`RELEASED`，但tracker只返回从当前首个
-未清除slice开始的新连续前缀，不能跳过洞或增加资源。route progress回退/非有限值会永久reject该tracker
-并fail closed。本批返回值尚未接入registry shrink或grant lifecycle。
+`tailClearRouteMeters`必须被视为已经完整编译的车尾清除边界。当前过渡compiler只使用最后claimed/
+conflict route extent；明确的运营安全余量来源、单位与组合规则仍未冻结，不能把`Curve.TOLERANCE`暗中当作
+安全余量。未来margin必须在创建entry前由明确owner合入该阈值，queue本身不得再次添加或猜测margin。
+
+`CompiledTailReleaseQueue`是immutable纯helper。它只接收同一冻结路线上的车尾route progress，从队首开始
+读取连续满足阈值的entry并返回immutable eligible prefix；遇到首个未清除entry立即停止，不扫描后续项，
+也不自行pop。非有限或负进度fail closed；进度单调性、倒车/传送/路线失配处理属于未来stateful grant
+owner，因为pure queue没有跨tick observation lifecycle。owner必须先对返回前缀执行registry原子shrink，
+成功后才能丢弃对应队首；失败时queue与claim均保持原状。本批尚未接入registry shrink或grant lifecycle。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail
 resources，`n`为窗口内occurrences，`r_rail`为当前rail上的resource数，`o`为实际overlap数）。resource
-bindings同样只做一次收集，最终slice排序为`O(s log s)`；运行时
-每次update先做`O(s)` gate/prefix检查；对已到observe gate且尚未release的slice，Core detector最坏做
-`O(g_i*t)`重叠比较（`g_i`为该slice geometry interval数，`t`为目标列车interval数），所以一次update
-总上界为`O(s + t*sum(g_i))`。后续若rolling window显著增大，可在不改变合同的情况下把rail occurrence
+bindings同样只做一次收集，最终entry排序为`O(s log s)`；运行时inspection成本为`O(k + 1)`，其中`k`是
+本次实际满足阈值的连续队首数量，不读取目标列车interval，也不扫描未清除队首之后的资源。后续若rolling window显著增大，可在不改变合同的情况下把rail occurrence
 索引进一步复用到validation的其他派生结果；不得退回resource乘occurrence的全扫描，也不得为优化增加
 第二份authoritative footprint。
 
@@ -178,7 +179,7 @@ internal data class CompiledRouteAdmission(
     val claimUntil: RouteBoundaryRef,
     val resources: InfrastructureFootprint,
     val preparations: List<InfrastructurePreparationRequirement>,
-    val releaseSlices: List<ResolvedReleaseSlice>
+    val tailReleaseEntries: List<ResolvedTailReleaseEntry>
 )
 
 data class ProtectedRouteGrantId(val value: String)
@@ -210,7 +211,7 @@ interface BukkitRouteResourceService {
 
 Basic service是world-local，因此platform-neutral request不重复携带world ID；Bukkit facade显式接收world ID并路由到对应service。当前provider registration是迁移期输入adapter，不是保护区域的authoritative owner；目标API由Basic对definition执行create/update/delete并原子发布catalog，SimpleATOBukkit只是调用者。adapter disable只停止对应编辑/观察入口，不能隐式删除Basic定义。已准入live claim由host lifecycle owner持有，不能因为请求插件disable而直接释放。逻辑requester仍进入grant snapshot和诊断。
 
-上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal。公开请求只描述路线选择和目标，不增加第二份resource intent。`CompiledRouteAdmission.resources`是准入事务唯一消费的资源集合；preparations和release slices是操作/生命周期元数据，不是其他资源集合。调用方提供`trainId`，Basic从`observationStamp`对应的authoritative observation临时解析长度、方向和occupied intervals，不相信调用方自由填写的列车长度。
+上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal。公开请求只描述路线选择和目标，不增加第二份resource intent。`CompiledRouteAdmission.resources`是准入事务唯一消费的资源集合；preparations和tail-release entries是操作/生命周期元数据，不是其他资源集合。调用方提供`trainId`，Basic从`observationStamp`对应的authoritative observation临时解析长度、方向和occupied intervals，不相信调用方自由填写的列车长度。
 
 `RouteResourceContributor`是Basic内部验证能力，不定义另一种footprint。它只能向当前验证过程增加标准`InfrastructureResource`、延长`claimUntil`并附加操作/释放元数据。资源绑定提供的physical occupancy geometry仅用于查询authoritative occupancy；它不进入request、claim identity或持久化模型。
 
@@ -256,7 +257,7 @@ fallback到caller resources或partial rail-only claim。
 ### 5.3 净空义务与区域划分
 
 - validation从同一`RailwayStateStamp`中的authoritative train/consist状态读取占用长度、方向和intervals；这些只是本次检查的物理状态，不形成另一种resource envelope。保护区域的最小尾部净空不得短于出口距离加实际occupied length与明确margin。
-- region exit到closure终点之间必须是同一冻结route上的连续路径，并纳入occupancy检查与release slice。不能用“列车头已过exit”代替“列车尾已过exit”。
+- region exit到closure终点之间必须是同一冻结route上的连续路径，并纳入occupancy检查与tail-release queue。不能用“列车头已过exit”代替“列车尾已过exit”。
 - region自身只验证入口/出口方向、内部单次连续穿越、所选内部路径及资源、tail-clear释放条件与最小净空前沿；它不判断出口后采用固定闭塞还是移动闭塞，也不查询下一个section。该选择由同一次route validation根据遇到的capability完成。
 - `safeHoldingInside`不是definition字段。某个位置能否结束authority，是验证结果的性质：固定闭塞中它必须是完整区间边界，移动闭塞中可以是由该territory认可的精确route位置；两者都要求整列车占用落在已获取资源内，并且没有尚未满足的clearance obligation。
 - 若前一区域的净空义务穿过后一区域入口，同一次validation必须把后一区域资源加入同一集合；前一区域不感知后一区域，caller也不提交手工composite window。若冻结route终止、循环或权限边界使closure无法完成，则整次请求失败且不产生claim。
@@ -267,7 +268,7 @@ fallback到caller resources或partial rail-only claim。
 
 caller和add-on只提交自己选择的topology-bound有序edge traversal。Basic沿frozen route做一次线性校验，证明edge连续且每个turnout continuation合法，并在相同pass中把rail intervals、turnout、diamond和其他共享冲突资源加入一个`InfrastructureFootprint`；任何无法解析的binding都fail closed，Basic不得自行搜索替代路径。
 
-验证过程可以产生三类非资源元数据：需要执行的有序infrastructure preparations、每个资源对应的authoritative occupancy query，以及按车尾可安全释放顺序排列的release slices。它们分别描述操作、验证和生命周期，不能包装成第二个claim/physical footprint。
+验证过程可以产生三类非资源元数据：需要执行的有序infrastructure preparations、整次准入的authoritative occupancy query，以及按车尾可安全释放顺序排列的tail-release entries。它们分别描述操作、验证和生命周期，不能包装成第二个claim/physical footprint。
 
 邻接rail interval不会隐式表达turnout/diamond冲突；不得用一个虚构全局里程interval跨越多根rail。
 

@@ -55,7 +55,9 @@ Improve JavaRailways so an independently compiled Signal plugin can observe cons
 - [ ] When one region's tail-clearance obligation reaches another region, runtime compilation includes both contributors in one atomic closure before entry; neither region inspects its successor and no caller submits a hand-built composite window.
 - [ ] A protection-region ID is not used as one exclusive whole-region lock; two paths with disjoint rail intervals and conflict nodes can be admitted concurrently, while overlapping paths cannot.
 - [ ] Diamond-resource tests prove immutable same-line connectivity, no cross-line turn, shared conflict identity, placement/update detection, topology-revision invalidation, and no per-tick geometry scan.
-- [ ] A claim remains held until the owning train has occupied and then fully cleared its protected intervals.
+- [ ] A claim remains held until authoritative tail progress on the same frozen route reaches each
+  resource's fully compiled clear boundary; only an atomically shrunk contiguous queue prefix may
+  be dropped.
 - [ ] Restriction updates are namespaced, revisioned, most-restrictive, and cannot silently expand authority after a stale update or owner failure.
 - [ ] Profiling/tests show one route perception pass per controlled train per physics step; adding Signal does not add a second per-train route traversal.
 - [ ] Occupancy/resource processing is rail-indexed and avoids `allTrains × allRegions`; unchanged state does not produce repeated rendering or unbounded scheduler submissions.

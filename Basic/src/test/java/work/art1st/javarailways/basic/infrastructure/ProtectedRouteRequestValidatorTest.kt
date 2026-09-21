@@ -106,6 +106,13 @@ class ProtectedRouteRequestValidatorTest {
             it.resource == turnout
         }
         assertEquals(10.0, turnoutRelease.tailClearRouteMeters)
+        val tailProgress = assertInstanceOf(
+            RouteProgressProjection.Resolved::class.java,
+            validated.admission.routeProgressIndex.project(
+                RailPositionSnapshot(fixture.straight, ViewDirection.AB, 4.0)
+            )
+        )
+        assertEquals(14.0, tailProgress.routeDistanceMeters)
     }
 
     @Test
@@ -593,6 +600,13 @@ class ProtectedRouteRequestValidatorTest {
             it.resource == repeatedRailResource
         }
         assertEquals(35.0, release.tailClearRouteMeters)
+        val ambiguous = assertInstanceOf(
+            RouteProgressProjection.Ambiguous::class.java,
+            validated.admission.routeProgressIndex.project(
+                RailPositionSnapshot(first, ViewDirection.AB, 3.0)
+            )
+        )
+        assertEquals(listOf(3.0, 33.0), ambiguous.routeDistancesMeters)
     }
 
     @Test

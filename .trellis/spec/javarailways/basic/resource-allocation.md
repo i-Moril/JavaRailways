@@ -114,6 +114,11 @@ status的诊断情况，而普通failure为false。全部释放后进入幂等co
 状态，后续调用不再访问registry。该owner只消费调用方已投影好的authoritative route progress；位置投影、
 Stall响应和grant持久化仍属于后续grant lifecycle集成。
 
+`CompiledRouteAdmission`现保留一次性从已验证冻结路线编译的`CompiledRouteProgressIndex`。它按准确
+`(railId, facing)`分桶，运行时只扫描目标bucket；重复物理位置若映射到不同route distances会返回显式
+`Ambiguous`，无匹配返回`OffRoute`。本批尚未把观察中的tail位置送入该index，也尚未连接
+`LiveClaimTailRelease`；grant owner必须在后续批次定义这些结果的Stall/lifecycle处理。
+
 ## 项目内正确示例
 
 Allocator先检查所有owner conflict，再apply：

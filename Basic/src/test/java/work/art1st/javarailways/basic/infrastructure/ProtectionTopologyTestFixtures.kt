@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -35,3 +38,20 @@ internal fun topologyState(
 
 internal fun endpoint(railId: UUID, endpoint: RailEndpoint): RailEndpointRef =
     RailEndpointRef(railId, endpoint)
+
+private val TEST_ROUTE_PROGRESS_INDEX: CompiledRouteProgressIndex by lazy {
+    val railId = UUID(0L, Long.MAX_VALUE)
+    val topology = lineTopologyState(0L, railId)
+    val projected = TopologyRouteProjector.project(
+        RouteSnapshot(
+            "test:route/progress-index",
+            0L,
+            0L,
+            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 10.0))
+        ),
+        topology
+    ) as TopologyRouteProjectionResult.Projected
+    CompiledRouteProgressIndex.compile(projected.route)
+}
+
+internal fun testRouteProgressIndex(): CompiledRouteProgressIndex = TEST_ROUTE_PROGRESS_INDEX

@@ -33,22 +33,24 @@ internal data class ResolvedTurnoutSelection(
  *
  * [resources] is the only footprint submitted to the atomic registry. [preparations] is ordered
  * operation metadata, [occupancyGeometry] is admission-time physical validation metadata, and
- * [tailReleaseEntries] is ordered lifecycle metadata derived by the same validation pass; none is
- * another resource set. Preparation requirements use stable claim resource identities and
- * deliberately contain no revision-local topology node identity.
+ * [tailReleaseEntries] plus [routeProgressIndex] are lifecycle metadata derived by the same
+ * validation pass; none is another resource set. Preparation requirements use stable claim
+ * resource identities and deliberately contain no revision-local topology node identity.
  */
 internal class CompiledRouteAdmission private constructor(
     val resources: InfrastructureFootprint,
     val preparations: List<InfrastructurePreparationRequirement>,
     val occupancyGeometry: OccupancyQueryGeometry,
-    val tailReleaseEntries: List<ResolvedTailReleaseEntry>
+    val tailReleaseEntries: List<ResolvedTailReleaseEntry>,
+    val routeProgressIndex: CompiledRouteProgressIndex
 ) {
     companion object {
         fun create(
             resources: InfrastructureFootprint,
             preparations: Collection<InfrastructurePreparationRequirement>,
             occupancyGeometry: OccupancyQueryGeometry,
-            tailReleaseEntries: Collection<ResolvedTailReleaseEntry>
+            tailReleaseEntries: Collection<ResolvedTailReleaseEntry>,
+            routeProgressIndex: CompiledRouteProgressIndex
         ): CompiledRouteAdmission {
             val immutablePreparations = java.util.List.copyOf(preparations)
             val immutableTailReleaseEntries = java.util.List.copyOf(tailReleaseEntries)
@@ -81,7 +83,8 @@ internal class CompiledRouteAdmission private constructor(
                 resources,
                 immutablePreparations,
                 occupancyGeometry,
-                immutableTailReleaseEntries
+                immutableTailReleaseEntries,
+                routeProgressIndex
             )
         }
     }

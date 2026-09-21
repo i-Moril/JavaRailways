@@ -52,6 +52,10 @@
     progress; local state advances only after the expected atomic shrink result, while invalid or
     unexpected results latch fail closed. Route-position projection, Stall wiring, grant
     persistence, provider-disable and reload recovery remain.
+  - [x] Compile one immutable `(railId, facing)` occurrence index from the already validated frozen
+    route and retain it in `CompiledRouteAdmission`. Physical positions resolve without a full-route
+    rescan; repeated positions at distinct route distances are explicitly ambiguous. Observation,
+    live release advancement, clearance margin and Stall wiring remain separate lifecycle work.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation
@@ -71,6 +75,9 @@
     preparation changes, or public API changes.
   - [x] Add the internal tail-release lifecycle owner that performs shrink-before-pop, preserves
     overlapping identities independently, rejects decreasing progress, and completes idempotently.
+  - [x] Attach a once-compiled frozen-route position index to each validated admission, with
+    canonical AB/BA conversion, tolerance-boundary collapse, explicit off-route and ambiguous
+    results, and no heuristic selection among repeated route occurrences.
 - [ ] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
 - [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.

@@ -130,6 +130,16 @@ progress；该输入必须已由未来grant lifecycle针对同一冻结route证�
 转换成Stall。若返回了与预期不同的successful mutation status，claim可能已变更；结果会用
 `claimMayHaveChanged=true`明确标记这一诊断状态，但仍不推进本地queue。
 
+同一次validation还把已验证`ProjectedTopologyRoute`编译成immutable
+`CompiledRouteProgressIndex`并挂到`CompiledRouteAdmission`。index以准确的
+`(railId, facing)`为key，将route occurrences分桶；每次物理位置查询只扫描对应bucket，按segment的
+canonical AB上下界与`Curve.TOLERANCE`筛选，再依据AB/BA方向换算route distance。位于相邻segment边界或
+零长度segment的多个candidate若全部落在一个geometry tolerance内，返回其中最小route coordinate作为保守
+的唯一结果；同一物理位置若因loop/重复rail occurrence映射到相差超过tolerance的多个route distances，则
+明确返回`Ambiguous`，不得用previous progress、最近或最远occurrence猜测。没有candidate返回`OffRoute`，
+不能解释为已离开route或已完成释放。该index只保存冻结路线的派生位置元数据，不是第二条路线、footprint或
+occupancy geometry；当前尚未读取`RailwayObservation`或调用`LiveClaimTailRelease`。
+
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail
 resources，`n`为窗口内occurrences，`r_rail`为当前rail上的resource数，`o`为实际overlap数）。resource
@@ -137,6 +147,11 @@ bindings同样只做一次收集，最终entry排序为`O(s log s)`；运行时i
 本次实际满足阈值的连续队首数量，不读取目标列车interval，也不扫描未清除队首之后的资源。后续若rolling window显著增大，可在不改变合同的情况下把rail occurrence
 索引进一步复用到validation的其他派生结果；不得退回resource乘occurrence的全扫描，也不得为优化增加
 第二份authoritative footprint。
+
+route-progress index编译为`O(n)`时间和空间，其中`n`是已验证route occurrence数；分桶保留route顺序，
+单次查询成本为`O(b)`，其中`b`仅是同一rail与facing的occurrence数，不扫描
+其他rail。真实路线通常`b`很小，因此在profile证明大量重复occurrence以前不引入interval tree或prefix-max
+结构；歧义时fail closed而不是扩大搜索或选择一个candidate。
 
 ## 4. 目标签名与合同
 
@@ -190,7 +205,8 @@ internal data class CompiledRouteAdmission(
     val claimUntil: RouteBoundaryRef,
     val resources: InfrastructureFootprint,
     val preparations: List<InfrastructurePreparationRequirement>,
-    val tailReleaseEntries: List<ResolvedTailReleaseEntry>
+    val tailReleaseEntries: List<ResolvedTailReleaseEntry>,
+    val routeProgressIndex: CompiledRouteProgressIndex
 )
 
 data class ProtectedRouteGrantId(val value: String)

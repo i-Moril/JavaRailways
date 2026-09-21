@@ -125,22 +125,22 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `immediate successful admission carries the initialized live claim owner`() {
+    fun `immediate successful admission carries the initialized tail release controller`() {
         val start = service { validated(resource("turnout/a")) }.acquire(Any(), request(null))
 
         val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
-        val release = terminal.liveClaim!!.consume(
+        val release = terminal.tailRelease!!.consume(
             observation(epoch = observation.stamp.physicsEpoch + 1L)
         )
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
-        assertInstanceOf(LiveProtectedRouteClaimUpdate.Completed::class.java, release)
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, release)
         assertTrue(registry.claimSnapshots().isEmpty())
-        assertSame(terminal.liveClaim, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).liveClaim)
+        assertSame(terminal.tailRelease, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).tailRelease)
     }
 
     @Test
-    fun `pending successful admission carries the same live claim only after ready`() {
+    fun `pending successful admission carries the same tail release only after ready`() {
         val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
         val start = service(
             preparationActuator = InfrastructurePreparationActuator {
@@ -154,12 +154,12 @@ class ProtectedRouteClaimServiceTest {
         val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
-        assertNotNull(terminal.liveClaim)
-        assertSame(terminal.liveClaim, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).liveClaim)
+        assertNotNull(terminal.tailRelease)
+        assertSame(terminal.tailRelease, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).tailRelease)
     }
 
     @Test
-    fun `successful replacement carries a new live claim owner`() {
+    fun `successful replacement carries a new tail release controller`() {
         val platformOwner = Any()
         val oldOwner = InfrastructureOwner("test:route/replace", 1L)
         val newOwner = InfrastructureOwner("test:route/replace", 2L)
@@ -173,20 +173,20 @@ class ProtectedRouteClaimServiceTest {
             as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, acquired.result.status)
-        assertNotNull(acquired.liveClaim)
+        assertNotNull(acquired.tailRelease)
         assertEquals(ProtectedRouteClaimStatus.REPLACED, replaced.result.status)
-        assertNotNull(replaced.liveClaim)
-        assertTrue(replaced.liveClaim !== acquired.liveClaim)
+        assertNotNull(replaced.tailRelease)
+        assertTrue(replaced.tailRelease !== acquired.tailRelease)
         assertEquals(listOf(newOwner), registry.claimSnapshots().map { it.owner })
     }
 
     @Test
-    fun `failed not-required and unchanged admissions do not invent live claim owners`() {
+    fun `failed not-required and unchanged admissions do not invent tail release controllers`() {
         val platformOwner = Any()
         val owner = InfrastructureOwner("test:route/live-owner", 1L)
         val admittedService = service { validated(resource("turnout/a")) }
         val admitted = admittedService.acquire(platformOwner, request(null, owner))
-        assertNotNull((admitted.poll() as ProtectedRouteAdmissionProgress.Terminal).liveClaim)
+        assertNotNull((admitted.poll() as ProtectedRouteAdmissionProgress.Terminal).tailRelease)
 
         val unchanged = admittedService.acquire(platformOwner, request(null, owner)).poll()
             as ProtectedRouteAdmissionProgress.Terminal
@@ -199,11 +199,11 @@ class ProtectedRouteClaimServiceTest {
             .poll() as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.UNCHANGED, unchanged.result.status)
-        assertNull(unchanged.liveClaim)
+        assertNull(unchanged.tailRelease)
         assertEquals(ProtectedRouteClaimStatus.NOT_REQUIRED, notRequired.result.status)
-        assertNull(notRequired.liveClaim)
+        assertNull(notRequired.tailRelease)
         assertEquals(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, rejected.result.status)
-        assertNull(rejected.liveClaim)
+        assertNull(rejected.tailRelease)
     }
 
     @Test
@@ -566,7 +566,7 @@ class ProtectedRouteClaimServiceTest {
             as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, terminal.result.status)
-        assertNull(terminal.liveClaim)
+        assertNull(terminal.tailRelease)
         assertTrue(registry.claimSnapshots().isEmpty())
         assertFalse(stalled)
     }

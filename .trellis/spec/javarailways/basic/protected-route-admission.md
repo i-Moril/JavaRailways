@@ -146,13 +146,14 @@ cursor每次更新先按rail、facing、canonical AB边界与`Curve.TOLERANCE`�
 扫描suffix，不得把任一失败解释为路线完成。
 `ProtectedRouteClaimService.resolve`现在把该已验证cursor连同`CompiledRouteAdmission`交给后续transaction，
 不再在claim前验证后丢弃。成功`ACQUIRED`/`REPLACED`的terminal result携带internal
-`LiveProtectedRouteClaim`；pending preparation只保留创建owner所需的已验证状态，ticket到达`READY`后才创建
-并交出owner，而`NOT_REQUIRED`、
-`UNCHANGED`及失败结果没有新owner。该owner只接受绑定world与topology的后续coherent observation，要求
+`ProtectedRouteTailRelease`控制器；pending preparation只保留创建控制器所需的已验证状态，ticket到达
+`READY`后才创建并交出，而`NOT_REQUIRED`、`UNCHANGED`及失败结果没有释放控制器。它只接受绑定world与
+topology的后续coherent observation，要求
 physics epoch不倒退，按稳定train ID取得物理tail，经cursor投影后调用`LiveClaimTailRelease`。重复epoch为
 幂等no-op；route cursor先只投影候选进度，registry shrink成功后才提交该本地cursor进度，失败时保留原进度。
 完成后不再投影。错误stamp、train消失、cursor或release失败均锁存并恰好一次触发Stall callback。
-这仍是transitional显式驱动接口：本批没有自动订阅publication、active-owner dispatcher、持久化/reload
+它不创建第二个claim或footprint，只负责缩小registry中已经存在的唯一claim。这仍是transitional显式驱动
+接口：本批没有自动订阅publication、active-controller dispatcher、持久化/reload
 恢复、provider-disable接管或clearance-margin策略。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的

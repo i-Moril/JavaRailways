@@ -16,7 +16,7 @@ import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.UUID
 
-class LiveProtectedRouteClaimTest {
+class ProtectedRouteTailReleaseTest {
     private val railId = UUID.randomUUID()
     private val worldId = "world"
     private val topologyRevision = 4L
@@ -36,25 +36,25 @@ class LiveProtectedRouteClaimTest {
         )
 
         val shrunk = assertInstanceOf(
-            LiveProtectedRouteClaimUpdate.Active::class.java,
-            fixture.claim.consume(observation(epoch = 8L, tailMeters = 10.0))
+            ProtectedRouteTailReleaseUpdate.Active::class.java,
+            fixture.tailRelease.consume(observation(epoch = 8L, tailMeters = 10.0))
         )
-        val repeated = fixture.claim.consume(observation(epoch = 8L, tailMeters = 100.0))
+        val repeated = fixture.tailRelease.consume(observation(epoch = 8L, tailMeters = 100.0))
 
-        assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, shrunk.tailRelease)
+        assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, shrunk.releaseResult)
         assertEquals(listOf(second), fixture.registry.claimSnapshots().single().footprint.resources)
         assertEquals(
-            LiveProtectedRouteClaimUpdate.Unchanged(8L, RouteProgressCursorState(0, 10.0)),
+            ProtectedRouteTailReleaseUpdate.Unchanged(8L, RouteProgressCursorState(0, 10.0)),
             repeated
         )
 
-        val completed = fixture.claim.consume(observation(epoch = 9L, tailMeters = 20.0))
-        val afterCompletion = fixture.claim.consume(
+        val completed = fixture.tailRelease.consume(observation(epoch = 9L, tailMeters = 20.0))
+        val afterCompletion = fixture.tailRelease.consume(
             observation(epoch = 1L, tailMeters = 0.0, world = "wrong-world", topology = 99L)
         )
 
-        assertEquals(LiveProtectedRouteClaimUpdate.Completed(9L, alreadyCompleted = false), completed)
-        assertEquals(LiveProtectedRouteClaimUpdate.Completed(9L, alreadyCompleted = true), afterCompletion)
+        assertEquals(ProtectedRouteTailReleaseUpdate.Completed(9L, alreadyCompleted = false), completed)
+        assertEquals(ProtectedRouteTailReleaseUpdate.Completed(9L, alreadyCompleted = true), afterCompletion)
         assertTrue(fixture.registry.claimSnapshots().isEmpty())
         assertEquals(0, fixture.stalls.size)
     }
@@ -63,22 +63,22 @@ class LiveProtectedRouteClaimTest {
     fun `observation identity epoch and train failures latch and stall exactly once`() {
         val scenarios = listOf(
             Triple(
-                LiveProtectedRouteClaimFailureKind.WRONG_WORLD,
+                ProtectedRouteTailReleaseFailureKind.WRONG_WORLD,
                 observation(epoch = 8L, tailMeters = 1.0, world = "other"),
                 "wrong world"
             ),
             Triple(
-                LiveProtectedRouteClaimFailureKind.STALE_TOPOLOGY,
+                ProtectedRouteTailReleaseFailureKind.STALE_TOPOLOGY,
                 observation(epoch = 8L, tailMeters = 1.0, topology = topologyRevision + 1L),
                 "wrong topology"
             ),
             Triple(
-                LiveProtectedRouteClaimFailureKind.DECREASING_PHYSICS_EPOCH,
+                ProtectedRouteTailReleaseFailureKind.DECREASING_PHYSICS_EPOCH,
                 observation(epoch = 6L, tailMeters = 1.0),
                 "decreasing epoch"
             ),
             Triple(
-                LiveProtectedRouteClaimFailureKind.TRAIN_MISSING,
+                ProtectedRouteTailReleaseFailureKind.TRAIN_MISSING,
                 observation(epoch = 8L, tailMeters = 1.0, id = "other-train"),
                 "missing train"
             )
@@ -87,11 +87,11 @@ class LiveProtectedRouteClaimTest {
         scenarios.forEach { (expectedKind, invalidObservation, description) ->
             val fixture = fixture(singleEntry())
             val failed = assertInstanceOf(
-                LiveProtectedRouteClaimUpdate.FailedClosed::class.java,
-                fixture.claim.consume(invalidObservation),
+                ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
+                fixture.tailRelease.consume(invalidObservation),
                 description
             )
-            val repeated = fixture.claim.consume(observation(epoch = 9L, tailMeters = 20.0))
+            val repeated = fixture.tailRelease.consume(observation(epoch = 9L, tailMeters = 20.0))
 
             assertEquals(expectedKind, failed.kind, description)
             assertEquals(failed, repeated, description)
@@ -105,12 +105,12 @@ class LiveProtectedRouteClaimTest {
         val fixture = fixture(singleEntry())
 
         val failed = assertInstanceOf(
-            LiveProtectedRouteClaimUpdate.FailedClosed::class.java,
-            fixture.claim.consume(observation(epoch = 8L, tailMeters = 101.0))
+            ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
+            fixture.tailRelease.consume(observation(epoch = 8L, tailMeters = 101.0))
         )
 
-        assertEquals(LiveProtectedRouteClaimFailureKind.ROUTE_CURSOR_FAILED, failed.kind)
-        assertEquals(failed, fixture.claim.consume(observation(epoch = 9L, tailMeters = 20.0)))
+        assertEquals(ProtectedRouteTailReleaseFailureKind.ROUTE_CURSOR_FAILED, failed.kind)
+        assertEquals(failed, fixture.tailRelease.consume(observation(epoch = 9L, tailMeters = 20.0)))
         assertEquals(1, fixture.stalls.size)
         assertEquals(1, fixture.registry.claimSnapshots().size)
     }
@@ -120,12 +120,12 @@ class LiveProtectedRouteClaimTest {
         val fixture = fixture(singleEntry(), releasePlatformOwner = Any())
 
         val failed = assertInstanceOf(
-            LiveProtectedRouteClaimUpdate.FailedClosed::class.java,
-            fixture.claim.consume(observation(epoch = 8L, tailMeters = 10.0))
+            ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
+            fixture.tailRelease.consume(observation(epoch = 8L, tailMeters = 10.0))
         )
 
-        assertEquals(LiveProtectedRouteClaimFailureKind.TAIL_RELEASE_FAILED, failed.kind)
-        assertEquals(failed, fixture.claim.consume(observation(epoch = 9L, tailMeters = 20.0)))
+        assertEquals(ProtectedRouteTailReleaseFailureKind.TAIL_RELEASE_FAILED, failed.kind)
+        assertEquals(failed, fixture.tailRelease.consume(observation(epoch = 9L, tailMeters = 20.0)))
         assertEquals(1, fixture.stalls.size)
         assertEquals(1, fixture.registry.claimSnapshots().size)
         assertEquals(RouteProgressCursorState(0, 0.0), fixture.cursor.state)
@@ -159,13 +159,13 @@ class LiveProtectedRouteClaimTest {
             registry,
             stalls,
             initialized.cursor,
-            LiveProtectedRouteClaim(
+            ProtectedRouteTailRelease(
                 worldId,
                 topologyRevision,
                 trainId,
                 initialPhysicsEpoch = 7L,
                 routeProgressCursor = initialized.cursor,
-                tailRelease = LiveClaimTailRelease(
+                claimRelease = LiveClaimTailRelease(
                     registry,
                     releasePlatformOwner,
                     claimOwner,
@@ -215,6 +215,6 @@ class LiveProtectedRouteClaimTest {
         val registry: InfrastructureLeaseRegistry,
         val stalls: MutableList<String>,
         val cursor: RouteProgressCursor,
-        val claim: LiveProtectedRouteClaim
+        val tailRelease: ProtectedRouteTailRelease
     )
 }

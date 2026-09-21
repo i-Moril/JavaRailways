@@ -20,16 +20,16 @@ internal sealed interface ProtectedRouteAdmissionStart {
     /** Admission ended during start. Polling remains idempotent and cancellation is a no-op. */
     data class Terminal(
         val result: ProtectedRouteClaimResult,
-        val liveClaim: LiveProtectedRouteClaim? = null
+        val tailRelease: ProtectedRouteTailRelease? = null
     ) : ProtectedRouteAdmissionStart {
         init {
-            require(hasLiveProtectedRouteClaim(result) == (liveClaim != null)) {
-                "only a successful acquired or replaced admission may carry a live claim owner"
+            require(hasProtectedRouteTailRelease(result) == (tailRelease != null)) {
+                "only a successful acquired or replaced admission may carry a tail-release controller"
             }
         }
 
         override fun poll(): ProtectedRouteAdmissionProgress =
-            ProtectedRouteAdmissionProgress.Terminal(result, liveClaim)
+            ProtectedRouteAdmissionProgress.Terminal(result, tailRelease)
         override fun cancel() = Unit
     }
 
@@ -45,17 +45,17 @@ internal sealed interface ProtectedRouteAdmissionProgress {
     data object Pending : ProtectedRouteAdmissionProgress
     data class Terminal(
         val result: ProtectedRouteClaimResult,
-        val liveClaim: LiveProtectedRouteClaim? = null
+        val tailRelease: ProtectedRouteTailRelease? = null
     ) : ProtectedRouteAdmissionProgress {
         init {
-            require(hasLiveProtectedRouteClaim(result) == (liveClaim != null)) {
-                "only a successful acquired or replaced admission may carry a live claim owner"
+            require(hasProtectedRouteTailRelease(result) == (tailRelease != null)) {
+                "only a successful acquired or replaced admission may carry a tail-release controller"
             }
         }
     }
 }
 
-private fun hasLiveProtectedRouteClaim(result: ProtectedRouteClaimResult): Boolean =
+private fun hasProtectedRouteTailRelease(result: ProtectedRouteClaimResult): Boolean =
     result.status == ProtectedRouteClaimStatus.ACQUIRED ||
         result.status == ProtectedRouteClaimStatus.REPLACED
 
@@ -70,7 +70,7 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
     private val request: ProtectedRouteRequest,
     private val claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
     private val preparationTicket: InfrastructurePreparationTicket,
-    private val createLiveClaim: () -> LiveProtectedRouteClaim,
+    private val createTailRelease: () -> ProtectedRouteTailRelease,
     private val stallWorld: (String, Exception) -> Unit,
     private val mapMutation: (InfrastructureMutationResult) -> ProtectedRouteClaimResult
 ) {
@@ -130,15 +130,15 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
                         "infrastructure preparation ready but the claim transaction could not be finalized"
                     )
                 }
-                val liveClaim = try {
-                    createLiveClaim()
+                val tailRelease = try {
+                    createTailRelease()
                 } catch (failure: Exception) {
                     return finishStalled(
                         failure,
-                        "claim transaction was finalized but the live claim owner could not be created"
+                        "claim transaction was finalized but the tail-release controller could not be created"
                     )
                 }
-                finish(completed, liveClaim)
+                finish(completed, tailRelease)
             }
             InfrastructurePreparationState.RESTORED -> restoreClaim(snapshot.detail)
             InfrastructurePreparationState.UNSAFE -> finishStalled(
@@ -183,9 +183,9 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
 
     private fun finish(
         result: ProtectedRouteClaimResult,
-        liveClaim: LiveProtectedRouteClaim? = null
+        tailRelease: ProtectedRouteTailRelease? = null
     ): ProtectedRouteAdmissionProgress.Terminal {
-        return ProtectedRouteAdmissionProgress.Terminal(result, liveClaim).also { terminal = it }
+        return ProtectedRouteAdmissionProgress.Terminal(result, tailRelease).also { terminal = it }
     }
 
     private fun finishStalled(
@@ -309,14 +309,14 @@ internal class ProtectedRouteClaimService(
             return ProtectedRouteAdmissionStart.Terminal(mapMutation(mutation))
         }
         val admission = plan.admission
-        val createLiveClaim = {
-            LiveProtectedRouteClaim(
+        val createTailRelease = {
+            ProtectedRouteTailRelease(
                 worldId = request.observationStamp.worldId,
                 topologyRevision = request.route.topologyRevision,
                 trainId = request.trainId,
                 initialPhysicsEpoch = request.observationStamp.physicsEpoch,
                 routeProgressCursor = plan.routeProgressCursor,
-                tailRelease = LiveClaimTailRelease(
+                claimRelease = LiveClaimTailRelease(
                     registry,
                     platformOwner,
                     request.owner,
@@ -344,7 +344,7 @@ internal class ProtectedRouteClaimService(
                 request,
                 claimMutation,
                 ticket,
-                createLiveClaim,
+                createTailRelease,
                 stallWorld,
                 ::mapMutation
             )
@@ -358,7 +358,7 @@ internal class ProtectedRouteClaimService(
         return when (val progress = handle.poll()) {
             ProtectedRouteAdmissionProgress.Pending -> ProtectedRouteAdmissionStart.Pending(handle)
             is ProtectedRouteAdmissionProgress.Terminal ->
-                ProtectedRouteAdmissionStart.Terminal(progress.result, progress.liveClaim)
+                ProtectedRouteAdmissionStart.Terminal(progress.result, progress.tailRelease)
         }
     }
 

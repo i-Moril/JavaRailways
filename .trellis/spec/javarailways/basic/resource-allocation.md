@@ -123,17 +123,17 @@ Stall响应和grant持久化仍属于后续grant lifecycle集成。
 保留原state。
 
 成功完成`ACQUIRED`或`REPLACED`的terminal admission现在携带一个Basic internal
-`LiveProtectedRouteClaim`；`NOT_REQUIRED`、`UNCHANGED`及任一失败结果均不创建新owner。pending preparation
-期间handle只保留已验证cursor和owner构造输入，只有ticket进入`READY`才创建owner，并在成功finalize claim后
-随terminal result交出。
-该owner持有上述已初始化cursor、claim的world/topology/train identity及`LiveClaimTailRelease`，显式消费后续
+`ProtectedRouteTailRelease`控制器；`NOT_REQUIRED`、`UNCHANGED`及任一失败结果均不创建控制器。pending
+preparation期间handle只保留已验证cursor和构造输入，只有ticket进入`READY`才创建控制器，并在成功finalize
+claim后随terminal result交出。它不创建第二个claim或footprint，只缩小registry中已经存在的唯一claim。
+该控制器持有上述已初始化cursor、claim的world/topology/train identity及`LiveClaimTailRelease`，显式消费后续
 `RailwayObservation`：先拒绝错误world/topology和倒退epoch，再从同一coherent observation查找目标train，
 把物理tail投影为候选单调route progress，先完成tail release的registry shrink，成功后才提交本地cursor进度。
 重复epoch返回幂等unchanged，不重复投影或shrink；
 全部释放后后续调用保持completed且不再检查observation。缺train、cursor失败、tail-release失败或stamp违约只
-锁存一个fail-closed结果并调用一次Stall callback。当前仍没有自动observation订阅、world-local active-owner
-registry、持久化/reload恢复或clearance margin；未来host必须在成功replace时原子换掉旧owner，并在每次完整
-physics publication后显式驱动当前owner。
+锁存一个fail-closed结果并调用一次Stall callback。当前仍没有自动observation订阅、world-local active-controller
+registry、持久化/reload恢复或clearance margin；未来host必须在成功replace时原子换掉旧控制器，并在每次
+完整physics publication后显式驱动当前控制器。
 
 ## 项目内正确示例
 

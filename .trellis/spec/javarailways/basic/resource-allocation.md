@@ -89,7 +89,7 @@ request不携带raw `InfrastructureFootprint`、受控资源清单或可信列�
 
 `ProtectedRouteClaimService`现为host-side admission seam，并未替换旧`RouteSectionAllocator`调用者。service消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/RESTORING/READY/RESTORED/UNSAFE`，pending admission handle持有claim mutation token，只有`READY`才完成claim，只有`RESTORED`才恢复精确claim前状态。当前live actuator只处理turnout requirement，但会在任何side effect前拒绝未知类型。执行未完成时不会返回成功claim结果，也不存在grant；任一异常、ticket identity/state违约或`UNSAFE`均保留最安全的新旧资源保留并Stall world。当前仍缺通用contributor closure、grant/release/recovery和调用方迁移，因此不得声称所有自动/`MANUAL_ROUTED`进路已强制经过保护区域。后续迁移必须删除可绕过该validation的automatic overload。
 
-同一个`CompiledRouteAdmission`现在还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。immutable queue helper从队首返回连续eligible prefix但不自行pop；future grant owner必须先完成registry原子shrink再丢弃该前缀。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；它尚未调用registry replace/shrink，因此不能把当前状态描述成live claim已经自动尾部释放。
+同一个`CompiledRouteAdmission`还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。immutable queue helper从队首返回连续eligible prefix但不自行pop；world-local claim service持有的释放控制器必须先完成registry原子shrink再丢弃该前缀。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；service已有显式observation驱动入口，但尚未自动接入publication。
 
 Registry现已提供internal同步、只减不增的live-claim shrink primitive。调用方提交platform owner、完全匹配的
 `InfrastructureOwner`以及非空、无重复的**准确资源身份**集合；它不是重建一份remaining footprint。registry在
@@ -122,18 +122,15 @@ Stall响应和grant持久化仍属于后续grant lifecycle集成。
 选择第一个匹配项，从不回退。匹配结果低于已接受route distance或未匹配到当前位置都会锁存fail closed并
 保留原state。
 
-成功完成`ACQUIRED`或`REPLACED`的terminal admission现在携带一个Basic internal
-`ProtectedRouteTailRelease`控制器；`NOT_REQUIRED`、`UNCHANGED`及任一失败结果均不创建控制器。pending
-preparation期间handle只保留已验证cursor和构造输入，只有ticket进入`READY`才创建控制器，并在成功finalize
-claim后随terminal result交出。它不创建第二个claim或footprint，只缩小registry中已经存在的唯一claim。
-该控制器持有上述已初始化cursor、claim的world/topology/train identity及`LiveClaimTailRelease`，显式消费后续
-`RailwayObservation`：先拒绝错误world/topology和倒退epoch，再从同一coherent observation查找目标train，
-把物理tail投影为候选单调route progress，先完成tail release的registry shrink，成功后才提交本地cursor进度。
-重复epoch返回幂等unchanged，不重复投影或shrink；
-全部释放后后续调用保持completed且不再检查observation。缺train、cursor失败、tail-release失败或stamp违约只
-锁存一个fail-closed结果并调用一次Stall callback。当前仍没有自动observation订阅、world-local active-controller
-registry、持久化/reload恢复或clearance margin；未来host必须在成功replace时原子换掉旧控制器，并在每次
-完整physics publication后显式驱动当前控制器。
+`ProtectedRouteClaimService`内部按logical owner ID持有`ProtectedRouteTailRelease`，terminal admission只返回
+claim结果。成功acquire在READY/finalize后安装，成功replace在同一点换成新revision与train identity；
+UNCHANGED保留原项。pending claim mutation在任何preparation side effect前暂停旧项，完整restore后恢复，
+不安全或不完整恢复保持暂停。service显式消费后续`RailwayObservation`，一次建立train ID lookup并按owner稳定
+顺序驱动未暂停控制器；controller仍校验stamp/train identity，把tail投影为候选进度，registry shrink成功后才
+提交cursor。Completed后移除；fail-closed项保留并停止当前dispatch。显式release仅在registry成功释放精确owner
+后清理对应控制器。该层不创建第二个claim或footprint，registry中的claim仍是唯一资源所有权。
+
+当前仍没有自动publication订阅、持久化/reload恢复、provider-disable takeover或clearance margin。
 
 ## 项目内正确示例
 

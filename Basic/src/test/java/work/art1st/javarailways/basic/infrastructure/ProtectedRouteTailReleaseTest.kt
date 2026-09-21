@@ -37,9 +37,9 @@ class ProtectedRouteTailReleaseTest {
 
         val shrunk = assertInstanceOf(
             ProtectedRouteTailReleaseUpdate.Active::class.java,
-            fixture.tailRelease.consume(observation(epoch = 8L, tailMeters = 10.0))
+            consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 10.0))
         )
-        val repeated = fixture.tailRelease.consume(observation(epoch = 8L, tailMeters = 100.0))
+        val repeated = consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 100.0))
 
         assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, shrunk.releaseResult)
         assertEquals(listOf(second), fixture.registry.claimSnapshots().single().footprint.resources)
@@ -48,8 +48,9 @@ class ProtectedRouteTailReleaseTest {
             repeated
         )
 
-        val completed = fixture.tailRelease.consume(observation(epoch = 9L, tailMeters = 20.0))
-        val afterCompletion = fixture.tailRelease.consume(
+        val completed = consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 20.0))
+        val afterCompletion = consume(
+            fixture.tailRelease,
             observation(epoch = 1L, tailMeters = 0.0, world = "wrong-world", topology = 99L)
         )
 
@@ -88,10 +89,10 @@ class ProtectedRouteTailReleaseTest {
             val fixture = fixture(singleEntry())
             val failed = assertInstanceOf(
                 ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
-                fixture.tailRelease.consume(invalidObservation),
+                consume(fixture.tailRelease, invalidObservation),
                 description
             )
-            val repeated = fixture.tailRelease.consume(observation(epoch = 9L, tailMeters = 20.0))
+            val repeated = consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 20.0))
 
             assertEquals(expectedKind, failed.kind, description)
             assertEquals(failed, repeated, description)
@@ -106,11 +107,11 @@ class ProtectedRouteTailReleaseTest {
 
         val failed = assertInstanceOf(
             ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
-            fixture.tailRelease.consume(observation(epoch = 8L, tailMeters = 101.0))
+            consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 101.0))
         )
 
         assertEquals(ProtectedRouteTailReleaseFailureKind.ROUTE_CURSOR_FAILED, failed.kind)
-        assertEquals(failed, fixture.tailRelease.consume(observation(epoch = 9L, tailMeters = 20.0)))
+        assertEquals(failed, consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 20.0)))
         assertEquals(1, fixture.stalls.size)
         assertEquals(1, fixture.registry.claimSnapshots().size)
     }
@@ -121,11 +122,11 @@ class ProtectedRouteTailReleaseTest {
 
         val failed = assertInstanceOf(
             ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
-            fixture.tailRelease.consume(observation(epoch = 8L, tailMeters = 10.0))
+            consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 10.0))
         )
 
         assertEquals(ProtectedRouteTailReleaseFailureKind.TAIL_RELEASE_FAILED, failed.kind)
-        assertEquals(failed, fixture.tailRelease.consume(observation(epoch = 9L, tailMeters = 20.0)))
+        assertEquals(failed, consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 20.0)))
         assertEquals(1, fixture.stalls.size)
         assertEquals(1, fixture.registry.claimSnapshots().size)
         assertEquals(RouteProgressCursorState(0, 0.0), fixture.cursor.state)
@@ -193,6 +194,14 @@ class ProtectedRouteTailReleaseTest {
             topology,
             listOf(train(id, epoch, tailMeters))
         )
+    )
+
+    private fun consume(
+        tailRelease: ProtectedRouteTailRelease,
+        observation: RailwayObservation
+    ): ProtectedRouteTailReleaseUpdate = tailRelease.consume(
+        observation.stamp,
+        observation.trains.firstOrNull { it.trainId == trainId }
     )
 
     private fun train(id: String, epoch: Long, tailMeters: Double) = TrainFrameSnapshot.create(

@@ -4,10 +4,12 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationR
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import java.util.TreeMap
 
 /** Main-thread result of starting one protected-route admission. */
 internal sealed interface ProtectedRouteAdmissionStart {
@@ -18,18 +20,8 @@ internal sealed interface ProtectedRouteAdmissionStart {
     fun cancel()
 
     /** Admission ended during start. Polling remains idempotent and cancellation is a no-op. */
-    data class Terminal(
-        val result: ProtectedRouteClaimResult,
-        val tailRelease: ProtectedRouteTailRelease? = null
-    ) : ProtectedRouteAdmissionStart {
-        init {
-            require(hasProtectedRouteTailRelease(result) == (tailRelease != null)) {
-                "only a successful acquired or replaced admission may carry a tail-release controller"
-            }
-        }
-
-        override fun poll(): ProtectedRouteAdmissionProgress =
-            ProtectedRouteAdmissionProgress.Terminal(result, tailRelease)
+    data class Terminal(val result: ProtectedRouteClaimResult) : ProtectedRouteAdmissionStart {
+        override fun poll(): ProtectedRouteAdmissionProgress = ProtectedRouteAdmissionProgress.Terminal(result)
         override fun cancel() = Unit
     }
 
@@ -43,21 +35,15 @@ internal sealed interface ProtectedRouteAdmissionStart {
 /** Result of polling a pending or already-terminal protected-route admission. */
 internal sealed interface ProtectedRouteAdmissionProgress {
     data object Pending : ProtectedRouteAdmissionProgress
-    data class Terminal(
-        val result: ProtectedRouteClaimResult,
-        val tailRelease: ProtectedRouteTailRelease? = null
-    ) : ProtectedRouteAdmissionProgress {
-        init {
-            require(hasProtectedRouteTailRelease(result) == (tailRelease != null)) {
-                "only a successful acquired or replaced admission may carry a tail-release controller"
-            }
-        }
-    }
+    data class Terminal(val result: ProtectedRouteClaimResult) : ProtectedRouteAdmissionProgress
 }
 
-private fun hasProtectedRouteTailRelease(result: ProtectedRouteClaimResult): Boolean =
-    result.status == ProtectedRouteClaimStatus.ACQUIRED ||
-        result.status == ProtectedRouteClaimStatus.REPLACED
+/** One stable-order observation dispatch made by the world-local claim service. */
+internal data class ProtectedRouteTailReleaseDispatch(
+    val owner: InfrastructureOwner,
+    val trainId: String,
+    val update: ProtectedRouteTailReleaseUpdate
+)
 
 /**
  * Owns one claim mutation while physical infrastructure preparation is pending.
@@ -70,7 +56,8 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
     private val request: ProtectedRouteRequest,
     private val claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
     private val preparationTicket: InfrastructurePreparationTicket,
-    private val createTailRelease: () -> ProtectedRouteTailRelease,
+    private val commitTailRelease: () -> Unit,
+    private val resumePreviousTailRelease: () -> Unit,
     private val stallWorld: (String, Exception) -> Unit,
     private val mapMutation: (InfrastructureMutationResult) -> ProtectedRouteClaimResult
 ) {
@@ -130,15 +117,15 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
                         "infrastructure preparation ready but the claim transaction could not be finalized"
                     )
                 }
-                val tailRelease = try {
-                    createTailRelease()
+                try {
+                    commitTailRelease()
                 } catch (failure: Exception) {
                     return finishStalled(
                         failure,
-                        "claim transaction was finalized but the tail-release controller could not be created"
+                        "claim transaction was finalized but its tail-release controller could not be installed"
                     )
                 }
-                finish(completed, tailRelease)
+                finish(completed)
             }
             InfrastructurePreparationState.RESTORED -> restoreClaim(snapshot.detail)
             InfrastructurePreparationState.UNSAFE -> finishStalled(
@@ -162,6 +149,14 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
     private fun restoreClaim(preparationDetail: String): ProtectedRouteAdmissionProgress {
         val claimRollback = registry.rollbackClaimMutation(claimMutation)
         if (claimRollback.status in CLAIM_ROLLBACK_SUCCESS_STATUSES) {
+            try {
+                resumePreviousTailRelease()
+            } catch (failure: Exception) {
+                return finishStalled(
+                    failure,
+                    "admission claim was restored but its previous tail-release controller could not resume"
+                )
+            }
             return finish(
                 ProtectedRouteClaimResult(
                     ProtectedRouteClaimStatus.PREPARATION_FAILED,
@@ -181,12 +176,8 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
         )
     }
 
-    private fun finish(
-        result: ProtectedRouteClaimResult,
-        tailRelease: ProtectedRouteTailRelease? = null
-    ): ProtectedRouteAdmissionProgress.Terminal {
-        return ProtectedRouteAdmissionProgress.Terminal(result, tailRelease).also { terminal = it }
-    }
+    private fun finish(result: ProtectedRouteClaimResult): ProtectedRouteAdmissionProgress.Terminal =
+        ProtectedRouteAdmissionProgress.Terminal(result).also { terminal = it }
 
     private fun finishStalled(
         failure: Exception,
@@ -243,6 +234,15 @@ internal class ProtectedRouteClaimService(
     private val preparationActuator: InfrastructurePreparationActuator,
     private val stallWorld: (String, Exception) -> Unit
 ) {
+    private data class ActiveTailRelease(
+        val owner: InfrastructureOwner,
+        val trainId: String,
+        val controller: ProtectedRouteTailRelease,
+        var paused: Boolean = false
+    )
+
+    private val activeTailReleases = TreeMap<String, ActiveTailRelease>()
+
     @MainThread
     fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteAdmissionStart =
         when (val resolved = resolve(request)) {
@@ -258,7 +258,8 @@ internal class ProtectedRouteClaimService(
                     )
                 ),
                 platformOwner,
-                request
+                request,
+                previousOwner = null
             )
         }
 
@@ -290,27 +291,74 @@ internal class ProtectedRouteClaimService(
                 )
             ),
             platformOwner,
-            request
+            request,
+            previousOwner = expectedOwner
         )
     }
 
     @MainThread
-    fun release(platformOwner: Any, owner: InfrastructureOwner): ProtectedRouteClaimResult =
-        mapMutation(registry.releaseClaim(platformOwner, owner))
+    fun release(platformOwner: Any, owner: InfrastructureOwner): ProtectedRouteClaimResult {
+        val mutation = registry.releaseClaim(platformOwner, owner)
+        if (mutation.status == InfrastructureMutationStatus.RELEASED) {
+            activeTailReleases[owner.ownerId]
+                ?.takeIf { it.owner == owner }
+                ?.let { activeTailReleases.remove(owner.ownerId) }
+        }
+        return mapMutation(mutation)
+    }
+
+    /**
+     * Drives every unpaused tail-release controller from one coherent observation.
+     *
+     * The train list is indexed once, then controllers run in stable logical-owner order. A
+     * fail-closed update stops this publication immediately; completed controllers are removed
+     * only after their underlying registry claim has been completely released.
+     */
+    @MainThread
+    fun consumeObservation(observation: RailwayObservation): List<ProtectedRouteTailReleaseDispatch> {
+        val trainsById = HashMap<String, RailwayTrainObservation>(observation.trains.size)
+        observation.trains.forEach { train -> trainsById[train.trainId] = train }
+
+        val dispatched = mutableListOf<ProtectedRouteTailReleaseDispatch>()
+        val iterator = activeTailReleases.entries.iterator()
+        while (iterator.hasNext()) {
+            val active = iterator.next().value
+            if (active.paused) continue
+            val update = active.controller.consume(observation.stamp, trainsById[active.trainId])
+            dispatched += ProtectedRouteTailReleaseDispatch(active.owner, active.trainId, update)
+            when (update) {
+                is ProtectedRouteTailReleaseUpdate.Completed -> iterator.remove()
+                is ProtectedRouteTailReleaseUpdate.FailedClosed -> break
+                is ProtectedRouteTailReleaseUpdate.Active,
+                is ProtectedRouteTailReleaseUpdate.Unchanged -> Unit
+            }
+        }
+        return java.util.List.copyOf(dispatched)
+    }
 
     private fun startAdmission(
         plan: ResolutionResult.Plan,
         claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
         platformOwner: Any,
-        request: ProtectedRouteRequest
+        request: ProtectedRouteRequest,
+        previousOwner: InfrastructureOwner?
     ): ProtectedRouteAdmissionStart {
         val mutation = claimMutation.result
         if (!mutation.successful || mutation.status == InfrastructureMutationStatus.UNCHANGED) {
             return ProtectedRouteAdmissionStart.Terminal(mapMutation(mutation))
         }
+        val pausedTailRelease = try {
+            pauseTailRelease(request.owner.ownerId, previousOwner)
+        } catch (failure: Exception) {
+            return stalledStart(
+                request,
+                failure,
+                "claim mutation started but the previous tail-release controller could not be paused"
+            )
+        }
         val admission = plan.admission
-        val createTailRelease = {
-            ProtectedRouteTailRelease(
+        val commitTailRelease = {
+            val controller = ProtectedRouteTailRelease(
                 worldId = request.observationStamp.worldId,
                 topologyRevision = request.route.topologyRevision,
                 trainId = request.trainId,
@@ -324,6 +372,11 @@ internal class ProtectedRouteClaimService(
                 ),
                 stallWorld = stallWorld
             )
+            activeTailReleases[request.owner.ownerId] = ActiveTailRelease(
+                request.owner,
+                request.trainId,
+                controller
+            )
         }
         val started = try {
             preparationActuator.start(admission.preparations)
@@ -335,7 +388,7 @@ internal class ProtectedRouteClaimService(
             )
         }
         if (started is InfrastructurePreparationStart.Rejected) {
-            return rejectedStart(request, claimMutation, started.failure)
+            return rejectedStart(request, claimMutation, pausedTailRelease, started.failure)
         }
         val ticket = (started as InfrastructurePreparationStart.Accepted).ticket
         val handle = try {
@@ -344,7 +397,8 @@ internal class ProtectedRouteClaimService(
                 request,
                 claimMutation,
                 ticket,
-                createTailRelease,
+                commitTailRelease,
+                { resumeTailRelease(pausedTailRelease) },
                 stallWorld,
                 ::mapMutation
             )
@@ -358,17 +412,19 @@ internal class ProtectedRouteClaimService(
         return when (val progress = handle.poll()) {
             ProtectedRouteAdmissionProgress.Pending -> ProtectedRouteAdmissionStart.Pending(handle)
             is ProtectedRouteAdmissionProgress.Terminal ->
-                ProtectedRouteAdmissionStart.Terminal(progress.result, progress.tailRelease)
+                ProtectedRouteAdmissionStart.Terminal(progress.result)
         }
     }
 
     private fun rejectedStart(
         request: ProtectedRouteRequest,
         claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
+        pausedTailRelease: ActiveTailRelease?,
         failure: Exception
     ): ProtectedRouteAdmissionStart {
         val rollback = registry.rollbackClaimMutation(claimMutation)
         return if (rollback.status in CLAIM_ROLLBACK_SUCCESS_STATUSES) {
+            resumeTailRelease(pausedTailRelease)
             ProtectedRouteAdmissionStart.Terminal(
                 result(
                     ProtectedRouteClaimStatus.PREPARATION_FAILED,
@@ -386,6 +442,25 @@ internal class ProtectedRouteClaimService(
                 "infrastructure preparation was rejected but the safest claim was retained"
             )
         }
+    }
+
+    private fun pauseTailRelease(
+        ownerId: String,
+        previousOwner: InfrastructureOwner?
+    ): ActiveTailRelease? {
+        val active = activeTailReleases[ownerId] ?: return null
+        if (previousOwner != null && active.owner != previousOwner) {
+            throw IllegalStateException(
+                "tail-release owner ${active.owner} does not match replacement owner $previousOwner"
+            )
+        }
+        active.paused = true
+        return active
+    }
+
+    private fun resumeTailRelease(active: ActiveTailRelease?) {
+        if (active == null) return
+        if (activeTailReleases[active.owner.ownerId] === active) active.paused = false
     }
 
     private fun stalledStart(

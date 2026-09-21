@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 
 internal enum class ProtectedRouteTailReleaseFailureKind {
@@ -46,12 +47,10 @@ internal sealed interface ProtectedRouteTailReleaseUpdate {
 /**
  * Internal tail-release controller for one admitted protected route after infrastructure is ready.
  *
- * The controller accepts only coherent observations for the world and topology against which the
- * existing registry claim was compiled. It creates neither a claim nor a footprint: it projects
- * the named train's authoritative tail through the retained route cursor and supplies that
- * monotonic coordinate to [LiveClaimTailRelease], which shrinks that existing claim. There is
- * deliberately no observation subscription here; the future world-local host calls [consume]
- * after publication.
+ * The world-local service resolves the named train once per observation dispatch and supplies the
+ * coherent stamp plus that exact frame. This controller still verifies world, topology, epoch and
+ * train identity before projecting the authoritative tail. It creates neither a claim nor a
+ * footprint: [LiveClaimTailRelease] only shrinks the existing registry claim.
  */
 internal class ProtectedRouteTailRelease(
     private val worldId: String,
@@ -75,13 +74,15 @@ internal class ProtectedRouteTailRelease(
     }
 
     @MainThread
-    fun consume(observation: RailwayObservation): ProtectedRouteTailReleaseUpdate = synchronized(lock) {
+    fun consume(
+        stamp: RailwayStateStamp,
+        train: RailwayTrainObservation?
+    ): ProtectedRouteTailReleaseUpdate = synchronized(lock) {
         completedAtPhysicsEpoch?.let { completedEpoch ->
             return@synchronized ProtectedRouteTailReleaseUpdate.Completed(completedEpoch, alreadyCompleted = true)
         }
         terminalFailure?.let { return@synchronized it }
 
-        val stamp = observation.stamp
         if (stamp.worldId != worldId) {
             return@synchronized failClosed(
                 ProtectedRouteTailReleaseFailureKind.WRONG_WORLD,
@@ -107,11 +108,12 @@ internal class ProtectedRouteTailRelease(
             )
         }
 
-        val train = observation.trains.firstOrNull { it.trainId == trainId }
-            ?: return@synchronized failClosed(
+        if (train == null || train.trainId != trainId) {
+            return@synchronized failClosed(
                 ProtectedRouteTailReleaseFailureKind.TRAIN_MISSING,
                 "train $trainId is absent from coherent observation epoch ${stamp.physicsEpoch}"
             )
+        }
         val cursorUpdate = try {
             routeProgressCursor.project(train.tail)
         } catch (failure: Exception) {

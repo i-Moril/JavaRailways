@@ -60,8 +60,12 @@
     pending acquire/replace success. It creates no second claim or footprint. Explicit coherent
     observations project the named train tail and drive atomic prefix release; wrong stamp/epoch,
     missing train, cursor failure or shrink failure latch fail closed and Stall exactly once.
-    Automatic observation subscription, active-controller dispatch,
-    persistence/reload recovery, provider-disable takeover and clearance margin remain.
+    Automatic observation subscription, persistence/reload recovery, provider-disable takeover and
+    clearance margin remain.
+  - [x] Make the world-local claim service own controllers by logical owner, pause old release while
+    replacement preparation is pending, swap only after READY/finalize, and resume only after exact
+    restoration. One explicit observation dispatch builds one train lookup, drives unpaused owners in
+    stable order, removes only completed/released controllers and stops after the first fail-closed Stall.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation

@@ -18,7 +18,9 @@ worker
 Core complete epoch
 → onPhysicsStatePublished写volatile value state/notifications
 main owner await exact PhysicsTicket success
-→ publish RailwayObservation、apply safety requests、drain frames、Dispatcher.tick(world)
+→ publish RailwayObservation
+→ 显式驱动world-local protected-route tail release（stable owner order，首个Stall即停止）
+→ apply safety requests、drain frames、Dispatcher.tick(world)
 ```
 
 `RevisionedCommandQueue<C>`真实contract：`offer(revision,command): ACCEPTED|STALE`；`enqueue(command)`原子分配next revision；`drain()`返回immutable revision-ordered list。revision必须`>=0`且strictly greater；overflow fail。
@@ -52,6 +54,10 @@ Core frame shape/epoch成功语义由[Core runtime](../core/runtime-publication.
 `RailwayObservation.fromCore(worldId, frame)`只接受一个完整`RailwayWorldFrameSnapshot`，并生成`RailwayStateStamp(worldId, physicsEpoch, topologyRevision)`。`physicsEpoch`与`topologyRevision`是两个独立runtime计数器，都不是schema version，也不能跨world比较。投影保留head/tail facing、canonical AB位置、速度和完整swept spans，移除render car state和所有live `World/Train/Rail`引用；observation同时保留frame的同epoch `RailwayOccupancySnapshot`引用，供准入、释放和只读consumer做局部查询，不再重建第二份world index。
 
 Bukkit adapter在exact physics ticket成功后的serialized simulation context同步发布；listener不在physics worker运行，必须快速返回，且不能直接执行entity/location/block/region side effect。world unload移除latest snapshot，plugin disable移除owner subscriptions。慢listener不得反向阻塞physics worker，也不得要求Core为每个subscriber保留逐epoch backlog。
+
+当前`ProtectedRouteClaimService.consumeObservation`只提供main-thread显式驱动seam，尚未接入上述Bukkit/Core
+publication调用点。接入后同一observation只能建立一次train ID lookup，并按logical owner稳定顺序驱动；
+fail-closed controller触发Stall后必须立即停止本次后续controller及Dispatcher mutation。
 
 ## 禁止实现
 

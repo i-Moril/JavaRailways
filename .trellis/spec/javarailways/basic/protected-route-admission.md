@@ -145,16 +145,23 @@ cursor每次更新先按rail、facing、canonical AB边界与`Curve.TOLERANCE`�
 匹配结果低于已接受route distance，或没有当前/后续匹配时，均保留原state并锁存fail closed；后续调用不再
 扫描suffix，不得把任一失败解释为路线完成。
 `ProtectedRouteClaimService.resolve`现在把该已验证cursor连同`CompiledRouteAdmission`交给后续transaction，
-不再在claim前验证后丢弃。成功`ACQUIRED`/`REPLACED`的terminal result携带internal
-`ProtectedRouteTailRelease`控制器；pending preparation只保留创建控制器所需的已验证状态，ticket到达
-`READY`后才创建并交出，而`NOT_REQUIRED`、`UNCHANGED`及失败结果没有释放控制器。它只接受绑定world与
-topology的后续coherent observation，要求
-physics epoch不倒退，按稳定train ID取得物理tail，经cursor投影后调用`LiveClaimTailRelease`。重复epoch为
-幂等no-op；route cursor先只投影候选进度，registry shrink成功后才提交该本地cursor进度，失败时保留原进度。
-完成后不再投影。错误stamp、train消失、cursor或release失败均锁存并恰好一次触发Stall callback。
-它不创建第二个claim或footprint，只负责缩小registry中已经存在的唯一claim。这仍是transitional显式驱动
-接口：本批没有自动订阅publication、active-controller dispatcher、持久化/reload
-恢复、provider-disable接管或clearance-margin策略。
+不再在claim前验证后丢弃。world-local service按logical `ownerId`持有internal
+`ProtectedRouteTailRelease`控制器；terminal admission result只返回claim结果，不把控制器生命周期交给caller。
+成功`ACQUIRED`在finalize后安装一个控制器；成功`REPLACED`仅在ticket到达`READY`且claim finalize成功后，
+才以新revision/train/controller替换旧项；`UNCHANGED`保留现有项，失败不安装新项。
+
+一旦某owner的claim mutation进入pending，service必须在调用preparation actuator产生任何side effect前暂停旧
+控制器。完整rollback并恢复旧claim后才重新启用；actuator异常、非法ticket、`UNSAFE`或rollback不完整时旧
+控制器保持暂停，不能在pending/不确定registry状态下尝试shrink。显式release只有在registry返回`RELEASED`
+且owner revision精确匹配时删除对应控制器；失败release保留它。
+
+main owner显式调用`consumeObservation`驱动当前控制器。service先对一次observation的train list建立唯一
+`trainId` lookup，再按logical owner稳定顺序驱动所有未暂停项；controller接收stamp及已解析的nullable train，
+但仍自行验证world/topology/epoch/train identity。它把物理tail经cursor投影后调用`LiveClaimTailRelease`；重复
+epoch为幂等no-op，registry shrink成功后才提交本地cursor。`Completed`返回后service才删除该控制器；错误stamp、
+train消失、cursor或release失败均锁存并恰好一次触发Stall，service保留fail-closed项并立即停止当前publication
+的后续owner dispatch。控制器不创建第二个claim或footprint，只缩小registry中已经存在的唯一claim。
+当前仍没有自动接入Core/Bukkit publication、持久化/reload恢复、provider-disable接管或clearance-margin策略。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail
@@ -168,7 +175,8 @@ route-progress path编译为`O(n)`时间和空间，其中`n`是已验证route o
 occurrence，为`O(1)`。cursor通常只检查当前
 occurrence，成本为`O(1)`；跨越片段时只顺序扫描实际跨过的suffix，整个未失败生命周期累计为摊销`O(n)`。
 终止性不匹配最多扫描剩余suffix一次，随后锁存fail closed为`O(1)`；不建立bucket、interval tree或全路线
-反向查询。
+反向查询。每次world observation dispatch额外用`O(t)`时间和空间构造一次train lookup（`t`为该观察的列车数），
+再以`O(c)`稳定遍历active controllers（`c`为当前claim owner数）；不会退化为每个controller重扫全部列车。
 
 ## 4. 目标签名与合同
 

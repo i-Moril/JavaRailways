@@ -3,8 +3,6 @@ package work.art1st.javarailways.basic.infrastructure
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -125,41 +123,43 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `immediate successful admission carries the initialized tail release controller`() {
-        val start = service { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+    fun `immediate successful admission installs a service-owned tail release controller`() {
+        val service = service { validated(resource("turnout/a")) }
+        val start = service.acquire(Any(), request(null))
 
         val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
-        val release = terminal.tailRelease!!.consume(
-            observation(epoch = observation.stamp.physicsEpoch + 1L)
-        )
+        val releases = service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L))
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, release)
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, releases.single().update)
+        assertEquals(terminal.result, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).result)
         assertTrue(registry.claimSnapshots().isEmpty())
-        assertSame(terminal.tailRelease, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).tailRelease)
+        assertTrue(service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 2L)).isEmpty())
     }
 
     @Test
-    fun `pending successful admission carries the same tail release only after ready`() {
+    fun `pending successful admission installs tail release only after ready`() {
         val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
-        val start = service(
+        val service = service(
             preparationActuator = InfrastructurePreparationActuator {
                 InfrastructurePreparationStart.Accepted(ticket)
             }
-        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+        ) { validated(resource("turnout/a")) }
+        val start = service.acquire(Any(), request(null))
 
         assertTrue(start is ProtectedRouteAdmissionStart.Pending)
         assertEquals(ProtectedRouteAdmissionProgress.Pending, start.poll())
+        assertTrue(service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).isEmpty())
         ticket.state = InfrastructurePreparationState.READY
         val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
-        assertNotNull(terminal.tailRelease)
-        assertSame(terminal.tailRelease, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).tailRelease)
+        assertEquals(terminal.result, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).result)
+        assertEquals(1, service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).size)
     }
 
     @Test
-    fun `successful replacement carries a new tail release controller`() {
+    fun `successful replacement swaps the service-owned tail release controller`() {
         val platformOwner = Any()
         val oldOwner = InfrastructureOwner("test:route/replace", 1L)
         val newOwner = InfrastructureOwner("test:route/replace", 2L)
@@ -173,20 +173,19 @@ class ProtectedRouteClaimServiceTest {
             as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, acquired.result.status)
-        assertNotNull(acquired.tailRelease)
         assertEquals(ProtectedRouteClaimStatus.REPLACED, replaced.result.status)
-        assertNotNull(replaced.tailRelease)
-        assertTrue(replaced.tailRelease !== acquired.tailRelease)
         assertEquals(listOf(newOwner), registry.claimSnapshots().map { it.owner })
+        val dispatch = service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).single()
+        assertEquals(newOwner, dispatch.owner)
     }
 
     @Test
-    fun `failed not-required and unchanged admissions do not invent tail release controllers`() {
+    fun `unchanged admission retains existing controller while other failures install nothing`() {
         val platformOwner = Any()
         val owner = InfrastructureOwner("test:route/live-owner", 1L)
         val admittedService = service { validated(resource("turnout/a")) }
         val admitted = admittedService.acquire(platformOwner, request(null, owner))
-        assertNotNull((admitted.poll() as ProtectedRouteAdmissionProgress.Terminal).tailRelease)
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, admitted.status)
 
         val unchanged = admittedService.acquire(platformOwner, request(null, owner)).poll()
             as ProtectedRouteAdmissionProgress.Terminal
@@ -199,11 +198,93 @@ class ProtectedRouteClaimServiceTest {
             .poll() as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.UNCHANGED, unchanged.result.status)
-        assertNull(unchanged.tailRelease)
         assertEquals(ProtectedRouteClaimStatus.NOT_REQUIRED, notRequired.result.status)
-        assertNull(notRequired.tailRelease)
         assertEquals(ProtectedRouteClaimStatus.PROTECTION_REQUIRED, rejected.result.status)
-        assertNull(rejected.tailRelease)
+        val retained = admittedService.consumeObservation(
+            observation(epoch = observation.stamp.physicsEpoch + 1L)
+        ).single()
+        assertEquals(owner, retained.owner)
+    }
+
+    @Test
+    fun `explicit release removes only the matching service-owned controller`() {
+        val platformOwner = Any()
+        val owner = InfrastructureOwner("test:route/release", 1L)
+        val service = service { validated(resource("turnout/a")) }
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, service.acquire(platformOwner, request(null, owner)).status)
+
+        assertEquals(
+            ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT,
+            service.release(platformOwner, owner.copy(revision = 2L)).status
+        )
+        assertEquals(owner, service.consumeObservation(observation).single().owner)
+        assertEquals(ProtectedRouteClaimStatus.RELEASED, service.release(platformOwner, owner).status)
+
+        assertTrue(service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).isEmpty())
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `observation dispatch resolves trains once and drives controllers in stable owner order`() {
+        val ownerB = InfrastructureOwner("test:route/b", 1L)
+        val ownerA = InfrastructureOwner("test:route/a", 1L)
+        val resourceA = resource("dispatch/a")
+        val resourceB = resource("dispatch/b")
+        validResources += resourceA
+        validResources += resourceB
+        observation = observation(train("train-a", 0.0, 1.0), train("train-b", 0.0, 1.0))
+        val service = service { request ->
+            validatedRequest(request, if (request.owner == ownerA) resourceA else resourceB, 50.0)
+        }
+
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(Any(), request(null, ownerB, trainId = "train-b")).status
+        )
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(Any(), request(null, ownerA, trainId = "train-a")).status
+        )
+
+        val dispatch = service.consumeObservation(
+            observation(
+                train("train-b", 1.0, 2.0),
+                train("train-a", 1.0, 2.0),
+                epoch = observation.stamp.physicsEpoch + 1L
+            )
+        )
+
+        assertEquals(listOf(ownerA, ownerB), dispatch.map { it.owner })
+        assertEquals(listOf("train-a", "train-b"), dispatch.map { it.trainId })
+        assertTrue(dispatch.all { it.update is ProtectedRouteTailReleaseUpdate.Active })
+    }
+
+    @Test
+    fun `first fail-closed controller stops later stable-order dispatch`() {
+        val ownerA = InfrastructureOwner("test:route/a", 1L)
+        val ownerB = InfrastructureOwner("test:route/b", 1L)
+        val resourceA = resource("failure/a")
+        val resourceB = resource("failure/b")
+        validResources += resourceA
+        validResources += resourceB
+        observation = observation(train("train-a", 0.0, 1.0), train("train-b", 0.0, 1.0))
+        val stalls = mutableListOf<String>()
+        val service = service(stallWorld = { detail, _ -> stalls += detail }) { request ->
+            val resource = if (request.owner == ownerA) resourceA else resourceB
+            val threshold = if (request.owner == ownerA) 50.0 else 0.0
+            validatedRequest(request, resource, threshold)
+        }
+        service.acquire(Any(), request(null, ownerB, trainId = "train-b"))
+        service.acquire(Any(), request(null, ownerA, trainId = "train-a"))
+
+        val dispatch = service.consumeObservation(
+            observation(train("train-b", 1.0, 2.0), epoch = observation.stamp.physicsEpoch + 1L)
+        )
+
+        assertEquals(listOf(ownerA), dispatch.map { it.owner })
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.FailedClosed::class.java, dispatch.single().update)
+        assertEquals(1, stalls.size)
+        assertEquals(setOf(ownerA, ownerB), registry.claimSnapshots().map { it.owner }.toSet())
     }
 
     @Test
@@ -566,7 +647,6 @@ class ProtectedRouteClaimServiceTest {
             as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, terminal.result.status)
-        assertNull(terminal.tailRelease)
         assertTrue(registry.claimSnapshots().isEmpty())
         assertFalse(stalled)
     }
@@ -774,6 +854,10 @@ class ProtectedRouteClaimServiceTest {
 
         val replacement = service.replace(platformOwner, oldOwner, request(null, newOwner))
         assertTrue(replacement is ProtectedRouteAdmissionStart.Pending)
+        assertTrue(
+            service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).isEmpty(),
+            "the old controller must pause while replacement preparation is pending"
+        )
         assertEquals(
             InfrastructureMutationStatus.RESOURCE_CONFLICT,
             registry.acquireClaim(
@@ -807,6 +891,94 @@ class ProtectedRouteClaimServiceTest {
         val restored = registry.claimSnapshots().single()
         assertEquals(oldOwner, restored.owner)
         assertEquals(oldPlan.admission.resources, restored.footprint)
+        val resumed = service.consumeObservation(
+            observation(epoch = observation.stamp.physicsEpoch + 1L)
+        ).single()
+        assertEquals(oldOwner, resumed.owner)
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, resumed.update)
+    }
+
+    @Test
+    fun `immediate rejected replacement resumes old controller while unsafe starts keep it paused`() {
+        val platformOwner = Any()
+        val ownerIds = listOf("test:route/rejected", "test:route/throws", "test:route/invalid-ticket")
+        val resources = ownerIds.flatMap { ownerId ->
+            listOf(resource("$ownerId/old"), resource("$ownerId/new"))
+        }
+        validResources += resources
+        var mode = "ready"
+        val stalls = mutableListOf<String>()
+        val service = service(
+            preparationActuator = InfrastructurePreparationActuator {
+                when (mode) {
+                    "ready" -> accepted(InfrastructurePreparationState.READY)
+                    "rejected" -> InfrastructurePreparationStart.Rejected(
+                        IllegalStateException("rejected")
+                    )
+                    "throws" -> error("start failed")
+                    "invalid-ticket" -> InfrastructurePreparationStart.Accepted(
+                        object : InfrastructurePreparationTicket {
+                            override val ticketId = ""
+                            override fun snapshot() = InfrastructurePreparationSnapshot(
+                                "unreachable",
+                                InfrastructurePreparationState.PREPARING
+                            )
+                            override fun cancel() = Unit
+                        }
+                    )
+                    else -> error("unknown mode $mode")
+                }
+            },
+            stallWorld = { detail, _ -> stalls += detail }
+        ) { request ->
+            val suffix = if (request.owner.revision == 1L) "old" else "new"
+            validatedRequest(request, resource("${request.owner.ownerId}/$suffix"), 0.0)
+        }
+
+        ownerIds.forEach { ownerId ->
+            assertEquals(
+                ProtectedRouteClaimStatus.ACQUIRED,
+                service.acquire(platformOwner, request(null, InfrastructureOwner(ownerId, 1L))).status
+            )
+        }
+
+        mode = "rejected"
+        assertEquals(
+            ProtectedRouteClaimStatus.PREPARATION_FAILED,
+            service.replace(
+                platformOwner,
+                InfrastructureOwner(ownerIds[0], 1L),
+                request(null, InfrastructureOwner(ownerIds[0], 2L))
+            ).status
+        )
+        mode = "throws"
+        assertEquals(
+            ProtectedRouteClaimStatus.WORLD_STALLED,
+            service.replace(
+                platformOwner,
+                InfrastructureOwner(ownerIds[1], 1L),
+                request(null, InfrastructureOwner(ownerIds[1], 2L))
+            ).status
+        )
+        mode = "invalid-ticket"
+        assertEquals(
+            ProtectedRouteClaimStatus.WORLD_STALLED,
+            service.replace(
+                platformOwner,
+                InfrastructureOwner(ownerIds[2], 1L),
+                request(null, InfrastructureOwner(ownerIds[2], 2L))
+            ).status
+        )
+
+        val dispatch = service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L))
+
+        assertEquals(listOf(InfrastructureOwner(ownerIds[0], 1L)), dispatch.map { it.owner })
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, dispatch.single().update)
+        assertEquals(2, stalls.size)
+        assertEquals(
+            setOf(InfrastructureOwner(ownerIds[1], 2L), InfrastructureOwner(ownerIds[2], 2L)),
+            registry.claimSnapshots().map { it.owner }.toSet()
+        )
     }
 
     @Test
@@ -1034,15 +1206,16 @@ class ProtectedRouteClaimServiceTest {
         window: ProtectedRouteWindow?,
         owner: InfrastructureOwner = InfrastructureOwner("test:route/main", 1L),
         stamp: RailwayStateStamp = observation.stamp,
+        trainId: String = "train",
         routeStartMeters: Double = observation.trains
-            .firstOrNull { it.trainId == "train" }
+            .firstOrNull { it.trainId == trainId }
             ?.tail
             ?.arcLengthInAbMeters
             ?: 0.0
     ) = ProtectedRouteRequest(
         requestId = "test:request/main",
         owner = owner,
-        trainId = "train",
+        trainId = trainId,
         observationStamp = stamp,
         route = RouteSnapshot(
             "route",
@@ -1141,14 +1314,15 @@ class ProtectedRouteClaimServiceTest {
                 ?.tail
                 ?.arcLengthInAbMeters
                 ?: 0.0
-        )
+        ),
+        tailClearRouteMeters: Double = 0.0
     ): CompiledRouteAdmission {
         return CompiledRouteAdmission.create(
             footprint,
             preparations,
             occupancyGeometry,
             footprint.resources.map { resource ->
-                ResolvedTailReleaseEntry(resource, 0.0)
+                ResolvedTailReleaseEntry(resource, tailClearRouteMeters)
             },
             routeProgressPath
         )
@@ -1162,4 +1336,22 @@ class ProtectedRouteClaimServiceTest {
                 OccupancyQueryGeometry.create(emptyList())
             )
         )
+
+    private fun validatedRequest(
+        request: ProtectedRouteRequest,
+        resource: InfrastructureResource,
+        tailClearRouteMeters: Double
+    ) = ProtectedRouteValidation.Validated(
+        compiledAdmission(
+            InfrastructureFootprint(listOf(resource)),
+            emptyList(),
+            OccupancyQueryGeometry.create(emptyList()),
+            tailClearRouteMeters = tailClearRouteMeters,
+            routeProgressPath = testRouteProgressPath(
+                railId,
+                100.0,
+                request.route.segments.first().startArcLengthMeters
+            )
+        )
+    )
 }

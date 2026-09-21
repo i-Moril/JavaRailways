@@ -49,6 +49,17 @@ SimpleATO 将普通固定闭塞、保护区域和移动闭塞视为统一 author
 
 固定闭塞与保护区域不得在同一方向上重叠；Basic在同一个authority-partition transaction中校验并拒绝冲突，SimpleATO不维护第二套section store或重复执行空间校验。两种section向信号策略暴露一致的占用、长度、`canEnter`和下游限制读取面；definition、资源推导和claim始终只有Basic一个owner。
 
+长路线不一次申请全部资源。一个live grant接近当前authority boundary时，SimpleATO可以为**同一份**frozen route选择
+更远的desired boundary并提交extension intent；何时触发、向前看多远以及按固定/移动闭塞如何选目标属于SimpleATO运营
+策略。Basic不决定lookahead policy，只验证同一route/topology上的suffix、原子保留delta并准备新增设备。pending或denied
+extension不改变当前authority constraint；只有Basic在同一main-owner临界区完成append finalize、原controller队列
+安装并原子发布新committed grant boundary后，SimpleATO才从已提交grant视图生成更宽的authority constraint。
+
+extension不会把路线“原地改写”。topology、route revision、有序traversal、mission target或运营plan要求改变时，SimpleATO
+必须把它视为replan，并在站台等安全运营边界结束旧grant后重新准入；不得用extension、caller footprint或whole-claim
+replace绕过该边界。相同extension request identity的重试必须携带相同payload；Basic的typed stale/conflict/preparation
+结果由既有dispatcher策略消费，不允许SimpleATO通过新request不断制造并行pending extension。
+
 ### 3.3 单一列车保护管线
 
 车辆跟随、运营停车点、未获准进路、固定闭塞、信号限速、临时限速和线路限速都产生不可变 constraint candidates，随后由现有 ATO/ATP 控制骨架做一次最严格结果归约。MA 是该共享约束状态的输出/诊断视图，不是与 `FollowConstraint` 并行的第二套扫描器或控制器。
@@ -86,6 +97,9 @@ data class AutomaticRouteIntent(
 - 同一次选路只能组合一个 topology root、一个 coherent physics observation 和一个已应用运营 plan/overlay revision；不得拼接“最新”组件。
 - topology、overlay、mission 或 route target 改变后，旧 route 不会被就地改写；生成新 `routeRevision` 并重新准入。
 - Basic denial 不扩大 authority。现有安全 authority 保持或收紧，直到新 grant 成功。
+- 同一路线extension pending、conflict、RESTORED或普通validation failure时保持旧authority；只有Basic在delta
+  preparation READY后原子完成claim finalize、队列安装与新grant boundary publication，SimpleATO才消费该边界。
+  SimpleATO不拥有delta rollback或tail queue。
 - live grant 的 resource lifecycle 由 Basic 持有到目标列车进入并由车尾完全清除；SimpleATO mission replacement、插件 disable 或 route replan 不能直接提前释放。
 - applied timetable 在生效前完成路线/信号配置校验，并通过 host lease 锁定所引用基础设施；draft 保存不产生 lease。
 - physics worker 只消费不可变输入并产出 constraint/result；拓扑编辑、资源 claim、Bukkit side effect 按各 owner 的线程合同执行，SimpleATO callback 不阻塞 physics publication。
@@ -127,6 +141,8 @@ data class AutomaticRouteIntent(
 - route selection：方向限制、edge 内 virtual endpoint、零/一/多 turnout、纯环、无路线，且输入相同得到确定 traversal。
 - revision binding：route 与 topology revision 独立；任何 observation/topology/overlay stale 都不发请求、不扩大 authority。
 - admission client：请求没有第二份资源清单；`PROTECTION_REQUIRED`、conflict、`NOT_REQUIRED` 和 grant 分支均保持规定 lifecycle。
+- rolling extension：只沿同一frozen route发出更远boundary；幂等request不产生第二pending操作，pending/denied不扩大
+  authority，route/topology/plan改变走replan而非extension。client lookahead policy用独立策略测试，但其数值尚未冻结。
 - section composition：固定闭塞完整区间、保护区域、移动闭塞及出口后连续贡献；断言保护区域不查询后继。
 - control pipeline：车辆、停车、信号和 grant candidates 只做一次 perception，并归约到最严格 speed/authority。
 - retry：稳定配置错误 revision 不变时不逐 tick 重算；占用释放事件允许重新准入。
@@ -136,7 +152,9 @@ data class AutomaticRouteIntent(
 
 迁移顺序是：先稳定 Core `TopologyState` 与 Basic route-validation seam，再把当前 Basic 中的运营 route producer、mission/constraint owner 和 Dispatcher client 整体迁入 SimpleATO，最后迁移 Destination、Station、Depot、Line、Timetable 及其持久化/composition。每批只允许一个可写 owner。
 
-尚未冻结：完整 public type/package、路线 cost policy、overlay 持久化边界、信号 section 读取接口、JS setter/capability/预算、provider heartbeat，以及 WebUI 是否独立成模块。这些问题必须在对应实现批次单独审查；本页不替它们选择兼容格式。
+尚未冻结：完整 public type/package、rolling extension公开字段及failure token、client lookahead policy、路线 cost policy、
+overlay持久化边界、信号section读取接口、JS setter/capability/预算、provider heartbeat，以及WebUI是否独立成模块。这些
+问题必须在对应实现批次单独审查；本页不替它们选择兼容格式。
 
 ```text
 Wrong: SimpleATO selects a destination; Basic searches and chooses the physical route

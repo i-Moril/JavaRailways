@@ -133,6 +133,33 @@ identity，把tail投影为候选进度，registry shrink成功后才
 suffix extension。未来extension只沿同一冻结路线验证并原子追加；route plan变化在安全运营边界结束旧claim后
 重新准入，不通过whole-claim replace实现。
 
+目标registry为同一冻结路线的rolling extension提供internal append-only mutation，而不是复用通用replace。调用方提交
+完全匹配的platform owner、logical owner、现有grant identity以及由Basic compiler生成的非空、无重复delta identities；
+不得提交whole remaining footprint。registry在同一把锁内验证claim存在、owner精确匹配、没有另一个pending mutation、
+delta未被本claim按exact identity持有，并对delta执行正常provider/topology与其他claim冲突检查。全部通过才把delta保留
+为该claim的pending append；任一失败都不改变existing held set。
+
+pending append token只允许两个terminal操作：finalize把delta加入同一claim并保持原logical owner revision；rollback只删除
+本token的delta reservation。它不能删除或替换existing resources。pending期间该owner的shrink必须返回明确busy结果且无
+mutation；上层claim service按[同一冻结路线rolling suffix extension](./protected-route-admission.md#35-同一冻结路线的rolling-suffix-extension)
+暂停该owner的tail release，因此busy只用于锁定invariant而不是正常重试路径。若整批delta preparation在任何
+side effect前被actuator拒绝，可立即rollback；一旦actuator接受ticket，只有`RESTORED`后才可rollback。
+`UNSAFE`、rollback token/identity违约或无法证明只撤销delta时，registry保留existing claim与最安全的delta reservation并由
+上层Stall。整个过程不增加caller plan revision，也不使用generic claim replace伪造一次新owner。
+
+| append条件 | registry结果 | existing claim / delta |
+| --- | --- | --- |
+| 上层相同request identity与payload幂等命中 | 不再次调用registry | 不重复追加 |
+| owner/grant不匹配、已有pending mutation、空或重复delta | typed invalid/busy | existing不变；无delta |
+| delta与其他claim冲突或provider/topology失效 | typed conflict/stale/provider failure | existing不变；无delta |
+| begin append成功 | pending token | existing继续持有；delta reservation不可授权 |
+| finalize成功 | appended | 同一owner/revision持有existing + delta |
+| preparation在side effect前被拒绝且rollback成功 | rolled back | 只删除delta；existing不变 |
+| preparation恢复为`RESTORED`后rollback成功 | rolled back | 只删除delta；existing不变 |
+| `UNSAFE`或rollback invariant失败 | stalled/retained | 保留能证明安全的existing + delta reservation |
+
+具体internal方法名、token/result类名尚未冻结；上述原子性、同owner revision、只处理delta和shrink串行化是实现合同。
+
 ## 项目内正确示例
 
 Allocator先检查所有owner conflict，再apply：
@@ -170,6 +197,9 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - `InfrastructureLeaseRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
 - `LiveClaimTailReleaseTest.kt`：先shrink后出队、单调进度、重叠identity独立释放、unexpected result锁存
   fail closed、全部释放后的幂等completed。
+- registry append tests：只保留delta、与其他claim冲突时existing不变、owner/grant/pending校验、相同request幂等、
+  finalize保持logical owner revision、无side-effect拒绝和RESTORED rollback都只撤销delta、pending期间shrink无mutation、
+  rollback invariant失败保留reservation。
 - public consumer fixture：能构造多rail footprint并申请lease，但不能导入raw `InfrastructureClaimRequest`。
 
 ```bash

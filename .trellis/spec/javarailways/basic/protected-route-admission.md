@@ -115,12 +115,20 @@ conflict route extent；明确的运营安全余量来源、单位与组合规�
 
 `CompiledTailReleaseQueue`是immutable纯helper。它只接收同一冻结路线上的车尾route progress，从队首开始
 读取连续满足阈值的entry并返回immutable eligible prefix；遇到首个未清除entry立即停止，不扫描后续项，
-也不自行pop。非有限或负进度fail closed；进度单调性、倒车/传送/路线失配处理属于未来stateful grant
-owner，因为pure queue没有跨tick observation lifecycle。registry现已提供internal同步removal-only shrink：
-owner必须提交eligible prefix中的准确resource identities，registry在锁内验证exact claim/owner、pending状态和
-完整membership，并保持remaining footprint原顺序；部分清除保持同一个logical owner revision，全部清除删除
-claim。该操作不重验topology/provider或冲突，因为删除不会制造新冲突；重叠interval按身份独立删除。owner只
-能在成功后丢弃对应队首，unexpected failure必须fail closed。本批仍未把queue、grant owner与shrink串联。
+也不自行pop。registry提供internal同步removal-only shrink：调用方必须提交eligible prefix中的准确resource
+identities，registry在锁内验证exact claim/owner、pending状态和完整membership，并保持remaining footprint
+原顺序；部分清除保持同一个logical owner revision，全部清除删除claim。该操作不重验topology/provider或
+冲突，因为删除不会制造新冲突；重叠interval按身份独立删除。
+
+`LiveClaimTailRelease`把两者串成一个internal同步生命周期owner。它持有创建claim时的平台owner identity、
+准确logical owner、remaining immutable queue suffix和maximum accepted authoritative tail route progress。
+有效progress先由pure queue得到连续prefix；非空prefix必须先得到registry预期的`REPLACED`或`RELEASED`，随后
+才更新本地进度与suffix。非法或倒退progress、owner/claim/pending/closed等任何unexpected shrink结果都会
+锁存fail-closed结果，queue与maximum progress保持原值，后续调用不会把异常当成routine retry。最后一个prefix
+成功删除后进入completed，重复调用是无registry side effect的幂等no-op。它不负责从列车物理位置投影route
+progress；该输入必须已由未来grant lifecycle针对同一冻结route证明authoritative，后者也负责把fail-closed
+转换成Stall。若返回了与预期不同的successful mutation status，claim可能已变更；结果会用
+`claimMayHaveChanged=true`明确标记这一诊断状态，但仍不推进本地queue。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail
@@ -227,7 +235,10 @@ Basic service是world-local，因此platform-neutral request不重复携带world
 `ProtectedRouteClaimService`只接受Basic内部validation结果。validator异常映射为`VALIDATION_FAILED`，不得
 fallback到caller resources或partial rail-only claim。
 
-`request.owner`是调用方计划revision，不承担release过程中的registry CAS revision。每个成功grant获得独立稳定`grantId`和host-owned internal claim owner；同一plan内按车尾执行的prefix shrink只增加`claimRevision`。因此尾部逐段释放不会伪造新的调用方计划revision，cancel也不会因内部shrink而失去目标。
+`request.owner`是调用方计划revision，不承担release过程中的registry CAS revision。目标grant API仍将为每个
+成功grant分配独立稳定`grantId`和host-owned internal claim owner；当前internal removal-only prefix shrink保持
+该claim的exact logical owner/revision不变，只缩减footprint。因此尾部逐段释放不会伪造新的调用方计划
+revision，cancel也不会因内部shrink而失去目标。
 
 ## 5. 不变量、生命周期、线程与版本
 

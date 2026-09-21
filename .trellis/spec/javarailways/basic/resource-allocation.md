@@ -100,8 +100,19 @@ revision替换`Held`并返回`REPLACED`；若为空则删除claim并返回`RELEA
 Shrink不读取topology revision、不调用resource provider、不做overlap blocker查询，也不修改infrastructure
 preparation；删除既有身份不可能产生新冲突。它按`InfrastructureResource.equals`匹配身份，而不是按
 `overlaps`匹配范围，所以同一rail上两个不同但重叠的`RailIntervalResource`可以共存：释放其中一个后，
-另一个仍留在claim中继续保护其覆盖范围。当前pure tail queue尚未接入这个primitive；未来grant owner负责
-把eligible prefix提交给shrink，只在成功后推进自己的queue state，unexpected failure必须fail closed。
+另一个仍留在claim中继续保护其覆盖范围。
+
+内部`LiveClaimTailRelease`现在是这一段生命周期的唯一state owner。它保留registry、platform owner identity、
+完全匹配的`InfrastructureOwner`、immutable remaining queue suffix和已接受的最大authoritative tail route
+progress。每次advance只检查连续eligible prefix；非空prefix先提交给`shrinkClaim`，只有remaining非空得到
+`REPLACED`、remaining为空得到`RELEASED`后，才同时推进最大进度并替换本地queue suffix。仅进度有效但队首未
+清除时可以单独推进最大进度。非有限/负数、相对已接受值倒退，或任何非预期registry结果都会锁存同一个
+fail-closed结果，本地queue/progress保持原值，后续调用不重试shrink。正常failure result保证claim未变；若
+registry违反预期返回另一种successful status，则可能已经只减了claim，owner仍必须保留本地状态并Stall，不能
+把这一invariant mismatch当作成功；`FailedClosed.claimMayHaveChanged`会明确标记这种已返回successful
+status的诊断情况，而普通failure为false。全部释放后进入幂等completed
+状态，后续调用不再访问registry。该owner只消费调用方已投影好的authoritative route progress；位置投影、
+Stall响应和grant持久化仍属于后续grant lifecycle集成。
 
 ## 项目内正确示例
 
@@ -138,6 +149,8 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - `TimetableStationCallDispatcherTest.kt`：berth/old mission tail release。
 - `InfrastructureLeaseRegistryTest.kt`：shared leases、exclusive claims、held edit permit、owner revision、双重topology check、provider failure和无partial mutation。
 - `InfrastructureLeaseRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
+- `LiveClaimTailReleaseTest.kt`：先shrink后出队、单调进度、重叠identity独立释放、unexpected result锁存
+  fail closed、全部释放后的幂等completed。
 - public consumer fixture：能构造多rail footprint并申请lease，但不能导入raw `InfrastructureClaimRequest`。
 
 ```bash

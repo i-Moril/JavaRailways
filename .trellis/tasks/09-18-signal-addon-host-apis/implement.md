@@ -47,7 +47,11 @@
     explicit clearance-margin source, grant integration, provider-disable and reload recovery remain.
   - [x] Add an internal synchronous removal-only registry shrink that atomically removes exact
     resource identities while preserving the remaining claim order and logical owner revision.
-    Tail queue/grant integration and fail-closed lifecycle ownership remain.
+  - [x] Connect queue prefix inspection and exact registry shrink through one internal live-claim
+    lifecycle owner. It retains exact ownership, immutable suffix and monotonic accepted tail
+    progress; local state advances only after the expected atomic shrink result, while invalid or
+    unexpected results latch fail closed. Route-position projection, Stall wiring, grant
+    persistence, provider-disable and reload recovery remain.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation
@@ -64,7 +68,9 @@
   - [x] Add internal generic tail-clear queue metadata and immutable eligible-prefix inspection
     without per-resource occupancy state or live-claim mutation.
   - [x] Add exact-identity atomic live-claim shrink without topology revalidation, conflict lookup,
-    preparation changes, or queue/grant integration.
+    preparation changes, or public API changes.
+  - [x] Add the internal tail-release lifecycle owner that performs shrink-before-pop, preserves
+    overlapping identities independently, rejects decreasing progress, and completes idempotently.
 - [ ] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
 - [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.

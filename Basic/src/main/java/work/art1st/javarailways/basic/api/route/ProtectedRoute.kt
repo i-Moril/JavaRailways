@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.api.route
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlocker
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import java.util.Collections
 
@@ -69,6 +70,11 @@ data class ProtectedRouteWindow(
 /**
  * Immutable all-or-nothing request for at most one throat protection region on one frozen path.
  *
+ * [observationStamp] identifies the exact coherent world/physics observation from which the caller
+ * selected [trainId] and [route]. The route's topology revision must equal the stamp's topology
+ * revision; the host rejects either a mixed binding or a stamp that is no longer the latest
+ * published observation instead of combining state from different epochs.
+ *
  * A null [window] is valid only when authoritative validation confirms that [route] traverses no
  * controlled resource. A route that cannot safely wait before another throat must use one larger
  * authored protection region; runtime requests never combine multiple regions.
@@ -77,6 +83,7 @@ data class ProtectedRouteRequest(
     val requestId: String,
     val owner: InfrastructureOwner,
     val trainId: String,
+    val observationStamp: RailwayStateStamp,
     val route: RouteSnapshot,
     val window: ProtectedRouteWindow?
 ) {
@@ -105,6 +112,10 @@ enum class ProtectedRouteClaimStatus {
     PROTECTION_REQUIRED,
     /** The request did not use the current authoritative topology revision. */
     STALE_TOPOLOGY,
+    /** The request did not use the latest coherent world/physics observation. */
+    STALE_OBSERVATION,
+    /** Another train physically overlaps the compiled route occupancy geometry. */
+    PHYSICALLY_OCCUPIED,
     /** Region, boundary, route, or replacement semantics were invalid. */
     INVALID_REQUEST,
     /** Host route validation threw; no resource set was submitted. */
@@ -129,17 +140,29 @@ enum class ProtectedRouteClaimStatus {
 class ProtectedRouteClaimResult(
     val status: ProtectedRouteClaimStatus,
     blockers: Collection<InfrastructureBlocker> = emptyList(),
+    occupyingTrainIds: Collection<String> = emptyList(),
     val detail: String = ""
 ) {
     val blockers: List<InfrastructureBlocker> =
         Collections.unmodifiableList(ArrayList(blockers))
+    /** Immutable stable IDs of trains blocking a [ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED] request. */
+    val occupyingTrainIds: List<String> =
+        Collections.unmodifiableList(occupyingTrainIds.distinct().sorted())
 
     val successful: Boolean
         get() = status in SUCCESS_STATUSES
 
     init {
+        require(this.occupyingTrainIds.all(String::isNotBlank)) {
+            "occupyingTrainIds must not contain blank train IDs"
+        }
         require(status == ProtectedRouteClaimStatus.RESOURCE_CONFLICT || this.blockers.isEmpty()) {
             "blockers are only valid for RESOURCE_CONFLICT"
+        }
+        require(
+            (status == ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED) == this.occupyingTrainIds.isNotEmpty()
+        ) {
+            "occupyingTrainIds must be non-empty only for PHYSICALLY_OCCUPIED"
         }
     }
 

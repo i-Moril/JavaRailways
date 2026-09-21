@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.infrastructure
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
@@ -18,6 +19,7 @@ import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 internal class ProtectedRouteClaimService(
     private val registry: InfrastructureLeaseRegistry,
     private val currentTopologyRevision: () -> Long,
+    private val latestObservation: () -> RailwayObservation?,
     private val validate: (ProtectedRouteRequest) -> ProtectedRouteValidation
 ) {
     fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteClaimResult {
@@ -70,9 +72,31 @@ internal class ProtectedRouteClaimService(
         mapMutation(registry.releaseClaim(platformOwner, owner))
 
     private fun resolve(request: ProtectedRouteRequest): ResolutionResult {
-        if (request.route.topologyRevision != currentTopologyRevision()) {
+        if (request.route.topologyRevision != request.observationStamp.topologyRevision ||
+            request.route.topologyRevision != currentTopologyRevision()
+        ) {
             return ResolutionResult.Finished(
                 result(ProtectedRouteClaimStatus.STALE_TOPOLOGY, "request topology revision is stale")
+            )
+        }
+        val observation = latestObservation()
+            ?: return ResolutionResult.Finished(
+                result(ProtectedRouteClaimStatus.STALE_OBSERVATION, "no coherent railway observation is available")
+            )
+        if (request.observationStamp != observation.stamp) {
+            return ResolutionResult.Finished(
+                result(
+                    ProtectedRouteClaimStatus.STALE_OBSERVATION,
+                    "request observation does not match the latest coherent railway observation"
+                )
+            )
+        }
+        if (observation.trains.none { it.trainId == request.trainId }) {
+            return ResolutionResult.Finished(
+                result(
+                    ProtectedRouteClaimStatus.INVALID_REQUEST,
+                    "request train ${request.trainId} is absent from the coherent railway observation"
+                )
             )
         }
         val validation = try {
@@ -94,13 +118,50 @@ internal class ProtectedRouteClaimService(
                 )
             )
         }
+        if (latestObservation()?.stamp != observation.stamp) {
+            return ResolutionResult.Finished(
+                result(
+                    ProtectedRouteClaimStatus.STALE_OBSERVATION,
+                    "railway observation changed while resolving protected route"
+                )
+            )
+        }
         return when (validation) {
             ProtectedRouteValidation.NotRequired ->
                 ResolutionResult.Finished(result(ProtectedRouteClaimStatus.NOT_REQUIRED))
             is ProtectedRouteValidation.Rejected ->
                 ResolutionResult.Finished(result(validation.status, validation.detail))
-            is ProtectedRouteValidation.Validated ->
-                ResolutionResult.Plan(validation.admission)
+            is ProtectedRouteValidation.Validated -> {
+                val occupyingTrainIds = observation.occupancy.blockingTrainIds(
+                    validation.admission.occupancyGeometry.intervals,
+                    request.trainId
+                )
+                if (request.route.topologyRevision != currentTopologyRevision()) {
+                    ResolutionResult.Finished(
+                        result(
+                            ProtectedRouteClaimStatus.STALE_TOPOLOGY,
+                            "topology changed while checking protected-route occupancy"
+                        )
+                    )
+                } else if (latestObservation()?.stamp != observation.stamp) {
+                    ResolutionResult.Finished(
+                        result(
+                            ProtectedRouteClaimStatus.STALE_OBSERVATION,
+                            "railway observation changed while checking protected-route occupancy"
+                        )
+                    )
+                } else if (occupyingTrainIds.isNotEmpty()) {
+                    ResolutionResult.Finished(
+                        ProtectedRouteClaimResult(
+                            ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED,
+                            occupyingTrainIds = occupyingTrainIds,
+                            detail = "${occupyingTrainIds.size} train(s) physically block the protected route"
+                        )
+                    )
+                } else {
+                    ResolutionResult.Plan(validation.admission)
+                }
+            }
         }
     }
 

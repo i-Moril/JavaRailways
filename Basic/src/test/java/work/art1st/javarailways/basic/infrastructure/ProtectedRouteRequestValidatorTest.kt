@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary
@@ -647,6 +648,7 @@ class ProtectedRouteRequestValidatorTest {
         "test:request/main",
         InfrastructureOwner("test:route/main", 1L),
         "train",
+        RailwayStateStamp("world", 1L, route.topologyRevision),
         route,
         window
     )

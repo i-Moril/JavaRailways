@@ -51,7 +51,7 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 同一次验证还把物理查询范围编译为一个normalized `OccupancyQueryGeometry`。它由`entry..clearUntil`的已选路线interval、每个相关turnout全部port的零长度端点interval，以及每个route-bound resource binding的全部anchors组成；同rail重叠或容差内相邻interval会合并。turnout在当前Core模型中是端点间的零长度selectable continuation，因此检查全部port既能捕获跨在未选支路端点上的列车，也不重新引入固定`lockingDistance`。diamond两臂不改变拓扑连接，必须从同一个retained catalog snapshot加入全部anchors，不能只检查route命中的一臂。该geometry只用于authoritative occupancy查询，不进入`InfrastructureFootprint`、claim identity或持久化。
 
-该validator尚未把已编译geometry接入authoritative train envelope与admission transaction，也尚未实现多contributor closure、turnout apply/rollback或grant publication。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
+当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。validator仍未用完整train envelope实现多contributor closure，也尚未实现turnout apply/rollback或grant publication。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
@@ -96,8 +96,8 @@ resource全部anchors合并为一个immutable query geometry；构建时按rail�
 `O(i log i)`，其中`i`是本次编译产生的interval数。准入随后调用
 `blockingTrainIds`做bucket-local candidate lookup与exact overlap；该安全查询无candidate cap，结果排除
 明确指定的train、去重并按train ID稳定排序，每个合并interval只访问覆盖bucket与local candidates。
-geometry当前尚未接入admission transaction；接入时必须消费`CompiledRouteAdmission`中这一份结果，
-不能从claim footprint重建或再次扫描route。
+`ProtectedRouteClaimService`保留request stamp完全匹配的同一`RailwayObservation`，并在registry mutation前
+直接查询`CompiledRouteAdmission`中的这一份geometry；它不能从claim footprint重建或再次扫描route。
 
 准入顺序固定为`validate revisions -> occupancy -> atomic claim -> snapshot selections -> apply selections -> publish grant`。尾部释放不是看到“当前无车”就释放：每个release slice必须先观察到目标列车占用，再观察到目标列车完全分离，经历`BEFORE_OCCUPANCY -> OCCUPIED -> RELEASED`。prefix shrink只能删除已清除资源，不能添加原计划外资源。
 
@@ -105,9 +105,9 @@ geometry当前尚未接入admission transaction；接入时必须消费`Compiled
 
 以下是进入实现前仍需字段审查的目标shape，不是当前完整公开API。当前冻结路径
 `RouteSnapshot`已经携带自己的`topologyRevision`，`ProtectedRouteRequest`不得再复制该字段；
-catalog、projector和claim检查全部读取`request.route.topologyRevision`。接入物理占用前，请求仍须
-升级为完整`RailwayStateStamp`，并要求stamp的topology revision与route一致，不能把不同epoch的
-occupancy与topology拼接。
+catalog、projector和claim检查全部读取`request.route.topologyRevision`。当前过渡请求已携带完整
+`RailwayStateStamp`；stamp的topology revision必须与route一致，不能把不同epoch的occupancy与
+topology拼接。
 
 ```kotlin
 data class ProtectionBoundaryDefinition(
@@ -250,6 +250,13 @@ caller和add-on只提交自己选择的topology-bound有序edge traversal。Basi
 
 准入只在world owner的post-publication阶段执行；事务期间不能推进physics或并发修改topology。对外可见的grant只能在claim与全部turnout selection成功后发布。
 
+当前claim seam先保留一次`latestObservation()`返回的确切`RailwayObservation`，要求request stamp与
+其world、physics epoch、topology revision完全相等，且request train存在于同一观察。路线验证前检查
+route/stamp/current topology，验证后再次检查current topology和latest observation stamp；随后只在保留
+观察的occupancy index上查询`CompiledRouteAdmission.occupancyGeometry`，排除request train自身，并在
+提交registry前再次检查topology与latest stamp。任一阻挡结果以稳定train ID排序并返回
+`PHYSICALLY_OCCUPIED`，不得调用registry；空白train ID或在其他status携带occupying IDs均为非法result。
+
 ```text
 validate immutable route and collect one resource set
   -> recheck observation/topology/region revisions
@@ -280,6 +287,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 | 同一route离开anchor后再次命中同一resource | `INVALID_ROUTE` | 全不变；不把循环静默去重 |
 | observation physics epoch不是latest published | `STALE_OBSERVATION` | 全不变；重新观察后再解析 |
 | topology revision不匹配或解析中变化 | `STALE_TOPOLOGY` | 全不变 |
+| request train不在完全匹配的observation中 | `INVALID_REQUEST` | 全不变；不得查询其他epoch或live train |
 | region不存在、revision不匹配或definition未针对当前topology验证 | `STALE_REGION` | 全不变；等region/topology事件，不逐tick重试 |
 | entry/exit方向错误、路径离开内部后重入、同一occurrence重复贡献 | `INVALID_ROUTE` | 全不变 |
 | closure到route末端仍未满足净空、找不到合法authority endpoint或检测到循环 | `INSUFFICIENT_EXIT_CLEARANCE` / `CYCLIC_RESOURCE_DEPENDENCY` | 全不变 |

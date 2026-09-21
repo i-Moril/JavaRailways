@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.api.route
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -7,6 +8,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
@@ -33,10 +35,36 @@ class ProtectedRouteTest {
         }
     }
 
+    @Test
+    fun `physical occupancy result requires non-blank train ids and sorts them`() {
+        val result = ProtectedRouteClaimResult(
+            ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED,
+            occupyingTrainIds = listOf("z-train", "a-train", "z-train")
+        )
+
+        assertEquals(listOf("a-train", "z-train"), result.occupyingTrainIds)
+        assertThrows(IllegalArgumentException::class.java) {
+            ProtectedRouteClaimResult(ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            ProtectedRouteClaimResult(
+                ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED,
+                occupyingTrainIds = listOf(" ")
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            ProtectedRouteClaimResult(
+                ProtectedRouteClaimStatus.INVALID_REQUEST,
+                occupyingTrainIds = listOf("train")
+            )
+        }
+    }
+
     private fun request(window: ProtectedRouteWindow?) = ProtectedRouteRequest(
         requestId = "test:request/main",
         owner = InfrastructureOwner("test:route/main", 1L),
         trainId = "train",
+        observationStamp = RailwayStateStamp("world", 1L, 4L),
         route = RouteSnapshot(
             "route",
             2L,

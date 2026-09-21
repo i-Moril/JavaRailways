@@ -24,6 +24,7 @@ import work.art1st.javarailways.basic.api.route.ProtectionRegionRef;
 import work.art1st.javarailways.basic.api.route.ProtectionBoundaryDefinition;
 import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition;
 import work.art1st.javarailways.basic.api.route.ProtectionRegionProvider;
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp;
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
 
@@ -69,7 +70,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             getLogger().fine("Infrastructure lease result: " + result.getStatus());
 
             // Compile the protected-route contract without gaining access to raw live claims.
-            var protectedRoute = protectedRouteExample(observation.getStamp().getTopologyRevision());
+            var protectedRoute = protectedRouteExample(observation.getStamp());
             getLogger().fine("Protected-route request: " + protectedRoute.getRequestId());
             var regionProvider = protectionRegionProviderExample(
                 protectedRoute.getRoute().getSegments().get(0).getRailId()
@@ -94,12 +95,12 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         return Objects.requireNonNull(services, "plugin is not enabled");
     }
 
-    private static ProtectedRouteRequest protectedRouteExample(long topologyRevision) {
+    private static ProtectedRouteRequest protectedRouteExample(RailwayStateStamp observationStamp) {
         var railId = UUID.randomUUID();
         var route = new RouteSnapshot(
             "example.signaladdon:route/main",
             1L,
-            topologyRevision,
+            observationStamp.getTopologyRevision(),
             List.of(new RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 120.0))
         );
         var entry = boundary("example.signaladdon:boundary/entry", railId, 20.0);
@@ -115,6 +116,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             "example.signaladdon:request/main",
             new InfrastructureOwner("example.signaladdon:route/main", 1L),
             "example-train",
+            observationStamp,
             route,
             window
         );

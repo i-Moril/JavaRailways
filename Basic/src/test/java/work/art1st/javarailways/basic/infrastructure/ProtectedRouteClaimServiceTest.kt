@@ -9,22 +9,28 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary
 import work.art1st.javarailways.basic.api.route.ExitClearanceEnvelope
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
+import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.UUID
 
 class ProtectedRouteClaimServiceTest {
     private val railId = UUID.randomUUID()
     private var topologyRevision = 4L
+    private var observation = observation()
     private val validResources = mutableSetOf(
         resource("turnout/a"),
         resource("turnout/b")
@@ -127,6 +133,154 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
+    fun `stale observation world or epoch rejects before validation and claim mutation`() {
+        var validations = 0
+        val service = service {
+            validations++
+            validated(resource("turnout/a"))
+        }
+
+        val staleWorld = service.acquire(
+            Any(),
+            request(null, stamp = observation.stamp.copy(worldId = "other-world"))
+        )
+        val staleEpoch = service.acquire(
+            Any(),
+            request(null, stamp = observation.stamp.copy(physicsEpoch = observation.stamp.physicsEpoch - 1L))
+        )
+
+        assertEquals(ProtectedRouteClaimStatus.STALE_OBSERVATION, staleWorld.status)
+        assertEquals(ProtectedRouteClaimStatus.STALE_OBSERVATION, staleEpoch.status)
+        assertEquals(0, validations)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `missing latest observation fails closed before validation`() {
+        var validations = 0
+        val service = service(latestObservation = { null }) {
+            validations++
+            validated(resource("turnout/a"))
+        }
+
+        val result = service.acquire(Any(), request(null))
+
+        assertEquals(ProtectedRouteClaimStatus.STALE_OBSERVATION, result.status)
+        assertEquals(0, validations)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `observation topology must match both route and current topology`() {
+        val result = service { validated(resource("turnout/a")) }.acquire(
+            Any(),
+            request(null, stamp = observation.stamp.copy(topologyRevision = topologyRevision + 1L))
+        )
+
+        assertEquals(ProtectedRouteClaimStatus.STALE_TOPOLOGY, result.status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `request train must exist in the exact coherent observation`() {
+        observation = observation(train("another-train", 10.0, 20.0))
+
+        val result = service { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        assertEquals(ProtectedRouteClaimStatus.INVALID_REQUEST, result.status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `physical blockers are sorted immutable and prevent registry validation`() {
+        observation = observation(
+            train("train", 20.0, 30.0),
+            train("z-blocker", 25.0, 35.0),
+            train("a-blocker", 15.0, 25.0)
+        )
+        val missing = resource("turnout/missing")
+        val plan = CompiledRouteAdmission.create(
+            InfrastructureFootprint(listOf(missing)),
+            emptyList(),
+            OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0)))
+        )
+
+        val result = service { ProtectedRouteValidation.Validated(plan) }.acquire(Any(), request(null))
+
+        assertEquals(ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED, result.status)
+        assertEquals(listOf("a-blocker", "z-blocker"), result.occupyingTrainIds)
+        assertThrows(UnsupportedOperationException::class.java) {
+            @Suppress("UNCHECKED_CAST")
+            (result.occupyingTrainIds as MutableList<String>).clear()
+        }
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `request train is excluded from its own occupancy query`() {
+        observation = observation(train("train", 20.0, 30.0))
+        val plan = CompiledRouteAdmission.create(
+            InfrastructureFootprint(listOf(resource("turnout/a"))),
+            emptyList(),
+            OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0)))
+        )
+
+        val result = service { ProtectedRouteValidation.Validated(plan) }.acquire(Any(), request(null))
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, result.status)
+    }
+
+    @Test
+    fun `physical blocker prevents replacement and preserves the existing claim`() {
+        val platformOwner = Any()
+        val oldOwner = InfrastructureOwner("test:route/main", 1L)
+        val newOwner = InfrastructureOwner("test:route/main", 2L)
+        val plan = CompiledRouteAdmission.create(
+            InfrastructureFootprint(listOf(resource("turnout/a"))),
+            emptyList(),
+            OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0)))
+        )
+        val service = service { ProtectedRouteValidation.Validated(plan) }
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(platformOwner, request(null, oldOwner)).status
+        )
+        observation = observation(
+            train("train", 20.0, 30.0),
+            train("blocker", 25.0, 35.0),
+            epoch = observation.stamp.physicsEpoch + 1L
+        )
+
+        val result = service.replace(
+            platformOwner,
+            oldOwner,
+            request(null, newOwner, observation.stamp)
+        )
+
+        assertEquals(ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED, result.status)
+        assertEquals(listOf("blocker"), result.occupyingTrainIds)
+        assertEquals(listOf(oldOwner), registry.claimSnapshots().map { it.owner })
+    }
+
+    @Test
+    fun `observation change after occupancy query rejects before claim mutation`() {
+        val first = observation
+        val newer = observation(epoch = first.stamp.physicsEpoch + 1L)
+        var reads = 0
+        val service = service(
+            latestObservation = {
+                reads++
+                if (reads < 3) first else newer
+            }
+        ) { validated(resource("turnout/a")) }
+
+        val result = service.acquire(Any(), request(null, stamp = first.stamp))
+
+        assertEquals(ProtectedRouteClaimStatus.STALE_OBSERVATION, result.status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
     fun `conflicting complete requests expose blocker and preserve first claim`() {
         val service = service {
             validated(resource("turnout/a"))
@@ -191,20 +345,26 @@ class ProtectedRouteClaimServiceTest {
         assertEquals(listOf(selection), plan.turnoutSelections)
     }
 
-    private fun service(validate: (ProtectedRouteRequest) -> ProtectedRouteValidation) =
+    private fun service(
+        latestObservation: () -> RailwayObservation? = { observation },
+        validate: (ProtectedRouteRequest) -> ProtectedRouteValidation
+    ) =
         ProtectedRouteClaimService(
             registry,
             currentTopologyRevision = { topologyRevision },
+            latestObservation = latestObservation,
             validate = validate
         )
 
     private fun request(
         window: ProtectedRouteWindow?,
-        owner: InfrastructureOwner = InfrastructureOwner("test:route/main", 1L)
+        owner: InfrastructureOwner = InfrastructureOwner("test:route/main", 1L),
+        stamp: RailwayStateStamp = observation.stamp
     ) = ProtectedRouteRequest(
         requestId = "test:request/main",
         owner = owner,
         trainId = "train",
+        observationStamp = stamp,
         route = RouteSnapshot(
             "route",
             2L,
@@ -233,6 +393,45 @@ class ProtectedRouteClaimServiceTest {
     )
 
     private fun resource(id: String) = StableInfrastructureResource("test:controlled", id)
+
+    private fun observation(
+        vararg trains: TrainFrameSnapshot,
+        epoch: Long = 7L,
+        worldId: String = "world"
+    ): RailwayObservation {
+        val sourceFrames = trains.takeIf { it.isNotEmpty() } ?: arrayOf(train("train", 0.0, 1.0, epoch))
+        val frames = sourceFrames.map { frame ->
+            if (frame.physicsEpoch == epoch) frame else train(
+                frame.trainId,
+                frame.sweptSpans.single().minArcAB,
+                frame.sweptSpans.single().maxArcAB,
+                epoch
+            )
+        }
+        return RailwayObservation.fromCore(
+            worldId,
+            RailwayWorldFrameSnapshot.create(epoch, topologyRevision, frames)
+        )
+    }
+
+    private fun train(
+        id: String,
+        minArcMeters: Double,
+        maxArcMeters: Double,
+        epoch: Long = 7L
+    ) = TrainFrameSnapshot.create(
+        trainId = id,
+        trainName = id,
+        revision = 1L,
+        physicsEpoch = epoch,
+        speedMetersPerSecond = 0.0,
+        derailed = false,
+        reversed = false,
+        cars = emptyList(),
+        head = RailPositionSnapshot(railId, ViewDirection.AB, maxArcMeters),
+        tail = RailPositionSnapshot(railId, ViewDirection.AB, minArcMeters),
+        sweptSpans = listOf(SweptRailSpanSnapshot(railId, minArcMeters, maxArcMeters))
+    )
 
     private fun validated(vararg resources: StableInfrastructureResource) =
         ProtectedRouteValidation.Validated(

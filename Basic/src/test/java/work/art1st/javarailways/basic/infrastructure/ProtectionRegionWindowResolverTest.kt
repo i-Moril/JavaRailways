@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary
 import work.art1st.javarailways.basic.api.route.ExitClearanceEnvelope
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
@@ -208,6 +209,7 @@ class ProtectionRegionWindowResolverTest {
             requestId = "test:request/main",
             owner = InfrastructureOwner("test:route/main", 1L),
             trainId = "train",
+            observationStamp = RailwayStateStamp("world", 1L, route.topologyRevision),
             route = route,
             window = window
         )

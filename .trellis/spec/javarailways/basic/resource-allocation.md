@@ -114,10 +114,13 @@ status的诊断情况，而普通failure为false。全部释放后进入幂等co
 状态，后续调用不再访问registry。该owner只消费调用方已投影好的authoritative route progress；位置投影、
 Stall响应和grant持久化仍属于后续grant lifecycle集成。
 
-`CompiledRouteAdmission`现保留一次性从已验证冻结路线编译的`CompiledRouteProgressIndex`。它按准确
-`(railId, facing)`分桶，运行时只扫描目标bucket；重复物理位置若映射到不同route distances会返回显式
-`Ambiguous`，无匹配返回`OffRoute`。本批尚未把观察中的tail位置送入该index，也尚未连接
-`LiveClaimTailRelease`；grant owner必须在后续批次定义这些结果的Stall/lifecycle处理。
+`CompiledRouteAdmission`现保留一次性从已验证冻结路线编译的`CompiledRouteProgressPath`。它只按路线
+顺序保存cursor所需的rail、facing、canonical AB边界和累计route distance，不建立按rail反向查询的第二份
+索引。未来grant owner必须使用同epoch observation已经证明的准确occurrence index和物理车尾位置初始化
+cursor；初始化不会根据重复rail猜测anchor。之后cursor先匹配当前occurrence，只在不匹配时向后顺序扫描并
+选择第一个匹配项，从不回退。匹配结果低于已接受route distance或未匹配到当前位置都会锁存fail closed并
+保留原state。本批尚未决定grant如何取得初始anchor，也尚未读取observation或连接
+`LiveClaimTailRelease`。
 
 ## 项目内正确示例
 

@@ -98,7 +98,7 @@ class CompiledTailReleaseQueueTest {
             emptyList(),
             OccupancyQueryGeometry.create(emptyList()),
             admissionEntries,
-            testRouteProgressIndex()
+            testRouteProgressPath()
         )
         admissionEntries.clear()
         assertEquals(listOf(firstResource), admission.tailReleaseEntries.map { it.resource })
@@ -113,7 +113,7 @@ class CompiledTailReleaseQueueTest {
                 emptyList(),
                 OccupancyQueryGeometry.create(emptyList()),
                 listOf(entry(firstResource, 20.0)),
-                testRouteProgressIndex()
+                testRouteProgressPath()
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
@@ -122,7 +122,7 @@ class CompiledTailReleaseQueueTest {
                 emptyList(),
                 OccupancyQueryGeometry.create(emptyList()),
                 listOf(entry(firstResource, 20.0), entry(firstResource, 30.0)),
-                testRouteProgressIndex()
+                testRouteProgressPath()
             )
         }
     }

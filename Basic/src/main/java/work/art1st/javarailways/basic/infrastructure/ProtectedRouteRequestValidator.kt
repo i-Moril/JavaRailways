@@ -133,7 +133,7 @@ internal class ProtectedRouteRequestValidator(
                 preparations,
                 occupancyGeometry,
                 tailReleaseEntries,
-                CompiledRouteProgressIndex.compile(resolved.projection)
+                CompiledRouteProgressPath.compile(resolved.projection)
             )
         )
     }

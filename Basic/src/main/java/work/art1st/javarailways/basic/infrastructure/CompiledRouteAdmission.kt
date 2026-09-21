@@ -33,7 +33,7 @@ internal data class ResolvedTurnoutSelection(
  *
  * [resources] is the only footprint submitted to the atomic registry. [preparations] is ordered
  * operation metadata, [occupancyGeometry] is admission-time physical validation metadata, and
- * [tailReleaseEntries] plus [routeProgressIndex] are lifecycle metadata derived by the same
+ * [tailReleaseEntries] plus [routeProgressPath] are lifecycle metadata derived by the same
  * validation pass; none is another resource set. Preparation requirements use stable claim
  * resource identities and deliberately contain no revision-local topology node identity.
  */
@@ -42,7 +42,7 @@ internal class CompiledRouteAdmission private constructor(
     val preparations: List<InfrastructurePreparationRequirement>,
     val occupancyGeometry: OccupancyQueryGeometry,
     val tailReleaseEntries: List<ResolvedTailReleaseEntry>,
-    val routeProgressIndex: CompiledRouteProgressIndex
+    val routeProgressPath: CompiledRouteProgressPath
 ) {
     companion object {
         fun create(
@@ -50,7 +50,7 @@ internal class CompiledRouteAdmission private constructor(
             preparations: Collection<InfrastructurePreparationRequirement>,
             occupancyGeometry: OccupancyQueryGeometry,
             tailReleaseEntries: Collection<ResolvedTailReleaseEntry>,
-            routeProgressIndex: CompiledRouteProgressIndex
+            routeProgressPath: CompiledRouteProgressPath
         ): CompiledRouteAdmission {
             val immutablePreparations = java.util.List.copyOf(preparations)
             val immutableTailReleaseEntries = java.util.List.copyOf(tailReleaseEntries)
@@ -84,7 +84,7 @@ internal class CompiledRouteAdmission private constructor(
                 immutablePreparations,
                 occupancyGeometry,
                 immutableTailReleaseEntries,
-                routeProgressIndex
+                routeProgressPath
             )
         }
     }

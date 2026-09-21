@@ -130,15 +130,18 @@ progress；该输入必须已由未来grant lifecycle针对同一冻结route证�
 转换成Stall。若返回了与预期不同的successful mutation status，claim可能已变更；结果会用
 `claimMayHaveChanged=true`明确标记这一诊断状态，但仍不推进本地queue。
 
-同一次validation还把已验证`ProjectedTopologyRoute`编译成immutable
-`CompiledRouteProgressIndex`并挂到`CompiledRouteAdmission`。index以准确的
-`(railId, facing)`为key，将route occurrences分桶；每次物理位置查询只扫描对应bucket，按segment的
-canonical AB上下界与`Curve.TOLERANCE`筛选，再依据AB/BA方向换算route distance。位于相邻segment边界或
-零长度segment的多个candidate若全部落在一个geometry tolerance内，返回其中最小route coordinate作为保守
-的唯一结果；同一物理位置若因loop/重复rail occurrence映射到相差超过tolerance的多个route distances，则
-明确返回`Ambiguous`，不得用previous progress、最近或最远occurrence猜测。没有candidate返回`OffRoute`，
-不能解释为已离开route或已完成释放。该index只保存冻结路线的派生位置元数据，不是第二条路线、footprint或
-occupancy geometry；当前尚未读取`RailwayObservation`或调用`LiveClaimTailRelease`。
+同一次validation还把已验证`ProjectedTopologyRoute`精简成immutable
+`CompiledRouteProgressPath`并挂到`CompiledRouteAdmission`。path按冻结路线顺序只保存每个occurrence的
+rail、facing、canonical AB上下界、累计route起点和片段长度；它不是第二条可寻路路线、footprint或occupancy
+geometry。未来grant owner必须从同epoch observation取得明确的初始occurrence index，并用该index及物理车尾
+位置初始化`RouteProgressCursor`；初始化只验证指定occurrence，不全路线反查或猜测重复rail中的位置。
+
+cursor每次更新先按rail、facing、canonical AB边界与`Curve.TOLERANCE`匹配当前occurrence，并依据AB/BA方向
+换算route distance；因此相邻或零长度片段的共享边界确定地保留在较早occurrence，不会提前推进。当前项不匹配
+时才按路线顺序向后扫描，取第一个匹配occurrence并推进index；它从不向前跳过仍匹配的重复rail，也从不回扫。
+匹配结果低于已接受route distance，或没有当前/后续匹配时，均保留原state并锁存fail closed；后续调用不再
+扫描suffix，不得把任一失败解释为路线完成。
+当前尚未定义grant如何取得初始anchor，也尚未读取`RailwayObservation`或调用`LiveClaimTailRelease`。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail
@@ -148,10 +151,10 @@ bindings同样只做一次收集，最终entry排序为`O(s log s)`；运行时i
 索引进一步复用到validation的其他派生结果；不得退回resource乘occurrence的全扫描，也不得为优化增加
 第二份authoritative footprint。
 
-route-progress index编译为`O(n)`时间和空间，其中`n`是已验证route occurrence数；分桶保留route顺序，
-单次查询成本为`O(b)`，其中`b`仅是同一rail与facing的occurrence数，不扫描
-其他rail。真实路线通常`b`很小，因此在profile证明大量重复occurrence以前不引入interval tree或prefix-max
-结构；歧义时fail closed而不是扩大搜索或选择一个candidate。
+route-progress path编译为`O(n)`时间和空间，其中`n`是已验证route occurrence数。cursor通常只检查当前
+occurrence，成本为`O(1)`；跨越片段时只顺序扫描实际跨过的suffix，整个未失败生命周期累计为摊销`O(n)`。
+终止性不匹配最多扫描剩余suffix一次，随后锁存fail closed为`O(1)`；不建立bucket、interval tree或全路线
+反向查询。
 
 ## 4. 目标签名与合同
 
@@ -206,7 +209,7 @@ internal data class CompiledRouteAdmission(
     val resources: InfrastructureFootprint,
     val preparations: List<InfrastructurePreparationRequirement>,
     val tailReleaseEntries: List<ResolvedTailReleaseEntry>,
-    val routeProgressIndex: CompiledRouteProgressIndex
+    val routeProgressPath: CompiledRouteProgressPath
 )
 
 data class ProtectedRouteGrantId(val value: String)

@@ -991,7 +991,7 @@ class ProtectedRouteClaimServiceTest {
             footprint.resources.map { resource ->
                 ResolvedTailReleaseEntry(resource, 0.0)
             },
-            testRouteProgressIndex()
+            testRouteProgressPath()
         )
     }
 

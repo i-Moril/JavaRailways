@@ -53,6 +53,10 @@ class RouteBoundResourceCatalogTest {
         assertEquals(diamond, firstAb.resource)
         assertEquals(firstAb.resource, firstBa.resource)
         assertEquals(firstAb.resource, secondAb.resource)
+        assertEquals(
+            listOf(RailSliceRef(first, 2.0, 4.0), RailSliceRef(second, 6.0, 8.0)),
+            firstAb.occupancyAnchors
+        )
         assertEquals(2.0, firstAb.routeStartMeters)
         assertEquals(4.0, firstAb.routeEndMeters)
         assertEquals(6.0, firstBa.routeStartMeters)

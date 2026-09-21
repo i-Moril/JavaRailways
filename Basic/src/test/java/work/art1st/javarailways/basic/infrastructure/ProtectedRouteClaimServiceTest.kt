@@ -16,6 +16,7 @@ import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
@@ -151,7 +152,8 @@ class ProtectedRouteClaimServiceTest {
             12.0
         )
         val source = mutableListOf(selection)
-        val plan = CompiledRouteAdmission.create(InfrastructureFootprint(listOf(turnout)), source)
+        val geometry = OccupancyQueryGeometry.create(listOf(RailInterval(railId, 0.0, 1.0)))
+        val plan = CompiledRouteAdmission.create(InfrastructureFootprint(listOf(turnout)), source, geometry)
 
         source.clear()
 
@@ -159,7 +161,8 @@ class ProtectedRouteClaimServiceTest {
         assertThrows(IllegalArgumentException::class.java) {
             CompiledRouteAdmission.create(
                 InfrastructureFootprint(listOf(resource("turnout/a"))),
-                listOf(selection)
+                listOf(selection),
+                geometry
             )
         }
     }
@@ -176,7 +179,8 @@ class ProtectedRouteClaimServiceTest {
         )
         val plan = CompiledRouteAdmission.create(
             InfrastructureFootprint(listOf(turnout)),
-            listOf(selection)
+            listOf(selection),
+            OccupancyQueryGeometry.create(listOf(RailInterval(railId, 0.0, 1.0)))
         )
         val service = service { ProtectedRouteValidation.Validated(plan) }
 
@@ -234,7 +238,8 @@ class ProtectedRouteClaimServiceTest {
         ProtectedRouteValidation.Validated(
             CompiledRouteAdmission.create(
                 InfrastructureFootprint(resources.toList()),
-                emptyList()
+                emptyList(),
+                OccupancyQueryGeometry.create(emptyList())
             )
         )
 }

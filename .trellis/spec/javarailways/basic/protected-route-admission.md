@@ -49,7 +49,9 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`。每个受保护的`ProjectedTurnoutTraversal`同时派生一个`ResolvedTurnoutSelection(resource, fromPort, toPort, routeDistanceMeters)`；selection保持route顺序和行驶方向，但不保留revision-local `TopologyNodeId`或mutable `RailView`。footprint与selection一起封装成不可变`CompiledRouteAdmission`，且每个selection的稳定turnout resource必须在该footprint内且只出现一次。该名称表示验证完成但尚未取得资源；只有atomic registry成功记录owner与footprint后才存在live claim。`ProtectedRouteClaimService`在resolution中保留整个admission，只把`admission.resources`提交给现有atomic registry；本阶段尚不执行selection。
 
-该validator尚未接入occupancy geometry、authoritative train envelope、多contributor closure、turnout apply/rollback或grant publication。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
+同一次验证还把物理查询范围编译为一个normalized `OccupancyQueryGeometry`。它由`entry..clearUntil`的已选路线interval、每个相关turnout全部port的零长度端点interval，以及每个route-bound resource binding的全部anchors组成；同rail重叠或容差内相邻interval会合并。turnout在当前Core模型中是端点间的零长度selectable continuation，因此检查全部port既能捕获跨在未选支路端点上的列车，也不重新引入固定`lockingDistance`。diamond两臂不改变拓扑连接，必须从同一个retained catalog snapshot加入全部anchors，不能只检查route命中的一臂。该geometry只用于authoritative occupancy查询，不进入`InfrastructureFootprint`、claim identity或持久化。
+
+该validator尚未把已编译geometry接入authoritative train envelope与admission transaction，也尚未实现多contributor closure、turnout apply/rollback或grant publication。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
@@ -89,10 +91,13 @@ return one validated claim only after the full loop succeeds
 
 当前Core在完整physics epoch后构建一次`RailwayOccupancySnapshot`，并把同一immutable bucket index
 同时交给collision与`RailwayWorldFrameSnapshot`；Basic observation只保留该同epoch引用，不从train
-spans重建第二份world index。准入把同rail重叠的occupancy query geometry先合并，再调用
+spans重建第二份world index。validator已把已选路线interval、全部turnout endpoint点及route-bound
+resource全部anchors合并为一个immutable query geometry；构建时按rail分组、排序和合并，最坏为
+`O(i log i)`，其中`i`是本次编译产生的interval数。准入随后调用
 `blockingTrainIds`做bucket-local candidate lookup与exact overlap；该安全查询无candidate cap，结果排除
-明确指定的train、去重并按train ID稳定排序。它当前尚未接入admission transaction；道岔、菱形交叉等
-resource的完整authoritative physical geometry仍须由后续binding批次补齐，不能用claim rail footprint冒充。
+明确指定的train、去重并按train ID稳定排序，每个合并interval只访问覆盖bucket与local candidates。
+geometry当前尚未接入admission transaction；接入时必须消费`CompiledRouteAdmission`中这一份结果，
+不能从claim footprint重建或再次扫描route。
 
 准入顺序固定为`validate revisions -> occupancy -> atomic claim -> snapshot selections -> apply selections -> publish grant`。尾部释放不是看到“当前无车”就释放：每个release slice必须先观察到目标列车占用，再观察到目标列车完全分离，经历`BEFORE_OCCUPANCY -> OCCUPIED -> RELEASED`。prefix shrink只能删除已清除资源，不能添加原计划外资源。
 
@@ -292,6 +297,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - boundary在同rail内先排序；重复检测为排序后的相邻比较。region overlap通过rail ID索引后做slice exact comparison，不扫描无关rail。
 - route-bound anchors按rail分组并按canonical start排序，同时维护prefix maximum end；每个route occurrence先以二分跳过不可能命中的前缀，再扫描起点不晚于occurrence终点的candidate，成本为`O(log a + c)`，其中`a`是该rail的anchor数、`c`是二分后仍可能重叠的candidate数。不得每次准入扫描全部bindings；若实测出现大量嵌套anchor导致`c`显著大于真实命中数，再以区间树替换内部索引，不改变catalog合同。
 - 一次route admission对实际扫描到closure终点的冻结traversal做单调线性validation和资源收集；每个route occurrence至多处理一次，因此复杂度为`O(scanned edges + bound resources)`。occupancy复用Core每epoch已构建的32 m bucket index；合并后的每个查询interval成本为`O(covered buckets + unique local candidates)`，candidate按span去重后exact check，不扫描无关rail或全world trains。禁止`allTrains × allRegions`及Basic重复建索引。
+- occupancy query geometry对本次收集到的`i`个interval执行按rail分组、排序及线性合并，最坏为`O(i log i)`；route-bound resource直接复用同一catalog snapshot的完整anchors，道岔端点直接投影自同一`TopologyState`，不得为补全geometry做live rail或全catalog扫描。
 - unchanged stale region/topology是配置事件驱动的拒绝，不逐tick重算；资源冲突才按明确调度策略重试。
 - candidate/occupancy索引报告不完整、provider异常或revision变化时fail closed，不退化到live图扫描并继续授权。
 

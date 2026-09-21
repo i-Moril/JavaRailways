@@ -29,7 +29,9 @@ internal sealed interface RouteBoundResourceCatalogUpdate {
 internal data class RouteBoundResourceHit(
     val resource: StableInfrastructureResource,
     val routeStartMeters: Double,
-    val routeEndMeters: Double
+    val routeEndMeters: Double,
+    /** Every physical anchor of this resource from the retained catalog snapshot. */
+    val occupancyAnchors: List<RailSliceRef>
 )
 
 internal sealed interface RouteBoundResourceQuery {
@@ -115,7 +117,8 @@ internal class RouteBoundResourceCatalog(
                     rawHits += RouteBoundResourceHit(
                         indexed.resource,
                         min(firstRoute, secondRoute).coerceIn(clippedStart, clippedEnd),
-                        max(firstRoute, secondRoute).coerceIn(clippedStart, clippedEnd)
+                        max(firstRoute, secondRoute).coerceIn(clippedStart, clippedEnd),
+                        snapshot.bindings.getValue(indexed.resource).anchors
                     )
                 }
         }

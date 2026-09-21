@@ -19,6 +19,7 @@ import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition
 import work.art1st.javarailways.basic.api.route.ProtectionRegionProvider
 import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
@@ -65,6 +66,15 @@ class ProtectedRouteRequestValidatorTest {
             ),
             validated.admission.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
         )
+        assertEquals(
+            listOf(
+                RailInterval(fixture.trunk, 5.0, 10.0),
+                RailInterval(fixture.straight, 0.0, 10.0),
+                RailInterval(fixture.straightClearance, 0.0, 5.0),
+                RailInterval(fixture.branch, 0.0, 0.0)
+            ).sortedBy { it.railId.toString() },
+            validated.admission.occupancyGeometry.intervals
+        )
         val turnout = validated.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
         assertEquals(TurnoutResourceIdentity.TYPE_ID, turnout.typeId)
         assertEquals(
@@ -77,6 +87,40 @@ class ProtectedRouteRequestValidatorTest {
                 )
             ),
             validated.admission.turnoutSelections
+        )
+    }
+
+    @Test
+    fun `turnout query geometry includes the unselected branch endpoint without a fixed distance`() {
+        val fixture = throatFixture()
+        val validated = assertInstanceOf(
+            ProtectedRouteValidation.Validated::class.java,
+            fixture.validator.validate(
+                request(
+                    route(
+                        fixture,
+                        segment(fixture.trunk, ViewDirection.AB),
+                        segment(fixture.straight, ViewDirection.AB),
+                        segment(fixture.straightClearance, ViewDirection.AB)
+                    ),
+                    window(
+                        boundary("test:boundary/entry", fixture.trunk, ViewDirection.AB, 5.0, 5.0),
+                        boundary("test:boundary/straight", fixture.straight, ViewDirection.AB, 5.0, 15.0),
+                        boundary(
+                            "test:boundary/clear",
+                            fixture.straightClearance,
+                            ViewDirection.AB,
+                            5.0,
+                            25.0
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            RailInterval(fixture.branch, 0.0, 0.0),
+            validated.admission.occupancyGeometry.intervals.single { it.railId == fixture.branch }
         )
     }
 
@@ -377,6 +421,16 @@ class ProtectedRouteRequestValidatorTest {
         assertEquals(
             TurnoutResourceIdentity.TYPE_ID,
             validated.admission.turnoutSelections.single().resource.typeId
+        )
+        assertEquals(
+            listOf(
+                RailInterval(fixture.trunk, 5.0, 10.0),
+                RailInterval(fixture.straight, 0.0, 10.0),
+                RailInterval(fixture.straightClearance, 0.0, 5.0),
+                RailInterval(fixture.branch, 0.0, 0.0),
+                RailInterval(fixture.branchClearance, 1.0, 2.0)
+            ).sortedBy { it.railId.toString() },
+            validated.admission.occupancyGeometry.intervals
         )
     }
 

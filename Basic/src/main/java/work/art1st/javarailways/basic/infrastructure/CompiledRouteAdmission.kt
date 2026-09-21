@@ -26,17 +26,20 @@ internal data class ResolvedTurnoutSelection(
  * Immutable output of one successful frozen-route validation.
  *
  * [resources] is the only footprint submitted to the atomic registry. Turnout selections are
- * ordered operation metadata derived by the same validation pass; they are not another resource
- * set and deliberately contain no revision-local topology node identity.
+ * ordered operation metadata and [occupancyGeometry] is physical validation metadata derived by
+ * the same validation pass; neither is another resource set. They deliberately contain no
+ * revision-local topology node identity.
  */
 internal class CompiledRouteAdmission private constructor(
     val resources: InfrastructureFootprint,
-    val turnoutSelections: List<ResolvedTurnoutSelection>
+    val turnoutSelections: List<ResolvedTurnoutSelection>,
+    val occupancyGeometry: OccupancyQueryGeometry
 ) {
     companion object {
         fun create(
             resources: InfrastructureFootprint,
-            turnoutSelections: Collection<ResolvedTurnoutSelection>
+            turnoutSelections: Collection<ResolvedTurnoutSelection>,
+            occupancyGeometry: OccupancyQueryGeometry
         ): CompiledRouteAdmission {
             val immutableSelections = java.util.List.copyOf(turnoutSelections)
             val uniqueResourceCount = immutableSelections
@@ -49,7 +52,7 @@ internal class CompiledRouteAdmission private constructor(
             require(immutableSelections.all { it.resource in resources.resources }) {
                 "every turnout selection must be represented in the claim footprint"
             }
-            return CompiledRouteAdmission(resources, immutableSelections)
+            return CompiledRouteAdmission(resources, immutableSelections, occupancyGeometry)
         }
     }
 }

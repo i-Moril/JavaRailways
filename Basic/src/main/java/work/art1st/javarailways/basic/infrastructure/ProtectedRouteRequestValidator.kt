@@ -7,7 +7,11 @@ import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureRes
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
@@ -93,8 +97,9 @@ internal class ProtectedRouteRequestValidator(
                 "protected route traverses the same turnout resource more than once"
             )
         }
+        val selectedRouteIntervals = routeIntervals(resolved.projection.occurrences, entry, clearUntil)
         val resources = ArrayList<InfrastructureResource>()
-        resources += routeIntervals(resolved.projection.occurrences, entry, clearUntil)
+        resources += selectedRouteIntervals
         resources += (turnoutResources + routeBoundHits.map(RouteBoundResourceHit::resource))
             .distinct()
             .sortedWith(
@@ -105,8 +110,17 @@ internal class ProtectedRouteRequestValidator(
             )
         val footprint = InfrastructureFootprint(resources)
         val turnoutSelections = relevantTurnouts.map { it.toResolvedSelection() }
+        val occupancyGeometry = OccupancyQueryGeometry.create(
+            selectedRouteIntervals.map { it.toRailInterval() } +
+                turnoutOccupancyIntervals(resolved.projection.topology, relevantTurnouts) +
+                routeBoundHits.flatMap { hit ->
+                    hit.occupancyAnchors.map { anchor ->
+                        RailInterval(anchor.railId, anchor.startAbMeters, anchor.endAbMeters)
+                    }
+                }
+        )
         return ProtectedRouteValidation.Validated(
-            CompiledRouteAdmission.create(footprint, turnoutSelections)
+            CompiledRouteAdmission.create(footprint, turnoutSelections, occupancyGeometry)
         )
     }
 
@@ -158,6 +172,37 @@ internal class ProtectedRouteRequestValidator(
         fromPort = fromPort,
         toPort = toPort,
         routeDistanceMeters = routeDistanceMeters
+    )
+
+    /**
+     * A Core turnout is a zero-length selectable continuation between rail endpoints, not a
+     * separately occupied piece of track. Querying every incident endpoint catches a train spanning
+     * the selectable node from an unselected branch without inventing a legacy locking distance.
+     */
+    private fun turnoutOccupancyIntervals(
+        topology: TopologyState,
+        traversals: List<ProjectedTurnoutTraversal>
+    ): List<RailInterval> = traversals.flatMap { traversal ->
+        val turnout = topology.nodes[traversal.nodeId] as? TopologyNode.Turnout
+            ?: error("validated turnout traversal references a non-turnout node ${traversal.nodeId}")
+        check(TurnoutResourceIdentity.fromPorts(turnout.ports) == traversal.resource) {
+            "validated turnout traversal resource does not match retained topology"
+        }
+        turnout.ports.map { port ->
+            val projection = topology.railProjection.getValue(port.railId).single()
+            val railLength = max(projection.railStartAbMeters, projection.railEndAbMeters)
+            val endpointMeters = when (port.endpoint) {
+                RailEndpoint.A -> 0.0
+                RailEndpoint.B -> railLength
+            }
+            RailInterval(port.railId, endpointMeters, endpointMeters)
+        }
+    }
+
+    private fun RailIntervalResource.toRailInterval() = RailInterval(
+        railId,
+        startAbMeters,
+        endAbMeters
     )
 
     private fun rejectedProtection(detail: String) = ProtectedRouteValidation.Rejected(

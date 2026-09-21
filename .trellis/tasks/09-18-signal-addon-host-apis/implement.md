@@ -42,6 +42,9 @@
   - [x] After a successful claim, resolve each stable turnout port to both live directional views, snapshot every selection, apply all operations in frozen-route order, and compensate claim plus selections on failure. Exact acquire/replace rollback uses an opaque registry token; incomplete compensation retains the safest claim and returns `WORLD_STALLED` through the injected Stall owner.
   - [x] Generalize post-claim physical work to one internal ordered infrastructure-preparation batch: pending admission retains its claim mutation until `READY` or `RESTORED`, cancel initiates restoration, and identity/state/actuator failures retain rollback reservations and Stall. Turnout selection is the first requirement and the live `RailView` handler is the immediate implementation; duration, timeout, public handler registration and persistence remain outside this batch.
 - [ ] Release/recovery: entry observation, tail-clear slices, atomic footprint shrink, provider-disable and reload fail-closed behavior.
+  - [x] Compile immutable ordered release slices in the same validation pass and add a pure
+    owner-confined prefix tracker. Every claimed resource is covered exactly once; registry shrink,
+    grant integration, provider-disable and reload recovery remain.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation
@@ -55,6 +58,8 @@
 - [ ] Remove turnout-derived protection-point synthesis from route compilation and reject automatic mission activation when any controlled resource lacks complete explicit region coverage.
 - [ ] Centralize turnout mutation and add the physical-lock/active-claim checked manual operation that produces no automatic authority.
 - [ ] Replace turnout-derived release assumptions with region-entry/tail-exit and generic conflict-envelope release tracking.
+  - [x] Add internal generic release metadata and physical `BEFORE_OCCUPANCY -> OCCUPIED ->
+    RELEASED` prefix tracking without mutating the live claim.
 - [ ] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
 - [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.

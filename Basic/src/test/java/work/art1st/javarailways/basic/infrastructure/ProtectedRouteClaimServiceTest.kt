@@ -219,7 +219,7 @@ class ProtectedRouteClaimServiceTest {
             train("a-blocker", 15.0, 25.0)
         )
         val missing = resource("turnout/missing")
-        val plan = CompiledRouteAdmission.create(
+        val plan = compiledAdmission(
             InfrastructureFootprint(listOf(missing)),
             emptyList(),
             OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0)))
@@ -239,7 +239,7 @@ class ProtectedRouteClaimServiceTest {
     @Test
     fun `request train is excluded from its own occupancy query`() {
         observation = observation(train("train", 20.0, 30.0))
-        val plan = CompiledRouteAdmission.create(
+        val plan = compiledAdmission(
             InfrastructureFootprint(listOf(resource("turnout/a"))),
             emptyList(),
             OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0)))
@@ -255,7 +255,7 @@ class ProtectedRouteClaimServiceTest {
         val platformOwner = Any()
         val oldOwner = InfrastructureOwner("test:route/main", 1L)
         val newOwner = InfrastructureOwner("test:route/main", 2L)
-        val plan = CompiledRouteAdmission.create(
+        val plan = compiledAdmission(
             InfrastructureFootprint(listOf(resource("turnout/a"))),
             emptyList(),
             OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0)))
@@ -327,20 +327,20 @@ class ProtectedRouteClaimServiceTest {
         )
         val source = mutableListOf(selection)
         val geometry = OccupancyQueryGeometry.create(listOf(RailInterval(railId, 0.0, 1.0)))
-        val plan = CompiledRouteAdmission.create(InfrastructureFootprint(listOf(turnout)), source, geometry)
+        val plan = compiledAdmission(InfrastructureFootprint(listOf(turnout)), source, geometry)
 
         source.clear()
 
         assertEquals(listOf(selection), plan.preparations)
         assertThrows(IllegalArgumentException::class.java) {
-            CompiledRouteAdmission.create(
+            compiledAdmission(
                 InfrastructureFootprint(listOf(resource("turnout/a"))),
                 listOf(selection),
                 geometry
             )
         }
         assertThrows(IllegalArgumentException::class.java) {
-            CompiledRouteAdmission.create(
+            compiledAdmission(
                 InfrastructureFootprint(listOf(turnout)),
                 listOf(selection, selection),
                 geometry
@@ -358,7 +358,7 @@ class ProtectedRouteClaimServiceTest {
             RailEndpointRef(UUID(0L, 13L), RailEndpoint.A),
             8.0
         )
-        val plan = CompiledRouteAdmission.create(
+        val plan = compiledAdmission(
             InfrastructureFootprint(listOf(turnout)),
             listOf(selection),
             OccupancyQueryGeometry.create(listOf(RailInterval(railId, 0.0, 1.0)))
@@ -385,7 +385,7 @@ class ProtectedRouteClaimServiceTest {
         validResources += first.resource
         validResources += second.resource
         val committed = mutableListOf<List<InfrastructurePreparationRequirement>>()
-        var plan = CompiledRouteAdmission.create(
+        var plan = compiledAdmission(
             InfrastructureFootprint(listOf(resource("turnout/a"))),
             emptyList(),
             OccupancyQueryGeometry.create(emptyList())
@@ -400,7 +400,7 @@ class ProtectedRouteClaimServiceTest {
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, service.acquire(platform, request(null)).status)
         service.release(platform, request(null).owner)
-        plan = CompiledRouteAdmission.create(
+        plan = compiledAdmission(
             InfrastructureFootprint(listOf(first.resource, second.resource)),
             listOf(first, second),
             OccupancyQueryGeometry.create(emptyList())
@@ -672,7 +672,7 @@ class ProtectedRouteClaimServiceTest {
         }
         validResources += turnout.resource
         validResources += unsupportedResource
-        val plan = CompiledRouteAdmission.create(
+        val plan = compiledAdmission(
             InfrastructureFootprint(listOf(turnout.resource, unsupportedResource)),
             listOf(turnout, unsupported),
             OccupancyQueryGeometry.create(emptyList())
@@ -979,9 +979,26 @@ class ProtectedRouteClaimServiceTest {
         sweptSpans = listOf(SweptRailSpanSnapshot(railId, minArcMeters, maxArcMeters))
     )
 
+    private fun compiledAdmission(
+        footprint: InfrastructureFootprint,
+        preparations: Collection<InfrastructurePreparationRequirement>,
+        occupancyGeometry: OccupancyQueryGeometry
+    ): CompiledRouteAdmission {
+        val releaseGeometry = occupancyGeometry.takeIf { it.intervals.isNotEmpty() }
+            ?: OccupancyQueryGeometry.create(listOf(RailInterval(railId, 0.0, 0.0)))
+        return CompiledRouteAdmission.create(
+            footprint,
+            preparations,
+            occupancyGeometry,
+            footprint.resources.map { resource ->
+                ResolvedReleaseSlice.create(listOf(resource), releaseGeometry, 0.0, 0.0)
+            }
+        )
+    }
+
     private fun validated(vararg resources: InfrastructureResource) =
         ProtectedRouteValidation.Validated(
-            CompiledRouteAdmission.create(
+            compiledAdmission(
                 InfrastructureFootprint(resources.toList()),
                 emptyList(),
                 OccupancyQueryGeometry.create(emptyList())

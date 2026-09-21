@@ -89,6 +89,26 @@ class ProtectedRouteRequestValidatorTest {
             ),
             validated.admission.turnoutPreparations
         )
+        assertEquals(
+            validated.admission.resources.resources.toSet(),
+            validated.admission.releaseSlices.flatMap(ResolvedReleaseSlice::resources).toSet()
+        )
+        assertEquals(
+            validated.admission.resources.resources.size,
+            validated.admission.releaseSlices.sumOf { it.resources.size }
+        )
+        assertEquals(
+            validated.admission.releaseSlices.sortedBy { it.releaseAfterRouteMeters }
+                .map { it.releaseAfterRouteMeters },
+            validated.admission.releaseSlices.map { it.releaseAfterRouteMeters }
+        )
+        val turnoutRelease = validated.admission.releaseSlices.single { turnout in it.resources }
+        assertEquals(10.0, turnoutRelease.observeFromRouteMeters)
+        assertEquals(10.0, turnoutRelease.releaseAfterRouteMeters)
+        assertEquals(
+            setOf(fixture.trunk, fixture.straight, fixture.branch),
+            turnoutRelease.occupancyGeometry.intervals.map(RailInterval::railId).toSet()
+        )
     }
 
     @Test
@@ -181,6 +201,16 @@ class ProtectedRouteRequestValidatorTest {
         assertEquals(endpoint(fixture.branch, RailEndpoint.A), reverseSelection.fromPort)
         assertEquals(endpoint(fixture.trunk, RailEndpoint.B), reverseSelection.toPort)
         assertEquals(forwardSelection.resource, reverseSelection.resource)
+        val reverseRailRelease = reverse.admission.releaseSlices
+            .associateBy { slice ->
+                (slice.resources.single() as? RailIntervalResource)?.railId
+            }
+        assertEquals(5.0, reverseRailRelease.getValue(fixture.branch).observeFromRouteMeters)
+        assertEquals(10.0, reverseRailRelease.getValue(fixture.branch).releaseAfterRouteMeters)
+        assertEquals(10.0, reverseRailRelease.getValue(fixture.trunk).observeFromRouteMeters)
+        assertEquals(20.0, reverseRailRelease.getValue(fixture.trunk).releaseAfterRouteMeters)
+        assertEquals(20.0, reverseRailRelease.getValue(fixture.west).observeFromRouteMeters)
+        assertEquals(25.0, reverseRailRelease.getValue(fixture.west).releaseAfterRouteMeters)
     }
 
     @Test
@@ -505,6 +535,72 @@ class ProtectedRouteRequestValidatorTest {
         )
 
         assertEquals(1, validated.admission.resources.resources.count { it == turnout })
+    }
+
+    @Test
+    fun `repeated rail release metadata is gated by its final route occurrence`() {
+        val first = UUID(0L, 70L)
+        val second = UUID(0L, 71L)
+        val third = UUID(0L, 72L)
+        val topology = topologyState(
+            revision,
+            listOf(first, second, third),
+            listOf(
+                endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
+                endpoint(second, RailEndpoint.B) to endpoint(third, RailEndpoint.A),
+                endpoint(third, RailEndpoint.B) to endpoint(first, RailEndpoint.A)
+            )
+        )
+        val region = ProtectionRegionRef("test:region/loop", 1L)
+        val validator = validator(
+            topology,
+            ProtectionRegionDefinition(
+                region,
+                revision,
+                listOf(
+                    authored("test:boundary/loop-entry", first, ViewDirection.AB, 5.0),
+                    authored("test:boundary/loop-exit", third, ViewDirection.BA, 5.0)
+                )
+            )
+        )
+        val route = RouteSnapshot(
+            "test:route/loop",
+            1L,
+            revision,
+            listOf(
+                segment(first, ViewDirection.AB),
+                segment(second, ViewDirection.AB),
+                segment(third, ViewDirection.AB),
+                RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 5.0)
+            )
+        )
+
+        val loopValidation = validator.validate(
+            request(
+                route,
+                window(
+                    boundary("test:boundary/loop-entry", first, ViewDirection.AB, 5.0, 5.0),
+                    boundary("test:boundary/loop-exit", third, ViewDirection.AB, 5.0, 25.0),
+                    boundary("test:boundary/loop-clear", first, ViewDirection.AB, 5.0, 35.0),
+                    region
+                )
+            )
+        )
+        val validated = assertInstanceOf(
+            ProtectedRouteValidation.Validated::class.java,
+            loopValidation,
+            (loopValidation as? ProtectedRouteValidation.Rejected)?.detail
+        )
+
+        val repeatedRailResource = validated.admission.resources.resources
+            .filterIsInstance<RailIntervalResource>()
+            .single { it.railId == first }
+        val release = validated.admission.releaseSlices.single {
+            repeatedRailResource in it.resources
+        }
+        assertEquals(30.0, release.observeFromRouteMeters)
+        assertEquals(35.0, release.releaseAfterRouteMeters)
+        assertEquals(listOf(RailInterval(first, 0.0, 10.0)), release.occupancyGeometry.intervals)
     }
 
     @Test

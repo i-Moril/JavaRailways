@@ -119,8 +119,115 @@ internal class ProtectedRouteRequestValidator(
                     }
                 }
         )
+        val releaseSlices = releaseSlices(
+            footprint = footprint,
+            occurrences = resolved.projection.occurrences,
+            entryRouteMeters = entry,
+            clearUntilRouteMeters = clearUntil,
+            topology = resolved.projection.topology,
+            turnouts = relevantTurnouts,
+            routeBoundHits = routeBoundHits
+        )
         return ProtectedRouteValidation.Validated(
-            CompiledRouteAdmission.create(footprint, preparations, occupancyGeometry)
+            CompiledRouteAdmission.create(
+                footprint,
+                preparations,
+                occupancyGeometry,
+                releaseSlices
+            )
+        )
+    }
+
+    /** Compiles one lifecycle entry for every member of the already-final claim footprint. */
+    private fun releaseSlices(
+        footprint: InfrastructureFootprint,
+        occurrences: List<ProjectedRouteOccurrence>,
+        entryRouteMeters: Double,
+        clearUntilRouteMeters: Double,
+        topology: TopologyState,
+        turnouts: List<ProjectedTurnoutTraversal>,
+        routeBoundHits: List<RouteBoundResourceHit>
+    ): List<ResolvedReleaseSlice> {
+        val evidence = LinkedHashMap<InfrastructureResource, MutableReleaseEvidence>()
+
+        val railResourcesByRail = footprint.resources.filterIsInstance<RailIntervalResource>()
+            .groupBy(RailIntervalResource::railId)
+            .mapValues { (railId, resources) ->
+                resources.sortedBy(RailIntervalResource::startAbMeters).also { sorted ->
+                    check(sorted.zipWithNext().all { (first, second) ->
+                        first.endAbMeters < second.startAbMeters
+                    }) {
+                        "release index requires disjoint claim intervals on rail $railId"
+                    }
+                }
+            }
+        railResourcesByRail.values.flatten().forEach { resource ->
+            evidence.getOrPut(resource, ::MutableReleaseEvidence).intervals += resource.toRailInterval()
+        }
+        occurrences.forEach { occurrence ->
+            val clippedStart = max(entryRouteMeters, occurrence.routeStartMeters)
+            val clippedEnd = min(clearUntilRouteMeters, occurrence.routeEndMeters)
+            if (clippedEnd <= clippedStart) return@forEach
+            val firstCanonical = occurrence.canonicalAt(clippedStart)
+            val secondCanonical = occurrence.canonicalAt(clippedEnd)
+            val occurrenceStart = min(firstCanonical, secondCanonical)
+            val occurrenceEnd = max(firstCanonical, secondCanonical)
+            val railResources = railResourcesByRail[occurrence.segment.railId] ?: return@forEach
+
+            // Resources on one rail are disjoint and ordered. Binary search skips the prefix that
+            // ends before this occurrence, then only actual overlap candidates are inspected.
+            var resourceIndex = railResources.lowerBoundByEnd(occurrenceStart)
+            while (resourceIndex < railResources.size) {
+                val resource = railResources[resourceIndex]
+                if (resource.startAbMeters > occurrenceEnd) break
+                val overlapStart = max(occurrenceStart, resource.startAbMeters)
+                val overlapEnd = min(occurrenceEnd, resource.endAbMeters)
+                if (overlapEnd >= overlapStart) {
+                    val firstRoute = occurrence.routeAtCanonical(overlapStart)
+                    val secondRoute = occurrence.routeAtCanonical(overlapEnd)
+                    evidence.getValue(resource).recordPassage(
+                        min(firstRoute, secondRoute),
+                        max(firstRoute, secondRoute)
+                    )
+                }
+                resourceIndex++
+            }
+        }
+
+        turnouts.forEach { traversal ->
+            val accumulator = evidence.getOrPut(traversal.resource, ::MutableReleaseEvidence)
+            turnoutOccupancyIntervals(topology, listOf(traversal)).forEach { interval ->
+                accumulator.record(interval, traversal.routeDistanceMeters, traversal.routeDistanceMeters)
+            }
+        }
+        routeBoundHits.forEach { hit ->
+            val accumulator = evidence.getOrPut(hit.resource, ::MutableReleaseEvidence)
+            hit.occupancyAnchors.forEach { anchor ->
+                accumulator.record(
+                    RailInterval(anchor.railId, anchor.startAbMeters, anchor.endAbMeters),
+                    hit.routeStartMeters,
+                    hit.routeEndMeters
+                )
+            }
+        }
+
+        return footprint.resources.map { resource ->
+            val resolved = checkNotNull(evidence[resource]) {
+                "claimed resource has no release evidence: $resource"
+            }
+            check(resolved.hasPassage) {
+                "claimed resource has no validated route occurrence: $resource"
+            }
+            ResolvedReleaseSlice.create(
+                resources = listOf(resource),
+                occupancyGeometry = OccupancyQueryGeometry.create(resolved.intervals),
+                observeFromRouteMeters = resolved.observeFromRouteMeters,
+                releaseAfterRouteMeters = resolved.releaseAfterRouteMeters
+            )
+        }.sortedWith(
+            compareBy<ResolvedReleaseSlice>(ResolvedReleaseSlice::releaseAfterRouteMeters)
+                .thenBy(ResolvedReleaseSlice::observeFromRouteMeters)
+                .thenBy { it.resources.single().toString() }
         )
     }
 
@@ -167,6 +274,14 @@ internal class ProtectedRouteRequestValidator(
         }
     }
 
+    private fun ProjectedRouteOccurrence.routeAtCanonical(canonicalAbMeters: Double): Double {
+        val offset = when (segment.facing) {
+            ViewDirection.AB -> canonicalAbMeters - canonicalStartAbMeters
+            ViewDirection.BA -> canonicalStartAbMeters - canonicalAbMeters
+        }
+        return (routeStartMeters + offset).coerceIn(routeStartMeters, routeEndMeters)
+    }
+
     private fun ProjectedTurnoutTraversal.toResolvedSelection() = ResolvedTurnoutSelection(
         resource = resource,
         fromPort = fromPort,
@@ -204,6 +319,44 @@ internal class ProtectedRouteRequestValidator(
         startAbMeters,
         endAbMeters
     )
+
+    private fun List<RailIntervalResource>.lowerBoundByEnd(canonicalMeters: Double): Int {
+        var low = 0
+        var high = size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (this[middle].endAbMeters < canonicalMeters) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
+
+    private class MutableReleaseEvidence {
+        val intervals = ArrayList<RailInterval>()
+        var observeFromRouteMeters: Double = Double.NaN
+            private set
+        var releaseAfterRouteMeters: Double = Double.NaN
+            private set
+        val hasPassage: Boolean
+            get() = releaseAfterRouteMeters.isFinite()
+
+        fun record(interval: RailInterval, observeFrom: Double, releaseAfter: Double) {
+            intervals += interval
+            recordPassage(observeFrom, releaseAfter)
+        }
+
+        fun recordPassage(observeFrom: Double, releaseAfter: Double) {
+            if (releaseAfterRouteMeters.isNaN() || releaseAfter > releaseAfterRouteMeters ||
+                releaseAfter == releaseAfterRouteMeters && observeFrom > observeFromRouteMeters
+            ) {
+                observeFromRouteMeters = observeFrom
+                releaseAfterRouteMeters = releaseAfter
+            }
+        }
+    }
 
     private fun rejectedProtection(detail: String) = ProtectedRouteValidation.Rejected(
         ProtectedRouteClaimStatus.PROTECTION_REQUIRED,

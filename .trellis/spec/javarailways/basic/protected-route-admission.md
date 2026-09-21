@@ -101,6 +101,31 @@ resource全部anchors合并为一个immutable query geometry；构建时按rail�
 
 准入顺序固定为`validate revisions -> occupancy -> atomic claim -> snapshot selections -> apply selections -> publish grant`。尾部释放不是看到“当前无车”就释放：每个release slice必须先观察到目标列车占用，再观察到目标列车完全分离，经历`BEFORE_OCCUPANCY -> OCCUPIED -> RELEASED`。prefix shrink只能删除已清除资源，不能添加原计划外资源。
 
+当前内部实现已在生成`CompiledRouteAdmission`的同一次validation pass中编译有序
+`ResolvedReleaseSlice`。最终`InfrastructureFootprint`中的每个resource必须恰好出现在一个slice中；slice
+保存stable claimed resource、该resource的authoritative physical occupancy geometry，以及
+`observeFromRouteMeters..releaseAfterRouteMeters`门槛。rail interval使用其claim区间作为geometry；turnout
+使用同一topology root中全部port端点；route-bound resource使用retained binding的全部anchors。若同一
+resource由多个证据命中，geometry取并集，门槛取冻结路线上的最后一次命中，从而第一次经过同一rail或
+resource不会提前arm release。release metadata只是唯一footprint的生命周期索引，不可作为第二个claim。
+
+`CompiledRouteReleaseTracker`是main-owner confined纯状态机，只消费单调route progress与目标列车当前
+immutable `RailInterval`集合，不读取live `Train`、`RailView`或world index。进度到达slice最后一次命中的
+observe gate后才把物理interval交给Core `RailIntervalReleaseDetector`；即使head已经越过release gate，
+只要tail仍重叠，状态仍是`OCCUPIED`。完全分离后slice内部可变成`RELEASED`，但tracker只返回从当前首个
+未清除slice开始的新连续前缀，不能跳过洞或增加资源。route progress回退/非有限值会永久reject该tracker
+并fail closed。本批返回值尚未接入registry shrink或grant lifecycle。
+
+编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
+resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail
+resources，`n`为窗口内occurrences，`r_rail`为当前rail上的resource数，`o`为实际overlap数）。resource
+bindings同样只做一次收集，最终slice排序为`O(s log s)`；运行时
+每次update先做`O(s)` gate/prefix检查；对已到observe gate且尚未release的slice，Core detector最坏做
+`O(g_i*t)`重叠比较（`g_i`为该slice geometry interval数，`t`为目标列车interval数），所以一次update
+总上界为`O(s + t*sum(g_i))`。后续若rolling window显著增大，可在不改变合同的情况下把rail occurrence
+索引进一步复用到validation的其他派生结果；不得退回resource乘occurrence的全扫描，也不得为优化增加
+第二份authoritative footprint。
+
 ## 4. 目标签名与合同
 
 以下是进入实现前仍需字段审查的目标shape，不是当前完整公开API。当前冻结路径

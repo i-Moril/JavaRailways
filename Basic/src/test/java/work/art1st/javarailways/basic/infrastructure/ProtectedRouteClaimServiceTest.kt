@@ -151,13 +151,13 @@ class ProtectedRouteClaimServiceTest {
             12.0
         )
         val source = mutableListOf(selection)
-        val plan = ValidatedRouteClaim.create(InfrastructureFootprint(listOf(turnout)), source)
+        val plan = CompiledRouteAdmission.create(InfrastructureFootprint(listOf(turnout)), source)
 
         source.clear()
 
         assertEquals(listOf(selection), plan.turnoutSelections)
         assertThrows(IllegalArgumentException::class.java) {
-            ValidatedRouteClaim.create(
+            CompiledRouteAdmission.create(
                 InfrastructureFootprint(listOf(resource("turnout/a"))),
                 listOf(selection)
             )
@@ -174,7 +174,7 @@ class ProtectedRouteClaimServiceTest {
             RailEndpointRef(UUID(0L, 13L), RailEndpoint.A),
             8.0
         )
-        val plan = ValidatedRouteClaim.create(
+        val plan = CompiledRouteAdmission.create(
             InfrastructureFootprint(listOf(turnout)),
             listOf(selection)
         )
@@ -232,7 +232,7 @@ class ProtectedRouteClaimServiceTest {
 
     private fun validated(vararg resources: StableInfrastructureResource) =
         ProtectedRouteValidation.Validated(
-            ValidatedRouteClaim.create(
+            CompiledRouteAdmission.create(
                 InfrastructureFootprint(resources.toList()),
                 emptyList()
             )

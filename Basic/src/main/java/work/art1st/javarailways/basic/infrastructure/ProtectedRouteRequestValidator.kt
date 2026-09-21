@@ -106,7 +106,7 @@ internal class ProtectedRouteRequestValidator(
         val footprint = InfrastructureFootprint(resources)
         val turnoutSelections = relevantTurnouts.map { it.toResolvedSelection() }
         return ProtectedRouteValidation.Validated(
-            ValidatedRouteClaim.create(footprint, turnoutSelections)
+            CompiledRouteAdmission.create(footprint, turnoutSelections)
         )
     }
 
@@ -174,7 +174,7 @@ internal class ProtectedRouteRequestValidator(
 internal sealed interface ProtectedRouteValidation {
     data object NotRequired : ProtectedRouteValidation
 
-    data class Validated(val claim: ValidatedRouteClaim) : ProtectedRouteValidation
+    data class Validated(val admission: CompiledRouteAdmission) : ProtectedRouteValidation
 
     data class Rejected(
         val status: ProtectedRouteClaimStatus,

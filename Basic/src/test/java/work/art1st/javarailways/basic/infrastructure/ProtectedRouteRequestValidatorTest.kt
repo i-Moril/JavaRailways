@@ -63,9 +63,9 @@ class ProtectedRouteRequestValidatorTest {
                 RailIntervalResource(fixture.straight, 0.0, 10.0),
                 RailIntervalResource(fixture.straightClearance, 0.0, 5.0)
             ),
-            validated.claim.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
+            validated.admission.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
         )
-        val turnout = validated.claim.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
+        val turnout = validated.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
         assertEquals(TurnoutResourceIdentity.TYPE_ID, turnout.typeId)
         assertEquals(
             listOf(
@@ -76,7 +76,7 @@ class ProtectedRouteRequestValidatorTest {
                     10.0
                 )
             ),
-            validated.claim.turnoutSelections
+            validated.admission.turnoutSelections
         )
     }
 
@@ -123,14 +123,14 @@ class ProtectedRouteRequestValidatorTest {
                 RailIntervalResource(fixture.trunk, 0.0, 10.0),
                 RailIntervalResource(fixture.west, 5.0, 10.0)
             ),
-            reverse.claim.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
+            reverse.admission.resources.resources.filterIsInstance<RailIntervalResource>().toSet()
         )
         assertEquals(
-            forward.claim.resources.resources.filterIsInstance<StableInfrastructureResource>().single(),
-            reverse.claim.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
+            forward.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().single(),
+            reverse.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
         )
-        val forwardSelection = forward.claim.turnoutSelections.single()
-        val reverseSelection = reverse.claim.turnoutSelections.single()
+        val forwardSelection = forward.admission.turnoutSelections.single()
+        val reverseSelection = reverse.admission.turnoutSelections.single()
         assertEquals(endpoint(fixture.trunk, RailEndpoint.B), forwardSelection.fromPort)
         assertEquals(endpoint(fixture.branch, RailEndpoint.A), forwardSelection.toPort)
         assertEquals(endpoint(fixture.branch, RailEndpoint.A), reverseSelection.fromPort)
@@ -207,12 +207,12 @@ class ProtectedRouteRequestValidatorTest {
                 endpoint(firstTrunk, RailEndpoint.B) to endpoint(middle, RailEndpoint.A),
                 endpoint(secondTrunk, RailEndpoint.B) to endpoint(east, RailEndpoint.A)
             ),
-            validated.claim.turnoutSelections.map { it.fromPort to it.toPort }
+            validated.admission.turnoutSelections.map { it.fromPort to it.toPort }
         )
-        assertEquals(listOf(10.0, 30.0), validated.claim.turnoutSelections.map { it.routeDistanceMeters })
+        assertEquals(listOf(10.0, 30.0), validated.admission.turnoutSelections.map { it.routeDistanceMeters })
         assertEquals(
-            validated.claim.turnoutSelections.map(ResolvedTurnoutSelection::resource).toSet(),
-            validated.claim.resources.resources.filterIsInstance<StableInfrastructureResource>().toSet()
+            validated.admission.turnoutSelections.map(ResolvedTurnoutSelection::resource).toSet(),
+            validated.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().toSet()
         )
     }
 
@@ -372,9 +372,12 @@ class ProtectedRouteRequestValidatorTest {
             validator.validate(request)
         )
 
-        assertEquals(1, validated.claim.resources.resources.count { it == diamond })
-        assertEquals(1, validated.claim.turnoutSelections.size)
-        assertEquals(TurnoutResourceIdentity.TYPE_ID, validated.claim.turnoutSelections.single().resource.typeId)
+        assertEquals(1, validated.admission.resources.resources.count { it == diamond })
+        assertEquals(1, validated.admission.turnoutSelections.size)
+        assertEquals(
+            TurnoutResourceIdentity.TYPE_ID,
+            validated.admission.turnoutSelections.single().resource.typeId
+        )
     }
 
     @Test
@@ -446,7 +449,7 @@ class ProtectedRouteRequestValidatorTest {
             )
         )
 
-        assertEquals(1, validated.claim.resources.resources.count { it == turnout })
+        assertEquals(1, validated.admission.resources.resources.count { it == turnout })
     }
 
     @Test

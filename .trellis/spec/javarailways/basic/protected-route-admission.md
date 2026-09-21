@@ -47,7 +47,7 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 当前transitional `ProtectedRouteRequestValidator`从catalog取得同一topology root上的临时route occurrences和window。窗口存在时，它把`entry..clearUntil`与occurrences相交，按facing换算为每根rail的canonical AB interval，再按rail UUID排序并合并重叠或容差内相邻区间；`entry..exit`内的turnout resource加入同一个`InfrastructureFootprint`。`clearUntil`以前但窗口外的turnout返回`PROTECTION_REQUIRED`，同一turnout重复出现返回`INVALID_REQUEST`。窗口为空时，route没有turnout才返回`NOT_REQUIRED`。资源收集为`O(n log n)`最坏复杂度，其中`n`是截取范围内的route occurrences；它不读取live rail或扫描world。
 
-该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`。每个受保护的`ProjectedTurnoutTraversal`同时派生一个`ResolvedTurnoutSelection(resource, fromPort, toPort, routeDistanceMeters)`；selection保持route顺序和行驶方向，但不保留revision-local `TopologyNodeId`或mutable `RailView`。footprint与selection一起封装成不可变`ValidatedRouteClaim`，且每个selection的稳定turnout resource必须在该footprint内且只出现一次。`ProtectedRouteClaimService`在resolution中保留整个plan，只把`plan.resources`提交给现有atomic registry；本阶段尚不执行selection。
+该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`。每个受保护的`ProjectedTurnoutTraversal`同时派生一个`ResolvedTurnoutSelection(resource, fromPort, toPort, routeDistanceMeters)`；selection保持route顺序和行驶方向，但不保留revision-local `TopologyNodeId`或mutable `RailView`。footprint与selection一起封装成不可变`CompiledRouteAdmission`，且每个selection的稳定turnout resource必须在该footprint内且只出现一次。该名称表示验证完成但尚未取得资源；只有atomic registry成功记录owner与footprint后才存在live claim。`ProtectedRouteClaimService`在resolution中保留整个admission，只把`admission.resources`提交给现有atomic registry；本阶段尚不执行selection。
 
 该validator尚未接入occupancy geometry、authoritative train envelope、多contributor closure、turnout apply/rollback或grant publication。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
 
@@ -136,7 +136,7 @@ internal data class RouteBoundResourceCatalogSnapshot(
     val bindings: Map<StableInfrastructureResource, RouteBoundResourceBinding>
 )
 
-internal data class ValidatedRouteClaim(
+internal data class CompiledRouteAdmission(
     val request: RouteResourceRequest,
     val claimUntil: RouteBoundaryRef,
     val resources: InfrastructureFootprint,
@@ -173,7 +173,7 @@ interface BukkitRouteResourceService {
 
 Basic service是world-local，因此platform-neutral request不重复携带world ID；Bukkit facade显式接收world ID并路由到对应service。当前provider registration是迁移期输入adapter，不是保护区域的authoritative owner；目标API由Basic对definition执行create/update/delete并原子发布catalog，SimpleATOBukkit只是调用者。adapter disable只停止对应编辑/观察入口，不能隐式删除Basic定义。已准入live claim由host lifecycle owner持有，不能因为请求插件disable而直接释放。逻辑requester仍进入grant snapshot和诊断。
 
-上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal。公开请求只描述路线选择和目标，不增加第二份resource intent。`ValidatedRouteClaim.resources`是准入事务唯一消费的资源集合；turnout selections和release slices是操作/生命周期元数据，不是其他资源集合。调用方提供`trainId`，Basic从`observationStamp`对应的authoritative observation临时解析长度、方向和occupied intervals，不相信调用方自由填写的列车长度。
+上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal。公开请求只描述路线选择和目标，不增加第二份resource intent。`CompiledRouteAdmission.resources`是准入事务唯一消费的资源集合；turnout selections和release slices是操作/生命周期元数据，不是其他资源集合。调用方提供`trainId`，Basic从`observationStamp`对应的authoritative observation临时解析长度、方向和occupied intervals，不相信调用方自由填写的列车长度。
 
 `RouteResourceContributor`是Basic内部验证能力，不定义另一种footprint。它只能向当前验证过程增加标准`InfrastructureResource`、延长`claimUntil`并附加操作/释放元数据。资源绑定提供的physical occupancy geometry仅用于查询authoritative occupancy；它不进入request、claim identity或持久化模型。
 

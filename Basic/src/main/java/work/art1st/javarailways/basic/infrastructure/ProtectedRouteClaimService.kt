@@ -100,7 +100,7 @@ internal class ProtectedRouteClaimService(
             is ProtectedRouteValidation.Rejected ->
                 ResolutionResult.Finished(result(validation.status, validation.detail))
             is ProtectedRouteValidation.Validated ->
-                ResolutionResult.Plan(validation.claim)
+                ResolutionResult.Plan(validation.admission)
         }
     }
 
@@ -131,6 +131,6 @@ internal class ProtectedRouteClaimService(
 
     private sealed interface ResolutionResult {
         data class Finished(val result: ProtectedRouteClaimResult) : ResolutionResult
-        data class Plan(val value: ValidatedRouteClaim) : ResolutionResult
+        data class Plan(val value: CompiledRouteAdmission) : ResolutionResult
     }
 }

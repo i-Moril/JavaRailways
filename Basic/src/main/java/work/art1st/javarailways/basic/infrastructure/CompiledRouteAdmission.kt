@@ -29,7 +29,7 @@ internal data class ResolvedTurnoutSelection(
  * ordered operation metadata derived by the same validation pass; they are not another resource
  * set and deliberately contain no revision-local topology node identity.
  */
-internal class ValidatedRouteClaim private constructor(
+internal class CompiledRouteAdmission private constructor(
     val resources: InfrastructureFootprint,
     val turnoutSelections: List<ResolvedTurnoutSelection>
 ) {
@@ -37,7 +37,7 @@ internal class ValidatedRouteClaim private constructor(
         fun create(
             resources: InfrastructureFootprint,
             turnoutSelections: Collection<ResolvedTurnoutSelection>
-        ): ValidatedRouteClaim {
+        ): CompiledRouteAdmission {
             val immutableSelections = java.util.List.copyOf(turnoutSelections)
             val uniqueResourceCount = immutableSelections
                 .map(ResolvedTurnoutSelection::resource)
@@ -49,7 +49,7 @@ internal class ValidatedRouteClaim private constructor(
             require(immutableSelections.all { it.resource in resources.resources }) {
                 "every turnout selection must be represented in the claim footprint"
             }
-            return ValidatedRouteClaim(resources, immutableSelections)
+            return CompiledRouteAdmission(resources, immutableSelections)
         }
     }
 }

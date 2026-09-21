@@ -4,31 +4,216 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationR
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
-import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
+import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 
+/** Main-thread result of starting one protected-route admission. */
+internal sealed interface ProtectedRouteAdmissionStart {
+    @MainThread
+    fun poll(): ProtectedRouteAdmissionProgress
+
+    @MainThread
+    fun cancel()
+
+    /** Admission ended during start. Polling remains idempotent and cancellation is a no-op. */
+    data class Terminal(val result: ProtectedRouteClaimResult) : ProtectedRouteAdmissionStart {
+        override fun poll(): ProtectedRouteAdmissionProgress = ProtectedRouteAdmissionProgress.Terminal(result)
+        override fun cancel() = Unit
+    }
+
+    /** Admission owns a live claim transaction until [handle] reaches a terminal result. */
+    data class Pending(val handle: ProtectedRouteAdmissionHandle) : ProtectedRouteAdmissionStart {
+        override fun poll(): ProtectedRouteAdmissionProgress = handle.poll()
+        override fun cancel() = handle.cancel()
+    }
+}
+
+/** Result of polling a pending or already-terminal protected-route admission. */
+internal sealed interface ProtectedRouteAdmissionProgress {
+    data object Pending : ProtectedRouteAdmissionProgress
+    data class Terminal(val result: ProtectedRouteClaimResult) : ProtectedRouteAdmissionProgress
+}
+
 /**
- * Validates one protected-route request, claims its resource set, and commits every turnout.
+ * Owns one claim mutation while physical infrastructure preparation is pending.
  *
- * This is the host-side admission seam for the future public route-resource service. A grant is
- * not visible yet, so a successful return is the first point at which both the claim and all
- * direction-symmetric turnout selections have committed.
+ * A handle never publishes authority. It only finalizes the logical claim after physical
+ * confirmation, or restores the exact previous claim after physical restoration.
+ */
+internal class ProtectedRouteAdmissionHandle internal constructor(
+    private val registry: InfrastructureLeaseRegistry,
+    private val request: ProtectedRouteRequest,
+    private val claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
+    private val preparationTicket: InfrastructurePreparationTicket,
+    private val stallWorld: (String, Exception) -> Unit,
+    private val mapMutation: (InfrastructureMutationResult) -> ProtectedRouteClaimResult
+) {
+    val ticketId: String = preparationTicket.ticketId
+    private var lastState: InfrastructurePreparationState? = null
+    private var cancellationRequested = false
+    private var cancellationFailure: Exception? = null
+    private var terminal: ProtectedRouteClaimResult? = null
+
+    init {
+        require(ticketId.isNotBlank()) { "accepted infrastructure preparation ticket ID must not be blank" }
+    }
+
+    @MainThread
+    fun poll(): ProtectedRouteAdmissionProgress {
+        terminal?.let { return ProtectedRouteAdmissionProgress.Terminal(it) }
+        cancellationFailure?.let { failure ->
+            return finishStalled(
+                failure,
+                "infrastructure restoration could not be requested; claim and rollback reservation retained"
+            )
+        }
+        val snapshot = try {
+            preparationTicket.snapshot()
+        } catch (failure: Exception) {
+            return finishStalled(
+                failure,
+                "infrastructure preparation snapshot failed; claim and rollback reservation retained"
+            )
+        }
+        if (snapshot.ticketId != ticketId) {
+            return finishStalled(
+                IllegalStateException(
+                    "infrastructure preparation ticket identity changed from $ticketId to ${snapshot.ticketId}"
+                ),
+                "infrastructure preparation ticket identity changed; claim and rollback reservation retained"
+            )
+        }
+        if (!validTransition(lastState, snapshot.state)) {
+            return finishStalled(
+                IllegalStateException(
+                    "invalid infrastructure preparation transition ${lastState ?: "START"} -> ${snapshot.state}"
+                ),
+                "infrastructure preparation state contract was violated; claim and rollback reservation retained"
+            )
+        }
+        lastState = snapshot.state
+        return when (snapshot.state) {
+            InfrastructurePreparationState.PREPARING,
+            InfrastructurePreparationState.RESTORING -> ProtectedRouteAdmissionProgress.Pending
+            InfrastructurePreparationState.READY -> {
+                val completed = if (registry.completeClaimMutation(claimMutation)) {
+                    mapMutation(claimMutation.result)
+                } else {
+                    return finishStalled(
+                        IllegalStateException("claim transaction disappeared after infrastructure became ready"),
+                        "infrastructure preparation ready but the claim transaction could not be finalized"
+                    )
+                }
+                finish(completed)
+            }
+            InfrastructurePreparationState.RESTORED -> restoreClaim(snapshot.detail)
+            InfrastructurePreparationState.UNSAFE -> finishStalled(
+                IllegalStateException(snapshot.detail),
+                "infrastructure preparation state is unsafe; claim and rollback reservation retained: ${snapshot.detail}"
+            )
+        }
+    }
+
+    @MainThread
+    fun cancel() {
+        if (terminal != null || cancellationRequested) return
+        cancellationRequested = true
+        try {
+            preparationTicket.cancel()
+        } catch (failure: Exception) {
+            cancellationFailure = failure
+        }
+    }
+
+    private fun restoreClaim(preparationDetail: String): ProtectedRouteAdmissionProgress {
+        val claimRollback = registry.rollbackClaimMutation(claimMutation)
+        if (claimRollback.status in CLAIM_ROLLBACK_SUCCESS_STATUSES) {
+            return finish(
+                ProtectedRouteClaimResult(
+                    ProtectedRouteClaimStatus.PREPARATION_FAILED,
+                    detail = buildString {
+                        append("infrastructure preparation was restored and the admission claim was rolled back")
+                        if (preparationDetail.isNotBlank()) append(": $preparationDetail")
+                    }
+                )
+            )
+        }
+        return finishStalled(
+            IllegalStateException(
+                "infrastructure preparations were restored but claim rollback failed: " +
+                    "${claimRollback.status}: ${claimRollback.detail}"
+            ),
+            "infrastructure preparation was restored but the safest claim was retained"
+        )
+    }
+
+    private fun finish(result: ProtectedRouteClaimResult): ProtectedRouteAdmissionProgress.Terminal {
+        terminal = result
+        return ProtectedRouteAdmissionProgress.Terminal(result)
+    }
+
+    private fun finishStalled(
+        failure: Exception,
+        detail: String
+    ): ProtectedRouteAdmissionProgress.Terminal {
+        val stalled = ProtectedRouteClaimResult(ProtectedRouteClaimStatus.WORLD_STALLED, detail = detail)
+        stallWorld(
+            "protected-route admission ${request.requestId} for " +
+                "${request.owner.ownerId}@${request.owner.revision} entered fail-closed recovery: $detail",
+            failure
+        )
+        return finish(stalled)
+    }
+
+    private companion object {
+        val CLAIM_ROLLBACK_SUCCESS_STATUSES = setOf(
+            InfrastructureMutationStatus.RELEASED,
+            InfrastructureMutationStatus.REPLACED,
+            InfrastructureMutationStatus.UNCHANGED
+        )
+
+        fun validTransition(previous: InfrastructurePreparationState?, current: InfrastructurePreparationState): Boolean =
+            when (previous) {
+                null -> true
+                InfrastructurePreparationState.PREPARING -> current in setOf(
+                    InfrastructurePreparationState.PREPARING,
+                    InfrastructurePreparationState.RESTORING,
+                    InfrastructurePreparationState.READY,
+                    InfrastructurePreparationState.RESTORED,
+                    InfrastructurePreparationState.UNSAFE
+                )
+                InfrastructurePreparationState.RESTORING -> current in setOf(
+                    InfrastructurePreparationState.RESTORING,
+                    InfrastructurePreparationState.RESTORED,
+                    InfrastructurePreparationState.UNSAFE
+                )
+                InfrastructurePreparationState.READY,
+                InfrastructurePreparationState.RESTORED,
+                InfrastructurePreparationState.UNSAFE -> false
+            }
+    }
+}
+
+/**
+ * Validates one protected-route request, claims its resource set, and starts its complete ordered
+ * infrastructure-preparation batch. A successful claim result is returned only after the batch
+ * ticket is READY; no route grant or authority is published by this transitional seam.
  */
 internal class ProtectedRouteClaimService(
     private val registry: InfrastructureLeaseRegistry,
     private val currentTopologyRevision: () -> Long,
     private val latestObservation: () -> RailwayObservation?,
     private val validate: (ProtectedRouteRequest) -> ProtectedRouteValidation,
-    private val turnoutCommitter: TurnoutSelectionCommitter,
+    private val preparationActuator: InfrastructurePreparationActuator,
     private val stallWorld: (String, Exception) -> Unit
 ) {
     @MainThread
-    fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteClaimResult {
-        return when (val resolved = resolve(request)) {
-            is ResolutionResult.Finished -> resolved.result
-            is ResolutionResult.Plan -> commitAdmission(
+    fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteAdmissionStart =
+        when (val resolved = resolve(request)) {
+            is ResolutionResult.Finished -> ProtectedRouteAdmissionStart.Terminal(resolved.result)
+            is ResolutionResult.Plan -> startAdmission(
                 resolved.value,
                 registry.beginAcquireClaim(
                     platformOwner,
@@ -41,123 +226,123 @@ internal class ProtectedRouteClaimService(
                 request
             )
         }
-    }
 
     @MainThread
     fun replace(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
         request: ProtectedRouteRequest
-    ): ProtectedRouteClaimResult {
-        return when (val resolved = resolve(request)) {
-            is ResolutionResult.Finished -> {
-                if (resolved.result.status == ProtectedRouteClaimStatus.NOT_REQUIRED) {
-                    result(
-                        ProtectedRouteClaimStatus.INVALID_REQUEST,
-                        "replace cannot discard an existing protected-route claim; release it explicitly"
-                    )
-                } else {
-                    resolved.result
-                }
+    ): ProtectedRouteAdmissionStart = when (val resolved = resolve(request)) {
+        is ResolutionResult.Finished -> ProtectedRouteAdmissionStart.Terminal(
+            if (resolved.result.status == ProtectedRouteClaimStatus.NOT_REQUIRED) {
+                result(
+                    ProtectedRouteClaimStatus.INVALID_REQUEST,
+                    "replace cannot discard an existing protected-route claim; release it explicitly"
+                )
+            } else {
+                resolved.result
             }
-            is ResolutionResult.Plan -> commitAdmission(
-                resolved.value,
-                registry.beginReplaceClaim(
-                    platformOwner,
-                    expectedOwner,
-                    InfrastructureClaimRequest(
-                        request.route.topologyRevision,
-                        request.owner,
-                        resolved.value.resources
-                    )
-                ),
-                request
-            )
-        }
+        )
+        is ResolutionResult.Plan -> startAdmission(
+            resolved.value,
+            registry.beginReplaceClaim(
+                platformOwner,
+                expectedOwner,
+                InfrastructureClaimRequest(
+                    request.route.topologyRevision,
+                    request.owner,
+                    resolved.value.resources
+                )
+            ),
+            request
+        )
     }
 
     @MainThread
     fun release(platformOwner: Any, owner: InfrastructureOwner): ProtectedRouteClaimResult =
         mapMutation(registry.releaseClaim(platformOwner, owner))
 
-    private fun commitAdmission(
+    private fun startAdmission(
         admission: CompiledRouteAdmission,
         claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
         request: ProtectedRouteRequest
-    ): ProtectedRouteClaimResult {
+    ): ProtectedRouteAdmissionStart {
         val mutation = claimMutation.result
-        if (!mutation.successful) return mapMutation(mutation)
-        if (mutation.status == InfrastructureMutationStatus.UNCHANGED) {
-            return mapMutation(mutation)
+        if (!mutation.successful || mutation.status == InfrastructureMutationStatus.UNCHANGED) {
+            return ProtectedRouteAdmissionStart.Terminal(mapMutation(mutation))
         }
-        val turnoutCommit = try {
-            turnoutCommitter.commit(admission.turnoutSelections)
+        val started = try {
+            preparationActuator.start(admission.preparations)
         } catch (failure: Exception) {
-            TurnoutCommitResult.Failed(
-                failure,
-                listOf(IllegalStateException("turnout committer escaped without confirming rollback"))
-            )
-        }
-        return when (val commit = turnoutCommit) {
-            TurnoutCommitResult.Committed -> {
-                if (registry.completeClaimMutation(claimMutation)) {
-                    mapMutation(mutation)
-                } else {
-                    worldStalled(
-                        request,
-                        IllegalStateException("claim transaction disappeared after turnout commit"),
-                        "turnouts committed but the claim transaction could not be finalized"
-                    )
-                }
-            }
-            is TurnoutCommitResult.Failed -> compensateFailedTurnoutCommit(request, claimMutation, commit)
-        }
-    }
-
-    private fun compensateFailedTurnoutCommit(
-        request: ProtectedRouteRequest,
-        claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
-        commit: TurnoutCommitResult.Failed
-    ): ProtectedRouteClaimResult {
-        if (!commit.rollbackSucceeded) {
-            val failure = TurnoutRollbackException(commit.applyFailure, commit.rollbackFailures)
-            return worldStalled(
+            return stalledStart(
                 request,
                 failure,
-                "turnout commit failed and ${commit.rollbackFailures.size} selection rollback(s) failed; " +
-                    "claim and rollback reservation retained"
+                "infrastructure preparation actuator escaped while starting; claim and rollback reservation retained"
             )
         }
-        val claimRollback = registry.rollbackClaimMutation(claimMutation)
-        if (claimRollback.status in CLAIM_ROLLBACK_SUCCESS_STATUSES) {
-            return result(
-                ProtectedRouteClaimStatus.TURNOUT_COMMIT_FAILED,
-                "turnout commit failed and admission was restored: ${failureDetail(commit.applyFailure)}"
+        if (started is InfrastructurePreparationStart.Rejected) {
+            return rejectedStart(request, claimMutation, started.failure)
+        }
+        val ticket = (started as InfrastructurePreparationStart.Accepted).ticket
+        val handle = try {
+            ProtectedRouteAdmissionHandle(
+                registry,
+                request,
+                claimMutation,
+                ticket,
+                stallWorld,
+                ::mapMutation
+            )
+        } catch (failure: Exception) {
+            return stalledStart(
+                request,
+                failure,
+                "accepted preparation ticket was invalid; claim and rollback reservation retained"
             )
         }
-        val failure = IllegalStateException(
-            "turnout selections were restored but claim rollback failed: " +
-                "${claimRollback.status}: ${claimRollback.detail}",
-            commit.applyFailure
-        )
-        return worldStalled(
-            request,
-            failure,
-            "turnout commit failed; selections were restored but the safest claim was retained"
-        )
+        return when (val progress = handle.poll()) {
+            ProtectedRouteAdmissionProgress.Pending -> ProtectedRouteAdmissionStart.Pending(handle)
+            is ProtectedRouteAdmissionProgress.Terminal -> ProtectedRouteAdmissionStart.Terminal(progress.result)
+        }
     }
 
-    private fun worldStalled(
+    private fun rejectedStart(
+        request: ProtectedRouteRequest,
+        claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
+        failure: Exception
+    ): ProtectedRouteAdmissionStart {
+        val rollback = registry.rollbackClaimMutation(claimMutation)
+        return if (rollback.status in CLAIM_ROLLBACK_SUCCESS_STATUSES) {
+            ProtectedRouteAdmissionStart.Terminal(
+                result(
+                    ProtectedRouteClaimStatus.PREPARATION_FAILED,
+                    "infrastructure preparation was rejected before mutation and the admission claim was restored: " +
+                        failureDetail(failure)
+                )
+            )
+        } else {
+            stalledStart(
+                request,
+                IllegalStateException(
+                    "infrastructure preparation was rejected but claim rollback failed: ${rollback.status}: ${rollback.detail}",
+                    failure
+                ),
+                "infrastructure preparation was rejected but the safest claim was retained"
+            )
+        }
+    }
+
+    private fun stalledStart(
         request: ProtectedRouteRequest,
         failure: Exception,
         detail: String
-    ): ProtectedRouteClaimResult {
+    ): ProtectedRouteAdmissionStart.Terminal {
         stallWorld(
             "protected-route admission ${request.requestId} for ${request.owner.ownerId}@${request.owner.revision} " +
                 "entered fail-closed recovery: $detail",
             failure
         )
-        return result(ProtectedRouteClaimStatus.WORLD_STALLED, detail)
+        return ProtectedRouteAdmissionStart.Terminal(result(ProtectedRouteClaimStatus.WORLD_STALLED, detail))
     }
 
     private fun resolve(request: ProtectedRouteRequest): ResolutionResult {
@@ -194,8 +379,7 @@ internal class ProtectedRouteClaimService(
             return ResolutionResult.Finished(
                 result(
                     ProtectedRouteClaimStatus.VALIDATION_FAILED,
-                    "protected-route validation failed: " +
-                        failure::class.simpleName + ": " + failure.message.orEmpty()
+                    "protected-route validation failed: " + failureDetail(failure)
                 )
             )
         }
@@ -293,17 +477,5 @@ internal class ProtectedRouteClaimService(
 
         fun failureDetail(failure: Exception): String =
             failure::class.simpleName + ": " + failure.message.orEmpty()
-    }
-}
-
-private class TurnoutRollbackException(
-    applyFailure: Exception,
-    rollbackFailures: List<Exception>
-) : IllegalStateException(
-    "turnout commit failed and ${rollbackFailures.size} rollback(s) failed",
-    applyFailure
-) {
-    init {
-        rollbackFailures.forEach(::addSuppressed)
     }
 }

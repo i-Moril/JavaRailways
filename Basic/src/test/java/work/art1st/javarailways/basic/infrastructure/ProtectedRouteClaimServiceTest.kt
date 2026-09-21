@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.infrastructure
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -55,6 +56,19 @@ class ProtectedRouteClaimServiceTest {
         assertEquals(ProtectedRouteClaimStatus.NOT_REQUIRED, result.status)
         assertTrue(result.successful)
         assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `terminal start polling and cancellation are idempotent`() {
+        val start = service { ProtectedRouteValidation.NotRequired }.acquire(Any(), request(null))
+        val first = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        start.cancel()
+        start.cancel()
+        val second = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        assertSame(first.result, second.result)
+        assertEquals(ProtectedRouteClaimStatus.NOT_REQUIRED, second.result.status)
     }
 
     @Test
@@ -303,7 +317,7 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `validated plan copies selection order and requires each selection in its footprint`() {
+    fun `validated plan copies preparation order and requires one claimed resource per preparation`() {
         val turnout = StableInfrastructureResource(TurnoutResourceIdentity.TYPE_ID, "test:turnout/main")
         val selection = ResolvedTurnoutSelection(
             turnout,
@@ -317,7 +331,7 @@ class ProtectedRouteClaimServiceTest {
 
         source.clear()
 
-        assertEquals(listOf(selection), plan.turnoutSelections)
+        assertEquals(listOf(selection), plan.preparations)
         assertThrows(IllegalArgumentException::class.java) {
             CompiledRouteAdmission.create(
                 InfrastructureFootprint(listOf(resource("turnout/a"))),
@@ -325,10 +339,17 @@ class ProtectedRouteClaimServiceTest {
                 geometry
             )
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            CompiledRouteAdmission.create(
+                InfrastructureFootprint(listOf(turnout)),
+                listOf(selection, selection),
+                geometry
+            )
+        }
     }
 
     @Test
-    fun `claim service submits the plan footprint and commits selections in route order`() {
+    fun `claim service submits the plan footprint and starts preparations in route order`() {
         val turnout = StableInfrastructureResource(TurnoutResourceIdentity.TYPE_ID, "test:turnout/service")
         validResources += turnout
         val selection = ResolvedTurnoutSelection(
@@ -342,11 +363,11 @@ class ProtectedRouteClaimServiceTest {
             listOf(selection),
             OccupancyQueryGeometry.create(listOf(RailInterval(railId, 0.0, 1.0)))
         )
-        val committed = mutableListOf<List<ResolvedTurnoutSelection>>()
+        val committed = mutableListOf<List<InfrastructurePreparationRequirement>>()
         val service = service(
-            turnoutCommitter = TurnoutSelectionCommitter { selections ->
-                committed += selections
-                TurnoutCommitResult.Committed
+            preparationActuator = InfrastructurePreparationActuator { requirements ->
+                committed += requirements
+                accepted(InfrastructurePreparationState.READY)
             }
         ) { ProtectedRouteValidation.Validated(plan) }
 
@@ -358,21 +379,21 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `zero and multiple turnout admissions preserve compiled operation order`() {
+    fun `zero and multiple turnout admissions preserve compiled preparation order`() {
         val first = turnoutSelection("test:turnout/first", 21L, 22L, 4.0)
         val second = turnoutSelection("test:turnout/second", 23L, 24L, 9.0)
         validResources += first.resource
         validResources += second.resource
-        val committed = mutableListOf<List<ResolvedTurnoutSelection>>()
+        val committed = mutableListOf<List<InfrastructurePreparationRequirement>>()
         var plan = CompiledRouteAdmission.create(
             InfrastructureFootprint(listOf(resource("turnout/a"))),
             emptyList(),
             OccupancyQueryGeometry.create(emptyList())
         )
         val service = service(
-            turnoutCommitter = TurnoutSelectionCommitter { selections ->
-                committed += selections
-                TurnoutCommitResult.Committed
+            preparationActuator = InfrastructurePreparationActuator { requirements ->
+                committed += requirements
+                accepted(InfrastructurePreparationState.READY)
             }
         ) { ProtectedRouteValidation.Validated(plan) }
         val platform = Any()
@@ -391,18 +412,15 @@ class ProtectedRouteClaimServiceTest {
 
     @Test
     fun `turnout apply failure restores a newly acquired claim`() {
-        val failure = IllegalStateException("second turnout failed")
         var stalled = false
         val service = service(
-            turnoutCommitter = TurnoutSelectionCommitter {
-                TurnoutCommitResult.Failed(failure, emptyList())
-            },
+            preparationActuator = InfrastructurePreparationActuator { accepted(InfrastructurePreparationState.RESTORED) },
             stallWorld = { _, _ -> stalled = true }
         ) { validated(resource("turnout/a")) }
 
         val result = service.acquire(Any(), request(window("test:region/a", 0.0, 80.0, 100.0)))
 
-        assertEquals(ProtectedRouteClaimStatus.TURNOUT_COMMIT_FAILED, result.status)
+        assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, result.status)
         assertTrue(registry.claimSnapshots().isEmpty())
         assertFalse(stalled)
     }
@@ -415,20 +433,20 @@ class ProtectedRouteClaimServiceTest {
         val oldPlan = validated(resource("turnout/a"))
         val newPlan = validated(resource("turnout/b"))
         var validation: ProtectedRouteValidation = oldPlan
-        var commitResult: TurnoutCommitResult = TurnoutCommitResult.Committed
+        var preparationState = InfrastructurePreparationState.READY
         val service = service(
-            turnoutCommitter = TurnoutSelectionCommitter { commitResult }
+            preparationActuator = InfrastructurePreparationActuator { accepted(preparationState) }
         ) { validation }
         assertEquals(
             ProtectedRouteClaimStatus.ACQUIRED,
             service.acquire(platformOwner, request(null, oldOwner)).status
         )
         validation = newPlan
-        commitResult = TurnoutCommitResult.Failed(IllegalStateException("apply failed"), emptyList())
+        preparationState = InfrastructurePreparationState.RESTORED
 
         val result = service.replace(platformOwner, oldOwner, request(null, newOwner))
 
-        assertEquals(ProtectedRouteClaimStatus.TURNOUT_COMMIT_FAILED, result.status)
+        assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, result.status)
         val restored = registry.claimSnapshots().single()
         assertEquals(oldOwner, restored.owner)
         assertEquals(oldPlan.admission.resources, restored.footprint)
@@ -440,12 +458,7 @@ class ProtectedRouteClaimServiceTest {
         val owner = InfrastructureOwner("test:route/main", 1L)
         val stalls = mutableListOf<String>()
         val service = service(
-            turnoutCommitter = TurnoutSelectionCommitter {
-                TurnoutCommitResult.Failed(
-                    IllegalStateException("apply failed"),
-                    listOf(IllegalStateException("rollback failed"))
-                )
-            },
+            preparationActuator = InfrastructurePreparationActuator { accepted(InfrastructurePreparationState.UNSAFE) },
             stallWorld = { detail, _ -> stalls += detail }
         ) { validated(resource("turnout/a")) }
 
@@ -468,9 +481,9 @@ class ProtectedRouteClaimServiceTest {
         val oldPlan = validated(oldResource)
         val newPlan = validated(newResource)
         var validation: ProtectedRouteValidation = oldPlan
-        var commitResult: TurnoutCommitResult = TurnoutCommitResult.Committed
+        var preparationState = InfrastructurePreparationState.READY
         val service = service(
-            turnoutCommitter = TurnoutSelectionCommitter { commitResult },
+            preparationActuator = InfrastructurePreparationActuator { accepted(preparationState) },
             stallWorld = { _, _ -> }
         ) { validation }
         assertEquals(
@@ -478,10 +491,7 @@ class ProtectedRouteClaimServiceTest {
             service.acquire(platformOwner, request(null, oldOwner)).status
         )
         validation = newPlan
-        commitResult = TurnoutCommitResult.Failed(
-            IllegalStateException("apply failed"),
-            listOf(IllegalStateException("rollback failed"))
-        )
+        preparationState = InfrastructurePreparationState.UNSAFE
 
         assertEquals(
             ProtectedRouteClaimStatus.WORLD_STALLED,
@@ -513,9 +523,9 @@ class ProtectedRouteClaimServiceTest {
     fun `identical retry is unchanged and does not reapply turnouts`() {
         var commits = 0
         val service = service(
-            turnoutCommitter = TurnoutSelectionCommitter {
+            preparationActuator = InfrastructurePreparationActuator {
                 commits++
-                TurnoutCommitResult.Committed
+                accepted(InfrastructurePreparationState.READY)
             }
         ) { validated(resource("turnout/a")) }
         val platformOwner = Any()
@@ -527,10 +537,300 @@ class ProtectedRouteClaimServiceTest {
         assertEquals(1, registry.claimSnapshots().size)
     }
 
+    @Test
+    fun `pending actuation retains claim until confirmed and terminal polling is idempotent`() {
+        val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
+        val platformOwner = Any()
+        val owner = InfrastructureOwner("test:route/pending", 1L)
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) }
+        ) { validated(resource("turnout/a")) }.acquire(platformOwner, request(null, owner))
+
+        assertTrue(start is ProtectedRouteAdmissionStart.Pending)
+        assertEquals(ProtectedRouteAdmissionProgress.Pending, start.poll())
+        assertEquals(ProtectedRouteAdmissionProgress.Pending, start.poll())
+        assertEquals(listOf(owner), registry.claimSnapshots().map { it.owner })
+        assertEquals(
+            ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT,
+            service { validated(resource("turnout/a")) }.release(platformOwner, owner).status
+        )
+
+        ticket.state = InfrastructurePreparationState.READY
+        val firstTerminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+        val secondTerminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+        start.cancel()
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, firstTerminal.result.status)
+        assertSame(firstTerminal.result, secondTerminal.result)
+        assertEquals(0, ticket.cancelCalls)
+        assertEquals(ProtectedRouteClaimStatus.RELEASED, service { validated() }.release(platformOwner, owner).status)
+    }
+
+    @Test
+    fun `cancel delegates once and restoring remains pending until exact acquire rollback`() {
+        val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        start.cancel()
+        start.cancel()
+
+        assertEquals(1, ticket.cancelCalls)
+        assertEquals(InfrastructurePreparationState.RESTORING, ticket.state)
+        assertEquals(ProtectedRouteAdmissionProgress.Pending, start.poll())
+        assertEquals(1, registry.claimSnapshots().size)
+
+        ticket.state = InfrastructurePreparationState.RESTORED
+        val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, terminal.result.status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertSame(terminal.result, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).result)
+    }
+
+    @Test
+    fun `cancel that loses race to confirmation finalizes normally`() {
+        val ticket = FakePreparationTicket(
+            state = InfrastructurePreparationState.PREPARING,
+            cancelTransition = InfrastructurePreparationState.READY
+        )
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        start.cancel()
+        val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        assertEquals(1, ticket.cancelCalls)
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
+        assertEquals(1, registry.claimSnapshots().size)
+    }
+
+    @Test
+    fun `pending restored replacement recovers exact previous owner and footprint`() {
+        val platformOwner = Any()
+        val oldOwner = InfrastructureOwner("test:route/main", 1L)
+        val newOwner = InfrastructureOwner("test:route/main", 2L)
+        val oldPlan = validated(resource("turnout/a"))
+        val newPlan = validated(resource("turnout/b"))
+        var validation: ProtectedRouteValidation = oldPlan
+        var ticket = FakePreparationTicket(state = InfrastructurePreparationState.READY)
+        val service = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) }
+        ) { validation }
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(platformOwner, request(null, oldOwner)).status
+        )
+        validation = newPlan
+        ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
+
+        val replacement = service.replace(platformOwner, oldOwner, request(null, newOwner))
+        assertTrue(replacement is ProtectedRouteAdmissionStart.Pending)
+        assertEquals(
+            InfrastructureMutationStatus.RESOURCE_CONFLICT,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(
+                    topologyRevision,
+                    InfrastructureOwner("test:other-old", 1L),
+                    oldPlan.admission.resources
+                )
+            ).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.RESOURCE_CONFLICT,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(
+                    topologyRevision,
+                    InfrastructureOwner("test:other-new", 1L),
+                    newPlan.admission.resources
+                )
+            ).status
+        )
+        ticket.state = InfrastructurePreparationState.RESTORING
+        assertEquals(ProtectedRouteAdmissionProgress.Pending, replacement.poll())
+        ticket.state = InfrastructurePreparationState.RESTORED
+        assertEquals(
+            ProtectedRouteClaimStatus.PREPARATION_FAILED,
+            (replacement.poll() as ProtectedRouteAdmissionProgress.Terminal).result.status
+        )
+
+        val restored = registry.claimSnapshots().single()
+        assertEquals(oldOwner, restored.owner)
+        assertEquals(oldPlan.admission.resources, restored.footprint)
+    }
+
+    @Test
+    fun `unsupported preparation rejects before writes and rolls back claim without stalling`() {
+        val turnout = turnoutSelection("test:turnout/prepared", 31L, 32L, 4.0)
+        val unsupportedResource = resource("device/unsupported")
+        val unsupported = object : InfrastructurePreparationRequirement {
+            override val resource = unsupportedResource
+        }
+        validResources += turnout.resource
+        validResources += unsupportedResource
+        val plan = CompiledRouteAdmission.create(
+            InfrastructureFootprint(listOf(turnout.resource, unsupportedResource)),
+            listOf(turnout, unsupported),
+            OccupancyQueryGeometry.create(emptyList())
+        )
+        var writes = 0
+        var stalled = false
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { requirements ->
+                if (requirements.any { it !is ResolvedTurnoutSelection }) {
+                    InfrastructurePreparationStart.Rejected(
+                        IllegalArgumentException("unsupported preparation")
+                    )
+                } else {
+                    writes++
+                    accepted(InfrastructurePreparationState.READY)
+                }
+            },
+            stallWorld = { _, _ -> stalled = true }
+        ) { ProtectedRouteValidation.Validated(plan) }.acquire(Any(), request(null))
+
+        assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, start.status)
+        assertEquals(0, writes)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertFalse(stalled)
+    }
+
+    @Test
+    fun `ticket identity change stalls and retains claim`() {
+        val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
+        var stalls = 0
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
+            stallWorld = { _, _ -> stalls++ }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+        ticket.snapshotTicketId = "changed-ticket"
+
+        val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, terminal.result.status)
+        assertEquals(1, stalls)
+        assertEquals(1, registry.claimSnapshots().size)
+        assertSame(terminal.result, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).result)
+        assertEquals(1, stalls)
+    }
+
+    @Test
+    fun `ticket snapshot exception stalls and retains claim`() {
+        val ticket = object : InfrastructurePreparationTicket {
+            override val ticketId = "test-ticket"
+            override fun snapshot(): InfrastructurePreparationSnapshot = error("snapshot failed")
+            override fun cancel() = Unit
+        }
+        var stalls = 0
+
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
+            stallWorld = { _, _ -> stalls++ }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, start.status)
+        assertEquals(1, stalls)
+        assertEquals(1, registry.claimSnapshots().size)
+    }
+
+    @Test
+    fun `ticket cancellation exception stalls once and retains claim`() {
+        val ticket = object : InfrastructurePreparationTicket {
+            override val ticketId = "test-ticket"
+            override fun snapshot() = InfrastructurePreparationSnapshot(ticketId, InfrastructurePreparationState.PREPARING)
+            override fun cancel(): Unit = error("cancel failed")
+        }
+        var stalls = 0
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
+            stallWorld = { _, _ -> stalls++ }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        start.cancel()
+        start.cancel()
+        val first = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+        val second = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, first.result.status)
+        assertSame(first.result, second.result)
+        assertEquals(1, stalls)
+        assertEquals(1, registry.claimSnapshots().size)
+    }
+
+    @Test
+    fun `accepted blank ticket identity stalls before polling and retains claim`() {
+        val ticket = object : InfrastructurePreparationTicket {
+            override val ticketId = ""
+            override fun snapshot() = InfrastructurePreparationSnapshot("unreachable", InfrastructurePreparationState.PREPARING)
+            override fun cancel() = Unit
+        }
+        var stalls = 0
+
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
+            stallWorld = { _, _ -> stalls++ }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, start.status)
+        assertEquals(1, stalls)
+        assertEquals(1, registry.claimSnapshots().size)
+    }
+
+    @Test
+    fun `actuator start exception stalls and retains claim`() {
+        var stalls = 0
+
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { error("start failed") },
+            stallWorld = { _, _ -> stalls++ }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+
+        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, start.status)
+        assertEquals(1, stalls)
+        assertEquals(1, registry.claimSnapshots().size)
+    }
+
+    @Test
+    fun `ticket state regression stalls and retains claim`() {
+        val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
+        var stalls = 0
+        val start = service(
+            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
+            stallWorld = { _, _ -> stalls++ }
+        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
+        ticket.state = InfrastructurePreparationState.RESTORING
+        assertEquals(ProtectedRouteAdmissionProgress.Pending, start.poll())
+        ticket.state = InfrastructurePreparationState.PREPARING
+
+        val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
+
+        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, terminal.result.status)
+        assertEquals(1, stalls)
+        assertEquals(1, registry.claimSnapshots().size)
+    }
+
+    @Test
+    fun `infrastructure preparation snapshot enforces stable identity and unsafe detail contract`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            InfrastructurePreparationSnapshot("", InfrastructurePreparationState.PREPARING)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            InfrastructurePreparationSnapshot("ticket", InfrastructurePreparationState.UNSAFE)
+        }
+        assertEquals(
+            InfrastructurePreparationState.RESTORING,
+            InfrastructurePreparationSnapshot("ticket", InfrastructurePreparationState.RESTORING).state
+        )
+    }
+
     private fun service(
         latestObservation: () -> RailwayObservation? = { observation },
-        turnoutCommitter: TurnoutSelectionCommitter = TurnoutSelectionCommitter {
-            TurnoutCommitResult.Committed
+        preparationActuator: InfrastructurePreparationActuator = InfrastructurePreparationActuator {
+            accepted(InfrastructurePreparationState.READY)
         },
         stallWorld: (String, Exception) -> Unit = { _, _ -> error("unexpected world stall") },
         validate: (ProtectedRouteRequest) -> ProtectedRouteValidation
@@ -540,9 +840,49 @@ class ProtectedRouteClaimServiceTest {
             currentTopologyRevision = { topologyRevision },
             latestObservation = latestObservation,
             validate = validate,
-            turnoutCommitter = turnoutCommitter,
+            preparationActuator = preparationActuator,
             stallWorld = stallWorld
         )
+
+    private val ProtectedRouteAdmissionStart.result: work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult
+        get() = (poll() as ProtectedRouteAdmissionProgress.Terminal).result
+
+    private val ProtectedRouteAdmissionStart.status: ProtectedRouteClaimStatus
+        get() = result.status
+
+    private val ProtectedRouteAdmissionStart.successful: Boolean
+        get() = result.successful
+
+    private val ProtectedRouteAdmissionStart.occupyingTrainIds: List<String>
+        get() = result.occupyingTrainIds
+
+    private val ProtectedRouteAdmissionStart.blockers
+        get() = result.blockers
+
+    private fun accepted(state: InfrastructurePreparationState): InfrastructurePreparationStart.Accepted =
+        InfrastructurePreparationStart.Accepted(FakePreparationTicket(state = state))
+
+    private class FakePreparationTicket(
+        override val ticketId: String = UUID.randomUUID().toString(),
+        var state: InfrastructurePreparationState,
+        var snapshotTicketId: String = ticketId,
+        private val cancelTransition: InfrastructurePreparationState = InfrastructurePreparationState.RESTORING
+    ) : InfrastructurePreparationTicket {
+        var cancelCalls = 0
+
+        override fun snapshot() = InfrastructurePreparationSnapshot(
+            snapshotTicketId,
+            state,
+            if (state == InfrastructurePreparationState.UNSAFE) "injected unsafe infrastructure preparation state" else ""
+        )
+
+        override fun cancel() {
+            if (state in setOf(InfrastructurePreparationState.PREPARING, InfrastructurePreparationState.RESTORING)) {
+                cancelCalls++
+                state = cancelTransition
+            }
+        }
+    }
 
     private fun request(
         window: ProtectedRouteWindow?,

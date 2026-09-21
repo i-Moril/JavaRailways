@@ -2,7 +2,7 @@
 
 ## Pre-implementation contract freeze
 
-Core版本化铁路图合同见[`versioned-operational-topology.md`](../../spec/javarailways/core/versioned-operational-topology.md)，SimpleATO选路与授权客户端合同见[`operational-routing-and-authority.md`](../../spec/javarailways/simpleato/operational-routing-and-authority.md)，Basic保护区域及进路准入合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先建立唯一`TopologyState`，再满足region graph cut、coherent observation stamp、SimpleATO frozen route、Basic一次路线验证与唯一资源集合、claim→turnout commit→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
+Core版本化铁路图合同见[`versioned-operational-topology.md`](../../spec/javarailways/core/versioned-operational-topology.md)，SimpleATO选路与授权客户端合同见[`operational-routing-and-authority.md`](../../spec/javarailways/simpleato/operational-routing-and-authority.md)，Basic保护区域及进路准入合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)。后续实现必须先建立唯一`TopologyState`，再满足region graph cut、coherent observation stamp、SimpleATO frozen route、Basic一次路线验证与唯一资源集合、claim→infrastructure preparation→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
 
 实现顺序固定为：版本化topology state与旧图adapter → overlay projection与region catalog迁移 → SimpleATO topology-bound frozen route → Basic route validation/claim assembly → atomic admission transaction → tail-release/recovery → Dispatcher与`MANUAL_ROUTED`迁移。前一层合同测试未通过时不得开始后一层迁移。
 
@@ -14,7 +14,7 @@ Core structural edit
   -> SimpleATO projects operational overlays and selects a route
   -> SimpleATO emits one frozen route bound to the same revision
   -> Basic validates the route and collects one claim resource set
-  -> Basic atomically claims resources and applies turnout selections
+  -> Basic atomically claims resources and awaits the ordered infrastructure-preparation batch
   -> SimpleATO converts the grant into authority/stop/speed constraints
   -> Core occupancy publication drives Basic tail release
 ```

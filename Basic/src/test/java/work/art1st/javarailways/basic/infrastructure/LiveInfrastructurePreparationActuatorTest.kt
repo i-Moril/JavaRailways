@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
@@ -14,7 +15,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.train.createTestWorld
 
-class LiveTurnoutSelectionCommitterTest {
+class LiveInfrastructurePreparationActuatorTest {
     private val worlds = mutableListOf<CoreWorld>()
 
     @AfterEach
@@ -26,15 +27,15 @@ class LiveTurnoutSelectionCommitterTest {
     }
 
     @Test
-    fun `zero selections are a no-op`() {
+    fun `zero selections confirm without writes`() {
         val world = world()
         var writes = 0
-        val committer = LiveTurnoutSelectionCommitter(world) { view, target ->
+        val actuator = LiveInfrastructurePreparationActuator(world) { view, target ->
             writes++
             view.selectNextRail(target)
         }
 
-        assertEquals(TurnoutCommitResult.Committed, committer.commit(emptyList()))
+        assertEquals(InfrastructurePreparationState.READY, accepted(actuator.start(emptyList())).snapshot().state)
         assertEquals(0, writes)
     }
 
@@ -44,11 +45,13 @@ class LiveTurnoutSelectionCommitterTest {
         fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
         fixture.second.viewBA.selectNextRail(null)
 
-        val result = LiveTurnoutSelectionCommitter(fixture.world).commit(
-            listOf(fixture.selection(fixture.second, fixture.stem))
+        val ticket = accepted(
+            LiveInfrastructurePreparationActuator(fixture.world).start(
+                listOf(fixture.selection(fixture.second, fixture.stem))
+            )
         )
 
-        assertEquals(TurnoutCommitResult.Committed, result)
+        assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
         assertSame(fixture.second.viewAB, fixture.stem.viewAB.nextActiveRail)
         assertSame(fixture.stem.viewBA, fixture.second.viewBA.nextActiveRail)
     }
@@ -59,36 +62,36 @@ class LiveTurnoutSelectionCommitterTest {
         fixture.stem.viewAB.selectNextRail(fixture.second.viewAB)
         fixture.second.viewBA.selectNextRail(fixture.stem.viewBA)
         var writes = 0
-        val committer = LiveTurnoutSelectionCommitter(fixture.world) { view, target ->
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { view, target ->
             writes++
             view.selectNextRail(target)
         }
 
-        val result = committer.commit(listOf(fixture.selection(fixture.stem, fixture.second)))
+        val ticket = accepted(actuator.start(listOf(fixture.selection(fixture.stem, fixture.second))))
 
-        assertEquals(TurnoutCommitResult.Committed, result)
+        assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
         assertEquals(0, writes)
     }
 
     @Test
-    fun `multiple turnouts commit in frozen route order`() {
+    fun `multiple turnouts actuate in frozen route order`() {
         val world = world()
         val firstTurnout = turnout(world, 0.0)
         val secondTurnout = turnout(world, 100.0)
         firstTurnout.stem.viewAB.selectNextRail(firstTurnout.first.viewAB)
         secondTurnout.stem.viewAB.selectNextRail(secondTurnout.first.viewAB)
         val writes = mutableListOf<java.util.UUID>()
-        val committer = LiveTurnoutSelectionCommitter(world) { view, target ->
+        val actuator = LiveInfrastructurePreparationActuator(world) { view, target ->
             writes += view.rail.id
             view.selectNextRail(target)
         }
 
-        val result = committer.commit(listOf(
+        val ticket = accepted(actuator.start(listOf(
             firstTurnout.selection(firstTurnout.stem, firstTurnout.second),
             secondTurnout.selection(secondTurnout.stem, secondTurnout.second)
-        ))
+        )))
 
-        assertEquals(TurnoutCommitResult.Committed, result)
+        assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
         assertTrue(writes.indexOf(firstTurnout.stem.id) < writes.indexOf(secondTurnout.stem.id))
         assertSame(firstTurnout.second.viewAB, firstTurnout.stem.viewAB.nextActiveRail)
         assertSame(secondTurnout.second.viewAB, secondTurnout.stem.viewAB.nextActiveRail)
@@ -100,21 +103,21 @@ class LiveTurnoutSelectionCommitterTest {
         fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
         fixture.second.viewBA.selectNextRail(null)
         var writes = 0
-        val committer = LiveTurnoutSelectionCommitter(fixture.world) { view, target ->
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { view, target ->
             writes++
             if (writes == 2) throw IllegalStateException("injected second apply failure")
             view.selectNextRail(target)
         }
 
-        val result = committer.commit(listOf(fixture.selection(fixture.stem, fixture.second)))
+        val ticket = accepted(actuator.start(listOf(fixture.selection(fixture.stem, fixture.second))))
 
-        assertTrue(result is TurnoutCommitResult.Failed && result.rollbackSucceeded)
+        assertEquals(InfrastructurePreparationState.RESTORED, ticket.snapshot().state)
         assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)
         assertEquals(null, fixture.second.viewBA.nextActiveRail)
     }
 
     @Test
-    fun `rollback failure is reported after remaining snapshots are still restored`() {
+    fun `rollback failure reports unsafe after remaining snapshots are still restored`() {
         val world = world()
         val first = turnout(world, 0.0)
         val second = turnout(world, 100.0)
@@ -123,25 +126,83 @@ class LiveTurnoutSelectionCommitterTest {
         second.stem.viewAB.selectNextRail(second.first.viewAB)
         second.second.viewBA.selectNextRail(null)
         var writes = 0
-        val committer = LiveTurnoutSelectionCommitter(world) { view, target ->
+        val actuator = LiveInfrastructurePreparationActuator(world) { view, target ->
             writes++
             if (writes == 4) throw IllegalStateException("injected apply failure")
             if (writes == 5) throw IllegalStateException("injected rollback failure")
             view.selectNextRail(target)
         }
 
-        val result = committer.commit(listOf(
+        val ticket = accepted(actuator.start(listOf(
             first.selection(first.stem, first.second),
             second.selection(second.stem, second.second)
-        ))
+        )))
 
-        assertTrue(result is TurnoutCommitResult.Failed && !result.rollbackSucceeded)
-        result as TurnoutCommitResult.Failed
-        assertEquals(1, result.rollbackFailures.size)
+        assertEquals(InfrastructurePreparationState.UNSAFE, ticket.snapshot().state)
         assertSame(first.first.viewAB, first.stem.viewAB.nextActiveRail)
         assertEquals(null, first.second.viewBA.nextActiveRail)
         assertSame(second.second.viewAB, second.stem.viewAB.nextActiveRail)
     }
+
+    @Test
+    fun `resolution rejection occurs before any live write`() {
+        val fixture = turnout()
+        var writes = 0
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { view, target ->
+            writes++
+            view.selectNextRail(target)
+        }
+        val missing = fixture.selection(fixture.stem, fixture.second).copy(
+            toPort = RailEndpointRef(java.util.UUID.randomUUID(), RailEndpoint.A)
+        )
+
+        val result = actuator.start(listOf(missing))
+
+        assertTrue(result is InfrastructurePreparationStart.Rejected)
+        assertEquals(0, writes)
+    }
+
+    @Test
+    fun `unsupported requirement rejects whole batch before an earlier turnout write`() {
+        val fixture = turnout()
+        fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
+        var writes = 0
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { view, target ->
+            writes++
+            view.selectNextRail(target)
+        }
+        val unsupported = object : InfrastructurePreparationRequirement {
+            override val resource = StableInfrastructureResource("test:device", "test:unsupported")
+        }
+
+        val result = actuator.start(listOf(
+            fixture.selection(fixture.stem, fixture.second),
+            unsupported
+        ))
+
+        assertTrue(result is InfrastructurePreparationStart.Rejected)
+        assertEquals(0, writes)
+        assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)
+    }
+
+    @Test
+    fun `terminal ticket cancellation is idempotent no-op`() {
+        val fixture = turnout()
+        val ticket = accepted(
+            LiveInfrastructurePreparationActuator(fixture.world).start(
+                listOf(fixture.selection(fixture.stem, fixture.second))
+            )
+        )
+
+        ticket.cancel()
+        ticket.cancel()
+
+        assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
+        assertSame(fixture.second.viewAB, fixture.stem.viewAB.nextActiveRail)
+    }
+
+    private fun accepted(start: InfrastructurePreparationStart): InfrastructurePreparationTicket =
+        (start as InfrastructurePreparationStart.Accepted).ticket
 
     private fun turnout(): Fixture = turnout(world(), 0.0)
 

@@ -109,7 +109,7 @@ internal class ProtectedRouteRequestValidator(
                 )
             )
         val footprint = InfrastructureFootprint(resources)
-        val turnoutSelections = relevantTurnouts.map { it.toResolvedSelection() }
+        val preparations = relevantTurnouts.map { it.toResolvedSelection() }
         val occupancyGeometry = OccupancyQueryGeometry.create(
             selectedRouteIntervals.map { it.toRailInterval() } +
                 turnoutOccupancyIntervals(resolved.projection.topology, relevantTurnouts) +
@@ -120,7 +120,7 @@ internal class ProtectedRouteRequestValidator(
                 }
         )
         return ProtectedRouteValidation.Validated(
-            CompiledRouteAdmission.create(footprint, turnoutSelections, occupancyGeometry)
+            CompiledRouteAdmission.create(footprint, preparations, occupancyGeometry)
         )
     }
 

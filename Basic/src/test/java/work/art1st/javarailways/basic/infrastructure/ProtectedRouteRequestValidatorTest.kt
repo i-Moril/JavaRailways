@@ -87,7 +87,7 @@ class ProtectedRouteRequestValidatorTest {
                     10.0
                 )
             ),
-            validated.admission.turnoutSelections
+            validated.admission.turnoutPreparations
         )
     }
 
@@ -174,8 +174,8 @@ class ProtectedRouteRequestValidatorTest {
             forward.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().single(),
             reverse.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().single()
         )
-        val forwardSelection = forward.admission.turnoutSelections.single()
-        val reverseSelection = reverse.admission.turnoutSelections.single()
+        val forwardSelection = forward.admission.turnoutPreparations.single()
+        val reverseSelection = reverse.admission.turnoutPreparations.single()
         assertEquals(endpoint(fixture.trunk, RailEndpoint.B), forwardSelection.fromPort)
         assertEquals(endpoint(fixture.branch, RailEndpoint.A), forwardSelection.toPort)
         assertEquals(endpoint(fixture.branch, RailEndpoint.A), reverseSelection.fromPort)
@@ -252,11 +252,11 @@ class ProtectedRouteRequestValidatorTest {
                 endpoint(firstTrunk, RailEndpoint.B) to endpoint(middle, RailEndpoint.A),
                 endpoint(secondTrunk, RailEndpoint.B) to endpoint(east, RailEndpoint.A)
             ),
-            validated.admission.turnoutSelections.map { it.fromPort to it.toPort }
+            validated.admission.turnoutPreparations.map { it.fromPort to it.toPort }
         )
-        assertEquals(listOf(10.0, 30.0), validated.admission.turnoutSelections.map { it.routeDistanceMeters })
+        assertEquals(listOf(10.0, 30.0), validated.admission.turnoutPreparations.map { it.routeDistanceMeters })
         assertEquals(
-            validated.admission.turnoutSelections.map(ResolvedTurnoutSelection::resource).toSet(),
+            validated.admission.turnoutPreparations.map(ResolvedTurnoutSelection::resource).toSet(),
             validated.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().toSet()
         )
     }
@@ -418,10 +418,10 @@ class ProtectedRouteRequestValidatorTest {
         )
 
         assertEquals(1, validated.admission.resources.resources.count { it == diamond })
-        assertEquals(1, validated.admission.turnoutSelections.size)
+        assertEquals(1, validated.admission.turnoutPreparations.size)
         assertEquals(
             TurnoutResourceIdentity.TYPE_ID,
-            validated.admission.turnoutSelections.single().resource.typeId
+            validated.admission.turnoutPreparations.single().resource.typeId
         )
         assertEquals(
             listOf(
@@ -687,6 +687,9 @@ class ProtectedRouteRequestValidatorTest {
         RailPositionSnapshot(railId, facing, canonicalMeters),
         routeMeters
     )
+
+    private val CompiledRouteAdmission.turnoutPreparations: List<ResolvedTurnoutSelection>
+        get() = preparations.map { it as ResolvedTurnoutSelection }
 
     private data class ThroatFixture(
         val west: UUID,

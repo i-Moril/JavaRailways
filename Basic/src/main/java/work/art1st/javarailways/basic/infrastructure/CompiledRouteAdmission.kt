@@ -1,16 +1,22 @@
 package work.art1st.javarailways.basic.infrastructure
 
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 
-/** One direction-specific turnout operation resolved from the validated frozen route. */
+/** One ordered physical preparation required before a claimed route can become ready. */
+internal interface InfrastructurePreparationRequirement {
+    val resource: InfrastructureResource
+}
+
+/** One direction-specific turnout preparation resolved from the validated frozen route. */
 internal data class ResolvedTurnoutSelection(
-    val resource: StableInfrastructureResource,
+    override val resource: StableInfrastructureResource,
     val fromPort: RailEndpointRef,
     val toPort: RailEndpointRef,
     val routeDistanceMeters: Double
-) {
+) : InfrastructurePreparationRequirement {
     init {
         require(resource.typeId == TurnoutResourceIdentity.TYPE_ID) {
             "turnout selection must reference a turnout resource"
@@ -25,34 +31,34 @@ internal data class ResolvedTurnoutSelection(
 /**
  * Immutable output of one successful frozen-route validation.
  *
- * [resources] is the only footprint submitted to the atomic registry. Turnout selections are
- * ordered operation metadata and [occupancyGeometry] is physical validation metadata derived by
- * the same validation pass; neither is another resource set. They deliberately contain no
- * revision-local topology node identity.
+ * [resources] is the only footprint submitted to the atomic registry. [preparations] is ordered
+ * operation metadata and [occupancyGeometry] is physical validation metadata derived by the same
+ * validation pass; neither is another resource set. Preparation requirements use stable claim
+ * resource identities and deliberately contain no revision-local topology node identity.
  */
 internal class CompiledRouteAdmission private constructor(
     val resources: InfrastructureFootprint,
-    val turnoutSelections: List<ResolvedTurnoutSelection>,
+    val preparations: List<InfrastructurePreparationRequirement>,
     val occupancyGeometry: OccupancyQueryGeometry
 ) {
     companion object {
         fun create(
             resources: InfrastructureFootprint,
-            turnoutSelections: Collection<ResolvedTurnoutSelection>,
+            preparations: Collection<InfrastructurePreparationRequirement>,
             occupancyGeometry: OccupancyQueryGeometry
         ): CompiledRouteAdmission {
-            val immutableSelections = java.util.List.copyOf(turnoutSelections)
-            val uniqueResourceCount = immutableSelections
-                .map(ResolvedTurnoutSelection::resource)
+            val immutablePreparations = java.util.List.copyOf(preparations)
+            val uniqueResourceCount = immutablePreparations
+                .map(InfrastructurePreparationRequirement::resource)
                 .distinct()
                 .size
-            require(uniqueResourceCount == immutableSelections.size) {
-                "validated route claim contains duplicate turnout selections"
+            require(uniqueResourceCount == immutablePreparations.size) {
+                "validated route claim contains duplicate preparation resources"
             }
-            require(immutableSelections.all { it.resource in resources.resources }) {
-                "every turnout selection must be represented in the claim footprint"
+            require(immutablePreparations.all { it.resource in resources.resources }) {
+                "every infrastructure preparation must be represented in the claim footprint"
             }
-            return CompiledRouteAdmission(resources, immutableSelections, occupancyGeometry)
+            return CompiledRouteAdmission(resources, immutablePreparations, occupancyGeometry)
         }
     }
 }

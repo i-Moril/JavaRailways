@@ -47,15 +47,15 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 当前transitional `ProtectedRouteRequestValidator`从catalog取得同一topology root上的临时route occurrences和window。窗口存在时，它把`entry..clearUntil`与occurrences相交，按facing换算为每根rail的canonical AB interval，再按rail UUID排序并合并重叠或容差内相邻区间；`entry..exit`内的turnout resource加入同一个`InfrastructureFootprint`。`clearUntil`以前但窗口外的turnout返回`PROTECTION_REQUIRED`，同一turnout重复出现返回`INVALID_REQUEST`。窗口为空时，route没有turnout才返回`NOT_REQUIRED`。资源收集为`O(n log n)`最坏复杂度，其中`n`是截取范围内的route occurrences；它不读取live rail或扫描world。
 
-该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`。每个受保护的`ProjectedTurnoutTraversal`同时派生一个`ResolvedTurnoutSelection(resource, fromPort, toPort, routeDistanceMeters)`；selection保持route顺序和行驶方向，但不保留revision-local `TopologyNodeId`或mutable `RailView`。footprint与selection一起封装成不可变`CompiledRouteAdmission`，且每个selection的稳定turnout resource必须在该footprint内且只出现一次。该名称表示验证完成但尚未取得资源；只有atomic registry成功记录owner与footprint后才存在live claim。`ProtectedRouteClaimService`在resolution中保留整个admission，只把`admission.resources`作为唯一claim集合提交给atomic registry；claim成功后再消费同admission的selection元数据。
+该validator目前证明rail intervals、turnout resources与route-bound resources，并把三者合入同一个`InfrastructureFootprint`。每个受保护的`ProjectedTurnoutTraversal`同时派生一个具体`InfrastructurePreparationRequirement`：`ResolvedTurnoutSelection(resource, fromPort, toPort, routeDistanceMeters)`；它保持route顺序和行驶方向，但不保留revision-local `TopologyNodeId`或mutable `RailView`。footprint与唯一有序`preparations`列表一起封装成不可变`CompiledRouteAdmission`，且每项requirement的稳定resource必须在该footprint内并至多出现一次。该名称表示验证完成但尚未取得资源；只有atomic registry成功记录owner与footprint后才存在live claim。`ProtectedRouteClaimService`在resolution中保留整个admission，只把`admission.resources`作为唯一claim集合提交给atomic registry；claim成功后再消费同admission的preparation元数据。
 
 同一次验证还把物理查询范围编译为一个normalized `OccupancyQueryGeometry`。它由`entry..clearUntil`的已选路线interval、每个相关turnout全部port的零长度端点interval，以及每个route-bound resource binding的全部anchors组成；同rail重叠或容差内相邻interval会合并。turnout在当前Core模型中是端点间的零长度selectable continuation，因此检查全部port既能捕获跨在未选支路端点上的列车，也不重新引入固定`lockingDistance`。diamond两臂不改变拓扑连接，必须从同一个retained catalog snapshot加入全部anchors，不能只检查route命中的一臂。该geometry只用于authoritative occupancy查询，不进入`InfrastructureFootprint`、claim identity或持久化。
 
-当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。它在atomic claim后按路线顺序提交全部turnout selections，失败时恢复selection和claim；补偿不完则保留最安全的资源状态并Stall。validator仍未用完整train envelope实现多contributor closure，也尚未实现grant publication和release/recovery。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复selection。
+当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。它在atomic claim后启动完整有序的基础设施准备批次，失败时恢复物理准备和claim；补偿不完则保留最安全的资源状态并Stall。validator仍未用完整train envelope实现多contributor closure，也尚未实现grant publication和release/recovery。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复准备操作。
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
-通过后，同一次route pass已经得到唯一`InfrastructureFootprint`，另附道岔操作和release slices。turnout/diamond的占用范围从authoritative binding临时查询，只用于准入检查，不成为可申请或持久化的第二资源集合。验证必须记录已处理的`(resourceId, traversal occurrence)`；route循环、重复贡献或无法到达满足义务的合法authority endpoint时typed拒绝，不能无限迭代。
+通过后，同一次route pass已经得到唯一`InfrastructureFootprint`，另附有序infrastructure preparations和release slices。turnout/diamond的占用范围从authoritative binding临时查询，只用于准入检查，不成为可申请或持久化的第二资源集合。验证必须记录已处理的`(resourceId, traversal occurrence)`；route循环、重复贡献或无法到达满足义务的合法authority endpoint时typed拒绝，不能无限迭代。
 
 ```text
 minimum = max(currentProgress, desiredAuthorityBoundary.distance)
@@ -152,7 +152,7 @@ internal data class CompiledRouteAdmission(
     val request: RouteResourceRequest,
     val claimUntil: RouteBoundaryRef,
     val resources: InfrastructureFootprint,
-    val turnoutSelections: List<ResolvedTurnoutSelection>,
+    val preparations: List<InfrastructurePreparationRequirement>,
     val releaseSlices: List<ResolvedReleaseSlice>
 )
 
@@ -185,7 +185,7 @@ interface BukkitRouteResourceService {
 
 Basic service是world-local，因此platform-neutral request不重复携带world ID；Bukkit facade显式接收world ID并路由到对应service。当前provider registration是迁移期输入adapter，不是保护区域的authoritative owner；目标API由Basic对definition执行create/update/delete并原子发布catalog，SimpleATOBukkit只是调用者。adapter disable只停止对应编辑/观察入口，不能隐式删除Basic定义。已准入live claim由host lifecycle owner持有，不能因为请求插件disable而直接释放。逻辑requester仍进入grant snapshot和诊断。
 
-上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal。公开请求只描述路线选择和目标，不增加第二份resource intent。`CompiledRouteAdmission.resources`是准入事务唯一消费的资源集合；turnout selections和release slices是操作/生命周期元数据，不是其他资源集合。调用方提供`trainId`，Basic从`observationStamp`对应的authoritative observation临时解析长度、方向和occupied intervals，不相信调用方自由填写的列车长度。
+上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal。公开请求只描述路线选择和目标，不增加第二份resource intent。`CompiledRouteAdmission.resources`是准入事务唯一消费的资源集合；preparations和release slices是操作/生命周期元数据，不是其他资源集合。调用方提供`trainId`，Basic从`observationStamp`对应的authoritative observation临时解析长度、方向和occupied intervals，不相信调用方自由填写的列车长度。
 
 `RouteResourceContributor`是Basic内部验证能力，不定义另一种footprint。它只能向当前验证过程增加标准`InfrastructureResource`、延长`claimUntil`并附加操作/释放元数据。资源绑定提供的physical occupancy geometry仅用于查询authoritative occupancy；它不进入request、claim identity或持久化模型。
 
@@ -242,13 +242,13 @@ fallback到caller resources或partial rail-only claim。
 
 caller和add-on只提交自己选择的topology-bound有序edge traversal。Basic沿frozen route做一次线性校验，证明edge连续且每个turnout continuation合法，并在相同pass中把rail intervals、turnout、diamond和其他共享冲突资源加入一个`InfrastructureFootprint`；任何无法解析的binding都fail closed，Basic不得自行搜索替代路径。
 
-验证过程可以产生三类非资源元数据：需要执行的turnout selections、每个资源对应的authoritative occupancy query，以及按车尾可安全释放顺序排列的release slices。它们分别描述操作、验证和生命周期，不能包装成第二个claim/physical footprint。
+验证过程可以产生三类非资源元数据：需要执行的有序infrastructure preparations、每个资源对应的authoritative occupancy query，以及按车尾可安全释放顺序排列的release slices。它们分别描述操作、验证和生命周期，不能包装成第二个claim/physical footprint。
 
 邻接rail interval不会隐式表达turnout/diamond冲突；不得用一个虚构全局里程interval跨越多根rail。
 
 ### 5.5 transaction与生命周期
 
-准入只在world owner的post-publication阶段执行；事务期间不能推进physics或并发修改topology。对外可见的grant只能在claim与全部turnout selection成功后发布。
+准入只在world owner的post-publication阶段执行；事务期间不能推进physics或并发修改topology。对外可见的grant只能在claim完成且整个基础设施准备批次进入`READY`后发布。
 
 当前claim seam先保留一次`latestObservation()`返回的确切`RailwayObservation`，要求request stamp与
 其world、physics epoch、topology revision完全相等，且request train存在于同一观察。路线验证前检查
@@ -262,21 +262,27 @@ validate immutable route and collect one resource set
   -> recheck observation/topology/region revisions
   -> check authoritative occupancy geometry for each resource
   -> acquire the complete resource set
-  -> snapshot all previous turnout selections
-  -> apply all selections
+  -> start the complete ordered infrastructure-preparation batch
+  -> retain its ticket plus claim mutation token while PREPARING/RESTORING
+  -> poll until the complete batch is physically READY
+  -> finalize the claim
   -> publish admitted grant / expand authority
 ```
 
-apply失败时先恢复所有已修改selection。恢复成功后再恢复精确的claim前状态（新acquire删除，replace恢复旧claim）并返回`TURNOUT_COMMIT_FAILED`；恢复失败时保留claim、禁止扩大authority并Stall该world，不能释放资源后让未知道岔状态暴露给其他进路。
+claim与物理准备是两个阶段：footprint claim先阻止其他进路或编辑取得冲突资源，但并不证明道岔、可动桥或未来其他设备已经到位，也不能产生grant。`CompiledRouteAdmission.preparations`保存route validation为**本次滚动准入及其最小closure**派生的唯一有序准备列表；它绝不枚举整条运营路线上的全部资源或提前准备尚未进入当前claim horizon的设备。每项携带一个已存在于本次唯一claim footprint中的稳定resource，同一resource当前至多出现一次。当前一项准备对应一个resource的假设足以表达道岔；若未来设备必须由多个resource共同标识，应先重新讨论模型，不能暗中把第二份footprint塞进requirement。
+
+列车何时请求下一段、从哪个route cursor开始编译、向前扫描多远，以及哪个boundary触发下一次滚动准入，属于未来SimpleATO客户端与admission compilation合同，不属于Basic preparation actuator。actuator只执行已经编译完成的当前batch，不读取完整运营route、不自行lookahead，也不扩展claim或选择下一批requirement。
+
+通用preparation actuator的start只允许两种结果：未产生任何准备side effect的`Rejected`，或带稳定identity batch ticket的`Accepted`。一个ticket代表整批准备并负责恢复所有已经开始的requirement；snapshot是不可变值，状态为`PREPARING`、`RESTORING`、`READY`、`RESTORED`或`UNSAFE`。actuator必须在第一个side effect前解析完整列表并拒绝不支持的requirement。`cancel()`幂等；非终态时只发起恢复而不宣称恢复完成，终态后为no-op。composition层以后可加入动画、故障和timeout policy，但Basic不硬编码转换时长，也不在本阶段公开handler注册或持久化合同。
+
+`ProtectedRouteClaimService.acquire/replace`返回内部start result：请求可能立即得到terminal typed result，也可能得到pending handle。handle只认识通用batch ticket，拥有registry claim mutation token和ticket，只能在main owner轮询。`PREPARING/RESTORING`保持pending；`READY`才销毁rollback token并返回成功claim；`RESTORED`才恢复精确claim前状态（新acquire删除，replace恢复旧claim）并返回`PREPARATION_FAILED`。每次snapshot必须保持accepted ticket identity和合法状态迁移；snapshot/actuator异常、identity违约或`UNSAFE`均保留claim及旧rollback reservation、禁止扩大authority并Stall。过晚cancel若输给已经完成的`READY`视为terminal no-op并正常完成，不因poll时序制造虚假Stall。terminal admission重复poll/cancel必须幂等。
 
 Core把同一个物理continuation分别保存在两个到达方向的`RailView.nextActiveRail`中，因此一次
 `fromPort -> toPort`提交必须同时设置`from-arriving -> to-departing`和
 `to-arriving -> from-departing`。端点映射固定为：到达A端使用BA view、到达B端使用AB view；
-departing view是对应到达view的`reversed`。事务在第一次写入前解析全部live view并保存两个方向的
-原selection，按冻结路线顺序提交，失败后逆序尝试恢复所有快照，不能因其中一次rollback失败而停止
-其余恢复。
+departing view是对应到达view的`reversed`。第一版即时`RailView` preparation actuator只处理`ResolvedTurnoutSelection`；它先类型检查整批requirement，再在第一次写入前解析全部live view并保存两个方向的原selection，按冻结路线顺序提交，失败后逆序尝试恢复所有快照，不能因其中一次rollback失败而停止其余恢复。它仍使用通用batch ticket合同：同步成功产生已终态`READY` ticket，apply失败且完整恢复产生`RESTORED`，恢复不完整产生`UNSAFE`；未知requirement或预解析失败则`Rejected`且没有live write。已对位selection不写入。
 
-claim registry为admission mutation返回内部opaque rollback token。replace token保留精确的旧
+claim registry为admission mutation返回内部opaque rollback token。pending preparation期间token保持有效；replace token保留精确的旧
 platform owner identity、逻辑owner revision和footprint，不得通过普通“revision必须递增”的
 `replaceClaim`伪造反向替换。token完成以前，旧footprint继续作为rollback reservation阻止冲突claim
 或edit；platform owner cleanup不得拆除正在提交的claim。成功提交后销毁token；selection rollback
@@ -308,8 +314,11 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 | closure到route末端仍未满足净空、找不到合法authority endpoint或检测到循环 | `INSUFFICIENT_EXIT_CLEARANCE` / `CYCLIC_RESOURCE_DEPENDENCY` | 全不变 |
 | 任一physical locking interval被列车占用 | `PHYSICALLY_OCCUPIED` | 全不变；返回train IDs |
 | footprint与live claim冲突 | `RESOURCE_CONFLICT` | 全不变；返回owner/revision/resource |
-| claim成功但turnout apply失败且rollback成功 | `TURNOUT_COMMIT_FAILED` | selection与claim前状态恢复，authority不扩大 |
-| turnout rollback失败 | `WORLD_STALLED` | claim保留，authority fail closed，停止后续准入 |
+| claim成功、preparation batch start被安全拒绝 | `PREPARATION_FAILED` | 无preparation side effect，claim前状态恢复，authority不扩大 |
+| ticket为`PREPARING/RESTORING` | pending | claim与replace旧footprint reservation保持，authority不扩大 |
+| ticket为`READY` | `ACQUIRED/REPLACED` | claim完成；之后才允许上层发布authority |
+| ticket为`RESTORED` | `PREPARATION_FAILED` | 已开始的physical preparations与claim前状态恢复，authority不扩大 |
+| ticket identity/state违约、异常或`UNSAFE` | `WORLD_STALLED` | claim及rollback reservation保留，authority fail closed |
 | 相同request/revision重复提交 | `UNCHANGED` | 返回原grant，不重复切换 |
 
 `UNCHANGED`只表示同一platform owner已经持有完全相同owner revision与footprint，是幂等重试；它
@@ -352,7 +361,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - route binding tests：route revision与topology revision可取不同值；projector只从route字段拒绝stale topology，request没有第二个可冲突的revision。
 - turnout identity tests：正反向及无结构变化的topology rebuild得到同一resource；revision-local node ID不同也不改变resource identity。
 - transitional route-validation tests：AB/BA window clipping、跨rail canonical intervals、唯一resource set、turnout stable resource、窗口前/clearance内未保护turnout拒绝、null window的`NOT_REQUIRED`与`PROTECTION_REQUIRED`。
-- transaction tests：resource conflict、physical occupancy、第二个turnout apply失败、rollback成功/失败；断言selection、claim和authority三者满足矩阵。
+- transaction tests：resource conflict、physical occupancy、即时turnout handler顺序/no-write/apply失败、未知requirement全批拒绝、跨多次poll的pending batch ticket、READY finalize、RESTORING pending、RESTORED精确acquire/replace rollback、cancel幂等及READY竞争、identity/state/exception/UNSAFE；断言physical preparation、claim和authority三者满足矩阵。
 - release tests：未进入取消、头部过exit但尾部未过、tail clear、单region prefix shrink、train消失、provider disable、world reload recovery。
 - dispatcher tests：automatic和`MANUAL_ROUTED`只能调用新service；不存在接受raw planned section的overload；`FULL_MANUAL`不申请新grant。
 - performance tests：一次admission只遍历一次frozen route；unchanged `STALE_REGION`不逐tick重算；occupancy按rail索引查询，不做`allTrains × allRegions`。
@@ -374,11 +383,13 @@ waitFor(regionB) // 已进入后才发现还需要B，形成hold-and-wait
 
 ```kotlin
 val validated = validator.validate(request, latestObservation)
-val claim = registry.acquireClaim(validated.resources) // 一次原子获取唯一集合
-if (!claim.successful) return claim.toAdmissionResult()
+val claimMutation = registry.beginAcquireClaim(validated.resources) // 一次原子获取唯一集合
+if (!claimMutation.result.successful) return claimMutation.result.toAdmissionResult()
 
-val previous = snapshotSelections(validated.turnoutSelections)
-return applyAllOrRollback(validated, previous, claim)
+return when (val started = actuator.start(validated.preparations)) {
+    is Rejected -> rollbackClaim(claimMutation)
+    is Accepted -> PendingAdmission(claimMutation, started.ticket)
+}
 ```
 
 ```text

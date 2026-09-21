@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -6,8 +6,13 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import work.art1st.javarailways.basic.api.destination.DestinationRole
+import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
 import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.timetable.Timetable
+import work.art1st.javarailways.basic.timetable.TimetableAction
+import work.art1st.javarailways.basic.timetable.TimetableService
+import work.art1st.javarailways.basic.timetable.TimetableStep
+import work.art1st.javarailways.basic.timetable.TrainSelector
 import work.art1st.javarailways.core.api.physics.World
 import java.util.Locale
 
@@ -103,13 +108,14 @@ object ManualNavigationTimetableFactory {
     ): Timetable {
         require(points.isNotEmpty() && !points.last().pass)
         val steps = ArrayList<TimetableStep>()
+        val destinations = OperationalDestinationService(world)
         steps += TimetableStep.Check(originWayPointId)
         val passPoints = ArrayList<String>()
         points.forEach { point ->
             if (point.pass) {
                 passPoints += point.id
             } else {
-                val stationRole = world.basicWorldData.destinations[point.id]?.role as?
+                val stationRole = destinations[point.id]?.role as?
                     DestinationRole.StationBerthRole
                 val options = point.options
                 if (stationRole != null) {

@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与 Owner
 
-- **Status**：`TARGET`；现有 ATO、路线、时刻表与运营对象仍在 Basic，目标 `SimpleATO` Gradle 模块尚未创建。
+- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经创建，并拥有第一批手动导航/时刻表展示工具；ATO、路线、时刻表 model/persistence、Dispatcher 与大多数运营对象仍在 Basic。本页描述的完整选路与授权合同仍是迁移目标。
 - **Owner**：SimpleATO 拥有运营路线选择、运行方向、任务/时刻表决策和列车保护约束合成。
 - **Inputs**：Core 发布的不可变 `TopologyState` 与同 epoch 物理观察；SimpleATO 自己发布的运营 overlay/plan revision；Basic 发布的统一`AuthoritySection`观察与资源准入结果。
 - **Outputs**：一份绑定 topology revision 的冻结路线、资源准入请求，以及交给控制器的统一 authority/stop/speed constraint 结果。

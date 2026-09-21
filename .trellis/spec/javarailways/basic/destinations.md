@@ -27,7 +27,7 @@ data class OperationalDestination(
 - role-owned ID固定`<owner>@<point>`；component禁止`@`/control char；general destination ID还禁止`/`。只用`OperationalDestinationIds`生成/解析。
 - `toWayPoint()`只派生id/displayName/railId/AB arc；WayPoint本身无direction。
 
-`OperationalDestinationService(world)`是main-thread owner；stores不是跨store transaction API。
+`OperationalDestinationService(world)`是mutation的main-thread owner；stores不是跨store transaction API。`service[id]`提供只读查询，返回当前不可变`OperationalDestination`值或`null`，让SimpleATO等consumer无需导入`basic.pathFinding`或直接取得world data/store。
 
 ## Transaction与结果矩阵
 
@@ -41,6 +41,7 @@ data class OperationalDestination(
 | split/merge | 按几何映射rail UUID与AB arc | role records同批重建 |
 | reversed replacement | 保持physical point和approach direction | 必要时翻`ViewDirection` |
 | capture | Destination落盘；same-ID derived WayPoint排除 | standalone WayPoint仍保存 |
+| `service[id]` | 返回当前destination或`null` | read-only，不改变任何store |
 
 ## 项目内正确示例
 

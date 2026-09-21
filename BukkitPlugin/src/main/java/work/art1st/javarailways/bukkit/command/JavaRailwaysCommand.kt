@@ -18,9 +18,9 @@ import work.art1st.javarailways.basic.api.destination.OperationalDestinationServ
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.RouteBuildResult
 import work.art1st.javarailways.basic.route.RoutePlanner
-import work.art1st.javarailways.basic.timetable.ManualNavigationParser
-import work.art1st.javarailways.basic.timetable.ManualNavigationTimetableFactory
-import work.art1st.javarailways.basic.timetable.TimetableDumper
+import work.art1st.javarailways.simpleato.timetable.ManualNavigationParser
+import work.art1st.javarailways.simpleato.timetable.ManualNavigationTimetableFactory
+import work.art1st.javarailways.simpleato.timetable.TimetableDumper
 import work.art1st.javarailways.basic.timetable.TimetableEpochStartResult
 import work.art1st.javarailways.basic.timetable.TimetableReplanResult
 import work.art1st.javarailways.basic.timetable.TimetableServiceRunId

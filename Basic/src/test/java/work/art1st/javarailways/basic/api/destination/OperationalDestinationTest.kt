@@ -101,6 +101,8 @@ class OperationalDestinationTest {
             )
         )
 
+        assertEquals(destination, service["unrestricted"])
+        assertNull(service["missing"])
         assertNull(world.basicWorldData.destinations["unrestricted"]?.approachDirection)
         val berth = requireNotNull(world.basicWorldData.stations.berth(stationRole.berthRef))
         assertNull(berth.approachDirection)

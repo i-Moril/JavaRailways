@@ -178,6 +178,14 @@ class OperationalDestinationStore {
 class OperationalDestinationService(private val world: World) {
     private val data = world.basicWorldData
 
+    /**
+     * Return the current definition from this service's world, or `null` when [id] is unknown.
+     *
+     * This is a non-blocking read of the live world-local destination store. The returned value is
+     * immutable, the call performs no mutation, and it is not a persisted or revision-pinned snapshot.
+     */
+    operator fun get(id: String): OperationalDestination? = data.destinations[id]
+
     @MainThread
     fun register(destination: OperationalDestination) {
         check(data.destinations[destination.id] == null) {

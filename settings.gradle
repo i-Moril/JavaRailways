@@ -12,6 +12,7 @@ rootProject.name = 'JavaRailways'
 
 include 'Core'
 include 'Basic'
+include 'SimpleATO'
 include 'Annotation'
 include 'BukkitPlugin'
 include 'BukkitPluginDev'

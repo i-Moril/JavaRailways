@@ -96,6 +96,7 @@ dependencies {
     implementation("io.insert-koin:koin-core:4.1.1")
     implementation(project(":Core"))
     implementation(project(":Basic"))
+    implementation(project(":SimpleATO"))
     implementation(project(":ConfigLib"))
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")

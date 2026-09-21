@@ -41,7 +41,7 @@ Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot
 | route/direction/berth/provider/parameters unresolved | errors + failure context | none |
 | valid | `isSuccess=true`并返回pre-expanded routes | Dispatcher才可begin/start |
 
-Manual parser token`+id`表示pass；final必须stop。stop JSON strict且只允许`minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。
+Manual parser/factory 与 timetable JSON 展示已经迁入 `SimpleATO`，Basic 仍暂时拥有本页的 timetable model、validator、runtime store 与 Dispatcher。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。迁移期 SimpleATO factory 只消费 Basic model，不改变其执行 authority。
 
 ## 项目内正确示例
 
@@ -68,9 +68,10 @@ val periodTicks = runCatching { timetable.periodTicks }.getOrElse {
 ## 必需测试与验证
 
 - `TimetableValidatorTest.kt`：所有gate、context、route expansion、line speed、invalid station approach且run/controller absent/world未Stall。
-- `ManualNavigationTest.kt`：`+pass`、final stop、strict JSON/type/token、station role生成CallStation。
+- `SimpleATO/ManualNavigationTest.kt`：`+pass`、final stop、strict JSON/type/token、station role生成CallStation及原 Dispatcher 集成行为。
 - `TimetableSnapshotTest.kt`：presentation survives JSON但restore不进入runtime authority。
 
 ```bash
-./gradlew :Basic:test --tests '*TimetableValidatorTest' --tests '*ManualNavigationTest' --tests '*TimetableSnapshotTest'
+./gradlew :Basic:test --tests '*TimetableValidatorTest' --tests '*TimetableSnapshotTest'
+./gradlew :SimpleATO:test --tests '*ManualNavigationTest'
 ```

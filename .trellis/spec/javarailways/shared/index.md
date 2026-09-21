@@ -18,7 +18,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
-| [模块与构建边界](./modules-and-build.md) | 八个 Gradle 子项目、依赖方向、JVM 与打包关系 |
+| [模块与构建边界](./modules-and-build.md) | 九个 Gradle 子项目、依赖方向、JVM 与打包关系 |
 | [持久化与 Schema 演进](./persistence.md) | 世界快照、配置、extension payload、WebUI recovery 的统一政策 |
 | [全局质量检查](./quality.md) | 根构建、CI 对齐和按改动范围选择验证命令 |
 
@@ -34,7 +34,7 @@
 
 ## 质量检查
 
-- [ ] 运行 `python3 ./.trellis/scripts/get_context.py --mode packages`，确认根 package 能发现 `basic, core, shared` layers，其余未迁移模块 package 与 `docs-site [submodule]` 仍可发现。
+- [ ] 运行 `python3 ./.trellis/scripts/get_context.py --mode packages`，确认根 package 能发现 `basic, core, shared, simpleato` layers，其余 package 与 `docs-site [submodule]` 仍可发现。
 - [ ] 对照[全局质量检查](./quality.md)运行所有受影响模块的测试/构建。
 - [ ] 搜索实现包依赖、持久化版本、协议 token 与文档引用，确认跨层 contract 同步。
 - [ ] 若改动 submodule，分别运行 `git status --short` 与 `git -C docs-site status --short`。

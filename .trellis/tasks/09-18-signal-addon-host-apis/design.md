@@ -6,6 +6,8 @@ Core版本化铁路图合同见[`versioned-operational-topology.md`](../../spec/
 
 实现顺序固定为：版本化topology state与旧图adapter → overlay projection与region catalog迁移 → SimpleATO topology-bound frozen route → Basic route validation/claim assembly → atomic admission transaction → tail-release/recovery → Dispatcher与`MANUAL_ROUTED`迁移。前一层合同测试未通过时不得开始后一层迁移。
 
+`SimpleATO` Gradle模块现已作为迁移目标真实建立。第一批只直接迁移无Basic production caller的手动导航parser/factory与timetable JSON dumper，并让Bukkit composition依赖新owner；不增加兼容wrapper，也不移动controller或Dispatcher。由于factory仍消费Basic timetable model和destination API，这只是依赖安全的垂直切片，完整运营依赖闭包仍待后续批次迁移。
+
 ## End-to-end working model
 
 ```text

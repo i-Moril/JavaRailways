@@ -365,7 +365,8 @@ internal class ProtectedRouteClaimService(
                 )
             )
         }
-        if (observation.trains.none { it.trainId == request.trainId }) {
+        val requestTrain = observation.trains.firstOrNull { it.trainId == request.trainId }
+        if (requestTrain == null) {
             return ResolutionResult.Finished(
                 result(
                     ProtectedRouteClaimStatus.INVALID_REQUEST,
@@ -405,6 +406,15 @@ internal class ProtectedRouteClaimService(
             is ProtectedRouteValidation.Rejected ->
                 ResolutionResult.Finished(result(validation.status, validation.detail))
             is ProtectedRouteValidation.Validated -> {
+                val tailInitialization = validation.admission.routeProgressPath.initializeCursor(requestTrain.tail)
+                if (tailInitialization !is RouteProgressCursorInitialization.Initialized) {
+                    return ResolutionResult.Finished(
+                        result(
+                            ProtectedRouteClaimStatus.INVALID_REQUEST,
+                            "frozen route does not begin at the authoritative train tail"
+                        )
+                    )
+                }
                 val occupyingTrainIds = observation.occupancy.blockingTrainIds(
                     validation.admission.occupancyGeometry.intervals,
                     request.trainId

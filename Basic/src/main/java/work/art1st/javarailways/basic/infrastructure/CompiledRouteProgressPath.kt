@@ -16,13 +16,11 @@ internal data class RouteProgressCursorState(
     }
 }
 
-/** Result of creating a cursor at a caller-proven route occurrence. */
+/** Result of binding one authoritative physical tail to the frozen-route start. */
 internal sealed interface RouteProgressCursorInitialization {
     data class Initialized(val cursor: RouteProgressCursor) : RouteProgressCursorInitialization
 
-    data object OccurrenceIndexOutOfBounds : RouteProgressCursorInitialization
-
-    data object PositionNotOnOccurrence : RouteProgressCursorInitialization
+    data object PositionDoesNotMatchRouteStart : RouteProgressCursorInitialization
 }
 
 /** Result of moving an initialized cursor with one authoritative physical position. */
@@ -44,8 +42,9 @@ internal sealed interface RouteProgressCursorUpdate {
 /**
  * Immutable ordered physical path compiled once from a validated frozen route.
  *
- * A future grant owner must initialize a cursor with an explicit occurrence anchor obtained from
- * the same-epoch observation. The path never guesses that initial anchor from repeated rails.
+ * A future grant owner initializes a cursor only when the authoritative physical tail matches the
+ * first occurrence's route start. The cursor therefore begins conservatively at route distance zero
+ * and never trusts a caller-owned occurrence index or progress coordinate.
  */
 internal class CompiledRouteProgressPath private constructor(
     private val occurrences: List<RouteProgressOccurrence>
@@ -53,16 +52,13 @@ internal class CompiledRouteProgressPath private constructor(
     val occurrenceCount: Int
         get() = occurrences.size
 
-    fun initializeCursor(
-        occurrenceIndex: Int,
-        position: RailPositionSnapshot
-    ): RouteProgressCursorInitialization {
-        val occurrence = occurrences.getOrNull(occurrenceIndex)
-            ?: return RouteProgressCursorInitialization.OccurrenceIndexOutOfBounds
-        val routeDistanceMeters = occurrence.project(position)
-            ?: return RouteProgressCursorInitialization.PositionNotOnOccurrence
+    fun initializeCursor(position: RailPositionSnapshot): RouteProgressCursorInitialization {
+        val projectedDistance = occurrences.first().project(position)
+        if (projectedDistance == null || projectedDistance > Curve.TOLERANCE) {
+            return RouteProgressCursorInitialization.PositionDoesNotMatchRouteStart
+        }
         return RouteProgressCursorInitialization.Initialized(
-            RouteProgressCursor(occurrences, occurrenceIndex, routeDistanceMeters)
+            RouteProgressCursor(occurrences, occurrenceIndex = 0, routeDistanceMeters = 0.0)
         )
     }
 

@@ -133,15 +133,18 @@ progress；该输入必须已由未来grant lifecycle针对同一冻结route证�
 同一次validation还把已验证`ProjectedTopologyRoute`精简成immutable
 `CompiledRouteProgressPath`并挂到`CompiledRouteAdmission`。path按冻结路线顺序只保存每个occurrence的
 rail、facing、canonical AB上下界、累计route起点和片段长度；它不是第二条可寻路路线、footprint或occupancy
-geometry。未来grant owner必须从同epoch observation取得明确的初始occurrence index，并用该index及物理车尾
-位置初始化`RouteProgressCursor`；初始化只验证指定occurrence，不全路线反查或猜测重复rail中的位置。
+geometry。每次新准入或replace提交的冻结路线必须从同epoch observation中的真实车尾开始；Basic在claim前
+只验证第一个occurrence的route start与该物理车尾一致，并把`RouteProgressCursor`保守初始化为路线距离`0`。
+调用方不提交初始route coordinate或occurrence index，因此重复经过同一rail不能把初始游标伪造到后一次经过。
+replace也从当时的权威车尾重新冻结路线，不跨route version搬运调用方进度。把已验证cursor保留到live grant并
+持续消费后续observation仍属于下一批生命周期接线。
 
 cursor每次更新先按rail、facing、canonical AB边界与`Curve.TOLERANCE`匹配当前occurrence，并依据AB/BA方向
 换算route distance；因此相邻或零长度片段的共享边界确定地保留在较早occurrence，不会提前推进。当前项不匹配
 时才按路线顺序向后扫描，取第一个匹配occurrence并推进index；它从不向前跳过仍匹配的重复rail，也从不回扫。
 匹配结果低于已接受route distance，或没有当前/后续匹配时，均保留原state并锁存fail closed；后续调用不再
 扫描suffix，不得把任一失败解释为路线完成。
-当前尚未定义grant如何取得初始anchor，也尚未读取`RailwayObservation`或调用`LiveClaimTailRelease`。
+当前尚未把已验证初始位置保留到grant，也尚未消费后续`RailwayObservation`或调用`LiveClaimTailRelease`。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail
@@ -151,7 +154,8 @@ bindings同样只做一次收集，最终entry排序为`O(s log s)`；运行时i
 索引进一步复用到validation的其他派生结果；不得退回resource乘occurrence的全扫描，也不得为优化增加
 第二份authoritative footprint。
 
-route-progress path编译为`O(n)`时间和空间，其中`n`是已验证route occurrence数。cursor通常只检查当前
+route-progress path编译为`O(n)`时间和空间，其中`n`是已验证route occurrence数；初始车尾验证只检查第一个
+occurrence，为`O(1)`。cursor通常只检查当前
 occurrence，成本为`O(1)`；跨越片段时只顺序扫描实际跨过的suffix，整个未失败生命周期累计为摊销`O(n)`。
 终止性不匹配最多扫描剩余suffix一次，随后锁存fail closed为`O(1)`；不建立bucket、interval tree或全路线
 反向查询。
@@ -188,7 +192,6 @@ data class RouteResourceRequest(
     val trainId: String,
     val observationStamp: RailwayStateStamp,
     val routePlan: RoutePlanRef,
-    val currentProgressMeters: Double,
     val desiredAuthorityBoundary: RouteBoundaryRef
 )
 

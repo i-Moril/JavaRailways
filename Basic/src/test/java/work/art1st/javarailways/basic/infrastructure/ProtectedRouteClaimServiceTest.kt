@@ -212,6 +212,57 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
+    fun `frozen route must start at the same observation tail before claim mutation`() {
+        val plan = compiledAdmission(
+            InfrastructureFootprint(listOf(resource("turnout/a"))),
+            emptyList(),
+            OccupancyQueryGeometry.create(emptyList()),
+            testRouteProgressPath(railId, 100.0, routeStartAbMeters = 10.0)
+        )
+        val result = service { ProtectedRouteValidation.Validated(plan) }.acquire(
+            Any(),
+            request(null, routeStartMeters = 10.0)
+        )
+
+        assertEquals(ProtectedRouteClaimStatus.INVALID_REQUEST, result.status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `replacement with a mismatched route start preserves the existing claim`() {
+        val platformOwner = Any()
+        val oldOwner = InfrastructureOwner("test:route/main", 1L)
+        val newOwner = InfrastructureOwner("test:route/main", 2L)
+        val service = service { request ->
+            ProtectedRouteValidation.Validated(
+                compiledAdmission(
+                    InfrastructureFootprint(listOf(resource("turnout/a"))),
+                    emptyList(),
+                    OccupancyQueryGeometry.create(emptyList()),
+                    testRouteProgressPath(
+                        railId,
+                        100.0,
+                        request.route.segments.first().startArcLengthMeters
+                    )
+                )
+            )
+        }
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(platformOwner, request(null, oldOwner)).status
+        )
+
+        val rejected = service.replace(
+            platformOwner,
+            oldOwner,
+            request(null, newOwner, routeStartMeters = 10.0)
+        )
+
+        assertEquals(ProtectedRouteClaimStatus.INVALID_REQUEST, rejected.status)
+        assertEquals(listOf(oldOwner), registry.claimSnapshots().map { it.owner })
+    }
+
+    @Test
     fun `physical blockers are sorted immutable and prevent registry validation`() {
         observation = observation(
             train("train", 20.0, 30.0),
@@ -255,12 +306,20 @@ class ProtectedRouteClaimServiceTest {
         val platformOwner = Any()
         val oldOwner = InfrastructureOwner("test:route/main", 1L)
         val newOwner = InfrastructureOwner("test:route/main", 2L)
-        val plan = compiledAdmission(
-            InfrastructureFootprint(listOf(resource("turnout/a"))),
-            emptyList(),
-            OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0)))
-        )
-        val service = service { ProtectedRouteValidation.Validated(plan) }
+        val service = service { request ->
+            ProtectedRouteValidation.Validated(
+                compiledAdmission(
+                    InfrastructureFootprint(listOf(resource("turnout/a"))),
+                    emptyList(),
+                    OccupancyQueryGeometry.create(listOf(RailInterval(railId, 20.0, 30.0))),
+                    testRouteProgressPath(
+                        railId,
+                        100.0,
+                        request.route.segments.first().startArcLengthMeters
+                    )
+                )
+            )
+        }
         assertEquals(
             ProtectedRouteClaimStatus.ACQUIRED,
             service.acquire(platformOwner, request(null, oldOwner)).status
@@ -887,7 +946,12 @@ class ProtectedRouteClaimServiceTest {
     private fun request(
         window: ProtectedRouteWindow?,
         owner: InfrastructureOwner = InfrastructureOwner("test:route/main", 1L),
-        stamp: RailwayStateStamp = observation.stamp
+        stamp: RailwayStateStamp = observation.stamp,
+        routeStartMeters: Double = observation.trains
+            .firstOrNull { it.trainId == "train" }
+            ?.tail
+            ?.arcLengthInAbMeters
+            ?: 0.0
     ) = ProtectedRouteRequest(
         requestId = "test:request/main",
         owner = owner,
@@ -897,7 +961,7 @@ class ProtectedRouteClaimServiceTest {
             "route",
             2L,
             4L,
-            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
+            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, routeStartMeters, 100.0))
         ),
         window = window
     )
@@ -982,7 +1046,15 @@ class ProtectedRouteClaimServiceTest {
     private fun compiledAdmission(
         footprint: InfrastructureFootprint,
         preparations: Collection<InfrastructurePreparationRequirement>,
-        occupancyGeometry: OccupancyQueryGeometry
+        occupancyGeometry: OccupancyQueryGeometry,
+        routeProgressPath: CompiledRouteProgressPath = testRouteProgressPath(
+            railId,
+            100.0,
+            observation.trains.firstOrNull { it.trainId == "train" }
+                ?.tail
+                ?.arcLengthInAbMeters
+                ?: 0.0
+        )
     ): CompiledRouteAdmission {
         return CompiledRouteAdmission.create(
             footprint,
@@ -991,7 +1063,7 @@ class ProtectedRouteClaimServiceTest {
             footprint.resources.map { resource ->
                 ResolvedTailReleaseEntry(resource, 0.0)
             },
-            testRouteProgressPath()
+            routeProgressPath
         )
     }
 

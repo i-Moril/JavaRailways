@@ -39,19 +39,24 @@ internal fun topologyState(
 internal fun endpoint(railId: UUID, endpoint: RailEndpoint): RailEndpointRef =
     RailEndpointRef(railId, endpoint)
 
-private val TEST_ROUTE_PROGRESS_PATH: CompiledRouteProgressPath by lazy {
-    val railId = UUID(0L, Long.MAX_VALUE)
-    val topology = lineTopologyState(0L, railId)
+internal fun testRouteProgressPath(
+    railId: UUID = UUID(0L, Long.MAX_VALUE),
+    railLengthMeters: Double = 10.0,
+    routeStartAbMeters: Double = 0.0
+): CompiledRouteProgressPath {
+    val topology = buildTestTopology(
+        revision = 0L,
+        rails = listOf(TestTopologyRail(railId, railLengthMeters)),
+        continuations = emptyMap()
+    )
     val projected = TopologyRouteProjector.project(
         RouteSnapshot(
             "test:route/progress-path",
             0L,
             0L,
-            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 10.0))
+            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, routeStartAbMeters, railLengthMeters))
         ),
         topology
     ) as TopologyRouteProjectionResult.Projected
-    CompiledRouteProgressPath.compile(projected.route)
+    return CompiledRouteProgressPath.compile(projected.route)
 }
-
-internal fun testRouteProgressPath(): CompiledRouteProgressPath = TEST_ROUTE_PROGRESS_PATH

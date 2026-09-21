@@ -75,6 +75,11 @@ data class ProtectedRouteWindow(
  * revision; the host rejects either a mixed binding or a stamp that is no longer the latest
  * published observation instead of combining state from different epochs.
  *
+ * The frozen route must begin at the authoritative train tail in that observation. Basic verifies
+ * that invariant before claiming any resource, so a caller never supplies an occurrence index or
+ * initial route-progress value. Replanning and replacement freeze a new route from the then-current
+ * tail rather than carrying a caller-owned coordinate across route versions.
+ *
  * A null [window] is valid only when authoritative validation confirms that [route] traverses no
  * controlled resource. A route that cannot safely wait before another throat must use one larger
  * authored protection region; runtime requests never combine multiple regions.

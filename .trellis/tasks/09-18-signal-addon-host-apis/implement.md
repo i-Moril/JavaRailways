@@ -53,10 +53,11 @@
     unexpected results latch fail closed. Route-position projection, Stall wiring, grant
     persistence, provider-disable and reload recovery remain.
   - [x] Compile one immutable ordered progress path from the already validated frozen route and
-    retain it in `CompiledRouteAdmission`. A grant-owned cursor starts from an explicit verified
-    occurrence anchor, then matches the current occurrence before scanning only forward and latches
-    an unmatched suffix fail closed. Obtaining the same-epoch initial anchor, observation, live
-    release advancement, clearance margin and Stall wiring remain separate lifecycle work.
+    retain it in `CompiledRouteAdmission`. Every admission/replacement route must start at the
+    authoritative same-epoch train tail; Basic verifies the first occurrence and initializes the
+    cursor at zero before claim mutation. The request carries neither progress nor occurrence index.
+    Retaining that cursor in a live grant, consuming later observations, clearance margin and Stall
+    wiring remain separate lifecycle work.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation
@@ -76,10 +77,11 @@
     preparation changes, or public API changes.
   - [x] Add the internal tail-release lifecycle owner that performs shrink-before-pop, preserves
     overlapping identities independently, rejects decreasing progress, and completes idempotently.
-  - [x] Attach a once-compiled ordered progress path to each validated admission. Its explicitly
-    anchored grant-owned cursor performs canonical AB/BA conversion, stays on the earlier matching
+  - [x] Attach a once-compiled ordered progress path to each validated admission. Its
+    host-initialized cursor performs canonical AB/BA conversion, stays on the earlier matching
     tolerance boundary, advances only to the earliest forward match, never scans backward, and
-    latches an unmatched suffix fail closed.
+    latches an unmatched suffix fail closed. Basic verifies the frozen route starts at the same
+    observation's physical train tail before claim mutation and initializes progress at zero.
 - [ ] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
 - [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.

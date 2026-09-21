@@ -109,11 +109,10 @@ class ProtectedRouteRequestValidatorTest {
         val tailCursor = assertInstanceOf(
             RouteProgressCursorInitialization.Initialized::class.java,
             validated.admission.routeProgressPath.initializeCursor(
-                1,
-                RailPositionSnapshot(fixture.straight, ViewDirection.AB, 4.0)
+                RailPositionSnapshot(fixture.trunk, ViewDirection.AB, 0.0)
             )
         )
-        assertEquals(RouteProgressCursorState(1, 14.0), tailCursor.cursor.state)
+        assertEquals(RouteProgressCursorState(0, 0.0), tailCursor.cursor.state)
     }
 
     @Test
@@ -604,11 +603,10 @@ class ProtectedRouteRequestValidatorTest {
         val anchored = assertInstanceOf(
             RouteProgressCursorInitialization.Initialized::class.java,
             validated.admission.routeProgressPath.initializeCursor(
-                0,
-                RailPositionSnapshot(first, ViewDirection.AB, 3.0)
+                RailPositionSnapshot(first, ViewDirection.AB, 0.0)
             )
         )
-        assertEquals(RouteProgressCursorState(0, 3.0), anchored.cursor.state)
+        assertEquals(RouteProgressCursorState(0, 0.0), anchored.cursor.state)
     }
 
     @Test

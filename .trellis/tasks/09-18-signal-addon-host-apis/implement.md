@@ -2,10 +2,12 @@
 
 ## Preparation
 
-- [ ] Load Core, Basic, BukkitPlugin, shared cross-layer, persistence, and threading specs.
-- [ ] Inventory current route-allocation, physics-publication, controller-constraint, service-registration, world-unload, and topology-edit callers.
+- [x] Load Core, Basic, BukkitPlugin, shared cross-layer, persistence, and threading specs.
+- [x] Inventory current route-allocation, physics-publication, controller-constraint, service-registration, world-unload, and topology-edit callers. See `research/production-caller-inventory.md`.
 - [ ] Inventory and remove runtime assumptions that derive one stop/release boundary per turnout, including `single()` turnout paths.
+  - [x] Inventory the three Dispatcher `turnoutRequirements.single()` authority/release paths; removal belongs to the atomic caller-migration batch, not a mechanical `first()`/loop rewrite.
 - [ ] Inventory every `RailView.selectNextRail` caller and route turnout mutation through either protected automatic allocation or the separately guarded manual operation.
+  - [x] Inventory the two production writers: protected `ImmediateTurnoutPreparationActuator` and transitional `RouteSectionAllocator`. Writer migration remains.
 - [ ] Write contract tests for an external compile-only consumer before moving implementations.
 
 ## Pre-implementation design gate
@@ -38,6 +40,9 @@
     observation and operating-direction overlay, resolve the named authoritative train, derive the route
     start and facing from its published tail, and preserve typed stale/train/planner rejection. Production
     Dispatcher wiring, public API and resource admission remain separate.
+  - [ ] When production Dispatcher batches route selection for one observation, build one train-ID index
+    in that dispatch context and share it across selectors; keep the current one-off linear lookup for
+    isolated requests and do not add a cross-observation cache.
 - [ ] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one canonical resource set, generic contributor closure, safe authority-boundary selection and turnout selections. Occupancy geometry is validation evidence, not a second footprint. No registry mutation and no Basic path search.
   - [x] Basic internal route projection validates one frozen `RouteSnapshot` against `TopologyState` in one linear pass, emits immutable edge occurrences and derives turnout node/from/to traversals; protection-window validation reuses this projection. Public request shape, route-bound diamond index and closure compilation remain.
   - [x] Turnout traversals derive one direction-independent `javarailways:turnout` resource identity from the sorted persistent endpoint set; revision-local topology node IDs remain validation-only. Route validation and diamond identities remain.

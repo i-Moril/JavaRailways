@@ -138,6 +138,7 @@ data class AutomaticRouteIntent(
 ## 7. 性能、复杂度与退化行为
 
 - 当前内部选路器每次查询从已发布`TopologyState`构造revision-local node→incident-edge只读索引，随后执行Dijkstra。令`P`为可到达入口port状态数、`C`为这些port之间实际展开的合法continuation数、`R_q`为所有候选edge方向过滤实际检查的physical rail slice次数、`S_out`为结果rail slice数，则时间复杂度为`O((P + C) log P + R_q + S_out)`，空间复杂度为`O(P + E)`；不能把高阶turnout的port-pair展开错误地只计成一个edge。它不从live rails重建图、不读取当前道岔选位，也不修改topology；后续批量选路可以按topology root缓存incident-edge索引，但缓存不得跨revision复用。
+- 当前单次`FrozenRouteSelector.select`按`trainId`线性查找一次不可变observation列车列表，成本为`O(T)`；选路是mission/target/revision事件驱动，不得逐tick、逐信号或每次authority extension调用。未来Dispatcher在同一observation批量为多列车选路时，应在该次调度上下文只建立一次`trainId -> RailwayTrainObservation`索引并复用，使批量查找为`O(T + Q)`；不得让每个selector各自复制索引或引入跨observation缓存生命周期。
 - 一旦路线冻结，前方 perception 对实际扫描长度为线性；一个 controlled train、一个 physics epoch 只做一次，constraint 归约对候选数线性。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
 - unchanged stable denial 使用缓存的 typed result 与 revision key；相关 revision 不变时不重复昂贵解析。

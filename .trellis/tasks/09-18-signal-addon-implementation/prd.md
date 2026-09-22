@@ -1,4 +1,4 @@
-# Stage 2: SimpleATO extraction and reference signal-system plugin
+# Stage 2: SimpleATO extraction and JapaneseSignals
 
 ## Goal
 
@@ -25,7 +25,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Leave low-level `RailWand`, manual driving and host world/composition behavior in `BukkitPlugin`.
 - Remove old Basic/BukkitPlugin owners as each slice moves; never keep two writable production implementations or add runtime compatibility wrappers for development data without separate approval.
 
-### B. Independent reference signal-system plugin
+### B. Independent `JapaneseSignals` plugin
 
 - Create a separately deployable Java/Kotlin plugin/artifact with its own descriptor, lifecycle, persistence boundary, commands/tools and rendering.
 - Depend on JavaRailways/SimpleATO public contracts at compile time and host services at runtime; do not shadow host classes.
@@ -56,8 +56,8 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 - [ ] `SimpleATO` contains the platform-neutral operational stack and Basic has no production owner for the migrated state.
 - [ ] `SimpleATOBukkit` is a separate plugin/artifact and does not become the owner of any concrete signalling system.
-- [ ] The reference signal-system JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
-- [ ] Protection-region/fixed-block classes, persistence and authoring are absent from Basic's target API and owned by the reference plugin.
+- [ ] The `JapaneseSignals` JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
+- [ ] Protection-region/fixed-block classes, persistence and authoring are absent from Basic's target API and owned by `JapaneseSignals`.
 - [ ] One region protects both a simple turnout and a multi-turnout throat without internal per-turnout stop boundaries.
 - [ ] Region validation rejects leaks, ambiguity, bad gate direction and unsupported overlap outside the runtime tick.
 - [ ] Basic still inserts every traversed rail, turnout and diamond resource when the plugin supplies no or incomplete additions.
@@ -74,7 +74,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Out of scope
 
-- Requiring every signalling system to use the reference plugin's protection-region model, aspects, scripts or persistence.
+- Requiring every signalling system to use `JapaneseSignals` protection-region model, aspects, scripts or persistence.
 - Multiple concrete national signalling systems in the first Stage 2 implementation.
 - Certification-grade communication, redundant control channels or train-integrity proving.
 - Permanent runtime compatibility for arbitrary pre-release Basic/Signal data.
@@ -84,8 +84,11 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 - Blocked by completion and API review of `09-18-signal-addon-host-apis`.
 
-## Deferred decisions before implementation of the reference plugin scaffold
+## Deferred decisions
 
-- Final plugin/module/product name. `JapaneseSignals` is the current recommended working direction because the first rule set is intended to exercise Japanese-style aspects and block behavior, but the name is not frozen by this document.
 - Exact plugin-local JS/YAML API, script budget and model-variant vocabulary. These are reviewed after the Java/Kotlin safety/runtime boundary exists.
 - Guided/shunting workflow details and WebUI packaging.
+
+## Blocking open questions
+
+None. The Gradle module, plugin and product name is `JapaneseSignals`. Java package names, persisted type IDs and script API names remain intentionally unfrozen until their owning implementation batches.

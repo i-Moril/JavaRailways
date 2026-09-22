@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-This is a `TARGET` design with two ordered deliverables. It is not ready to start until Stage 1 public APIs are reviewed and the reference plugin name is frozen.
+This is a `TARGET` design with two ordered deliverables. The first concrete signal-system module, plugin and product name is `JapaneseSignals`; Stage 1 public APIs must still be completed and reviewed before Stage 2 starts.
 
 ```text
 JavaRailways Core/Basic/BukkitPlugin
@@ -11,11 +11,11 @@ JavaRailways Core/Basic/BukkitPlugin
 SimpleATO + SimpleATOBukkit
   operations + ATO/ATP + inspection scheduling + Bukkit adapter
 
-Reference signal-system plugin
+JapaneseSignals
   one concrete signalling/interlocking model + its platform UI/persistence/customization
 ```
 
-The first plugin is a reference consumer, not a new universal layer. Other signal plugins can implement route tables, realistic interlocking, different block systems or no protection regions while sharing the same Basic physical safety floor and SimpleATO constraint pipeline.
+`JapaneseSignals` is the first reference consumer, not a new universal layer. Other signal plugins can implement route tables, realistic interlocking, different block systems or no protection regions while sharing the same Basic physical safety floor and SimpleATO constraint pipeline.
 
 ## Deliverable 1: SimpleATO extraction
 
@@ -25,7 +25,7 @@ The first plugin is a reference consumer, not a new universal layer. Other signa
 
 `BukkitPlugin` keeps RailWand, manual driving, host world composition and other low-level tools. Each migrated slice moves its contract, implementation, tests and composition together; the old production owner is then removed.
 
-## Deliverable 2: reference signal-system plugin
+## Deliverable 2: JapaneseSignals
 
 ### Domain model
 
@@ -51,7 +51,7 @@ The first release treats one region as one throat/interlocking area. It does not
 
 ### Runtime route decision
 
-SimpleATO's shared perception reports which indexed signal resources are entering inspection range on the frozen route. The reference plugin evaluates only those resources and their declared dependencies.
+SimpleATO's shared perception reports which indexed signal resources are entering inspection range on the frozen route. `JapaneseSignals` evaluates only those resources and their declared dependencies.
 
 For a protection-region entry, the plugin:
 
@@ -98,7 +98,7 @@ Plugin definitions and operational objects referenced by an applied timetable ar
 
 ## Persistence and lifecycle
 
-SimpleATO and every signal plugin own separate persistence boundaries. The reference plugin uses atomic primary/backup writes and fixed current-model fixtures. Decode/migration upcasts at that boundary; runtime code sees only the current model, and writers emit only the current version. Topology migrations are dry-run first and create a recovery point.
+SimpleATO and every signal plugin own separate persistence boundaries. `JapaneseSignals` uses atomic primary/backup writes and fixed current-model fixtures. Decode/migration upcasts at that boundary; runtime code sees only the current model, and writers emit only the current version. Topology migrations are dry-run first and create a recovery point.
 
 At enable/load, the plugin remains restrictive until host capabilities, persisted definitions, topology bindings and derived indexes validate. Missing required host services prevents enable. Plugin disable stops new route decisions and restrictions fail closed; committed grants/release metadata remain host-owned until safe clearance. Renderer and authoring resources clean up idempotently.
 
@@ -125,6 +125,7 @@ Development data migration, if required, is a separate auditable one-time tool w
 
 ## Open decisions
 
-- Final reference plugin/module name; `JapaneseSignals` is recommended but not yet frozen.
 - Exact plugin-local script/YAML surface and execution budget.
 - Whether WebUI remains a host sidecar, moves beside SimpleATO, or becomes independently deployable.
+
+These decisions do not block module extraction, protection-region migration or the Java/Kotlin signalling core. The name `JapaneseSignals` does not by itself freeze Java package names, persisted type IDs or script API identifiers.

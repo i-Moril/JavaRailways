@@ -3,7 +3,7 @@
 ## Start gate
 
 - [ ] Stage 1 public resource, restriction, inspection and lease APIs are complete and reviewed.
-- [ ] Freeze the reference signal plugin's final module/product name.
+- [x] Freeze the module/plugin/product name as `JapaneseSignals`; package names, persisted type IDs and script identifiers remain separate API decisions.
 - [ ] Load SimpleATO, Basic, Bukkit, persistence, interaction/render and shared module specs.
 - [ ] Confirm no runtime compatibility path is required; if development data needs migration, design a separate dry-run tool and recovery point first.
 - [ ] Re-run the PRD convergence pass and present the final Stage 2 summary for explicit implementation approval.
@@ -19,7 +19,7 @@
 - [ ] Implement cached resource inspection declarations, dynamic braking-distance comparison and dependency-driven update scheduling in SimpleATO.
 - [ ] Add namespaced most-restrictive restriction integration; plugin output cannot widen Basic grant or existing ATO/ATP limits.
 
-## Deliverable 2: reference signal plugin foundation
+## Deliverable 2: JapaneseSignals foundation
 
 - [ ] Scaffold the independent Java/Kotlin plugin, descriptor, compile-only host dependencies, capability/version checks and separate JAR packaging.
 - [ ] Establish plugin-owned world runtime, strict current-model sidecar, stable namespaced IDs and atomic primary/backup store.
@@ -44,7 +44,7 @@
 - [ ] Declare resource dependencies and maintain a reverse invalidation index for affected signal updates.
 - [ ] Trigger `update(train)` on inspection activation or dependency revision changes; prove unchanged resources remain idle.
 - [ ] Propagate changed downstream state upstream until stable with bounded/cycle-fail-closed behavior.
-- [ ] Define the reference plugin's Java/Kotlin aspect/block/interlocking rules before adding scripts.
+- [ ] Define `JapaneseSignals` Java/Kotlin aspect/block/interlocking rules before adding scripts.
 - [ ] In a separately reviewed batch, define optional JS/YAML input views, setters such as speed/model variant, validation, execution budget and failure behavior.
 - [ ] Keep scripts away from mutable world objects and raw Basic claim mutation; all outputs pass plugin validation and host restriction/resource APIs.
 
@@ -59,7 +59,7 @@
 
 ## Validation
 
-- [ ] Module-boundary tests prove Basic, SimpleATO, SimpleATOBukkit and the reference plugin have one owner per state and valid dependency direction.
+- [ ] Module-boundary tests prove Basic, SimpleATO, SimpleATOBukkit and `JapaneseSignals` have one owner per state and valid dependency direction.
 - [ ] Packaging tests prove separate JARs, descriptors, compile-only host dependencies and no shadowed host classes.
 - [ ] Region tests cover simple turnout, multi-turnout throat, leak, ambiguity, direction, topology invalidation and unsupported overlap.
 - [ ] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.
@@ -76,10 +76,10 @@
 
 1. SimpleATO production slice migrations, one owner at a time.
 2. `SimpleATOBukkit` scaffold and platform adapter extraction.
-3. Reference plugin scaffold and persistence boundary.
+3. `JapaneseSignals` scaffold and persistence boundary.
 4. Protection-region domain/index migration from Basic.
 5. Generic Basic intent integration and removal of old protection policy.
-6. Fixed blocks and reference signal policy.
+6. Fixed blocks and Japanese signal policy.
 7. Reactive state/dependency scheduling.
 8. Authoring/rendering and optional customization runtime.
 9. Timetable audit/lease integration and lifecycle closure.
@@ -91,4 +91,4 @@ Each commit must explain which runtime flow it changes, the mechanism used, the 
 - Keep module extraction, protection migration, route integration, reactive policy, persistence and rendering in separate commits.
 - Do not delete the old owner until the new owner is wired and parity tests pass in the same reviewed slice.
 - Do not enable permissive aspects until resource/grant/constraint integration tests pass.
-- Leave the reference plugin disabled for a world when persisted state or topology derivation cannot be validated safely.
+- Leave `JapaneseSignals` disabled for a world when persisted state or topology derivation cannot be validated safely.

@@ -1,8 +1,8 @@
 {
   "id": "signal-addon-implementation",
   "name": "signal-addon-implementation",
-  "title": "Stage 2: Signal add-on implementation",
-  "description": "Implement the independently deployable Signal add-on using the public contracts completed in stage 1.",
+  "title": "Stage 2: SimpleATO extraction and JapaneseSignals",
+  "description": "Finish the SimpleATO module split and implement JapaneseSignals as the first independent signalling-system plugin on the Stage 1 host APIs.",
   "status": "planning",
   "dev_type": null,
   "scope": null,

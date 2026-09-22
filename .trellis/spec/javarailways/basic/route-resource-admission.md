@@ -140,9 +140,9 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 
 ## 10. 迁移、未决事项与 Wrong / Correct
 
-Migration keeps the implemented generic pieces—topology projection, canonical turnout identity, route-bound catalog, occupancy query, atomic registry, preparation, cursor/release queue and suffix extension—and removes protection-region assumptions from their public target. `ProtectionRegionDefinition`, region graph-cut/catalog/window resolution, fixed-block partitioning and `PROTECTION_REQUIRED` move to the first concrete signalling plugin or a helper library owned by it.
+Migration keeps the implemented generic pieces—topology projection, canonical turnout identity, route-bound catalog, occupancy query, atomic registry, preparation, cursor/release queue and suffix extension—and removes protection-region assumptions from their public target. `ProtectionRegionDefinition`, region graph-cut/catalog/window resolution, fixed-block partitioning and `PROTECTION_REQUIRED` move to `JapaneseSignals` or a helper library owned by that plugin.
 
-Still open for later API batches: exact public names/packages; permission model for requesting another plugin's resource; persistence/recovery boundary; and the first concrete signalling plugin's product name. These do not change the physical-floor invariant.
+Still open for later API batches: exact public names/packages; permission model for requesting another plugin's resource; persistence/recovery boundary; and plugin-local script API identifiers. The concrete product name `JapaneseSignals` does not change the physical-floor invariant or freeze those API identities.
 
 ```text
 Wrong: the caller supplies the complete footprint and Basic trusts omissions

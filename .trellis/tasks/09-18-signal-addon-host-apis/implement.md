@@ -124,6 +124,9 @@
   - [x] Implement the frozen immutable route-intent request values: validate namespaced request/preparation identities,
     route-metre boundaries and unique additions; defensively copy additions and deterministically ordered scalar preparation
     arguments. Admission services, registry mutation and caller wiring remain later batches.
+  - [x] Implement typed generic admission result and service contracts: opaque process-local pending/grant identities,
+    immutable committed-grant snapshots, structurally checked conflict diagnostics, non-blocking start/progress results and
+    the world-local main-thread service boundary. Runtime admission implementation and caller wiring remain later batches.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.

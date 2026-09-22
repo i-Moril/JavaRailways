@@ -58,7 +58,9 @@ internal data class TopologyRoutePlanningInput(
     val start: OperationalRouteLocation,
     val end: OperationalRouteLocation,
     val routeId: String,
-    val routeRevision: Long
+    val routeRevision: Long,
+    /** Restricts the first traversal to the authoritative physical facing when supplied. */
+    val startFacing: ViewDirection? = null
 ) {
     init {
         require(routeId.isNotBlank()) { "routeId must not be blank" }
@@ -96,6 +98,10 @@ internal sealed interface TopologyRoutePlanningResult {
  * live rails or turnout selections, never mutates [TopologyState], and never claims resources.
  */
 internal object TopologyRoutePlanner {
+    /** Performs the planner's exact endpoint validation without starting a graph search. */
+    fun isValidLocation(topology: TopologyState, location: OperationalRouteLocation): Boolean =
+        resolveLocation(location, topology) != null
+
     fun plan(input: TopologyRoutePlanningInput): TopologyRoutePlanningResult {
         val topology = input.topology
         val directions = input.operatingDirections
@@ -131,17 +137,31 @@ internal object TopologyRoutePlanner {
                 "route start and end are the same physical location"
             )
         }
+        if (input.startFacing != null && !directions.allows(start.railId, input.startFacing)) {
+            return rejected(
+                TopologyRoutePlanningRejection.UNREACHABLE,
+                "authoritative start direction ${input.startFacing} is not allowed on rail ${start.railId}"
+            )
+        }
 
         val search = Search(topology, directions, end)
-        search.seed(start)
+        search.seed(start, input.startFacing)
         val path = search.run()
             ?: return rejected(
                 TopologyRoutePlanningRejection.UNREACHABLE,
                 "no route satisfies topology and operating-direction constraints"
             )
-        val segments = path.traversals.flatMap { traversal ->
+        val plannedSegments = path.traversals.flatMap { traversal ->
             traversal.toSegments(topology.getEdge(traversal.edgeId))
         } + listOfNotNull(path.terminalMarker)
+        val authoritativeStart = input.startFacing?.let(start::edgeDirection)?.let(start::endpointMarker)
+        val segments = if (authoritativeStart != null &&
+            plannedSegments.firstOrNull()?.startsAt(authoritativeStart) != true
+        ) {
+            listOf(authoritativeStart) + plannedSegments
+        } else {
+            plannedSegments
+        }
         if (segments.sumOf(RouteSegmentSnapshot::lengthMeters) <= POSITION_EPSILON) {
             return rejected(
                 TopologyRoutePlanningRejection.INVALID_LOCATION,
@@ -195,10 +215,13 @@ internal object TopologyRoutePlanner {
         private var sequence = 0L
         private var bestGoal: GoalCandidate? = null
 
-        fun seed(start: ResolvedLocation) {
+        fun seed(start: ResolvedLocation, startFacing: ViewDirection?) {
             val edge = topology.getEdge(start.edgeId)
-            seedDirection(edge, EdgeDirection.FIRST_TO_SECOND, start.edgeDistanceMeters)
-            seedDirection(edge, EdgeDirection.SECOND_TO_FIRST, start.edgeDistanceMeters)
+            val directions = startFacing?.let(start::edgeDirection)?.let(::listOf)
+                ?: EdgeDirection.entries
+            directions.forEach { direction ->
+                seedDirection(edge, direction, start.edgeDistanceMeters)
+            }
         }
 
         fun run(): SearchPath? {
@@ -449,6 +472,11 @@ internal object TopologyRoutePlanner {
 
     private fun samePosition(first: Double, second: Double): Boolean = abs(first - second) <= POSITION_EPSILON
 
+    private fun RouteSegmentSnapshot.startsAt(position: RouteSegmentSnapshot): Boolean =
+        railId == position.railId &&
+            facing == position.facing &&
+            samePosition(startArcLengthMeters, position.startArcLengthMeters)
+
     private fun rejected(reason: TopologyRoutePlanningRejection, detail: String) =
         TopologyRoutePlanningResult.Rejected(reason, detail)
 
@@ -467,6 +495,18 @@ internal object TopologyRoutePlanner {
         val edgeId: TrackEdgeId,
         val edgeDistanceMeters: Double
     ) {
+        fun edgeDirection(facing: ViewDirection): EdgeDirection {
+            val runsFirstToSecond = when (facing) {
+                ViewDirection.AB -> railRunsFirstToSecond
+                ViewDirection.BA -> !railRunsFirstToSecond
+            }
+            return if (runsFirstToSecond) {
+                EdgeDirection.FIRST_TO_SECOND
+            } else {
+                EdgeDirection.SECOND_TO_FIRST
+            }
+        }
+
         fun endpointMarker(edgeDirection: EdgeDirection): RouteSegmentSnapshot {
             val traversalRunsFirstToSecond = edgeDirection == EdgeDirection.FIRST_TO_SECOND
             val facing = if (railRunsFirstToSecond == traversalRunsFirstToSecond) {

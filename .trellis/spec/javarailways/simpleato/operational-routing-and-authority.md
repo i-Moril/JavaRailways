@@ -43,9 +43,19 @@ SimpleATO 决定“列车准备走哪条路”，Basic 只证明“这条路在�
 
 当前Core builder保证每条物理rail完整地、恰好投影为一个`TrackEdgeSlice`，当前Basic projector也要求单一无歧义projection；本选路器与这一**当前实现不变量**一致，遇到零个或多个projection会拒绝位置。它不是允许未来partial/multi-edge rail projection的通用API保证；若Core以后放宽builder，Core位置查询、Basic projector和本选路器必须在同一契约批次一起修改。snapshot精确保留输入topology revision及调用方给出的route ID/revision；运行方向overlay revision随内部成功结果返回，供后续准入客户端保持coherent input。当前这一类型仍为SimpleATO internal：尚未迁移production Dispatcher，也尚未加入线路、车辆能力和时刻表cost，因此不构成冻结public API。
 
+当前内部`FrozenRouteSelector`是观测与上述纯选路器之间的唯一接缝。一次调用显式接收同一个不可变
+`TopologyState`、一个`RailwayObservation`、一个运行方向overlay、稳定train ID、运营目标及route
+identity/revision；先要求observation与overlay的topology revision都等于该topology root，再只从这份
+observation解析具名列车。脱轨列车作为无效权威起点被拒绝；成功时将该列车的tail rail、canonical AB
+位置和facing作为planner起点，并只调用一次既有Dijkstra。返回值保留原observation stamp、overlay revision
+和生成的`RouteSnapshot`，供后续Basic准入客户端提交同一批输入。stale observation、stale overlay、列车缺失、
+列车无效和planner拒绝分别是typed internal结果；planner的`INVALID_LOCATION`/`UNREACHABLE`等原始reason不被
+抹平。该接缝不读取live train、不申请资源，也不为测试暴露Basic内部progress cursor；首segment的rail、facing
+和局部起点必须精确对应权威tail，Basic随后仍独立验证这一不变量。
+
 ### 3.2 冻结路线与准入客户端
 
-冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp、当前 route progress 与期望 authority boundary；不提交 raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。
+冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp 与期望 authority boundary；不提交 caller-authored route progress/occurrence index、raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。Basic 从同一 observation 的权威列车尾验证冻结路线起点，并自行初始化进度。
 
 SimpleATO 将普通固定闭塞、保护区域和移动闭塞视为统一 authority-section 流中的不同贡献者，但不替 Basic 展开保护区域内部资源：
 
@@ -145,6 +155,8 @@ data class AutomaticRouteIntent(
 ## 9. 必需测试与断言点
 
 - route selection：方向限制、edge 内 virtual endpoint、零/一/多 turnout、纯环、无路线，且输入相同得到确定 traversal。
+- observed frozen-route seam：成功路线从同一observation的具名列车tail及其facing精确开始；observation/overlay
+  topology mismatch、列车缺失/脱轨和planner的invalid target/unreachable均保持各自typed rejection。
 - revision binding：route 与 topology revision 独立；任何 observation/topology/overlay stale 都不发请求、不扩大 authority。
 - admission client：请求没有第二份资源清单；`PROTECTION_REQUIRED`、conflict、`NOT_REQUIRED` 和 grant 分支均保持规定 lifecycle。
 - rolling extension：只沿同一frozen route发出更远boundary；同一grant最多一个pending handle，期间旧资源继续释放且

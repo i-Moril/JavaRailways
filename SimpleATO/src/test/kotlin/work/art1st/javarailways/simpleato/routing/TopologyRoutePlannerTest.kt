@@ -13,6 +13,59 @@ import java.util.UUID
 
 class TopologyRoutePlannerTest {
     @Test
+    fun `facing-constrained route at an edge end retains its exact zero-length start`() {
+        val first = rail(1, 10.0)
+        val second = rail(2, 20.0)
+        val topology = topology(
+            revision = 6L,
+            rails = listOf(first, second),
+            connections = listOf(
+                endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)
+            )
+        )
+
+        val result = TopologyRoutePlanner.plan(
+            input(topology, location(first, 10.0), location(second, 5.0)).copy(
+                startFacing = ViewDirection.AB
+            )
+        )
+
+        val planned = result as TopologyRoutePlanningResult.Planned
+        assertEquals(
+            listOf(
+                segment(first, ViewDirection.AB, 10.0, 10.0),
+                segment(second, ViewDirection.AB, 0.0, 5.0)
+            ),
+            planned.route.segments
+        )
+    }
+
+    @Test
+    fun `facing-constrained edge-end start still obeys operating direction`() {
+        val first = rail(1, 10.0)
+        val second = rail(2, 20.0)
+        val topology = topology(
+            revision = 6L,
+            rails = listOf(first, second),
+            connections = listOf(
+                endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)
+            )
+        )
+
+        val result = TopologyRoutePlanner.plan(
+            input(
+                topology,
+                location(first, 10.0),
+                location(second, 5.0),
+                allowedDirections = mapOf(first.id to setOf(ViewDirection.BA))
+            ).copy(startFacing = ViewDirection.AB)
+        )
+
+        val rejected = result as TopologyRoutePlanningResult.Rejected
+        assertEquals(TopologyRoutePlanningRejection.UNREACHABLE, rejected.reason)
+    }
+
+    @Test
     fun `same normalized edge is virtually split and emitted in physical rail order`() {
         val first = rail(1, 10.0)
         val middle = rail(2, 20.0)

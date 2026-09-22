@@ -156,7 +156,7 @@ data class AutomaticRouteIntent(
 ## 8. Good / Base / Bad cases
 
 - Good：列车去往运营停车点，SimpleATO 选择一条包含道岔和 diamond 的 traversal；Basic 从同一 topology root 验证并收集资源，SimpleATO 从 grant 生成唯一 authority constraint。
-- Good：保护区域出口后的列车净空进入固定闭塞；SimpleATO 仍只提交一条路线，Basic 在一次准入中完成必要闭包，区域本身不查询后继。
+- Good：保护区域出口后的列车净空进入固定闭塞；信号插件的route-decision层选择包含所需固定区间的boundary与addition，Basic只推导物理底线并原子claim最终union，region对象本身不递归查询后继。
 - Base：纯直线移动闭塞路线没有 controlled resource；Basic 返回 `NOT_REQUIRED`，SimpleATO 仍用车辆/停车/速度约束控制列车。
 - Bad：SimpleATO 同时提交 route 与自己猜测的 turnout/diamond footprint；两份事实可能漂移，必须只提交 route。
 - Bad：每个信号脚本重新遍历前方路线和所有列车；必须消费一次 perception 与索引化 section observation。

@@ -1,75 +1,91 @@
-# Stage 2: Signal add-on implementation
+# Stage 2: SimpleATO extraction and reference signal-system plugin
 
 ## Goal
 
-Implement a separately deployable Signal plugin that uses only the Stage 1 public host contracts to provide signalling, interlocking, train-authority integration, persistence, authoring, and rendering.
+Finish separating the operational ATO stack from the JavaRailways host, then implement the first independently deployable Java/Kotlin signal-system plugin using only the Stage 1 generic observation, resource, restriction and lease contracts.
 
-The first Stage 2 deliverable is the physical extraction into two separately owned modules: platform-neutral `SimpleATO` and Bukkit adapter/plugin `SimpleATOBukkit`. Signal package/runtime features begin only after that extraction is complete and the old host-owned entry points have been removed.
+The result must prove that protection regions and fixed blocks are optional policy supplied by a concrete signal system rather than universal Basic/SimpleATO concepts.
+
+## Confirmed facts
+
+- `SimpleATO` exists but currently owns only the first dependency-safe timetable/manual-navigation slice; most ATO and operational state remains in Basic.
+- `SimpleATOBukkit` does not yet exist as a separate plugin/module.
+- Basic currently contains a transitional protection-region catalog, graph-cut resolver, route window and admission seam. Generic topology projection, resource identities, claims, preparation and release remain useful; protection-specific ownership must move out.
+- Stage 1 target contracts make Basic derive a non-removable physical footprint and allow signal plugins only to add resources or stricter holds/restrictions.
+- SimpleATO owns operating-route selection, resource inspection scheduling and the single most-restrictive ATO/ATP pipeline.
+- Each independent signalling system will be a separately compiled Java/Kotlin plugin. It may choose its own JS, YAML or other customization layer; no common script engine is mandatory.
 
 ## Requirements
 
-- Move ATO, operating direction, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, and their persistence into `SimpleATO`; keep generic pathfinding in `Basic`.
-- Move signal/ATO rendering, `RailObjectWand`, Bukkit lifecycle, service lookup, and platform interaction into `SimpleATOBukkit` before implementing signal JavaScript/runtime features.
-- Build as a distinct Gradle subproject/artifact with its own plugin descriptor and lifecycle.
-- Declare JavaRailways as a required host and compile-only dependency; do not shadow JavaRailways classes.
-- Fail fast with an actionable message when required Stage 1 services are missing or incompatible.
-- Own a world-local store for signal definitions, authority policy, aspects, renderer state, and other SimpleATO operational objects. Consume fixed-block/protection-region definitions and compiled section/route observations from Basic public APIs; do not create a second section store.
-- Persist Signal/operations data in a separate versioned sidecar with stable namespaced IDs, rail UUIDs, canonical AB arc lengths, directions, and explicit references. Fixed-block and protection-region definitions remain in the Basic-owned infrastructure persistence boundary.
-- Validate duplicate IDs, missing rails, invalid arc lengths, direction errors, overlapping/conflicting definitions, and orphan references before activation.
-- Derive every permissive aspect from a confirmed host resource allocation and valid train authority.
-- Let players edit fixed blocks and interlocking protection regions through SimpleATOBukkit tools backed by Basic create/update/delete APIs. Do not synthesize one protection/stop boundary for every turnout.
-- Present Basic validation that cutting all registered gates yields the selected bounded interior, that no unregistered topology escape exists, and that entry-to-exit paths and exit clearances are valid for the requesting train; SimpleATOBukkit must not duplicate the graph-cut implementation.
-- Submit one frozen route request to the Basic service, which compiles one all-or-nothing route-resource closure. Denied requests remain outside the entry and own no subset; protection regions contribute their own path resources and minimum tail-clearance obligation, while the host compiler naturally includes any later contributor reached before all obligations are satisfied.
-- Surface host-detected at-grade diamonds as route-bound shared conflict resources rather than connectivity nodes. Players may inspect and diagnose them, but cannot create a line-to-line connection or select them as if they were turnouts.
-- Feed Signal/interlocking restrictions into the host's single train-protection pipeline; do not introduce a Signal-owned per-train forward scanner parallel to ATO perception.
-- Treat missing, stale, corrupt, unavailable, or conflicting state as restrictive.
-- Release locks from complete train occupancy/tail-clear evidence through the Stage 1 service.
-- Provide in-game authoring and inspection sufficient to create, modify, delete, diagnose, and dry-run the agreed MVP configuration.
-- Render signal state through Bukkit/Folia-safe lifecycle and location ownership, with idempotent cleanup.
-- Support world load/unload, plugin enable/disable, host shutdown, topology changes, and administrative recovery without leaked claims or silent authority expansion.
-- Implement the documented game-grade model with bounded braking-horizon scans and transition-driven region/interlocking updates; do not add certification-only mechanisms without a gameplay requirement.
-- Compile and validate every statically reachable automatic timetable route before apply. The audit includes route references, complete protection coverage, signal-package/runtime health required by the route, interlocking validity, controlled-resource coverage, and exit clearance against the applicable train assignment/envelope.
-- Apply one timetable revision atomically with a revision-pinned compiled plan and a shared host infrastructure-lease footprint. Structural signalling faults fail apply with actionable diagnostics and acquire no partial leases. Transient train occupancy/live route conflicts remain runtime waits and do not fail apply.
-- Keep editable timetable drafts separate from applied plans. Draft save and dry-run validation acquire no leases and cannot start automatic services. Explicit apply transitions one validated revision to `APPLIED`; unapply enters `DRAINING`, blocks new departures/grants, and releases leases only after live work is safely cleared or administratively resolved.
-- Refuse edits or deletion of leased rails, turnouts/diamonds, protection regions, signals, stations/depots/waypoints, lines, or other referenced objects until the owning timetable revision is unapplied or safely replaced.
+### A. SimpleATO module extraction
+
+- Move ATO/ATP, operating direction, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, timetable apply state and their persistence into platform-neutral `SimpleATO`.
+- Keep generic graph algorithms and physical/resource validation in Basic; do not move concrete signalling policy into SimpleATO.
+- Create `SimpleATOBukkit` as the Bukkit/Paper adapter for SimpleATO lifecycle, service lookup, ATO presentation and common platform interaction.
+- Leave low-level `RailWand`, manual driving and host world/composition behavior in `BukkitPlugin`.
+- Remove old Basic/BukkitPlugin owners as each slice moves; never keep two writable production implementations or add runtime compatibility wrappers for development data without separate approval.
+
+### B. Independent reference signal-system plugin
+
+- Create a separately deployable Java/Kotlin plugin/artifact with its own descriptor, lifecycle, persistence boundary, commands/tools and rendering.
+- Depend on JavaRailways/SimpleATO public contracts at compile time and host services at runtime; do not shadow host classes.
+- Own its fixed-block definitions, protection-region boundaries/interiors, interlocking policy, signal definitions/aspects, renderer state, authoring and optional script/configuration runtime.
+- Migrate the current protection-region domain code out of Basic: definition, catalog, graph-cut/interior derivation, route-window matching, authoring validation, persistence and diagnostics. Reuse Basic topology/resource APIs instead of copying the physical graph or claim registry.
+- Allow one player-authored region to protect a simple turnout or a complete station throat. Do not synthesize one stop/protection boundary per turnout.
+- At authoring/update time, cut the immutable directed topology at region gates, derive the selected bounded interior and reject leaks, ambiguity, invalid directions and unsupported overlap. Cache/index the result by topology and plugin-definition revision; do not flood-fill each tick.
+- At runtime, match only regions/blocks reached by the train's frozen route and shared perception. The plugin chooses the requested authority boundary and additive resources needed by its policy; Basic independently restores all traversed rail/turnout/diamond resources.
+- For a protection-region entry, request enough frozen-route range for the train to leave the region and satisfy the plugin's exit policy. If the following territory is a fixed block, the plugin may require that whole block; in moving-block territory it may choose an exact route boundary. Basic does not make this policy choice.
+- A region ID must not be an exclusive whole-region lock by default. Physical path/conflict resources and explicit flank/approach resources determine conflicts, allowing disjoint paths through one throat when the concrete policy permits it.
+- Implement fixed blocks as plugin-owned authority/resource policy. Protection regions and blocks may expose a common plugin-local section observation API, but Basic and SimpleATO do not own or persist that abstraction.
+- Derive every permissive aspect from a confirmed Basic grant plus current SimpleATO authority. Plugin output can only keep or tighten speed/authority; missing, stale, corrupt or disabled state is restrictive.
+- Use SimpleATO's inspection scheduler: low-frequency `InspectionDistance(train)` declarations are cached, dynamic braking distance remains host-owned per tick, and `update(train)` runs only on range entry or declared dependency changes.
+- Do not add a second per-train route scanner, world-wide per-signal tick loop or `allTrains × allSignals` lookup.
+- Support diamond conflicts through Basic's route-bound physical resources without treating a diamond as a switch or topology continuation.
+- Release resources through the host grant/cursor lifecycle. Plugin disable must stop new permissive decisions; existing grants remain host-owned until physical clearance or explicit safe recovery.
+
+### C. Timetable, editing and persistence
+
+- Compile every statically reachable automatic timetable route before apply, including required signal-plugin health, definitions, references and route-policy validity for the assigned train envelope.
+- Acquire one revision-pinned shared infrastructure lease footprint atomically with applied-plan installation. Draft save/dry-run acquires no lease; draining unapply blocks new work and releases leases only after live grants clear.
+- Route every covered topology, region, block, signal and operational-object edit through the common edit guard with owner/revision diagnostics.
+- Store each plugin's data in its own independently versioned sidecar using stable namespaced IDs, rail UUIDs, canonical AB positions/directions and explicit references.
+- Decode/migrate only at the plugin persistence boundary; business logic sees the current model and writers emit only the current version. No reflection from stored class names and no unreviewed runtime compatibility path.
+- Provide in-game create/edit/delete/inspect/validate/dry-run operations and recovery points for destructive topology-related migration.
 
 ## Acceptance criteria
 
-- [ ] The Signal JAR installs beside JavaRailways and is absent from the JavaRailways host JAR.
-- [ ] Signal imports only documented Stage 1 public contracts from JavaRailways.
-- [ ] The agreed MVP calculates restrictive/permissive states from coherent epoch-tagged observations.
-- [ ] Conflicting routes cannot both be confirmed; required turnouts remain locked until complete tail release.
-- [ ] A single player-authored region can protect a simple turnout or a multi-turnout station throat without internal per-turnout stop boundaries.
-- [ ] Region validation rejects leaks, ambiguous interiors, invalid directional gates, insufficient exit clearance, and unsupported overlaps before activation.
-- [ ] At-grade diamonds are detected/updated outside the runtime tick loop, appear in route resource sets, prevent conflicting passages, and never create a cross-line route.
-- [ ] ATO obeys Signal-owned authority/stop/speed constraints and stops before an unavailable route.
-- [ ] Signal disable, failure, world unload, and stale-state tests prove that authority never widens silently.
-- [ ] Signal/operations configuration round-trips across restart, while Basic-owned authority-section definitions restore through the host boundary; corrupt and orphaned data is preserved/rejected with actionable diagnostics at its owning boundary.
-- [ ] Authoring supports dry-run validation and creates a recovery point before destructive topology-related migration.
-- [ ] Rendering reflects the authoritative aspect and cleans up every spawned resource.
-- [ ] Unit, integration, packaging, and Folia smoke checks pass.
-- [ ] Apply/replace/unapply tests prove whole-plan validation, atomic shared lease ownership, actionable signalling diagnostics, edit blocking across every referenced resource kind, and separation from transient runtime route conflicts.
-- [ ] Draft save/validation leaves applied revision and lease state unchanged; only explicit apply enables service start, and draining unapply cannot release leases beneath live runs or claims.
+- [ ] `SimpleATO` contains the platform-neutral operational stack and Basic has no production owner for the migrated state.
+- [ ] `SimpleATOBukkit` is a separate plugin/artifact and does not become the owner of any concrete signalling system.
+- [ ] The reference signal-system JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
+- [ ] Protection-region/fixed-block classes, persistence and authoring are absent from Basic's target API and owned by the reference plugin.
+- [ ] One region protects both a simple turnout and a multi-turnout throat without internal per-turnout stop boundaries.
+- [ ] Region validation rejects leaks, ambiguity, bad gate direction and unsupported overlap outside the runtime tick.
+- [ ] Basic still inserts every traversed rail, turnout and diamond resource when the plugin supplies no or incomplete additions.
+- [ ] Plugin-added flank/approach/block resources join the same atomic claim; denial leaves no partial ownership or wider authority.
+- [ ] Disjoint route footprints through one region may coexist when policy allows; overlapping rail/conflict/additional resources cannot.
+- [ ] Fixed-block, protection-region and moving-block transitions choose their authority boundary in the signal/ATO layer without a Basic contributor closure.
+- [ ] ATO stops before an unavailable grant and applies plugin speed limits/model variants only as stricter outputs.
+- [ ] Unchanged signal state does not execute every signal script/update every tick; dependency changes propagate to affected upstream resources.
+- [ ] Diamond crossings prevent conflicting passages without cross-line routing or runtime geometry scans.
+- [ ] Disable, failure, world unload/reload and stale-state tests prove authority never widens and live claims are not dropped beneath trains.
+- [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic leases, edit blocking and separation from transient occupancy waits.
+- [ ] Plugin persistence round-trips current fixtures and rejects/preserves corrupt or orphaned input with actionable diagnostics.
+- [ ] Unit, integration, packaging and Folia smoke checks pass.
 
 ## Out of scope
 
-- Embedding Signal-specific storage or presentation into JavaRailways snapshots or WebUI. Basic-owned authority-section infrastructure is not Signal storage.
-- Overlapping or nested protection regions in the first release; adjacent no-clearance regions must be merged or compiled as one interlocking group.
-- Multiple national signalling systems in the initial release.
-- Permanent runtime compatibility for arbitrary pre-release Signal formats.
-- Certification-grade communications, train-integrity proving, redundant control channels, and country-specific operating regulations.
-- Deciding whether WebUI becomes a separate module or belongs to `SimpleATO`/`SimpleATOBukkit`, and finalizing the exact signal JavaScript API, during the extraction deliverable.
+- Requiring every signalling system to use the reference plugin's protection-region model, aspects, scripts or persistence.
+- Multiple concrete national signalling systems in the first Stage 2 implementation.
+- Certification-grade communication, redundant control channels or train-integrity proving.
+- Permanent runtime compatibility for arbitrary pre-release Basic/Signal data.
+- Final WebUI module ownership during the extraction and first reference-plugin batches.
 
 ## Dependency
 
 - Blocked by completion and API review of `09-18-signal-addon-host-apis`.
 
-## Key operating-model decision
+## Deferred decisions before implementation of the reference plugin scaffold
 
-- The first release implements player-authored protection regions and interlocking. JavaRailways' existing dynamic following remains active as the continuous-separation constraint. Both feed the single host constraint pipeline; Signal does not implement a separate moving-authority controller. MA is exposed only as the consolidated permission boundary when useful for diagnostics or integration.
-- Entry-to-exit claims are atomic and require exit clearance. Requests never retain a partial claim while waiting; deterministic queuing/aging addresses starvation separately from deadlock prevention.
-
-## Deferred package-runtime decisions
-
-- The exact downstream indication/model state exposed to JavaScript is not a prerequisite for the module extraction, protection-region model, resource arbitration, or host integration. Finalize it only when implementing the signal-package runtime slice.
-- Guided/shunting workflow details are likewise deferred; the refactor preserves typed authority-mode extension points without committing the first package release to those workflows.
+- Final plugin/module/product name. `JapaneseSignals` is the current recommended working direction because the first rule set is intended to exercise Japanese-style aspects and block behavior, but the name is not frozen by this document.
+- Exact plugin-local JS/YAML API, script budget and model-variant vocabulary. These are reviewed after the Java/Kotlin safety/runtime boundary exists.
+- Guided/shunting workflow details and WebUI packaging.

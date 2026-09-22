@@ -1,50 +1,130 @@
 # Stage 2 design
 
-## Packaging
+## Status and ownership
 
-The first Stage 2 deliverable physically extracts two modules before adding signal-package runtime features:
+This is a `TARGET` design with two ordered deliverables. It is not ready to start until Stage 1 public APIs are reviewed and the reference plugin name is frozen.
 
-- `SimpleATO` owns platform-neutral ATO, operating direction, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route planning, and their persistence. Generic pathfinding remains in `Basic`.
-- `SimpleATOBukkit` produces the separately deployable Bukkit/Paper plugin JAR and owns Bukkit service lookup/lifecycle, signal and ATO rendering, `RailObjectWand`, commands, permissions, resources, and platform interaction.
+```text
+JavaRailways Core/Basic/BukkitPlugin
+  physical world + generic resource safety + low-level platform tools
 
-`SimpleATOBukkit` has a compile-only host dependency resolved at runtime through Bukkit services. After extraction, remove the corresponding host-owned entry points so there is no parallel implementation. WebUI packaging and the exact signal JavaScript API remain deferred and do not block this module boundary.
+SimpleATO + SimpleATOBukkit
+  operations + ATO/ATP + inspection scheduling + Bukkit adapter
 
-## Domain model
+Reference signal-system plugin
+  one concrete signalling/interlocking model + its platform UI/persistence/customization
+```
 
-- `SignalDefinition`: stable ID, rail position, controlled direction, type/style, and policy references.
-- `RegionBoundary`: stable ID, rail position, controlled direction, region ID, and entry/exit capability.
-- `ProtectionRegion`: stable ID, validated bounded interior topology, boundary set, and composition group.
-- `RegionRoute`: entry, exit, frozen path, complete resource bundle, exit-clearance envelope, and conflict identity.
-- `DiamondResourceRef`: stable host resource identity bound to both at-grade crossing traversals without changing graph connectivity.
-- `SignalAspect`: restrictive-to-permissive value derived from confirmed state.
-- `SignalWorldRuntime`: observations, requests, allocations, authorities, aspects, and renderer handles for one world.
+The first plugin is a reference consumer, not a new universal layer. Other signal plugins can implement route tables, realistic interlocking, different block systems or no protection regions while sharing the same Basic physical safety floor and SimpleATO constraint pipeline.
 
-Stable persisted `kind/type` values describe capability; class names and `V1/V2` implementation labels are not persisted polymorphic identifiers.
+## Deliverable 1: SimpleATO extraction
 
-Player authoring cuts the directed topology at every boundary in a draft region, flood-fills the explicitly selected interior, and rejects unbounded, leaking, or ambiguous results before commit. Protection signals bind to entry boundaries; pure indicators observe state without creating additional authority limits. The route compiler does not add automatic per-turnout stops inside an active region.
+`SimpleATO` owns platform-neutral ATO/ATP, operating direction, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route selection, applied timetable state and persistence. Generic pathfinding implementation may remain in Basic, but its operating costs/constraints and selected route belong to SimpleATO.
 
-Host topology edits detect diamond candidates outside the physics tick and publish stable route-bound conflict resources. Signal consumes the host index while validating a route: each line retains its original edge continuity, no cross-line turn is present, and both passages claim the same diamond resource.
+`SimpleATOBukkit` is separately packaged and owns only SimpleATO platform adaptation: service discovery, Bukkit lifecycle, commands/presentation needed by the operational stack and target-aware scheduling. It does not own protection regions, fixed blocks, national signal aspects or a mandatory JS engine.
 
-## Runtime flow
+`BukkitPlugin` keeps RailWand, manual driving, host world composition and other low-level tools. Each migrated slice moves its contract, implementation, tests and composition together; the old production owner is then removed.
 
-For each coherent host observation, the host aggregates rail-indexed occupancy once. Signal updates only regions/resources touched by changed occupancy, evaluates pending route-resource requests, reconciles confirmed allocations, and publishes immutable constraint candidates into the host's single train-protection pipeline. Basic's generic route compiler folds direct resources and contributor obligations along the frozen route until it reaches a complete authority boundary satisfying all tail-clearance obligations. A request is granted only when that complete closure can commit atomically; denial leaves no partial claims and keeps authority outside the entry. A protection region contributes only its own resources and minimum clearance obligation; it does not inspect the next region, and Signal does not special-case region chains. The host combines confirmed candidates with vehicle following, exposes the consolidated authority boundary, and computes one control demand. Signal derives aspects from confirmed state and submits rendering changes only when their value changes. Every derived value records the host epoch/topology revision used to compute it.
+## Deliverable 2: reference signal-system plugin
 
-## Timetable apply lifecycle
+### Domain model
 
-SimpleATO compiles an automatic timetable into an immutable applied-plan candidate before any service may start. Compilation enumerates every statically reachable service route, resolves stable infrastructure references, verifies complete protection/interlocking coverage and required signal-package health, computes exit-clearance/resource footprints, and records topology, signalling, timetable, and package revisions. Structural errors are accumulated and returned together.
+Conceptual shapes, not frozen public Java names:
 
-Commit is atomic: after rechecking those revisions, SimpleATO acquires the complete shared infrastructure lease set through the host and installs the compiled plan, or installs/acquires nothing. Occupied track and live route conflicts are deliberately excluded from apply validation because they are transient runtime arbitration inputs. Replacing a plan acquires the new lease set and swaps the applied revision before releasing leases no longer referenced, preventing an unlocked gap. Unapply stops new departures/grants, drains or administratively resolves live runs, then releases the plan leases.
+- `SignalDefinition`: stable ID, directed rail position, model/style and plugin policy reference.
+- `RegionBoundary`: stable ID, canonical rail position, direction and entry/exit role.
+- `ProtectionRegion`: stable ID, boundary set and definition revision; its disposable resolved snapshot additionally records the topology revision.
+- `FixedBlock`: stable ID, directed extent and plugin-local policy.
+- `SignalDependency`: occupancy/grant/section/downstream-signal dependency used for reactive invalidation.
+- `SignalState`: restrictive limit, model variant and diagnostics derived for one train/direction.
+- `SignalWorldRuntime`: immutable definition/index snapshots plus current dependency graph and render handles.
 
-Editable timetable persistence and applied-plan persistence are separate boundaries. Saving or validating a `DRAFT` never changes the current applied revision or lease set. Only an explicit apply command may transition the selected draft revision to `APPLIED`. Unapply first records `DRAINING`, preventing new cycles, departures, and route grants; after all live runs/claims are safely released—or an explicit administrative recovery completes—it records `UNAPPLIED` and releases the shared leases.
+Stable persisted `kind/type` values represent capabilities; Java/Kotlin class names and `V1/V2` implementation names are not persisted polymorphic identities.
 
-## Failure behavior
+### Protection-region authoring and indexing
 
-Signal begins restrictive until its world data validates and current host observations arrive. Missing services prevent enable. Invalid world data disables signalling for that world with diagnostics. Disable/unload follows the Stage 1 contract for restrictions and claims and requires explicit administrative recovery when safe automatic cleanup cannot be proven.
+On create/update/load, the plugin captures one immutable `TopologyState` root, cuts directed traversal at every declared boundary and flood-fills from the explicitly selected interior side. It rejects an unbounded escape, multiple candidate interiors, invalid facing, missing rail positions and unsupported overlap before publishing the new definition snapshot.
 
-## Persistence
+The definition stores boundaries, not a second authoritative subgraph. Derived interior membership, rail-to-region reverse lookup and entry/exit route indexes are disposable caches keyed by `(topologyRevision, signalDefinitionRevision)`. A topology or definition change invalidates and rebuilds affected indexes outside the per-tick path.
 
-Use a Signal-owned atomic primary/backup sidecar. Decode and migration produce only the current in-memory model. Writers emit only the current format. Topology changes are handled by dry-run migration with a recovery point, or rejected when references cannot be mapped safely.
+The first release treats one region as one throat/interlocking area. It does not model nested/overlapping regions or internal temporary stopping points. If a future signal system needs those features, that plugin may use another model without changing Basic.
 
-## Rendering and authoring
+### Runtime route decision
 
-Renderers consume immutable aspect snapshots and own their spawned Bukkit resources. Authoring edits a draft, validates references/conflicts, shows a dry-run result, and commits atomically to the Signal store before rendering/runtime activation.
+SimpleATO's shared perception reports which indexed signal resources are entering inspection range on the frozen route. The reference plugin evaluates only those resources and their declared dependencies.
+
+For a protection-region entry, the plugin:
+
+1. matches the frozen route to one valid entry, one exit and one continuous interior traversal;
+2. proves the requested boundary is far enough for the authoritative train tail to clear the plugin's exit condition;
+3. chooses any farther territory required by its own policy—such as a whole following fixed block or an exact moving-block boundary;
+4. adds plugin-owned resources such as flank protection, approach locking or block tokens;
+5. submits the route, boundary and additions to Basic.
+
+Basic independently derives every traversed rail, turnout and diamond resource over that range. The plugin cannot delete them. A region ID is not automatically claimed as one exclusive token; conflicts come from overlapping physical resources and explicit additions. This allows two disjoint paths within a large throat when the plugin policy and actual conflict resources permit it.
+
+Basic either claims the complete union or none. A confirmed Basic grant is necessary but not alone sufficient for a permissive signal: the plugin may apply a stricter speed/stop, and SimpleATO takes the most restrictive result with following, operational stops and infrastructure limits.
+
+### Fixed blocks and transitions
+
+Fixed blocks are plugin-owned definitions. Entering one normally adds its whole block resource and holds it until the train tail clears the plugin-defined boundary. Protection regions and fixed blocks may implement a common plugin-local read surface—occupancy, length, grant state and downstream limit—but this interface is not a Basic `AuthoritySection`.
+
+When the protection-region exit leads into a fixed block, the plugin can extend the requested authority through that block according to its signal rules. When it leads into moving-block territory, it may choose an exact frozen-route boundary based on SimpleATO braking/following state. The region object does not recursively call its successor; the plugin's route-decision layer sees the ordered route-local observations and constructs one intent.
+
+### Inspection and reactive updates
+
+`InspectionDistance(train)` has two parts:
+
+- plugin-declared distance depending on resource definition, route and low-frequency train capabilities, cached by their revisions;
+- dynamic braking distance computed by SimpleATO from live speed each tick.
+
+The effective threshold is the larger value plus margin. Entering the threshold activates the relevant resource for that train. `update(train)` runs on activation or when a declared dependency changes: occupancy, Basic claim/grant, definition revision, timetable/route revision or a downstream signal state. Unchanged resources remain idle.
+
+The plugin maintains a reverse dependency index so a changed region/block invalidates only directly dependent entry signals and then propagates state changes upstream until values stabilize. It does not reevaluate all signals or run arbitrary JS every tick. Scripts, if the plugin offers them, receive immutable bounded views and return requests/restrictions/model variants through plugin-controlled APIs; they never mutate the Minecraft world or Basic registry directly.
+
+### Rendering and customization
+
+The plugin owns its signal models, renderer handles, RailObjectWand mode, commands, permissions and optional JS/YAML format. Rendering consumes immutable state snapshots and updates only when the model variant or visible state changes. Bukkit/Folia target ownership and cleanup are handled in the plugin's adapter code.
+
+There is no host-wide `return "YG"` contract. A plugin-local customization API may expose operations such as `setSpeedLimit(...)` and `setModelVariant(...)`, but the exact names, budgets and available observations are frozen in a later review.
+
+## Timetable apply and editing
+
+SimpleATO compiles an automatic timetable into an immutable candidate before service start. It asks every required signal plugin to validate the statically reachable routes against one topology, timetable, train-assignment and plugin-definition revision. Structural faults are accumulated as actionable diagnostics; transient occupancy/live claim conflicts are not apply failures.
+
+After rechecking revisions, SimpleATO atomically acquires the shared host infrastructure leases and installs the applied plan. Replacement acquires the new set before releasing no-longer-referenced leases. Unapply enters `DRAINING`, stops new departures/grants and releases leases only after live runs/claims clear or explicit administrative recovery succeeds.
+
+Plugin definitions and operational objects referenced by an applied timetable are included in its lease footprint. Editors obtain the common host edit permit before mutating topology, regions, blocks, signals or referenced operational objects.
+
+## Persistence and lifecycle
+
+SimpleATO and every signal plugin own separate persistence boundaries. The reference plugin uses atomic primary/backup writes and fixed current-model fixtures. Decode/migration upcasts at that boundary; runtime code sees only the current model, and writers emit only the current version. Topology migrations are dry-run first and create a recovery point.
+
+At enable/load, the plugin remains restrictive until host capabilities, persisted definitions, topology bindings and derived indexes validate. Missing required host services prevents enable. Plugin disable stops new route decisions and restrictions fail closed; committed grants/release metadata remain host-owned until safe clearance. Renderer and authoring resources clean up idempotently.
+
+## Migration from Basic
+
+Move, rather than duplicate, the current protection-region concepts in reviewable batches:
+
+1. copy no mutable world state; make the code consume public `TopologyState` and Basic resources;
+2. establish plugin-owned current model, catalog/index and tests;
+3. move authoring/persistence/composition callers;
+4. replace Basic protection-window input with plugin-generated route boundary/additions;
+5. remove Basic protection definitions, `AuthoritySection` target and `PROTECTION_REQUIRED` policy;
+6. retain generic projection, turnout/diamond identity, claim, preparation, cursor/release and suffix extension in Basic.
+
+Development data migration, if required, is a separate auditable one-time tool with dry-run and recovery point—not a permanent runtime compatibility path.
+
+## Failure behavior and complexity
+
+- Region derivation is proportional to the affected topology subgraph during create/update/load, never per tick.
+- Route matching is linear in the relevant frozen-route range plus indexed resource hits.
+- Dependency invalidation is proportional to affected resources/edges; a cycle or non-stabilizing plugin dependency fails restrictive with diagnostics.
+- Basic admission is one physical projection plus additions and one atomic claim.
+- Missing indexes, stale revisions, invalid script output, plugin exception or preparation uncertainty cannot widen authority.
+
+## Open decisions
+
+- Final reference plugin/module name; `JapaneseSignals` is recommended but not yet frozen.
+- Exact plugin-local script/YAML surface and execution budget.
+- Whether WebUI remains a host sidecar, moves beside SimpleATO, or becomes independently deployable.

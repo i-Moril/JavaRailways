@@ -27,16 +27,11 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `zero selections confirm without writes`() {
+    fun `zero selections are immediately ready`() {
         val world = world()
-        var writes = 0
-        val actuator = LiveInfrastructurePreparationActuator(world) { view, target ->
-            writes++
-            view.selectNextRail(target)
-        }
+        val actuator = LiveInfrastructurePreparationActuator(world)
 
         assertEquals(InfrastructurePreparationState.READY, accepted(actuator.start(emptyList())).snapshot().state)
-        assertEquals(0, writes)
     }
 
     @Test
@@ -57,34 +52,27 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `already aligned selection performs no live writes`() {
+    fun `already aligned selection remains ready and aligned`() {
         val fixture = turnout()
         fixture.stem.viewAB.selectNextRail(fixture.second.viewAB)
         fixture.second.viewBA.selectNextRail(fixture.stem.viewBA)
-        var writes = 0
-        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { view, target ->
-            writes++
-            view.selectNextRail(target)
-        }
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world)
 
         val ticket = accepted(actuator.start(listOf(fixture.selection(fixture.stem, fixture.second))))
 
         assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
-        assertEquals(0, writes)
+        assertSame(fixture.second.viewAB, fixture.stem.viewAB.nextActiveRail)
+        assertSame(fixture.stem.viewBA, fixture.second.viewBA.nextActiveRail)
     }
 
     @Test
-    fun `multiple turnouts actuate in frozen route order`() {
+    fun `multiple turnouts are aligned by one immediate batch`() {
         val world = world()
         val firstTurnout = turnout(world, 0.0)
         val secondTurnout = turnout(world, 100.0)
         firstTurnout.stem.viewAB.selectNextRail(firstTurnout.first.viewAB)
         secondTurnout.stem.viewAB.selectNextRail(secondTurnout.first.viewAB)
-        val writes = mutableListOf<java.util.UUID>()
-        val actuator = LiveInfrastructurePreparationActuator(world) { view, target ->
-            writes += view.rail.id
-            view.selectNextRail(target)
-        }
+        val actuator = LiveInfrastructurePreparationActuator(world)
 
         val ticket = accepted(actuator.start(listOf(
             firstTurnout.selection(firstTurnout.stem, firstTurnout.second),
@@ -92,66 +80,15 @@ class LiveInfrastructurePreparationActuatorTest {
         )))
 
         assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
-        assertTrue(writes.indexOf(firstTurnout.stem.id) < writes.indexOf(secondTurnout.stem.id))
         assertSame(firstTurnout.second.viewAB, firstTurnout.stem.viewAB.nextActiveRail)
         assertSame(secondTurnout.second.viewAB, secondTurnout.stem.viewAB.nextActiveRail)
     }
 
     @Test
-    fun `second directed apply failure restores every selection snapshot`() {
-        val fixture = turnout()
-        fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
-        fixture.second.viewBA.selectNextRail(null)
-        var writes = 0
-        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { view, target ->
-            writes++
-            if (writes == 2) throw IllegalStateException("injected second apply failure")
-            view.selectNextRail(target)
-        }
-
-        val ticket = accepted(actuator.start(listOf(fixture.selection(fixture.stem, fixture.second))))
-
-        assertEquals(InfrastructurePreparationState.ABORTED_SAFE, ticket.snapshot().state)
-        assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)
-        assertEquals(null, fixture.second.viewBA.nextActiveRail)
-    }
-
-    @Test
-    fun `rollback failure reports unsafe after remaining snapshots are still restored`() {
-        val world = world()
-        val first = turnout(world, 0.0)
-        val second = turnout(world, 100.0)
-        first.stem.viewAB.selectNextRail(first.first.viewAB)
-        first.second.viewBA.selectNextRail(null)
-        second.stem.viewAB.selectNextRail(second.first.viewAB)
-        second.second.viewBA.selectNextRail(null)
-        var writes = 0
-        val actuator = LiveInfrastructurePreparationActuator(world) { view, target ->
-            writes++
-            if (writes == 4) throw IllegalStateException("injected apply failure")
-            if (writes == 5) throw IllegalStateException("injected rollback failure")
-            view.selectNextRail(target)
-        }
-
-        val ticket = accepted(actuator.start(listOf(
-            first.selection(first.stem, first.second),
-            second.selection(second.stem, second.second)
-        )))
-
-        assertEquals(InfrastructurePreparationState.UNSAFE, ticket.snapshot().state)
-        assertSame(first.first.viewAB, first.stem.viewAB.nextActiveRail)
-        assertEquals(null, first.second.viewBA.nextActiveRail)
-        assertSame(second.second.viewAB, second.stem.viewAB.nextActiveRail)
-    }
-
-    @Test
     fun `resolution rejection occurs before any live write`() {
         val fixture = turnout()
-        var writes = 0
-        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { view, target ->
-            writes++
-            view.selectNextRail(target)
-        }
+        fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world)
         val missing = fixture.selection(fixture.stem, fixture.second).copy(
             toPort = RailEndpointRef(java.util.UUID.randomUUID(), RailEndpoint.A)
         )
@@ -159,18 +96,14 @@ class LiveInfrastructurePreparationActuatorTest {
         val result = actuator.start(listOf(missing))
 
         assertTrue(result is InfrastructurePreparationStart.Rejected)
-        assertEquals(0, writes)
+        assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)
     }
 
     @Test
     fun `unsupported requirement rejects whole batch before an earlier turnout write`() {
         val fixture = turnout()
         fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
-        var writes = 0
-        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { view, target ->
-            writes++
-            view.selectNextRail(target)
-        }
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world)
         val unsupported = object : InfrastructurePreparationRequirement {
             override val resource = StableInfrastructureResource("test:device", "test:unsupported")
         }
@@ -181,7 +114,6 @@ class LiveInfrastructurePreparationActuatorTest {
         ))
 
         assertTrue(result is InfrastructurePreparationStart.Rejected)
-        assertEquals(0, writes)
         assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)
     }
 

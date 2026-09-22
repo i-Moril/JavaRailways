@@ -27,7 +27,7 @@ Basic definition store publishes boundary definition for topology revision T
   -> occupancy publication drives ordered tail release until grant completes
 ```
 
-任何验证失败都发生在selection/claim之前。apply阶段失败时执行补偿rollback；rollback也失败则保留claim并Stall world。编辑/观察adapter消失不删除Basic定义，也不能释放可能已有列车进入的host-owned grant。
+任何验证失败都发生在selection/claim之前。当前即时道岔写入在完整预解析后只是内存选择，不构造不存在的可恢复失败；若这一不变量被意外异常打破，则保留claim并Stall world。未来真实异步设备由自己的handler报告安全中止或不安全状态。编辑/观察adapter消失不删除Basic定义，也不能释放可能已有列车进入的host-owned grant。
 
 ## 3. 内部机制与关键算法
 
@@ -51,7 +51,7 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 同一次验证还把物理查询范围编译为一个normalized `OccupancyQueryGeometry`。它由`entry..clearUntil`的已选路线interval、每个相关turnout全部port的零长度端点interval，以及每个route-bound resource binding的全部anchors组成；同rail重叠或容差内相邻interval会合并。turnout在当前Core模型中是端点间的零长度selectable continuation，因此检查全部port既能捕获跨在未选支路端点上的列车，也不重新引入固定`lockingDistance`。diamond两臂不改变拓扑连接，必须从同一个retained catalog snapshot加入全部anchors，不能只检查route命中的一臂。该geometry只用于authoritative occupancy查询，不进入`InfrastructureFootprint`、claim identity或持久化。
 
-当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。它在atomic claim后启动完整有序的基础设施准备批次，失败时恢复物理准备和claim；补偿不完则保留最安全的资源状态并Stall。validator仍未用完整train envelope实现多contributor closure，也尚未实现grant publication和release/recovery。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复准备操作。
+当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。它在atomic claim后启动完整有序的基础设施准备批次；start在无side effect前拒绝时撤销新claim，未来异步handler只有确认`ABORTED_SAFE`后才允许撤销新claim，状态不确定则保留资源并Stall。validator仍未用完整train envelope实现多contributor closure，也尚未实现grant publication和release/recovery。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复准备操作。
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
@@ -99,7 +99,7 @@ resource全部anchors合并为一个immutable query geometry；构建时按rail�
 `ProtectedRouteClaimService`保留request stamp完全匹配的同一`RailwayObservation`，并在registry mutation前
 直接查询`CompiledRouteAdmission`中的这一份geometry；它不能从claim footprint重建或再次扫描route。
 
-准入顺序固定为`validate revisions -> occupancy -> atomic claim -> snapshot selections -> apply selections -> publish grant`。准入前的物理占用检查继续使用唯一的全局`OccupancyQueryGeometry`；正常尾部释放不再为每个资源复制geometry或维护占用detector。prefix shrink只能删除车尾已经越过完整清除边界的队列前缀，不能跳过队首或添加原计划外资源。
+准入顺序固定为`validate revisions -> occupancy -> atomic claim -> prepare infrastructure -> publish grant`。准入前的物理占用检查继续使用唯一的全局`OccupancyQueryGeometry`；正常尾部释放不再为每个资源复制geometry或维护占用detector。prefix shrink只能删除车尾已经越过完整清除边界的队列前缀，不能跳过队首或添加原计划外资源。
 
 当前内部实现已在生成`CompiledRouteAdmission`的同一次validation pass中编译有序
 `ResolvedTailReleaseEntry`。最终`InfrastructureFootprint`中的每个resource必须恰好对应一个entry；entry
@@ -424,12 +424,12 @@ handle拥有registry claim mutation和ticket，只能在main owner轮询。`PREP
 Core把同一个物理continuation分别保存在两个到达方向的`RailView.nextActiveRail`中，因此一次
 `fromPort -> toPort`提交必须同时设置`from-arriving -> to-departing`和
 `to-arriving -> from-departing`。端点映射固定为：到达A端使用BA view、到达B端使用AB view；
-departing view是对应到达view的`reversed`。第一版即时`RailView` preparation actuator只处理`ResolvedTurnoutSelection`；它先类型检查整批requirement，再在第一次写入前解析全部live view并保存两个方向的原selection，按冻结路线顺序提交，失败后逆序尝试恢复所有快照，不能因其中一次rollback失败而停止其余恢复。这是道岔handler自己的事务补偿，不是通用接口要求所有资源恢复旧状态。同步成功产生已终态`READY` ticket，apply失败且完整补偿产生`ABORTED_SAFE`，补偿不完整产生`UNSAFE`；未知requirement或预解析失败则`Rejected`且没有live write。已对位selection不写入。
+departing view是对应到达view的`reversed`。第一版即时`RailView` preparation actuator只处理`ResolvedTurnoutSelection`；它先类型检查整批requirement，再在第一次写入前解析并验证全部live view，然后按冻结路线顺序直接设置两个方向的selection并返回已终态`READY` ticket。当前`RailView.selectNextRail`只是内存赋值，没有动画、机械反馈或可恢复失败，因此不保存旧selection、不实现虚构的逆序补偿，也不通过测试注入人为制造该失败面；未知requirement或预解析失败则`Rejected`且没有live write。已对位selection不写入。若完整预解析后的写入意外抛出异常，claim service按未知物理状态保留claim并Stall，而不是宣称已经恢复。未来真实异步设备仍通过通用ticket报告`PREPARING`、`ABORTED_SAFE`或`UNSAFE`，其安全状态和恢复策略由该设备handler拥有。
 
 claim registry为admission mutation返回内部opaque rollback token。pending preparation期间token保持有效；
-platform owner cleanup不得拆除正在提交的claim。成功提交后销毁token；selection rollback成功后用token删除
-本次新claim。selection rollback失败时不得销毁token：当前claim与rollback reservation继续保留，以覆盖可能
-已经改变的物理选择。registry close会使未完成token失效，调用方必须Stall而不能报告普通commit failure。
+platform owner cleanup不得拆除正在提交的claim。成功提交后销毁token。未来异步handler只有报告
+`ABORTED_SAFE`后才能用token删除本次新claim；`UNSAFE`或状态未知时
+不得销毁token，当前claim与rollback reservation继续保留，以覆盖不确定的物理状态。registry close会使未完成token失效，调用方必须Stall而不能报告普通commit failure。
 registry内部仍可为其他独立consumer提供tracked replace及精确旧状态恢复，但protected-route service不调用它。
 
 provider/plugin disable只停止新grant并使相关自动authority fail closed。已进入或可能进入的live claim转为host-owned recovery state，直到authoritative occupancy证明尾部清除；未进入的grant也只能由host在确认没有列车越过entry后取消。world unload期间没有运动，reload必须先恢复/重建claim与限制，再允许新departure或编辑。
@@ -503,7 +503,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - route binding tests：route revision与topology revision可取不同值；projector只从route字段拒绝stale topology，request没有第二个可冲突的revision。
 - turnout identity tests：正反向及无结构变化的topology rebuild得到同一resource；revision-local node ID不同也不改变resource identity。
 - transitional route-validation tests：AB/BA window clipping、跨rail canonical intervals、唯一resource set、turnout stable resource、窗口前/clearance内未保护turnout拒绝、null window的`NOT_REQUIRED`与`PROTECTION_REQUIRED`。
-- transaction tests：resource conflict、physical occupancy、即时turnout handler顺序/no-write/apply失败、未知requirement全批拒绝、跨多次poll的pending batch ticket、READY finalize、异步abort保持PREPARING、ABORTED_SAFE精确acquire rollback、abort幂等及READY竞争、snapshot/abort异常和UNSAFE；断言physical preparation、claim和authority三者满足矩阵。
+- transaction tests：resource conflict、physical occupancy、即时turnout handler整批预解析/双向对位/直接READY、未知requirement全批拒绝、跨多次poll的未来异步batch ticket、READY finalize、异步abort保持PREPARING、ABORTED_SAFE精确acquire rollback、abort幂等及READY竞争、snapshot/abort异常和UNSAFE；断言physical preparation、claim和authority三者满足矩阵。
 - release tests：未进入取消、头部过exit但尾部未过、tail clear、单region prefix shrink、train消失、provider disable、world reload recovery。
 - rolling extension tests：同route/topology suffix seam、只查询delta occupancy并只准备delta、conflict保持旧claim/authority、
   同grant第二个pending请求返回busy、pending期间旧prefix继续release、成功后同controller队尾追加、重复controlled
@@ -549,4 +549,4 @@ Wrong: stale or missing catalog == empty catalog
 Correct: only Complete(snapshotForExactTopologyRoot, emptyBindings) means there are no bindings
 ```
 
-这里的原子性是对外行为合同：失败时不会发布grant或扩大authority。若补偿rollback本身失败，系统保留资源并Stall，而不是伪装成“什么都没发生”。
+这里的原子性是对外行为合同：失败时不会发布grant或扩大authority。只有无side effect的start拒绝或handler明确报告`ABORTED_SAFE`时才撤销新claim；物理状态不确定时系统保留资源并Stall，而不是虚构补偿成功。

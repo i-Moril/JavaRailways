@@ -67,8 +67,7 @@ internal fun interface InfrastructurePreparationActuator {
  * arriving directional view, so every turnout requirement updates both directions.
  */
 internal class LiveInfrastructurePreparationActuator(
-    private val world: World,
-    private val select: (RailView, RailView?) -> Unit = RailView::selectNextRail
+    private val world: World
 ) : InfrastructurePreparationActuator {
     @MainThread
     override fun start(
@@ -84,76 +83,21 @@ internal class LiveInfrastructurePreparationActuator(
         } catch (failure: Exception) {
             return InfrastructurePreparationStart.Rejected(failure)
         }
-        val snapshots = LinkedHashMap<RailView, RailView?>()
-        operations.forEach { operation -> snapshots.putIfAbsent(operation.from, operation.from.nextActiveRail) }
-        return InfrastructurePreparationStart.Accepted(ImmediateTicket(operations, snapshots))
+        operations.forEach { operation ->
+            if (operation.from.nextActiveRail !== operation.to) {
+                operation.from.selectNextRail(operation.to)
+            }
+        }
+        return InfrastructurePreparationStart.Accepted(ReadyTicket)
     }
 
-    private inner class ImmediateTicket(
-        private val operations: List<SelectionOperation>,
-        snapshots: LinkedHashMap<RailView, RailView?>
-    ) : InfrastructurePreparationTicket {
-        private val previousSelections = snapshots.entries.map { it.key to it.value }
-        private var state: InfrastructurePreparationState = InfrastructurePreparationState.PREPARING
-        private var detail: String = ""
-
-        init {
-            try {
-                operations.forEach { operation ->
-                    if (operation.from.nextActiveRail !== operation.to) {
-                        select(operation.from, operation.to)
-                    }
-                }
-                state = InfrastructurePreparationState.READY
-            } catch (applyFailure: Exception) {
-                abortToPreviousSelection(
-                    "infrastructure preparation failed: ${failureDetail(applyFailure)}",
-                    applyFailure
-                )
-            }
-        }
-
+    private object ReadyTicket : InfrastructurePreparationTicket {
         @MainThread
         override fun snapshot(): InfrastructurePreparationSnapshot =
-            InfrastructurePreparationSnapshot(state, detail)
+            InfrastructurePreparationSnapshot(InfrastructurePreparationState.READY)
 
         @MainThread
-        override fun abort() {
-            when (state) {
-                InfrastructurePreparationState.PREPARING -> abortToPreviousSelection(
-                    "infrastructure preparation was safely aborted",
-                    null
-                )
-                InfrastructurePreparationState.READY,
-                InfrastructurePreparationState.ABORTED_SAFE,
-                InfrastructurePreparationState.UNSAFE -> Unit
-            }
-        }
-
-        /** Turnout-specific compensation; other resource handlers may choose another safe state. */
-        private fun abortToPreviousSelection(reason: String, primaryFailure: Exception?) {
-            val rollbackFailures = mutableListOf<Exception>()
-            previousSelections.asReversed().forEach { (view, previous) ->
-                try {
-                    if (view.nextActiveRail !== previous) select(view, previous)
-                } catch (rollbackFailure: Exception) {
-                    rollbackFailures += rollbackFailure
-                }
-            }
-            if (rollbackFailures.isEmpty()) {
-                state = InfrastructurePreparationState.ABORTED_SAFE
-                detail = reason
-            } else {
-                state = InfrastructurePreparationState.UNSAFE
-                detail = buildString {
-                    append(reason)
-                    append("; ")
-                    append(rollbackFailures.size)
-                    append(" turnout compensation(s) failed")
-                    primaryFailure?.let { append(" after ${failureDetail(it)}") }
-                }
-            }
-        }
+        override fun abort() = Unit
     }
 
     private fun resolveBidirectional(selection: ResolvedTurnoutSelection): List<SelectionOperation> {
@@ -189,8 +133,4 @@ internal class LiveInfrastructurePreparationActuator(
         val to: RailView
     )
 
-    private companion object {
-        fun failureDetail(failure: Exception): String =
-            failure::class.simpleName + ": " + failure.message.orEmpty()
-    }
 }

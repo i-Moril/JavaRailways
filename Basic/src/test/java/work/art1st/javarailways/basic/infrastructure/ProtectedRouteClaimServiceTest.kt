@@ -583,7 +583,7 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `turnout rollback failure stalls world and retains the acquired claim`() {
+    fun `unsafe infrastructure preparation stalls world and retains the acquired claim`() {
         val platformOwner = Any()
         val owner = InfrastructureOwner("test:route/main", 1L)
         val stalls = mutableListOf<String>()

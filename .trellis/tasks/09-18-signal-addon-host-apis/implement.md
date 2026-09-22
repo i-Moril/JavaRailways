@@ -18,7 +18,7 @@
 - [x] Freeze SimpleATO topology-bound route versus Basic validation and single claim-resource-set responsibilities.
 - [x] Document module working model plus topology normalization, graph-cut, single-pass frozen-route validation/resource collection and tail-release internal mechanisms.
 - [x] Freeze coherent observation/region/topology revision and authoritative resource-validation contracts.
-- [x] Freeze generic route-resource closure, no-hold-and-wait admission, turnout rollback and fail-closed lifecycle pseudocode.
+- [x] Freeze generic route-resource closure, no-hold-and-wait admission, ordered infrastructure preparation and fail-closed lifecycle pseudocode.
 - [x] Freeze tail-clear, compiled-plan prefix-release and provider-disable recovery behavior.
 - [x] Freeze same-frozen-route rolling suffix extension: SimpleATO selects the farther boundary;
   Basic validates only the suffix, atomically appends delta resources, prepares only delta
@@ -39,13 +39,13 @@
   - [x] Route validation clips canonical rail intervals from entry through exit clearance, adds protected turnout resources to the one final set, and rejects uncovered turnouts before registry mutation. Projection is temporary validation state; diamond/occupancy/selection/contributor closure remains, so automatic callers are not migrated yet.
   - [x] Freeze the Basic-owned route-bound resource catalog contract: complete snapshots bind one exact topology root, rail-indexed anchors map either traversal side to one stable resource, and stale/unavailable indexes fail closed. Runtime catalog and diamond detection remain.
   - [x] Implement the Basic route-bound resource catalog runtime: atomically publish complete/complete-empty snapshots for one exact topology root, index canonical rail anchors, merge adjacent hits, reject leave-and-reenter routes, and add resolved resources to the validator's single footprint. Diamond placement detection remains.
-  - [x] Preserve validation output as one immutable internal `CompiledRouteAdmission` containing the unique footprint plus route-ordered, direction-specific turnout selections derived from the same projected traversals. This is a pre-claim execution plan; the claim service submits only its footprint, while turnout mutation and rollback remain in the admission-transaction batch.
+  - [x] Preserve validation output as one immutable internal `CompiledRouteAdmission` containing the unique footprint plus route-ordered, direction-specific turnout selections derived from the same projected traversals. This is a pre-claim execution plan; the claim service submits only its footprint, while the selections become one ordered infrastructure-preparation batch after claim acquisition.
   - [x] Attach one normalized physical occupancy query geometry to the compiled admission: selected route intervals, every relevant turnout port as a zero-length topology-derived endpoint, and every anchor of a matched route-bound resource. This is validation evidence rather than a second footprint; no legacy fixed locking distance is restored.
-- [x] Admission transaction: occupancy validation, one atomic claim, all-turnout apply/rollback and typed results. No Dispatcher migration.
+- [x] Admission transaction: occupancy validation, one atomic claim, complete immediate-turnout prevalidation/application through generic preparation, and typed results. No Dispatcher migration.
   - [x] Publish Core's once-per-epoch swept-occupancy index through the immutable world frame and retain that exact snapshot in Basic observation; arbitrary interval queries return deterministic complete blocker IDs without rebuilding a second Basic index.
   - [x] Bind each transitional protected-route request to one exact observation stamp, reject stale/missing train state, and query the compiled occupancy geometry before atomic registry mutation; blockers return deterministic `PHYSICALLY_OCCUPIED` train IDs.
-  - [x] After a successful claim, resolve each stable turnout port to both live directional views, snapshot every selection, apply all operations in frozen-route order, and compensate claim plus selections on failure. Protected-route acquire rollback uses an opaque registry token; incomplete compensation retains the safest claim and returns `WORLD_STALLED` through the injected Stall owner. Generic registry replacement remains separate from this runtime flow.
-  - [x] Generalize post-claim physical work to one internal ordered infrastructure-preparation batch: pending admission retains its claim mutation until `READY` or resource-owned `ABORTED_SAFE`; abort does not prescribe restoration or a default state, while snapshot/actuator failure and `UNSAFE` retain the safest claim reservation and Stall. Turnout selection is the first requirement and the live `RailView` handler uses previous-selection compensation as its own implementation; duration, timeout, public handler registration and persistence remain outside this batch.
+  - [x] After a successful claim, resolve every stable turnout port to both live directional views and validate the complete immediate batch before applying its selections in frozen-route order. Protected-route acquire rollback uses an opaque registry token only when a resource-owned preparation ticket later reports `ABORTED_SAFE`; `UNSAFE` or an unprovable abort retains the safest claim and returns `WORLD_STALLED` through the injected Stall owner. The current immediate turnout handler has no fictional selection-failure compensation, and live claims expose no whole-footprint replacement path.
+  - [x] Generalize post-claim physical work to one internal ordered infrastructure-preparation batch: pending admission retains its claim mutation until `READY` or resource-owned `ABORTED_SAFE`; abort does not prescribe restoration or a default state, while actuator failure and `UNSAFE` retain the safest claim reservation and Stall. Turnout selection is the first immediate requirement: the live `RailView` handler resolves and validates every bidirectional continuation before applying the complete batch, then reports `READY` without a fictional runtime failure/selection-rollback path. Duration, timeout, public handler registration and persistence remain outside this batch.
 - [ ] Release/recovery: tail-clear queue, atomic footprint shrink, provider-disable and reload fail-closed behavior.
   - [x] Compile one immutable tail-clear queue entry per claimed resource in the same validation
     pass and add a pure head-prefix inspector. It never pops before a future registry shrink;
@@ -76,6 +76,12 @@
     contract. Reserve and prepare only delta resources, keep this owner's prefix release active,
     append naturally ordered entries to the existing controller after success, and retain the
     current authority on every non-success result.
+    - [x] Add the internal registry delta reservation: validate only a nonempty unique suffix delta,
+      reserve it on the exact existing platform/logical owner without changing owner revision,
+      reject conflicts/already-held identities/another pending append atomically, allow established
+      prefix shrink while pending, forbid delta shrink, and finalize or roll back only that delta
+      against the claim's then-current remaining prefix. Suffix compilation, preparation and service
+      integration remain unimplemented.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation

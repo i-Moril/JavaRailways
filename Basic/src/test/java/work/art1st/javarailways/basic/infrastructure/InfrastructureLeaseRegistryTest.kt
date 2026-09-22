@@ -189,32 +189,6 @@ class InfrastructureLeaseRegistryTest {
     }
 
     @Test
-    fun `tracked replacement restores exact older owner and footprint`() {
-        val platform = Any()
-        val oldOwner = owner("test:route", 3)
-        val newOwner = owner("test:route", 4)
-        registry.acquireClaim(
-            platform,
-            InfrastructureClaimRequest(4L, oldOwner, footprint(0.0, 10.0))
-        )
-
-        val mutation = registry.beginReplaceClaim(
-            platform,
-            oldOwner,
-            InfrastructureClaimRequest(4L, newOwner, footprint(20.0, 30.0))
-        )
-        assertEquals(InfrastructureMutationStatus.REPLACED, mutation.result.status)
-        assertEquals(
-            InfrastructureMutationStatus.REPLACED,
-            registry.rollbackClaimMutation(mutation).status
-        )
-
-        val restored = registry.claimSnapshots().single()
-        assertEquals(oldOwner, restored.owner)
-        assertEquals(footprint(0.0, 10.0), restored.footprint)
-    }
-
-    @Test
     fun `pending admission survives platform cleanup and completed token cannot remove its claim`() {
         val platform = Any()
         val routeOwner = owner("test:route", 1)
@@ -232,48 +206,6 @@ class InfrastructureLeaseRegistryTest {
         assertTrue(registry.completeClaimMutation(mutation))
         assertFalse(registry.completeClaimMutation(mutation))
         assertEquals(listOf(routeOwner), registry.claimSnapshots().map { it.owner })
-    }
-
-    @Test
-    fun `pending replacement reserves both old and new footprints until completion`() {
-        val platform = Any()
-        val oldOwner = owner("test:route", 1)
-        registry.acquireClaim(
-            platform,
-            InfrastructureClaimRequest(4L, oldOwner, footprint(0.0, 10.0))
-        )
-        val mutation = registry.beginReplaceClaim(
-            platform,
-            oldOwner,
-            InfrastructureClaimRequest(4L, owner("test:route", 2), footprint(20.0, 30.0))
-        )
-
-        val oldConflict = registry.acquireClaim(
-            Any(),
-            InfrastructureClaimRequest(4L, owner("test:other-old", 1), footprint(5.0, 6.0))
-        )
-        val newConflict = registry.acquireClaim(
-            Any(),
-            InfrastructureClaimRequest(4L, owner("test:other-new", 1), footprint(25.0, 26.0))
-        )
-
-        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, oldConflict.status)
-        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, newConflict.status)
-        assertTrue(registry.completeClaimMutation(mutation))
-        assertEquals(
-            InfrastructureMutationStatus.ACQUIRED,
-            registry.acquireClaim(
-                Any(),
-                InfrastructureClaimRequest(4L, owner("test:after-old", 1), footprint(5.0, 6.0))
-            ).status
-        )
-        assertEquals(
-            InfrastructureMutationStatus.RESOURCE_CONFLICT,
-            registry.acquireClaim(
-                Any(),
-                InfrastructureClaimRequest(4L, owner("test:after-new", 1), footprint(25.0, 26.0))
-            ).status
-        )
     }
 
     @Test
@@ -442,53 +374,6 @@ class InfrastructureLeaseRegistryTest {
     }
 
     @Test
-    fun `claim shrink rejects pending replacement and preserves both reservations`() {
-        val platform = Any()
-        val oldOwner = owner("test:route", 1)
-        val oldResource = interval(0.0, 10.0)
-        val newOwner = owner("test:route", 2)
-        val newResource = interval(20.0, 30.0)
-        registry.acquireClaim(
-            platform,
-            InfrastructureClaimRequest(4L, oldOwner, InfrastructureFootprint(listOf(oldResource)))
-        )
-        val mutation = registry.beginReplaceClaim(
-            platform,
-            oldOwner,
-            InfrastructureClaimRequest(4L, newOwner, InfrastructureFootprint(listOf(newResource)))
-        )
-
-        val result = registry.shrinkClaim(platform, newOwner, listOf(newResource))
-
-        assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, result.status)
-        assertEquals(newOwner, registry.claimSnapshots().single().owner)
-        assertEquals(listOf(newResource), registry.claimSnapshots().single().footprint.resources)
-        assertEquals(
-            InfrastructureMutationStatus.RESOURCE_CONFLICT,
-            registry.acquireClaim(
-                Any(),
-                InfrastructureClaimRequest(
-                    4L,
-                    owner("test:old-reservation", 1),
-                    InfrastructureFootprint(listOf(oldResource))
-                )
-            ).status
-        )
-        assertEquals(
-            InfrastructureMutationStatus.RESOURCE_CONFLICT,
-            registry.acquireClaim(
-                Any(),
-                InfrastructureClaimRequest(
-                    4L,
-                    owner("test:new-reservation", 1),
-                    InfrastructureFootprint(listOf(newResource))
-                )
-            ).status
-        )
-        assertTrue(registry.completeClaimMutation(mutation))
-    }
-
-    @Test
     fun `claim shrink does not revalidate topology or resource providers`() {
         var revision = 4L
         var revisionReads = 0
@@ -563,6 +448,204 @@ class InfrastructureLeaseRegistryTest {
         assertEquals(InfrastructureMutationStatus.SERVICE_CLOSED, result.status)
         assertEquals(0, providerCalls)
         assertTrue(closedRegistry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `claim append conflict leaves the established claim unchanged`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+        registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(
+                4L,
+                owner("test:blocker", 1),
+                InfrastructureFootprint(listOf(interval(30.0, 40.0)))
+            )
+        )
+
+        val append = registry.beginAppendClaim(
+            platform,
+            routeOwner,
+            4L,
+            listOf(interval(35.0, 45.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, append.result.status)
+        val routeSnapshot = registry.claimSnapshots().single { it.owner == routeOwner }
+        assertEquals(listOf(established), routeSnapshot.footprint.resources)
+        assertFalse(registry.completeClaimAppend(append))
+    }
+
+    @Test
+    fun `pending claim append allows established prefix shrink`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        val delta = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second)))
+        )
+
+        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+        val shrink = registry.shrinkClaim(platform, routeOwner, listOf(first))
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
+        assertEquals(InfrastructureMutationStatus.REPLACED, shrink.status)
+        val snapshot = registry.claimSnapshots().single()
+        assertEquals(routeOwner, snapshot.owner)
+        assertEquals(listOf(second, delta), snapshot.footprint.resources)
+    }
+
+    @Test
+    fun `finalizing claim append keeps the same owner revision and appended order`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        val firstDelta = interval(20.0, 30.0)
+        val secondDelta = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+
+        val append = registry.beginAppendClaim(
+            platform,
+            routeOwner,
+            4L,
+            listOf(firstDelta, secondDelta)
+        )
+
+        assertTrue(registry.completeClaimAppend(append))
+        assertFalse(registry.completeClaimAppend(append))
+        val snapshot = registry.claimSnapshots().single()
+        assertEquals(routeOwner, snapshot.owner)
+        assertEquals(listOf(established, firstDelta, secondDelta), snapshot.footprint.resources)
+    }
+
+    @Test
+    fun `claim append rollback removes only delta after established prefix shrink`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val releasedPrefix = interval(0.0, 10.0)
+        val remainingPrefix = interval(20.0, 30.0)
+        val delta = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(
+                4L,
+                routeOwner,
+                InfrastructureFootprint(listOf(releasedPrefix, remainingPrefix))
+            )
+        )
+        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+        registry.shrinkClaim(platform, routeOwner, listOf(releasedPrefix))
+
+        val rollback = registry.rollbackClaimAppend(append)
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, rollback.status)
+        val snapshot = registry.claimSnapshots().single()
+        assertEquals(routeOwner, snapshot.owner)
+        assertEquals(listOf(remainingPrefix), snapshot.footprint.resources)
+    }
+
+    @Test
+    fun `claim append rollback releases claim after every established resource shrinks`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        val delta = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+
+        assertEquals(
+            InfrastructureMutationStatus.REPLACED,
+            registry.shrinkClaim(platform, routeOwner, listOf(established)).status
+        )
+        assertEquals(listOf(delta), registry.claimSnapshots().single().footprint.resources)
+
+        assertEquals(InfrastructureMutationStatus.RELEASED, registry.rollbackClaimAppend(append).status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `second claim append is busy while the first delta is pending`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        val firstDelta = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+        val firstAppend = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(firstDelta))
+
+        val secondAppend = registry.beginAppendClaim(
+            platform,
+            routeOwner,
+            4L,
+            listOf(interval(40.0, 50.0))
+        )
+
+        assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, secondAppend.result.status)
+        assertEquals(
+            listOf(established, firstDelta),
+            registry.claimSnapshots().single().footprint.resources
+        )
+        assertTrue(registry.completeClaimAppend(firstAppend))
+    }
+
+    @Test
+    fun `claim shrink cannot remove a pending appended resource`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        val delta = interval(20.0, 30.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+
+        val shrink = registry.shrinkClaim(platform, routeOwner, listOf(established, delta))
+
+        assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, shrink.status)
+        assertEquals(
+            listOf(established, delta),
+            registry.claimSnapshots().single().footprint.resources
+        )
+        assertEquals(InfrastructureMutationStatus.REPLACED, registry.rollbackClaimAppend(append).status)
+    }
+
+    @Test
+    fun `claim append rejects invalid delta identity without mutation`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = interval(0.0, 10.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.beginAppendClaim(platform, routeOwner, 4L, emptyList())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            registry.beginAppendClaim(platform, routeOwner, 4L, listOf(established, established))
+        }
+        val alreadyHeld = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(established))
+
+        assertEquals(InfrastructureMutationStatus.INVALID_RESOURCE, alreadyHeld.result.status)
+        assertEquals(listOf(established), registry.claimSnapshots().single().footprint.resources)
     }
 
     @Test

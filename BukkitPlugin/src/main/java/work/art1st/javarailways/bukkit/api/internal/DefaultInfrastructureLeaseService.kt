@@ -100,16 +100,6 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
             registry(worldId)?.acquireClaim(requireEnabled(pluginOwner), request) ?: unavailable(worldId)
         }
 
-    /** Internal seam for atomic route-window revision replacement. */
-    fun replaceLiveClaim(
-        pluginOwner: Plugin,
-        worldId: UUID,
-        expectedOwner: InfrastructureOwner,
-        replacement: InfrastructureClaimRequest
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
-        registry(worldId)?.replaceClaim(requireEnabled(pluginOwner), expectedOwner, replacement) ?: unavailable(worldId)
-    }
-
     fun releaseLiveClaim(pluginOwner: Plugin, worldId: UUID, owner: InfrastructureOwner) =
         BukkitThreadGuardBridge.runInSimulationContext {
             registry(worldId)?.releaseClaim(pluginOwner, owner) ?: unavailable(worldId)

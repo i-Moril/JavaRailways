@@ -41,6 +41,12 @@ class InfrastructureLeaseRegistry(
         internal val rollbackToken: UUID?
     )
 
+    /** Opaque handle for finalizing or undoing one append-only delta reservation. */
+    internal class ClaimAppendReservation internal constructor(
+        val result: InfrastructureMutationResult,
+        internal val token: UUID?
+    )
+
     private data class Held(
         val platformOwner: Any,
         val owner: InfrastructureOwner,
@@ -48,14 +54,20 @@ class InfrastructureLeaseRegistry(
     )
 
     private data class PendingClaimMutation(
-        val before: Held?,
         val after: Held
+    )
+
+    private data class PendingClaimAppend(
+        val platformOwner: Any,
+        val owner: InfrastructureOwner,
+        val delta: List<InfrastructureResource>
     )
 
     private val lock = Any()
     private val leases = linkedMapOf<String, Held>()
     private val claims = linkedMapOf<String, Held>()
     private val pendingClaimMutations = linkedMapOf<UUID, PendingClaimMutation>()
+    private val pendingClaimAppends = linkedMapOf<UUID, PendingClaimAppend>()
     private val editPermits = linkedMapOf<UUID, Held>()
     private var closed = false
 
@@ -128,82 +140,80 @@ class InfrastructureLeaseRegistry(
         request: InfrastructureClaimRequest
     ): ClaimMutation = acquireClaimMutation(platformOwner, request, rollbackTracked = true)
 
-    fun replaceClaim(
+    /**
+     * Atomically reserves a validated resource delta on an established claim.
+     *
+     * The reservation is immediately exclusive but remains distinguishable from the established
+     * prefix until [completeClaimAppend] or [rollbackClaimAppend] consumes its opaque handle.
+     */
+    internal fun beginAppendClaim(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
-        request: InfrastructureClaimRequest
-    ): InfrastructureMutationResult = replaceClaimMutation(
-        platformOwner,
-        expectedOwner,
-        request,
-        rollbackTracked = false
-    ).result
+        topologyRevision: Long,
+        deltaResources: Collection<InfrastructureResource>
+    ): ClaimAppendReservation {
+        val delta = deltaResources.toList()
+        require(delta.isNotEmpty()) { "deltaResources must not be empty" }
+        require(delta.distinct().size == delta.size) { "deltaResources contains duplicate resources" }
 
-    internal fun beginReplaceClaim(
-        platformOwner: Any,
-        expectedOwner: InfrastructureOwner,
-        request: InfrastructureClaimRequest
-    ): ClaimMutation = replaceClaimMutation(platformOwner, expectedOwner, request, rollbackTracked = true)
+        return synchronized(lock) {
+            val footprint = InfrastructureFootprint(delta)
+            validate(topologyRevision, footprint)?.let {
+                return@synchronized ClaimAppendReservation(it, null)
+            }
+            if (hasPendingMutation(expectedOwner.ownerId)) {
+                return@synchronized ClaimAppendReservation(
+                    result(
+                        InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                        "claim owner ${expectedOwner.ownerId} already has a mutation in progress"
+                    ),
+                    null
+                )
+            }
+            val existing = claims[expectedOwner.ownerId]
+                ?: return@synchronized ClaimAppendReservation(
+                    result(InfrastructureMutationStatus.NOT_FOUND, "claim does not exist"),
+                    null
+                )
+            if (existing.platformOwner !== platformOwner || existing.owner != expectedOwner) {
+                return@synchronized ClaimAppendReservation(
+                    result(
+                        InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                        "claim owner or expected revision does not match"
+                    ),
+                    null
+                )
+            }
+            val alreadyHeld = delta.firstOrNull { it in existing.footprint.resources }
+            if (alreadyHeld != null) {
+                return@synchronized ClaimAppendReservation(
+                    result(
+                        InfrastructureMutationStatus.INVALID_RESOURCE,
+                        "claim already holds exact resource: $alreadyHeld"
+                    ),
+                    null
+                )
+            }
+            val blockers = blockers(
+                footprint,
+                claims.values.filterNot { it === existing },
+                InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
+            ) + blockers(footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
+            if (blockers.isNotEmpty()) {
+                return@synchronized ClaimAppendReservation(conflict(blockers), null)
+            }
 
-    private fun replaceClaimMutation(
-        platformOwner: Any,
-        expectedOwner: InfrastructureOwner,
-        request: InfrastructureClaimRequest,
-        rollbackTracked: Boolean
-    ): ClaimMutation = synchronized(lock) {
-        validate(request.topologyRevision, request.footprint)?.let {
-            return@synchronized ClaimMutation(it, null)
-        }
-        pendingForOwner(expectedOwner.ownerId)?.let {
-            return@synchronized ClaimMutation(
-                result(
-                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                    "claim owner ${expectedOwner.ownerId} has an admission transaction in progress"
-                ),
-                null
+            claims[expectedOwner.ownerId] = existing.copy(
+                footprint = InfrastructureFootprint(existing.footprint.resources + delta)
             )
+            val token = UUID.randomUUID()
+            pendingClaimAppends[token] = PendingClaimAppend(platformOwner, expectedOwner, delta)
+            ClaimAppendReservation(result(InfrastructureMutationStatus.REPLACED), token)
         }
-        if (expectedOwner.ownerId != request.owner.ownerId || request.owner.revision <= expectedOwner.revision) {
-            return@synchronized ClaimMutation(
-                result(
-                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                    "replacement must keep ownerId and advance its revision"
-                ),
-                null
-            )
-        }
-        val existing = claims[expectedOwner.ownerId]
-            ?: return@synchronized ClaimMutation(
-                result(InfrastructureMutationStatus.NOT_FOUND, "claim does not exist"),
-                null
-            )
-        if (existing.platformOwner !== platformOwner || existing.owner != expectedOwner) {
-            return@synchronized ClaimMutation(
-                result(
-                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                    "claim owner or expected revision does not match"
-                ),
-                null
-            )
-        }
-        val blockers = blockers(
-            request.footprint,
-            claims.values.filterNot { it === existing } + rollbackReservations(),
-            InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
-        ) + blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
-        if (blockers.isNotEmpty()) return@synchronized ClaimMutation(conflict(blockers), null)
-        val replacement = Held(platformOwner, request.owner, request.footprint)
-        claims[request.owner.ownerId] = replacement
-        trackedMutation(
-            result(InfrastructureMutationStatus.REPLACED),
-            before = existing,
-            after = replacement,
-            rollbackTracked = rollbackTracked
-        )
     }
 
     fun releaseClaim(platformOwner: Any, owner: InfrastructureOwner): InfrastructureMutationResult = synchronized(lock) {
-        if (pendingForOwner(owner.ownerId) != null) {
+        if (hasPendingMutation(owner.ownerId)) {
             return@synchronized result(
                 InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
                 "claim owner ${owner.ownerId} has an admission transaction in progress"
@@ -251,10 +261,20 @@ class InfrastructureLeaseRegistry(
                     "claim owner or expected revision does not match"
                 )
             }
-            if (pendingForOwner(expectedOwner.ownerId) != null) {
+            if (pendingInitialMutationForOwner(expectedOwner.ownerId) != null) {
                 return@synchronized result(
                     InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
                     "claim owner ${expectedOwner.ownerId} has an admission transaction in progress"
+                )
+            }
+
+            val pendingAppend = pendingAppendForOwner(expectedOwner.ownerId)
+            val pendingDelta = pendingAppend?.delta.orEmpty()
+            val pendingRelease = requested.firstOrNull { it in pendingDelta }
+            if (pendingRelease != null) {
+                return@synchronized result(
+                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                    "pending appended resource cannot be released: $pendingRelease"
                 )
             }
 
@@ -287,7 +307,7 @@ class InfrastructureLeaseRegistry(
         true
     }
 
-    /** Restores the exact pre-mutation claim without revalidating its older owner revision. */
+    /** Removes exactly the newly acquired claim after its preparation was safely aborted. */
     internal fun rollbackClaimMutation(mutation: ClaimMutation): InfrastructureMutationResult = synchronized(lock) {
         val token = mutation.rollbackToken
             ?: return@synchronized result(InfrastructureMutationStatus.UNCHANGED)
@@ -303,14 +323,62 @@ class InfrastructureLeaseRegistry(
                 "claim changed while its admission transaction was in progress"
             )
         }
-        if (pending.before == null) {
-            claims.remove(pending.after.owner.ownerId)
-        } else {
-            claims[pending.before.owner.ownerId] = pending.before
-        }
+        claims.remove(pending.after.owner.ownerId)
         pendingClaimMutations.remove(token)
+        result(InfrastructureMutationStatus.RELEASED)
+    }
+
+    /** Commits a pending delta without changing the claim's logical owner revision. */
+    internal fun completeClaimAppend(reservation: ClaimAppendReservation): Boolean = synchronized(lock) {
+        val token = reservation.token ?: return@synchronized false
+        val pending = pendingClaimAppends[token] ?: return@synchronized false
+        val current = claims[pending.owner.ownerId] ?: return@synchronized false
+        if (current.platformOwner !== pending.platformOwner || current.owner != pending.owner) {
+            return@synchronized false
+        }
+        if (!current.footprint.resources.containsAll(pending.delta)) return@synchronized false
+        pendingClaimAppends.remove(token)
+        true
+    }
+
+    /**
+     * Removes only this reservation's delta from the claim's then-current footprint.
+     * Established prefix resources may already have been removed by tail release.
+     */
+    internal fun rollbackClaimAppend(
+        reservation: ClaimAppendReservation
+    ): InfrastructureMutationResult = synchronized(lock) {
+        val token = reservation.token
+            ?: return@synchronized result(InfrastructureMutationStatus.UNCHANGED)
+        val pending = pendingClaimAppends[token]
+            ?: return@synchronized result(
+                InfrastructureMutationStatus.NOT_FOUND,
+                "claim append reservation does not exist"
+            )
+        val current = claims[pending.owner.ownerId]
+            ?: return@synchronized result(
+                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                "claim disappeared while its append reservation was pending"
+            )
+        if (current.platformOwner !== pending.platformOwner || current.owner != pending.owner ||
+            !current.footprint.resources.containsAll(pending.delta)
+        ) {
+            return@synchronized result(
+                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                "claim changed inconsistently while its append reservation was pending"
+            )
+        }
+
+        val deltaSet = pending.delta.toHashSet()
+        val remaining = current.footprint.resources.filterNot(deltaSet::contains)
+        if (remaining.isEmpty()) {
+            claims.remove(pending.owner.ownerId)
+        } else {
+            claims[pending.owner.ownerId] = current.copy(footprint = InfrastructureFootprint(remaining))
+        }
+        pendingClaimAppends.remove(token)
         result(
-            if (pending.before == null) InfrastructureMutationStatus.RELEASED
+            if (remaining.isEmpty()) InfrastructureMutationStatus.RELEASED
             else InfrastructureMutationStatus.REPLACED
         )
     }
@@ -320,7 +388,7 @@ class InfrastructureLeaseRegistry(
         val blockers = blockers(request.footprint, leases.values, InfrastructureBlockerKind.APPLIED_PLAN_LEASE) +
             blockers(
                 request.footprint,
-                claims.values + rollbackReservations(),
+                claims.values,
                 InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
             ) +
             blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
@@ -347,6 +415,7 @@ class InfrastructureLeaseRegistry(
 
     fun releasePlatformOwner(platformOwner: Any) = synchronized(lock) {
         val pendingOwnerIds = pendingClaimMutations.values.mapTo(hashSetOf()) { it.after.owner.ownerId }
+        pendingClaimAppends.values.mapTo(pendingOwnerIds) { it.owner.ownerId }
         leases.values.removeIf { it.platformOwner === platformOwner }
         claims.values.removeIf { held ->
             held.platformOwner === platformOwner && held.owner.ownerId !in pendingOwnerIds
@@ -359,6 +428,7 @@ class InfrastructureLeaseRegistry(
         leases.clear()
         claims.clear()
         pendingClaimMutations.clear()
+        pendingClaimAppends.clear()
         editPermits.clear()
     }
 
@@ -370,7 +440,7 @@ class InfrastructureLeaseRegistry(
         validate(request.topologyRevision, request.footprint)?.let {
             return@synchronized ClaimMutation(it, null)
         }
-        pendingForOwner(request.owner.ownerId)?.let {
+        if (hasPendingMutation(request.owner.ownerId)) {
             return@synchronized ClaimMutation(
                 result(
                     InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
@@ -395,7 +465,7 @@ class InfrastructureLeaseRegistry(
         }
         val blockers = blockers(
             request.footprint,
-            claims.values + rollbackReservations(),
+            claims.values,
             InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
         ) + blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
         if (blockers.isNotEmpty()) return@synchronized ClaimMutation(conflict(blockers), null)
@@ -403,7 +473,6 @@ class InfrastructureLeaseRegistry(
         claims[request.owner.ownerId] = acquired
         trackedMutation(
             result(InfrastructureMutationStatus.ACQUIRED),
-            before = null,
             after = acquired,
             rollbackTracked = rollbackTracked
         )
@@ -411,21 +480,23 @@ class InfrastructureLeaseRegistry(
 
     private fun trackedMutation(
         result: InfrastructureMutationResult,
-        before: Held?,
         after: Held,
         rollbackTracked: Boolean
     ): ClaimMutation {
         if (!rollbackTracked) return ClaimMutation(result, null)
         val token = UUID.randomUUID()
-        pendingClaimMutations[token] = PendingClaimMutation(before, after)
+        pendingClaimMutations[token] = PendingClaimMutation(after)
         return ClaimMutation(result, token)
     }
 
-    private fun pendingForOwner(ownerId: String): PendingClaimMutation? =
+    private fun hasPendingMutation(ownerId: String): Boolean =
+        pendingInitialMutationForOwner(ownerId) != null || pendingAppendForOwner(ownerId) != null
+
+    private fun pendingInitialMutationForOwner(ownerId: String): PendingClaimMutation? =
         pendingClaimMutations.values.firstOrNull { it.after.owner.ownerId == ownerId }
 
-    private fun rollbackReservations(): List<Held> =
-        pendingClaimMutations.values.mapNotNull(PendingClaimMutation::before)
+    private fun pendingAppendForOwner(ownerId: String): PendingClaimAppend? =
+        pendingClaimAppends.values.firstOrNull { it.owner.ownerId == ownerId }
 
     private fun sameHeld(first: Held?, second: Held): Boolean =
         first != null && first.platformOwner === second.platformOwner &&

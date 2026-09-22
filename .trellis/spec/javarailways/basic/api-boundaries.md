@@ -13,7 +13,14 @@
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；不得包含render car或live Core对象。
 - `InfrastructureResource`、lease/edit request、typed result与read-only snapshot属于公开host contract；raw live-claim mutation只属于Basic路线准入实现，不进入add-on API。
-- 目标`RouteResourceIntent`公开一个自身携带topology revision的冻结route plan、train ID、同一观察stamp、期望authority boundary，以及可选的**附加**注册资源。route是调用方提交的唯一路径及拓扑绑定事实；request不得复制第二个topology revision、可信列车长度或替代Basic物理推导的raw footprint。Basic从路线自行加入不可删除的rail/turnout/diamond物理资源，再与通过验证的附加资源合并为唯一claim集合。
+- 目标`work.art1st.javarailways.basic.api.route.RouteResourceIntent`复用现有`RouteSnapshot`，并携带nonblank stable train ID、
+  同一观察stamp、从冻结路线起点起算的米制authority boundary及可选的**附加**注册资源。request不得复制
+  topology revision、可信列车长度或替代Basic物理推导的raw footprint。Basic自行加入不可删除的
+  rail/turnout/diamond资源，再与合法addition合并为唯一claim。确切字段、单位、结果和extension关系由
+  [路线资源准入](./route-resource-admission.md)冻结。
+- 附加资源只接受exact `StableInfrastructureResource`，每项显式声明车尾释放route-metre boundary；没有默认
+  释放点。可选准备target是namespaced kind加immutable scalar arguments的runtime-only descriptor，不接受
+  `Any`、mutable object、JVM class reflection或JSON persistence payload。
 - Basic production不得import Bukkit/Paper/Minecraft；platform side effect只经`TrainOperationGateway`等semantic adapter。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。
@@ -42,6 +49,7 @@ Basic只知道semantic request/result；region scheduling与model action完成�
 | 世界观察 | 同一`RailwayStateStamp`下的immutable train values | 分别读取live train与latest topology再拼装 |
 | 基础设施仲裁 | immutable footprint + typed atomic result | 向add-on暴露raw claim mutation或registry implementation |
 | 路线资源准入 | topology-bound frozen route + train/observation/boundary + optional additions；Basic推导不可删除的物理底线并原子claim union | add-on替换物理footprint/列车长度、Basic替其寻路或执行具体信号制式 |
+| 自定义资源准备 | exact identity + provider-owned runtime descriptor；world owner thread返回typed ticket | handler读取mutable train/world、扫描路线、追加资源或把descriptor当存档schema |
 
 每个signature/KDoc必须包含world/host owner、stable identity、字段类型和单位、thread/blocking、live/value、failure/result、register/unregister、persistence含义。annotation不能替代文字。
 

@@ -117,6 +117,10 @@
 - [x] Add atomic shared infrastructure leases plus one edit-permit/diagnostic service covering applied-plan leases and live route claims.
 - [x] Add direction-aware boundary, bounded-region, frozen route-window and exit-clearance public contracts.
 - [ ] Replace the transitional single-window seam with a generic route intent: Basic derives the mandatory physical footprint and unions validated additive plugin resources; provide no raw planned-section or replacement-footprint automatic overload.
+  - [x] Freeze the public route-intent contract before implementation: reuse one topology-bound `RouteSnapshot`, stable
+    train ID and coherent observation stamp; use route-metre desired/release boundaries; accept only unique additive stable
+    resources; define the runtime-only namespaced preparation descriptor, validation/result order, owner/thread/lifecycle
+    semantics and same-route extension relation. This item changes no runtime API.
   - [ ] Remove the superseded recursive provider-closure target. Expose namespaced resource registration plus bounded data additions; Basic does not execute signal policy callbacks while scanning the route.
 - [ ] Move protection-region/fixed-block definitions, graph-cut validation, catalog/window resolution and their persistence ownership out of Basic into the first concrete signal plugin. Do not add runtime compatibility without separate approval.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.

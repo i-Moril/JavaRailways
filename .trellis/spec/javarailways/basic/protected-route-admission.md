@@ -4,7 +4,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation、route-bound非结构资源索引、单window资源收集和atomic turnout admission已存在，通用contributor closure、grant publication与release/recovery尚未实现。
+- **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation、route-bound非结构资源索引、单window资源收集和atomic turnout admission已存在。本文曾规划的通用contributor closure已被取代，不是待实现项；当前generic grant/release进度见[路线资源准入](./route-resource-admission.md)。
 - **Current implementation owner**：Basic当前仍保存`ProtectionRegionDefinition`与catalog/window代码；这只描述迁移起点。目标owner是具体信号插件，Basic只保留路线验证、物理资源底线、唯一claim集合与执行机制；Core拥有结构拓扑和物理观察。
 - **Non-goals**：本页不定义信号aspect、JS策略、玩家编辑UI或替SimpleATO选择运营路径。
 
@@ -56,7 +56,9 @@ edge方向由segment facing与rail slice的AB朝向组合确定，不能用投�
 
 同一次验证还把物理查询范围编译为一个normalized `OccupancyQueryGeometry`。它由`entry..clearUntil`的已选路线interval、每个相关turnout全部port的零长度端点interval，以及每个route-bound resource binding的全部anchors组成；同rail重叠或容差内相邻interval会合并。turnout在当前Core模型中是端点间的零长度selectable continuation，因此检查全部port既能捕获跨在未选支路端点上的列车，也不重新引入固定`lockingDistance`。diamond两臂不改变拓扑连接，必须从同一个retained catalog snapshot加入全部anchors，不能只检查route命中的一臂。该geometry只用于authoritative occupancy查询，不进入`InfrastructureFootprint`、claim identity或持久化。
 
-当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。它在atomic claim后启动完整有序的基础设施准备批次；start在无side effect前拒绝时撤销新claim，未来异步handler只有确认`ABORTED_SAFE`后才允许撤销新claim，状态不确定则保留资源并Stall。validator仍未用完整train envelope实现多contributor closure，也尚未实现grant publication和release/recovery。因此automatic/`MANUAL_ROUTED`调用者暂不得迁移到它并宣称完整准入。后续能力必须扩展同一次验证和同一个最终资源集合，不能增加caller footprint、第二份physical footprint，或在claim后重新投影route来恢复准备操作。
+当前claim seam已把该geometry接入同一epoch的authoritative occupancy query，并在registry mutation前排除请求列车自身、拒绝全部其他物理阻挡。它在atomic claim后启动完整有序的基础设施准备批次；start在无side effect前拒绝时撤销新claim，未来异步handler只有确认`ABORTED_SAFE`后才允许撤销新claim，状态不确定则保留资源并Stall。automatic/`MANUAL_ROUTED`生产调用者仍未迁移，公开generic intent和plugin addition也尚未实现，因此不能宣称完整准入。后续实现必须遵守[路线资源准入](./route-resource-admission.md)的单一物理底线加数据型addition合同，不能恢复下述旧contributor closure、增加caller footprint，或在claim后重新投影route来恢复准备操作。
+
+> 以下从“验证向前扩展minimum”到3.3节之前的contributor/`AuthoritySection`内容是已被取代的历史设计记录，仅用于解释迁移来源；不得实现为Basic目标。当前目标由[路线资源准入](./route-resource-admission.md)唯一规定。
 
 验证从当前进度向`desiredAuthorityBoundary`扫描，并维护单调不减的`minimumClaimUntil`。普通rail interval与受控资源直接加入唯一集合；遇到`RouteResourceContributor`时，把其选定traversal的资源加入该集合，并记录selection、occupancy检查数据和clearance obligation。保护区域入口至少把义务延长到`regionExitDistance + occupiedLengthMeters + clearanceMargin`。若尚未达到该义务就遇到另一个contributor，继续验证并取更远的minimum；只有到达不早于所有义务、且当前territory capability认可的authority endpoint才允许结束。固定闭塞的合法endpoint是已获取整段的出口；移动闭塞可以认可route上的精确距离。该过程是沿有限冻结route的单调fixed point，不允许contributor反向缩短范围，也不允许保护区域自己查询“下一区域”。
 
@@ -201,7 +203,8 @@ Basic在旧authority不变的前提下完成以下单一事务：
 
 ```text
 validate exact grant/route/topology/observation binding
-  -> compile only (committed frontier, desired farther boundary] and contributor closure
+  -> compile only (committed frontier, desired farther boundary] physical floor
+  -> target generic API also validates caller-supplied data additions; current adapter has none
   -> reject a seam that is discontinuous, moves backward or repeats a controlled resource
   -> derive delta resources, delta occupancy geometry, delta preparations and delta tail-clear entries
   -> reject authoritative physical blockers before registry mutation
@@ -260,7 +263,7 @@ occurrence，成本为`O(1)`；跨越片段时只顺序扫描实际跨过的suff
 反向查询。每次world observation dispatch额外用`O(t)`时间和空间构造一次train lookup（`t`为该观察的列车数），
 再以`O(c)`稳定遍历active controllers（`c`为当前claim owner数）；不会退化为每个controller重扫全部列车。
 
-## 4. 目标签名与合同
+## 4. 过渡签名与已取代的历史草图
 
 以下是进入实现前仍需字段审查的目标shape，不是当前完整公开API。当前冻结路径
 `RouteSnapshot`已经携带自己的`topologyRevision`，`ProtectedRouteRequest`不得再复制该字段；
@@ -295,7 +298,7 @@ data class RouteResourceRequest(
     val desiredAuthorityBoundary: RouteBoundaryRef
 )
 
-// TARGET capability shape; concrete public value-type names remain an API-batch decision.
+// SUPERSEDED historical capability shape; do not implement as the target public API.
 interface RouteResourceProvider {
     val providerId: String
     val revision: Long
@@ -366,7 +369,7 @@ Basic service是world-local，因此platform-neutral request不重复携带world
 
 上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal。公开请求只描述路线选择和目标，不增加第二份resource intent。`CompiledRouteAdmission.resources`是准入事务唯一消费的资源集合；preparations和tail-release entries是操作/生命周期元数据，不是其他资源集合。调用方提供`trainId`，Basic从`observationStamp`对应的authoritative observation临时解析长度、方向和occupied intervals，不相信调用方自由填写的列车长度。
 
-`RouteResourceContributor`是Basic内部验证能力，不定义另一种footprint。内置规则直接实现该能力；外部`RouteResourceProvider`的不可变返回值先由Basic校验和适配，再进入同一内部流程。两者都只能向当前验证过程增加标准`InfrastructureResource`、延长`claimUntil`并附加操作/释放元数据。资源绑定提供的physical occupancy geometry仅用于查询authoritative occupancy；它不进入request、claim identity或持久化模型。外部SPI的具体Java类型名、provider registration facade和preparation-handler类型仍未冻结，上述代码是目标capability shape，不是当前可调用API。
+上述`RouteResourceContributor`/`RouteResourceProvider`草图是已取代的历史方案，不是当前可调用API，也不得作为待实现shape。当前公开目标是调用方预先计算纯数据addition，Basic按[路线资源准入](./route-resource-admission.md)验证后与mandatory physical floor合并；Basic不在路线扫描中执行策略provider closure。资源绑定的physical occupancy geometry仍只用于authoritative occupancy查询，不进入request、claim identity或持久化模型。
 
 当前过渡API的唯一拓扑绑定也遵守同一规则：`RouteSnapshot.topologyRevision`是路径选择时捕获的
 版本，`RouteSnapshot.revision`是路径本身的版本。projector直接比较前者与传入`TopologyState.revision`；
@@ -382,7 +385,11 @@ fallback到caller resources或partial rail-only claim。
 该claim的exact logical owner/revision不变，只缩减footprint。因此尾部逐段释放不会伪造新的调用方计划
 revision，cancel也不会因内部shrink而失去目标。
 
-## 5. 不变量、生命周期、线程与版本
+## 5. 过渡实现不变量、生命周期、线程与版本
+
+> 本节以后同时保存当前旧保护区域行为和早期目标的迁移证据。出现`Basic-owned AuthoritySection`、中央closure或
+> provider route callback时，均属于已取代目标；不得覆盖[路线资源准入](./route-resource-admission.md)和独立
+> 信号插件ownership。`ProtectedRouteRequest`、`PROTECTION_REQUIRED`和`NOT_REQUIRED`仅描述迁移期间现有行为。
 
 ### 5.1 区域拓扑
 

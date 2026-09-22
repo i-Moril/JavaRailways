@@ -27,7 +27,12 @@ coherent Core observation + TopologyState(revision)
 
 SimpleATO 决定“列车准备走哪条路”，Basic 只证明“这条路在当前物理拓扑上是否合法且资源能否安全取得”。Basic 拒绝后 SimpleATO 可以在新的 observation/overlay revision 上重算，但 Basic 不替它换路；SimpleATO 也不得通过第二份 caller-authored resource list 指挥 Basic 跳过资源发现。
 
-SimpleATO不识别保护区域、固定闭塞或某一国家信号制式的具体规则。它把一条冻结路线和期望authority boundary交给通用准入；Basic自行加入不可删除的物理资源底线。具体信号系统插件可以为同一intent增加自己计算出的注册资源和更严格限制，但不能删改Basic的rail/turnout/diamond资源，也不能绕过最终grant。新增信号制式不应要求SimpleATO增加保护区域类型分支。
+SimpleATO不识别保护区域、固定闭塞或某一国家信号制式的具体规则。它产生冻结路线、同一观察stamp、stable train ID
+和运营上允许扫描的前方范围；Basic自行加入不可删除的物理资源底线。没有信号策略时SimpleATO按移动闭塞策略选择
+boundary并提交无addition的intent；需要插件策略时，具体信号插件在该范围内选择desired boundary、产出纯数据
+addition，并由其认证准入协调器提交同一冻结路线。SimpleATO不冒充插件身份或重新包装其addition，只消费Basic发布
+的committed grant。插件不能删改Basic的rail/turnout/diamond资源，也不能绕过最终grant；新增制式不应要求
+SimpleATO增加类型分支。
 
 没有 SimpleATO 时，不产生自动路线grant。Basic 可以保留经过物理锁和 active-claim 检查的显式手动道岔操作，但该操作不产生 movement authority。
 
@@ -57,7 +62,7 @@ observation解析具名列车。脱轨列车作为无效权威起点被拒绝；
 
 ### 3.2 冻结路线与准入客户端
 
-冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp 与期望 authority boundary；不提交 caller-authored route progress/occurrence index、可替代物理底线的 raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。Basic 从同一 observation 的权威列车尾验证冻结路线起点，并自行初始化进度。信号系统插件可以附加自己注册的资源要求，但这些要求只增加最终 union。
+冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp 与期望 authority boundary；不提交 caller-authored route progress/occurrence index、可替代物理底线的 raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。Basic 从同一 observation 的权威列车尾验证冻结路线起点，并自行初始化进度。信号系统插件可以附加自己注册的资源要求，但这些要求只增加最终 union。每项addition必须包含exact stable identity与显式route-metre车尾释放boundary；可选preparation descriptor只描述provider-owned target，不能携带callback或mutable train/world。完整shape由[Basic路线资源准入](../basic/route-resource-admission.md)唯一拥有。
 
 SimpleATO本身只认识“当前可用grant边界”和“外部限制”，不把普通固定闭塞、保护区域或移动闭塞编成一个Basic-owned `AuthoritySection`模型：
 
@@ -94,26 +99,12 @@ SimpleATO的一次共享route perception负责判断列车何时进入资源检�
 
 ## 4. 接口与数据合同
 
-以下仅为目标概念 shape；完整类型名和 public package 必须在 API 实现批次冻结：
-
-```kotlin
-data class FrozenOperationalRoute(
-    val topologyRevision: Long,
-    val routeRevision: Long,
-    val traversal: List<DirectedTrackEdgeRef>
-)
-
-data class AutomaticRouteIntent(
-    val requestId: String,
-    val ownerId: String,
-    val trainId: UUID,
-    val observation: ObservationStamp,
-    val route: FrozenOperationalRoute,
-    val desiredAuthorityBoundary: RouteBoundaryRef
-)
-```
-
-`observation`中的 physics epoch 必须与选路所读列车状态一致；`route.topologyRevision`是唯一 topology 绑定，request 不再复制第二个 expected revision。Basic 返回 typed grant/denial；SimpleATO 只消费结果，不读取或修改 Basic 内部 claim registry。
+SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`；需要信号插件策略时，它把同一冻结路线与
+观察输入交给插件的准入协调器，由插件构造并认证提交intent。两者都不再定义平行的`AutomaticRouteIntent`或
+`FrozenOperationalRoute`。`observationStamp.physicsEpoch`必须与选路所读列车状态一致；
+`route.topologyRevision`是唯一topology绑定，request不复制第二个expected revision。SimpleATO只消费
+`Granted/Pending/Rejected`及其immutable snapshot/handle，不读取或修改Basic内部registry。SimpleATO不得用自己
+的身份提交另一插件产生的addition。
 
 运营 overlay 引用优先保存 stable rail UUID + canonical AB interval 或独立 stable operational ID；revision-local node/edge ID 只可作为已解析 runtime reference，不能默认作为跨重启身份。
 
@@ -140,7 +131,7 @@ data class AutomaticRouteIntent(
 | 物理占用或资源冲突 | 按 dispatcher 排队/重试策略处理 | Basic 无 partial claim |
 | grant 成功 | 将 grant boundary 转为 constraint candidate | 不绕过 Basic 扩大边界 |
 | provider/模块失效或约束无法定位 | fail closed，撤销其放宽效果并保持/施加限制 | live claim 交由 host recovery |
-| route 有 no-controlled-resource 且无需 claim | 接受 `NOT_REQUIRED` 并继续普通约束计算 | 不创建空 claim |
+| desired boundary不晚于现有grant或extension不属于同一冻结路线 | 修正调度或走安全replan | Basic无mutation；旧authority保持 |
 
 稳定配置错误由 topology/overlay/plan 事件驱动重试；暂态占用冲突才按明确调度策略重试。不得把所有 denial 都变成每 tick 全量重新寻路。
 
@@ -157,7 +148,7 @@ data class AutomaticRouteIntent(
 
 - Good：列车去往运营停车点，SimpleATO 选择一条包含道岔和 diamond 的 traversal；Basic 从同一 topology root 验证并收集资源，SimpleATO 从 grant 生成唯一 authority constraint。
 - Good：保护区域出口后的列车净空进入固定闭塞；信号插件的route-decision层选择包含所需固定区间的boundary与addition，Basic只推导物理底线并原子claim最终union，region对象本身不递归查询后继。
-- Base：纯直线移动闭塞路线没有 controlled resource；Basic 返回 `NOT_REQUIRED`，SimpleATO 仍用车辆/停车/速度约束控制列车。
+- Base：纯直线移动闭塞路线没有plugin-controlled resource；Basic仍claim所申请范围的mandatory rail intervals，SimpleATO再用车辆、停车和速度constraint限制列车。
 - Bad：SimpleATO 同时提交 route 与自己猜测的 turnout/diamond footprint；两份事实可能漂移，必须只提交 route。
 - Bad：每个信号脚本重新遍历前方路线和所有列车；必须消费一次 perception 与索引化 section observation。
 - Bad：Basic 因资源冲突自行换另一条路后授权；运营选择只能回到 SimpleATO 产生新 route revision。
@@ -168,7 +159,7 @@ data class AutomaticRouteIntent(
 - observed frozen-route seam：成功路线从同一observation的具名列车tail及其facing精确开始；observation/overlay
   topology mismatch、列车缺失/脱轨和planner的invalid target/unreachable均保持各自typed rejection。
 - revision binding：route 与 topology revision 独立；任何 observation/topology/overlay stale 都不发请求、不扩大 authority。
-- admission client：请求没有可替代Basic物理底线的第二份资源清单；合法addition、conflict、`NOT_REQUIRED` 和 grant 分支均保持规定 lifecycle。
+- admission client：请求没有可替代Basic物理底线的第二份资源清单；合法addition、conflict、pending和grant分支均保持规定lifecycle；直线路段仍由Basic推导rail interval claim，不使用旧`NOT_REQUIRED`捷径。
 - rolling extension：只沿同一frozen route发出更远boundary；同一grant最多一个pending handle，期间旧资源继续释放且
   pending/denied不扩大authority，route/topology/plan改变走replan而非extension。client lookahead policy用独立策略测试，
   但其数值尚未冻结。
@@ -182,8 +173,8 @@ data class AutomaticRouteIntent(
 
 迁移顺序是：先稳定 Core `TopologyState` 与 Basic route-validation seam，再把当前 Basic 中的运营 route producer、mission/constraint owner 和 Dispatcher client 整体迁入 SimpleATO，最后迁移 Destination、Station、Depot、Line、Timetable 及其持久化/composition。每批只允许一个可写 owner。
 
-尚未冻结：完整 public type/package、rolling extension公开字段及typed failure、client lookahead policy、路线 cost policy、
-overlay持久化边界、信号插件检查/限制接口、具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些
+准入request/result、单位、preparation descriptor与rolling extension关系已由Basic owner spec冻结。尚未冻结：
+client lookahead policy、路线 cost policy、overlay持久化边界、信号插件检查/限制接口、具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些
 问题必须在对应实现批次单独审查；本页不替它们选择兼容格式。
 
 ```text

@@ -3,9 +3,9 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；当前 `ProtectedRouteRequestValidator` 仍作为保护窗口策略适配器调用它。公开通用 intent、插件附加资源和生产 caller 迁移尚未完成。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；当前 `ProtectedRouteRequestValidator` 仍作为保护窗口策略适配器调用它。公开通用 intent contract已在本页冻结，但API、插件附加资源实现和生产caller迁移尚未完成。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
-- **Caller**：SimpleATO 提交冻结路线与列车/观察身份；具体信号系统插件可以在同一请求中附加自己注册的资源要求。
+- **Caller**：SimpleATO提供冻结路线与列车/观察身份；不需要信号策略时由SimpleATO提交无addition的intent，需要插件策略时由该信号插件的认证准入协调器提交同一路线和自己的addition。SimpleATO不冒充插件来源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。
 
 触发：修改自动进路申请、route-bound resource、turnout/diamond claim、外部资源注册、设备准备、rolling extension、grant 或车尾释放。
@@ -62,30 +62,134 @@ Committed resources enter one route-ordered release queue owned by the live gran
 
 Rolling extension keeps the same frozen route and cursor. Basic compiles only the farther suffix, derives its physical floor, unions extension additions, reserves/prepares only the delta, and appends committed release entries. A changed route is a replan at a safe operational boundary, not a whole-claim replacement.
 
-## 4. 签名与合同
+## 4. 冻结的公开请求合同
 
-The following shapes are conceptual until the public API batch freezes package and type names:
+下一实现批次必须在 `work.art1st.javarailways.basic.api.route` 提供下列等价的不可变 value
+contract；允许调整 Kotlin 文件拆分，但不得改变字段语义、增加 raw footprint overload，或把 provider
+callback 塞进 intent。`RouteSnapshot`、`RailwayStateStamp`、`InfrastructureOwner` 与
+`StableInfrastructureResource` 复用现有 Basic API value，不建立平行模型。
 
 ```kotlin
 data class RouteResourceIntent(
     val requestId: String,
-    val ownerId: String,
-    val trainId: UUID,
-    val observation: RailwayStateStamp,
-    val route: FrozenRoute,
-    val desiredAuthorityBoundary: RouteBoundaryRef,
+    val owner: InfrastructureOwner,
+    val trainId: String,
+    val observationStamp: RailwayStateStamp,
+    val route: RouteSnapshot,
+    val desiredAuthority: RouteBoundary,
     val additionalResources: List<AdditionalResourceRequirement>
 )
 
-data class AdditionalResourceRequirement(
-    val resource: InfrastructureResource,
-    val holdUntil: RouteBoundaryRef? = null
+data class RouteBoundary(
+    // metres from the first point of route.segments, increasing in traversal order
+    val distanceFromRouteStartMeters: Double
 )
+
+data class AdditionalResourceRequirement(
+    val resource: StableInfrastructureResource,
+    val releaseAfterTailPasses: RouteBoundary,
+    val preparation: ResourcePreparationDescriptor? = null
+)
+
+data class ResourcePreparationDescriptor(
+    val kindId: String,
+    val arguments: Map<String, PreparationScalar>
+)
+
+sealed interface PreparationScalar {
+    data class Text(val value: String) : PreparationScalar
+    data class Integer(val value: Long) : PreparationScalar
+    data class Decimal(val value: Double) : PreparationScalar
+    data class Flag(val value: Boolean) : PreparationScalar
+}
+
+interface RouteResourceAdmissionService {
+    @MainThread
+    fun admit(intent: RouteResourceIntent): RouteAdmissionStart
+
+    @MainThread
+    fun extend(grantId: RouteGrantId, intent: RouteResourceIntent): RouteAdmissionStart
+
+    @MainThread
+    fun progress(handle: RouteAdmissionHandle): RouteAdmissionProgress
+}
+
+enum class RouteAdmissionFailureCode {
+    WORLD_UNAVAILABLE, OWNER_MISMATCH, STALE_OBSERVATION, TRAIN_NOT_FOUND,
+    STALE_TOPOLOGY, INVALID_ROUTE, INVALID_BOUNDARY, INVALID_INFRASTRUCTURE,
+    INVALID_ADDITION, INVALID_PREPARATION, PHYSICALLY_OCCUPIED, RESOURCE_CONFLICT,
+    EXTENSION_MISMATCH, EXTENSION_BUSY, PREPARATION_ABORTED_SAFE, WORLD_STALLED
+}
 ```
 
-The caller supplies neither raw mandatory rail intervals nor turnout/diamond selections. `holdUntil` may only retain an added resource longer; it cannot shorten Basic's compiled physical release boundary. Train length, occupied intervals and facing come from the referenced authoritative observation, never caller fields.
+`requestId` 是 namespaced caller correlation ID，没有 retry/persistence 语义。`owner` 是logical
+route/grant owner及其non-negative plan revision；Bukkit/service binding在字段外提供认证过的platform owner，
+因此修改value不能冒充另一个插件。`trainId`是exact observation内的nonblank Core stable ID。stamp world必须等于world-local
+service；physics epoch必须仍能解析到准入所用immutable observation；stamp topology revision必须等于
+`route.topologyRevision`。request/extension不复制第二个expected-topology字段。
 
-Resource registration is namespaced and world-local. Registration defines stable identity validation, conflict/overlap behavior, optional preparation handler and lifecycle ownership. It does not grant permission to mutate Basic's claim registry directly.
+`RouteBoundary`只在包含它的intent及其唯一`route`内解释，不重复保存route identity/revision。有限且非负的
+distance从`RouteSnapshot.segments`第一个点起，以冻结路线行进方向递增，单位为实际米；即使某一segment沿BA
+行驶，它也不是canonical rail AB坐标。`desiredAuthority`不得超过`route.totalLengthMeters`。每一个
+`releaseAfterTailPasses`都必须显式提供，并落在`[0, desiredAuthority]`。它表示命名资源
+至少保持到权威**车尾**加Basic提供的非负安全余量通过该路线位置。不存在隐式/default释放点。
+
+caller不提交raw rail interval或turnout/diamond selection。`additionalResources` defensive copy，并且必须按
+exact `(typeId, resourceId)`唯一。若addition identity也出现在Basic物理底线，它不形成第二份资源，只能把该资源
+的释放边界向后延长；不得替换identity、缩短Basic物理clear boundary或覆盖Basic推导的turnout/物理准备target。
+非路线/flank资源可以带一个optional provider-owned `preparation`；缺省descriptor表示只claim、不准备。
+
+`ResourcePreparationDescriptor`是小型runtime request value。`kindId`为namespaced stable identifier；argument
+key非空，map defensive copy并按key稳定排序，decimal必须finite，value只能是上面四种scalar。Basic将它作为
+opaque data，只派发给拥有该resource type且声明该preparation kind的registration。descriptor不含mutable
+train/world、callback、JVM class name或serialized JSON。它**不是持久化schema**，不产生兼容或restore承诺；
+以后若持久化资源定义或in-flight recovery，必须另审独立schema boundary。
+
+Resource registration是namespaced、world-local并绑定认证platform owner。registration定义stable identity、
+authenticated intent caller与preparation descriptor validation、可选preparation handler和lifecycle ownership；
+它不允许直接修改Basic registry。请求者不必拥有resource type：例如JapaneseSignals可以请求Basic拥有的侧面防护
+道岔，但Basic的turnout registration必须按请求者身份、resource identity与descriptor明确接受，否则返回
+`INVALID_ADDITION`或`INVALID_PREPARATION`。
+
+### 4.1 Result与准备协议
+
+`RouteAdmissionStart`是sealed value result，只有三种顶层结果：
+
+- `Granted(RouteGrantSnapshot)`：union已原子claim，全部准备`READY`；snapshot含grant ID、owner、train、route
+  identity/revision、observation stamp与committed authority boundary；
+- `Pending(RouteAdmissionHandle, RouteGrantSnapshot?)`：新request/delta已保留但准备未完成；initial request的
+  snapshot为null，extension返回仍有效的旧committed grant；
+- `Rejected(RouteAdmissionFailure)`：typed failure；除preparation unsafe分支外不产生mutation。
+
+`RouteAdmissionFailure`必须携带上面一个稳定code、非空诊断detail，以及仅在占用/冲突时出现的immutable blocker
+identity列表；不得用exception class作为公开错误类型。`progress`只读取一个由同一service产生的opaque handle，
+返回`Pending/Granted/Rejected`终态；重复读取终态幂等，不重放request或再执行provider。handle是进程内runtime
+能力，不持久化，也不模拟网络丢包/retry。
+
+preparation provider只接收immutable `resource + descriptor + attemptId`，在world owner thread快速启动并返回
+现有`PREPARING/READY/ABORTED_SAFE/UNSAFE` ticket语义。它不接收train、route、claim registry、Core world或其他
+mutable Basic object；设备如何达到target、READY后是否自行恢复默认状态，由resource owner管理。Basic不在route
+scan过程中调用provider，也不允许provider追加资源。所有addition已完成纯数据校验并形成final union后Basic才
+claim；claim成功后才按确定顺序启动准备。
+
+### 4.2 冻结的校验与提交顺序
+
+```text
+require service open and authenticated platform owner
+resolve exact retained observationStamp; resolve trainId in that observation
+require route topology == observation topology == current TopologyState root
+validate route identity, segment values, connectivity, legal continuations and tail start
+validate desiredAuthority and every explicit tail-release boundary in route metres
+compile Basic physical floor + physical preparation/occupancy/release metadata once
+validate unique additions against world-local registrations and preparation kinds
+merge by exact identity; duplicate physical identities may only extend release
+query authoritative same-epoch occupancy geometry
+atomically claim the complete union
+start ordered physical/provider preparation; publish grant only after all READY
+```
+
+atomic claim之前全部side-effect free。registry conflict/claim failure不改变claim、device selection或authority。
+preparation只在claim之后开始，并遵循第6节的retained-claim failure规则。
 
 ## 5. 不变量、生命周期、线程与版本
 
@@ -95,15 +199,26 @@ Resource registration is namespaced and world-local. Registration defines stable
 - Signal-plugin disable prevents new policy grants. Existing live grants and release metadata are host-owned until physical clearance or explicit safe recovery; plugin unload cannot drop them beneath a train.
 - Runtime claims are not persistence schema. Stable resource definitions belong to the plugin or infrastructure owner that defines them; Basic persists only a boundary explicitly approved later.
 - Registry mutation and resource preparation obey the world owner thread; physics observations crossing threads are immutable values.
+- `RouteResourceAdmissionService` is world-local. Callers invoke it on the documented world/main owner only after the
+  exact successful observation publication; provider handlers may return `Pending` but may not block that owner thread.
+- Registration belongs to one authenticated platform-plugin owner. Disable/unregister rejects new additions immediately
+  but does not delete host-owned live claims, release queues or copied descriptors. Provider disappearance during pending
+  preparation is unprovable, so Basic retains the safest reservation and stalls the world.
 
 ## 6. 校验与错误矩阵
 
 | Condition | Result | Mutation |
 | --- | --- | --- |
-| observation/topology/route mismatch | `STALE_STATE` | none |
+| world unavailable/service closed | `WORLD_UNAVAILABLE` | none |
+| authenticated owner and intent owner differ | `OWNER_MISMATCH` | none |
+| exact observation epoch no longer retained | `STALE_OBSERVATION` | none |
+| train absent from exact observation | `TRAIN_NOT_FOUND` | none |
+| observation/topology/catalog mismatch | `STALE_TOPOLOGY` | none |
 | disconnected or illegal frozen traversal | `INVALID_ROUTE` | none |
+| route-boundary identity/range invalid | `INVALID_BOUNDARY` | none |
 | mandatory physical resource cannot be resolved | `INVALID_INFRASTRUCTURE` | none |
-| additional resource is unknown or not requestable by owner | `INVALID_ADDITION` | none |
+| duplicate addition or unknown/unauthorized resource | `INVALID_ADDITION` | none |
+| preparation kind/arguments rejected by owner registration | `INVALID_PREPARATION` | none |
 | occupancy intersects compiled physical geometry | `PHYSICALLY_OCCUPIED` | none |
 | final union conflicts with another claim | `RESOURCE_CONFLICT` | none |
 | all validation passes | claim union, then prepare | one atomic claim |
@@ -112,6 +227,19 @@ Resource registration is namespaced and world-local. Registration defines stable
 | preparation becomes unsafe/unprovable | `WORLD_STALLED` | safest claim retained |
 
 There is no Basic `PROTECTION_REQUIRED`: missing protection-region coverage is a configuration/policy error reported by the concrete signalling plugin before it asks for a permissive route. Basic still denies any request whose physical route or resource union is invalid.
+
+### 6.1 Extension relation
+
+`extend`只接受与live grant相同的world、logical owner、stable train ID、`routeId`、`routeRevision`、topology revision
+和ordered segments。它可以使用更新的successful physics epoch，但topology revision必须不变。新desired boundary
+必须严格晚于committed boundary且不超过route length；Basic只编译该suffix。新addition遵循相同校验；已经由该
+grant持有的identity只能单调延后release boundary，不能改变已committed preparation descriptor。已有pending
+extension时返回`EXTENSION_BUSY`。route/topology/plan改变必须在安全运营边界replan，不得extension或whole-claim
+replacement。
+
+Denied或pending extension保持旧committed grant/authority，旧tail release继续。只有delta原子reserve、全部delta
+preparation READY、既有resource boundary单调更新、release entries追加成功后，Basic才发布更远committed
+boundary。safe abort只删除新delta；unsafe或无法证明的abort保留最安全reservation并stall world。
 
 ## 7. 性能、复杂度与退化行为
 
@@ -143,7 +271,12 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 
 Migration keeps the implemented generic pieces—topology projection, canonical turnout identity, route-bound catalog, occupancy query, atomic registry, preparation, cursor/release queue and suffix extension—and removes protection-region assumptions from their public target. `ProtectionRegionDefinition`, region graph-cut/catalog/window resolution, fixed-block partitioning and `PROTECTION_REQUIRED` move to `JapaneseSignals` or a helper library owned by that plugin.
 
-Still open for later API batches: exact public names/packages; permission model for requesting another plugin's resource; persistence/recovery boundary; and plugin-local script API identifiers. The concrete product name `JapaneseSignals` does not change the physical-floor invariant or freeze those API identities.
+Still open for later API batches: optional administration UI/policy for restricting cross-plugin resource use,
+persistence/recovery formats and plugin-local script identifiers. The runtime contract already permits a provider to validate
+an authenticated request from another plugin, which is required for a signal plugin to request Basic-owned flank turnouts.
+The signal plugin submits that intent under its own platform identity; SimpleATO supplies the frozen route and later consumes
+the committed grant, but does not repackage the plugin's addition under a SimpleATO identity. `JapaneseSignals` does not change the
+physical-floor invariant or turn the runtime descriptor into a persisted format.
 
 ```text
 Wrong: the caller supplies the complete footprint and Basic trusts omissions

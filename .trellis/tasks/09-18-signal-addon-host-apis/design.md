@@ -50,6 +50,20 @@ Core publishes TopologyState(revision) + coherent train observation
 
 Neither the caller nor a plugin submits a replacement physical footprint. Plugins only add resources and stricter hold/restriction semantics. Basic never calls a recursive protection-region/provider closure and never decides a signalling system's route policy.
 
+The exact target request/result, route-metre boundary and runtime-only preparation descriptor are frozen in
+[`route-resource-admission.md`](../../spec/javarailways/basic/route-resource-admission.md); this task design does not copy
+that owner contract. Every addition has one exact stable identity and explicit tail-release boundary. A duplicate
+mandatory identity can only extend its hold and cannot replace Basic's physical preparation.
+
+```text
+SimpleATO produces frozen route + coherent train/stamp + operational scan horizon
+signal plugin chooses the desired boundary and submits its authenticated intent + additions
+(or SimpleATO chooses a moving-block boundary and submits no additions when no signal policy is needed)
+Basic validates coherent state and route -> compiles mandatory physical floor
+Basic validates additions/descriptors -> exact-identity union -> occupancy query
+Basic atomically claims union -> prepares -> publishes grant only after READY
+```
+
 ## Route compilation and physical floor
 
 The request carries one frozen route, coherent observation stamp, target train and desired authority boundary. Basic verifies route start at the authoritative train tail and walks the requested range once. The same projection produces:
@@ -79,7 +93,8 @@ One shared route perception detects inspection-range entry. Resource `update(tra
 
 ## Public service capabilities
 
-Exact type names remain unfrozen, but the public surface has focused capabilities:
+Route-admission value names and semantics are now frozen by the Basic owner spec; implementation/package wiring and the
+remaining public surfaces still arrive in separate reviewable batches:
 
 - immutable railway observation subscription/read service;
 - namespaced infrastructure resource registration and validation;

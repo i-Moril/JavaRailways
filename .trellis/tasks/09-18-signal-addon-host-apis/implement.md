@@ -121,6 +121,9 @@
     train ID and coherent observation stamp; use route-metre desired/release boundaries; accept only unique additive stable
     resources; define the runtime-only namespaced preparation descriptor, validation/result order, owner/thread/lifecycle
     semantics and same-route extension relation. This item changes no runtime API.
+  - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
+    from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
+    the generic target remains solely in `route-resource-admission.md`.
   - [ ] Remove the superseded recursive provider-closure target. Expose namespaced resource registration plus bounded data additions; Basic does not execute signal policy callbacks while scanning the route.
 - [ ] Move protection-region/fixed-block definitions, graph-cut validation, catalog/window resolution and their persistence ownership out of Basic into the first concrete signal plugin. Do not add runtime compatibility without separate approval.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.

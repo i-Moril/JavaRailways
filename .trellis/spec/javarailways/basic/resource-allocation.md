@@ -8,7 +8,7 @@
 
 ## Owner、keys与结果
 
-`RouteSectionAllocator(world)`拥有Basic运营lock；physical `RailView.nextActiveRail`仍由Core topology持有。调用在successful current physics epoch后。
+`RouteSectionAllocator(world)`是尚未迁移的Dispatcher seam，拥有旧Basic运营lock；physical `RailView.nextActiveRail`仍由Core topology持有。调用在successful current physics epoch后。它不是目标共享进路服务，新调用方不得依赖它。
 
 ```kotlin
 data class RouteSectionAllocationKey(
@@ -37,9 +37,10 @@ data class RouteSectionAllocationKey(
 | same resource在section选不同branch | `Invalid` | 无mutation |
 | resource已有owner | `Conflict` | 不preempt、不切任何turnout |
 | 要切branch且locking interval occupied | `PhysicallyLocked`含train IDs | selections不变 |
-| all prechecks通过 | apply all selections→record window | 一次确认 |
-| apply中途异常 | 尝试恢复全部previous selections→`Invalid` | 不记录window |
+| all prechecks通过 | 按冻结requirement顺序直接apply selections→record window | 一次确认 |
 | release(key) | 只释放ownership，幂等Boolean | 不自动reset turnout |
+
+旧allocator在第一次写入前解析全部live view/branch、拒绝重复资源的不同选择、检查现有owner并完成需要切换的全部locking interval占用查询。当前`RailView.selectNextRail`只是main-thread同步内存赋值，因此预检成功后直接按section冻结顺序写入；没有可触发的异步设备失败，也不捕获`previousSelection`或宣称能补偿恢复。若未来设备可能处于`PREPARING/UNSAFE`，只能迁入共享`InfrastructurePreparationActuator`生命周期，不能在此旧seam加入测试注入失败或另一套rollback。
 
 Dispatcher按absolute timetable priority tick + timetable/service/cycle stable order调用；allocator自身不排序。conflict/physical lock按world retry ticks，movement authority截在protection point，不Stall；identity/invariant disappearance才world Stall。
 
@@ -200,7 +201,7 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 
 ## 必需测试与验证
 
-- `RouteSectionAllocatorTest.kt`：conflict全不变、physical lock、idempotent、release不reset、apply rollback。
+- `RouteSectionAllocatorTest.kt`：完整batch在首个写入前检查conflict/physical lock、idempotent、release不reset；不构造同步内存selection的虚构apply failure。
 - `TimetableDispatcherTest.kt`：protection-point stop/retry、stable priority、short claim tail release、sameTick Stall停止后续allocation、manual modes。
 - `TimetableStationCallDispatcherTest.kt`：berth/old mission tail release。
 - `InfrastructureLeaseRegistryTest.kt`：shared leases、exclusive claims、held edit permit、owner revision、双重topology check、provider failure和无partial mutation。

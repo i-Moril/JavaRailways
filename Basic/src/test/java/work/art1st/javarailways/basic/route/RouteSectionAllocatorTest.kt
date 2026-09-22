@@ -89,6 +89,33 @@ class RouteSectionAllocatorTest {
     }
 
     @Test
+    fun `later physical lock leaves every turnout in the rejected section unchanged`() {
+        val world = createTestWorld()
+        val free = junction(world, 0.0)
+        val occupied = junction(world, 60.0)
+        free.from.viewAB.selectNextRail(free.first.viewAB)
+        occupied.from.viewAB.selectNextRail(occupied.first.viewAB)
+        val train = createTrainWithConfig("occupant", occupied.from, world, listOf(10.0))
+        train.setLocation(train.head.location.forward(9.0)!!)
+        train.commit()
+        val allocator = RouteSectionAllocator(world)
+        val route = plannedRoute(
+            "locked-batch",
+            listOf(
+                requirement(free, free.second, 3.0),
+                requirement(occupied, occupied.second, 5.0)
+            )
+        )
+
+        val result = allocator.allocate(RouteSectionOwner("service", train.id), route, 0)
+
+        assertTrue(result is RouteSectionAllocationResult.PhysicallyLocked)
+        assertSame(free.first.viewAB, free.from.viewAB.nextActiveRail)
+        assertSame(occupied.first.viewAB, occupied.from.viewAB.nextActiveRail)
+        assertTrue(allocator.confirmedWindows().isEmpty())
+    }
+
+    @Test
     fun `same allocation key is idempotent`() {
         val world = createTestWorld()
         val junction = junction(world, 0.0)

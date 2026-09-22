@@ -47,10 +47,12 @@ sealed interface RouteSectionAllocationResult {
 }
 
 /**
- * Atomically locks and applies every turnout selection in one RouteSection.
+ * Prevalidates and then applies every turnout selection in one RouteSection.
  *
  * Calls belong on the main thread after the current physics epoch has completed. Timetable priority
  * is handled by the caller: this allocator grants requests in call order and never preempts a lock.
+ * The live selection write is currently an immediate in-memory operation, so the complete batch is
+ * resolved and checked before the first write instead of attempting a fictional runtime rollback.
  */
 class RouteSectionAllocator(private val world: World) {
     private val lock = Any()
@@ -101,8 +103,7 @@ class RouteSectionAllocator(private val world: World) {
             resourceOwners[requirement.from]?.let { currentOwner ->
                 return@synchronized RouteSectionAllocationResult.Conflict(requirement.from, currentOwner)
             }
-            val previousSelection = from.nextActiveRail
-            if (previousSelection !== selectedNext) {
+            if (from.nextActiveRail !== selectedNext) {
                 val lockIntervals = requirement.lockingIntervals(world)
                 val occupyingTrainIds = world.allTrains.asSequence()
                     .filter { train ->
@@ -119,21 +120,11 @@ class RouteSectionAllocator(private val world: World) {
                     )
                 }
             }
-            resolved += ResolvedRequirement(requirement.from, from, selectedNext, previousSelection)
+            resolved += ResolvedRequirement(requirement.from, from, selectedNext)
         }
 
-        try {
-            resolved.forEach { requirement ->
-                requirement.from.selectNextRail(requirement.selectedNext)
-            }
-        } catch (failure: Exception) {
-            resolved.forEach { requirement ->
-                runCatching { requirement.from.selectNextRail(requirement.previousSelection) }
-            }
-            return@synchronized RouteSectionAllocationResult.Invalid(
-                "failed to apply RouteSection ${route.routeId}#$sectionIndex: " +
-                    "${failure::class.simpleName}: ${failure.message.orEmpty()}"
-            )
+        resolved.forEach { requirement ->
+            requirement.from.selectNextRail(requirement.selectedNext)
         }
 
         val window = ConfirmedRouteWindow(key, section)
@@ -174,7 +165,6 @@ class RouteSectionAllocator(private val world: World) {
     private data class ResolvedRequirement(
         val ref: RailViewRef,
         val from: RailView,
-        val selectedNext: RailView,
-        val previousSelection: RailView?
+        val selectedNext: RailView
     )
 }

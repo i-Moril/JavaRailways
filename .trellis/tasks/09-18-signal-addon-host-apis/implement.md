@@ -22,7 +22,8 @@
 - [x] Freeze tail-clear, compiled-plan prefix-release and provider-disable recovery behavior.
 - [x] Freeze same-frozen-route rolling suffix extension: SimpleATO selects the farther boundary;
   Basic validates only the suffix, atomically appends delta resources, prepares only delta
-  requirements, serializes append with prefix release and expands authority only after READY.
+  requirements, keeps prefix release active while preparation is pending and expands authority only
+  after the delta is committed.
 
 ## Next reviewable batches
 
@@ -72,9 +73,9 @@
     replacement is not part of the protected-route runtime lifecycle; future same-route rolling
     acquisition will append a validated suffix to the existing claim/release queue.
   - [ ] Implement same-route suffix compilation and append-only registry mutation from the frozen
-    contract. Pause this owner's prefix release while append is pending, prepare only delta
-    requirements, merge into the existing queue/controller after READY, and retain the old
-    authority on every non-READY result.
+    contract. Reserve and prepare only delta resources, keep this owner's prefix release active,
+    append naturally ordered entries to the existing controller after success, and retain the
+    current authority on every non-success result.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation

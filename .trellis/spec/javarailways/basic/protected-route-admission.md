@@ -152,8 +152,8 @@ registry返回`RELEASED`且owner revision精确匹配时删除对应控制器；
 
 受保护进路runtime不通过整份claim replace滚动资源窗口。当前service只处理初次acquire、显式release与车尾
 prefix release；同一冻结路线的suffix extension合同见3.5，runtime尚未实现。SimpleATO改变route plan时只能在
-站台等安全运营边界结束旧进路后重新准入。registry保留的通用claim replacement及配置lease replacement属于
-独立底层能力，不是protected-route service的正常入口。
+站台等安全运营边界结束旧进路后重新准入。suffix extension只追加本次新增资源；配置lease replacement属于
+独立底层能力，live claim不需要整份replacement入口。
 
 main owner显式调用`consumeObservation`驱动当前控制器。service先对一次observation的train list建立唯一
 `trainId` lookup，再按logical owner稳定顺序驱动所有active项；controller接收stamp及已解析的nullable train，
@@ -177,60 +177,46 @@ Basic在旧authority不变的前提下完成以下单一事务：
 ```text
 validate exact grant/route/topology/observation binding
   -> compile only (committed frontier, desired farther boundary] and contributor closure
-  -> reject a seam that is discontinuous, moves backward or re-enters a released controlled resource
-  -> derive delta resources, delta occupancy geometry, delta preparations and merged tail-clear metadata
+  -> reject a seam that is discontinuous, moves backward or repeats a controlled resource
+  -> derive delta resources, delta occupancy geometry, delta preparations and delta tail-clear entries
   -> reject authoritative physical blockers before registry mutation
-  -> atomically reserve only delta resources on the existing claim
+  -> atomically reserve only delta resources under the existing grant
   -> prepare only delta requirements
-  -> READY: revalidate the exact live-grant/route/topology binding, finalize append,
-            install the prevalidated queue, then publish the farther grant boundary
-  -> rejected before side effects: remove only the delta reservation
-  -> RESTORED: remove only the delta reservation; keep old claim, queue and authority
-  -> UNSAFE/invariant failure: retain the safest old+delta reservation, do not expand authority, Stall
+  -> ready: commit the reserved delta, append its queue entries, publish the farther grant boundary
+  -> safe failure: remove only the delta reservation; keep the current claim, queue and authority
+  -> unsafe failure: retain the safest reservation, do not expand authority, Stall
 ```
 
 suffix compiler必须带入最后一个已提交occurrence作为只读seam context，以证明连续性和处理跨边界的同一resource，
-但不得从route起点重跑完整validation。新结果按`InfrastructureResource`稳定身份分为三类：从未持有的identity进入
-registry delta；仍在existing remaining claim中的同一identity不重复追加，只把其`tailClearRouteMeters`提升为旧、新
-阈值最大值；已经由tail release删除后又在更远位置出现的controlled-resource identity返回invalid route。最后一种
-情况等价于既有catalog规则中的leave-and-reenter，不能静默重新取得，否则车尾释放与资源重入之间存在无保护窗口。
-两个identity不同但几何重叠的interval仍是两个资源，沿用registry的exact-identity语义，不能按overlap擅自合并。
+但不得从route起点重跑完整validation。一个正确的committed authority frontier必须是安全切点，因此suffix不得再次
+包含prefix已经使用过的turnout、diamond或其他不可分割controlled-resource identity；遇到这种情况说明frontier或route
+本身无效，而不是要求extension合并两次经过。rail interval按本次新增范围产生新identity；它可以与同一grant尚未释放的
+旧interval几何相邻或重叠，registry仍按exact identity分别持有和释放，不能按overlap擅自合并。
 物理占用检查只查询本次suffix新覆盖的路线和受控资源geometry，仍复用request observation中的Core occupancy snapshot；
 不得因是extension而跳过列车包络、全部道岔port或route-bound resource anchors，也不得重查已提交prefix。
 
-队列合并输入只有`existing remaining suffix`和本次已完整编译的entries。对相同identity先取最大clear boundary，
-然后把唯一entries按全局`tailClearRouteMeters`排序；相同阈值使用稳定resource identity作确定性tie-break。合并结果在
-registry mutation前就必须构造成通过全部identity、排序和threshold invariant校验的immutable candidate；不能在finalize
-后才尝试可能失败的本地merge。candidate在append finalize前不可见，并由现有`ProtectedRouteTailRelease`一次替换其
-immutable remaining queue；不得通过创建新controller搬运cursor。现有已接受cursor保持不变。
+suffix entries必须天然位于当前队尾之后；Basic在mutation前验证其第一个clear boundary不早于现有队尾，随后按既有
+顺序直接追加。无需对整条remaining queue重新去重或排序，也不得创建新controller搬运cursor。现有cursor和已经释放的
+队列前缀保持不变。
 
-extension与tail prefix release由同一个claim service串行化。进入registry append mutation前，service把该owner标为
-extension pending；从此到terminal finalize/rollback之间暂停该owner的registry shrink，也不推进本地cursor。期间到达
-的observation不建立deferred cursor或第二状态机；terminal后下一份coherent observation从最后committed cursor追赶
-当前车尾，仍保持cursor全生命周期摊销线性。其他owner继续正常release。begin append未成功且registry没有
-产生delta reservation时，service在同一main-owner临界区清除pending标志，然后才允许该owner继续release。
+extension与tail prefix release由同一个main owner驱动，registry自身原子串行化单次reserve、shrink和finalize操作；
+extension pending期间车尾释放继续正常处理旧队首。suffix不得重复controlled resource，rail interval又按exact identity
+独立持有，因此释放旧prefix不会撤销delta reservation，也无需暂停cursor。一个grant同一时刻只保留一个pending extension
+handle；第二个extension请求在前一个terminal前直接返回busy，不建立并行状态机。
 
-append READY收尾前必须再次证明它仍绑定当前那一个live grant、同一frozen route、列车与topology root；
-绑定失效时不得finalize或扩大grant，而是进入恢复/失败关闭路径。绑定仍有效时，原子finalize registry
-delta、在原controller上安装预校验的合并队列、发布更远的committed grant boundary三步处于同一
-main-owner临界区；observation dispatch、prefix release、grant观察或同owner的新extension都不能插入。
-任一步出现不可能的状态差异都保留最安全reservation并Stall，不能以旧队列继续发布更远的grant。
-只有actuator在任何side effect前明确拒绝整批delta preparation时才可立即rollback delta；一旦接受ticket，只有
-`RESTORED`才能rollback。任一rollback无法证明只删除delta时都保留reservation并Stall，原claim/队列/authority
-不因此被替换或删除。
+设备准备完成后只需确认该pending handle仍属于当前live grant；冻结路线不会在原地改变，受claim与edit guard覆盖的
+资源也不能在准备期间被编辑。finalize只提交该handle的delta reservation、在原controller队尾追加预校验entries并发布
+更远boundary。安全失败只删除本次delta reservation；此时旧claim可能已因正常车尾释放而缩短，这是正确状态，不能
+尝试恢复已释放资源。无法证明设备已进入安全失败状态或delta reservation无法安全撤销时，保留现有最安全占用并Stall。
 
-extension request必须有grant内唯一、可幂等重试的request identity。同一identity及完全相同payload在pending或terminal
-状态返回原结果，不重复reserve/prepare；同一identity配不同boundary/stamp/payload返回typed invalid request。具体公开
-类型名、字段和failure enum token留到API批次冻结，但至少要区分stale route/topology/observation、backward/no-op boundary、
-resource conflict、physical occupancy、preparation rejected、restored和world stalled。普通conflict、validation或RESTORED
-都保持原claim、原队列和原authority不变；pending extension永远不扩大authority。
-该幂等合同只要求live-grant生命周期内可观察的重试一致性，不在此冻结跨重启持久化、terminal result保留
-窗口或公开request/result shape。
+这是同进程、main-owner管理的操作。调用方持有并轮询当前pending handle，不需要request-history、terminal-result缓存或
+模拟网络重试的幂等层；request ID若保留，只用于日志诊断。具体公开类型名和failure enum token留到API批次冻结，但至少
+区分stale route/topology/observation、backward/no-op boundary、busy、resource conflict、physical occupancy、preparation
+failure和world stalled。普通拒绝或安全失败都不扩大authority；pending reservation也不是可行驶授权。
 
-suffix validation对本次新增扫描长度与新增binding数线性，registry conflict检查只处理`delta resource count`，queue merge
-为`O(q + d)`去重加`O((q + d) log(q + d))`排序，其中`q`是remaining entries、`d`是extension entries。不得为每次延长
-重算route prefix、复制controller、扫描全world资源或使用whole-claim replace。若后续证明新entry天然不早于队尾，可把
-排序优化为线性merge，但不能放松全局tail-clear顺序合同。
+suffix validation对本次新增扫描长度与新增binding数线性，registry conflict检查只处理`delta resource count`；已排序的
+delta entries验证队首边界后直接追加，成本为`O(d)`，其中`d`是extension entries。不得为每次延长重算route prefix、
+重新排序existing queue、复制controller、扫描全world资源或使用whole-claim replace。
 
 编译时先按rail建立已排序claim interval索引，再单次遍历route occurrences，以二分跳过不可能重叠的
 resource前缀并只处理实际overlap；复杂度为`O(r log r + n log r_rail + o)`（`r`为claim rail
@@ -511,9 +497,8 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - transaction tests：resource conflict、physical occupancy、即时turnout handler顺序/no-write/apply失败、未知requirement全批拒绝、跨多次poll的pending batch ticket、READY finalize、RESTORING pending、RESTORED精确acquire rollback、cancel幂等及READY竞争、identity/state/exception/UNSAFE；断言physical preparation、claim和authority三者满足矩阵。
 - release tests：未进入取消、头部过exit但尾部未过、tail clear、单region prefix shrink、train消失、provider disable、world reload recovery。
 - rolling extension tests：同route/topology suffix seam、只查询delta occupancy并只准备delta、conflict保持旧claim/authority、
-  request幂等与payload mismatch、pending期间release暂停、READY后同controller队列全局合并、相同identity取最大clear
-  boundary、已释放controlled resource重入拒绝、READY前binding重验、preparation无side-effect拒绝及RESTORED都只撤销
-  delta、UNSAFE/rollback invariant失败保留reservation并Stall。
+  同grant第二个pending请求返回busy、pending期间旧prefix继续release、成功后同controller队尾追加、重复controlled
+  resource拒绝、安全preparation failure只撤销delta且不恢复已释放prefix、unsafe abort保留reservation并Stall。
 - dispatcher tests：automatic和`MANUAL_ROUTED`只能调用新service；不存在接受raw planned section的overload；`FULL_MANUAL`不申请新grant。
 - performance tests：一次admission只遍历一次frozen route；unchanged `STALE_REGION`不逐tick重算；occupancy按rail索引查询，不做`allTrains × allRegions`。
 
@@ -521,8 +506,8 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 
 迁移按`TopologyState region cache -> topology-bound frozen route -> single-pass route validation/resource collection -> atomic admission -> tail release/recovery -> caller migration`推进。前一层合同测试通过前不得开放后一层public service。
 
-实现前仍需冻结`RoutePlanRef`完整字段、edge/slice边界语义、clearance margin来源、closure终点boundary引用、grant及
-pending-extension的持久化/恢复边界、provider disable后的可观察状态，以及extension public API名称/字段和failure token。
+实现前仍需冻结`RoutePlanRef`完整字段、edge/slice边界语义、clearance margin来源、closure终点boundary引用、grant的
+持久化/恢复边界、provider disable后的可观察状态，以及extension public API名称、字段和typed failure。
 不会引入caller-supplied第二资源DTO或physical footprint。diamond stable ID来源、几何检测owner和持久化格式留到
 placement/update批次，必须在新增持久化边界前单独审查；runtime catalog实现不得先发明兼容路径。通用contributor、
 单调closure、same-route/delta-only append、authoritative train observation和无partial mutation已经冻结。

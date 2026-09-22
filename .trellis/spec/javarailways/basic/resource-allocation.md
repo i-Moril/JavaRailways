@@ -52,10 +52,10 @@ Manual：`MANUAL_ROUTED`仍分配/验证/release；`FULL_MANUAL`不申请new rou
 `InfrastructureLeaseRegistry`是world-local原子registry，现阶段与尚未迁移的`RouteSectionAllocator`并存；不得把两者并存误写成进路资源统一已经完成。它区分三类持有：
 
 - applied-plan lease：共享、长生命周期，可彼此重叠，不预留turnout方向，也不阻止正常live claim；
-- live runtime claim：同一resource上互斥；raw registry acquire/replace/release属于Basic内部能力，Bukkit add-on service仅暴露read-only diagnostics。受保护进路runtime使用acquire、shrink/release，不调用整份claim replace；
+- live runtime claim：同一resource上互斥；受保护进路runtime使用acquire、append、shrink/release，不调用整份claim replace。当前registry与Bukkit internal adapter仍有无人使用的whole-claim replace遗留入口，必须在实现append前删除；add-on service只暴露read-only diagnostics；
 - edit permit：独占并跨完整mutation transaction持有，与overlap的lease、claim和其他permit冲突。
 
-`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。generic registry的acquire/replace/release必须匹配platform owner与expected revision，replace保持ownerId并严格增加revision；该replace能力不等于protected-route正常生命周期。plugin disable释放该plugin直接拥有的lease/permit；受保护进路的live claim由host token持有，requester disable后按[protected route admission](./protected-route-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
+`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。claim acquire/append/shrink/release必须匹配platform owner与expected logical owner；内部footprint变化不伪造新的caller plan revision。plugin disable释放该plugin直接拥有的lease/permit；受保护进路的live claim由host token持有，requester disable后按[protected route admission](./protected-route-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
 
 每个请求携带authoritative `topologyRevision`。Registry在resource validation前后各读取一次当前revision；任一次不匹配返回`STALE_TOPOLOGY`。rail区间由world验证存在与长度；stable resource由唯一namespaced provider验证。missing返回`INVALID_RESOURCE`，provider异常返回`RESOURCE_PROVIDER_FAILED`。所有非成功结果保持registry不变，并只在`RESOURCE_CONFLICT`中返回blocker owner/revision/resource diagnostics。
 
@@ -135,30 +135,27 @@ suffix extension。未来extension只沿同一冻结路线验证并原子追加�
 
 目标registry为同一冻结路线的rolling extension提供internal append-only mutation，而不是复用通用replace。调用方提交
 完全匹配的platform owner、logical owner、现有grant identity以及由Basic compiler生成的非空、无重复delta identities；
-不得提交whole remaining footprint。registry在同一把锁内验证claim存在、owner精确匹配、没有另一个pending mutation、
-delta未被本claim按exact identity持有，并对delta执行正常provider/topology与其他claim冲突检查。全部通过才把delta保留
-为该claim的pending append；任一失败都不改变existing held set。
+不得提交whole remaining footprint。registry原子验证claim存在、owner精确匹配、没有另一个pending extension，且delta
+资源有效、未被本claim按exact identity持有、与其他claim不冲突。全部通过才建立只属于当前grant的delta reservation；
+任一失败都不改变existing held set。
 
-pending append token只允许两个terminal操作：finalize把delta加入同一claim并保持原logical owner revision；rollback只删除
-本token的delta reservation。它不能删除或替换existing resources。pending期间该owner的shrink必须返回明确busy结果且无
-mutation；上层claim service按[同一冻结路线rolling suffix extension](./protected-route-admission.md#35-同一冻结路线的rolling-suffix-extension)
-暂停该owner的tail release，因此busy只用于锁定invariant而不是正常重试路径。若整批delta preparation在任何
-side effect前被actuator拒绝，可立即rollback；一旦actuator接受ticket，只有`RESTORED`后才可rollback。
-`UNSAFE`、rollback token/identity违约或无法证明只撤销delta时，registry保留existing claim与最安全的delta reservation并由
-上层Stall。整个过程不增加caller plan revision，也不使用generic claim replace伪造一次新owner。
+pending handle只允许提交或撤销自己的delta reservation，不能删除、替换或恢复existing resources。prefix shrink仍可同时
+删除旧claim中的准确身份；它不会触碰delta reservation。准备成功后finalize把delta提交到同一claim并保持logical owner
+revision；安全失败只撤销delta。若无法证明设备已安全中止，或handle无法只撤销自己的delta，则保留最安全reservation并
+由上层Stall。如果pending期间旧prefix已经全部清除，grant record仍由delta reservation保活，不构造空footprint；安全失败
+撤销最后一份reservation后才完成该grant。整个过程不增加caller plan revision，也不使用generic claim replace伪造一次新owner。
 
 | append条件 | registry结果 | existing claim / delta |
 | --- | --- | --- |
-| 上层相同request identity与payload幂等命中 | 不再次调用registry | 不重复追加 |
-| owner/grant不匹配、已有pending mutation、空或重复delta | typed invalid/busy | existing不变；无delta |
+| owner/grant不匹配、已有pending extension、空或重复delta | typed invalid/busy | existing不变；无delta |
 | delta与其他claim冲突或provider/topology失效 | typed conflict/stale/provider failure | existing不变；无delta |
-| begin append成功 | pending token | existing继续持有；delta reservation不可授权 |
+| reserve delta成功 | pending handle | existing继续持有；delta reservation不可授权 |
+| pending期间prefix shrink | normal shrink result | 只删除已清除existing identities；delta不变 |
 | finalize成功 | appended | 同一owner/revision持有existing + delta |
-| preparation在side effect前被拒绝且rollback成功 | rolled back | 只删除delta；existing不变 |
-| preparation恢复为`RESTORED`后rollback成功 | rolled back | 只删除delta；existing不变 |
-| `UNSAFE`或rollback invariant失败 | stalled/retained | 保留能证明安全的existing + delta reservation |
+| preparation安全失败并撤销成功 | aborted | 只删除delta；existing保留当时尚未由车尾释放的部分 |
+| unsafe abort或撤销invariant失败 | stalled/retained | 保留能证明安全的existing + delta reservation |
 
-具体internal方法名、token/result类名尚未冻结；上述原子性、同owner revision、只处理delta和shrink串行化是实现合同。
+具体internal方法名和result类名尚未冻结；上述原子性、同owner revision、只处理delta以及prefix release不暂停是实现合同。
 
 ## 项目内正确示例
 
@@ -197,9 +194,8 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - `InfrastructureLeaseRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
 - `LiveClaimTailReleaseTest.kt`：先shrink后出队、单调进度、重叠identity独立释放、unexpected result锁存
   fail closed、全部释放后的幂等completed。
-- registry append tests：只保留delta、与其他claim冲突时existing不变、owner/grant/pending校验、相同request幂等、
-  finalize保持logical owner revision、无side-effect拒绝和RESTORED rollback都只撤销delta、pending期间shrink无mutation、
-  rollback invariant失败保留reservation。
+- registry append tests：只保留delta、与其他claim冲突时existing不变、owner/grant/pending校验、finalize保持logical
+  owner revision、安全失败只撤销delta、pending期间prefix shrink继续释放旧资源、unsafe abort保留reservation。
 - public consumer fixture：能构造多rail footprint并申请lease，但不能导入raw `InfrastructureClaimRequest`。
 
 ```bash

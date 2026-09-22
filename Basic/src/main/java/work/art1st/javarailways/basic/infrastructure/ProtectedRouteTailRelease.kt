@@ -27,7 +27,7 @@ internal sealed interface ProtectedRouteTailReleaseUpdate {
         val releaseResult: LiveClaimTailReleaseResult
     ) : ProtectedRouteTailReleaseUpdate
 
-    /** The complete claim was released. Later observations remain completed no-ops. */
+    /** The current committed resource queue is empty; the live-grant cursor remains active. */
     data class Completed(
         val physicsEpoch: Long,
         val alreadyCompleted: Boolean
@@ -50,7 +50,9 @@ internal sealed interface ProtectedRouteTailReleaseUpdate {
  * The world-local service resolves the named train once per observation dispatch and supplies the
  * coherent stamp plus that exact frame. This controller still verifies world, topology, epoch and
  * train identity before projecting the authoritative tail. It creates neither a claim nor a
- * footprint: [LiveClaimTailRelease] only shrinks the existing registry claim.
+ * footprint: [LiveClaimTailRelease] only shrinks the current committed registry resources. After
+ * that queue empties, this controller keeps projecting and committing the same frozen-route cursor
+ * without touching the registry so its live grant can later accept another committed suffix.
  */
 internal class ProtectedRouteTailRelease(
     private val worldId: String,
@@ -64,7 +66,9 @@ internal class ProtectedRouteTailRelease(
     private val lock = Any()
     private var lastPhysicsEpoch = initialPhysicsEpoch
     private var terminalFailure: ProtectedRouteTailReleaseUpdate.FailedClosed? = null
-    private var completedAtPhysicsEpoch: Long? = null
+
+    val resourceQueueEmpty: Boolean
+        get() = synchronized(lock) { claimRelease.resourceQueueEmpty }
 
     init {
         require(worldId.isNotBlank())
@@ -78,9 +82,6 @@ internal class ProtectedRouteTailRelease(
         stamp: RailwayStateStamp,
         train: RailwayTrainObservation?
     ): ProtectedRouteTailReleaseUpdate = synchronized(lock) {
-        completedAtPhysicsEpoch?.let { completedEpoch ->
-            return@synchronized ProtectedRouteTailReleaseUpdate.Completed(completedEpoch, alreadyCompleted = true)
-        }
         terminalFailure?.let { return@synchronized it }
 
         if (stamp.worldId != worldId) {
@@ -158,10 +159,9 @@ internal class ProtectedRouteTailRelease(
         }
         lastPhysicsEpoch = stamp.physicsEpoch
         if (releaseResult is LiveClaimTailReleaseResult.Completed) {
-            completedAtPhysicsEpoch = stamp.physicsEpoch
             return@synchronized ProtectedRouteTailReleaseUpdate.Completed(
                 stamp.physicsEpoch,
-                alreadyCompleted = false
+                alreadyCompleted = releaseResult.alreadyCompleted
             )
         }
         ProtectedRouteTailReleaseUpdate.Active(stamp.physicsEpoch, cursorUpdate.state, releaseResult)

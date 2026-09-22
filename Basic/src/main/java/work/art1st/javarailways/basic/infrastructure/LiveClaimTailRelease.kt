@@ -7,28 +7,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 internal enum class TailReleaseFailureKind {
     INVALID_PROGRESS,
     DECREASING_PROGRESS,
-    CLAIM_SHRINK_FAILED,
-    CLAIM_APPEND_FAILED
-}
-
-internal sealed interface LiveClaimAppendResult {
-    data class Reserved(val resourceCount: Int) : LiveClaimAppendResult
-
-    data class Finalized(val remainingResourceCount: Int) : LiveClaimAppendResult
-
-    data class RolledBack(val completed: Boolean) : LiveClaimAppendResult
-
-    data class Rejected(
-        val detail: String,
-        val mutationStatus: InfrastructureMutationStatus? = null
-    ) : LiveClaimAppendResult {
-        init {
-            require(detail.isNotBlank())
-        }
-    }
-
-    data class FailedClosed(val failure: LiveClaimTailReleaseResult.FailedClosed) :
-        LiveClaimAppendResult
+    CLAIM_SHRINK_FAILED
 }
 
 internal sealed interface LiveClaimTailReleaseResult {
@@ -44,22 +23,6 @@ internal sealed interface LiveClaimTailReleaseResult {
         val maximumAcceptedTailRouteProgressMeters: Double,
         val remainingResourceCount: Int
     ) : LiveClaimTailReleaseResult
-
-    /**
-     * Every established entry has cleared, but a reserved delta is not finalized yet.
-     *
-     * This is an active lifecycle state, not completion. [releasedResources] is non-empty only on
-     * the advance that cleared the final established prefix; later advances report an empty list.
-     */
-    data class AwaitingAppend(
-        val releasedResources: List<InfrastructureResource>,
-        val maximumAcceptedTailRouteProgressMeters: Double,
-        val pendingResourceCount: Int
-    ) : LiveClaimTailReleaseResult {
-        init {
-            require(pendingResourceCount > 0)
-        }
-    }
 
     /** Every queued resource has been released. Further calls remain completed no-ops. */
     data class Completed(
@@ -86,11 +49,10 @@ internal sealed interface LiveClaimTailReleaseResult {
  *
  * The caller supplies already-authoritative tail progress on the claim's frozen route. This owner
  * first inspects only the queue's eligible head prefix, then asks the registry to remove those exact
- * resource identities. It also owns at most one append reservation: reserved delta resources stay
- * outside the releasable queue until registry finalization succeeds, while established prefixes may
- * continue shrinking. Local queue/progress state changes only after the registry reports the exact
- * expected success status. Invalid progress and unexpected registry results latch the lifecycle
- * fail-closed; future grant integration is responsible for turning that result into a world Stall.
+ * resource identities. It knows only already-committed resources; pending extension reservation and
+ * preparation belong to the resource-acquisition/live-grant owner. Local queue/progress state changes
+ * only after the registry reports the exact expected success status. Invalid progress and unexpected
+ * registry results latch the lifecycle fail-closed; the live-grant owner turns that into a world Stall.
  */
 internal class LiveClaimTailRelease(
     private val registry: InfrastructureLeaseRegistry,
@@ -98,14 +60,8 @@ internal class LiveClaimTailRelease(
     private val claimOwner: InfrastructureOwner,
     queue: CompiledTailReleaseQueue
 ) {
-    private data class PendingAppend(
-        val queue: CompiledTailReleaseQueue,
-        val reservation: InfrastructureLeaseRegistry.ClaimAppendReservation
-    )
-
     private val lock = Any()
     private var remainingQueue: CompiledTailReleaseQueue? = queue
-    private var pendingAppend: PendingAppend? = null
     private var maximumProgress: Double? = null
     private var terminalFailure: LiveClaimTailReleaseResult.FailedClosed? = null
 
@@ -117,116 +73,17 @@ internal class LiveClaimTailRelease(
     val maximumAcceptedTailRouteProgressMeters: Double?
         get() = synchronized(lock) { maximumProgress }
 
-    fun beginAppend(
-        topologyRevision: Long,
-        deltaEntries: Collection<ResolvedTailReleaseEntry>
-    ): LiveClaimAppendResult = synchronized(lock) {
-        terminalFailure?.let { return@synchronized LiveClaimAppendResult.FailedClosed(it) }
-        if (pendingAppend != null) {
-            return@synchronized LiveClaimAppendResult.Rejected("a claim append is already pending")
-        }
-
-        val delta = deltaEntries.toList()
-        validateAppendOrder(delta)?.let { detail ->
-            return@synchronized LiveClaimAppendResult.Rejected(detail)
-        }
-        val deltaQueue = CompiledTailReleaseQueue(delta)
-        val reservation = registry.beginAppendClaim(
-            platformOwner,
-            claimOwner,
-            topologyRevision,
-            delta.map(ResolvedTailReleaseEntry::resource)
-        )
-        if (reservation.result.status != InfrastructureMutationStatus.REPLACED) {
-            if (reservation.result.successful) {
-                return@synchronized LiveClaimAppendResult.FailedClosed(
-                    failClosed(
-                        TailReleaseFailureKind.CLAIM_APPEND_FAILED,
-                        "claim append reservation returned ${reservation.result.status}; expected REPLACED",
-                        reservation.result.status,
-                        claimMayHaveChanged = true
-                    )
-                )
-            }
-            return@synchronized LiveClaimAppendResult.Rejected(
-                reservation.result.detail.ifBlank {
-                    "claim append reservation was rejected: ${reservation.result.status}"
-                },
-                reservation.result.status
-            )
-        }
-        if (reservation.token == null) {
-            return@synchronized LiveClaimAppendResult.FailedClosed(
-                failClosed(
-                    TailReleaseFailureKind.CLAIM_APPEND_FAILED,
-                    "claim append reservation succeeded without a rollback token",
-                    reservation.result.status,
-                    claimMayHaveChanged = true
-                )
-            )
-        }
-
-        pendingAppend = PendingAppend(deltaQueue, reservation)
-        LiveClaimAppendResult.Reserved(delta.size)
-    }
-
-    fun finalizeAppend(): LiveClaimAppendResult = synchronized(lock) {
-        terminalFailure?.let { return@synchronized LiveClaimAppendResult.FailedClosed(it) }
-        val pending = pendingAppend
-            ?: return@synchronized LiveClaimAppendResult.Rejected("no claim append is pending")
-        val combinedEntries = remainingQueue?.entries.orEmpty() + pending.queue.entries
-        val combinedQueue = CompiledTailReleaseQueue(combinedEntries)
-        if (!registry.completeClaimAppend(pending.reservation)) {
-            return@synchronized LiveClaimAppendResult.FailedClosed(
-                failClosed(
-                    TailReleaseFailureKind.CLAIM_APPEND_FAILED,
-                    "pending claim append could not be finalized"
-                )
-            )
-        }
-
-        remainingQueue = combinedQueue
-        pendingAppend = null
-        LiveClaimAppendResult.Finalized(combinedEntries.size)
-    }
-
-    fun rollbackAppend(): LiveClaimAppendResult = synchronized(lock) {
-        terminalFailure?.let { return@synchronized LiveClaimAppendResult.FailedClosed(it) }
-        val pending = pendingAppend
-            ?: return@synchronized LiveClaimAppendResult.Rejected("no claim append is pending")
-        val expectedStatus = if (remainingQueue == null) {
-            InfrastructureMutationStatus.RELEASED
-        } else {
-            InfrastructureMutationStatus.REPLACED
-        }
-        val rollback = registry.rollbackClaimAppend(pending.reservation)
-        if (rollback.status != expectedStatus) {
-            return@synchronized LiveClaimAppendResult.FailedClosed(
-                failClosed(
-                    TailReleaseFailureKind.CLAIM_APPEND_FAILED,
-                    rollback.detail.ifBlank {
-                        "claim append rollback returned ${rollback.status}; expected $expectedStatus"
-                    },
-                    rollback.status,
-                    rollback.successful
-                )
-            )
-        }
-
-        pendingAppend = null
-        LiveClaimAppendResult.RolledBack(completed = remainingQueue == null)
-    }
+    val resourceQueueEmpty: Boolean
+        get() = synchronized(lock) { remainingQueue == null }
 
     fun advance(authoritativeTailRouteProgressMeters: Double): LiveClaimTailReleaseResult =
         synchronized(lock) {
             terminalFailure?.let { return@synchronized it }
             val queue = remainingQueue
-            if (queue == null && pendingAppend == null) {
-                return@synchronized LiveClaimTailReleaseResult.Completed(
+                ?: return@synchronized LiveClaimTailReleaseResult.Completed(
                     releasedResources = emptyList(),
                     alreadyCompleted = true
                 )
-            }
 
             if (!authoritativeTailRouteProgressMeters.isFinite() ||
                 authoritativeTailRouteProgressMeters < 0.0
@@ -247,15 +104,6 @@ internal class LiveClaimTailRelease(
                 }
             }
 
-            if (queue == null) {
-                maximumProgress = authoritativeTailRouteProgressMeters
-                return@synchronized LiveClaimTailReleaseResult.AwaitingAppend(
-                    releasedResources = emptyList(),
-                    maximumAcceptedTailRouteProgressMeters = authoritativeTailRouteProgressMeters,
-                    pendingResourceCount = checkNotNull(pendingAppend).queue.entries.size
-                )
-            }
-
             val inspection = queue.inspectEligiblePrefix(authoritativeTailRouteProgressMeters)
             if (inspection is TailReleaseInspectionResult.Rejected) {
                 return@synchronized failClosed(
@@ -273,7 +121,7 @@ internal class LiveClaimTailRelease(
             }
 
             val remainingEntries = queue.entries.drop(eligible.size)
-            val expectedStatus = if (remainingEntries.isEmpty() && pendingAppend == null) {
+            val expectedStatus = if (remainingEntries.isEmpty()) {
                 InfrastructureMutationStatus.RELEASED
             } else {
                 InfrastructureMutationStatus.REPLACED
@@ -293,13 +141,6 @@ internal class LiveClaimTailRelease(
             maximumProgress = authoritativeTailRouteProgressMeters
             if (remainingEntries.isEmpty()) {
                 remainingQueue = null
-                pendingAppend?.let { pending ->
-                    return@synchronized LiveClaimTailReleaseResult.AwaitingAppend(
-                        releasedResources = eligible,
-                        maximumAcceptedTailRouteProgressMeters = authoritativeTailRouteProgressMeters,
-                        pendingResourceCount = pending.queue.entries.size
-                    )
-                }
                 return@synchronized LiveClaimTailReleaseResult.Completed(
                     releasedResources = eligible,
                     alreadyCompleted = false
@@ -312,37 +153,6 @@ internal class LiveClaimTailRelease(
                 remainingResourceCount = remainingEntries.size
             )
         }
-
-    private fun validateAppendOrder(delta: List<ResolvedTailReleaseEntry>): String? {
-        if (delta.isEmpty()) return "claim append delta must not be empty"
-        if (delta.map(ResolvedTailReleaseEntry::resource).distinct().size != delta.size) {
-            return "claim append delta contains duplicate resources"
-        }
-        if (!delta.zipWithNext().all { (first, second) ->
-                TAIL_RELEASE_ENTRY_ORDER.compare(first, second) <= 0
-            }
-        ) {
-            return "claim append delta must use deterministic compiled tail-clear order"
-        }
-        val established = remainingQueue?.entries.orEmpty()
-        val establishedResources = established.mapTo(hashSetOf(), ResolvedTailReleaseEntry::resource)
-        val repeated = delta.firstOrNull { it.resource in establishedResources }
-        if (repeated != null) {
-            return "claim append delta repeats established resource: ${repeated.resource}"
-        }
-        val establishedTail = established.lastOrNull()
-        if (establishedTail != null && TAIL_RELEASE_ENTRY_ORDER.compare(establishedTail, delta.first()) > 0) {
-            return "claim append delta precedes the established queue tail"
-        }
-        val acceptedProgress = maximumProgress
-        if (establishedTail == null && acceptedProgress != null &&
-            delta.first().tailClearRouteMeters <= acceptedProgress
-        ) {
-            return "claim append delta starts at ${delta.first().tailClearRouteMeters}, " +
-                "not after accepted tail progress $acceptedProgress"
-        }
-        return null
-    }
 
     private fun failClosed(
         kind: TailReleaseFailureKind,

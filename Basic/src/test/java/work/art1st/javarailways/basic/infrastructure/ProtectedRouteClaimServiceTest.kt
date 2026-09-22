@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
@@ -122,7 +123,7 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `immediate successful admission installs a service-owned tail release controller`() {
+    fun `immediate successful admission retains its live grant after resources release`() {
         val service = service { validated(resource("turnout/a")) }
         val start = service.acquire(Any(), request(null))
 
@@ -133,7 +134,9 @@ class ProtectedRouteClaimServiceTest {
         assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, releases.single().update)
         assertEquals(terminal.result, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).result)
         assertTrue(registry.claimSnapshots().isEmpty())
-        assertTrue(service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 2L)).isEmpty())
+        val later = service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 2L))
+        assertEquals(1, later.size)
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, later.single().update)
     }
 
     @Test
@@ -225,6 +228,64 @@ class ProtectedRouteClaimServiceTest {
 
         assertTrue(service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).isEmpty())
         assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `exact explicit end removes an idle live grant after automatic tail release`() {
+        val platformOwner = Any()
+        val owner = InfrastructureOwner("test:route/idle-end", 1L)
+        val service = service { validated(resource("turnout/a")) }
+        assertEquals(
+            ProtectedRouteClaimStatus.ACQUIRED,
+            service.acquire(platformOwner, request(null, owner)).status
+        )
+        assertInstanceOf(
+            ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L)).single().update
+        )
+        assertTrue(registry.claimSnapshots().isEmpty())
+
+        assertEquals(ProtectedRouteClaimStatus.RELEASED, service.release(platformOwner, owner).status)
+        assertTrue(service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 2L)).isEmpty())
+    }
+
+    @Test
+    fun `wrong platform or revision cannot end an idle live grant`() {
+        val platformOwner = Any()
+        val owner = InfrastructureOwner("test:route/idle-owned", 1L)
+        val service = service { validated(resource("turnout/a")) }
+        service.acquire(platformOwner, request(null, owner))
+        service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 1L))
+        assertTrue(registry.claimSnapshots().isEmpty())
+
+        assertEquals(
+            ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT,
+            service.release(Any(), owner).status
+        )
+        assertEquals(
+            ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT,
+            service.release(platformOwner, owner.copy(revision = 2L)).status
+        )
+        val retained = service.consumeObservation(observation(epoch = observation.stamp.physicsEpoch + 2L))
+        assertEquals(owner, retained.single().owner)
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java, retained.single().update)
+    }
+
+    @Test
+    fun `missing registry claim is not masked while live grant resources are active`() {
+        val platformOwner = Any()
+        val owner = InfrastructureOwner("test:route/active-missing", 1L)
+        val held = resource("turnout/a")
+        val service = service { request -> validatedRequest(request, held, 50.0) }
+        val request = request(null, owner)
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, service.acquire(platformOwner, request).status)
+        assertEquals(
+            InfrastructureMutationStatus.RELEASED,
+            registry.releaseClaim(platformOwner, owner).status
+        )
+
+        assertEquals(ProtectedRouteClaimStatus.NOT_FOUND, service.release(platformOwner, owner).status)
+        assertEquals(ProtectedRouteClaimStatus.UNCHANGED, service.acquire(platformOwner, request).status)
     }
 
     @Test

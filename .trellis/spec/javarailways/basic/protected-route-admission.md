@@ -24,7 +24,7 @@ Basic definition store publishes boundary definition for topology revision T
   -> one transaction checks authoritative occupancy geometry
   -> that transaction claims the one resource set and applies all selections
   -> admitted grant expands authority
-  -> occupancy publication drives ordered tail release until grant completes
+  -> occupancy publication drives ordered tail release while the live grant retains its route cursor
 ```
 
 任何验证失败都发生在selection/claim之前。当前即时道岔写入在完整预解析后只是内存选择，不构造不存在的可恢复失败；若这一不变量被意外异常打破，则保留claim并Stall world。未来真实异步设备由自己的handler报告安全中止或不安全状态。编辑/观察adapter消失不删除Basic定义，也不能释放可能已有列车进入的host-owned grant。
@@ -145,10 +145,13 @@ cursor每次更新先按rail、facing、canonical AB边界与`Curve.TOLERANCE`�
 匹配结果低于已接受route distance，或没有当前/后续匹配时，均保留原state并锁存fail closed；后续调用不再
 扫描suffix，不得把任一失败解释为路线完成。
 `ProtectedRouteClaimService.resolve`现在把该已验证cursor连同`CompiledRouteAdmission`交给后续transaction，
-不再在claim前验证后丢弃。world-local service按logical `ownerId`持有internal
-`ProtectedRouteTailRelease`控制器；terminal admission result只返回claim结果，不把控制器生命周期交给caller。
-成功`ACQUIRED`在finalize后安装一个控制器；`UNCHANGED`保留现有项，失败不安装新项。显式release只有在
-registry返回`RELEASED`且owner revision精确匹配时删除对应控制器；失败release保留它。
+不再在claim前验证后丢弃。world-local service按logical `ownerId`持有internal live-grant record，其中保留精确
+platform owner、logical owner、train identity与`ProtectedRouteTailRelease`控制器；terminal admission result只返回
+claim结果，不把该生命周期交给caller。成功`ACQUIRED`在finalize后安装一个record；`UNCHANGED`保留现有项，
+失败不安装新项。当前资源队列全部释放不等于live grant结束：record与冻结路线cursor继续存在。只有精确
+platform/logical owner的显式release/end删除record；registry已有资源时必须返回`RELEASED`，资源已由车尾全部
+释放时允许以controller的empty证明把`NOT_FOUND`解释为成功结束。错误platform/revision或active queue下的
+`NOT_FOUND`都必须保留record并返回冲突/不一致结果。
 
 受保护进路runtime不通过整份claim replace滚动资源窗口。当前service只处理初次acquire、显式release与车尾
 prefix release；同一冻结路线的suffix extension合同见3.5，runtime尚未实现。SimpleATO改变route plan时只能在
@@ -156,11 +159,12 @@ prefix release；同一冻结路线的suffix extension合同见3.5，runtime尚�
 独立底层能力，live claim不需要整份replacement入口。
 
 main owner显式调用`consumeObservation`驱动当前控制器。service先对一次observation的train list建立唯一
-`trainId` lookup，再按logical owner稳定顺序驱动所有active项；controller接收stamp及已解析的nullable train，
+`trainId` lookup，再按logical owner稳定顺序驱动所有live-grant项；controller接收stamp及已解析的nullable train，
 但仍自行验证world/topology/epoch/train identity。它把物理tail经cursor投影后调用`LiveClaimTailRelease`；重复
-epoch为幂等no-op，registry shrink成功后才提交本地cursor。`Completed`返回后service才删除该控制器；错误stamp、
-train消失、cursor或release失败均锁存并恰好一次触发Stall，service保留fail-closed项并立即停止当前publication
-的后续owner dispatch。控制器不创建第二个claim或footprint，只缩小registry中已经存在的唯一claim。
+epoch为幂等no-op，registry shrink成功后才提交本地cursor。`Completed`只表示当前已提交资源队列为空，不删除
+live-grant record。之后每个新epoch仍验证、投影并提交同一个cursor，但不访问registry。错误stamp、train消失、
+cursor或release失败均锁存并恰好一次触发Stall，service保留fail-closed项并立即停止当前publication的后续owner
+dispatch。控制器不创建第二个claim或footprint；`LiveClaimTailRelease`只负责当前已提交资源队列。
 当前仍没有自动接入Core/Bukkit publication、持久化/reload恢复、provider-disable接管或clearance-margin策略。
 
 ### 3.5 同一冻结路线的rolling suffix extension
@@ -195,18 +199,20 @@ suffix compiler必须带入最后一个已提交occurrence作为只读seam conte
 物理占用检查只查询本次suffix新覆盖的路线和受控资源geometry，仍复用request observation中的Core occupancy snapshot；
 不得因是extension而跳过列车包络、全部道岔port或route-bound resource anchors，也不得重查已提交prefix。
 
-suffix entries必须天然位于当前队尾之后；Basic在mutation前验证其第一个clear boundary不早于现有队尾，随后按既有
-顺序直接追加。无需对整条remaining queue重新去重或排序，也不得创建新controller搬运cursor。现有cursor和已经释放的
-队列前缀保持不变。
+suffix entries必须天然位于当前已提交队尾之后；若当前队列已空，则以live-grant record仍在推进的cursor progress作为
+保守下界。Basic在mutation前验证该关系。无需创建新controller或搬运cursor；现有cursor和已经释放的队列前缀保持
+不变。pending delta及其准备状态由资源获取/live-grant owner持有，不暴露给`LiveClaimTailRelease`。只有registry
+reservation成功finalize后，该owner才把已经验证的delta entries安装为同一live grant的新**已提交**释放队列。
 
-extension与tail prefix release由同一个main owner驱动，registry自身原子串行化单次reserve、shrink和finalize操作；
-extension pending期间车尾释放继续正常处理旧队首。suffix不得重复controlled resource，rail interval又按exact identity
-独立持有，因此释放旧prefix不会撤销delta reservation，也无需暂停cursor。一个grant同一时刻只保留一个pending extension
-handle；第二个extension请求在前一个terminal前直接返回busy，不建立并行状态机。
+extension与tail prefix release由同一个resource-acquisition/live-grant owner驱动，registry自身原子串行化单次
+reserve、shrink和finalize操作；extension pending期间`LiveClaimTailRelease`仍只看到并处理旧的已提交队列，cursor
+持续推进。suffix不得重复controlled resource，rail interval又按exact identity独立持有，因此释放旧prefix不会撤销
+delta reservation。一个grant同一时刻只保留一个pending extension handle；第二个请求在前一个terminal前返回busy。
 
 设备准备完成后只需确认该pending handle仍属于当前live grant；冻结路线不会在原地改变，受claim与edit guard覆盖的
-资源也不能在准备期间被编辑。finalize只提交该handle的delta reservation、在原controller队尾追加预校验entries并发布
-更远boundary。安全失败只删除本次delta reservation；此时旧claim可能已因正常车尾释放而缩短，这是正确状态，不能
+资源也不能在准备期间被编辑。finalize只提交该handle的delta reservation，再由同一个live-grant owner安装预校验的
+committed release entries并发布更远boundary；tail release本身不持有pending handle。安全失败只删除本次delta
+reservation；此时旧claim可能已因正常车尾释放而缩短，这是正确状态，不能
 尝试恢复已释放资源。无法证明设备已进入安全失败状态或delta reservation无法安全撤销时，保留现有最安全占用并Stall。
 
 这是同进程、main-owner管理的操作。调用方持有并轮询当前pending handle，不需要request-history、terminal-result缓存或
@@ -430,7 +436,7 @@ claim registry为admission mutation返回内部opaque rollback token。pending p
 platform owner cleanup不得拆除正在提交的claim。成功提交后销毁token。未来异步handler只有报告
 `ABORTED_SAFE`后才能用token删除本次新claim；`UNSAFE`或状态未知时
 不得销毁token，当前claim与rollback reservation继续保留，以覆盖不确定的物理状态。registry close会使未完成token失效，调用方必须Stall而不能报告普通commit failure。
-registry内部仍可为其他独立consumer提供tracked replace及精确旧状态恢复，但protected-route service不调用它。
+registry不提供受保护进路的整份claim replace；初次acquire rollback与同grant delta append是两个明确的内部操作。
 
 provider/plugin disable只停止新grant并使相关自动authority fail closed。已进入或可能进入的live claim转为host-owned recovery state，直到authoritative occupancy证明尾部清除；未进入的grant也只能由host在确认没有列车越过entry后取消。world unload期间没有运动，reload必须先恢复/重建claim与限制，再允许新departure或编辑。
 

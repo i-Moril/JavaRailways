@@ -69,9 +69,10 @@
     clearance margin remain.
   - [x] Make the world-local claim service own controllers by logical owner after acquire READY/finalize.
     One explicit observation dispatch builds one train lookup, drives owners in stable order, removes
-    only completed/released controllers and stops after the first fail-closed Stall. Whole-claim
-    replacement is not part of the protected-route runtime lifecycle; future same-route rolling
-    acquisition will append a validated suffix to the existing claim/release queue.
+    only explicitly ended live grants and stops after the first fail-closed Stall. Resource queue
+    completion retains the same frozen-route cursor and continues coherent progress projection without
+    registry work. Exact platform/logical owner authentication is therefore still available after the
+    registry footprint becomes empty. Whole-claim replacement is not part of this lifecycle.
   - [ ] Implement same-route suffix compilation and append-only registry mutation from the frozen
     contract. Reserve and prepare only delta resources, keep this owner's prefix release active,
     append naturally ordered entries to the existing controller after success, and retain the
@@ -82,13 +83,12 @@
       prefix shrink while pending, forbid delta shrink, and finalize or roll back only that delta
       against the claim's then-current remaining prefix. Suffix compilation, preparation and service
       integration remain unimplemented.
-    - [x] Connect that reservation to the existing `LiveClaimTailRelease`: validate an already
-      compiled delta queue before registry mutation, retain exactly one pending append, continue
-      releasing only established entries, keep an empty established queue alive while delta remains
-      reserved through an explicit active `AwaitingAppend` result, and finalize or roll back registry
-      state before installing/removing local delta state. Any unexpected registry result latches the
-      same controller fail closed. Suffix
-      compilation, preparation tickets, authority publication and service integration remain.
+    - [x] Separate the shared live-grant lifecycle from committed-resource tail release. The service
+      retains exact platform/logical owner identity plus one frozen-route cursor after the current
+      resource queue empties, continues projecting later coherent observations without registry work,
+      and removes the record only on authenticated explicit end. Pending delta belongs to the future
+      resource-acquisition/live-grant owner and is not exposed to `LiveClaimTailRelease`; committed
+      suffix queue installation remains unimplemented.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation

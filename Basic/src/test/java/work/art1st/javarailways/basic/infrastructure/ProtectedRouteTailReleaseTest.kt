@@ -25,7 +25,7 @@ class ProtectedRouteTailReleaseTest {
     private val claimOwner = InfrastructureOwner("test:route", 1L)
 
     @Test
-    fun `coherent observations project tail release prefixes and repeated epochs are idempotent`() {
+    fun `resource completion keeps projecting the live grant cursor on later epochs`() {
         val first = RailIntervalResource(railId, 0.0, 30.0)
         val second = RailIntervalResource(railId, 20.0, 60.0)
         val fixture = fixture(
@@ -49,41 +49,13 @@ class ProtectedRouteTailReleaseTest {
         )
 
         val completed = consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 20.0))
-        val afterCompletion = consume(
-            fixture.tailRelease,
-            observation(epoch = 1L, tailMeters = 0.0, world = "wrong-world", topology = 99L)
-        )
+        val afterCompletion = consume(fixture.tailRelease, observation(epoch = 10L, tailMeters = 30.0))
 
         assertEquals(ProtectedRouteTailReleaseUpdate.Completed(9L, alreadyCompleted = false), completed)
-        assertEquals(ProtectedRouteTailReleaseUpdate.Completed(9L, alreadyCompleted = true), afterCompletion)
+        assertEquals(ProtectedRouteTailReleaseUpdate.Completed(10L, alreadyCompleted = true), afterCompletion)
+        assertEquals(RouteProgressCursorState(0, 30.0), fixture.cursor.state)
+        assertTrue(fixture.tailRelease.resourceQueueEmpty)
         assertTrue(fixture.registry.claimSnapshots().isEmpty())
-        assertEquals(0, fixture.stalls.size)
-    }
-
-    @Test
-    fun `awaiting append remains an active protected route lifecycle`() {
-        val established = RailIntervalResource(railId, 0.0, 30.0)
-        val delta = RailIntervalResource(railId, 40.0, 50.0)
-        val fixture = fixture(listOf(ResolvedTailReleaseEntry(established, 10.0)))
-        assertInstanceOf(
-            LiveClaimAppendResult.Reserved::class.java,
-            fixture.claimRelease.beginAppend(
-                topologyRevision,
-                listOf(ResolvedTailReleaseEntry(delta, 20.0))
-            )
-        )
-
-        val active = assertInstanceOf(
-            ProtectedRouteTailReleaseUpdate.Active::class.java,
-            consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 10.0))
-        )
-
-        val awaiting = assertInstanceOf(
-            LiveClaimTailReleaseResult.AwaitingAppend::class.java,
-            active.releaseResult
-        )
-        assertEquals(1, awaiting.pendingResourceCount)
-        assertEquals(listOf(delta), fixture.registry.claimSnapshots().single().footprint.resources)
         assertEquals(0, fixture.stalls.size)
     }
 
@@ -183,24 +155,22 @@ class ProtectedRouteTailReleaseTest {
             testRouteProgressPath(railId, 100.0, 0.0).initializeCursor(position(0.0))
         )
         val stalls = mutableListOf<String>()
-        val claimRelease = LiveClaimTailRelease(
-            registry,
-            releasePlatformOwner,
-            claimOwner,
-            CompiledTailReleaseQueue(entries)
-        )
         return Fixture(
             registry,
             stalls,
             initialized.cursor,
-            claimRelease,
             ProtectedRouteTailRelease(
                 worldId,
                 topologyRevision,
                 trainId,
                 initialPhysicsEpoch = 7L,
                 routeProgressCursor = initialized.cursor,
-                claimRelease = claimRelease,
+                claimRelease = LiveClaimTailRelease(
+                    registry,
+                    releasePlatformOwner,
+                    claimOwner,
+                    CompiledTailReleaseQueue(entries)
+                ),
                 stallWorld = { detail, _ -> stalls += detail }
             )
         )
@@ -253,7 +223,6 @@ class ProtectedRouteTailReleaseTest {
         val registry: InfrastructureLeaseRegistry,
         val stalls: MutableList<String>,
         val cursor: RouteProgressCursor,
-        val claimRelease: LiveClaimTailRelease,
         val tailRelease: ProtectedRouteTailRelease
     )
 }

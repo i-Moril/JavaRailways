@@ -174,17 +174,28 @@ internal class ProtectedRouteClaimService(
     private val preparationActuator: InfrastructurePreparationActuator,
     private val stallWorld: (String, Exception) -> Unit
 ) {
-    private data class ActiveTailRelease(
+    private data class LiveGrant(
+        val platformOwner: Any,
         val owner: InfrastructureOwner,
         val trainId: String,
         val controller: ProtectedRouteTailRelease
     )
 
-    private val activeTailReleases = TreeMap<String, ActiveTailRelease>()
+    private val liveGrants = TreeMap<String, LiveGrant>()
 
     @MainThread
-    fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteAdmissionStart =
-        when (val resolved = resolve(request)) {
+    fun acquire(platformOwner: Any, request: ProtectedRouteRequest): ProtectedRouteAdmissionStart {
+        liveGrants[request.owner.ownerId]?.let { existing ->
+            val status = if (existing.platformOwner === platformOwner && existing.owner == request.owner) {
+                ProtectedRouteClaimStatus.UNCHANGED
+            } else {
+                ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT
+            }
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(status, "live grant ${request.owner.ownerId} already exists")
+            )
+        }
+        return when (val resolved = resolve(request)) {
             is ResolutionResult.Finished -> ProtectedRouteAdmissionStart.Terminal(resolved.result)
             is ResolutionResult.Plan -> startAdmission(
                 resolved,
@@ -200,14 +211,27 @@ internal class ProtectedRouteClaimService(
                 request
             )
         }
+    }
 
     @MainThread
     fun release(platformOwner: Any, owner: InfrastructureOwner): ProtectedRouteClaimResult {
+        val liveGrant = liveGrants[owner.ownerId]
+        if (liveGrant != null &&
+            (liveGrant.platformOwner !== platformOwner || liveGrant.owner != owner)
+        ) {
+            return result(
+                ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT,
+                "live grant owner or expected revision does not match"
+            )
+        }
         val mutation = registry.releaseClaim(platformOwner, owner)
         if (mutation.status == InfrastructureMutationStatus.RELEASED) {
-            activeTailReleases[owner.ownerId]
-                ?.takeIf { it.owner == owner }
-                ?.let { activeTailReleases.remove(owner.ownerId) }
+            liveGrants.remove(owner.ownerId)
+        } else if (mutation.status == InfrastructureMutationStatus.NOT_FOUND &&
+            liveGrant != null && liveGrant.controller.resourceQueueEmpty
+        ) {
+            liveGrants.remove(owner.ownerId)
+            return result(ProtectedRouteClaimStatus.RELEASED)
         }
         return mapMutation(mutation)
     }
@@ -216,8 +240,9 @@ internal class ProtectedRouteClaimService(
      * Drives every active tail-release controller from one coherent observation.
      *
      * The train list is indexed once, then controllers run in stable logical-owner order. A
-     * fail-closed update stops this publication immediately; completed controllers are removed
-     * only after their underlying registry claim has been completely released.
+     * fail-closed update stops this publication immediately. A controller remains the live grant's
+     * frozen-route cursor after its current resource queue empties and is removed only by explicit
+     * authenticated [release].
      */
     @MainThread
     fun consumeObservation(observation: RailwayObservation): List<ProtectedRouteTailReleaseDispatch> {
@@ -225,14 +250,12 @@ internal class ProtectedRouteClaimService(
         observation.trains.forEach { train -> trainsById[train.trainId] = train }
 
         val dispatched = mutableListOf<ProtectedRouteTailReleaseDispatch>()
-        val iterator = activeTailReleases.entries.iterator()
-        while (iterator.hasNext()) {
-            val active = iterator.next().value
+        for (active in liveGrants.values) {
             val update = active.controller.consume(observation.stamp, trainsById[active.trainId])
             dispatched += ProtectedRouteTailReleaseDispatch(active.owner, active.trainId, update)
             when (update) {
-                is ProtectedRouteTailReleaseUpdate.Completed -> iterator.remove()
                 is ProtectedRouteTailReleaseUpdate.FailedClosed -> break
+                is ProtectedRouteTailReleaseUpdate.Completed,
                 is ProtectedRouteTailReleaseUpdate.Active,
                 is ProtectedRouteTailReleaseUpdate.Unchanged -> Unit
             }
@@ -266,7 +289,8 @@ internal class ProtectedRouteClaimService(
                 ),
                 stallWorld = stallWorld
             )
-            activeTailReleases[request.owner.ownerId] = ActiveTailRelease(
+            liveGrants[request.owner.ownerId] = LiveGrant(
+                platformOwner,
                 request.owner,
                 request.trainId,
                 controller

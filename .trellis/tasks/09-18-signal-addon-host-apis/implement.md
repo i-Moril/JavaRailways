@@ -121,6 +121,9 @@
     train ID and coherent observation stamp; use route-metre desired/release boundaries; accept only unique additive stable
     resources; define the runtime-only namespaced preparation descriptor, validation/result order, owner/thread/lifecycle
     semantics and same-route extension relation. This item changes no runtime API.
+  - [x] Implement the frozen immutable route-intent request values: validate namespaced request/preparation identities,
+    route-metre boundaries and unique additions; defensively copy additions and deterministically ordered scalar preparation
+    arguments. Admission services, registry mutation and caller wiring remain later batches.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.

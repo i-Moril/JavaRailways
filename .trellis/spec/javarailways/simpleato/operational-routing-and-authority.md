@@ -37,6 +37,12 @@ SimpleATO 决定“列车准备走哪条路”，Basic 只证明“这条路在�
 
 选路输入固定为一个 topology root、一个运营 overlay/plan revision、列车属性和当前运营目标。算法只在 Core 声明的合法 continuation 中搜索，再按方向、线路、车辆能力、停站与计划约束过滤或计权。通用最短路实现可以来自共享算法包，但运营 cost、约束和候选选择由 SimpleATO 拥有。结果必须是一条明确的有向 traversal；不得只给目的地让 Basic 自行寻找可行路线。
 
+当前已实现的第一批内部选路器直接读取一次不可变`TopologyState`和一份绑定相同topology revision的运行方向overlay。它先用`railProjection`把起终点的stable rail UUID + canonical AB米位置解析为edge距离；起终点落在edge内部时只创建查询局部的部分edge traversal，不改写或复制published topology。随后以“到达结构节点的入口port”为Dijkstra状态，以实际edge米数为权重：turnout只展开`legalContinuations`允许的出口，loop anchor只允许从另一port继续，terminus不展开。每个方向的edge traversal还必须满足所经过物理rail的运行方向约束。相同距离的候选按固定起始方向、deterministic edge ID和port次序展开，因而相同输入得到相同路线。
+
+目标正好位于共享结构节点的另一条incident edge起点时，搜索只有在入口port→目标port continuation合法后才生成该目标rail的零长度末段标记；它不会为了得到非零segment多跑一圈。该标记保留目标port与方向，使Basic后续线性投影仍可验证turnout/loop-anchor transition。搜索成功后，选路器沿每个edge的有序`railSlices`裁剪查询局部首尾区间，并按实际行进方向转换成递增的AB或BA局部弧长，生成现有不可变`RouteSnapshot`。
+
+当前Core builder保证每条物理rail完整地、恰好投影为一个`TrackEdgeSlice`，当前Basic projector也要求单一无歧义projection；本选路器与这一**当前实现不变量**一致，遇到零个或多个projection会拒绝位置。它不是允许未来partial/multi-edge rail projection的通用API保证；若Core以后放宽builder，Core位置查询、Basic projector和本选路器必须在同一契约批次一起修改。snapshot精确保留输入topology revision及调用方给出的route ID/revision；运行方向overlay revision随内部成功结果返回，供后续准入客户端保持coherent input。当前这一类型仍为SimpleATO internal：尚未迁移production Dispatcher，也尚未加入线路、车辆能力和时刻表cost，因此不构成冻结public API。
+
 ### 3.2 冻结路线与准入客户端
 
 冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp、当前 route progress 与期望 authority boundary；不提交 raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。
@@ -121,7 +127,7 @@ data class AutomaticRouteIntent(
 
 ## 7. 性能、复杂度与退化行为
 
-- 路线搜索复杂度取决于选定算法，至少使用 `TopologyState` 邻接与 revision-keyed overlay projection；不得从 live rails 每 tick 重建图。
+- 当前内部选路器每次查询从已发布`TopologyState`构造revision-local node→incident-edge只读索引，随后执行Dijkstra。令`P`为可到达入口port状态数、`C`为这些port之间实际展开的合法continuation数、`R_q`为所有候选edge方向过滤实际检查的physical rail slice次数、`S_out`为结果rail slice数，则时间复杂度为`O((P + C) log P + R_q + S_out)`，空间复杂度为`O(P + E)`；不能把高阶turnout的port-pair展开错误地只计成一个edge。它不从live rails重建图、不读取当前道岔选位，也不修改topology；后续批量选路可以按topology root缓存incident-edge索引，但缓存不得跨revision复用。
 - 一旦路线冻结，前方 perception 对实际扫描长度为线性；一个 controlled train、一个 physics epoch 只做一次，constraint 归约对候选数线性。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
 - unchanged stable denial 使用缓存的 typed result 与 revision key；相关 revision 不变时不重复昂贵解析。

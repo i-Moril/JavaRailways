@@ -82,9 +82,9 @@ data class ProtectedRouteWindow(
  *
  * A null [window] is valid only when authoritative validation confirms that [route] traverses no
  * controlled resource. This single-window shape is not the target public admission contract: the
- * target request carries a desired authority boundary, and Basic performs one central contributor
- * closure that may include multiple regions when an earlier tail-clear obligation reaches them.
- * No region inspects its successor and no caller supplies a hand-built composite resource set.
+ * target request carries a desired authority boundary plus optional additive plugin resources.
+ * Basic derives the non-removable rail, turnout, and route-bound physical resources for that range;
+ * it does not execute protection-region policy or a recursive contributor closure.
  */
 data class ProtectedRouteRequest(
     val requestId: String,

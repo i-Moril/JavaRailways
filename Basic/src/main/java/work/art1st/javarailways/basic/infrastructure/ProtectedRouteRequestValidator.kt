@@ -1,26 +1,17 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
 import work.art1st.javarailways.core.api.physics.curve.Curve
-import work.art1st.javarailways.core.api.physics.rail.RailInterval
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
-import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
-import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
-import java.util.UUID
-import kotlin.math.max
-import kotlin.math.min
 
 /** Validates one frozen route/window and returns the single resource set that may be claimed. */
 internal class ProtectedRouteRequestValidator(
     private val catalog: ProtectionRegionCatalog,
     private val routeBoundResources: RouteBoundResourceCatalog
 ) {
+    private val physicalResources = PhysicalRouteResourceCompiler(routeBoundResources)
+
     fun validate(request: ProtectedRouteRequest): ProtectedRouteValidation =
         when (val resolved = catalog.resolveWindow(request)) {
             is ProtectionRegionWindowResolution.Rejected -> ProtectedRouteValidation.Rejected(
@@ -195,258 +186,38 @@ internal class ProtectedRouteRequestValidator(
             )
         }
 
-        val turnoutResources = relevantTurnouts.map(ProjectedTurnoutTraversal::resource)
-        if (turnoutResources.distinct().size != turnoutResources.size) {
-            return ProtectedRouteValidation.Rejected(
-                ProtectedRouteClaimStatus.INVALID_REQUEST,
-                "protected route traverses the same turnout resource more than once"
+        val compiled = when (val result = physicalResources.compileResolved(
+            projection = resolved.projection,
+            range = PhysicalRouteRange(
+                startRouteMeters,
+                clearUntil,
+                includeTurnoutAtStart = !excludeStartTurnout
+            ),
+            routeBoundHits = routeBoundHits,
+            previouslyCommittedControlledResources = previouslyCommittedControlledResources,
+            retainedProgressPath = retainedProgressPath
+        )) {
+            is PhysicalRouteCompilation.Compiled -> result
+            is PhysicalRouteCompilation.Rejected -> return ProtectedRouteValidation.Rejected(
+                status = if (result.reason == PhysicalRouteCompilationRejection.STALE_TOPOLOGY) {
+                    ProtectedRouteClaimStatus.STALE_TOPOLOGY
+                } else {
+                    ProtectedRouteClaimStatus.INVALID_REQUEST
+                },
+                detail = result.detail
             )
         }
-        val controlledResources = turnoutResources + routeBoundHits.map(RouteBoundResourceHit::resource)
-        val repeatedControlled = controlledResources.firstOrNull { it in previouslyCommittedControlledResources }
-        if (repeatedControlled != null) {
-            return ProtectedRouteValidation.Rejected(
-                ProtectedRouteClaimStatus.INVALID_REQUEST,
-                "rolling extension repeats controlled resource ${repeatedControlled.resourceId}"
-            )
-        }
-        val selectedRouteIntervals = routeIntervals(
-            resolved.projection.occurrences,
-            startRouteMeters,
-            clearUntil
-        )
-        val resources = ArrayList<InfrastructureResource>()
-        resources += selectedRouteIntervals
-        resources += controlledResources
-            .distinct()
-            .sortedWith(
-                compareBy(
-                    StableInfrastructureResource::typeId,
-                    StableInfrastructureResource::resourceId
-                )
-            )
-        val footprint = InfrastructureFootprint(resources)
-        val preparations = relevantTurnouts.map { it.toResolvedSelection() }
-        val occupancyGeometry = OccupancyQueryGeometry.create(
-            selectedRouteIntervals.map { it.toRailInterval() } +
-                turnoutOccupancyIntervals(resolved.projection.topology, relevantTurnouts) +
-                routeBoundHits.flatMap { hit ->
-                    hit.occupancyAnchors.map { anchor ->
-                        RailInterval(anchor.railId, anchor.startAbMeters, anchor.endAbMeters)
-                    }
-                }
-        )
-        val tailReleaseEntries = tailReleaseEntries(
-            footprint = footprint,
-            occurrences = resolved.projection.occurrences,
-            entryRouteMeters = startRouteMeters,
-            clearUntilRouteMeters = clearUntil,
-            turnouts = relevantTurnouts,
-            routeBoundHits = routeBoundHits
-        )
-        val progressPath = retainedProgressPath ?: CompiledRouteProgressPath.compile(resolved.projection)
-        val admission = CompiledRouteAdmission.create(
-                footprint,
-                preparations,
-                occupancyGeometry,
-                tailReleaseEntries,
-                progressPath
-            )
+        val admission = compiled.admission
         return ProtectedRouteValidation.Validated(
             admission,
             ProtectedRouteExtensionContext(
                 resolved.projection,
                 clearUntil,
-                controlledResources.toSet(),
-                progressPath,
+                compiled.controlledResources,
+                admission.routeProgressPath,
                 occurrenceIndexAt(resolved.projection.occurrences, clearUntil)
             )
         )
-    }
-
-    /** Compiles one lifecycle entry for every member of the already-final claim footprint. */
-    private fun tailReleaseEntries(
-        footprint: InfrastructureFootprint,
-        occurrences: List<ProjectedRouteOccurrence>,
-        entryRouteMeters: Double,
-        clearUntilRouteMeters: Double,
-        turnouts: List<ProjectedTurnoutTraversal>,
-        routeBoundHits: List<RouteBoundResourceHit>
-    ): List<ResolvedTailReleaseEntry> {
-        val finalTailClearBoundaries = LinkedHashMap<InfrastructureResource, Double>()
-
-        val railResourcesByRail = footprint.resources.filterIsInstance<RailIntervalResource>()
-            .groupBy(RailIntervalResource::railId)
-            .mapValues { (railId, resources) ->
-                resources.sortedBy(RailIntervalResource::startAbMeters).also { sorted ->
-                    check(sorted.zipWithNext().all { (first, second) ->
-                        first.endAbMeters < second.startAbMeters
-                    }) {
-                        "release index requires disjoint claim intervals on rail $railId"
-                    }
-                }
-            }
-        railResourcesByRail.values.flatten().forEach { resource ->
-            finalTailClearBoundaries[resource] = Double.NaN
-        }
-        occurrences.forEach { occurrence ->
-            val clippedStart = max(entryRouteMeters, occurrence.routeStartMeters)
-            val clippedEnd = min(clearUntilRouteMeters, occurrence.routeEndMeters)
-            if (clippedEnd <= clippedStart) return@forEach
-            val firstCanonical = occurrence.canonicalAt(clippedStart)
-            val secondCanonical = occurrence.canonicalAt(clippedEnd)
-            val occurrenceStart = min(firstCanonical, secondCanonical)
-            val occurrenceEnd = max(firstCanonical, secondCanonical)
-            val railResources = railResourcesByRail[occurrence.segment.railId] ?: return@forEach
-
-            // Resources on one rail are disjoint and ordered. Binary search skips the prefix that
-            // ends before this occurrence, then only actual overlap candidates are inspected.
-            var resourceIndex = railResources.lowerBoundByEnd(occurrenceStart)
-            while (resourceIndex < railResources.size) {
-                val resource = railResources[resourceIndex]
-                if (resource.startAbMeters > occurrenceEnd) break
-                val overlapStart = max(occurrenceStart, resource.startAbMeters)
-                val overlapEnd = min(occurrenceEnd, resource.endAbMeters)
-                if (overlapEnd >= overlapStart) {
-                    val firstRoute = occurrence.routeAtCanonical(overlapStart)
-                    val secondRoute = occurrence.routeAtCanonical(overlapEnd)
-                    finalTailClearBoundaries[resource] = laterBoundary(
-                        finalTailClearBoundaries.getValue(resource),
-                        max(firstRoute, secondRoute)
-                    )
-                }
-                resourceIndex++
-            }
-        }
-
-        turnouts.forEach { traversal ->
-            finalTailClearBoundaries[traversal.resource] = laterBoundary(
-                finalTailClearBoundaries[traversal.resource] ?: Double.NaN,
-                traversal.routeDistanceMeters
-            )
-        }
-        routeBoundHits.forEach { hit ->
-            finalTailClearBoundaries[hit.resource] = laterBoundary(
-                finalTailClearBoundaries[hit.resource] ?: Double.NaN,
-                hit.routeEndMeters
-            )
-        }
-
-        return footprint.resources.map { resource ->
-            val tailClearRouteMeters = checkNotNull(finalTailClearBoundaries[resource]) {
-                "claimed resource has no release evidence: $resource"
-            }
-            check(tailClearRouteMeters.isFinite()) {
-                "claimed resource has no validated route occurrence: $resource"
-            }
-            ResolvedTailReleaseEntry(resource, tailClearRouteMeters)
-        }.sortedWith(TAIL_RELEASE_ENTRY_ORDER)
-    }
-
-    private fun laterBoundary(current: Double, candidate: Double): Double =
-        if (current.isNaN() || candidate > current) candidate else current
-
-    private fun routeIntervals(
-        occurrences: List<ProjectedRouteOccurrence>,
-        startRouteMeters: Double,
-        endRouteMeters: Double
-    ): List<RailIntervalResource> {
-        val intervals = occurrences.mapNotNull { occurrence ->
-            val overlapStart = max(startRouteMeters, occurrence.routeStartMeters)
-            val overlapEnd = min(endRouteMeters, occurrence.routeEndMeters)
-            if (overlapEnd <= overlapStart) return@mapNotNull null
-            val first = occurrence.canonicalAt(overlapStart)
-            val second = occurrence.canonicalAt(overlapEnd)
-            RailIntervalResource(
-                railId = occurrence.segment.railId,
-                startAbMeters = min(first, second).coerceIn(0.0, occurrence.railLengthMeters),
-                endAbMeters = max(first, second).coerceIn(0.0, occurrence.railLengthMeters)
-            )
-        }
-        val merged = ArrayList<RailIntervalResource>()
-        intervals.groupBy(RailIntervalResource::railId)
-            .toSortedMap(compareBy(UUID::toString))
-            .forEach { (_, railIntervals) ->
-                railIntervals.sortedBy(RailIntervalResource::startAbMeters).forEach { interval ->
-                    val previous = merged.lastOrNull()?.takeIf { it.railId == interval.railId }
-                    if (previous != null && interval.startAbMeters <= previous.endAbMeters + Curve.TOLERANCE) {
-                        merged[merged.lastIndex] = previous.copy(
-                            endAbMeters = max(previous.endAbMeters, interval.endAbMeters)
-                        )
-                    } else {
-                        merged += interval
-                    }
-                }
-            }
-        return merged
-    }
-
-    private fun ProjectedRouteOccurrence.canonicalAt(routeDistanceMeters: Double): Double {
-        val offset = (routeDistanceMeters - routeStartMeters).coerceIn(0.0, segment.lengthMeters)
-        return when (segment.facing) {
-            ViewDirection.AB -> canonicalStartAbMeters + offset
-            ViewDirection.BA -> canonicalStartAbMeters - offset
-        }
-    }
-
-    private fun ProjectedRouteOccurrence.routeAtCanonical(canonicalAbMeters: Double): Double {
-        val offset = when (segment.facing) {
-            ViewDirection.AB -> canonicalAbMeters - canonicalStartAbMeters
-            ViewDirection.BA -> canonicalStartAbMeters - canonicalAbMeters
-        }
-        return (routeStartMeters + offset).coerceIn(routeStartMeters, routeEndMeters)
-    }
-
-    private fun ProjectedTurnoutTraversal.toResolvedSelection() = ResolvedTurnoutSelection(
-        resource = resource,
-        fromPort = fromPort,
-        toPort = toPort,
-        routeDistanceMeters = routeDistanceMeters
-    )
-
-    /**
-     * A Core turnout is a zero-length selectable continuation between rail endpoints, not a
-     * separately occupied piece of track. Querying every incident endpoint catches a train spanning
-     * the selectable node from an unselected branch without inventing a legacy locking distance.
-     */
-    private fun turnoutOccupancyIntervals(
-        topology: TopologyState,
-        traversals: List<ProjectedTurnoutTraversal>
-    ): List<RailInterval> = traversals.flatMap { traversal ->
-        val turnout = topology.nodes[traversal.nodeId] as? TopologyNode.Turnout
-            ?: error("validated turnout traversal references a non-turnout node ${traversal.nodeId}")
-        check(TurnoutResourceIdentity.fromPorts(turnout.ports) == traversal.resource) {
-            "validated turnout traversal resource does not match retained topology"
-        }
-        turnout.ports.map { port ->
-            val projection = topology.railProjection.getValue(port.railId).single()
-            val railLength = max(projection.railStartAbMeters, projection.railEndAbMeters)
-            val endpointMeters = when (port.endpoint) {
-                RailEndpoint.A -> 0.0
-                RailEndpoint.B -> railLength
-            }
-            RailInterval(port.railId, endpointMeters, endpointMeters)
-        }
-    }
-
-    private fun RailIntervalResource.toRailInterval() = RailInterval(
-        railId,
-        startAbMeters,
-        endAbMeters
-    )
-
-    private fun List<RailIntervalResource>.lowerBoundByEnd(canonicalMeters: Double): Int {
-        var low = 0
-        var high = size
-        while (low < high) {
-            val middle = (low + high) ushr 1
-            if (this[middle].endAbMeters < canonicalMeters) {
-                low = middle + 1
-            } else {
-                high = middle
-            }
-        }
-        return low
     }
 
     private fun rejectedProtection(detail: String) = ProtectedRouteValidation.Rejected(

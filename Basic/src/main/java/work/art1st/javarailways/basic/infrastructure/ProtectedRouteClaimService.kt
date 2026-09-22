@@ -17,18 +17,18 @@ internal sealed interface ProtectedRouteAdmissionStart {
     fun poll(): ProtectedRouteAdmissionProgress
 
     @MainThread
-    fun cancel()
+    fun abort()
 
-    /** Admission ended during start. Polling remains idempotent and cancellation is a no-op. */
+    /** Admission ended during start. Polling remains idempotent and abort is a no-op. */
     data class Terminal(val result: ProtectedRouteClaimResult) : ProtectedRouteAdmissionStart {
         override fun poll(): ProtectedRouteAdmissionProgress = ProtectedRouteAdmissionProgress.Terminal(result)
-        override fun cancel() = Unit
+        override fun abort() = Unit
     }
 
     /** Admission owns a live claim transaction until [handle] reaches a terminal result. */
     data class Pending(val handle: ProtectedRouteAdmissionHandle) : ProtectedRouteAdmissionStart {
         override fun poll(): ProtectedRouteAdmissionProgress = handle.poll()
-        override fun cancel() = handle.cancel()
+        override fun abort() = handle.abort()
     }
 }
 
@@ -49,7 +49,7 @@ internal data class ProtectedRouteTailReleaseDispatch(
  * Owns one claim mutation while physical infrastructure preparation is pending.
  *
  * A handle never publishes authority. It only finalizes the logical claim after physical
- * confirmation, or removes this newly acquired claim after physical restoration.
+ * confirmation, or removes this newly acquired claim after the resource reports a safe abort.
  */
 internal class ProtectedRouteAdmissionHandle internal constructor(
     private val registry: InfrastructureLeaseRegistry,
@@ -60,23 +60,17 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
     private val stallWorld: (String, Exception) -> Unit,
     private val mapMutation: (InfrastructureMutationResult) -> ProtectedRouteClaimResult
 ) {
-    val ticketId: String = preparationTicket.ticketId
-    private var lastState: InfrastructurePreparationState? = null
-    private var cancellationRequested = false
-    private var cancellationFailure: Exception? = null
+    private var abortRequested = false
+    private var abortFailure: Exception? = null
     private var terminal: ProtectedRouteAdmissionProgress.Terminal? = null
-
-    init {
-        require(ticketId.isNotBlank()) { "accepted infrastructure preparation ticket ID must not be blank" }
-    }
 
     @MainThread
     fun poll(): ProtectedRouteAdmissionProgress {
         terminal?.let { return it }
-        cancellationFailure?.let { failure ->
+        abortFailure?.let { failure ->
             return finishStalled(
                 failure,
-                "infrastructure restoration could not be requested; claim and rollback reservation retained"
+                "infrastructure preparation could not be safely aborted; claim reservation retained"
             )
         }
         val snapshot = try {
@@ -87,26 +81,8 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
                 "infrastructure preparation snapshot failed; claim and rollback reservation retained"
             )
         }
-        if (snapshot.ticketId != ticketId) {
-            return finishStalled(
-                IllegalStateException(
-                    "infrastructure preparation ticket identity changed from $ticketId to ${snapshot.ticketId}"
-                ),
-                "infrastructure preparation ticket identity changed; claim and rollback reservation retained"
-            )
-        }
-        if (!validTransition(lastState, snapshot.state)) {
-            return finishStalled(
-                IllegalStateException(
-                    "invalid infrastructure preparation transition ${lastState ?: "START"} -> ${snapshot.state}"
-                ),
-                "infrastructure preparation state contract was violated; claim and rollback reservation retained"
-            )
-        }
-        lastState = snapshot.state
         return when (snapshot.state) {
-            InfrastructurePreparationState.PREPARING,
-            InfrastructurePreparationState.RESTORING -> ProtectedRouteAdmissionProgress.Pending
+            InfrastructurePreparationState.PREPARING -> ProtectedRouteAdmissionProgress.Pending
             InfrastructurePreparationState.READY -> {
                 val completed = if (registry.completeClaimMutation(claimMutation)) {
                     mapMutation(claimMutation.result)
@@ -126,7 +102,7 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
                 }
                 finish(completed)
             }
-            InfrastructurePreparationState.RESTORED -> restoreClaim(snapshot.detail)
+            InfrastructurePreparationState.ABORTED_SAFE -> abortClaim(snapshot.detail)
             InfrastructurePreparationState.UNSAFE -> finishStalled(
                 IllegalStateException(snapshot.detail),
                 "infrastructure preparation state is unsafe; claim and rollback reservation retained: ${snapshot.detail}"
@@ -135,24 +111,24 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
     }
 
     @MainThread
-    fun cancel() {
-        if (terminal != null || cancellationRequested) return
-        cancellationRequested = true
+    fun abort() {
+        if (terminal != null || abortRequested) return
+        abortRequested = true
         try {
-            preparationTicket.cancel()
+            preparationTicket.abort()
         } catch (failure: Exception) {
-            cancellationFailure = failure
+            abortFailure = failure
         }
     }
 
-    private fun restoreClaim(preparationDetail: String): ProtectedRouteAdmissionProgress {
+    private fun abortClaim(preparationDetail: String): ProtectedRouteAdmissionProgress {
         val claimRollback = registry.rollbackClaimMutation(claimMutation)
         if (claimRollback.status == InfrastructureMutationStatus.RELEASED) {
             return finish(
                 ProtectedRouteClaimResult(
                     ProtectedRouteClaimStatus.PREPARATION_FAILED,
                     detail = buildString {
-                        append("infrastructure preparation was restored and the admission claim was rolled back")
+                        append("infrastructure preparation was safely aborted and the admission claim was rolled back")
                         if (preparationDetail.isNotBlank()) append(": $preparationDetail")
                     }
                 )
@@ -160,10 +136,10 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
         }
         return finishStalled(
             IllegalStateException(
-                "infrastructure preparations were restored but claim rollback failed: " +
+                "infrastructure preparation was safely aborted but claim rollback failed: " +
                     "${claimRollback.status}: ${claimRollback.detail}"
             ),
-            "infrastructure preparation was restored but the safest claim was retained"
+            "infrastructure preparation was safely aborted but the safest claim was retained"
         )
     }
 
@@ -183,27 +159,6 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
         return finish(stalled)
     }
 
-    private companion object {
-        fun validTransition(previous: InfrastructurePreparationState?, current: InfrastructurePreparationState): Boolean =
-            when (previous) {
-                null -> true
-                InfrastructurePreparationState.PREPARING -> current in setOf(
-                    InfrastructurePreparationState.PREPARING,
-                    InfrastructurePreparationState.RESTORING,
-                    InfrastructurePreparationState.READY,
-                    InfrastructurePreparationState.RESTORED,
-                    InfrastructurePreparationState.UNSAFE
-                )
-                InfrastructurePreparationState.RESTORING -> current in setOf(
-                    InfrastructurePreparationState.RESTORING,
-                    InfrastructurePreparationState.RESTORED,
-                    InfrastructurePreparationState.UNSAFE
-                )
-                InfrastructurePreparationState.READY,
-                InfrastructurePreparationState.RESTORED,
-                InfrastructurePreparationState.UNSAFE -> false
-            }
-    }
 }
 
 /**
@@ -330,23 +285,15 @@ internal class ProtectedRouteClaimService(
             return rejectedStart(request, claimMutation, started.failure)
         }
         val ticket = (started as InfrastructurePreparationStart.Accepted).ticket
-        val handle = try {
-            ProtectedRouteAdmissionHandle(
-                registry,
-                request,
-                claimMutation,
-                ticket,
-                commitTailRelease,
-                stallWorld,
-                ::mapMutation
-            )
-        } catch (failure: Exception) {
-            return stalledStart(
-                request,
-                failure,
-                "accepted preparation ticket was invalid; claim and rollback reservation retained"
-            )
-        }
+        val handle = ProtectedRouteAdmissionHandle(
+            registry,
+            request,
+            claimMutation,
+            ticket,
+            commitTailRelease,
+            stallWorld,
+            ::mapMutation
+        )
         return when (val progress = handle.poll()) {
             ProtectedRouteAdmissionProgress.Pending -> ProtectedRouteAdmissionStart.Pending(handle)
             is ProtectedRouteAdmissionProgress.Terminal ->
@@ -364,7 +311,7 @@ internal class ProtectedRouteClaimService(
             ProtectedRouteAdmissionStart.Terminal(
                 result(
                     ProtectedRouteClaimStatus.PREPARATION_FAILED,
-                    "infrastructure preparation was rejected before mutation and the admission claim was restored: " +
+                    "infrastructure preparation was rejected before mutation and the admission claim was rolled back: " +
                         failureDetail(failure)
                 )
             )

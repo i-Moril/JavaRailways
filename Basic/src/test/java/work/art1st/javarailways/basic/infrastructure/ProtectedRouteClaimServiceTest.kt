@@ -59,12 +59,12 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `terminal start polling and cancellation are idempotent`() {
+    fun `terminal start polling and abort are idempotent`() {
         val start = service { ProtectedRouteValidation.NotRequired }.acquire(Any(), request(null))
         val first = start.poll() as ProtectedRouteAdmissionProgress.Terminal
 
-        start.cancel()
-        start.cancel()
+        start.abort()
+        start.abort()
         val second = start.poll() as ProtectedRouteAdmissionProgress.Terminal
 
         assertSame(first.result, second.result)
@@ -565,10 +565,12 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `turnout apply failure restores a newly acquired claim`() {
+    fun `safely aborted preparation releases a newly acquired claim`() {
         var stalled = false
         val service = service(
-            preparationActuator = InfrastructurePreparationActuator { accepted(InfrastructurePreparationState.RESTORED) },
+            preparationActuator = InfrastructurePreparationActuator {
+                accepted(InfrastructurePreparationState.ABORTED_SAFE)
+            },
             stallWorld = { _, _ -> stalled = true }
         ) { validated(resource("turnout/a")) }
 
@@ -636,30 +638,33 @@ class ProtectedRouteClaimServiceTest {
         ticket.state = InfrastructurePreparationState.READY
         val firstTerminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
         val secondTerminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
-        start.cancel()
+        start.abort()
 
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, firstTerminal.result.status)
         assertSame(firstTerminal.result, secondTerminal.result)
-        assertEquals(0, ticket.cancelCalls)
+        assertEquals(0, ticket.abortCalls)
         assertEquals(ProtectedRouteClaimStatus.RELEASED, service { validated() }.release(platformOwner, owner).status)
     }
 
     @Test
-    fun `cancel delegates once and restoring remains pending until exact acquire rollback`() {
-        val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
+    fun `abort delegates once and remains pending until resource reports safe abort`() {
+        val ticket = FakePreparationTicket(
+            state = InfrastructurePreparationState.PREPARING,
+            abortTransition = InfrastructurePreparationState.PREPARING
+        )
         val start = service(
             preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) }
         ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
 
-        start.cancel()
-        start.cancel()
+        start.abort()
+        start.abort()
 
-        assertEquals(1, ticket.cancelCalls)
-        assertEquals(InfrastructurePreparationState.RESTORING, ticket.state)
+        assertEquals(1, ticket.abortCalls)
+        assertEquals(InfrastructurePreparationState.PREPARING, ticket.state)
         assertEquals(ProtectedRouteAdmissionProgress.Pending, start.poll())
         assertEquals(1, registry.claimSnapshots().size)
 
-        ticket.state = InfrastructurePreparationState.RESTORED
+        ticket.state = InfrastructurePreparationState.ABORTED_SAFE
         val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.PREPARATION_FAILED, terminal.result.status)
@@ -668,19 +673,19 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `cancel that loses race to confirmation finalizes normally`() {
+    fun `abort that loses race to confirmation finalizes normally`() {
         val ticket = FakePreparationTicket(
             state = InfrastructurePreparationState.PREPARING,
-            cancelTransition = InfrastructurePreparationState.READY
+            abortTransition = InfrastructurePreparationState.READY
         )
         val start = service(
             preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) }
         ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
 
-        start.cancel()
+        start.abort()
         val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
 
-        assertEquals(1, ticket.cancelCalls)
+        assertEquals(1, ticket.abortCalls)
         assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
         assertEquals(1, registry.claimSnapshots().size)
     }
@@ -722,30 +727,10 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `ticket identity change stalls and retains claim`() {
-        val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
-        var stalls = 0
-        val start = service(
-            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
-            stallWorld = { _, _ -> stalls++ }
-        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
-        ticket.snapshotTicketId = "changed-ticket"
-
-        val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
-
-        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, terminal.result.status)
-        assertEquals(1, stalls)
-        assertEquals(1, registry.claimSnapshots().size)
-        assertSame(terminal.result, (start.poll() as ProtectedRouteAdmissionProgress.Terminal).result)
-        assertEquals(1, stalls)
-    }
-
-    @Test
     fun `ticket snapshot exception stalls and retains claim`() {
         val ticket = object : InfrastructurePreparationTicket {
-            override val ticketId = "test-ticket"
             override fun snapshot(): InfrastructurePreparationSnapshot = error("snapshot failed")
-            override fun cancel() = Unit
+            override fun abort() = Unit
         }
         var stalls = 0
 
@@ -760,11 +745,10 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `ticket cancellation exception stalls once and retains claim`() {
+    fun `ticket abort exception stalls once and retains claim`() {
         val ticket = object : InfrastructurePreparationTicket {
-            override val ticketId = "test-ticket"
-            override fun snapshot() = InfrastructurePreparationSnapshot(ticketId, InfrastructurePreparationState.PREPARING)
-            override fun cancel(): Unit = error("cancel failed")
+            override fun snapshot() = InfrastructurePreparationSnapshot(InfrastructurePreparationState.PREPARING)
+            override fun abort(): Unit = error("abort failed")
         }
         var stalls = 0
         val start = service(
@@ -772,32 +756,13 @@ class ProtectedRouteClaimServiceTest {
             stallWorld = { _, _ -> stalls++ }
         ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
 
-        start.cancel()
-        start.cancel()
+        start.abort()
+        start.abort()
         val first = start.poll() as ProtectedRouteAdmissionProgress.Terminal
         val second = start.poll() as ProtectedRouteAdmissionProgress.Terminal
 
         assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, first.result.status)
         assertSame(first.result, second.result)
-        assertEquals(1, stalls)
-        assertEquals(1, registry.claimSnapshots().size)
-    }
-
-    @Test
-    fun `accepted blank ticket identity stalls before polling and retains claim`() {
-        val ticket = object : InfrastructurePreparationTicket {
-            override val ticketId = ""
-            override fun snapshot() = InfrastructurePreparationSnapshot("unreachable", InfrastructurePreparationState.PREPARING)
-            override fun cancel() = Unit
-        }
-        var stalls = 0
-
-        val start = service(
-            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
-            stallWorld = { _, _ -> stalls++ }
-        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
-
-        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, start.status)
         assertEquals(1, stalls)
         assertEquals(1, registry.claimSnapshots().size)
     }
@@ -817,35 +782,13 @@ class ProtectedRouteClaimServiceTest {
     }
 
     @Test
-    fun `ticket state regression stalls and retains claim`() {
-        val ticket = FakePreparationTicket(state = InfrastructurePreparationState.PREPARING)
-        var stalls = 0
-        val start = service(
-            preparationActuator = InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
-            stallWorld = { _, _ -> stalls++ }
-        ) { validated(resource("turnout/a")) }.acquire(Any(), request(null))
-        ticket.state = InfrastructurePreparationState.RESTORING
-        assertEquals(ProtectedRouteAdmissionProgress.Pending, start.poll())
-        ticket.state = InfrastructurePreparationState.PREPARING
-
-        val terminal = start.poll() as ProtectedRouteAdmissionProgress.Terminal
-
-        assertEquals(ProtectedRouteClaimStatus.WORLD_STALLED, terminal.result.status)
-        assertEquals(1, stalls)
-        assertEquals(1, registry.claimSnapshots().size)
-    }
-
-    @Test
-    fun `infrastructure preparation snapshot enforces stable identity and unsafe detail contract`() {
+    fun `infrastructure preparation snapshot enforces unsafe detail contract`() {
         assertThrows(IllegalArgumentException::class.java) {
-            InfrastructurePreparationSnapshot("", InfrastructurePreparationState.PREPARING)
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            InfrastructurePreparationSnapshot("ticket", InfrastructurePreparationState.UNSAFE)
+            InfrastructurePreparationSnapshot(InfrastructurePreparationState.UNSAFE)
         }
         assertEquals(
-            InfrastructurePreparationState.RESTORING,
-            InfrastructurePreparationSnapshot("ticket", InfrastructurePreparationState.RESTORING).state
+            InfrastructurePreparationState.ABORTED_SAFE,
+            InfrastructurePreparationSnapshot(InfrastructurePreparationState.ABORTED_SAFE).state
         )
     }
 
@@ -885,23 +828,20 @@ class ProtectedRouteClaimServiceTest {
         InfrastructurePreparationStart.Accepted(FakePreparationTicket(state = state))
 
     private class FakePreparationTicket(
-        override val ticketId: String = UUID.randomUUID().toString(),
         var state: InfrastructurePreparationState,
-        var snapshotTicketId: String = ticketId,
-        private val cancelTransition: InfrastructurePreparationState = InfrastructurePreparationState.RESTORING
+        private val abortTransition: InfrastructurePreparationState = InfrastructurePreparationState.ABORTED_SAFE
     ) : InfrastructurePreparationTicket {
-        var cancelCalls = 0
+        var abortCalls = 0
 
         override fun snapshot() = InfrastructurePreparationSnapshot(
-            snapshotTicketId,
             state,
             if (state == InfrastructurePreparationState.UNSAFE) "injected unsafe infrastructure preparation state" else ""
         )
 
-        override fun cancel() {
-            if (state in setOf(InfrastructurePreparationState.PREPARING, InfrastructurePreparationState.RESTORING)) {
-                cancelCalls++
-                state = cancelTransition
+        override fun abort() {
+            if (state == InfrastructurePreparationState.PREPARING) {
+                abortCalls++
+                state = abortTransition
             }
         }
     }

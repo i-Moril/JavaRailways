@@ -398,7 +398,7 @@ validate immutable route and collect one resource set
   -> check authoritative occupancy geometry for each resource
   -> acquire the complete resource set
   -> start the complete ordered infrastructure-preparation batch
-  -> retain its ticket plus claim mutation token while PREPARING/RESTORING
+  -> retain its ticket plus claim mutation token while PREPARING
   -> poll until the complete batch is physically READY
   -> finalize the claim
   -> publish admitted grant / expand authority
@@ -408,14 +408,23 @@ claim与物理准备是两个阶段：footprint claim先阻止其他进路或编
 
 列车何时请求下一段、从哪个route cursor开始编译、向前扫描多远，以及哪个boundary触发下一次滚动准入，属于未来SimpleATO客户端与admission compilation合同，不属于Basic preparation actuator。actuator只执行已经编译完成的当前batch，不读取完整运营route、不自行lookahead，也不扩展claim或选择下一批requirement。
 
-通用preparation actuator的start只允许两种结果：未产生任何准备side effect的`Rejected`，或带稳定identity batch ticket的`Accepted`。一个ticket代表整批准备并负责恢复所有已经开始的requirement；snapshot是不可变值，状态为`PREPARING`、`RESTORING`、`READY`、`RESTORED`或`UNSAFE`。actuator必须在第一个side effect前解析完整列表并拒绝不支持的requirement。`cancel()`幂等；非终态时只发起恢复而不宣称恢复完成，终态后为no-op。composition层以后可加入动画、故障和timeout policy，但Basic不硬编码转换时长，也不在本阶段公开handler注册或持久化合同。
+通用preparation actuator的start只允许两种结果：未产生任何准备side effect的`Rejected`，或带batch ticket的`Accepted`。
+snapshot是不可变值，状态为`PREPARING`、`READY`、`ABORTED_SAFE`或`UNSAFE`。`abort()`只要求resource-owned
+handler结束本次准备并进入它自己定义的安全状态，不规定恢复旧状态、恢复默认状态或由列车执行复位；异步abort期间仍可
+报告`PREPARING`，直到handler报告`ABORTED_SAFE`或`UNSAFE`。actuator必须在第一个side effect前解析完整列表并拒绝不支持的
+requirement。composition层以后可加入动画、故障和timeout policy，但Basic不硬编码转换时长，也不在本阶段公开handler
+注册或持久化合同。
 
-`ProtectedRouteClaimService.acquire`返回内部start result：请求可能立即得到terminal typed result，也可能得到pending handle。handle只认识通用batch ticket，拥有registry claim mutation token和ticket，只能在main owner轮询。`PREPARING/RESTORING`保持pending；`READY`才销毁rollback token并返回成功claim；`RESTORED`才删除本次新acquire并返回`PREPARATION_FAILED`。每次snapshot必须保持accepted ticket identity和合法状态迁移；snapshot/actuator异常、identity违约或`UNSAFE`均保留claim及rollback reservation、禁止扩大authority并Stall。过晚cancel若输给已经完成的`READY`视为terminal no-op并正常完成，不因poll时序制造虚假Stall。terminal admission重复poll/cancel必须幂等。
+`ProtectedRouteClaimService.acquire`返回内部start result：请求可能立即得到terminal typed result，也可能得到pending handle。
+handle拥有registry claim mutation和ticket，只能在main owner轮询。`PREPARING`保持pending；`READY`才完成claim并返回成功；
+`ABORTED_SAFE`才删除本次新acquire并返回`PREPARATION_FAILED`。snapshot/actuator异常或`UNSAFE`均保留claim reservation、
+禁止扩大authority并Stall。ticket是同进程对象，不增加随机identity、状态转换历史或网络式幂等协议。过晚abort若设备已经
+`READY`则为terminal no-op并正常完成；terminal admission重复poll/abort必须幂等。
 
 Core把同一个物理continuation分别保存在两个到达方向的`RailView.nextActiveRail`中，因此一次
 `fromPort -> toPort`提交必须同时设置`from-arriving -> to-departing`和
 `to-arriving -> from-departing`。端点映射固定为：到达A端使用BA view、到达B端使用AB view；
-departing view是对应到达view的`reversed`。第一版即时`RailView` preparation actuator只处理`ResolvedTurnoutSelection`；它先类型检查整批requirement，再在第一次写入前解析全部live view并保存两个方向的原selection，按冻结路线顺序提交，失败后逆序尝试恢复所有快照，不能因其中一次rollback失败而停止其余恢复。它仍使用通用batch ticket合同：同步成功产生已终态`READY` ticket，apply失败且完整恢复产生`RESTORED`，恢复不完整产生`UNSAFE`；未知requirement或预解析失败则`Rejected`且没有live write。已对位selection不写入。
+departing view是对应到达view的`reversed`。第一版即时`RailView` preparation actuator只处理`ResolvedTurnoutSelection`；它先类型检查整批requirement，再在第一次写入前解析全部live view并保存两个方向的原selection，按冻结路线顺序提交，失败后逆序尝试恢复所有快照，不能因其中一次rollback失败而停止其余恢复。这是道岔handler自己的事务补偿，不是通用接口要求所有资源恢复旧状态。同步成功产生已终态`READY` ticket，apply失败且完整补偿产生`ABORTED_SAFE`，补偿不完整产生`UNSAFE`；未知requirement或预解析失败则`Rejected`且没有live write。已对位selection不写入。
 
 claim registry为admission mutation返回内部opaque rollback token。pending preparation期间token保持有效；
 platform owner cleanup不得拆除正在提交的claim。成功提交后销毁token；selection rollback成功后用token删除
@@ -448,10 +457,10 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 | 任一physical locking interval被列车占用 | `PHYSICALLY_OCCUPIED` | 全不变；返回train IDs |
 | footprint与live claim冲突 | `RESOURCE_CONFLICT` | 全不变；返回owner/revision/resource |
 | claim成功、preparation batch start被安全拒绝 | `PREPARATION_FAILED` | 无preparation side effect，claim前状态恢复，authority不扩大 |
-| ticket为`PREPARING/RESTORING` | pending | 新claim与rollback reservation保持，authority不扩大 |
+| ticket为`PREPARING` | pending | 新claim与rollback reservation保持，authority不扩大 |
 | ticket为`READY` | `ACQUIRED` | claim完成；之后才允许上层发布authority |
-| ticket为`RESTORED` | `PREPARATION_FAILED` | 已开始的physical preparations恢复且新claim删除，authority不扩大 |
-| ticket identity/state违约、异常或`UNSAFE` | `WORLD_STALLED` | claim及rollback reservation保留，authority fail closed |
+| ticket为`ABORTED_SAFE` | `PREPARATION_FAILED` | resource handler确认安全中止且新claim删除，authority不扩大 |
+| ticket/actuator异常或`UNSAFE` | `WORLD_STALLED` | claim及rollback reservation保留，authority fail closed |
 | 相同request/revision重复提交 | `UNCHANGED` | 返回原grant，不重复切换 |
 
 `UNCHANGED`只表示同一platform owner已经持有完全相同owner revision与footprint，是幂等重试；它
@@ -494,7 +503,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - route binding tests：route revision与topology revision可取不同值；projector只从route字段拒绝stale topology，request没有第二个可冲突的revision。
 - turnout identity tests：正反向及无结构变化的topology rebuild得到同一resource；revision-local node ID不同也不改变resource identity。
 - transitional route-validation tests：AB/BA window clipping、跨rail canonical intervals、唯一resource set、turnout stable resource、窗口前/clearance内未保护turnout拒绝、null window的`NOT_REQUIRED`与`PROTECTION_REQUIRED`。
-- transaction tests：resource conflict、physical occupancy、即时turnout handler顺序/no-write/apply失败、未知requirement全批拒绝、跨多次poll的pending batch ticket、READY finalize、RESTORING pending、RESTORED精确acquire rollback、cancel幂等及READY竞争、identity/state/exception/UNSAFE；断言physical preparation、claim和authority三者满足矩阵。
+- transaction tests：resource conflict、physical occupancy、即时turnout handler顺序/no-write/apply失败、未知requirement全批拒绝、跨多次poll的pending batch ticket、READY finalize、异步abort保持PREPARING、ABORTED_SAFE精确acquire rollback、abort幂等及READY竞争、snapshot/abort异常和UNSAFE；断言physical preparation、claim和authority三者满足矩阵。
 - release tests：未进入取消、头部过exit但尾部未过、tail clear、单region prefix shrink、train消失、provider disable、world reload recovery。
 - rolling extension tests：同route/topology suffix seam、只查询delta occupancy并只准备delta、conflict保持旧claim/authority、
   同grant第二个pending请求返回busy、pending期间旧prefix继续release、成功后同controller队尾追加、重复controlled

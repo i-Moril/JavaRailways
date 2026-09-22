@@ -6,25 +6,21 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.util.annotation.MainThread
-import java.util.UUID
 
 /** Main-thread state of one physical infrastructure preparation attempt. */
 internal enum class InfrastructurePreparationState {
     PREPARING,
-    RESTORING,
     READY,
-    RESTORED,
+    ABORTED_SAFE,
     UNSAFE
 }
 
 /** Immutable observation of one infrastructure preparation ticket. */
 internal data class InfrastructurePreparationSnapshot(
-    val ticketId: String,
     val state: InfrastructurePreparationState,
     val detail: String = ""
 ) {
     init {
-        require(ticketId.isNotBlank()) { "ticketId must not be blank" }
         require(state != InfrastructurePreparationState.UNSAFE || detail.isNotBlank()) {
             "UNSAFE infrastructure preparation snapshots require detail"
         }
@@ -34,18 +30,16 @@ internal data class InfrastructurePreparationSnapshot(
 /**
  * Stable handle for one accepted, ordered infrastructure-preparation batch.
  *
- * [cancel] is idempotent and, while non-terminal, initiates restoration. It does not imply that
- * restoration has completed; callers must continue reading [snapshot] until RESTORED or UNSAFE.
- * Cancellation after READY, RESTORED, or UNSAFE is a no-op.
+ * [abort] is idempotent and asks the resource-owned implementation to reach its own safe aborted
+ * state. It does not prescribe restoration to a previous or default state. Callers continue reading
+ * [snapshot] until ABORTED_SAFE or UNSAFE. Aborting after READY or another terminal state is a no-op.
  */
 internal interface InfrastructurePreparationTicket {
-    val ticketId: String
-
     @MainThread
     fun snapshot(): InfrastructurePreparationSnapshot
 
     @MainThread
-    fun cancel()
+    fun abort()
 }
 
 /** Result of asking the physical actuator to begin one validated preparation batch. */
@@ -99,7 +93,6 @@ internal class LiveInfrastructurePreparationActuator(
         private val operations: List<SelectionOperation>,
         snapshots: LinkedHashMap<RailView, RailView?>
     ) : InfrastructurePreparationTicket {
-        override val ticketId: String = UUID.randomUUID().toString()
         private val previousSelections = snapshots.entries.map { it.key to it.value }
         private var state: InfrastructurePreparationState = InfrastructurePreparationState.PREPARING
         private var detail: String = ""
@@ -113,27 +106,32 @@ internal class LiveInfrastructurePreparationActuator(
                 }
                 state = InfrastructurePreparationState.READY
             } catch (applyFailure: Exception) {
-                restore("infrastructure preparation failed: ${failureDetail(applyFailure)}", applyFailure)
+                abortToPreviousSelection(
+                    "infrastructure preparation failed: ${failureDetail(applyFailure)}",
+                    applyFailure
+                )
             }
         }
 
         @MainThread
         override fun snapshot(): InfrastructurePreparationSnapshot =
-            InfrastructurePreparationSnapshot(ticketId, state, detail)
+            InfrastructurePreparationSnapshot(state, detail)
 
         @MainThread
-        override fun cancel() {
+        override fun abort() {
             when (state) {
-                InfrastructurePreparationState.PREPARING -> restore("infrastructure preparation was cancelled", null)
-                InfrastructurePreparationState.RESTORING,
+                InfrastructurePreparationState.PREPARING -> abortToPreviousSelection(
+                    "infrastructure preparation was safely aborted",
+                    null
+                )
                 InfrastructurePreparationState.READY,
-                InfrastructurePreparationState.RESTORED,
+                InfrastructurePreparationState.ABORTED_SAFE,
                 InfrastructurePreparationState.UNSAFE -> Unit
             }
         }
 
-        private fun restore(reason: String, primaryFailure: Exception?) {
-            state = InfrastructurePreparationState.RESTORING
+        /** Turnout-specific compensation; other resource handlers may choose another safe state. */
+        private fun abortToPreviousSelection(reason: String, primaryFailure: Exception?) {
             val rollbackFailures = mutableListOf<Exception>()
             previousSelections.asReversed().forEach { (view, previous) ->
                 try {
@@ -143,7 +141,7 @@ internal class LiveInfrastructurePreparationActuator(
                 }
             }
             if (rollbackFailures.isEmpty()) {
-                state = InfrastructurePreparationState.RESTORED
+                state = InfrastructurePreparationState.ABORTED_SAFE
                 detail = reason
             } else {
                 state = InfrastructurePreparationState.UNSAFE
@@ -151,7 +149,7 @@ internal class LiveInfrastructurePreparationActuator(
                     append(reason)
                     append("; ")
                     append(rollbackFailures.size)
-                    append(" preparation restoration(s) failed")
+                    append(" turnout compensation(s) failed")
                     primaryFailure?.let { append(" after ${failureDetail(it)}") }
                 }
             }

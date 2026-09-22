@@ -111,7 +111,7 @@ class LiveInfrastructurePreparationActuatorTest {
 
         val ticket = accepted(actuator.start(listOf(fixture.selection(fixture.stem, fixture.second))))
 
-        assertEquals(InfrastructurePreparationState.RESTORED, ticket.snapshot().state)
+        assertEquals(InfrastructurePreparationState.ABORTED_SAFE, ticket.snapshot().state)
         assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)
         assertEquals(null, fixture.second.viewBA.nextActiveRail)
     }
@@ -186,7 +186,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `terminal ticket cancellation is idempotent no-op`() {
+    fun `terminal ticket abort is idempotent no-op`() {
         val fixture = turnout()
         val ticket = accepted(
             LiveInfrastructurePreparationActuator(fixture.world).start(
@@ -194,8 +194,8 @@ class LiveInfrastructurePreparationActuatorTest {
             )
         )
 
-        ticket.cancel()
-        ticket.cancel()
+        ticket.abort()
+        ticket.abort()
 
         assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
         assertSame(fixture.second.viewAB, fixture.stem.viewAB.nextActiveRail)

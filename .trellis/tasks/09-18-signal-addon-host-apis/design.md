@@ -29,6 +29,7 @@ The exact type names may be refined during implementation, but the contract shou
 
 - `RailwayObservationService`: immutable, epoch-tagged world/train/topology observations after physics publication.
 - `RouteResourceService`: validate, atomically claim, confirm, inspect, and release routes containing rail intervals, turnout selections, route-bound crossings, and clearance obligations.
+- `RouteResourceProvider` SPI: let an external infrastructure add-on contribute resources and a forward-only clearance obligation for only its matched registered section or route binding, without exposing the registry, mutable train/world state, or recursive acquisition.
 - `TrainRestrictionService`: namespaced, revisioned movement-authority, stop, and speed constraints enforced by the active train protection/controller layer.
 - `InfrastructureLeaseService`: shared revisioned configuration leases and mutation guards for infrastructure referenced by applied operational plans.
 
@@ -55,6 +56,8 @@ A diamond resource binds anchors on two otherwise unchanged route edges to one e
 Release uses tail progress projected onto the same frozen route. Validation compiles one ordered entry per claimed resource at that resource's final claimed/conflict extent; a resource becomes eligible only when the tail reaches that fully compiled clear boundary, and only a contiguous queue prefix may shrink. The pure queue inspection does not pop entries: the grant owner drops the prefix only after atomic registry shrink succeeds. Tail-progress monotonicity, explicit clearance-margin source, administrative cancellation, and plugin-disable behavior remain separate grant-lifecycle work.
 
 No request may hold one region while waiting for a resource omitted from its original claim set. During the same route-validation pass, each protection-region traversal adds its selected-path resources and extends the minimum claim boundary beyond its exit using the authoritative train envelope. Validation continues through every later contributor reached before all obligations are satisfied; a region never queries its successor and SimpleATO never assembles a region-specific composite request. A cycle, route end, or inaccessible complete authority boundary fails before any claim. Deterministic request ordering/aging prevents starvation but does not preempt a live grant.
+
+The extensibility boundary sits in Basic rather than SimpleATO. Basic captures one immutable provider-catalog revision for validation and invokes only providers whose registered section or route binding is reached by the central closure scan. A provider sees an immutable train admission view and only its Basic-clipped local traversal; it returns registered resource identities, preparation intents and a forward-only minimum boundary. It cannot inspect the downstream provider catalog, acquire resources, alter the route, resubmit occupancy geometry or mutate the world. Basic obtains the complete occupancy geometry from the captured binding and folds all results into the same `CompiledRouteAdmission`, so adding a custom infrastructure rule does not require a SimpleATO change and does not create a second footprint.
 
 ## Applied-plan infrastructure leases
 

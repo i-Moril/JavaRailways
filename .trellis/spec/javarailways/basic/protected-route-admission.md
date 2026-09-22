@@ -3,14 +3,14 @@
 ## 1. 状态、范围、触发条件与Owner
 
 - **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation、route-bound非结构资源索引、单window资源收集和atomic turnout admission已存在，通用contributor closure、grant publication与release/recovery尚未实现。
-- **Owner**：Basic拥有固定闭塞与`ProtectionRegionDefinition`、统一`AuthoritySection` catalog、路线验证、唯一claim资源集合与执行机制；SimpleATO只拥有运营路径选择、信号策略和section消费；Core拥有结构拓扑和物理观察。
+- **Owner**：Basic拥有固定闭塞与`ProtectionRegionDefinition`、统一`AuthoritySection` catalog、路线验证、受控扩展provider边界、唯一claim资源集合与执行机制；SimpleATO只拥有运营路径选择、信号策略和section消费；Core拥有结构拓扑和物理观察。外部插件可以拥有自定义资源规则，但不能取得claim编排权。
 - **Non-goals**：本页不定义信号aspect、JS策略、玩家编辑UI或替SimpleATO选择运营路径。
 
 触发：实现或修改保护区域定义、自动/`MANUAL_ROUTED`进路准入、道岔/菱形交叉资源解析、出口净空、进路回滚、尾部释放或`TimetableDispatcher`迁移。
 
 本页定义Stage 1 host contract。固定闭塞和保护区域是Basic基础设施安全定义：Basic保存两者的current model，在一个world-local authority-partition catalog中校验方向、范围和互不重叠，并发布可供准入与观察使用的统一`AuthoritySection`视图。SimpleATOBukkit只通过Basic API提供玩家编辑、可视化和诊断；SimpleATO消费已验证section，并负责信号显示与闭塞运用策略。具体持久化格式尚未冻结，但领域ownership不能因编辑入口位于附属插件而转移。
 
-设计目标：一个玩家定义的保护区域通常覆盖一个完整咽喉。SimpleATO提交已选且绑定topology revision的route plan、列车身份、当前进度和期望authority boundary；Basic从同一观察解析列车实际占用包络，在一次验证中证明冻结路径与同一版本拓扑一致，并把沿途资源收集到唯一的`InfrastructureFootprint`。保护区域只增加本区域的路径资源、“尾部必须越过出口”的释放条件和出口后的最小净空前沿；它不查看下一个区域，SimpleATO也不按资源具体类型写特判。若完成当前净空前沿前又遇到固定闭塞、移动闭塞或另一个保护区域，同一次验证继续前进并把资源加入同一集合。活跃grant不被抢占；公平性由确定性排序与aging处理。
+设计目标：一个玩家定义的保护区域通常覆盖一个完整咽喉。SimpleATO提交已选且绑定topology revision的route plan、列车身份和期望authority boundary；Basic从同一观察解析列车实际占用包络与当前进度，在一次验证中证明冻结路径与同一版本拓扑一致，并把沿途资源收集到唯一的`InfrastructureFootprint`。保护区域只增加本区域的路径资源、“尾部必须越过出口”的释放条件和出口后的最小净空前沿；它不查看下一个区域，SimpleATO也不按资源具体类型写特判。若完成当前净空前沿前又遇到固定闭塞、移动闭塞或另一个保护区域，同一次验证继续前进并把资源加入同一集合。活跃grant不被抢占；公平性由确定性排序与aging处理。
 
 ## 2. 模块工作方式
 
@@ -19,7 +19,8 @@ Basic definition store publishes boundary definition for topology revision T
   -> catalog resolves and caches one interior component for (T, regionRevision)
   -> SimpleATO submits one topology-bound frozen route + desired authority boundary
   -> Basic resolves the authoritative train envelope from the same observation
-  -> Basic validates the route once while collecting resources and clearance obligations
+  -> Basic captures one provider-catalog revision
+  -> Basic validates the route once while collecting built-in and provider resources/obligations
   -> validation ends at a valid authority endpoint satisfying every obligation
   -> one transaction checks authoritative occupancy geometry
   -> that transaction claims the one resource set and applies all selections
@@ -74,6 +75,10 @@ return one validated claim only after the full loop succeeds
 ```
 
 `AuthoritySection`与`RouteResourceContributor`是两种独立capability：前者提供信号/ATO使用的区间观察和固定区间边界，后者在路线验证时向同一个claim集合增加资源和净空义务。保护区域通常同时实现两者；普通固定闭塞至少实现前者，只有确实需要预先锁定资源时才实现后者。移动闭塞territory则按route interval判断精确authority endpoint。调用方按capability消费，不能用`if (resource is ProtectionRegion)`分支复制规则。
+
+`RouteResourceContributor`仍是Basic编译器内部能力；外部扩展通过受限的`RouteResourceProvider` SPI注册稳定provider identity、revision及其route-bound/section bindings。Basic只在单调扫描实际到达已注册binding时调用对应provider，不向所有provider广播每次申请。provider收到的是同一epoch的不可变列车准入视图，以及Basic已经裁剪到该provider所属section/binding的局部有向traversal；它不获得后续资源catalog、claim service、mutable train或world对象。保护区域的内置contributor同样只能根据本区域出口、局部选定路径和列车占用长度返回本区域资源与`minimumClaimUntil`，不能查找下一区域；这不把Basic拥有的保护区域定义转交给外部SPI。
+
+provider返回标准化contribution：已注册binding的稳定资源identity、只能向前推进的最小claim前沿，以及需要由已注册handler执行的preparation intent。它不能调用registry、递归申请资源、改变冻结路线、缩短已有前沿或直接修改世界。Basic校验provider namespace与revision；资源与preparation必须引用捕获快照中该provider已注册的binding，且每项preparation必须引用本次唯一claim集合中的资源。Basic始终从binding snapshot取得并校验完整occupancy geometry；provider不能在请求时另交一份anchors，从而省略未选支路或共享冲突的另一侧。`minimumClaimUntil`则必须是当前冻结route上不早于局部traversal终点的前向boundary；它可以位于binding之后，否则无法表达“出口后再容纳完整列车”。通过后Basic才把结果适配为内部`RouteResourceContributor`输出。对外SPI不是第二份caller footprint，最终仍只有`CompiledRouteAdmission.resources`被registry消费。
 
 出口后的前沿由同一次route validation而非region解释。若前沿落入普通固定闭塞，必须把该闭塞的整个不可分割区间加入资源集合；一段仍不足时继续加入后续整段，最终authority不能早于最后一个已获取区间的出口。若前沿落入移动闭塞范围，则按冻结route加入精确到前沿的interval，并要求有效MA不早于该前沿。若途中进入另一保护区域，则加入其资源和新的净空义务。三种情况共享同一owner与一次原子claim，但保留各自的资源粒度和释放规则；这不是获取整条运营路线。
 
@@ -286,6 +291,26 @@ data class RouteResourceRequest(
     val desiredAuthorityBoundary: RouteBoundaryRef
 )
 
+// TARGET capability shape; concrete public value-type names remain an API-batch decision.
+interface RouteResourceProvider {
+    val providerId: String
+    val revision: Long
+    fun contribute(context: RouteResourceContributionContext): RouteResourceContribution
+}
+
+data class RouteResourceContributionContext(
+    val observationStamp: RailwayStateStamp,
+    val train: TrainAdmissionView,
+    // Basic-clipped traversal of only this provider's matched section/binding.
+    val traversal: RouteContributorTraversal
+)
+
+data class RouteResourceContribution(
+    val resources: List<InfrastructureResource>,
+    val minimumClaimUntil: RouteBoundaryRef?,
+    val preparationIntents: List<RouteResourcePreparationIntent>
+)
+
 internal data class RouteBoundResourceBinding(
     val resource: StableInfrastructureResource,
     // canonical AB metres, positive length, no direction meaning
@@ -337,7 +362,7 @@ Basic service是world-local，因此platform-neutral request不重复携带world
 
 上述签名仍是概念shape：最终API必须让`RoutePlanRef`解析为绑定一个topology revision的冻结traversal。公开请求只描述路线选择和目标，不增加第二份resource intent。`CompiledRouteAdmission.resources`是准入事务唯一消费的资源集合；preparations和tail-release entries是操作/生命周期元数据，不是其他资源集合。调用方提供`trainId`，Basic从`observationStamp`对应的authoritative observation临时解析长度、方向和occupied intervals，不相信调用方自由填写的列车长度。
 
-`RouteResourceContributor`是Basic内部验证能力，不定义另一种footprint。它只能向当前验证过程增加标准`InfrastructureResource`、延长`claimUntil`并附加操作/释放元数据。资源绑定提供的physical occupancy geometry仅用于查询authoritative occupancy；它不进入request、claim identity或持久化模型。
+`RouteResourceContributor`是Basic内部验证能力，不定义另一种footprint。内置规则直接实现该能力；外部`RouteResourceProvider`的不可变返回值先由Basic校验和适配，再进入同一内部流程。两者都只能向当前验证过程增加标准`InfrastructureResource`、延长`claimUntil`并附加操作/释放元数据。资源绑定提供的physical occupancy geometry仅用于查询authoritative occupancy；它不进入request、claim identity或持久化模型。外部SPI的具体Java类型名、provider registration facade和preparation-handler类型仍未冻结，上述代码是目标capability shape，不是当前可调用API。
 
 当前过渡API的唯一拓扑绑定也遵守同一规则：`RouteSnapshot.topologyRevision`是路径选择时捕获的
 版本，`RouteSnapshot.revision`是路径本身的版本。projector直接比较前者与传入`TopologyState.revision`；
@@ -452,6 +477,8 @@ registry不提供受保护进路的整份claim replace；初次acquire rollback�
 
 provider/plugin disable只停止新grant并使相关自动authority fail closed。已进入或可能进入的live claim转为host-owned recovery state，直到authoritative occupancy证明尾部清除；未进入的grant也只能由host在确认没有列车越过entry后取消。world unload期间没有运动，reload必须先恢复/重建claim与限制，再允许新departure或编辑。
 
+一次validation开始时必须捕获一个不可变provider-catalog snapshot及其revision，并在claim前再次确认currentness。provider注册、解绑或binding更新只能原子发布新snapshot；不能让一次closure前半段使用旧provider、后半段使用新provider。provider回调是准入owner上的有界纯计算，不得阻塞等待I/O、scheduler或world thread，也不能保留context留待异步读取。provider回调抛错、返回越界位置/未知资源、在调用期间改变revision或在准备完成前卸载时，Basic拒绝新authority并fail closed；已经提交的claim及编译完成的释放元数据转由host生命周期持有，不能依赖provider仍在线才能安全释放。provider回调本身始终无side effect；如果contribution包含preparation intent，只有Basic在原子claim成功后才能调度独立注册的设备handler。
+
 ## 6. 校验与错误矩阵
 
 | 条件 | 结果 | selection/claim/authority |
@@ -470,6 +497,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 | topology revision不匹配或解析中变化 | `STALE_TOPOLOGY` | 全不变 |
 | request train不在完全匹配的observation中 | `INVALID_REQUEST` | 全不变；不得查询其他epoch或live train |
 | region不存在、revision不匹配或definition未针对当前topology验证 | `STALE_REGION` | 全不变；等region/topology事件，不逐tick重试 |
+| provider snapshot过期、provider回调异常或返回越界/未知资源 | provider/configuration failure | 全不变；不忽略该contribution，也不退化到无扩展规则继续授权 |
 | entry/exit方向错误、路径离开内部后重入、同一occurrence重复贡献 | `INVALID_ROUTE` | 全不变 |
 | closure到route末端仍未满足净空、找不到合法authority endpoint或检测到循环 | `INSUFFICIENT_EXIT_CLEARANCE` / `CYCLIC_RESOURCE_DEPENDENCY` | 全不变 |
 | 任一physical locking interval被列车占用 | `PHYSICALLY_OCCUPIED` | 全不变；返回train IDs |
@@ -496,12 +524,14 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - occupancy query geometry对本次收集到的`i`个interval执行按rail分组、排序及线性合并，最坏为`O(i log i)`；route-bound resource直接复用同一catalog snapshot的完整anchors，道岔端点直接投影自同一`TopologyState`，不得为补全geometry做live rail或全catalog扫描。
 - unchanged stale region/topology是配置事件驱动的拒绝，不逐tick重算；资源冲突才按明确调度策略重试。
 - candidate/occupancy索引报告不完整、provider异常或revision变化时fail closed，不退化到live图扫描并继续授权。
+- provider lookup使用按rail/section binding建立的反向索引；只调用本次closure实际命中的provider，成本计入`bound resources`。同一`(providerId, resourceId, traversal occurrence)`至多求值一次，不允许每个provider重新扫描完整route，也不在每tick无请求时执行provider回调。provider回调不得通过阻塞I/O、异步回调或平台调度器把这个有界计算变成不可预测的长操作。
 
 ## 8. Good / Base / Bad cases
 
 - Good：玩家用一个region覆盖完整车站咽喉；两条路径没有共享rail/conflict node，因此不争用region ID并可并行grant。
 - Good：复杂咽喉内两条路径没有共享rail/conflict node；虽然属于同一保护区域，两者不争用region ID，可以并行grant。
 - Good：区域A出口后的净空穿过区域B入口；同一次validation把B的资源加入同一claim并延长minimum，A和B互不查询对方。
+- Good：外部平交道口provider只在路线命中自己的binding时读取局部traversal和列车长度，返回共享资源及准备要求；SimpleATO和保护区域均无需认识平交道口类型。
 - Good：两条不相连rail各有一个diamond anchor；任一方向经过任一anchor都向同一claim集合加入相同resource identity，但topology仍不存在跨线continuation。
 - Base：直线route没有controlled resource且不进入保护区域，返回`NOT_REQUIRED`，SimpleATO不存在时仍可手动驾驶。
 - Base：当前topology root的complete empty catalog查询得到零命中；这与catalog尚未构建不同。
@@ -510,6 +540,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - Bad：用最新topology搭配上一physics epoch的occupancy；返回`STALE_OBSERVATION`，不得自行拼接快照。
 - Bad：resource catalog过期时把它当empty继续授权；必须拒绝并等待同一root的完整snapshot。
 - Bad：插件disable回调直接释放一列尚在咽喉内列车的claim；必须转host recovery并保持限制。
+- Bad：保护区域拿到完整resource catalog并自行搜索出口后的闭塞/区域；它只能返回本区域贡献和最小前沿，后续发现属于Basic中央closure。
 
 ## 9. 必需测试及断言点
 
@@ -517,6 +548,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 - route validator/projector tests：零/一/多turnout、route-bound diamond resource、正反向stable identity、BA canonical转换、零长度segment的deterministic方向、already-aligned turnout、非法continuation、断裂route、resource index缺失、route离开/重入和重复occurrence。
 - route-bound catalog tests：complete empty与unavailable区分、同root publication、旧root拒绝、invalid anchor保留旧snapshot、同rail二分边界、AB/BA命中相同diamond identity、两侧anchor命中同一identity、相邻occurrence合并及离开后重入拒绝。
 - closure tests：精确最小列车长度、短1个容差单位、断开route、出口后固定闭塞整段提升、出口后移动闭塞精确interval/MA下限、连续两个保护区域、贡献链扩展、合法authority endpoint选择与循环检测；断言每个occurrence至多处理一次且失败不产生claim。
+- provider SPI tests：只调用route实际命中的provider；传入同epoch不可变train view和裁剪后的局部traversal；多个provider贡献进入同一footprint；越界前沿、未知/跨namespace资源、异常、revision切换和disable均fail closed且无partial claim；provider不能通过公开类型取得registry或mutable world。
 - epoch tests：physics epoch、topology revision、region revision任一stale均fail closed；解析前后revision变化不穿透。
 - route binding tests：route revision与topology revision可取不同值；projector只从route字段拒绝stale topology，request没有第二个可冲突的revision。
 - turnout identity tests：正反向及无结构变化的topology rebuild得到同一resource；revision-local node ID不同也不改变resource identity。
@@ -534,7 +566,7 @@ provider/plugin disable只停止新grant并使相关自动authority fail closed�
 迁移按`TopologyState region cache -> topology-bound frozen route -> single-pass route validation/resource collection -> atomic admission -> tail release/recovery -> caller migration`推进。前一层合同测试通过前不得开放后一层public service。
 
 实现前仍需冻结`RoutePlanRef`完整字段、edge/slice边界语义、clearance margin来源、closure终点boundary引用、grant的
-持久化/恢复边界、provider disable后的可观察状态，以及extension public API名称、字段和typed failure。
+持久化/恢复边界、provider registration/preparation-handler的具体公开类型、provider disable后的可观察状态，以及extension public API名称、字段和typed failure。
 不会引入caller-supplied第二资源DTO或physical footprint。diamond stable ID来源、几何检测owner和持久化格式留到
 placement/update批次，必须在新增持久化边界前单独审查；runtime catalog实现不得先发明兼容路径。通用contributor、
 单调closure、same-route/delta-only append、authoritative train observation和无partial mutation已经冻结。
@@ -565,6 +597,12 @@ Correct: Basic catalog binds two rail anchors to one stable conflict resource; c
 
 Wrong: stale or missing catalog == empty catalog
 Correct: only Complete(snapshotForExactTopologyRoot, emptyBindings) means there are no bindings
+
+Wrong: protectionRegion.findResourcesAfterExit(route, train).acquireRecursively()
+Correct: protectionRegion contributes local resources plus minimumClaimUntil; Basic alone scans farther and atomically claims the closure
+
+Wrong: SimpleATO knows every custom resource type and constructs their resource list
+Correct: SimpleATO submits route intent; Basic invokes only matched built-in/external providers and validates one final claim set
 ```
 
 这里的原子性是对外行为合同：失败时不会发布grant或扩大authority。只有无side effect的start拒绝或handler明确报告`ABORTED_SAFE`时才撤销新claim；物理状态不确定时系统保留资源并Stall，而不是虚构补偿成功。

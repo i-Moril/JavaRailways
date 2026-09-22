@@ -115,6 +115,7 @@
 - [x] Add atomic shared infrastructure leases plus one edit-permit/diagnostic service covering applied-plan leases and live route claims.
 - [x] Add direction-aware boundary, bounded-region, frozen route-window and exit-clearance public contracts.
 - [ ] Replace the transitional single-window seam with a generic `RouteResourceRequest`/contributor closure; add typed `PROTECTION_REQUIRED` and provide no raw planned-section automatic overload.
+  - [x] Freeze the provider boundary: external add-ons receive one immutable same-epoch train view and only their matched local traversal, return standard forward-only contributions, and never access the registry/downstream catalog or mutate the world; Basic alone performs closure and the single atomic claim.
 - [ ] Add Basic-owned fixed-block definitions and merge them with protection regions in one revisioned authority-partition catalog, with atomic overlap validation and common traversal-scoped snapshots.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.
 - [ ] Remove turnout-derived protection-point synthesis from route compilation and reject automatic mission activation when any controlled resource lacks complete explicit region coverage.

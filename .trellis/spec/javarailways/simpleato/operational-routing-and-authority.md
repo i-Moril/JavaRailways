@@ -27,6 +27,8 @@ coherent Core observation + TopologyState(revision)
 
 SimpleATO 决定“列车准备走哪条路”，Basic 只证明“这条路在当前物理拓扑上是否合法且资源能否安全取得”。Basic 拒绝后 SimpleATO 可以在新的 observation/overlay revision 上重算，但 Basic 不替它换路；SimpleATO 也不得通过第二份 caller-authored resource list 指挥 Basic 跳过资源发现。
 
+SimpleATO不识别保护区域、菱形交叉或外部插件资源的具体申请规则。Basic的中央closure扫描调用内置贡献逻辑和受控外部provider，并把结果合入同一claim；新增provider不得要求SimpleATO增加资源类型分支。SimpleATO仍可根据公开`AuthoritySection`观察和最终grant编写信号/运营策略，但不能复制provider规则来预计算footprint。
+
 没有 SimpleATO 时，不产生自动受保护进路。Basic 可以保留经过物理锁和 active-claim 检查的显式手动道岔操作，但该操作不产生 movement authority。
 
 ## 3. 内部机制与关键算法
@@ -99,7 +101,6 @@ data class AutomaticRouteIntent(
     val trainId: UUID,
     val observation: ObservationStamp,
     val route: FrozenOperationalRoute,
-    val progress: RouteProgressRef,
     val desiredAuthorityBoundary: RouteBoundaryRef
 )
 ```

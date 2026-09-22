@@ -68,7 +68,7 @@ data class ProtectedRouteWindow(
 }
 
 /**
- * Immutable all-or-nothing request for at most one throat protection region on one frozen path.
+ * Transitional all-or-nothing request for one caller-authored protection window on one frozen path.
  *
  * [observationStamp] identifies the exact coherent world/physics observation from which the caller
  * selected [trainId] and [route]. The route's topology revision must equal the stamp's topology
@@ -81,8 +81,10 @@ data class ProtectedRouteWindow(
  * operating boundary rather than carrying a caller-owned coordinate across route versions.
  *
  * A null [window] is valid only when authoritative validation confirms that [route] traverses no
- * controlled resource. A route that cannot safely wait before another throat must use one larger
- * authored protection region; runtime requests never combine multiple regions.
+ * controlled resource. This single-window shape is not the target public admission contract: the
+ * target request carries a desired authority boundary, and Basic performs one central contributor
+ * closure that may include multiple regions when an earlier tail-clear obligation reaches them.
+ * No region inspects its successor and no caller supplies a hand-built composite resource set.
  */
 data class ProtectedRouteRequest(
     val requestId: String,

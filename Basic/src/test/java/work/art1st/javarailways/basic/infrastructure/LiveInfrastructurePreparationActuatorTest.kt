@@ -66,22 +66,47 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `multiple turnouts are aligned by one immediate batch`() {
-        val world = world()
-        val firstTurnout = turnout(world, 0.0)
-        val secondTurnout = turnout(world, 100.0)
-        firstTurnout.stem.viewAB.selectNextRail(firstTurnout.first.viewAB)
-        secondTurnout.stem.viewAB.selectNextRail(secondTurnout.first.viewAB)
-        val actuator = LiveInfrastructurePreparationActuator(world)
+    fun `connected route aligns both turnouts in one immediate batch`() {
+        val fixture = connectedTwoTurnoutRoute()
+        fixture.entry.viewAB.selectNextRail(fixture.firstBranch.viewAB)
+        fixture.firstBranch.viewBA.selectNextRail(fixture.entry.viewBA)
+        fixture.middle.viewAB.selectNextRail(fixture.secondBranch.viewAB)
+        fixture.secondBranch.viewBA.selectNextRail(fixture.middle.viewBA)
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world)
 
         val ticket = accepted(actuator.start(listOf(
-            firstTurnout.selection(firstTurnout.stem, firstTurnout.second),
-            secondTurnout.selection(secondTurnout.stem, secondTurnout.second)
+            fixture.firstSelection(),
+            fixture.secondSelection()
         )))
 
         assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
-        assertSame(firstTurnout.second.viewAB, firstTurnout.stem.viewAB.nextActiveRail)
-        assertSame(secondTurnout.second.viewAB, secondTurnout.stem.viewAB.nextActiveRail)
+        assertSame(fixture.middle.viewAB, fixture.entry.viewAB.nextActiveRail)
+        assertSame(fixture.entry.viewBA, fixture.middle.viewBA.nextActiveRail)
+        assertSame(fixture.exit.viewAB, fixture.middle.viewAB.nextActiveRail)
+        assertSame(fixture.middle.viewBA, fixture.exit.viewBA.nextActiveRail)
+    }
+
+    @Test
+    fun `invalid second turnout rejects connected batch before first turnout changes`() {
+        val fixture = connectedTwoTurnoutRoute()
+        fixture.entry.viewAB.selectNextRail(fixture.firstBranch.viewAB)
+        fixture.firstBranch.viewBA.selectNextRail(fixture.entry.viewBA)
+        fixture.middle.viewAB.selectNextRail(fixture.secondBranch.viewAB)
+        fixture.secondBranch.viewBA.selectNextRail(fixture.middle.viewBA)
+        val missingSecondPort = fixture.secondSelection().copy(
+            toPort = RailEndpointRef(java.util.UUID.randomUUID(), RailEndpoint.A)
+        )
+
+        val result = LiveInfrastructurePreparationActuator(fixture.world).start(listOf(
+            fixture.firstSelection(),
+            missingSecondPort
+        ))
+
+        assertTrue(result is InfrastructurePreparationStart.Rejected)
+        assertSame(fixture.firstBranch.viewAB, fixture.entry.viewAB.nextActiveRail)
+        assertSame(fixture.entry.viewBA, fixture.firstBranch.viewBA.nextActiveRail)
+        assertSame(fixture.secondBranch.viewAB, fixture.middle.viewAB.nextActiveRail)
+        assertSame(fixture.middle.viewBA, fixture.secondBranch.viewBA.nextActiveRail)
     }
 
     @Test
@@ -138,6 +163,20 @@ class LiveInfrastructurePreparationActuatorTest {
 
     private fun turnout(): Fixture = turnout(world(), 0.0)
 
+    private fun connectedTwoTurnoutRoute(): ConnectedTwoTurnoutFixture {
+        val world = world()
+        val entry = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
+        val middle = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
+        val firstBranch = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 5.0))
+        val exit = rail(world, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0))
+        val secondBranch = rail(world, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0))
+        CoreRail.connect(entry, middle)
+        CoreRail.connect(entry, firstBranch)
+        CoreRail.connect(middle, exit)
+        CoreRail.connect(middle, secondBranch)
+        return ConnectedTwoTurnoutFixture(world, entry, middle, firstBranch, exit, secondBranch)
+    }
+
     private fun turnout(world: CoreWorld, offset: Double): Fixture {
         val stem = rail(world, Vector3d(offset - 10.0, 0.0, 0.0), Vector3d(offset, 0.0, 0.0))
         val first = rail(world, Vector3d(offset, 0.0, 0.0), Vector3d(offset + 10.0, 0.0, -5.0))
@@ -192,5 +231,34 @@ class LiveInfrastructurePreparationActuatorTest {
                 10.0
             )
         }
+    }
+
+    private data class ConnectedTwoTurnoutFixture(
+        val world: CoreWorld,
+        val entry: CoreRail,
+        val middle: CoreRail,
+        val firstBranch: CoreRail,
+        val exit: CoreRail,
+        val secondBranch: CoreRail
+    ) {
+        fun firstSelection() = selection(entry, middle, firstBranch, 10.0)
+
+        fun secondSelection() = selection(middle, exit, secondBranch, 20.0)
+
+        private fun selection(
+            stem: CoreRail,
+            selected: CoreRail,
+            branch: CoreRail,
+            routeDistanceMeters: Double
+        ) = ResolvedTurnoutSelection(
+            TurnoutResourceIdentity.fromPorts(listOf(
+                RailEndpointRef(stem.id, RailEndpoint.B),
+                RailEndpointRef(selected.id, RailEndpoint.A),
+                RailEndpointRef(branch.id, RailEndpoint.A)
+            )),
+            RailEndpointRef(stem.id, RailEndpoint.B),
+            RailEndpointRef(selected.id, RailEndpoint.A),
+            routeDistanceMeters
+        )
     }
 }

@@ -335,9 +335,56 @@ class ProtectedRouteRequestValidatorTest {
             validated.admission.turnoutPreparations.map { it.fromPort to it.toPort }
         )
         assertEquals(listOf(10.0, 30.0), validated.admission.turnoutPreparations.map { it.routeDistanceMeters })
+        val turnoutResources = validated.admission.turnoutPreparations
+            .map(ResolvedTurnoutSelection::resource)
+        val firstTurnout = TurnoutResourceIdentity.fromPorts(listOf(
+            endpoint(firstTrunk, RailEndpoint.B),
+            endpoint(middle, RailEndpoint.A),
+            endpoint(firstBranch, RailEndpoint.A)
+        ))
+        val secondTurnout = TurnoutResourceIdentity.fromPorts(listOf(
+            endpoint(secondTrunk, RailEndpoint.B),
+            endpoint(east, RailEndpoint.A),
+            endpoint(secondBranch, RailEndpoint.A)
+        ))
+        assertEquals(listOf(firstTurnout, secondTurnout), turnoutResources)
         assertEquals(
-            validated.admission.turnoutPreparations.map(ResolvedTurnoutSelection::resource).toSet(),
+            setOf(firstTurnout, secondTurnout),
             validated.admission.resources.resources.filterIsInstance<StableInfrastructureResource>().toSet()
+        )
+        assertEquals(
+            setOf(
+                RailIntervalResource(firstTrunk, 5.0, 10.0),
+                RailIntervalResource(middle, 0.0, 10.0),
+                RailIntervalResource(secondTrunk, 0.0, 10.0),
+                RailIntervalResource(east, 0.0, 10.0),
+                RailIntervalResource(clearance, 0.0, 5.0)
+            ) + setOf(firstTurnout, secondTurnout),
+            validated.admission.resources.resources.toSet()
+        )
+        assertEquals(
+            listOf(
+                RailInterval(firstTrunk, 5.0, 10.0),
+                RailInterval(middle, 0.0, 10.0),
+                RailInterval(firstBranch, 0.0, 0.0),
+                RailInterval(secondTrunk, 0.0, 10.0),
+                RailInterval(east, 0.0, 10.0),
+                RailInterval(secondBranch, 0.0, 0.0),
+                RailInterval(clearance, 0.0, 5.0)
+            ),
+            validated.admission.occupancyGeometry.intervals
+        )
+        assertEquals(
+            listOf(
+                ResolvedTailReleaseEntry(RailIntervalResource(firstTrunk, 5.0, 10.0), 10.0),
+                ResolvedTailReleaseEntry(firstTurnout, 10.0),
+                ResolvedTailReleaseEntry(RailIntervalResource(middle, 0.0, 10.0), 20.0),
+                ResolvedTailReleaseEntry(RailIntervalResource(secondTrunk, 0.0, 10.0), 30.0),
+                ResolvedTailReleaseEntry(secondTurnout, 30.0),
+                ResolvedTailReleaseEntry(RailIntervalResource(east, 0.0, 10.0), 40.0),
+                ResolvedTailReleaseEntry(RailIntervalResource(clearance, 0.0, 5.0), 45.0)
+            ),
+            validated.admission.tailReleaseEntries
         )
     }
 

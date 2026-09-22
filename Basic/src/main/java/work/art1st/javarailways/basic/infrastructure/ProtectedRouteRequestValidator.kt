@@ -62,11 +62,116 @@ internal class ProtectedRouteRequestValidator(
             }
         }
 
+        return compileRange(
+            resolved = resolved,
+            startRouteMeters = window.entry.routeDistanceMeters,
+            endRouteMeters = queryEnd,
+            routeBoundHits = routeBoundHits,
+            previouslyCommittedControlledResources = emptySet(),
+            controlledScanStartMeters = 0.0,
+            excludeStartTurnout = false,
+            retainedProgressPath = null
+        )
+    }
+
+    fun compileExtension(
+        context: ProtectedRouteExtensionContext,
+        request: ProtectedRouteExtensionRequest
+    ): ProtectedRouteExtensionValidation {
+        if (request.route != context.projection.route) {
+            return ProtectedRouteExtensionValidation.Rejected(
+                ProtectedRouteClaimStatus.INVALID_REQUEST,
+                "rolling extension must retain the exact frozen route"
+            )
+        }
+        val window = request.window
+        val nextFrontier = window.exitClearance.clearUntil.routeDistanceMeters
+        if (nextFrontier <= context.authorityFrontierMeters + Curve.TOLERANCE) {
+            return ProtectedRouteExtensionValidation.Rejected(
+                ProtectedRouteClaimStatus.INVALID_REQUEST,
+                "rolling extension boundary must be strictly beyond the committed authority frontier"
+            )
+        }
+        val resolved = when (val result = catalog.resolveWindow(context.projection, window)) {
+            is ProtectionRegionWindowResolution.Resolved -> result
+            is ProtectionRegionWindowResolution.Rejected -> return ProtectedRouteExtensionValidation.Rejected(
+                if (result.reason == ProtectionRegionWindowRejection.STALE_TOPOLOGY) {
+                    ProtectedRouteClaimStatus.STALE_TOPOLOGY
+                } else {
+                    ProtectedRouteClaimStatus.INVALID_REQUEST
+                },
+                result.detail
+            )
+        }
+        val hits = when (
+            val queried = routeBoundResources.query(
+                context.projection,
+                context.authorityFrontierMeters,
+                nextFrontier,
+                context.frontierOccurrenceIndex
+            )
+        ) {
+            is RouteBoundResourceQuery.Complete -> queried.hits
+            is RouteBoundResourceQuery.Unavailable -> return extensionStale(queried.detail)
+            is RouteBoundResourceQuery.StaleTopology -> return extensionStale(queried.detail)
+            is RouteBoundResourceQuery.InvalidRoute -> return ProtectedRouteExtensionValidation.Rejected(
+                ProtectedRouteClaimStatus.INVALID_REQUEST,
+                queried.detail
+            )
+        }
+        return when (
+            val compiled = compileRange(
+                resolved,
+                context.authorityFrontierMeters,
+                nextFrontier,
+                hits,
+                context.committedControlledResources,
+                controlledScanStartMeters = context.authorityFrontierMeters,
+                excludeStartTurnout = true,
+                retainedProgressPath = context.routeProgressPath
+            )
+        ) {
+            is ProtectedRouteValidation.Rejected -> ProtectedRouteExtensionValidation.Rejected(
+                compiled.status,
+                compiled.detail
+            )
+            ProtectedRouteValidation.NotRequired -> error("non-empty extension range cannot be not required")
+            is ProtectedRouteValidation.Validated -> ProtectedRouteExtensionValidation.Validated(
+                compiled.admission,
+                ProtectedRouteExtensionContext(
+                    context.projection,
+                    nextFrontier,
+                    context.committedControlledResources + compiled.admission.resources.resources
+                        .filterIsInstance<StableInfrastructureResource>(),
+                    context.routeProgressPath,
+                    occurrenceIndexAt(context.projection.occurrences, nextFrontier)
+                )
+            )
+        }
+    }
+
+    private fun compileRange(
+        resolved: ProtectionRegionWindowResolution.Resolved,
+        startRouteMeters: Double,
+        endRouteMeters: Double,
+        routeBoundHits: List<RouteBoundResourceHit>,
+        previouslyCommittedControlledResources: Set<StableInfrastructureResource>,
+        controlledScanStartMeters: Double,
+        excludeStartTurnout: Boolean,
+        retainedProgressPath: CompiledRouteProgressPath?
+    ): ProtectedRouteValidation {
+        val window = checkNotNull(resolved.window?.request)
+
         val entry = window.entry.routeDistanceMeters
         val exit = window.exit.routeDistanceMeters
-        val clearUntil = window.exitClearance.clearUntil.routeDistanceMeters
+        val clearUntil = endRouteMeters
         val relevantTurnouts = resolved.projection.turnoutTraversals.filter { traversal ->
-            traversal.routeDistanceMeters <= clearUntil + Curve.TOLERANCE
+            (if (excludeStartTurnout) {
+                traversal.routeDistanceMeters > controlledScanStartMeters + Curve.TOLERANCE
+            } else {
+                traversal.routeDistanceMeters >= controlledScanStartMeters - Curve.TOLERANCE
+            }) &&
+                traversal.routeDistanceMeters <= clearUntil + Curve.TOLERANCE
         }
         val unprotected = relevantTurnouts.firstOrNull { traversal ->
             traversal.routeDistanceMeters < entry - Curve.TOLERANCE ||
@@ -97,10 +202,22 @@ internal class ProtectedRouteRequestValidator(
                 "protected route traverses the same turnout resource more than once"
             )
         }
-        val selectedRouteIntervals = routeIntervals(resolved.projection.occurrences, entry, clearUntil)
+        val controlledResources = turnoutResources + routeBoundHits.map(RouteBoundResourceHit::resource)
+        val repeatedControlled = controlledResources.firstOrNull { it in previouslyCommittedControlledResources }
+        if (repeatedControlled != null) {
+            return ProtectedRouteValidation.Rejected(
+                ProtectedRouteClaimStatus.INVALID_REQUEST,
+                "rolling extension repeats controlled resource ${repeatedControlled.resourceId}"
+            )
+        }
+        val selectedRouteIntervals = routeIntervals(
+            resolved.projection.occurrences,
+            startRouteMeters,
+            clearUntil
+        )
         val resources = ArrayList<InfrastructureResource>()
         resources += selectedRouteIntervals
-        resources += (turnoutResources + routeBoundHits.map(RouteBoundResourceHit::resource))
+        resources += controlledResources
             .distinct()
             .sortedWith(
                 compareBy(
@@ -122,18 +239,27 @@ internal class ProtectedRouteRequestValidator(
         val tailReleaseEntries = tailReleaseEntries(
             footprint = footprint,
             occurrences = resolved.projection.occurrences,
-            entryRouteMeters = entry,
+            entryRouteMeters = startRouteMeters,
             clearUntilRouteMeters = clearUntil,
             turnouts = relevantTurnouts,
             routeBoundHits = routeBoundHits
         )
-        return ProtectedRouteValidation.Validated(
-            CompiledRouteAdmission.create(
+        val progressPath = retainedProgressPath ?: CompiledRouteProgressPath.compile(resolved.projection)
+        val admission = CompiledRouteAdmission.create(
                 footprint,
                 preparations,
                 occupancyGeometry,
                 tailReleaseEntries,
-                CompiledRouteProgressPath.compile(resolved.projection)
+                progressPath
+            )
+        return ProtectedRouteValidation.Validated(
+            admission,
+            ProtectedRouteExtensionContext(
+                resolved.projection,
+                clearUntil,
+                controlledResources.toSet(),
+                progressPath,
+                occurrenceIndexAt(resolved.projection.occurrences, clearUntil)
             )
         )
     }
@@ -332,12 +458,55 @@ internal class ProtectedRouteRequestValidator(
         ProtectedRouteClaimStatus.STALE_TOPOLOGY,
         detail
     )
+
+    private fun extensionStale(detail: String) = ProtectedRouteExtensionValidation.Rejected(
+        ProtectedRouteClaimStatus.STALE_TOPOLOGY,
+        detail
+    )
+
+    private fun occurrenceIndexAt(
+        occurrences: List<ProjectedRouteOccurrence>,
+        routeMeters: Double
+    ): Int = occurrences.indexOfFirst { it.routeEndMeters >= routeMeters - Curve.TOLERANCE }
+        .takeIf { it >= 0 } ?: occurrences.lastIndex
+}
+
+internal data class ProtectedRouteExtensionRequest(
+    val requestId: String,
+    val owner: work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner,
+    val trainId: String,
+    val observationStamp: work.art1st.javarailways.basic.api.observation.RailwayStateStamp,
+    val route: work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot,
+    val window: work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
+)
+
+internal data class ProtectedRouteExtensionContext(
+    val projection: ProjectedTopologyRoute,
+    val authorityFrontierMeters: Double,
+    val committedControlledResources: Set<StableInfrastructureResource>,
+    val routeProgressPath: CompiledRouteProgressPath,
+    val frontierOccurrenceIndex: Int
+)
+
+internal sealed interface ProtectedRouteExtensionValidation {
+    data class Validated(
+        val admission: CompiledRouteAdmission,
+        val nextContext: ProtectedRouteExtensionContext
+    ) : ProtectedRouteExtensionValidation
+
+    data class Rejected(
+        val status: ProtectedRouteClaimStatus,
+        val detail: String
+    ) : ProtectedRouteExtensionValidation
 }
 
 internal sealed interface ProtectedRouteValidation {
     data object NotRequired : ProtectedRouteValidation
 
-    data class Validated(val admission: CompiledRouteAdmission) : ProtectedRouteValidation
+    data class Validated(
+        val admission: CompiledRouteAdmission,
+        val extensionContext: ProtectedRouteExtensionContext? = null
+    ) : ProtectedRouteValidation
 
     data class Rejected(
         val status: ProtectedRouteClaimStatus,

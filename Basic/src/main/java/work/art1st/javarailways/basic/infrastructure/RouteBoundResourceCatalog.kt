@@ -84,10 +84,12 @@ internal class RouteBoundResourceCatalog(
     fun query(
         route: ProjectedTopologyRoute,
         startRouteMeters: Double = 0.0,
-        endRouteMeters: Double = route.occurrences.lastOrNull()?.routeEndMeters ?: 0.0
+        endRouteMeters: Double = route.occurrences.lastOrNull()?.routeEndMeters ?: 0.0,
+        startOccurrenceIndex: Int = 0
     ): RouteBoundResourceQuery {
         require(startRouteMeters.isFinite() && startRouteMeters >= 0.0)
         require(endRouteMeters.isFinite() && endRouteMeters >= startRouteMeters)
+        require(startOccurrenceIndex in route.occurrences.indices)
         val snapshot = published ?: return RouteBoundResourceQuery.Unavailable(
             "route-bound resource catalog has not published a complete snapshot"
         )
@@ -99,7 +101,7 @@ internal class RouteBoundResourceCatalog(
         }
 
         val rawHits = ArrayList<RouteBoundResourceHit>()
-        route.occurrences.forEach { occurrence ->
+        route.occurrences.subList(startOccurrenceIndex, route.occurrences.size).forEach { occurrence ->
             val clippedStart = max(startRouteMeters, occurrence.routeStartMeters)
             val clippedEnd = min(endRouteMeters, occurrence.routeEndMeters)
             if (clippedEnd < clippedStart) return@forEach

@@ -31,6 +31,8 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
+import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
 
 class ProtectedRouteClaimServiceTest {
@@ -47,6 +49,137 @@ class ProtectedRouteClaimServiceTest {
             resource in validResources || resource is RailIntervalResource && resource.railId == railId
         }
     )
+
+    @Test
+    fun `pending extension keeps prefix release active then appends ready delta to the same grant`() {
+        val platform = Any()
+        val owner = InfrastructureOwner("test:route/rolling", 1L)
+        val initialRequest = request(window("test:region/a", 0.0, 5.0, 10.0), owner)
+        val topology = buildTestTopology(
+            topologyRevision,
+            listOf(TestTopologyRail(railId, 100.0)),
+            emptyMap()
+        )
+        val projection = (TopologyRouteProjector.project(initialRequest.route, topology)
+            as TopologyRouteProjectionResult.Projected).route
+        val initialResource = resource("turnout/a")
+        val deltaResource = resource("turnout/b")
+        val initialPlan = compiledAdmission(
+            InfrastructureFootprint(listOf(initialResource)),
+            emptyList(),
+            OccupancyQueryGeometry.create(emptyList()),
+            tailClearRouteMeters = 10.0
+        )
+        val deltaPlan = compiledAdmission(
+            InfrastructureFootprint(listOf(deltaResource)),
+            emptyList(),
+            OccupancyQueryGeometry.create(emptyList()),
+            tailClearRouteMeters = 20.0
+        )
+        val progressPath = CompiledRouteProgressPath.compile(projection)
+        val initialContext = ProtectedRouteExtensionContext(
+            projection,
+            10.0,
+            setOf(initialResource),
+            progressPath,
+            0
+        )
+        val nextContext = ProtectedRouteExtensionContext(
+            projection,
+            20.0,
+            setOf(initialResource, deltaResource),
+            progressPath,
+            0
+        )
+        val ticket = FakePreparationTicket(InfrastructurePreparationState.PREPARING)
+        var preparationStarts = 0
+        val service = service(
+            preparationActuator = InfrastructurePreparationActuator {
+                preparationStarts++
+                if (preparationStarts == 1) accepted(InfrastructurePreparationState.READY)
+                else InfrastructurePreparationStart.Accepted(ticket)
+            },
+            compileExtension = { _, _ -> ProtectedRouteExtensionValidation.Validated(deltaPlan, nextContext) }
+        ) { ProtectedRouteValidation.Validated(initialPlan, initialContext) }
+
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, service.acquire(platform, initialRequest).status)
+        val extension = service.extend(
+            platform,
+            extensionRequest(initialRequest, window("test:region/a", 0.0, 5.0, 20.0))
+        ) as ProtectedRouteAdmissionStart.Pending
+
+        observation = observation(train("train", 12.0, 13.0, 8L), epoch = 8L)
+        assertInstanceOf(
+            ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            service.consumeObservation(observation).single().update
+        )
+        assertEquals(listOf(deltaResource), registry.claimSnapshots().single().footprint.resources)
+
+        ticket.state = InfrastructurePreparationState.READY
+        val terminal = extension.handle.poll() as ProtectedRouteAdmissionProgress.Terminal
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, terminal.result.status)
+        assertEquals(listOf(deltaResource), registry.claimSnapshots().single().footprint.resources)
+
+        observation = observation(train("train", 21.0, 22.0, 9L), epoch = 9L)
+        assertInstanceOf(
+            ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            service.consumeObservation(observation).single().update
+        )
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `extension rejects an observation from a different topology revision`() {
+        val platform = Any()
+        val owner = InfrastructureOwner("test:route/topology-coherence", 1L)
+        val initialRequest = request(window("test:region/a", 0.0, 5.0, 10.0), owner)
+        val topology = buildTestTopology(
+            topologyRevision,
+            listOf(TestTopologyRail(railId, 100.0)),
+            emptyMap()
+        )
+        val projection = (TopologyRouteProjector.project(initialRequest.route, topology)
+            as TopologyRouteProjectionResult.Projected).route
+        val initialResource = resource("turnout/a")
+        val initialContext = ProtectedRouteExtensionContext(
+            projection,
+            10.0,
+            setOf(initialResource),
+            CompiledRouteProgressPath.compile(projection),
+            0
+        )
+        var extensionCompiled = false
+        val service = service(
+            compileExtension = { _, _ ->
+                extensionCompiled = true
+                error("extension compiler must not receive an incoherent observation")
+            }
+        ) {
+            ProtectedRouteValidation.Validated(
+                compiledAdmission(
+                    InfrastructureFootprint(listOf(initialResource)),
+                    emptyList(),
+                    OccupancyQueryGeometry.create(emptyList()),
+                    tailClearRouteMeters = 10.0
+                ),
+                initialContext
+            )
+        }
+        assertEquals(ProtectedRouteClaimStatus.ACQUIRED, service.acquire(platform, initialRequest).status)
+
+        observation = observation(epoch = 8L, observationTopologyRevision = topologyRevision - 1L)
+        val result = service.extend(
+            platform,
+            extensionRequest(
+                initialRequest,
+                window("test:region/a", 0.0, 5.0, 20.0)
+            ).copy(observationStamp = observation.stamp)
+        ).result
+
+        assertEquals(ProtectedRouteClaimStatus.STALE_TOPOLOGY, result.status)
+        assertFalse(extensionCompiled)
+        assertEquals(listOf(initialResource), registry.claimSnapshots().single().footprint.resources)
+    }
 
     @Test
     fun `route without controlled resources succeeds without creating a claim`() {
@@ -859,6 +992,13 @@ class ProtectedRouteClaimServiceTest {
             accepted(InfrastructurePreparationState.READY)
         },
         stallWorld: (String, Exception) -> Unit = { _, _ -> error("unexpected world stall") },
+        compileExtension: (ProtectedRouteExtensionContext, ProtectedRouteExtensionRequest) ->
+            ProtectedRouteExtensionValidation = { _, _ ->
+                ProtectedRouteExtensionValidation.Rejected(
+                    ProtectedRouteClaimStatus.INVALID_REQUEST,
+                    "extension compiler is not used by this fixture"
+                )
+            },
         validate: (ProtectedRouteRequest) -> ProtectedRouteValidation
     ) =
         ProtectedRouteClaimService(
@@ -866,6 +1006,7 @@ class ProtectedRouteClaimServiceTest {
             currentTopologyRevision = { topologyRevision },
             latestObservation = latestObservation,
             validate = validate,
+            compileExtension = compileExtension,
             preparationActuator = preparationActuator,
             stallWorld = stallWorld
         )
@@ -931,6 +1072,18 @@ class ProtectedRouteClaimServiceTest {
         window = window
     )
 
+    private fun extensionRequest(
+        initial: ProtectedRouteRequest,
+        window: ProtectedRouteWindow
+    ) = ProtectedRouteExtensionRequest(
+        initial.requestId,
+        initial.owner,
+        initial.trainId,
+        initial.observationStamp,
+        initial.route,
+        window
+    )
+
     private fun window(
         regionId: String,
         entryMeters: Double,
@@ -972,7 +1125,8 @@ class ProtectedRouteClaimServiceTest {
     private fun observation(
         vararg trains: TrainFrameSnapshot,
         epoch: Long = 7L,
-        worldId: String = "world"
+        worldId: String = "world",
+        observationTopologyRevision: Long = topologyRevision
     ): RailwayObservation {
         val sourceFrames = trains.takeIf { it.isNotEmpty() } ?: arrayOf(train("train", 0.0, 1.0, epoch))
         val frames = sourceFrames.map { frame ->
@@ -985,7 +1139,7 @@ class ProtectedRouteClaimServiceTest {
         }
         return RailwayObservation.fromCore(
             worldId,
-            RailwayWorldFrameSnapshot.create(epoch, topologyRevision, frames)
+            RailwayWorldFrameSnapshot.create(epoch, observationTopologyRevision, frames)
         )
     }
 

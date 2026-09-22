@@ -74,7 +74,7 @@
     completion retains the same frozen-route cursor and continues coherent progress projection without
     registry work. Exact platform/logical owner authentication is therefore still available after the
     registry footprint becomes empty. Whole-claim replacement is not part of this lifecycle.
-  - [ ] Implement same-route suffix compilation and append-only registry mutation from the frozen
+  - [x] Implement same-route suffix compilation and append-only registry mutation from the frozen
     contract. Reserve and prepare only delta resources, keep this owner's prefix release active,
     append naturally ordered entries to the existing controller after success, and retain the
     current authority on every non-success result.
@@ -82,8 +82,7 @@
       reserve it on the exact existing platform/logical owner without changing owner revision,
       reject conflicts/already-held identities/another pending append atomically, allow established
       prefix shrink while pending, forbid delta shrink, and finalize or roll back only that delta
-      against the claim's then-current remaining prefix. Suffix compilation, preparation and service
-      integration remain unimplemented.
+      against the claim's then-current remaining prefix.
     - [x] Separate the shared live-grant lifecycle from committed-resource tail release. The service
       retains exact platform/logical owner identity plus one frozen-route cursor after the current
       resource queue empties, continues projecting later coherent observations without registry work,
@@ -91,9 +90,12 @@
       resource-acquisition/live-grant owner and is not exposed to `LiveClaimTailRelease`.
     - [x] Add atomic installation of already-finalized and physically-ready committed suffix release
       entries on the existing controller. It validates immutable queue order and accepted tail progress,
-      appends to an active queue or revives an empty queue without replacing the cursor. Suffix
-      compilation, preparation, service integration, and verifiable coordination between a pending
-      delta and release of the last old resource remain unimplemented.
+      appends to an active queue or revives an empty queue without replacing the cursor.
+    - [x] Retain the initial validated route projection and authority frontier in the live grant;
+      compile only the farther suffix, query only its occupancy geometry, reserve and prepare only
+      its delta, then finalize and install entries on the same controller. Prefix release remains
+      active while pending, including a registry proof when only pending delta remains. Public
+      SimpleATO request wiring and generic contributor closure remain separate later batches.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
   - [x] Align the transitional `RouteSectionAllocator` with the immediate in-memory turnout seam: resolve connections, conflicts and physical locks for the complete batch before the first selection write, then apply directly without capturing previous selections or claiming fictional apply-failure rollback. Dispatcher migration remains pending.
 

@@ -31,6 +31,55 @@ class ProtectedRouteRequestValidatorTest {
     private val revision = 7L
 
     @Test
+    fun `rolling extension compiles only route suffix after committed frontier`() {
+        val fixture = throatFixture()
+        val route = route(
+            fixture,
+            segment(fixture.trunk, ViewDirection.AB),
+            segment(fixture.straight, ViewDirection.AB),
+            segment(fixture.straightClearance, ViewDirection.AB)
+        )
+        val initialWindow = window(
+            boundary("test:boundary/entry", fixture.trunk, ViewDirection.AB, 5.0, 5.0),
+            boundary("test:boundary/straight", fixture.straight, ViewDirection.AB, 5.0, 15.0),
+            boundary("test:boundary/clear-initial", fixture.straightClearance, ViewDirection.AB, 2.0, 22.0)
+        )
+        val initial = assertInstanceOf(
+            ProtectedRouteValidation.Validated::class.java,
+            fixture.validator.validate(request(route, initialWindow))
+        )
+        val context = requireNotNull(initial.extensionContext)
+        val fartherWindow = window(
+            initialWindow.entry,
+            initialWindow.exit,
+            boundary("test:boundary/clear-farther", fixture.straightClearance, ViewDirection.AB, 8.0, 28.0)
+        )
+
+        val extension = assertInstanceOf(
+            ProtectedRouteExtensionValidation.Validated::class.java,
+            fixture.validator.compileExtension(
+                context,
+                ProtectedRouteExtensionRequest(
+                    "test:request/extension",
+                    InfrastructureOwner("test:route/main", 1L),
+                    "train",
+                    RailwayStateStamp("world", 1L, route.topologyRevision),
+                    route,
+                    fartherWindow
+                )
+            )
+        )
+
+        assertEquals(28.0, extension.nextContext.authorityFrontierMeters)
+        assertEquals(emptyList<InfrastructurePreparationRequirement>(), extension.admission.preparations)
+        assertEquals(
+            listOf(RailIntervalResource(fixture.straightClearance, 2.0, 8.0)),
+            extension.admission.resources.resources
+        )
+        assertEquals(28.0, extension.admission.tailReleaseEntries.single().tailClearRouteMeters)
+    }
+
+    @Test
     fun `forward throat route validates to clipped rail intervals and one stable turnout resource`() {
         val fixture = throatFixture()
         val route = route(

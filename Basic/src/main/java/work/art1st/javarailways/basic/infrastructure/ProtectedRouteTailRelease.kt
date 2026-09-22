@@ -77,6 +77,12 @@ internal class ProtectedRouteTailRelease(
         claimRelease.installCommittedSuffix(entries)
     }
 
+    @MainThread
+    fun validateCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null) { "cannot validate a committed suffix after fail-closed recovery" }
+        claimRelease.validateCommittedSuffix(entries)
+    }
+
     init {
         require(worldId.isNotBlank())
         require(topologyRevision >= 0L)

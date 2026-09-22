@@ -137,9 +137,9 @@ handle，也不执行preparation、finalize或rollback。
 observation并推进cursor但不访问registry。只有精确owner的显式release/end删除record；registry已无资源时必须由该
 record证明queue为空才把`NOT_FOUND`解释为`RELEASED`。错误owner或active queue下的`NOT_FOUND`不能被掩盖。
 
-当前仍没有自动publication订阅、持久化/reload恢复、provider-disable takeover、clearance margin或same-route
-suffix extension。未来extension只沿同一冻结路线验证并原子追加；route plan变化在安全运营边界结束旧claim后
-重新准入，不通过whole-claim replace实现。
+当前仍没有自动publication订阅、持久化/reload恢复、provider-disable takeover或clearance margin。内部
+same-route suffix extension已经沿同一冻结路线验证并原子追加；公开SimpleATO调用接口仍未冻结。route plan变化
+在安全运营边界结束旧claim后重新准入，不通过whole-claim replace实现。
 
 目标registry为同一冻结路线的rolling extension提供internal append-only mutation，而不是复用通用replace。调用方提交
 完全匹配的platform owner、logical owner、现有grant identity以及由Basic compiler生成的非空、无重复delta identities；
@@ -154,17 +154,18 @@ revision；安全失败只撤销delta。若无法证明设备已安全中止，�
 撤销最后一份reservation后grant进入resource-idle但仍保留route cursor，直到显式end。pending delta不进入
 `LiveClaimTailRelease`；finalize后live-grant owner才安装对应的已提交release entries。整个过程不增加caller plan revision，也不使用generic claim replace伪造一次新owner。
 
-当前尚未完成pending append与尾部释放的service级协调。尤其当旧committed queue的最后一个资源准备释放、
-registry中仍有pending delta reservation时，`shrinkClaim`可能返回`REPLACED`；释放控制器不能在没有可验证
-pending证据时把它无条件当作正常完成，否则会掩盖registry中真正存在的未描述资源。后续集成必须明确决定
-finalize/install时序或提供可验证的协调证据；本批次不暂停释放，也不放宽严格registry结果校验。
+registry的内部shrink结果会额外证明“mutation后仅剩当前owner的pending append delta”。因此旧committed queue
+释放最后一个资源时，即使通用mutation status因delta仍在而为`REPLACED`，`LiveClaimTailRelease`也只在该证据为真时
+把自己的旧队列标记为空；普通`REPLACED`仍是fail-closed invariant mismatch。pending期间release不暂停，delta也不进入
+release queue。设备`READY`后，live-grant owner先重新校验suffix仍晚于当前tail progress，再finalize reservation并安装
+release entries；`ABORTED_SAFE`只rollback该delta。
 
 | append条件 | registry结果 | existing claim / delta |
 | --- | --- | --- |
 | owner/grant不匹配、已有pending extension、空或重复delta | typed invalid/busy | existing不变；无delta |
 | delta与其他claim冲突或provider/topology失效 | typed conflict/stale/provider failure | existing不变；无delta |
 | reserve delta成功 | pending handle | existing继续持有；delta reservation不可授权 |
-| pending期间prefix shrink | normal shrink result；最后一个旧资源的协调仍待service集成 | 只删除已清除existing identities；delta不变 |
+| pending期间prefix shrink | normal shrink；最后一个旧资源以pending-delta-only证据完成旧队列 | 只删除已清除existing identities；delta不变 |
 | finalize成功 | appended | 同一owner/revision持有existing + delta |
 | preparation安全失败并撤销成功 | aborted | 只删除delta；existing保留当时尚未由车尾释放的部分 |
 | unsafe abort或撤销invariant失败 | stalled/retained | 保留能证明安全的existing + delta reservation |

@@ -47,6 +47,13 @@ class InfrastructureLeaseRegistry(
         internal val token: UUID?
     )
 
+    /** Result of shrinking committed resources while an append reservation may remain. */
+    internal data class ClaimShrinkResult(
+        val mutation: InfrastructureMutationResult,
+        /** True only when every remaining resource is the caller's still-pending append delta. */
+        val pendingAppendOnly: Boolean
+    )
+
     private data class Held(
         val platformOwner: Any,
         val owner: InfrastructureOwner,
@@ -242,7 +249,17 @@ class InfrastructureLeaseRegistry(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
         resourcesToRelease: Collection<InfrastructureResource>
-    ): InfrastructureMutationResult {
+    ): InfrastructureMutationResult = shrinkClaimWithEvidence(
+        platformOwner,
+        expectedOwner,
+        resourcesToRelease
+    ).mutation
+
+    internal fun shrinkClaimWithEvidence(
+        platformOwner: Any,
+        expectedOwner: InfrastructureOwner,
+        resourcesToRelease: Collection<InfrastructureResource>
+    ): ClaimShrinkResult {
         val requested = resourcesToRelease.toList()
         require(requested.isNotEmpty()) { "resourcesToRelease must not be empty" }
         require(requested.distinct().size == requested.size) {
@@ -251,18 +268,18 @@ class InfrastructureLeaseRegistry(
 
         return synchronized(lock) {
             if (closed) {
-                return@synchronized result(InfrastructureMutationStatus.SERVICE_CLOSED, "registry is closed")
+                return@synchronized shrinkResult(InfrastructureMutationStatus.SERVICE_CLOSED, "registry is closed")
             }
             val existing = claims[expectedOwner.ownerId]
-                ?: return@synchronized result(InfrastructureMutationStatus.NOT_FOUND, "claim does not exist")
+                ?: return@synchronized shrinkResult(InfrastructureMutationStatus.NOT_FOUND, "claim does not exist")
             if (existing.platformOwner !== platformOwner || existing.owner != expectedOwner) {
-                return@synchronized result(
+                return@synchronized shrinkResult(
                     InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
                     "claim owner or expected revision does not match"
                 )
             }
             if (pendingInitialMutationForOwner(expectedOwner.ownerId) != null) {
-                return@synchronized result(
+                return@synchronized shrinkResult(
                     InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
                     "claim owner ${expectedOwner.ownerId} has an admission transaction in progress"
                 )
@@ -272,7 +289,7 @@ class InfrastructureLeaseRegistry(
             val pendingDelta = pendingAppend?.delta.orEmpty()
             val pendingRelease = requested.firstOrNull { it in pendingDelta }
             if (pendingRelease != null) {
-                return@synchronized result(
+                return@synchronized shrinkResult(
                     InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
                     "pending appended resource cannot be released: $pendingRelease"
                 )
@@ -282,7 +299,7 @@ class InfrastructureLeaseRegistry(
             val heldResources = existing.footprint.resources
             val missing = requested.firstOrNull { it !in heldResources }
             if (missing != null) {
-                return@synchronized result(
+                return@synchronized shrinkResult(
                     InfrastructureMutationStatus.NOT_FOUND,
                     "claim does not hold exact resource: $missing"
                 )
@@ -291,12 +308,21 @@ class InfrastructureLeaseRegistry(
             val remaining = heldResources.filterNot(releaseSet::contains)
             if (remaining.isEmpty()) {
                 claims.remove(expectedOwner.ownerId)
-                return@synchronized result(InfrastructureMutationStatus.RELEASED)
+                return@synchronized ClaimShrinkResult(
+                    result(InfrastructureMutationStatus.RELEASED),
+                    pendingAppendOnly = false
+                )
             }
             claims[expectedOwner.ownerId] = existing.copy(footprint = InfrastructureFootprint(remaining))
-            result(InfrastructureMutationStatus.REPLACED)
+            ClaimShrinkResult(
+                result(InfrastructureMutationStatus.REPLACED),
+                pendingAppendOnly = pendingAppend != null && remaining == pendingDelta
+            )
         }
     }
+
+    private fun shrinkResult(status: InfrastructureMutationStatus, detail: String) =
+        ClaimShrinkResult(result(status, detail), pendingAppendOnly = false)
 
     /** Finalizes a successful admission so its exact-before rollback state can be discarded. */
     internal fun completeClaimMutation(mutation: ClaimMutation): Boolean = synchronized(lock) {

@@ -52,13 +52,13 @@ internal data class ProtectedRouteTailReleaseDispatch(
  * confirmation, or removes this newly acquired claim after the resource reports a safe abort.
  */
 internal class ProtectedRouteAdmissionHandle internal constructor(
-    private val registry: InfrastructureLeaseRegistry,
-    private val request: ProtectedRouteRequest,
-    private val claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
+    private val requestId: String,
+    private val owner: InfrastructureOwner,
     private val preparationTicket: InfrastructurePreparationTicket,
-    private val commitTailRelease: () -> Unit,
+    private val finishReady: () -> ProtectedRouteClaimResult,
+    private val finishSafeAbort: (String) -> ProtectedRouteClaimResult,
     private val stallWorld: (String, Exception) -> Unit,
-    private val mapMutation: (InfrastructureMutationResult) -> ProtectedRouteClaimResult
+    private val operationName: String = "admission"
 ) {
     private var abortRequested = false
     private var abortFailure: Exception? = null
@@ -84,25 +84,17 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
         return when (snapshot.state) {
             InfrastructurePreparationState.PREPARING -> ProtectedRouteAdmissionProgress.Pending
             InfrastructurePreparationState.READY -> {
-                val completed = if (registry.completeClaimMutation(claimMutation)) {
-                    mapMutation(claimMutation.result)
-                } else {
-                    return finishStalled(
-                        IllegalStateException("claim transaction disappeared after infrastructure became ready"),
-                        "infrastructure preparation ready but the claim transaction could not be finalized"
-                    )
-                }
                 try {
-                    commitTailRelease()
+                    finish(finishReady())
                 } catch (failure: Exception) {
-                    return finishStalled(
-                        failure,
-                        "claim transaction was finalized but its tail-release controller could not be installed"
-                    )
+                    finishStalled(failure, "$operationName preparation became ready but completion failed")
                 }
-                finish(completed)
             }
-            InfrastructurePreparationState.ABORTED_SAFE -> abortClaim(snapshot.detail)
+            InfrastructurePreparationState.ABORTED_SAFE -> try {
+                finish(finishSafeAbort(snapshot.detail))
+            } catch (failure: Exception) {
+                finishStalled(failure, "$operationName preparation was safe but rollback failed")
+            }
             InfrastructurePreparationState.UNSAFE -> finishStalled(
                 IllegalStateException(snapshot.detail),
                 "infrastructure preparation state is unsafe; claim and rollback reservation retained: ${snapshot.detail}"
@@ -121,28 +113,6 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
         }
     }
 
-    private fun abortClaim(preparationDetail: String): ProtectedRouteAdmissionProgress {
-        val claimRollback = registry.rollbackClaimMutation(claimMutation)
-        if (claimRollback.status == InfrastructureMutationStatus.RELEASED) {
-            return finish(
-                ProtectedRouteClaimResult(
-                    ProtectedRouteClaimStatus.PREPARATION_FAILED,
-                    detail = buildString {
-                        append("infrastructure preparation was safely aborted and the admission claim was rolled back")
-                        if (preparationDetail.isNotBlank()) append(": $preparationDetail")
-                    }
-                )
-            )
-        }
-        return finishStalled(
-            IllegalStateException(
-                "infrastructure preparation was safely aborted but claim rollback failed: " +
-                    "${claimRollback.status}: ${claimRollback.detail}"
-            ),
-            "infrastructure preparation was safely aborted but the safest claim was retained"
-        )
-    }
-
     private fun finish(result: ProtectedRouteClaimResult): ProtectedRouteAdmissionProgress.Terminal =
         ProtectedRouteAdmissionProgress.Terminal(result).also { terminal = it }
 
@@ -152,8 +122,8 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
     ): ProtectedRouteAdmissionProgress.Terminal {
         val stalled = ProtectedRouteClaimResult(ProtectedRouteClaimStatus.WORLD_STALLED, detail = detail)
         stallWorld(
-            "protected-route admission ${request.requestId} for " +
-                "${request.owner.ownerId}@${request.owner.revision} entered fail-closed recovery: $detail",
+            "protected-route $operationName $requestId for " +
+                "${owner.ownerId}@${owner.revision} entered fail-closed recovery: $detail",
             failure
         )
         return finish(stalled)
@@ -171,6 +141,8 @@ internal class ProtectedRouteClaimService(
     private val currentTopologyRevision: () -> Long,
     private val latestObservation: () -> RailwayObservation?,
     private val validate: (ProtectedRouteRequest) -> ProtectedRouteValidation,
+    private val compileExtension: (ProtectedRouteExtensionContext, ProtectedRouteExtensionRequest) ->
+        ProtectedRouteExtensionValidation,
     private val preparationActuator: InfrastructurePreparationActuator,
     private val stallWorld: (String, Exception) -> Unit
 ) {
@@ -178,7 +150,9 @@ internal class ProtectedRouteClaimService(
         val platformOwner: Any,
         val owner: InfrastructureOwner,
         val trainId: String,
-        val controller: ProtectedRouteTailRelease
+        val controller: ProtectedRouteTailRelease,
+        var extensionContext: ProtectedRouteExtensionContext?,
+        var pendingExtension: ProtectedRouteAdmissionHandle? = null
     )
 
     private val liveGrants = TreeMap<String, LiveGrant>()
@@ -210,6 +184,171 @@ internal class ProtectedRouteClaimService(
                 platformOwner,
                 request
             )
+        }
+    }
+
+    @MainThread
+    fun extend(platformOwner: Any, request: ProtectedRouteExtensionRequest): ProtectedRouteAdmissionStart {
+        val grant = liveGrants[request.owner.ownerId]
+            ?: return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.NOT_FOUND, "live grant does not exist")
+            )
+        if (grant.platformOwner !== platformOwner || grant.owner != request.owner) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT, "live grant owner does not match")
+            )
+        }
+        if (grant.trainId != request.trainId) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.INVALID_REQUEST, "rolling extension train does not match live grant")
+            )
+        }
+        if (grant.pendingExtension != null) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.OWNER_REVISION_CONFLICT, "live grant already has a pending extension")
+            )
+        }
+        val context = grant.extensionContext ?: return ProtectedRouteAdmissionStart.Terminal(
+            result(ProtectedRouteClaimStatus.INVALID_REQUEST, "live grant has no frozen-route extension context")
+        )
+        if (request.route != context.projection.route) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.INVALID_REQUEST, "rolling extension must retain the exact frozen route")
+            )
+        }
+        val observation = latestObservation()
+            ?: return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.STALE_OBSERVATION, "no coherent railway observation is available")
+            )
+        if (request.observationStamp != observation.stamp) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.STALE_OBSERVATION, "extension observation is not latest")
+            )
+        }
+        if (request.route.topologyRevision != observation.stamp.topologyRevision) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(
+                    ProtectedRouteClaimStatus.STALE_TOPOLOGY,
+                    "extension route and observation use different topology revisions"
+                )
+            )
+        }
+        if (request.route.topologyRevision != currentTopologyRevision()) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.STALE_TOPOLOGY, "extension topology revision is stale")
+            )
+        }
+        if (observation.trains.none { it.trainId == request.trainId }) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.INVALID_REQUEST, "extension train is absent from observation")
+            )
+        }
+        val compiled = try {
+            compileExtension(context, request)
+        } catch (failure: Exception) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.VALIDATION_FAILED, "rolling extension validation failed: ${failureDetail(failure)}")
+            )
+        }
+        if (compiled is ProtectedRouteExtensionValidation.Rejected) {
+            return ProtectedRouteAdmissionStart.Terminal(result(compiled.status, compiled.detail))
+        }
+        compiled as ProtectedRouteExtensionValidation.Validated
+        if (latestObservation()?.stamp != observation.stamp) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.STALE_OBSERVATION, "observation changed while compiling extension")
+            )
+        }
+        val blockers = observation.occupancy.blockingTrainIds(
+            compiled.admission.occupancyGeometry.intervals,
+            request.trainId
+        )
+        if (blockers.isNotEmpty()) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                ProtectedRouteClaimResult(
+                    ProtectedRouteClaimStatus.PHYSICALLY_OCCUPIED,
+                    occupyingTrainIds = blockers,
+                    detail = "${blockers.size} train(s) physically block the route extension"
+                )
+            )
+        }
+        if (request.route.topologyRevision != currentTopologyRevision() ||
+            latestObservation()?.stamp != observation.stamp
+        ) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(
+                    if (request.route.topologyRevision != currentTopologyRevision()) {
+                        ProtectedRouteClaimStatus.STALE_TOPOLOGY
+                    } else {
+                        ProtectedRouteClaimStatus.STALE_OBSERVATION
+                    },
+                    "world state changed while checking extension"
+                )
+            )
+        }
+        try {
+            grant.controller.validateCommittedSuffix(compiled.admission.tailReleaseEntries)
+        } catch (failure: Exception) {
+            return ProtectedRouteAdmissionStart.Terminal(
+                result(ProtectedRouteClaimStatus.INVALID_REQUEST, "extension release order is invalid: ${failure.message.orEmpty()}")
+            )
+        }
+        val reservation = registry.beginAppendClaim(
+            platformOwner,
+            request.owner,
+            request.route.topologyRevision,
+            compiled.admission.resources.resources
+        )
+        if (reservation.result.status != InfrastructureMutationStatus.REPLACED) {
+            return ProtectedRouteAdmissionStart.Terminal(mapMutation(reservation.result))
+        }
+        val started = try {
+            preparationActuator.start(compiled.admission.preparations)
+        } catch (failure: Exception) {
+            return stalledExtensionStart(request, failure, "extension preparation start failed; delta retained")
+        }
+        if (started is InfrastructurePreparationStart.Rejected) {
+            val rollback = registry.rollbackClaimAppend(reservation)
+            return if (rollback.successful) {
+                ProtectedRouteAdmissionStart.Terminal(
+                    result(ProtectedRouteClaimStatus.PREPARATION_FAILED, "extension preparation was rejected; delta removed")
+                )
+            } else {
+                stalledExtensionStart(request, started.failure, "extension preparation rejection could not remove delta")
+            }
+        }
+        val handle = ProtectedRouteAdmissionHandle(
+            request.requestId,
+            request.owner,
+            (started as InfrastructurePreparationStart.Accepted).ticket,
+            finishReady = {
+                grant.controller.validateCommittedSuffix(compiled.admission.tailReleaseEntries)
+                check(registry.completeClaimAppend(reservation)) {
+                    "append reservation disappeared before finalization"
+                }
+                grant.controller.installCommittedSuffix(compiled.admission.tailReleaseEntries)
+                grant.extensionContext = compiled.nextContext
+                grant.pendingExtension = null
+                ProtectedRouteClaimResult(ProtectedRouteClaimStatus.ACQUIRED)
+            },
+            finishSafeAbort = {
+                val rollback = registry.rollbackClaimAppend(reservation)
+                check(rollback.status == InfrastructureMutationStatus.REPLACED ||
+                    rollback.status == InfrastructureMutationStatus.RELEASED
+                ) { "append rollback failed: ${rollback.status}: ${rollback.detail}" }
+                grant.pendingExtension = null
+                ProtectedRouteClaimResult(
+                    ProtectedRouteClaimStatus.PREPARATION_FAILED,
+                    detail = "extension preparation was safely aborted; only its delta was removed"
+                )
+            },
+            stallWorld = stallWorld,
+            operationName = "extension"
+        )
+        grant.pendingExtension = handle
+        return when (val progress = handle.poll()) {
+            ProtectedRouteAdmissionProgress.Pending -> ProtectedRouteAdmissionStart.Pending(handle)
+            is ProtectedRouteAdmissionProgress.Terminal -> ProtectedRouteAdmissionStart.Terminal(progress.result)
         }
     }
 
@@ -293,7 +432,8 @@ internal class ProtectedRouteClaimService(
                 platformOwner,
                 request.owner,
                 request.trainId,
-                controller
+                controller,
+                plan.extensionContext
             )
         }
         val started = try {
@@ -310,13 +450,30 @@ internal class ProtectedRouteClaimService(
         }
         val ticket = (started as InfrastructurePreparationStart.Accepted).ticket
         val handle = ProtectedRouteAdmissionHandle(
-            registry,
-            request,
-            claimMutation,
+            request.requestId,
+            request.owner,
             ticket,
-            commitTailRelease,
-            stallWorld,
-            ::mapMutation
+            finishReady = {
+                check(registry.completeClaimMutation(claimMutation)) {
+                    "claim transaction disappeared after infrastructure became ready"
+                }
+                commitTailRelease()
+                mapMutation(claimMutation.result)
+            },
+            finishSafeAbort = { preparationDetail ->
+                val rollback = registry.rollbackClaimMutation(claimMutation)
+                check(rollback.status == InfrastructureMutationStatus.RELEASED) {
+                    "claim rollback failed: ${rollback.status}: ${rollback.detail}"
+                }
+                ProtectedRouteClaimResult(
+                    ProtectedRouteClaimStatus.PREPARATION_FAILED,
+                    detail = buildString {
+                        append("infrastructure preparation was safely aborted and the admission claim was rolled back")
+                        if (preparationDetail.isNotBlank()) append(": $preparationDetail")
+                    }
+                )
+            },
+            stallWorld = stallWorld
         )
         return when (val progress = handle.poll()) {
             ProtectedRouteAdmissionProgress.Pending -> ProtectedRouteAdmissionStart.Pending(handle)
@@ -362,6 +519,21 @@ internal class ProtectedRouteClaimService(
             failure
         )
         return ProtectedRouteAdmissionStart.Terminal(result(ProtectedRouteClaimStatus.WORLD_STALLED, detail))
+    }
+
+    private fun stalledExtensionStart(
+        request: ProtectedRouteExtensionRequest,
+        failure: Exception,
+        detail: String
+    ): ProtectedRouteAdmissionStart.Terminal {
+        stallWorld(
+            "protected-route extension ${request.requestId} for ${request.owner.ownerId}@" +
+                "${request.owner.revision} entered fail-closed recovery: $detail",
+            failure
+        )
+        return ProtectedRouteAdmissionStart.Terminal(
+            result(ProtectedRouteClaimStatus.WORLD_STALLED, detail)
+        )
     }
 
     private fun resolve(request: ProtectedRouteRequest): ResolutionResult {
@@ -461,7 +633,11 @@ internal class ProtectedRouteClaimService(
                         )
                     )
                 } else {
-                    ResolutionResult.Plan(validation.admission, tailInitialization.cursor)
+                    ResolutionResult.Plan(
+                        validation.admission,
+                        tailInitialization.cursor,
+                        validation.extensionContext
+                    )
                 }
             }
         }
@@ -498,7 +674,8 @@ internal class ProtectedRouteClaimService(
         data class Finished(val result: ProtectedRouteClaimResult) : ResolutionResult
         data class Plan(
             val admission: CompiledRouteAdmission,
-            val routeProgressCursor: RouteProgressCursor
+            val routeProgressCursor: RouteProgressCursor,
+            val extensionContext: ProtectedRouteExtensionContext?
         ) : ResolutionResult
     }
 

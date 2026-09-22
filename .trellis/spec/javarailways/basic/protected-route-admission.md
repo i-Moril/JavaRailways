@@ -153,8 +153,8 @@ platform/logical owner的显式release/end删除record；registry已有资源时
 释放时允许以controller的empty证明把`NOT_FOUND`解释为成功结束。错误platform/revision或active queue下的
 `NOT_FOUND`都必须保留record并返回冲突/不一致结果。
 
-受保护进路runtime不通过整份claim replace滚动资源窗口。当前service只处理初次acquire、显式release与车尾
-prefix release；同一冻结路线的suffix extension合同见3.5，runtime尚未实现。SimpleATO改变route plan时只能在
+受保护进路runtime不通过整份claim replace滚动资源窗口。当前service处理初次acquire、显式release、车尾
+prefix release与同一冻结路线的内部suffix extension。SimpleATO改变route plan时只能在
 站台等安全运营边界结束旧进路后重新准入。suffix extension只追加本次新增资源；配置lease replacement属于
 独立底层能力，live claim不需要整份replacement入口。
 
@@ -171,7 +171,8 @@ resource-acquisition/live-grant owner只有在delta registry reservation已经fi
 release entries安装到现有控制器。控制器先验证suffix的确定性队尾顺序，并拒绝任何clear boundary位于或早于
 已接受tail progress的entry；失败不改变queue。active queue采用immutable merge，empty queue采用revival，二者
 都保留同一个cursor、最大tail progress和live-grant identity。控制器不持有pending handle，也不调用registry
-finalize/rollback。suffix compilation、preparation以及从service调用该安装入口仍未实现。
+finalize/rollback。service持有唯一pending handle，并复用初次admission的preparation ticket状态机；release controller
+仍只处理已提交队列。
 
 ### 3.5 同一冻结路线的rolling suffix extension
 
@@ -181,6 +182,11 @@ logical owner revision。SimpleATO决定何时需要更远authority以及期望�
 有序traversal或topology binding任一不同都不是extension，而是必须在安全运营边界结束旧进路后重新准入的replan。
 新desired boundary必须严格超过该grant当前已提交的authority frontier；相等的no-op或后退都是typed invalid
 request。调用方仍不提供footprint、preparation或释放队列。
+
+当前内部实现保留初次验证得到的`ProjectedTopologyRoute`、committed frontier和曾提交过的controlled-resource
+identity集合。extension先按value完全比较route，再直接复用该投影；region catalog只校验新window及其revision，
+不会重新project或扫描旧prefix。compiler只查询`(frontier, desired clearUntil]`的rail interval、turnout和route-bound
+binding，并复用初次编译的progress path。公开extension request/result名称与SimpleATO调用点仍留到API/Dispatcher批次。
 
 Basic在旧authority不变的前提下完成以下单一事务：
 

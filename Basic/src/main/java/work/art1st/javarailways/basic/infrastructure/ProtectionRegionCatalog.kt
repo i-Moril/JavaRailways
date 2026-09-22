@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.infrastructure
 
 import work.art1st.javarailways.basic.api.route.NAMESPACED_ROUTE_ID
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
+import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow
 import work.art1st.javarailways.basic.api.route.ProtectionRegionCatalogResult
 import work.art1st.javarailways.basic.api.route.ProtectionRegionCatalogStatus
 import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition
@@ -162,6 +163,37 @@ internal class ProtectionRegionCatalog(
         }
         val resolvedWindow = ResolvedProtectionWindow(window, owned.region)
         val resolution = ProtectionRegionWindowResolver.resolve(projection, resolvedWindow)
+        return confirmWindowResolution(snapshot, currentTopology, resolution)
+    }
+
+    /** Resolves a later window against an already validated frozen-route projection. */
+    fun resolveWindow(
+        projection: ProjectedTopologyRoute,
+        window: ProtectedRouteWindow
+    ): ProtectionRegionWindowResolution {
+        val snapshot = published
+        val currentTopology = topologyState()
+        if (projection.topology !== currentTopology || snapshot.topology.topologyState !== currentTopology) {
+            return ProtectionRegionWindowResolution.Rejected(
+                ProtectionRegionWindowRejection.STALE_TOPOLOGY,
+                "retained frozen route no longer uses the current topology root"
+            )
+        }
+        val owned = snapshot.regions[window.region.regionId]
+            ?: return ProtectionRegionWindowResolution.Rejected(
+                ProtectionRegionWindowRejection.MISSING_REGION,
+                "protection region is not registered: ${window.region.regionId}"
+            )
+        if (owned.region.definition.region.revision != window.region.revision) {
+            return ProtectionRegionWindowResolution.Rejected(
+                ProtectionRegionWindowRejection.STALE_REGION,
+                "protection region ${window.region.regionId} revision ${window.region.revision} is stale"
+            )
+        }
+        val resolution = ProtectionRegionWindowResolver.resolve(
+            projection,
+            ResolvedProtectionWindow(window, owned.region)
+        )
         return confirmWindowResolution(snapshot, currentTopology, resolution)
     }
 

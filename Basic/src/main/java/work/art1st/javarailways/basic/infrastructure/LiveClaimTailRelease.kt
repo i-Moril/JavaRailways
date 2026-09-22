@@ -92,6 +92,21 @@ internal class LiveClaimTailRelease(
         check(terminalFailure == null) { "cannot install a committed suffix after tail release failed closed" }
 
         val suffix = CompiledTailReleaseQueue(entries)
+        validateSuffix(suffix)
+
+        val merged = remainingQueue?.let { current ->
+            CompiledTailReleaseQueue(current.entries + suffix.entries)
+        } ?: suffix
+        remainingQueue = merged
+        committedQueueTail = suffix.entries.last()
+    }
+
+    fun validateCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null) { "cannot install a committed suffix after tail release failed closed" }
+        validateSuffix(CompiledTailReleaseQueue(entries))
+    }
+
+    private fun validateSuffix(suffix: CompiledTailReleaseQueue) {
         require(TAIL_RELEASE_ENTRY_ORDER.compare(committedQueueTail, suffix.entries.first()) < 0) {
             "committed suffix must continue after the previously installed queue tail"
         }
@@ -102,11 +117,6 @@ internal class LiveClaimTailRelease(
             }
         }
 
-        val merged = remainingQueue?.let { current ->
-            CompiledTailReleaseQueue(current.entries + suffix.entries)
-        } ?: suffix
-        remainingQueue = merged
-        committedQueueTail = suffix.entries.last()
     }
 
     fun advance(authoritativeTailRouteProgressMeters: Double): LiveClaimTailReleaseResult =
@@ -162,8 +172,11 @@ internal class LiveClaimTailRelease(
             } else {
                 InfrastructureMutationStatus.REPLACED
             }
-            val mutation = registry.shrinkClaim(platformOwner, claimOwner, eligible)
-            if (mutation.status != expectedStatus) {
+            val shrink = registry.shrinkClaimWithEvidence(platformOwner, claimOwner, eligible)
+            val mutation = shrink.mutation
+            val pendingDeltaKeptClaimAlive = remainingEntries.isEmpty() &&
+                mutation.status == InfrastructureMutationStatus.REPLACED && shrink.pendingAppendOnly
+            if (mutation.status != expectedStatus && !pendingDeltaKeptClaimAlive) {
                 return@synchronized failClosed(
                     TailReleaseFailureKind.CLAIM_SHRINK_FAILED,
                     mutation.detail.ifBlank {

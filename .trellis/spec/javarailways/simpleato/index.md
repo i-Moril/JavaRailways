@@ -2,9 +2,9 @@
 
 ## 范围与加载条件
 
-本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前只拥有手动导航命令的严格解析、临时时刻表生成和时刻表 JSON 展示；ATO controller、运行方向、Destination、Station、Depot、Line、Timetable model/persistence、Dispatcher 与运营寻路仍位于 `Basic/`。因此本层状态是 `TRANSITIONAL`，不能据此声称运行时已经完成解耦。新增或迁移 ATO、运行方向、运营对象、时刻表、运营寻路、`AuthoritySection`消费、信号/闭塞运用规则或列车限制仲裁时，必须加载本层。固定闭塞与保护区域定义及其安全校验由 Basic 拥有，不属于本层。
+本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前只拥有手动导航命令的严格解析、临时时刻表生成和时刻表 JSON 展示；ATO controller、运行方向、Destination、Station、Depot、Line、Timetable model/persistence、Dispatcher 与运营寻路仍位于 `Basic/`。因此本层状态是 `TRANSITIONAL`，不能据此声称运行时已经完成解耦。新增或迁移 ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
 
-SimpleATO 只拥有平台无关的运营模型与决策。物理铁路图和列车动力学由 Core 拥有；固定闭塞/保护区域定义、authority partition、资源身份校验、物理占用、原子 claim、道岔执行与尾部释放由 Basic 拥有；Bukkit 命令、RailObjectWand、信号模型渲染和 JS/Java 扩展加载由目标 `SimpleATOBukkit` 拥有。RailObjectWand通过Basic API编辑sections，不因此取得领域ownership。
+SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调度和最严格限制归约。物理铁路图和列车动力学由 Core 拥有；资源身份校验、冻结路线的不可删除物理资源底线、物理占用、原子 claim、设备准备与尾部释放由 Basic 拥有。每一个独立信号系统由自己的Java/Kotlin插件拥有固定闭塞、保护区域、联锁规则、信号显示及可选JS/YAML配置。`SimpleATOBukkit`只作为SimpleATO的平台适配器和可复用运行时，不成为所有信号制式的领域owner。
 
 ## 主题导航
 
@@ -18,7 +18,7 @@ SimpleATO 只拥有平台无关的运营模型与决策。物理铁路图和列�
 
 - 当前仍位于 `Basic/` 的实现继续遵守 [Basic 规范](../basic/index.md)，但不得据此新增长期属于 Basic 的运营 ownership。
 - 每一批迁移同时移动 contract、实现、测试与 composition；不得让 Basic 和 SimpleATO 同时成为同一运行状态的可写 owner。
-- SimpleATO 只提交自己选择的 topology-bound frozen route，不提交第二份资源清单。Basic 的验证与 claim 合同见[保护区域与进路准入](../basic/protected-route-admission.md)。
+- SimpleATO 只提交自己选择的 topology-bound frozen route，不提交可替代物理底线的第二份资源清单。信号插件可以增加注册资源；Basic 的验证与 claim 合同见[路线资源准入](../basic/route-resource-admission.md)。
 
 当前第一批 owner slice 使用 `work.art1st.javarailways.simpleato.timetable`：
 

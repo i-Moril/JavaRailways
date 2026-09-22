@@ -1,98 +1,123 @@
 # Stage 1 design
 
-## Pre-implementation contract freeze
+## Authoritative contracts
 
-Core版本化铁路图合同见[`versioned-operational-topology.md`](../../spec/javarailways/core/versioned-operational-topology.md)，SimpleATO选路、授权与rolling-extension客户端合同见[`operational-routing-and-authority.md`](../../spec/javarailways/simpleato/operational-routing-and-authority.md)，Basic保护区域、准入及同路线suffix-extension合同见[`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)，registry delta append合同见[`resource-allocation.md`](../../spec/javarailways/basic/resource-allocation.md)。后续实现必须先建立唯一`TopologyState`，再满足region graph cut、coherent observation stamp、SimpleATO frozen route、Basic一次路线验证与唯一资源集合、claim→infrastructure preparation→grant顺序、rollback failure Stall和host-owned recovery规则；本task design不再用原则性文字覆盖这些细节。
+- Core topology/publication: [`versioned-operational-topology.md`](../../spec/javarailways/core/versioned-operational-topology.md)
+- Basic target route/resource kernel: [`route-resource-admission.md`](../../spec/javarailways/basic/route-resource-admission.md)
+- Basic registry and release primitives: [`resource-allocation.md`](../../spec/javarailways/basic/resource-allocation.md)
+- SimpleATO routing, inspection and authority: [`operational-routing-and-authority.md`](../../spec/javarailways/simpleato/operational-routing-and-authority.md)
+- Current protection-region implementation, retained only for migration evidence: [`protected-route-admission.md`](../../spec/javarailways/basic/protected-route-admission.md)
 
-实现顺序固定为：版本化topology state与旧图adapter → overlay projection与region catalog迁移 → SimpleATO topology-bound frozen route → Basic route validation/claim assembly → atomic admission transaction → tail-release/recovery → Dispatcher与`MANUAL_ROUTED`迁移。前一层合同测试未通过时不得开始后一层迁移。
+The earlier design made Basic own a universal `AuthoritySection` partition and recursive contributor closure. That target is superseded. Completed generic mechanisms remain valid; protection-region/fixed-block policy moves to a concrete signal-system plugin.
 
-`SimpleATO` Gradle模块现已作为迁移目标真实建立。第一批只直接迁移无Basic production caller的手动导航parser/factory与timetable JSON dumper，并让Bukkit composition依赖新owner；不增加兼容wrapper，也不移动controller或Dispatcher。由于factory仍消费Basic timetable model和destination API，这只是依赖安全的垂直切片，完整运营依赖闭包仍待后续批次迁移。
+## Module boundaries
+
+```text
+Core
+  physical topology + immutable world/train observation
+
+Basic
+  generic resource registry + mandatory physical footprint
+  atomic claim + device preparation + grant/release/edit guard
+
+SimpleATO
+  operating route + resource inspection scheduler
+  ATO/ATP + most-restrictive constraint arbitration
+
+Independent signal-system plugin
+  blocks/protection regions/interlocking/aspects
+  optional JS/YAML + persistence + authoring/rendering adapter
+```
+
+`SimpleATOBukkit` is the Bukkit adapter/common runtime for SimpleATO. A concrete system such as a Japanese-signalling plugin is separately compiled and may use or ignore any optional scripting helpers; it is not forced to encode its interlocking through one host JS engine.
 
 ## End-to-end working model
 
 ```text
-Core structural edit
-  -> normalize rails into immutable TopologyState(revision)
-  -> SimpleATO projects operational overlays and selects a route
-  -> SimpleATO emits one frozen route bound to the same revision
-  -> Basic validates the route and collects one claim resource set
-  -> Basic atomically claims resources and awaits the ordered infrastructure-preparation batch
-  -> SimpleATO converts the grant into authority/stop/speed constraints
-  -> Core occupancy publication drives Basic tail release
+Core publishes TopologyState(revision) + coherent train observation
+  -> SimpleATO selects one frozen route
+  -> inspection scheduler identifies relevant signal-plugin resources
+  -> signal plugin chooses a desired boundary and optional added resources
+  -> Basic validates the route against the same topology/observation
+  -> Basic derives rail + turnout + diamond mandatory resources
+  -> Basic validates union(mandatory resources, plugin additions)
+  -> one atomic claim
+  -> generic resource handlers prepare claimed equipment
+  -> READY publishes a grant
+  -> SimpleATO reduces grant, following, stops and plugin limits by minimum authority/speed
+  -> authoritative tail progress shrinks the claim queue
 ```
 
-三个non-trivial机制各有唯一owner spec：Core[版本化铁路拓扑](../../spec/javarailways/core/versioned-operational-topology.md)定义二度链归一化、rail-slice位置映射和原子publication；SimpleATO[运营选路与行车授权](../../spec/javarailways/simpleato/operational-routing-and-authority.md)定义运营overlay、对Basic `AuthoritySection`观察的消费、冻结路线生成、准入客户端和单一列车保护管线；Basic[保护区域与进路准入](../../spec/javarailways/basic/protected-route-admission.md)定义固定闭塞/保护区域authority partition、boundary graph cut、冻结路线线性验证、route-bound resource catalog、唯一资源集合及尾部释放状态机。本页只说明它们如何串联，不复制算法细节。
+Neither the caller nor a plugin submits a replacement physical footprint. Plugins only add resources and stricter hold/restriction semantics. Basic never calls a recursive protection-region/provider closure and never decides a signalling system's route policy.
 
-## Public service surface
+## Route compilation and physical floor
 
-The exact type names may be refined during implementation, but the contract should have three focused capabilities rather than one unrestricted facade:
+The request carries one frozen route, coherent observation stamp, target train and desired authority boundary. Basic verifies route start at the authoritative train tail and walks the requested range once. The same projection produces:
 
-- `RailwayObservationService`: immutable, epoch-tagged world/train/topology observations after physics publication.
-- `RouteResourceService`: validate, atomically claim, confirm, inspect, and release routes containing rail intervals, turnout selections, route-bound crossings, and clearance obligations.
-- `RouteResourceProvider` SPI: let an external infrastructure add-on contribute resources and a forward-only clearance obligation for only its matched registered section or route binding, without exposing the registry, mutable train/world state, or recursive acquisition.
-- `TrainRestrictionService`: namespaced, revisioned movement-authority, stop, and speed constraints enforced by the active train protection/controller layer.
-- `InfrastructureLeaseService`: shared revisioned configuration leases and mutation guards for infrastructure referenced by applied operational plans.
+1. canonical AB intervals for every traversed rail slice;
+2. stable direction-independent turnout identities and route-ordered selections;
+3. route-bound diamond/shared-conflict identities from the catalog tied to the same topology root;
+4. occupancy-query geometry, preparation requirements and release boundaries.
 
-Bukkit-facing discovery belongs in `bukkit.api.*` and `ServicesManager`. Platform-neutral DTOs and mechanisms belong in `core.api.*` or `basic.api.*`. Service implementations remain internal.
+Items 1-3 form a non-removable footprint. Plugin additions are validated through the namespaced resource registry and unioned by exact identity. Occupancy geometry and release/preparation metadata never form alternate footprints.
 
-## Topology and resource model
+This division gives Basic a physical safety floor while allowing different interlocking models. A protection-region plugin can validate entry/exit and request enough route plus flank resources to clear a throat. A route-table plugin can request approach locking and sectional-release resources. An incomplete policy may cause a restrictive stop or deadlock, but it cannot omit traversed physical conflict resources or widen authority beyond Basic's grant.
 
-Core/host publishes one immutable `TopologyState(revision)`. Its structural graph contains turnout, terminus, and deterministic loop-anchor nodes; ordinary degree-2 rail chains become edges with lossless rail-slice projection. A diamond does not change connectivity, so it remains a stable shared resource bound to two rail/edge intervals and does not split either route edge. Runtime turnout selection, occupancy, claim and signal state remain separate. Platform, block, protection-region, signal, speed and operating-direction data are overlays over edges/subgraphs. A topology snapshot is only a read-only handle to one published state, not a copied graph with its own lifecycle.
+## Resource preparation and lifecycle
 
-A request includes a stable request ID, owner ID, world ID, coherent observation stamp, train ID, desired authority boundary, and one frozen route plan carrying its topology revision. Every initial admission freezes that route from the authoritative train tail in the same observation; Basic verifies the route start and initializes host-owned progress at zero, so callers provide neither a progress coordinate nor an occurrence index. SimpleATO owns operating route selection and submits only that ordered traversal. Basic resolves the authoritative train envelope from the same observation, validates the route against the same topology revision, collects rail intervals and route-bound conflict resources during that same pass, then folds clearance obligations until a complete safe authority boundary is reached. Turnout occupancy geometry is temporary validation evidence attached to the authoritative binding, not a second resource footprint. Validation completes before mutation. Commit records the one complete resource set before applying all turnout selections, then publishes the grant; a rejection publishes no authority and records no partial ownership.
+Claims and physical readiness are distinct. Basic claims the complete union before asking registered handlers to prepare movable or delayed equipment. `PREPARING` retains the reservation and publishes no grant; `READY` commits the grant; `ABORTED_SAFE` removes only the new request/delta; `UNSAFE` or an unprovable abort retains protection and stalls the world.
 
-正常运行不以整份claim replace滚动资源窗口。当前runtime lifecycle只有初次acquire和车尾驱动的prefix release；后续同一冻结路线上的滚动取得将作为“验证suffix后原子追加到既有claim与释放队列”的独立seam设计，当前不冻结接口。SimpleATO若改变route plan，只能在站台等安全运营边界结束旧进路后创建新admission，Basic不在运行中替换或自行重规划路线。底层registry的通用claim replacement与配置lease replacement保留为独立机制，不等于受保护进路的正常生命周期。
+Current in-memory turnout switching is immediate and has no fictional rollback. Future animated turnouts, movable bridges or other delayed devices use the same generic preparation contract; their default/resting state belongs to the resource implementation, not the train.
 
-Protection stop location belongs to the route-window entry. The host no longer derives competing authority limits for each turnout inside the window. When no independent protection region exists, the host must not silently recreate the removed per-turnout stop policy; the caller receives an explicit unavailable/unprotected result according to the final operating contract.
+The live grant owns one monotonic route cursor and one ordered release queue. It shrinks the registry before dropping the eligible prefix locally. A same-route extension compiles and prepares only the farther delta, while existing resources continue tail release. A changed route ends/replans at a safe operational boundary rather than replacing the claim in place.
 
-Automatic admission is capability-shaped rather than plugin-presence-shaped. `RouteResourceService` accepts a topology-bound frozen-route request, not a region-specific special operation. There is no caller-authored footprint beside that route and no automatic overload equivalent to today's `allocate(owner, plannedRoute, sectionIndex)`. Before mutation, the service proves that the traversal is continuous and legal, collects every controlled node and route-bound conflict resource from host indexes into one resource set, and rejects absent or partial protection coverage with `PROTECTION_REQUIRED`, including when a required turnout is already aligned. Basic never searches for an alternative route on denial.
+## Resource inspection and reactive constraints
 
-Route compilation no longer inserts boundaries from each `TurnoutRequirement.protectionDistanceMeters`. It partitions automatic authority at explicit `AuthoritySection` boundaries and rejects automatic activation when a turnout, diamond, or other controlled resource lacks valid protection coverage. A route with no controlled resource or contribution remains valid without a protection region.
+`InspectionDistance(train)` tells SimpleATO when to inspect/request a resource; it is not a signal-update tick callback. Route/resource/configuration and low-frequency train-capability inputs produce a cached declared distance. SimpleATO independently computes current braking distance each physics tick and uses the larger value plus margin.
 
-Turnout mutation is centralized behind the host service. The public read model may expose selected connectivity, but automatic callers cannot directly call a mutable `selectNextRail` path. A distinct manual operation checks physical train occupancy and active route claims before applying an operator-selected branch; it creates no route grant or movement authority. `MANUAL_ROUTED` remains automatic route assistance and therefore requires the same protected window as fully automatic operation, whereas `FULL_MANUAL` creates no new route request.
+One shared route perception detects inspection-range entry. Resource `update(train)` runs on first entry or when its declared dependencies change, such as occupancy, claim/grant, configuration or a downstream signal state. Unchanged resources remain `IDLE`. A plugin publishes immutable restrictions; SimpleATO combines them with Basic grant, following, operational stops and infrastructure speed constraints. Plugin code can only keep or tighten the result.
 
-A diamond resource binds anchors on two otherwise unchanged route edges to one exclusive conflict identity. The graph contains no cross-line continuation and no selectable diamond branch. Basic's world-local route-bound resource catalog publishes complete snapshots bound to an exact `TopologyState` root; unavailable or stale snapshots reject admission instead of behaving like empty catalogs. Detection runs in topology-edit transactions: spatial lookup produces candidates, exact geometry and vertical-clearance checks distinguish an at-grade conflict from non-conflicting or grade-separated geometry, and the committed binding advances topology revision.
+## Public service capabilities
 
-Release uses tail progress projected onto the same frozen route. Validation compiles one ordered entry per claimed resource at that resource's final claimed/conflict extent; a resource becomes eligible only when the tail reaches that fully compiled clear boundary, and only a contiguous queue prefix may shrink. The pure queue inspection does not pop entries: the grant owner drops the prefix only after atomic registry shrink succeeds. Tail-progress monotonicity, explicit clearance-margin source, administrative cancellation, and plugin-disable behavior remain separate grant-lifecycle work.
+Exact type names remain unfrozen, but the public surface has focused capabilities:
 
-No request may hold one region while waiting for a resource omitted from its original claim set. During the same route-validation pass, each protection-region traversal adds its selected-path resources and extends the minimum claim boundary beyond its exit using the authoritative train envelope. Validation continues through every later contributor reached before all obligations are satisfied; a region never queries its successor and SimpleATO never assembles a region-specific composite request. A cycle, route end, or inaccessible complete authority boundary fails before any claim. Deterministic request ordering/aging prevents starvation but does not preempt a live grant.
+- immutable railway observation subscription/read service;
+- namespaced infrastructure resource registration and validation;
+- topology-bound route admission/extension/grant inspection;
+- generic infrastructure preparation handler registration;
+- namespaced train restrictions and dependency-change publication;
+- shared applied-plan infrastructure leases and edit permits.
 
-The extensibility boundary sits in Basic rather than SimpleATO. Basic captures one immutable provider-catalog revision for validation and invokes only providers whose registered section or route binding is reached by the central closure scan. A provider sees an immutable train admission view and only its Basic-clipped local traversal; it returns registered resource identities, preparation intents and a forward-only minimum boundary. It cannot inspect the downstream provider catalog, acquire resources, alter the route, resubmit occupancy geometry or mutate the world. Basic obtains the complete occupancy geometry from the captured binding and folds all results into the same `CompiledRouteAdmission`, so adding a custom infrastructure rule does not require a SimpleATO change and does not create a second footprint.
+Raw claim mutation, mutable Core trains/rails, Basic internal cursors and complete registry implementations are not public add-on APIs. Bukkit `ServicesManager` performs platform discovery; platform-neutral DTOs live in documented Core/Basic/SimpleATO API packages.
 
-## Applied-plan infrastructure leases
+## Applied timetable and edit locking
 
-An infrastructure lease is a long-lived shared configuration/read lease, not a runtime route grant. Its owner key includes the timetable/plan ID and applied revision; its immutable footprint uses stable rail intervals and object/resource IDs. One rail interval always belongs to exactly one rail and uses that rail's canonical AB arc-length coordinates. A range crossing multiple rails expands to one interval per traversed rail in the same atomic footprint. If that traversal uses a turnout, diamond, or other shared conflict resource, the footprint also includes its stable resource ID; adjacent rail intervals alone do not express the shared conflict. Multiple applied timetables may lease the same resource. Trains do not consume these leases, and leases do not reserve a turnout direction or prevent ordinary runtime arbitration.
+SimpleATO compiles every statically reachable automatic route and required signal-plugin configuration before apply. It pins topology, timetable, signalling package and referenced-object revisions, computes one stable infrastructure lease footprint and atomically installs the applied plan only if the full shared lease acquisition succeeds.
 
-Applying a compiled operational plan validates the whole requested footprint against one topology/signalling revision, then atomically records every lease or none. Infrastructure mutation obtains an exclusive edit permit from the same service; it is denied if any applied-plan lease or live route claim overlaps the target. The diagnostic returns each blocking owner and revision. Existing direct guards such as `hasRouteAllocationOn` become adapters to this common edit guard so RailWand, auto-connect, topology migration, protection-region editing, signal deletion, and administrative APIs cannot diverge.
-
-Normal world reload restores applied plans first, revalidates their pinned references, and reconstructs leases before enabling edits or automatic departures. Missing/corrupt references leave the plan unapplied/restrictive with diagnostics; they do not silently drop the lock and continue automation.
-
-## Restriction model
-
-There is one train-protection pipeline. The existing route perception pass discovers route-local objects and vehicles once. World-level interlocking/resource state is computed once per published world state and contributes immutable candidates without repeating that traversal.
-
-Vehicle following, stop boundaries, unconfirmed routes, signal/interlocking limits, line speeds, and station stops are inputs to one constraint arbitration step. The result is one permitted-speed demand and one consolidated authority boundary for diagnostics and external publication. MA is therefore an output/view of the shared constraint state, not a second controller or scanner running beside `FollowConstraint`.
-
-Each externally supplied candidate has a namespaced owner, target train, monotonically increasing revision, observation epoch/topology revision, type, route-relative or stable rail position, and lifecycle. The controller evaluates the most restrictive active result. Unknown position, stale topology, missing owner heartbeat where required, or invalid conversion fails closed according to the documented service result.
-
-The number of constraint candidates is not the primary performance risk. Route traversal, spatial/occupancy queries, and duplicated policy evaluation are. Implementations should reuse the existing scan and indexed world snapshots, then reduce a small candidate set without rescanning.
+Draft save/dry-run acquires no leases. Apply enables service; replacement acquires the new set before dropping no-longer-used leases; unapply enters draining and blocks new departures/grants until live work clears. Every topology, resource, signal or operational-object editor must obtain a common edit permit and return the owning plan/revision when blocked. Runtime occupancy conflicts remain waits, not apply-time structural failures.
 
 ## Migration
 
-First introduce `TopologyState` beside the current Core edit model. Structural transactions publish both through one revision boundary while consumers migrate; the legacy `RailView.nextRails` adapter is then internalized so it cannot remain a second mutable authority. Protection-region graph caches become disposable derivations keyed by topology/region revision. Only after route and region consumers use the shared state may the duplicated protection adjacency be removed.
+Keep the already implemented generic code:
 
-Route selection and operating constraints move with Destination, Station, Depot, Line, Timetable and service planning into SimpleATO. A reusable platform-neutral shortest-path implementation may temporarily remain in a shared package, but its inputs are `TopologyState` and overlays; it does not own policy or resource claims. SimpleATO submits one topology-bound frozen route; Basic validates that traversal and collects the one canonical resource set used for enforcement.
+- revisioned `TopologyState` and frozen-route projection;
+- stable turnout resource identity and route-bound resource catalog;
+- occupancy index/query geometry;
+- atomic registry, preparation lifecycle and multi-turnout validation;
+- monotonic cursor, release queue and same-route suffix extension;
+- infrastructure leases/edit guard.
 
-`TimetableDispatcher` becomes a client of the shared route-window resource and restriction mechanisms. Its current request ordering remains the timetable priority policy; the shared allocator provides stable ordering/aging hooks but does not invent cross-client preemption.
+Migrate or delete Basic-specific policy:
 
-The migration removes `PlannedRouteCompiler`'s turnout-derived protection points and replaces `TimetableDispatcher`'s `single()`/protection-distance authority calculations with explicit region-entry distances. Mission activation validates full coverage before dispatch. A missing region is a stable infrastructure denial, not a transient conflict: it is retried only after the region/topology revision changes. If previously valid coverage becomes stale, new grants stop immediately; live grants remain locked until safe tail release unless the topology fault requires the train-protection pipeline to fail closed.
+- `ProtectionRegionDefinition`, catalog, graph cut and window resolver;
+- Basic-owned fixed-block/`AuthoritySection` partition;
+- `PROTECTION_REQUIRED` as a Basic admission failure;
+- recursive route-resource contributor closure and Basic-selected clearance expansion.
 
-The current split between `TimetableValidator`, direct `TimetableStore.add`, dispatcher startup validation, and dispatcher-specific edit checks becomes an explicit compile/apply seam. SimpleATO owns timetable compilation and applied-plan state; the host lease service owns only stable footprint locking and edit arbitration. Draft saving performs no lease mutation. Apply revalidates revisions and commits the compiled plan plus lease acquisition atomically from the caller's perspective.
+During migration, current protection tests remain regression evidence. Move the implementation and persistence boundary into the first concrete signal plugin before removing the transitional Basic types; do not add a runtime compatibility layer unless separately approved.
 
-## Threading
+## Failure and threading
 
-Physics workers publish immutable observations. Allocation and topology mutation execute in the documented simulation/main owner after publication. Bukkit entity/block/render work uses target-aware platform dispatch. Add-on callbacks must not block the physics worker.
+All validation failure is atomic and does not widen authority. Missing resource indexes, stale revisions, plugin failure or invalid additions fail closed. Existing committed grants remain host-owned through physical release, so unloading a signal plugin cannot drop resources beneath a train.
 
-## Compatibility
-
-The new service is additive for external consumers. Existing internal call sites migrate in the same stage so there is only one resource owner. No runtime path is added for arbitrary old development data.
+Physics workers consume immutable observations and constraint snapshots. Route claim and equipment preparation execute on their documented world/main owner. Add-on callbacks are bounded, non-blocking and are never invoked once per world resource every tick.

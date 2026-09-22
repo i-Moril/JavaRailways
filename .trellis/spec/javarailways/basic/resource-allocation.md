@@ -56,7 +56,7 @@ Manual：`MANUAL_ROUTED`仍分配/验证/release；`FULL_MANUAL`不申请new rou
 - live runtime claim：同一resource上互斥；受保护进路runtime使用acquire、append、shrink/release，不提供整份claim replace；add-on service只暴露read-only diagnostics；
 - edit permit：独占并跨完整mutation transaction持有，与overlap的lease、claim和其他permit冲突。
 
-`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。claim acquire/append/shrink/release必须匹配platform owner与expected logical owner；内部footprint变化不伪造新的caller plan revision。plugin disable释放该plugin直接拥有的lease/permit；受保护进路的live claim由host token持有，requester disable后按[protected route admission](./protected-route-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
+`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。claim acquire/append/shrink/release必须匹配platform owner与expected logical owner；内部footprint变化不伪造新的caller plan revision。plugin disable释放该plugin直接拥有的lease/permit；路线资源准入产生的live claim由host token持有，requester disable后按[route resource admission](./route-resource-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
 
 每个请求携带authoritative `topologyRevision`。Registry在resource validation前后各读取一次当前revision；任一次不匹配返回`STALE_TOPOLOGY`。rail区间由world验证存在与长度；stable resource由唯一namespaced provider验证。missing返回`INVALID_RESOURCE`，provider异常返回`RESOURCE_PROVIDER_FAILED`。所有非成功结果保持registry不变，并只在`RESOURCE_CONFLICT`中返回blocker owner/revision/resource diagnostics。
 
@@ -76,19 +76,19 @@ InfrastructureFootprint(listOf(
 
 同rail闭区间端点相交即overlap，例如`[0,20]`与`[20,40]`冲突；不同rail interval永不因数值相同而overlap。BA行进范围必须先转换成每根rail的canonical AB坐标。
 
-turnout的方向无关资源身份由[保护区域与进路准入](./protected-route-admission.md)唯一规定；这里仅要求
+turnout的方向无关资源身份由[路线资源准入](./route-resource-admission.md)唯一规定；这里仅要求
 footprint使用其`StableInfrastructureResource`，不得改用revision-local `TopologyNodeId`。diamond资源
 由独立binding提供。
 
-## 受保护进路解析与准入
+## 路线资源准入
 
-完整region cut、目标签名、错误矩阵、transaction伪代码和release/lifecycle合同见[protected route admission](./protected-route-admission.md)。本节只保留与通用registry直接相关的约束。
+目标物理资源底线、附加资源、transaction和release/lifecycle合同见[route resource admission](./route-resource-admission.md)。当前保护区域实现细节只作为迁移记录保留在[protected route admission](./protected-route-admission.md)。本节只保留与通用registry直接相关的约束。
 
-`RouteResourceRequest`描述一个自身携带topology revision的冻结route plan、列车身份、同一观察stamp、当前进度和期望authority boundary；request本身不再复制第二个topology revision。SimpleATO只提供有序traversal；Basic从authoritative observation读取列车实际占用，在一次route validation中收集唯一的claim资源集合并满足所有clearance obligation。保护区域入口只增加自己的路径资源及“尾部必须越过出口”的最小净空义务，不读取下一个区域；若义务范围内遇到另一保护区域或其他contributor，同一次validation继续把它的资源加入同一原子claim。
+目标`RouteResourceIntent`描述一个自身携带topology revision的冻结route plan、列车身份、同一观察stamp、期望authority boundary与可选附加注册资源；request本身不再复制第二个topology revision。SimpleATO提供有序traversal，具体信号插件决定自己的boundary与附加资源；Basic从authoritative observation读取列车实际占用，并从请求范围自行推导不可删除的物理资源底线。Basic不执行保护区域/固定闭塞的递归contributor closure。
 
-request不携带raw `InfrastructureFootprint`、受控资源清单或可信列车长度。SimpleATO从Core的authoritative `TopologyState`选择路径并提交有序edge traversal；Basic validator证明它在同一revision内连续、方向正确且每个continuation合法，再通过拓扑节点与绑定同一topology root的route-bound resource catalog，把rail intervals、turnouts、fixed crossings与其他shared conflicts加入唯一资源集合。physical occupancy geometry只用于检查，不形成第二个footprint。非法或断裂traversal返回`INVALID_ROUTE`；受控资源没有有效保护覆盖返回`PROTECTION_REQUIRED`。验证前后均核对topology root，任何失败都不改变registry。
+request不携带可替代Basic推导的raw `InfrastructureFootprint`或可信列车长度。SimpleATO从Core的authoritative `TopologyState`选择路径并提交有序edge traversal；Basic validator证明它在同一revision内连续、方向正确且每个continuation合法，再通过拓扑节点与绑定同一topology root的route-bound resource catalog，把rail intervals、turnouts、fixed crossings与其他shared conflicts加入物理底线。经过验证的插件addition只可增加资源。physical occupancy geometry只用于检查，不形成第二个footprint。非法或断裂traversal返回`INVALID_ROUTE`；保护区域覆盖不足由具体信号插件作为配置错误处理，不是Basic的`PROTECTION_REQUIRED`。验证前后均核对topology root，任何失败都不改变registry。
 
-`ProtectedRouteClaimService`现为host-side admission seam，并未替换旧`RouteSectionAllocator`调用者。service消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/READY/ABORTED_SAFE/UNSAFE`，pending admission handle持有claim mutation，只有`READY`才完成claim，只有资源handler确认`ABORTED_SAFE`才删除本次新claim。`abort()`不规定恢复旧状态或默认状态。当前live actuator只处理turnout requirement：它在任何side effect前解析并验证完整的双向selection批次，然后即时写入并返回`READY`；当前内存选择没有虚构的运行时失败或旧selection恢复路径。执行未完成时不会返回成功claim结果，也不存在grant；任一snapshot/actuator异常或`UNSAFE`均保留当前claim reservation并Stall world。当前仍缺通用contributor closure、grant/release/recovery和调用方迁移，因此不得声称所有自动/`MANUAL_ROUTED`进路已强制经过保护区域。后续迁移必须删除可绕过该validation的automatic overload。
+`ProtectedRouteClaimService`现为host-side transitional admission seam，并未替换旧`RouteSectionAllocator`调用者。service消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/READY/ABORTED_SAFE/UNSAFE`，pending admission handle持有claim mutation，只有`READY`才完成claim，只有资源handler确认`ABORTED_SAFE`才删除本次新claim。`abort()`不规定恢复旧状态或默认状态。当前live actuator只处理turnout requirement：它在任何side effect前解析并验证完整的双向selection批次，然后即时写入并返回`READY`；当前内存选择没有虚构的运行时失败或旧selection恢复路径。执行未完成时不会返回成功claim结果，也不存在grant；任一snapshot/actuator异常或`UNSAFE`均保留当前claim reservation并Stall world。当前仍缺目标公开intent、附加资源API、grant/recovery和调用方迁移，因此不得声称自动/`MANUAL_ROUTED`流程已全面迁移。后续迁移必须删除可绕过mandatory physical footprint的automatic overload。
 
 同一个`CompiledRouteAdmission`还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。immutable queue helper从队首返回连续eligible prefix但不自行pop；world-local claim service持有的释放控制器必须先完成registry原子shrink再丢弃该前缀。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；service已有显式observation驱动入口，但尚未自动接入publication。
 
@@ -191,8 +191,8 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - 边查边切、失败留partial；
 - preempt已有resource；
 - 用一个虚构的rail interval表达跨rail范围，或遗漏共享conflict node；
-- add-on直接申请raw live claim绕过protected route validation；
-- caller提交自选raw footprint/列车长度、Basic替caller选择路径、保护区域自行查询下一区域，或让列车持有一个region后才发现必须申请下一个region；
+- add-on直接申请raw live claim绕过route validation和mandatory physical footprint；
+- caller提交可替代物理底线的raw footprint/列车长度，或Basic替caller选择路径/执行保护区域策略；
 - topology revision只在validation前检查一次，允许检查期间的structural edit穿过；
 - release时复位branch；
 - 只看head或direction；

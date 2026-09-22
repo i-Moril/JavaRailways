@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-当前`Basic/`仍承载平台无关运营逻辑、ATO、Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable/Dispatcher/simulation与Basic snapshot。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：ATO与运营对象会整体迁入`SimpleATO`；Basic长期保留平台无关底层机制、通用图算法、固定闭塞/保护区域组成的`AuthoritySection`基础设施层以及拓扑/资源完整性校验。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`仍承载平台无关运营逻辑、ATO、Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable/Dispatcher/simulation与Basic snapshot。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：ATO与运营对象会整体迁入`SimpleATO`；Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 
@@ -24,7 +24,8 @@
 | [speed 与 derail safety](./speed-and-derail-safety.md) | speed signal/geometry threshold/derail request | operating limit与worker→main safety |
 | [route planning](./route-planning.md) | shortest path/progress/compiler或迁移到SimpleATO | 当前route合同、目标topology输入与ownership迁移 |
 | [resource allocation](./resource-allocation.md) | turnout/section/berth locks/manual resource | atomic ownership与physical release |
-| [protected route admission](./protected-route-admission.md) | protection region、route resource closure、clearance、infrastructure preparation | region cut、host compilation与fail-closed transaction |
+| [route resource admission](./route-resource-admission.md) | 自动路线claim、插件附加资源、设备准备与release | Basic目标物理资源底线、原子union与grant生命周期 |
+| [protected route admission](./protected-route-admission.md) | 迁移/删除当前保护区域实现时 | transitional region cut、window与既有回归语义；非目标ownership |
 | [timetable model 与 validation](./timetable-model-and-validation.md) | authoring/runtime model、validator | execution authority与validation gate |
 | [Dispatcher runtime](./dispatcher-runtime.md) | clocks/run state/station/depot/control | main-thread operational transitions |
 | [simulation](./simulation.md) | detailed/isolated simulation | clone boundary、determinism、provider opt-in |

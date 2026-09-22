@@ -13,19 +13,20 @@
 ## Pre-implementation design gate
 
 - [x] Require explicit user/design review before adding compatibility, automatic repair, legacy-data interpretation, or migration behavior; default to strict current-model validation.
-- [x] Freeze protection-region graph-cut, direction-boundary and non-overlap contracts.
-- [x] Freeze Basic ownership of fixed-block/protection-region definitions and their single non-overlapping `AuthoritySection` partition; SimpleATO owns only section consumption and signalling policy.
+- [x] Freeze the original protection-region graph-cut, direction-boundary and non-overlap contracts. **Superseded as a Basic target; retained as migration evidence for the first signal plugin.**
+- [x] Freeze the original Basic ownership of fixed-block/protection-region definitions. **Superseded: concrete signal plugins own these definitions and policy.**
 - [x] Freeze one authoritative immutable topology state, normalized node/edge model, overlay boundary and snapshot semantics.
 - [x] Create the target SimpleATO owner spec for operational overlays, frozen-route selection, admission-client behavior and the single train-protection pipeline; keep Core and Basic mechanisms in their own specs.
 - [x] Freeze SimpleATO topology-bound route versus Basic validation and single claim-resource-set responsibilities.
 - [x] Document module working model plus topology normalization, graph-cut, single-pass frozen-route validation/resource collection and tail-release internal mechanisms.
 - [x] Freeze coherent observation/region/topology revision and authoritative resource-validation contracts.
-- [x] Freeze generic route-resource closure, no-hold-and-wait admission, ordered infrastructure preparation and fail-closed lifecycle pseudocode.
+- [x] Freeze the original generic route-resource contributor closure. **Superseded by mandatory physical footprint plus additive plugin resources; preparation and fail-closed lifecycle remain.**
 - [x] Freeze tail-clear, compiled-plan prefix-release and provider-disable recovery behavior.
 - [x] Freeze same-frozen-route rolling suffix extension: SimpleATO selects the farther boundary;
   Basic validates only the suffix, atomically appends delta resources, prepares only delta
   requirements, keeps prefix release active while preparation is pending and expands authority only
   after the delta is committed.
+- [x] Freeze the revised ownership boundary: Basic derives non-removable rail/turnout/diamond resources; signal plugins may only add resources and stricter holds/restrictions; Basic owns no universal protection-region or fixed-block policy.
 
 ## Next reviewable batches
 
@@ -43,10 +44,10 @@
   - [ ] When production Dispatcher batches route selection for one observation, build one train-ID index
     in that dispatch context and share it across selectors; keep the current one-off linear lookup for
     isolated requests and do not add a cross-observation cache.
-- [ ] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one canonical resource set, generic contributor closure, safe authority-boundary selection and turnout selections. Occupancy geometry is validation evidence, not a second footprint. No registry mutation and no Basic path search.
+- [ ] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one mandatory physical footprint plus validated plugin additions, and route-ordered turnout selections. Occupancy geometry is validation evidence, not a second footprint. No Basic path search or protection-policy closure.
   - [x] Basic internal route projection validates one frozen `RouteSnapshot` against `TopologyState` in one linear pass, emits immutable edge occurrences and derives turnout node/from/to traversals; protection-window validation reuses this projection. Public request shape, route-bound diamond index and closure compilation remain.
   - [x] Turnout traversals derive one direction-independent `javarailways:turnout` resource identity from the sorted persistent endpoint set; revision-local topology node IDs remain validation-only. Route validation and diamond identities remain.
-  - [x] Route validation clips canonical rail intervals from entry through exit clearance, adds protected turnout resources to the one final set, and rejects uncovered turnouts before registry mutation. Projection is temporary validation state; diamond/occupancy/selection/contributor closure remains, so automatic callers are not migrated yet.
+  - [x] Transitional route validation clips canonical rail intervals, adds turnout resources and rejects uncovered turnouts. The projection/identity work is retained; uncovered-turnout policy and contributor-closure target are superseded by the mandatory physical floor plus additive plugin resources. Automatic callers are not migrated yet.
   - [x] Freeze the Basic-owned route-bound resource catalog contract: complete snapshots bind one exact topology root, rail-indexed anchors map either traversal side to one stable resource, and stale/unavailable indexes fail closed. Runtime catalog and diamond detection remain.
   - [x] Implement the Basic route-bound resource catalog runtime: atomically publish complete/complete-empty snapshots for one exact topology root, index canonical rail anchors, merge adjacent hits, reject leave-and-reenter routes, and add resolved resources to the validator's single footprint. Diamond placement detection remains.
   - [x] Preserve validation output as one immutable internal `CompiledRouteAdmission` containing the unique footprint plus route-ordered, direction-specific turnout selections derived from the same projected traversals. This is a pre-claim execution plan; the claim service submits only its footprint, while the selections become one ordered infrastructure-preparation batch after claim acquisition.
@@ -105,7 +106,7 @@
       compile only the farther suffix, query only its occupancy geometry, reserve and prepare only
       its delta, then finalize and install entries on the same controller. Prefix release remains
       active while pending, including a registry proof when only pending delta remains. Public
-      SimpleATO request wiring and generic contributor closure remain separate later batches.
+      SimpleATO request wiring and additive plugin-resource API remain separate later batches.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
   - [x] Align the transitional `RouteSectionAllocator` with the immediate in-memory turnout seam: resolve connections, conflicts and physical locks for the complete batch before the first selection write, then apply directly without capturing previous selections or claiming fictional apply-failure rollback. Dispatcher migration remains pending.
 
@@ -114,13 +115,13 @@
 - [x] Add immutable epoch/revision observation DTOs and coherent publication access.
 - [x] Add atomic shared infrastructure leases plus one edit-permit/diagnostic service covering applied-plan leases and live route claims.
 - [x] Add direction-aware boundary, bounded-region, frozen route-window and exit-clearance public contracts.
-- [ ] Replace the transitional single-window seam with a generic `RouteResourceRequest`/contributor closure; add typed `PROTECTION_REQUIRED` and provide no raw planned-section automatic overload.
-  - [x] Freeze the provider boundary: external add-ons receive one immutable same-epoch train view and only their matched local traversal, return standard forward-only contributions, and never access the registry/downstream catalog or mutate the world; Basic alone performs closure and the single atomic claim.
-- [ ] Add Basic-owned fixed-block definitions and merge them with protection regions in one revisioned authority-partition catalog, with atomic overlap validation and common traversal-scoped snapshots.
+- [ ] Replace the transitional single-window seam with a generic route intent: Basic derives the mandatory physical footprint and unions validated additive plugin resources; provide no raw planned-section or replacement-footprint automatic overload.
+  - [ ] Remove the superseded recursive provider-closure target. Expose namespaced resource registration plus bounded data additions; Basic does not execute signal policy callbacks while scanning the route.
+- [ ] Move protection-region/fixed-block definitions, graph-cut validation, catalog/window resolution and their persistence ownership out of Basic into the first concrete signal plugin. Do not add runtime compatibility without separate approval.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.
-- [ ] Remove turnout-derived protection-point synthesis from route compilation and reject automatic mission activation when any controlled resource lacks complete explicit region coverage.
+- [ ] Remove turnout-derived protection-point synthesis from route compilation. Concrete signal plugins decide whether their configuration is complete; Basic always retains the physical-resource floor.
 - [ ] Centralize turnout mutation and add the physical-lock/active-claim checked manual operation that produces no automatic authority.
-- [ ] Replace turnout-derived release assumptions with region-entry/tail-exit and generic conflict-envelope release tracking.
+- [ ] Replace turnout-derived release assumptions with generic per-resource hold boundaries and physical clear envelopes.
   - [x] Add internal generic tail-clear queue metadata and immutable eligible-prefix inspection
     without per-resource occupancy state or live-claim mutation.
   - [x] Add exact-identity atomic live-claim shrink without topology revalidation, conflict lookup,
@@ -139,6 +140,7 @@
     observation/projection/release invariant failures into one latched Stall callback.
 - [ ] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
 - [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
+- [ ] Add cached resource inspection-distance declarations, dependency-change publication and event-driven `update(train)` scheduling; keep dynamic braking distance in the SimpleATO tick.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
 - [ ] Add topology edit guards for active external claims.
@@ -148,9 +150,10 @@
 ## Validation
 
 - [ ] Focused Core tests for immutable publication, epochs, occupancy, diamond resource binding/no-connectivity-change, detection/update, and controller enforcement.
-- [ ] Focused Basic tests for no-partial atomic claims, conflicts, zero/one/multi-turnout throat paths, contributor closure across adjacent regions, cyclic/unfinishable closure, stale revisions, tail release, and timetable migration.
-- [ ] Authority-partition tests for fixed-block/protection-region adjacency, directional overlap rejection, atomic create/update/load failure, common snapshot semantics, and no duplicate SimpleATO section store.
-- [ ] Tests for uncovered/partially covered/already-aligned turnout denial, no mutation on `PROTECTION_REQUIRED`, revision-driven rather than per-tick retry, no-controlled-resource routes, and guarded manual selection.
+- [ ] Focused Basic tests for no-partial atomic claims, conflicts, zero/one/multi-turnout paths, mandatory physical floor, additive plugin resources, stale revisions, tail release and timetable migration.
+- [ ] Migration tests prove protection-region/fixed-block ownership leaves Basic without changing generic topology projection, claims, preparation or release behavior.
+- [ ] Tests prove omitted/replaced turnout or diamond resources are restored from Basic derivation, while plugin configuration failures remain restrictive without a Basic `PROTECTION_REQUIRED` policy.
+- [ ] Inspection scheduler tests prove cached declaration invalidation, host-owned dynamic braking distance and no unchanged per-tick plugin callback.
 - [ ] Tests for overlapping shared timetable leases, atomic lease acquisition/release, edit denial diagnostics, reload reconstruction, and no partial mutation across every supported infrastructure editor.
 - [ ] Bukkit tests for service registration/lookup, plugin disable, world unload, and target-aware dispatch.
 - [ ] Compile-only external consumer test imports public packages only.

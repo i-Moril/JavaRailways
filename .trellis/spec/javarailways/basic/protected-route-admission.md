@@ -1,14 +1,16 @@
-# Basic 保护区域与进路准入可执行契约
+# Basic 保护区域与进路准入可执行契约（迁移期实现记录）
+
+> **Status: TRANSITIONAL / SUPERSEDED TARGET.** 本页记录当前已经实现的保护区域 catalog、window、编译与释放机制，便于安全迁移和回归测试；它不再定义长期模块边界。目标路线资源合同见[路线资源准入](./route-resource-admission.md)：Basic 只拥有通用资源安全内核和不可删除的物理资源底线，保护区域、固定闭塞、联锁策略及 `PROTECTION_REQUIRED` 迁入具体信号系统插件。后续代码不得仅依据本页继续扩大 Basic 的保护区域领域模型。
 
 ## 1. 状态、范围、触发条件与Owner
 
 - **Status**：`TRANSITIONAL`；region catalog、graph cut、内部frozen-route validation、route-bound非结构资源索引、单window资源收集和atomic turnout admission已存在，通用contributor closure、grant publication与release/recovery尚未实现。
-- **Owner**：Basic拥有固定闭塞与`ProtectionRegionDefinition`、统一`AuthoritySection` catalog、路线验证、受控扩展provider边界、唯一claim资源集合与执行机制；SimpleATO只拥有运营路径选择、信号策略和section消费；Core拥有结构拓扑和物理观察。外部插件可以拥有自定义资源规则，但不能取得claim编排权。
+- **Current implementation owner**：Basic当前仍保存`ProtectionRegionDefinition`与catalog/window代码；这只描述迁移起点。目标owner是具体信号插件，Basic只保留路线验证、物理资源底线、唯一claim集合与执行机制；Core拥有结构拓扑和物理观察。
 - **Non-goals**：本页不定义信号aspect、JS策略、玩家编辑UI或替SimpleATO选择运营路径。
 
 触发：实现或修改保护区域定义、自动/`MANUAL_ROUTED`进路准入、道岔/菱形交叉资源解析、出口净空、进路回滚、尾部释放或`TimetableDispatcher`迁移。
 
-本页定义Stage 1 host contract。固定闭塞和保护区域是Basic基础设施安全定义：Basic保存两者的current model，在一个world-local authority-partition catalog中校验方向、范围和互不重叠，并发布可供准入与观察使用的统一`AuthoritySection`视图。SimpleATOBukkit只通过Basic API提供玩家编辑、可视化和诊断；SimpleATO消费已验证section，并负责信号显示与闭塞运用策略。具体持久化格式尚未冻结，但领域ownership不能因编辑入口位于附属插件而转移。
+本页以下内容是旧Stage 1合同和当前实现语义，不得作为新API目标。旧设计让Basic保存固定闭塞/保护区域current model并发布统一`AuthoritySection`；新设计会把这些定义、校验、持久化和观察面迁入具体信号插件。迁移期间仍需按本页测试现有行为，避免在移动代码时无意破坏已实现机制。
 
 设计目标：一个玩家定义的保护区域通常覆盖一个完整咽喉。SimpleATO提交已选且绑定topology revision的route plan、列车身份和期望authority boundary；Basic从同一观察解析列车实际占用包络与当前进度，在一次验证中证明冻结路径与同一版本拓扑一致，并把沿途资源收集到唯一的`InfrastructureFootprint`。保护区域只增加本区域的路径资源、“尾部必须越过出口”的释放条件和出口后的最小净空前沿；它不查看下一个区域，SimpleATO也不按资源具体类型写特判。若完成当前净空前沿前又遇到固定闭塞、移动闭塞或另一个保护区域，同一次验证继续前进并把资源加入同一集合。活跃grant不被抢占；公平性由确定性排序与aging处理。
 

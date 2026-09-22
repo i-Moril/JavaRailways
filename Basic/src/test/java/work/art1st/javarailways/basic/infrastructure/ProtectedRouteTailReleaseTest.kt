@@ -61,6 +61,33 @@ class ProtectedRouteTailReleaseTest {
     }
 
     @Test
+    fun `awaiting append remains an active protected route lifecycle`() {
+        val established = RailIntervalResource(railId, 0.0, 30.0)
+        val delta = RailIntervalResource(railId, 40.0, 50.0)
+        val fixture = fixture(listOf(ResolvedTailReleaseEntry(established, 10.0)))
+        assertInstanceOf(
+            LiveClaimAppendResult.Reserved::class.java,
+            fixture.claimRelease.beginAppend(
+                topologyRevision,
+                listOf(ResolvedTailReleaseEntry(delta, 20.0))
+            )
+        )
+
+        val active = assertInstanceOf(
+            ProtectedRouteTailReleaseUpdate.Active::class.java,
+            consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 10.0))
+        )
+
+        val awaiting = assertInstanceOf(
+            LiveClaimTailReleaseResult.AwaitingAppend::class.java,
+            active.releaseResult
+        )
+        assertEquals(1, awaiting.pendingResourceCount)
+        assertEquals(listOf(delta), fixture.registry.claimSnapshots().single().footprint.resources)
+        assertEquals(0, fixture.stalls.size)
+    }
+
+    @Test
     fun `observation identity epoch and train failures latch and stall exactly once`() {
         val scenarios = listOf(
             Triple(
@@ -156,22 +183,24 @@ class ProtectedRouteTailReleaseTest {
             testRouteProgressPath(railId, 100.0, 0.0).initializeCursor(position(0.0))
         )
         val stalls = mutableListOf<String>()
+        val claimRelease = LiveClaimTailRelease(
+            registry,
+            releasePlatformOwner,
+            claimOwner,
+            CompiledTailReleaseQueue(entries)
+        )
         return Fixture(
             registry,
             stalls,
             initialized.cursor,
+            claimRelease,
             ProtectedRouteTailRelease(
                 worldId,
                 topologyRevision,
                 trainId,
                 initialPhysicsEpoch = 7L,
                 routeProgressCursor = initialized.cursor,
-                claimRelease = LiveClaimTailRelease(
-                    registry,
-                    releasePlatformOwner,
-                    claimOwner,
-                    CompiledTailReleaseQueue(entries)
-                ),
+                claimRelease = claimRelease,
                 stallWorld = { detail, _ -> stalls += detail }
             )
         )
@@ -224,6 +253,7 @@ class ProtectedRouteTailReleaseTest {
         val registry: InfrastructureLeaseRegistry,
         val stalls: MutableList<String>,
         val cursor: RouteProgressCursor,
+        val claimRelease: LiveClaimTailRelease,
         val tailRelease: ProtectedRouteTailRelease
     )
 }

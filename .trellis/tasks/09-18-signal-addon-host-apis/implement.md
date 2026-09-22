@@ -82,6 +82,13 @@
       prefix shrink while pending, forbid delta shrink, and finalize or roll back only that delta
       against the claim's then-current remaining prefix. Suffix compilation, preparation and service
       integration remain unimplemented.
+    - [x] Connect that reservation to the existing `LiveClaimTailRelease`: validate an already
+      compiled delta queue before registry mutation, retain exactly one pending append, continue
+      releasing only established entries, keep an empty established queue alive while delta remains
+      reserved through an explicit active `AwaitingAppend` result, and finalize or roll back registry
+      state before installing/removing local delta state. Any unexpected registry result latches the
+      same controller fail closed. Suffix
+      compilation, preparation tickets, authority publication and service integration remain.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation

@@ -70,6 +70,13 @@ internal class ProtectedRouteTailRelease(
     val resourceQueueEmpty: Boolean
         get() = synchronized(lock) { claimRelease.resourceQueueEmpty }
 
+    /** Installs an already-committed and physically-ready suffix without replacing the cursor. */
+    @MainThread
+    fun installCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null) { "cannot install a committed suffix after fail-closed recovery" }
+        claimRelease.installCommittedSuffix(entries)
+    }
+
     init {
         require(worldId.isNotBlank())
         require(topologyRevision >= 0L)

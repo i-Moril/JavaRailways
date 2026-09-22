@@ -167,6 +167,12 @@ cursor或release失败均锁存并恰好一次触发Stall，service保留fail-cl
 dispatch。控制器不创建第二个claim或footprint；`LiveClaimTailRelease`只负责当前已提交资源队列。
 当前仍没有自动接入Core/Bukkit publication、持久化/reload恢复、provider-disable接管或clearance-margin策略。
 
+resource-acquisition/live-grant owner只有在delta registry reservation已经finalize且设备已经READY后，才能把对应
+release entries安装到现有控制器。控制器先验证suffix的确定性队尾顺序，并拒绝任何clear boundary位于或早于
+已接受tail progress的entry；失败不改变queue。active queue采用immutable merge，empty queue采用revival，二者
+都保留同一个cursor、最大tail progress和live-grant identity。控制器不持有pending handle，也不调用registry
+finalize/rollback。suffix compilation、preparation以及从service调用该安装入口仍未实现。
+
 ### 3.5 同一冻结路线的rolling suffix extension
 
 rolling extension只延长一个已经READY的live grant，不能创建第二个claim、第二个tail-release controller或新的

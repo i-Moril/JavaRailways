@@ -24,7 +24,10 @@ internal sealed interface LiveClaimTailReleaseResult {
         val remainingResourceCount: Int
     ) : LiveClaimTailReleaseResult
 
-    /** Every queued resource has been released. Further calls remain completed no-ops. */
+    /**
+     * Every queued resource has been released. Further calls still validate and retain monotonic
+     * accepted progress for safe suffix installation, but do not access the registry.
+     */
     data class Completed(
         val releasedResources: List<InfrastructureResource>,
         val alreadyCompleted: Boolean
@@ -62,6 +65,7 @@ internal class LiveClaimTailRelease(
 ) {
     private val lock = Any()
     private var remainingQueue: CompiledTailReleaseQueue? = queue
+    private var committedQueueTail: ResolvedTailReleaseEntry = queue.entries.last()
     private var maximumProgress: Double? = null
     private var terminalFailure: LiveClaimTailReleaseResult.FailedClosed? = null
 
@@ -76,15 +80,38 @@ internal class LiveClaimTailRelease(
     val resourceQueueEmpty: Boolean
         get() = synchronized(lock) { remainingQueue == null }
 
+    /**
+     * Installs release metadata for a suffix that the live-grant owner has already committed.
+     *
+     * The caller must first finish registry delta finalization and physical preparation. This
+     * method deliberately does neither: it only validates that [entries] continue the current
+     * committed queue order and have not already been passed by the authoritative train tail, then
+     * publishes the merged immutable queue in one local state change.
+     */
+    fun installCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null) { "cannot install a committed suffix after tail release failed closed" }
+
+        val suffix = CompiledTailReleaseQueue(entries)
+        require(TAIL_RELEASE_ENTRY_ORDER.compare(committedQueueTail, suffix.entries.first()) < 0) {
+            "committed suffix must continue after the previously installed queue tail"
+        }
+        maximumProgress?.let { acceptedProgress ->
+            require(suffix.entries.all { it.tailClearRouteMeters > acceptedProgress }) {
+                "committed suffix contains a tail-clear boundary at or before accepted progress " +
+                    acceptedProgress
+            }
+        }
+
+        val merged = remainingQueue?.let { current ->
+            CompiledTailReleaseQueue(current.entries + suffix.entries)
+        } ?: suffix
+        remainingQueue = merged
+        committedQueueTail = suffix.entries.last()
+    }
+
     fun advance(authoritativeTailRouteProgressMeters: Double): LiveClaimTailReleaseResult =
         synchronized(lock) {
             terminalFailure?.let { return@synchronized it }
-            val queue = remainingQueue
-                ?: return@synchronized LiveClaimTailReleaseResult.Completed(
-                    releasedResources = emptyList(),
-                    alreadyCompleted = true
-                )
-
             if (!authoritativeTailRouteProgressMeters.isFinite() ||
                 authoritativeTailRouteProgressMeters < 0.0
             ) {
@@ -102,6 +129,15 @@ internal class LiveClaimTailRelease(
                             authoritativeTailRouteProgressMeters
                     )
                 }
+            }
+
+            val queue = remainingQueue
+            if (queue == null) {
+                maximumProgress = authoritativeTailRouteProgressMeters
+                return@synchronized LiveClaimTailReleaseResult.Completed(
+                    releasedResources = emptyList(),
+                    alreadyCompleted = true
+                )
             }
 
             val inspection = queue.inspectEligiblePrefix(authoritativeTailRouteProgressMeters)

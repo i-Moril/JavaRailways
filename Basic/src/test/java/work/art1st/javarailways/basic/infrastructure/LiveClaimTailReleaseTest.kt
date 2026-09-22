@@ -81,7 +81,7 @@ class LiveClaimTailReleaseTest {
         )
         val repeated = assertInstanceOf(
             LiveClaimTailReleaseResult.Completed::class.java,
-            fixture.release.advance(Double.NaN)
+            fixture.release.advance(15.0)
         )
 
         assertEquals(listOf(resource), completed.releasedResources)
@@ -90,7 +90,90 @@ class LiveClaimTailReleaseTest {
         assertTrue(repeated.alreadyCompleted)
         assertTrue(fixture.registry.claimSnapshots().isEmpty())
         assertTrue(fixture.release.remainingEntries.isEmpty())
-        assertEquals(10.0, fixture.release.maximumAcceptedTailRouteProgressMeters)
+        assertEquals(15.0, fixture.release.maximumAcceptedTailRouteProgressMeters)
+    }
+
+    @Test
+    fun `committed suffix appends to the active queue and releases in the same order`() {
+        val first = interval(0.0, 10.0)
+        val suffixResource = interval(20.0, 30.0)
+        val fixture = fixture(listOf(entry(first, 10.0)))
+        val append = fixture.registry.beginAppendClaim(
+            platformOwner,
+            claimOwner,
+            topologyRevision = 8L,
+            deltaResources = listOf(suffixResource)
+        )
+        assertTrue(fixture.registry.completeClaimAppend(append))
+
+        fixture.release.installCommittedSuffix(listOf(entry(suffixResource, 20.0)))
+
+        assertEquals(
+            listOf(first, suffixResource),
+            fixture.release.remainingEntries.map(ResolvedTailReleaseEntry::resource)
+        )
+        assertInstanceOf(
+            LiveClaimTailReleaseResult.Shrunk::class.java,
+            fixture.release.advance(10.0)
+        )
+        assertEquals(listOf(suffixResource), fixture.singleClaim().footprint.resources)
+        assertInstanceOf(
+            LiveClaimTailReleaseResult.Completed::class.java,
+            fixture.release.advance(20.0)
+        )
+    }
+
+    @Test
+    fun `committed suffix revives an empty queue without resetting accepted progress`() {
+        val first = interval(0.0, 10.0)
+        val suffixResource = interval(20.0, 30.0)
+        val fixture = fixture(listOf(entry(first, 10.0)))
+        fixture.release.advance(10.0)
+        fixture.release.advance(15.0)
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            fixture.registry.acquireClaim(
+                platformOwner,
+                InfrastructureClaimRequest(
+                    8L,
+                    claimOwner,
+                    InfrastructureFootprint(listOf(suffixResource))
+                )
+            ).status
+        )
+
+        fixture.release.installCommittedSuffix(listOf(entry(suffixResource, 20.0)))
+
+        assertEquals(15.0, fixture.release.maximumAcceptedTailRouteProgressMeters)
+        assertEquals(listOf(suffixResource), fixture.release.remainingEntries.map { it.resource })
+        assertInstanceOf(
+            LiveClaimTailReleaseResult.Completed::class.java,
+            fixture.release.advance(20.0)
+        )
+    }
+
+    @Test
+    fun `invalid suffix order duplicate or cleared boundary is rejected without local mutation`() {
+        val first = interval(0.0, 10.0)
+        val outOfOrder = interval(20.0, 30.0)
+        val fixture = fixture(listOf(entry(first, 20.0)))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            fixture.release.installCommittedSuffix(listOf(entry(outOfOrder, 10.0)))
+        }
+        assertEquals(listOf(first), fixture.release.remainingEntries.map { it.resource })
+        assertThrows(IllegalArgumentException::class.java) {
+            fixture.release.installCommittedSuffix(listOf(entry(first, 30.0)))
+        }
+        assertEquals(listOf(first), fixture.release.remainingEntries.map { it.resource })
+
+        fixture.release.advance(20.0)
+        fixture.release.advance(25.0)
+        assertThrows(IllegalArgumentException::class.java) {
+            fixture.release.installCommittedSuffix(listOf(entry(outOfOrder, 25.0)))
+        }
+        assertTrue(fixture.release.resourceQueueEmpty)
+        assertEquals(25.0, fixture.release.maximumAcceptedTailRouteProgressMeters)
     }
 
     @Test

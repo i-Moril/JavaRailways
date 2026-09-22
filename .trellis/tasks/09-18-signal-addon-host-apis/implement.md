@@ -87,8 +87,12 @@
       retains exact platform/logical owner identity plus one frozen-route cursor after the current
       resource queue empties, continues projecting later coherent observations without registry work,
       and removes the record only on authenticated explicit end. Pending delta belongs to the future
-      resource-acquisition/live-grant owner and is not exposed to `LiveClaimTailRelease`; committed
-      suffix queue installation remains unimplemented.
+      resource-acquisition/live-grant owner and is not exposed to `LiveClaimTailRelease`.
+    - [x] Add atomic installation of already-finalized and physically-ready committed suffix release
+      entries on the existing controller. It validates immutable queue order and accepted tail progress,
+      appends to an active queue or revives an empty queue without replacing the cursor. Suffix
+      compilation, preparation, service integration, and verifiable coordination between a pending
+      delta and release of the last old resource remain unimplemented.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
 
 ## Implementation

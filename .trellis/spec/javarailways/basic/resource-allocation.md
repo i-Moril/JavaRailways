@@ -111,7 +111,15 @@ fail-closed结果，本地queue/progress保持原值，后续调用不重试shri
 registry违反预期返回另一种successful status，则可能已经只减了claim，owner仍必须保留本地状态并Stall，不能
 把这一invariant mismatch当作成功；`FailedClosed.claimMayHaveChanged`会明确标记这种已返回successful
 status的诊断情况，而普通failure为false。全部释放后进入幂等completed状态，后续调用不再访问registry。
-它只消费调用方已投影好的authoritative route progress，不拥有live grant、cursor或pending extension。
+它仍接受并保存后续调用方已投影好的authoritative route progress，供已清空队列之后的安全suffix安装判断；
+它不拥有live grant、cursor或pending extension。
+
+live-grant owner可在registry delta已经finalize且全部设备已经READY后，向同一个
+`LiveClaimTailRelease`安装一组committed suffix entries。安装只做本地immutable queue校验：suffix自身非空、
+无重复且有序；首项必须严格位于历史已安装队尾之后；每个tail-clear boundary必须严格晚于当前已接受的最大
+tail progress。全部校验在修改本地状态前完成。原队列仍有资源时合并两个immutable queue；原队列已空时重新
+建立queue。两种情况均不重置最大progress或外层frozen-route cursor。该方法不访问registry、不保存reservation
+handle，也不执行preparation、finalize或rollback。
 
 `CompiledRouteAdmission`现保留一次性从已验证冻结路线编译的`CompiledRouteProgressPath`。它只按路线
 顺序保存cursor所需的rail、facing、canonical AB边界和累计route distance，不建立按rail反向查询的第二份
@@ -145,12 +153,17 @@ revision；安全失败只撤销delta。若无法证明设备已安全中止，�
 撤销最后一份reservation后grant进入resource-idle但仍保留route cursor，直到显式end。pending delta不进入
 `LiveClaimTailRelease`；finalize后live-grant owner才安装对应的已提交release entries。整个过程不增加caller plan revision，也不使用generic claim replace伪造一次新owner。
 
+当前尚未完成pending append与尾部释放的service级协调。尤其当旧committed queue的最后一个资源准备释放、
+registry中仍有pending delta reservation时，`shrinkClaim`可能返回`REPLACED`；释放控制器不能在没有可验证
+pending证据时把它无条件当作正常完成，否则会掩盖registry中真正存在的未描述资源。后续集成必须明确决定
+finalize/install时序或提供可验证的协调证据；本批次不暂停释放，也不放宽严格registry结果校验。
+
 | append条件 | registry结果 | existing claim / delta |
 | --- | --- | --- |
 | owner/grant不匹配、已有pending extension、空或重复delta | typed invalid/busy | existing不变；无delta |
 | delta与其他claim冲突或provider/topology失效 | typed conflict/stale/provider failure | existing不变；无delta |
 | reserve delta成功 | pending handle | existing继续持有；delta reservation不可授权 |
-| pending期间prefix shrink | normal shrink result | 只删除已清除existing identities；delta不变 |
+| pending期间prefix shrink | normal shrink result；最后一个旧资源的协调仍待service集成 | 只删除已清除existing identities；delta不变 |
 | finalize成功 | appended | 同一owner/revision持有existing + delta |
 | preparation安全失败并撤销成功 | aborted | 只删除delta；existing保留当时尚未由车尾释放的部分 |
 | unsafe abort或撤销invariant失败 | stalled/retained | 保留能证明安全的existing + delta reservation |
@@ -193,7 +206,7 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - `InfrastructureLeaseRegistryTest.kt`：shared leases、exclusive claims、held edit permit、owner revision、双重topology check、provider failure和无partial mutation。
 - `InfrastructureLeaseRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
 - `LiveClaimTailReleaseTest.kt`：先shrink后出队、单调进度、重叠identity独立释放、unexpected result锁存
-  fail closed、全部释放后的幂等completed。
+  fail closed、全部释放后的幂等completed、active queue追加、empty queue恢复和非法suffix原子拒绝。
 - registry append tests：只保留delta、与其他claim冲突时existing不变、owner/grant/pending校验、finalize保持logical
   owner revision、安全失败只撤销delta、pending期间prefix shrink继续释放旧资源、unsafe abort保留reservation。
 - public consumer fixture：能构造多rail footprint并申请lease，但不能导入raw `InfrastructureClaimRequest`。

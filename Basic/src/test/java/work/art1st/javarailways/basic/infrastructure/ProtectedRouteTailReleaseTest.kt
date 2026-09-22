@@ -60,6 +60,43 @@ class ProtectedRouteTailReleaseTest {
     }
 
     @Test
+    fun `installing a committed suffix retains the same live route cursor`() {
+        val first = RailIntervalResource(railId, 0.0, 10.0)
+        val suffixResource = RailIntervalResource(railId, 20.0, 30.0)
+        val fixture = fixture(listOf(ResolvedTailReleaseEntry(first, 10.0)))
+
+        assertInstanceOf(
+            ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 10.0))
+        )
+        consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 15.0))
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            fixture.registry.acquireClaim(
+                platformOwner,
+                InfrastructureClaimRequest(
+                    topologyRevision,
+                    claimOwner,
+                    InfrastructureFootprint(listOf(suffixResource))
+                )
+            ).status
+        )
+
+        fixture.tailRelease.installCommittedSuffix(
+            listOf(ResolvedTailReleaseEntry(suffixResource, 20.0))
+        )
+        val completed = consume(
+            fixture.tailRelease,
+            observation(epoch = 10L, tailMeters = 20.0)
+        )
+
+        assertEquals(ProtectedRouteTailReleaseUpdate.Completed(10L, false), completed)
+        assertEquals(RouteProgressCursorState(0, 20.0), fixture.cursor.state)
+        assertTrue(fixture.registry.claimSnapshots().isEmpty())
+        assertEquals(0, fixture.stalls.size)
+    }
+
+    @Test
     fun `observation identity epoch and train failures latch and stall exactly once`() {
         val scenarios = listOf(
             Triple(

@@ -134,11 +134,17 @@
     provider implements route-use validation explicitly; the resource owner must approve requester, resource and preparation values,
     and a disappearing/throwing provider cannot authorize an addition. Non-null preparation is still rejected until
     a real handler exists; generic admission service wiring remains.
+  - [x] Join the existing Basic route projection, physical compiler, additive merge, occupancy index,
+    atomic initial claim, preparation ticket and tail-release controller in one internal first-admission
+    owner. Integration tests cover approved addition, no-partial denials, pending/ready/safe-abort/unsafe
+    transitions, host-held claim ownership after requester unload and physical tail release.
+    It is not the public service: extension, production
+    route-bound catalog publication, authenticated Bukkit provider binding and caller migration remain.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.
   - [ ] Remove the superseded recursive provider-closure target. Expose namespaced resource registration plus bounded data additions; Basic does not execute signal policy callbacks while scanning the route.
-- [ ] Move protection-region/fixed-block definitions, graph-cut validation, catalog/window resolution and their persistence ownership out of Basic into the first concrete signal plugin. Do not add runtime compatibility without separate approval.
+- [ ] Keep protection-region/fixed-block definitions, graph-cut validation and catalog/window resolution explicitly transitional in Basic during Stage 1; remove their use from the generic host contract and hand their implementation/persistence migration to the Stage 2 `JapaneseSignals` task. Do not add runtime compatibility without separate approval.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.
 - [ ] Remove turnout-derived protection-point synthesis from route compilation. Concrete signal plugins decide whether their configuration is complete; Basic always retains the physical-resource floor.
 - [ ] Centralize turnout mutation and add the physical-lock/active-claim checked manual operation that produces no automatic authority.

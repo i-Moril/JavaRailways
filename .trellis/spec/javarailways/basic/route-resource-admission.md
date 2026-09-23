@@ -3,7 +3,7 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能在内存中合并经过资源所有者校验的附加项。Bukkit现有资源提供者注册已经要求显式实现进路附加校验，并核对资源存在、请求者和注册生命周期；但此校验尚未由公开准入服务接入合并步骤。当前 `ProtectedRouteRequestValidator` 仍作为保护窗口策略适配器调用物理编译器；provider准备派发、公开准入实现和生产caller迁移尚未完成，不能把各自的组件测试当作真实申请成功。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能合并经过资源所有者校验的附加项。`InitialRouteAdmissionService`现在把通用首次申请的冻结路线校验、物理底线、附加校验、占用检查、原子claim、设备准备和车尾释放串成Basic内部流程，并由集成测试覆盖；它尚未实现同路线extension，也没有绑定生产世界的资源目录、Bukkit认证调用方或公开服务。Bukkit现有资源提供者注册已要求显式实现进路附加校验，但仍未接入这条Basic流程。当前`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；provider准备派发、生产caller迁移尚未完成，不能把内部测试当作真实插件申请成功。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
 - **Caller**：SimpleATO提供冻结路线与列车/观察身份；不需要信号策略时由SimpleATO提交无addition的intent，需要插件策略时由该信号插件的认证准入协调器提交同一路线和自己的addition。SimpleATO不冒充插件来源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。
@@ -55,6 +55,8 @@ mandatoryPhysicalFootprint(frozenRoute, requestedRange)
 The union is unique by exact resource identity and is committed once. Occupancy query geometry, preparation requirements and release entries are metadata for validation/operation/lifecycle; none is a second claim footprint.
 
 当前纯合并步骤从已编译的物理footprint复制资源身份与释放元数据，逐项调用由world-local资源owner提供的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint，附加准备descriptor保留为待provider派发的要求；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加descriptor覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间均随本次footprint及additions线性增长（排序释放队列除外）；空additions直接复用原结果。此步骤不验证occupancy、不claim、不让当前仅支持即时道岔的actuator执行新增准备，后续准入服务必须在原子claim前接入真实registration validation并在claim后接入对应provider。
+
+当前Basic内部首次申请由`InitialRouteAdmissionService`拥有：读取一份当前observation和同revision的拓扑root，投影调用方冻结路线，编译`[0, desiredAuthority]`物理范围，再调用宿主构造该world owner时绑定的附加资源校验并合并；请求本身不能替换校验函数。它用同一observation的占用索引验证物理geometry，复核拓扑root/observation stamp未变，再对唯一footprint执行一次registry claim。实际claim使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不发布grant；READY后完成claim事务并安装已有游标/车尾释放队列；安全中止只撤销本次claim，不安全或无法证明的状态保留claim并stall，拒绝后续申请。整个前claim阶段无registry mutation；附加资源提供者异常按`INVALID_ADDITION`拒绝。该内部owner尚不支持extension，不能单独注册为公开`RouteResourceAdmissionService`；Bukkit的认证provider校验及生产catalog绑定仍待后续批次。
 
 ### 3.3 申请、准备和释放
 

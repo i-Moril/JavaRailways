@@ -129,7 +129,10 @@ Migrate or delete Basic-specific policy:
 - `PROTECTION_REQUIRED` as a Basic admission failure;
 - recursive route-resource contributor closure and Basic-selected clearance expansion.
 
-During migration, current protection tests remain regression evidence. Move the implementation and persistence boundary into the first concrete signal plugin before removing the transitional Basic types; do not add a runtime compatibility layer unless separately approved.
+During Stage 1, current protection tests remain regression evidence, while Basic's protection
+implementation stays explicitly transitional and is not exposed as the generic host contract.
+Stage 2 moves its policy and persistence boundary into `JapaneseSignals` and then removes the
+transitional Basic types; neither stage adds a runtime compatibility layer without separate approval.
 
 ## Failure and threading
 

@@ -62,8 +62,12 @@ Provide a small, signalling-system-neutral host surface so independently compile
 ## Dependency and handoff
 
 - Stage 1 has no dependency on a concrete signal plugin.
+- Stage 1 leaves the existing Basic protection-region implementation transitional; moving its policy,
+  authoring and persistence into `JapaneseSignals` is Stage 2 work. Stage 1 must not expose that
+  transitional implementation as the generic host contract or add a runtime compatibility wrapper.
 - Completion must provide a consumer example and contract notes for the Stage 2 signal-plugin task.
-- The first Stage 2 plugin may reuse the migrated protection-region implementation, but that code and persistence boundary must belong to that plugin, not Basic.
+- Stage 2 may reuse the transitional protection-region algorithms, but the resulting code and
+  persistence boundary must belong to that plugin, not Basic.
 
 ## Absence behavior
 

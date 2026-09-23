@@ -450,14 +450,29 @@ internal class RouteResourceAdmissionEngine(
         val claimsByOwner = registry.claimSnapshots().associateBy { it.owner }
         return routes.values.mapNotNull { route ->
             if (route.requester !== requester) return@mapNotNull null
-            val claimResourceCount = claimsByOwner[route.owner]?.footprint?.resources?.size ?: 0
-            val releaseQueueCount = route.tailRelease?.remainingEntries?.size ?: 0
-            // Either side being nonempty is safety-relevant. In the ordinary case they agree; using
-            // the larger value also prevents lifecycle cleanup from hiding an invariant mismatch.
-            val heldResourceCount = maxOf(claimResourceCount, releaseQueueCount)
-            val pendingRequest = route.pendingHandle != null
-            if (!pendingRequest && heldResourceCount == 0) return@mapNotNull null
-            RouteAdmissionRequesterActivity(route.owner, route.trainId, pendingRequest, heldResourceCount)
+            routeActivity(route, claimsByOwner[route.owner]?.footprint?.resources?.size ?: 0)
+        }
+    }
+
+    /** Active routes that still depend on a stable resource type owned by one provider. */
+    @MainThread
+    fun providerActivity(typeIds: Set<String>): List<RouteAdmissionRequesterActivity> {
+        if (typeIds.isEmpty()) return emptyList()
+        val claimsByOwner = registry.claimSnapshots().associateBy { it.owner }
+        return routes.values.mapNotNull { route ->
+            val claimed = claimsByOwner[route.owner]?.footprint?.resources.orEmpty()
+            val committed = route.tailRelease?.remainingEntries.orEmpty().map { it.resource }
+            val pendingResources = route.pendingHandle?.let(pending::get)
+                ?.compiled?.resources?.resources.orEmpty()
+            val matchingTypes = (claimed + committed + pendingResources)
+                .asSequence()
+                .filterIsInstance<StableInfrastructureResource>()
+                .map(StableInfrastructureResource::typeId)
+                .filter(typeIds::contains)
+                .toSortedSet()
+            if (matchingTypes.isEmpty()) return@mapNotNull null
+            val activity = routeActivity(route, claimed.size) ?: return@mapNotNull null
+            activity.copy(resourceTypeIds = matchingTypes)
         }
     }
 
@@ -494,6 +509,38 @@ internal class RouteResourceAdmissionEngine(
             IllegalStateException("route-admission requester disappeared before releasing resources")
         )
         return activity
+    }
+
+    /** Retains routes that still use resources whose provider disappeared, then stalls the world. */
+    @MainThread
+    fun failClosedProviderLoss(
+        typeIds: Set<String>,
+        providerDescription: String
+    ): List<RouteAdmissionRequesterActivity> {
+        val activity = providerActivity(typeIds)
+        if (activity.isEmpty()) return emptyList()
+        val detail = activity.joinToString { active ->
+            "${active.owner.ownerId}(train=${active.trainId}, types=${active.resourceTypeIds.joinToString()})"
+        }
+        markWorldStalled(
+            "infrastructure provider $providerDescription disappeared with active resources: " +
+                "$detail; host-owned claims retained",
+            IllegalStateException("infrastructure provider disappeared before its resources were released")
+        )
+        return activity
+    }
+
+    private fun routeActivity(
+        route: RouteState,
+        claimResourceCount: Int
+    ): RouteAdmissionRequesterActivity? {
+        val releaseQueueCount = route.tailRelease?.remainingEntries?.size ?: 0
+        // Either side being nonempty is safety-relevant. In the ordinary case they agree; using
+        // the larger value also prevents lifecycle cleanup from hiding an invariant mismatch.
+        val heldResourceCount = maxOf(claimResourceCount, releaseQueueCount)
+        val pendingRequest = route.pendingHandle != null
+        if (!pendingRequest && heldResourceCount == 0) return null
+        return RouteAdmissionRequesterActivity(route.owner, route.trainId, pendingRequest, heldResourceCount)
     }
 
     private fun mapMutation(result: InfrastructureMutationResult): RouteAdmissionResult = when (result.status) {
@@ -536,11 +583,13 @@ data class RouteAdmissionRequesterActivity(
     val owner: InfrastructureOwner,
     val trainId: String,
     val pendingRequest: Boolean,
-    val heldResourceCount: Int
+    val heldResourceCount: Int,
+    val resourceTypeIds: Set<String> = emptySet()
 ) {
     init {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(heldResourceCount >= 0) { "heldResourceCount must be non-negative" }
         require(pendingRequest || heldResourceCount > 0) { "activity must protect a request or resource" }
+        require(resourceTypeIds.all { it.isNotBlank() }) { "resource type IDs must not be blank" }
     }
 }

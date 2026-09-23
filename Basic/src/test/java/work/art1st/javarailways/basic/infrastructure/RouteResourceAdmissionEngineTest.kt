@@ -110,6 +110,38 @@ class RouteResourceAdmissionEngineTest {
     }
 
     @Test
+    fun `provider loss finds another requesters pending added resource and stalls`() {
+        val requester = Any()
+        val ticket = MutableTicket()
+        val stalls = mutableListOf<String>()
+        val service = RouteResourceAdmissionEngine(
+            "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
+            { _, addition -> additionValidation(addition) },
+            InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
+            { reason, _ -> stalls += reason }
+        )
+        assertInstanceOf(
+            RouteAdmissionResult.Pending::class.java,
+            service.request(
+                requester,
+                intent(additions = listOf(AdditionalResourceRequirement(block, RouteBoundary(20.0))))
+            )
+        )
+
+        val active = service.providerActivity(setOf(block.typeId)).single()
+        assertEquals(setOf(block.typeId), active.resourceTypeIds)
+        assertTrue(active.pendingRequest)
+
+        assertEquals(
+            active,
+            service.failClosedProviderLoss(setOf(block.typeId), "test block provider").single()
+        )
+        assertEquals(1, stalls.size)
+        assertTrue(stalls.single().contains("test block provider"))
+        assertEquals(1, registry.claimSnapshots().size)
+    }
+
+    @Test
     fun `denied addition occupancy and claim conflict do not make a partial claim`() {
         val platformOwner = Any()
         val service = service()

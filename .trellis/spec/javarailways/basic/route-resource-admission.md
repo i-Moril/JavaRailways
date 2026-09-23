@@ -223,7 +223,9 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
   awaiting `endGrant` is safe to discard during unregister. Active state rejects planned unregister. Because Bukkit's
   `PluginDisableEvent` is already non-cancellable, forced requester loss retains every host-owned claim/reservation and
   latches the affected world through the existing Stall owner with world, plugin, route owner, train, pending and held-count
-  diagnostics. It does not drain, inherit, restore or transfer that state to another plugin instance.
+  diagnostics. The same check follows provider ownership: a plugin cannot unregister while one of its registered stable
+  resource types remains in another requester's claim, release queue or pending compiled request. Forced provider loss
+  retains those resources and stalls the affected world. Neither path drains, inherits, restores or transfers state.
 - Runtime claims are not persistence schema. Stable resource definitions belong to the plugin or infrastructure owner that defines them; Basic persists only a boundary explicitly approved later.
 - Registry mutation and resource preparation obey the world owner thread; physics observations crossing threads are immutable values.
 - `RouteResourceAdmissionService` is world-local. Callers invoke it on the documented world/main owner only after the

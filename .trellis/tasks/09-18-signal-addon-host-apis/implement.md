@@ -156,6 +156,9 @@
     unregister rejects pending reservations and nonempty route claims but removes empty route state; an already-fired
     independent Bukkit disable retains active host-owned route resources and stalls each affected world with precise
     plugin/world/route/train diagnostics. Host/server shutdown continues through ordinary world/service close.
+  - [x] Apply the same disable guard to resource-provider ownership without a second owner table: at unregister/disable,
+    inspect existing claims, committed release queues and pending compiled requests for the provider's registered type IDs.
+    Another requester's use therefore rejects planned unregister or retains resources and Stalls on forced provider loss.
   - [x] Review the internal first-admission and release hot paths: delayed `READY` now rechecks the latest
     coherent observation/topology/occupancy before publishing a grant, while ordinary epoch advancement
     rebinds the grant to the newer stamp. Release keeps one queue plus a head index, avoids empty-world

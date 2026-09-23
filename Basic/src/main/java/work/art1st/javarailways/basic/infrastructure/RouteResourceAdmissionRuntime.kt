@@ -55,6 +55,11 @@ class RouteResourceAdmissionRuntime private constructor(
     fun requesterActivity(requester: Any): List<RouteAdmissionRequesterActivity> =
         if (closed) emptyList() else engine.requesterActivity(requester)
 
+    /** Resource-bearing route states that still depend on one of the provider's type IDs. */
+    @MainThread
+    fun providerActivity(typeIds: Set<String>): List<RouteAdmissionRequesterActivity> =
+        if (closed) emptyList() else engine.providerActivity(typeIds)
+
     /** Discards only empty route state and terminal-handle references for a departing requester. */
     @MainThread
     fun discardInactiveRequester(requester: Any): Boolean =
@@ -67,6 +72,14 @@ class RouteResourceAdmissionRuntime private constructor(
         requesterDescription: String
     ): List<RouteAdmissionRequesterActivity> =
         if (closed) emptyList() else engine.failClosedRequesterLoss(requester, requesterDescription)
+
+    /** Retains active resources and latches this world fail-closed after provider loss. */
+    @MainThread
+    fun failClosedProviderLoss(
+        typeIds: Set<String>,
+        providerDescription: String
+    ): List<RouteAdmissionRequesterActivity> =
+        if (closed) emptyList() else engine.failClosedProviderLoss(typeIds, providerDescription)
 
     @MainThread
     override fun close() {

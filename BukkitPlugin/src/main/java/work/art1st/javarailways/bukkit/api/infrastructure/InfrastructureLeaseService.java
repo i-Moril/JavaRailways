@@ -87,8 +87,9 @@ public interface InfrastructureLeaseService {
      * Prepares this plugin instance for a planned disable by removing providers, leases, edit
      * permits, and empty route-admission state.
      *
-     * <p>The operation refuses to unregister while any route request is pending or its host-owned
-     * claim still contains resources. The plugin must remain enabled and continue its normal route
+     * <p>The operation refuses to unregister while any route request is pending, its host-owned
+     * claim still contains resources, or a stable resource type registered by this plugin is still
+     * used by another requester's route. The plugin must remain enabled and continue its normal
      * lifecycle until a later call succeeds. This method does not disable the Bukkit plugin and is
      * not called as a substitute for handling the non-cancellable disable event.</p>
      *

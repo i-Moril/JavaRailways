@@ -14,6 +14,8 @@
 pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有pending route reservation或非空host-owned claim时
 抛出诊断并保持全部状态。`PluginDisableEvent`本身不可取消，事件路径因此只处理“已经被强制禁用”：移除普通
 provider/platform ownership，但不释放route-admission claim/reservation，并通过每world既有Stall回调fail-close。
+检查同时覆盖插件作为requester持有的路线，以及它作为provider注册、但由其他requester持有的stable resource类型；
+provider ownership不另建长期索引，而是只在低频停用边界读取现有claim、release queue和pending compiled request。
 空claim、无pending、仅遗漏`endGrant`的route state可直接清除。JavaRailways自身禁用、service已关闭或
 `Bukkit.isStopping()`时走正常world/service close，不把服务器shutdown误报为附属插件故障。不使用永久owner tombstone、
 启用周期token、自动drain、跨插件实例继承或恢复状态机。

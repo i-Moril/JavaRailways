@@ -163,6 +163,67 @@ class DefaultInfrastructureLeaseServiceTest {
     }
 
     @Test
+    fun `resource provider cannot unregister while another plugin holds its route resource`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        var providerEnabled = true
+        val providerOwner = plugin("block-provider") { providerEnabled }
+        val requester = plugin("signal")
+        val block = StableInfrastructureResource("example.block:section", "main")
+        val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
+        val stalls = mutableListOf<String>()
+        service.registerResourceProvider(providerOwner, block.typeId, object : InfrastructureResourceProvider {
+            override fun exists(candidateWorld: UUID, resourceId: String) =
+                candidateWorld == worldId && resourceId == block.resourceId
+
+            override fun validateRouteAddition(
+                requester: Plugin,
+                candidateWorld: UUID,
+                resourceId: String,
+                descriptor: ResourcePreparationDescriptor?
+            ): RouteAdmissionFailureCode? = null
+        })
+        service.registerWorld(worldId, { topology.revision }) { resource ->
+            resource is RailIntervalResource && resource.railId == railId ||
+                resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
+        }
+        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, _ ->
+            stalls += reason
+        }
+        val admission = service.routeAdmission(requester, worldId)
+        val intent = RouteResourceIntent(
+            "test.signal:request/provider",
+            InfrastructureOwner("test.signal:route/provider", 1L),
+            "train",
+            observation.stamp,
+            RouteSnapshot(
+                "test.signal:route/provider",
+                1L,
+                topology.revision,
+                listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
+            ),
+            RouteBoundary(20.0),
+            listOf(AdditionalResourceRequirement(block, RouteBoundary(20.0)))
+        )
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.request(intent))
+
+        val active = assertThrows(IllegalStateException::class.java) {
+            service.unregisterOwner(providerOwner)
+        }
+        assertTrue(active.message.orEmpty().contains("types=${block.typeId}"))
+        assertEquals(1, service.liveClaims(worldId).size)
+
+        providerEnabled = false
+        service.forcedDisableOwner(providerOwner)
+        assertEquals(1, service.liveClaims(worldId).size)
+        assertEquals(1, stalls.size)
+        assertTrue(stalls.single().contains("block-provider"))
+        assertTrue(stalls.single().contains(block.typeId))
+    }
+
+    @Test
     fun `world route admission is attached once consumes the published observation and closes with world`() {
         val service = DefaultInfrastructureLeaseService()
         val worldId = UUID.randomUUID()

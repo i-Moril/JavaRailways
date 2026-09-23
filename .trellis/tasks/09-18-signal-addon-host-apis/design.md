@@ -85,7 +85,8 @@ A planned add-on disable must first unregister its infrastructure owner. The hos
 a pending route reservation or any resource left in its route claim; an otherwise empty route state does not block disable.
 Bukkit cannot cancel an already-fired disable event, so forced disable retains those host-owned resources and stalls each
 affected world through the existing coordinator. This lifecycle deliberately adds no drain, takeover, session token or
-cross-instance recovery protocol.
+cross-instance recovery protocol. The same rule applies when the disappearing plugin owns a registered resource type used
+by another requester's active or pending route; provider ownership cannot bypass the disable guard.
 
 Current in-memory turnout switching is immediate and has no fictional rollback. Future animated turnouts, movable bridges or other delayed devices use the same generic preparation contract; their default/resting state belongs to the resource implementation, not the train.
 

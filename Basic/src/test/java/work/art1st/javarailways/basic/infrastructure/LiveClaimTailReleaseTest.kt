@@ -195,6 +195,30 @@ class LiveClaimTailReleaseTest {
     }
 
     @Test
+    fun `staged later hold stays claimed while other old resources release and safe abort reconciles it`() {
+        val ordinary = interval(0.0, 20.0)
+        val held = StableInfrastructureResource("test:block", "held")
+        val delta = interval(20.0, 40.0)
+        val fixture = fixture(listOf(entry(ordinary, 20.0), entry(held, 20.0)))
+        fixture.release.validateExtendedHolds(listOf(entry(held, 40.0)))
+        val append = fixture.registry.beginAppendClaim(
+            platformOwner, claimOwner, 8L, listOf(delta)
+        )
+        fixture.release.stageExtendedHolds(listOf(entry(held, 40.0)))
+
+        assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java,
+            fixture.release.advance(21.0))
+        assertEquals(listOf(held), fixture.release.remainingEntries.map { it.resource })
+        assertEquals(setOf(held, delta), fixture.singleClaim().footprint.resources.toSet())
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, fixture.registry.rollbackClaimAppend(append).status)
+        assertInstanceOf(LiveClaimTailReleaseResult.Completed::class.java,
+            fixture.release.rollbackExtendedHolds())
+        assertTrue(fixture.registry.claimSnapshots().isEmpty())
+        assertTrue(fixture.release.resourceQueueEmpty)
+    }
+
+    @Test
     fun `invalid suffix order duplicate or cleared boundary is rejected without local mutation`() {
         val first = interval(0.0, 10.0)
         val outOfOrder = interval(20.0, 30.0)

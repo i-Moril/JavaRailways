@@ -3,7 +3,7 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能合并经过资源所有者校验的附加项。`InitialRouteAdmissionService`现在把通用首次申请的冻结路线校验、物理底线、附加校验、占用检查、原子claim、设备准备和车尾释放串成Basic内部流程，并由集成测试覆盖；它尚未实现同路线extension，也没有绑定生产世界的资源目录、Bukkit认证调用方或公开服务。Bukkit现有资源提供者注册已要求显式实现进路附加校验，但仍未接入这条Basic流程。当前`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；provider准备派发、生产caller迁移尚未完成，不能把内部测试当作真实插件申请成功。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能合并经过资源所有者校验的附加项。`InitialRouteAdmissionService`现已把通用首次申请及同冻结路线延长的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖；它仍未绑定生产世界的资源目录、Bukkit认证调用方或公开服务。Bukkit现有资源提供者注册已要求显式实现进路附加校验，但仍未接入这条Basic流程。当前`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；provider准备派发、生产caller迁移尚未完成，不能把内部测试当作真实插件申请成功。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
 - **Caller**：SimpleATO提供冻结路线与列车/观察身份；不需要信号策略时由SimpleATO提交无addition的intent，需要插件策略时由该信号插件的认证准入协调器提交同一路线和自己的addition。SimpleATO不冒充插件来源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。
@@ -56,7 +56,7 @@ The union is unique by exact resource identity and is committed once. Occupancy 
 
 当前纯合并步骤从已编译的物理footprint复制资源身份与释放元数据，逐项调用由world-local资源owner提供的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint，附加准备descriptor保留为待provider派发的要求；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加descriptor覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间均随本次footprint及additions线性增长（排序释放队列除外）；空additions直接复用原结果。此步骤不验证occupancy、不claim、不让当前仅支持即时道岔的actuator执行新增准备，后续准入服务必须在原子claim前接入真实registration validation并在claim后接入对应provider。
 
-当前Basic内部首次申请由`InitialRouteAdmissionService`拥有：读取一份当前observation和同revision的拓扑root，投影调用方冻结路线，编译`[0, desiredAuthority]`物理范围；先确认该路线从权威车尾开始，再调用宿主构造该world owner时绑定的附加资源校验并合并。请求本身不能替换校验函数。它用同一observation的占用索引验证物理geometry，复核拓扑root/observation stamp未变，再对唯一footprint执行一次registry claim。实际claim使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不发布grant；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍位于路线起点，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次claim。整个前claim阶段无registry mutation；附加资源提供者异常按`INVALID_ADDITION`拒绝。该内部owner尚不支持extension，不能单独注册为公开`RouteResourceAdmissionService`；Bukkit的认证provider校验及生产catalog绑定仍待后续批次。
+当前Basic内部首次申请由`InitialRouteAdmissionService`拥有：读取一份当前observation和同revision的拓扑root，投影调用方冻结路线，编译`[0, desiredAuthority]`物理范围；先确认该路线从权威车尾开始，再调用宿主构造该world owner时绑定的附加资源校验并合并。请求本身不能替换校验函数。它用同一observation的占用索引验证物理geometry，复核拓扑root/observation stamp未变，再对唯一footprint执行一次registry claim。实际claim使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不发布grant；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍位于路线起点，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次claim。整个前claim阶段无registry mutation；附加资源提供者异常按`INVALID_ADDITION`拒绝。该内部owner现已支持同冻结路线extension，但仍不能单独注册为公开`RouteResourceAdmissionService`；Bukkit的认证provider校验及生产catalog绑定仍待后续批次。
 
 ### 3.3 申请、准备和释放
 
@@ -64,7 +64,7 @@ Basic first completes route/resource/occupancy validation, then atomically claim
 
 Committed resources enter one route-ordered release queue owned by the live grant. Each observation advances the existing monotonic frozen-route cursor from the authoritative train tail. Basic atomically removes only the eligible queue prefix, then advances a head index in the retained queue; normal releases do not copy and revalidate the entire remaining queue. A signalling plugin may supply a stricter release boundary for its added resource; it cannot release a mandatory physical resource earlier than Basic's physical clear boundary.
 
-Rolling extension keeps the same frozen route and cursor. Basic compiles only the farther suffix, derives its physical floor, unions extension additions, reserves/prepares only the delta, and appends committed release entries. A changed route is a replan at a safe operational boundary, not a whole-claim replacement.
+Rolling extension keeps the same frozen route and cursor. Basic compiles only the farther suffix, derives its physical floor, and unions extension additions. Exact identities still held by the grant are not claimed or prepared again. If an addition asks to hold one of them longer, Basic validates that its new tail-clear boundary is no earlier than the committed one, then temporarily places that identity after ordinary eligible entries in the **same** release queue while the new delta is pending. Other old resources remain releasable by the tail. `READY` checks the latest coherent observation and suffix occupancy, commits only the new delta, then publishes the later hold boundaries and authority together; `ABORTED_SAFE` removes only the delta, restores old boundaries and immediately releases any restored entry already passed by the accepted tail. Unsafe or unprovable completion retains the safest reservation and stalls. If the old queue and registry claim are already empty, the live grant keeps its route cursor and acquires the suffix under the same grant identity. A changed route is a replan at a safe operational boundary, not a whole-claim replacement.
 
 ## 4. 冻结的公开请求合同
 
@@ -257,11 +257,15 @@ Denied或pending extension保持旧committed grant/authority，旧tail release�
 preparation READY、既有resource boundary单调更新、release entries追加成功后，Basic才发布更远committed
 boundary。safe abort只删除新delta；unsafe或无法证明的abort保留最安全reservation并stall world。
 
+已持有资源的保持时间不是新的claim身份：准备期间只暂缓它自己的释放，不能因此堵住队列里其他已清除的资源。若安全中止时车尾已经经过其旧释放点，恢复旧边界后必须立即按当前已接受的车尾进度释放它；否则旧资源会无故长期占用。待处理的新增delta始终不进入可释放队列，直到设备`READY`并完成registry提交。普通车尾释放不重排队列；只在延长申请/完成/安全中止这几个低频边界重排剩余队列。
+
 ## 7. 性能、复杂度与退化行为
 
 Let `R` be projected route slices, `B` route-bound catalog hits, `A` additional resources, `H` resources in the final claim, `I` occupancy-query intervals, `C` bucket-selected swept-span candidates and `M` resources in all other claims/edit permits. Projection is linear in `R`; rail-indexed catalog lookup reads route occurrences plus binary-search/candidate scans, then merges/sorts hits. Physical interval and release ordering can cost `O((R+B+A) log(R+B+A))`. Occupancy comparison is worst-case `O(C×I)` after bucket selection. The current registry checks requested resources against other held resources pairwise, worst-case `O(H×M)`; it does not yet have a conflict index. These are request-time costs, not unchanged per-tick work. Basic must not invoke every installed signal plugin, scan all regions or execute arbitrary JS during this pass.
 
 Observation dispatch builds one train-ID lookup only when at least one live grant exists. With grants, ordinary cursor checks start at the current occurrence and queue inspection starts at the current head; releasing `K` eligible resources costs `O(K)` locally. The registry keeps the live claim in one lock-protected ordered identity set: after validating the complete release batch, it deletes those `K` identities in place instead of rebuilding the other `H` resources. Its average shrink cost is `O(K+P)`, where `P` is the pending-record count currently scanned to find this owner. With fixed `P`, releasing `H` resources one by one is cumulatively average `O(H)`; this is not a bound on conflict lookup or explicit diagnostic snapshots, which still copy `O(H)` resources on read. Completed admission handles remain repeatable while held by callers without a world-lifetime terminal-result table.
+
+一次延长申请可读取该grant尚未释放的`H`个身份，把新增资源与已持有资源按exact identity分开；只有开始延长、完成或安全中止时才对剩余队列排序，成本为`O(H log H)`，不是每tick成本。按logical owner ID直接定位live grant，不为每列车延长遍历所有live grants。正常无pending extension时，前述车尾逐项释放仍从队首推进，不因这一功能退化为每次重建整个队列。
 
 Unchanged state performs no request compilation by itself. SimpleATO/resource inspection decides when a request is needed. Missing indexes, stale revisions or resource-handler failure fail closed; Basic must not fall back to a live-world full scan that silently grants authority.
 
@@ -287,6 +291,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - Delayed `READY` on a newer safe epoch rebinds the grant stamp; changed topology root, missing/moved train tail or newly occupied route publishes no grant and retains the claim under Stall.
 - Two pending attempts cannot publish a grant after either one has stalled the world; the second claim stays retained and the Stall callback fires once.
 - Tail release and same-route extension retain the existing cursor, release only a contiguous eligible prefix and never shorten plugin-specified holds.
+- Pending extension may defer an already-held identity while other old resources release; READY commits the new hold and delta before widening the same grant, while safe abort restores the old hold and releases it if the accepted tail has passed. An emptied old queue can reacquire the next suffix without creating a new grant ID.
 - Many sequential single-resource releases preserve the remaining claim order and owner; snapshots taken before shrink/append/rollback stay detached, while pending append forbids delta release and permits old-prefix shrink.
 - Plugin disable/reload tests prove existing grants remain fail-closed and releasable without executing plugin policy again.
 

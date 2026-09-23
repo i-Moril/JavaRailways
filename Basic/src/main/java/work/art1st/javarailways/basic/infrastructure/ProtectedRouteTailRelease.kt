@@ -70,6 +70,42 @@ internal class ProtectedRouteTailRelease(
     val resourceQueueEmpty: Boolean
         get() = synchronized(lock) { claimRelease.resourceQueueEmpty }
 
+    val remainingEntries: List<ResolvedTailReleaseEntry>
+        get() = synchronized(lock) { claimRelease.remainingEntries }
+
+    val acceptedTailProgressMeters: Double?
+        get() = synchronized(lock) { claimRelease.maximumAcceptedTailRouteProgressMeters }
+
+    @MainThread
+    fun validateExtendedHolds(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null)
+        claimRelease.validateExtendedHolds(entries)
+    }
+
+    @MainThread
+    fun stageExtendedHolds(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null)
+        claimRelease.stageExtendedHolds(entries)
+    }
+
+    @MainThread
+    fun validateExtendedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null)
+        claimRelease.validateExtendedSuffix(entries)
+    }
+
+    @MainThread
+    fun installExtendedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null)
+        claimRelease.installExtendedSuffix(entries)
+    }
+
+    @MainThread
+    fun rollbackExtendedHolds(): LiveClaimTailReleaseResult? = synchronized(lock) {
+        check(terminalFailure == null)
+        claimRelease.rollbackExtendedHolds()
+    }
+
     /** Installs an already-committed and physically-ready suffix without replacing the cursor. */
     @MainThread
     fun installCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {

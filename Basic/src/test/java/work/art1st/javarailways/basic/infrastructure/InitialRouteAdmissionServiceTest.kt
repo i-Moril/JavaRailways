@@ -18,6 +18,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -362,6 +363,249 @@ class InitialRouteAdmissionServiceTest {
         assertTrue(registry.claimSnapshots().isEmpty())
     }
 
+    @Test
+    fun `pending extension keeps old authority and held block while old rail releases`() {
+        val ticket = MutableTicket()
+        var starts = 0
+        val service = service(InfrastructurePreparationActuator {
+            InfrastructurePreparationStart.Accepted(if (starts++ == 0)
+                MutableTicket(InfrastructurePreparationState.READY) else ticket)
+        })
+        val requester = Any()
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.admit(requester, intent(additions = listOf(
+                AdditionalResourceRequirement(block, RouteBoundary(20.0))
+            )))).grant
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.extend(requester, first.grantId, intent(
+                authority = 40.0,
+                additions = listOf(AdditionalResourceRequirement(block, RouteBoundary(40.0)))
+            )))
+        assertEquals(first, pending.committedGrant)
+        assertEquals(RouteAdmissionFailureCode.EXTENSION_BUSY,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                service.extend(requester, first.grantId, intent(authority = 60.0))).failure.code)
+        observation = observation(8L, train("first", 21.0, 22.0, 8L))
+        service.consumeObservation(observation)
+        assertEquals(setOf(block, RailIntervalResource(railId, 20.0, 40.0)),
+            registry.claimSnapshots().single().footprint.resources.toSet())
+        assertFalse(service.endGrant(requester, first.grantId))
+        assertEquals(first, assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.progress(pending.handle)).committedGrant)
+
+        ticket.state = InfrastructurePreparationState.READY
+        val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.progress(pending.handle)).grant
+        assertSame(first.grantId, extended.grantId)
+        assertEquals(RouteBoundary(40.0), extended.committedAuthority)
+        assertEquals(observation.stamp, extended.observationStamp)
+        assertSame(extended, assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.progress(pending.handle)).grant)
+        observation = observation(9L, train("first", 41.0, 42.0, 9L))
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            service.consumeObservation(observation).single())
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(service.endGrant(requester, first.grantId))
+    }
+
+    @Test
+    fun `safe extension abort removes only delta and releases overdue old hold`() {
+        val ticket = MutableTicket()
+        var starts = 0
+        val service = service(InfrastructurePreparationActuator {
+            InfrastructurePreparationStart.Accepted(if (starts++ == 0)
+                MutableTicket(InfrastructurePreparationState.READY) else ticket)
+        })
+        val requester = Any()
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.admit(requester, intent(additions = listOf(
+                AdditionalResourceRequirement(block, RouteBoundary(20.0))
+            )))).grant
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.extend(requester, first.grantId, intent(
+                authority = 40.0,
+                additions = listOf(AdditionalResourceRequirement(block, RouteBoundary(40.0)))
+            )))
+        observation = observation(8L, train("first", 21.0, 22.0, 8L))
+        service.consumeObservation(observation)
+        ticket.state = InfrastructurePreparationState.ABORTED_SAFE
+
+        val aborted = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(pending.handle))
+        assertEquals(RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE, aborted.failure.code)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertSame(aborted, service.progress(pending.handle))
+        assertTrue(service.endGrant(requester, first.grantId))
+    }
+
+    @Test
+    fun `resource idle live grant reacquires farther suffix with the same grant id`() {
+        val ticket = MutableTicket()
+        var starts = 0
+        val service = service(InfrastructurePreparationActuator {
+            InfrastructurePreparationStart.Accepted(if (starts++ == 0)
+                MutableTicket(InfrastructurePreparationState.READY) else ticket)
+        })
+        val requester = Any()
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.admit(requester, intent())).grant
+        observation = observation(8L, train("first", 21.0, 22.0, 8L))
+        service.consumeObservation(observation)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.extend(requester, first.grantId, intent(authority = 40.0)))
+        assertEquals(first, pending.committedGrant)
+        assertFalse(service.endGrant(requester, first.grantId))
+        ticket.state = InfrastructurePreparationState.READY
+        val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.progress(pending.handle)).grant
+        assertSame(first.grantId, extended.grantId)
+        assertEquals(listOf(RailIntervalResource(railId, 20.0, 40.0)),
+            registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `old queue can empty while a new suffix reservation is still preparing`() {
+        val ticket = MutableTicket()
+        var starts = 0
+        val service = service(InfrastructurePreparationActuator {
+            InfrastructurePreparationStart.Accepted(if (starts++ == 0)
+                MutableTicket(InfrastructurePreparationState.READY) else ticket)
+        })
+        val requester = Any()
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.admit(requester, intent())).grant
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.extend(requester, first.grantId, intent(authority = 40.0)))
+        observation = observation(8L, train("first", 21.0, 22.0, 8L))
+
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            service.consumeObservation(observation).single())
+        assertEquals(listOf(RailIntervalResource(railId, 20.0, 40.0)),
+            registry.claimSnapshots().single().footprint.resources)
+        assertFalse(service.endGrant(requester, first.grantId))
+        ticket.state = InfrastructurePreparationState.READY
+        val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.progress(pending.handle)).grant
+        assertSame(first.grantId, extended.grantId)
+        assertEquals(RouteBoundary(40.0), extended.committedAuthority)
+        observation = observation(9L, train("first", 41.0, 42.0, 9L))
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            service.consumeObservation(observation).single())
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `extension conflict leaves the old grant and claim unchanged`() {
+        val requester = Any()
+        val service = service()
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.admit(requester, intent())).grant
+        assertEquals(work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(Any(), InfrastructureClaimRequest(
+                topology.revision, InfrastructureOwner("test:route/blocker", 1L),
+                work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint(
+                    listOf(RailIntervalResource(railId, 25.0, 35.0)))
+            )).status)
+
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.extend(requester, first.grantId, intent(authority = 40.0)))
+        assertEquals(RouteAdmissionFailureCode.RESOURCE_CONFLICT, rejected.failure.code)
+        assertEquals(RouteBoundary(20.0), first.committedAuthority)
+        assertEquals(listOf(RailIntervalResource(railId, 0.0, 20.0)),
+            registry.claimSnapshots().first { it.owner == first.owner }.footprint.resources)
+    }
+
+    @Test
+    fun `unsafe extension retains delta and cannot publish a farther grant`() {
+        val ticket = MutableTicket()
+        var starts = 0
+        var stalls = 0
+        val service = InitialRouteAdmissionService(
+            "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
+            { _, _ -> null }, InfrastructurePreparationActuator {
+                InfrastructurePreparationStart.Accepted(if (starts++ == 0)
+                    MutableTicket(InfrastructurePreparationState.READY) else ticket)
+            }, { _, _ -> stalls++ }
+        )
+        val requester = Any()
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.admit(requester, intent())).grant
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.extend(requester, first.grantId, intent(authority = 40.0)))
+        ticket.state = InfrastructurePreparationState.UNSAFE
+
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(pending.handle))
+        assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, rejected.failure.code)
+        assertEquals(1, stalls)
+        assertEquals(setOf(RailIntervalResource(railId, 0.0, 20.0),
+            RailIntervalResource(railId, 20.0, 40.0)),
+            registry.claimSnapshots().single().footprint.resources.toSet())
+        assertTrue(service.consumeObservation(observation(8L, train("first", 21.0, 22.0, 8L))).isEmpty())
+    }
+
+    @Test
+    fun `ready extension rechecks occupancy on the latest epoch and stalls without wider authority`() {
+        val ticket = MutableTicket()
+        var starts = 0
+        var stalls = 0
+        val service = InitialRouteAdmissionService(
+            "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
+            { _, _ -> null }, InfrastructurePreparationActuator {
+                InfrastructurePreparationStart.Accepted(if (starts++ == 0)
+                    MutableTicket(InfrastructurePreparationState.READY) else ticket)
+            }, { _, _ -> stalls++ }
+        )
+        val requester = Any()
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.admit(requester, intent())).grant
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.extend(requester, first.grantId, intent(authority = 40.0)))
+        observation = observation(8L,
+            train("first", 1.0, 2.0, 8L), train("second", 30.0, 31.0, 8L))
+        ticket.state = InfrastructurePreparationState.READY
+
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(pending.handle))
+        assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, rejected.failure.code)
+        assertEquals(1, stalls)
+        assertEquals(RouteBoundary(20.0), first.committedAuthority)
+        assertEquals(setOf(RailIntervalResource(railId, 0.0, 20.0),
+            RailIntervalResource(railId, 20.0, 40.0)),
+            registry.claimSnapshots().single().footprint.resources.toSet())
+    }
+
+    @Test
+    fun `already prepared held addition may extend its hold but cannot change preparation`() {
+        val batches = mutableListOf<List<InfrastructurePreparationRequirement>>()
+        val service = service(InfrastructurePreparationActuator { requirements ->
+            batches += requirements.toList()
+            InfrastructurePreparationStart.Accepted(MutableTicket(InfrastructurePreparationState.READY))
+        })
+        val requester = Any()
+        val preparation = ResourcePreparationDescriptor("test:prepare", emptyMap())
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.admit(requester, intent(additions = listOf(
+                AdditionalResourceRequirement(block, RouteBoundary(20.0), preparation)
+            )))).grant
+        val changed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.extend(requester, first.grantId, intent(
+                authority = 40.0, additions = listOf(AdditionalResourceRequirement(
+                    block, RouteBoundary(40.0), ResourcePreparationDescriptor("test:other", emptyMap())
+                )))))
+        assertEquals(RouteAdmissionFailureCode.INVALID_PREPARATION, changed.failure.code)
+        assertEquals(1, batches.size)
+        val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.extend(requester, first.grantId, intent(
+                authority = 40.0, additions = listOf(AdditionalResourceRequirement(
+                    block, RouteBoundary(40.0), preparation
+                ))))).grant
+        assertEquals(RouteBoundary(40.0), extended.committedAuthority)
+        assertEquals(2, batches.size)
+        assertTrue(batches.last().isEmpty())
+    }
+
     private fun service(
         actuator: InfrastructurePreparationActuator = InfrastructurePreparationActuator {
             InfrastructurePreparationStart.Accepted(MutableTicket(InfrastructurePreparationState.READY))
@@ -376,12 +620,13 @@ class InitialRouteAdmissionServiceTest {
         ownerId: String = "test:route/main",
         additions: List<AdditionalResourceRequirement> = emptyList(),
         trainId: String = "first",
-        routeStart: Double = 0.0
+        routeStart: Double = 0.0,
+        authority: Double = 20.0
     ) = RouteResourceIntent(
         "test:request/main", InfrastructureOwner(ownerId, 1L), trainId, observation.stamp,
         RouteSnapshot("test:route/main", 1L, topology.revision,
             listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, routeStart, 100.0))),
-        RouteBoundary(20.0), additions
+        RouteBoundary(authority), additions
     )
 
     private fun observation(epoch: Long, vararg trains: TrainFrameSnapshot) = RailwayObservation.fromCore(

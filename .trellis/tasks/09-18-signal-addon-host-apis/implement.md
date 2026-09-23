@@ -152,6 +152,14 @@
     while prefix release continues. Regression tests cover detached snapshots, order, repeated releases,
     append rollback and delta-only evidence. With fixed pending-attempt count, sequential release is
     average linear in the number of resources; pending-owner lookup and conflict scanning remain separate.
+  - [x] Complete the internal generic same-route extension: retain the first grant's frozen projection,
+    cursor and ID; compile/occupancy-check only the farther suffix; reserve and prepare only new
+    identities; defer any longer hold requested for an already-held identity in the same release queue
+    while other old resources continue tail release. Fresh `READY` validation commits delta and the
+    later authority together; safe abort removes only delta, restores old holds and releases any now
+    overdue resource. An empty old queue reacquires the suffix under the same live grant. Focused and
+    full Core/Basic tests cover pending, ready, conflict, abort, unsafe, old-prefix release, resource-idle
+    extension and changed occupancy. Production catalog/provider binding and caller migration remain.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.

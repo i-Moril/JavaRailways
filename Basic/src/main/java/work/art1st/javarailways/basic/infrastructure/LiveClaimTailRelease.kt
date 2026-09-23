@@ -71,6 +71,9 @@ internal class LiveClaimTailRelease(
     private var committedQueueTail: ResolvedTailReleaseEntry = queue.entries.last()
     private var maximumProgress: Double? = null
     private var terminalFailure: LiveClaimTailReleaseResult.FailedClosed? = null
+    // Only one same-route extension may be pending. Its already-held resources remain in this
+    // queue, but are placed after ordinary entries until READY or a proven safe abort.
+    private var pendingExtendedHolds: Map<InfrastructureResource, Pair<Double, Double>>? = null
 
     val remainingEntries: List<ResolvedTailReleaseEntry>
         get() = synchronized(lock) {
@@ -84,6 +87,85 @@ internal class LiveClaimTailRelease(
 
     val resourceQueueEmpty: Boolean
         get() = synchronized(lock) { remainingQueue == null }
+
+    /** Validates without mutation before the registry reserves the extension's new resources. */
+    fun validateExtendedHolds(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null && pendingExtendedHolds == null)
+        val held = remainingEntries.associateBy(ResolvedTailReleaseEntry::resource)
+        require(entries.map(ResolvedTailReleaseEntry::resource).distinct().size == entries.size)
+        entries.forEach { entry ->
+            val old = requireNotNull(held[entry.resource]) { "extended hold is not currently claimed" }
+            require(entry.tailClearRouteMeters >= old.tailClearRouteMeters) {
+                "extension cannot shorten an existing resource hold"
+            }
+        }
+    }
+
+    /** Defers only the named held identities; all other eligible queue entries still release. */
+    fun stageExtendedHolds(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        validateExtendedHolds(entries)
+        val original = remainingEntries.associateBy(ResolvedTailReleaseEntry::resource)
+        val changed = entries.filter { entry ->
+            original.getValue(entry.resource).tailClearRouteMeters < entry.tailClearRouteMeters
+        }
+        pendingExtendedHolds = changed.associate { entry ->
+            entry.resource to (original.getValue(entry.resource).tailClearRouteMeters to entry.tailClearRouteMeters)
+        }
+        if (changed.isNotEmpty()) {
+            val deferred = pendingExtendedHolds!!.keys
+            replaceRemainingQueue(remainingEntries.map { entry ->
+                if (entry.resource in deferred) entry.copy(tailClearRouteMeters = Double.MAX_VALUE) else entry
+            })
+        }
+    }
+
+    /** Checks the whole one-queue result before finalizing the registry delta. */
+    fun validateExtendedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        check(terminalFailure == null && pendingExtendedHolds != null)
+        val current = remainingEntries
+        val held = current.mapTo(HashSet()) { it.resource }
+        require(entries.isNotEmpty())
+        require(entries.none { it.resource in held }) { "extension suffix repeats a held resource" }
+        require(entries.map(ResolvedTailReleaseEntry::resource).distinct().size == entries.size)
+        val accepted = maximumProgress
+        require(entries.all { accepted == null || it.tailClearRouteMeters > accepted }) {
+            "extension suffix release boundary has already been passed"
+        }
+        require(pendingExtendedHolds!!.values.all { accepted == null || it.second > accepted }) {
+            "extended hold release boundary has already been passed"
+        }
+        CompiledTailReleaseQueue(current.map { entry ->
+            pendingExtendedHolds!![entry.resource]?.let { entry.copy(tailClearRouteMeters = it.second) } ?: entry
+        }.plus(entries).sortedWith(TAIL_RELEASE_ENTRY_ORDER))
+    }
+
+    /** Publishes release metadata after the reserved delta is READY and finalized. */
+    fun installExtendedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
+        validateExtendedSuffix(entries)
+        replaceRemainingQueue(remainingEntries.map { entry ->
+            pendingExtendedHolds!![entry.resource]?.let { entry.copy(tailClearRouteMeters = it.second) } ?: entry
+        } + entries)
+        committedQueueTail = remainingQueue!!.entries.last()
+        pendingExtendedHolds = null
+    }
+
+    /** Restores old boundaries after the registry has safely removed only the extension delta. */
+    fun rollbackExtendedHolds(): LiveClaimTailReleaseResult? = synchronized(lock) {
+        check(terminalFailure == null && pendingExtendedHolds != null)
+        val original = pendingExtendedHolds!!
+        if (original.isNotEmpty()) {
+            replaceRemainingQueue(remainingEntries.map { entry ->
+                original[entry.resource]?.let { entry.copy(tailClearRouteMeters = it.first) } ?: entry
+            })
+        }
+        pendingExtendedHolds = null
+        maximumProgress?.let(::advance)
+    }
+
+    private fun replaceRemainingQueue(entries: Collection<ResolvedTailReleaseEntry>) {
+        remainingQueue = CompiledTailReleaseQueue(entries.sortedWith(TAIL_RELEASE_ENTRY_ORDER))
+        headIndex = 0
+    }
 
     /**
      * Installs release metadata for a suffix that the live-grant owner has already committed.

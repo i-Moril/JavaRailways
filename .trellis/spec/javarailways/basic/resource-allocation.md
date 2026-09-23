@@ -135,6 +135,8 @@ tail progress。全部校验在修改本地状态前完成。原队列仍有资�
 建立queue。两种情况均不重置最大progress或外层frozen-route cursor。该方法不访问registry、不保存reservation
 handle，也不执行preparation、finalize或rollback。
 
+通用准入的延长还可能要求把**已经持有**的附加资源保持到更远的车尾位置；这种身份不能再作为registry delta重复申请，也不能套用上面的“新suffix全在旧队尾之后”检查。`InitialRouteAdmissionService`只在申请延长时对尚在队列中的同一identity暂缓释放，并在同一队列内重排剩余项；其他旧资源仍按队首释放。设备`READY`且最新观测复核成功后，服务先提交新增delta，再把旧identity的新保持边界与新增entries一起安装，最后扩大原grant。`ABORTED_SAFE`先撤销delta，再恢复旧边界并按已接受的车尾进度释放到期项。只有这几个延长生命周期边界复制/排序剩余队列；普通车尾推进仍从当前head扫描，不重建队列。若旧队列已空，live grant继续保留cursor，同一grant的下一段用新claim acquire，而不是对不存在的claim执行append。
+
 `CompiledRouteAdmission`现保留一次性从已验证冻结路线编译的`CompiledRouteProgressPath`。它只按路线
 顺序保存cursor所需的rail、facing、canonical AB边界和累计route distance，不建立按rail反向查询的第二份
 索引。每次初次准入的冻结路线必须从同epoch observation的物理车尾开始；Basic只验证首个occurrence

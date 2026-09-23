@@ -50,6 +50,24 @@ class RouteResourceAdmissionRuntime private constructor(
     fun endGrant(requester: Any, grantId: RouteGrantId): Boolean =
         !closed && engine.endGrant(requester, grantId)
 
+    /** Resource-bearing route states owned by this requester; empty completed states are omitted. */
+    @MainThread
+    fun requesterActivity(requester: Any): List<RouteAdmissionRequesterActivity> =
+        if (closed) emptyList() else engine.requesterActivity(requester)
+
+    /** Discards only empty route state and terminal-handle references for a departing requester. */
+    @MainThread
+    fun discardInactiveRequester(requester: Any): Boolean =
+        closed || engine.discardInactiveRequester(requester)
+
+    /** Retains active resources and latches this world fail-closed after forced requester loss. */
+    @MainThread
+    fun failClosedRequesterLoss(
+        requester: Any,
+        requesterDescription: String
+    ): List<RouteAdmissionRequesterActivity> =
+        if (closed) emptyList() else engine.failClosedRequesterLoss(requester, requesterDescription)
+
     @MainThread
     override fun close() {
         closed = true

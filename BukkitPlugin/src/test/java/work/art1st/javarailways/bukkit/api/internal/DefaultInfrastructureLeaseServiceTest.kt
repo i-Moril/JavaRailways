@@ -46,7 +46,7 @@ import java.util.UUID
 
 class DefaultInfrastructureLeaseServiceTest {
     @Test
-    fun `bound route service owns authentication lifecycle and host claim`() {
+    fun `normal unregister rejects active route resources and accepts an empty route state`() {
         val service = DefaultInfrastructureLeaseService()
         val worldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
@@ -78,20 +78,16 @@ class DefaultInfrastructureLeaseServiceTest {
         val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
             admission.request(intent)).grant
         assertEquals(1, service.liveClaims(worldId).size)
-        service.unregisterOwner(requester)
-        assertEquals(1, service.liveClaims(worldId).size)
-        assertEquals(
-            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
-            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-                admission.request(intent)).failure.code
-        )
-        assertThrows(IllegalStateException::class.java) {
-            service.routeAdmission(requester, worldId)
+        val active = assertThrows(IllegalStateException::class.java) {
+            service.unregisterOwner(requester)
         }
+        assertTrue(active.message.orEmpty().contains("route=${intent.owner.ownerId}"))
+        assertEquals(1, service.liveClaims(worldId).size)
 
         observation = routeObservation(worldId, topology.revision, 2L, railId, 21.0, 22.0)
         service.consumeObservation(worldId, observation)
         assertTrue(service.liveClaims(worldId).isEmpty())
+        service.unregisterOwner(requester)
         assertFalse(admission.endGrant(grant.grantId))
 
         var pluginEnabled = true
@@ -112,6 +108,53 @@ class DefaultInfrastructureLeaseServiceTest {
         )
         service.registerWorld(worldId, { topology.revision }) { false }
         service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { _, _ -> }
+        assertEquals(
+            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                admission.request(intent)).failure.code
+        )
+    }
+
+    @Test
+    fun `forced plugin disable retains active route claim and stalls its world`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        var pluginEnabled = true
+        val requester = plugin("signal") { pluginEnabled }
+        val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
+        val stalls = mutableListOf<String>()
+        service.registerWorld(worldId, { topology.revision }) { resource ->
+            resource is RailIntervalResource && resource.railId == railId
+        }
+        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, _ ->
+            stalls += reason
+        }
+        val admission = service.routeAdmission(requester, worldId)
+        val intent = RouteResourceIntent(
+            "test.signal:request/main",
+            InfrastructureOwner("test.signal:route/main", 1L),
+            "train",
+            observation.stamp,
+            RouteSnapshot(
+                "test.signal:route/main",
+                1L,
+                topology.revision,
+                listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
+            ),
+            RouteBoundary(20.0),
+            emptyList()
+        )
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.request(intent))
+
+        pluginEnabled = false
+        service.forcedDisableOwner(requester)
+
+        assertEquals(1, service.liveClaims(worldId).size)
+        assertEquals(1, stalls.size)
+        assertTrue(stalls.single().contains("Bukkit plugin signal"))
+        assertTrue(stalls.single().contains(intent.owner.ownerId))
         assertEquals(
             RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
             assertInstanceOf(RouteAdmissionResult.Rejected::class.java,

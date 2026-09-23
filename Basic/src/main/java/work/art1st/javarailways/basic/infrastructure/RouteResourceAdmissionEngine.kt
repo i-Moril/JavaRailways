@@ -440,6 +440,62 @@ internal class RouteResourceAdmissionEngine(
         return true
     }
 
+    /**
+     * Returns only route states that still protect a registry reservation/release-queue entry or
+     * have an in-flight request. An emptied committed route state is deliberately not active: it
+     * can be discarded safely when its requester unregisters even if [endGrant] was not called.
+     */
+    @MainThread
+    fun requesterActivity(requester: Any): List<RouteAdmissionRequesterActivity> {
+        val claimsByOwner = registry.claimSnapshots().associateBy { it.owner }
+        return routes.values.mapNotNull { route ->
+            if (route.requester !== requester) return@mapNotNull null
+            val claimResourceCount = claimsByOwner[route.owner]?.footprint?.resources?.size ?: 0
+            val releaseQueueCount = route.tailRelease?.remainingEntries?.size ?: 0
+            // Either side being nonempty is safety-relevant. In the ordinary case they agree; using
+            // the larger value also prevents lifecycle cleanup from hiding an invariant mismatch.
+            val heldResourceCount = maxOf(claimResourceCount, releaseQueueCount)
+            val pendingRequest = route.pendingHandle != null
+            if (!pendingRequest && heldResourceCount == 0) return@mapNotNull null
+            RouteAdmissionRequesterActivity(route.owner, route.trainId, pendingRequest, heldResourceCount)
+        }
+    }
+
+    /** Removes requester references only when no pending request or registry resource remains. */
+    @MainThread
+    fun discardInactiveRequester(requester: Any): Boolean {
+        if (requesterActivity(requester).isNotEmpty()) return false
+        routes.values.removeIf { it.requester === requester }
+        terminal.entries.removeIf { it.value.requester === requester }
+        return true
+    }
+
+    /**
+     * A platform requester disappeared without first unregistering safely. Claims and reservations
+     * remain untouched; the existing world Stall owner receives one precise diagnostic.
+     */
+    @MainThread
+    fun failClosedRequesterLoss(
+        requester: Any,
+        requesterDescription: String
+    ): List<RouteAdmissionRequesterActivity> {
+        val activity = requesterActivity(requester)
+        if (activity.isEmpty()) {
+            discardInactiveRequester(requester)
+            return emptyList()
+        }
+        val detail = activity.joinToString { active ->
+            "${active.owner.ownerId}(train=${active.trainId}, pending=${active.pendingRequest}, " +
+                "heldResources=${active.heldResourceCount})"
+        }
+        markWorldStalled(
+            "route-admission requester $requesterDescription disappeared with active resources: " +
+                "$detail; host-owned claims retained",
+            IllegalStateException("route-admission requester disappeared before releasing resources")
+        )
+        return activity
+    }
+
     private fun mapMutation(result: InfrastructureMutationResult): RouteAdmissionResult = when (result.status) {
         InfrastructureMutationStatus.RESOURCE_CONFLICT -> RouteAdmissionResult.Rejected(RouteAdmissionFailure(
             RouteAdmissionFailureCode.RESOURCE_CONFLICT,
@@ -473,4 +529,18 @@ internal class RouteResourceAdmissionEngine(
 
     private fun rejected(code: RouteAdmissionFailureCode, detail: String) =
         RouteAdmissionResult.Rejected(RouteAdmissionFailure(code, detail))
+}
+
+/** Internal composition diagnostic for one requester's resource-bearing route state. */
+data class RouteAdmissionRequesterActivity(
+    val owner: InfrastructureOwner,
+    val trainId: String,
+    val pendingRequest: Boolean,
+    val heldResourceCount: Int
+) {
+    init {
+        require(trainId.isNotBlank()) { "trainId must not be blank" }
+        require(heldResourceCount >= 0) { "heldResourceCount must be non-negative" }
+        require(pendingRequest || heldResourceCount > 0) { "activity must protect a request or resource" }
+    }
 }

@@ -27,6 +27,8 @@
 - Bukkit `InfrastructureLeaseService.routeAdmission(plugin, worldId)` 是公开准入service的认证入口：返回值绑定
   该plugin实例和确切world runtime，所有request/progress/endGrant沿用该身份。plugin disable、service close或
   world unload后返回`WORLD_UNAVAILABLE`/false；同UUID的新world不能复活旧binding，且失效不能删除host-owned live claim。
+  计划禁用必须先成功调用owner unregister；pending reservation或非空claim会拒绝注销。已发生的强制禁用不可取消，
+  此时Basic保留claim并经既有world Stall owner fail-close；无资源、无pending而只等待`endGrant`的空route state可安全删除。
 
 代表性platform-independent签名（`Basic/src/main/java/work/art1st/javarailways/basic/api/operation/TrainOperation.kt`）：
 

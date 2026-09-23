@@ -34,7 +34,9 @@ public interface InfrastructureLeaseService {
      * {@code pluginOwner}. It becomes unavailable when that plugin is disabled, this host service
      * closes, or this exact world runtime unloads. A later world runtime with the same UUID does not
      * revive an old binding. Existing host-owned claims are not released merely because the caller
-     * becomes unavailable.</p>
+     * becomes unavailable. A caller must successfully {@link #unregisterOwner(Plugin)} before a
+     * planned disable; Bukkit's already-fired disable event cannot be cancelled and therefore
+     * stalls each affected railway world when route resources are still active.</p>
      *
      * @throws IllegalStateException if the plugin is disabled or route admission is not attached
      *                               for the requested world
@@ -82,9 +84,16 @@ public interface InfrastructureLeaseService {
     List<InfrastructureClaimSnapshot> liveClaims(UUID worldId);
 
     /**
-     * Removes providers, leases, and edit permits directly owned by this plugin instance.
-     * Host-owned route grants remain protected until their normal physical release and explicit
-     * grant end.
+     * Prepares this plugin instance for a planned disable by removing providers, leases, edit
+     * permits, and empty route-admission state.
+     *
+     * <p>The operation refuses to unregister while any route request is pending or its host-owned
+     * claim still contains resources. The plugin must remain enabled and continue its normal route
+     * lifecycle until a later call succeeds. This method does not disable the Bukkit plugin and is
+     * not called as a substitute for handling the non-cancellable disable event.</p>
+     *
+     * @throws IllegalStateException if the service is closed or this plugin still has active route
+     *                               resources in any registered railway world
      */
     void unregisterOwner(Plugin pluginOwner);
 }

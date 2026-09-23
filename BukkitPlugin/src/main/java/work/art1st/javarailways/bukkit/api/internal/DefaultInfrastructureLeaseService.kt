@@ -29,8 +29,6 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World
-import java.util.Collections
-import java.util.IdentityHashMap
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -44,7 +42,6 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     private val worlds = linkedMapOf<UUID, WorldRuntime>()
     private data class ProviderRegistration(val pluginOwner: Plugin, val provider: InfrastructureResourceProvider)
     private val resourceProviders = linkedMapOf<String, ProviderRegistration>()
-    private val retiredOwners = Collections.newSetFromMap(IdentityHashMap<Plugin, Boolean>())
     private var closed = false
 
     fun registerWorld(
@@ -123,9 +120,6 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         val requester = requireEnabled(pluginOwner)
         val worldRuntime = synchronized(lock) {
             check(!closed) { "InfrastructureLeaseService is closed" }
-            check(requester !in retiredOwners) {
-                "Route admission owner is no longer registered: ${requester.name}"
-            }
             val runtime = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
             }
@@ -158,8 +152,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
             }
 
         private fun admission(): RouteResourceAdmissionRuntime? = synchronized(lock) {
-            if (closed || !requester.isEnabled || requester in retiredOwners ||
-                worlds[worldId] !== boundWorld
+            if (closed || !requester.isEnabled || worlds[worldId] !== boundWorld
             ) null
             else boundWorld.routeAdmission
         }
@@ -331,11 +324,49 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     override fun unregisterOwner(pluginOwner: Plugin) {
         BukkitThreadGuardBridge.runInSimulationContext {
             val snapshot = synchronized(lock) {
-                resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
-                retiredOwners += pluginOwner
-                worlds.values.map(WorldRuntime::registry)
+                check(!closed) { "InfrastructureLeaseService is closed" }
+                worlds.entries.map { it.key to it.value }
             }
-            snapshot.forEach { it.releasePlatformOwner(pluginOwner) }
+            val activity = snapshot.flatMap { (worldId, runtime) ->
+                runtime.routeAdmission?.requesterActivity(pluginOwner).orEmpty().map { worldId to it }
+            }
+            check(activity.isEmpty()) {
+                "Cannot unregister infrastructure owner ${pluginOwner.name} while route resources remain active: " +
+                    activity.joinToString { (worldId, active) ->
+                        "world=$worldId route=${active.owner.ownerId} train=${active.trainId} " +
+                            "pending=${active.pendingRequest} heldResources=${active.heldResourceCount}"
+                    }
+            }
+            snapshot.forEach { (_, runtime) ->
+                check(runtime.routeAdmission?.discardInactiveRequester(pluginOwner) != false) {
+                    "Route resources changed while unregistering ${pluginOwner.name}"
+                }
+            }
+            synchronized(lock) {
+                resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
+            }
+            snapshot.forEach { (_, runtime) -> runtime.registry.releasePlatformOwner(pluginOwner) }
+        }
+    }
+
+    /**
+     * Handles an already-fired, non-cancellable Bukkit disable event. Active route resources remain
+     * host-owned and stall their world; only non-route platform ownership receives ordinary cleanup.
+     */
+    fun forcedDisableOwner(pluginOwner: Plugin) {
+        BukkitThreadGuardBridge.runInSimulationContext {
+            val snapshot = synchronized(lock) {
+                if (closed) return@runInSimulationContext
+                resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
+                worlds.entries.map { it.key to it.value }
+            }
+            snapshot.forEach { (worldId, runtime) ->
+                runtime.routeAdmission?.failClosedRequesterLoss(
+                    pluginOwner,
+                    "Bukkit plugin ${pluginOwner.name} in world $worldId"
+                )
+                runtime.registry.releasePlatformOwner(pluginOwner)
+            }
         }
     }
 
@@ -345,7 +376,6 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 if (closed) return@runInSimulationContext
                 closed = true
                 resourceProviders.clear()
-                retiredOwners.clear()
                 worlds.values.toList().also { worlds.clear() }
             }
             snapshot.forEach { runtime ->

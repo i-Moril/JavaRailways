@@ -186,7 +186,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         )
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
-        server.pluginManager.registerEvents(InfrastructureOwnerLifecycleListener(infrastructureLeaseServiceImpl), this)
+        server.pluginManager.registerEvents(
+            InfrastructureOwnerLifecycleListener(infrastructureLeaseServiceImpl, this),
+            this
+        )
         trainControlManager = TrainControlManager(this)
         trainControlManager.start()
         trainHandleInputListener = TrainHandleInputListener(trainControlManager)

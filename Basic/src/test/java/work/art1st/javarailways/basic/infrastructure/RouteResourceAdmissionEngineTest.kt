@@ -59,12 +59,54 @@ class RouteResourceAdmissionEngineTest {
         registry.releasePlatformOwner(platformOwner)
         assertEquals(1, registry.claimSnapshots().size)
         assertFalse(service.endGrant(platformOwner, grant.grantId))
+        assertEquals(1, service.requesterActivity(platformOwner).size)
+        assertFalse(service.discardInactiveRequester(platformOwner))
         observation = observation(8L, train("first", 21.0, 22.0, 8L))
         assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
             service.consumeObservation(observation).single())
         assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(service.requesterActivity(platformOwner).isEmpty())
         assertFalse(service.endGrant(Any(), grant.grantId))
-        assertTrue(service.endGrant(platformOwner, grant.grantId))
+        assertTrue(service.discardInactiveRequester(platformOwner))
+        assertFalse(service.endGrant(platformOwner, grant.grantId))
+    }
+
+    @Test
+    fun `forced requester loss retains pending reservation and stalls once`() {
+        val requester = Any()
+        val ticket = MutableTicket()
+        val stalls = mutableListOf<String>()
+        val service = RouteResourceAdmissionEngine(
+            "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
+            { _, addition -> additionValidation(addition) },
+            InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
+            { reason, _ -> stalls += reason }
+        )
+        val pending = assertInstanceOf(
+            RouteAdmissionResult.Pending::class.java,
+            service.request(requester, intent(additions = emptyList()))
+        )
+
+        val active = service.requesterActivity(requester).single()
+        assertTrue(active.pendingRequest)
+        assertTrue(active.heldResourceCount > 0)
+        assertFalse(service.discardInactiveRequester(requester))
+
+        assertEquals(active, service.failClosedRequesterLoss(requester, "test signal plugin").single())
+        assertEquals(1, stalls.size)
+        assertTrue(stalls.single().contains("test signal plugin"))
+        assertTrue(stalls.single().contains(active.owner.ownerId))
+        assertEquals(1, registry.claimSnapshots().size)
+
+        service.failClosedRequesterLoss(requester, "test signal plugin")
+        assertEquals(1, stalls.size)
+        ticket.state = InfrastructurePreparationState.READY
+        assertEquals(
+            RouteAdmissionFailureCode.WORLD_STALLED,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                service.progress(requester, pending.handle)).failure.code
+        )
+        assertEquals(1, registry.claimSnapshots().size)
     }
 
     @Test

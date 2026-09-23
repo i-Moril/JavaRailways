@@ -10,6 +10,14 @@
 
 新增 component 必须回答：谁创建、何时可用、谁注册、如何停止、world unload 与 plugin disable 是否都释放。不要依赖 JVM 退出回收 executor/task/registration。
 
+独立信号/ATO附属插件的正常停用必须先调用`InfrastructureLeaseService.unregisterOwner`。该调用只是可检查的
+pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有pending route reservation或非空host-owned claim时
+抛出诊断并保持全部状态。`PluginDisableEvent`本身不可取消，事件路径因此只处理“已经被强制禁用”：移除普通
+provider/platform ownership，但不释放route-admission claim/reservation，并通过每world既有Stall回调fail-close。
+空claim、无pending、仅遗漏`endGrant`的route state可直接清除。JavaRailways自身禁用、service已关闭或
+`Bukkit.isStopping()`时走正常world/service close，不把服务器shutdown误报为附属插件故障。不使用永久owner tombstone、
+启用周期token、自动drain、跨插件实例继承或恢复状态机。
+
 ## Simulation 与 physics
 
 `WorldManager` 用 global scheduler 每 tick 驱动串行 simulation context：

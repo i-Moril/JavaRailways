@@ -152,6 +152,10 @@
     replacement invalidate the binding without releasing host-owned train claims. Replace the external
     compile fixture's superseded protection-region request with the generic route intent. Dispatcher and
     train-protection consumption remain separate.
+  - [x] Close the minimal add-on disable lifecycle without a tombstone or recovery state machine: planned owner
+    unregister rejects pending reservations and nonempty route claims but removes empty route state; an already-fired
+    independent Bukkit disable retains active host-owned route resources and stalls each affected world with precise
+    plugin/world/route/train diagnostics. Host/server shutdown continues through ordinary world/service close.
   - [x] Review the internal first-admission and release hot paths: delayed `READY` now rechecks the latest
     coherent observation/topology/occupancy before publishing a grant, while ordinary epoch advancement
     rebinds the grant to the newer stamp. Release keeps one queue plus a head index, avoids empty-world

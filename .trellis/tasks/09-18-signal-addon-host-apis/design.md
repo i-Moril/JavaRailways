@@ -81,6 +81,12 @@ This division gives Basic a physical safety floor while allowing different inter
 
 Claims and physical readiness are distinct. Basic claims the complete union before asking registered handlers to prepare movable or delayed equipment. `PREPARING` retains the reservation and publishes no grant; `READY` commits the grant; `ABORTED_SAFE` removes only the new request/delta; `UNSAFE` or an unprovable abort retains protection and stalls the world.
 
+A planned add-on disable must first unregister its infrastructure owner. The host refuses that step while the requester has
+a pending route reservation or any resource left in its route claim; an otherwise empty route state does not block disable.
+Bukkit cannot cancel an already-fired disable event, so forced disable retains those host-owned resources and stalls each
+affected world through the existing coordinator. This lifecycle deliberately adds no drain, takeover, session token or
+cross-instance recovery protocol.
+
 Current in-memory turnout switching is immediate and has no fictional rollback. Future animated turnouts, movable bridges or other delayed devices use the same generic preparation contract; their default/resting state belongs to the resource implementation, not the train.
 
 The current route state owns one frozen route and one monotonic tail cursor; its committed grant is initially absent. The first request establishes that state after resource reservation succeeds, and `READY` installs the committed grant and its ordered release queue without replacing the cursor. Later requests on the same route compile and prepare only the farther suffix while existing resources continue tail release. A safe abort before the first grant removes the now-unused route state; after a grant exists, even an emptied resource queue retains the route and cursor until explicit end. A changed route ends/replans at a safe operational boundary rather than replacing the claim in place.

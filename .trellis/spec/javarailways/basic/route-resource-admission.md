@@ -218,14 +218,21 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 - Delayed preparation may cross physics epochs. `READY` is not permission to publish the original observation's authority: recheck the current coherent frame and route-start/occupancy evidence, then bind the grant to that validated frame. If the safety evidence is lost after preparation, retain the claim and Stall rather than inventing a safe device abort. A Stall caused by another pending attempt also forbids later `READY` publication; retain those pending claims and notify the world Stall owner only on the first local failure.
 - The mandatory physical footprint is always present in the committed union, regardless of caller additions.
 - Validation/preparation failure never publishes a wider grant. Unsafe or unprovable device state retains the safest claim and stalls that world rather than releasing protection.
-- Signal-plugin disable prevents new policy grants. Existing live grants and release metadata are host-owned until physical clearance or explicit safe recovery; plugin unload cannot drop them beneath a train.
+- Planned signal-plugin disable first calls the Bukkit owner-unregister check. Basic classifies a requester as active only
+  when its route has a pending reservation or its registry claim still contains resources; an empty committed `RouteState`
+  awaiting `endGrant` is safe to discard during unregister. Active state rejects planned unregister. Because Bukkit's
+  `PluginDisableEvent` is already non-cancellable, forced requester loss retains every host-owned claim/reservation and
+  latches the affected world through the existing Stall owner with world, plugin, route owner, train, pending and held-count
+  diagnostics. It does not drain, inherit, restore or transfer that state to another plugin instance.
 - Runtime claims are not persistence schema. Stable resource definitions belong to the plugin or infrastructure owner that defines them; Basic persists only a boundary explicitly approved later.
 - Registry mutation and resource preparation obey the world owner thread; physics observations crossing threads are immutable values.
 - `RouteResourceAdmissionService` is world-local. Callers invoke it on the documented world/main owner only after the
   exact successful observation publication; provider handlers may return `Pending` but may not block that owner thread.
-- Registration belongs to one authenticated platform-plugin owner. Disable/unregister rejects new additions immediately
-  but does not delete host-owned live claims, release queues or copied descriptors. Provider disappearance during pending
-  preparation is unprovable, so Basic retains the safest reservation and stalls the world.
+- Registration belongs to one authenticated platform-plugin owner. A successful planned unregister proves that requester
+  has no pending route request and no resources remaining in its host-owned registry claim before removing its provider,
+  leases and empty route state. Forced disable rejects new calls immediately, does not delete host-owned live claims,
+  release queues or copied descriptors, and stalls each world with requester-owned pending/held route resources. Provider
+  disappearance during pending preparation is unprovable, so Basic retains the safest reservation and stalls the world.
 
 ## 6. 校验与错误矩阵
 

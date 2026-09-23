@@ -269,6 +269,98 @@ class InfrastructureLeaseRegistryTest {
     }
 
     @Test
+    fun `claim snapshots stay detached across shrink append and rollback`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        val delta = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second)))
+        )
+        val before = registry.claimSnapshots().single()
+
+        assertEquals(InfrastructureMutationStatus.REPLACED, registry.shrinkClaim(platform, routeOwner, listOf(first)).status)
+        val afterShrink = registry.claimSnapshots().single()
+        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+        assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
+        val afterAppend = registry.claimSnapshots().single()
+        assertEquals(InfrastructureMutationStatus.REPLACED, registry.rollbackClaimAppend(append).status)
+
+        assertEquals(listOf(first, second), before.footprint.resources)
+        assertEquals(listOf(second), afterShrink.footprint.resources)
+        assertEquals(listOf(second, delta), afterAppend.footprint.resources)
+        assertEquals(listOf(second), registry.claimSnapshots().single().footprint.resources)
+        assertThrows(UnsupportedOperationException::class.java) {
+            @Suppress("UNCHECKED_CAST")
+            (afterAppend.footprint.resources as MutableList).clear()
+        }
+    }
+
+    @Test
+    fun `many ordered resources release one by one without losing owner or order`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val resources = (0 until 128).map { index ->
+            interval(index * 2.0, index * 2.0 + 1.0)
+        }
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                platform,
+                InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(resources))
+            ).status
+        )
+
+        resources.forEachIndexed { index, resource ->
+            val expected = if (index == resources.lastIndex) InfrastructureMutationStatus.RELEASED
+            else InfrastructureMutationStatus.REPLACED
+            assertEquals(expected, registry.shrinkClaim(platform, routeOwner, listOf(resource)).status)
+        }
+
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(4L, owner("test:reuse", 1), InfrastructureFootprint(resources))
+            ).status
+        )
+        assertEquals(resources, registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `unchanged claim requires the same resource order after release`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val first = interval(0.0, 10.0)
+        val second = interval(20.0, 30.0)
+        val last = interval(40.0, 50.0)
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second, last)))
+        )
+        assertEquals(InfrastructureMutationStatus.REPLACED, registry.shrinkClaim(platform, routeOwner, listOf(first)).status)
+
+        assertEquals(
+            InfrastructureMutationStatus.UNCHANGED,
+            registry.acquireClaim(
+                platform,
+                InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(second, last)))
+            ).status
+        )
+        assertEquals(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+            registry.acquireClaim(
+                platform,
+                InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(last, second)))
+            ).status
+        )
+        assertEquals(listOf(second, last), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
     fun `claim shrink releases the claim when every exact resource is removed`() {
         val platform = Any()
         val routeOwner = owner("test:route", 1)
@@ -573,6 +665,29 @@ class InfrastructureLeaseRegistryTest {
         )
         assertEquals(listOf(delta), registry.claimSnapshots().single().footprint.resources)
 
+        assertEquals(InfrastructureMutationStatus.RELEASED, registry.rollbackClaimAppend(append).status)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `pending append reports delta only after every established resource is released`() {
+        val platform = Any()
+        val routeOwner = owner("test:route", 7)
+        val established = (0 until 64).map { index -> interval(index * 2.0, index * 2.0 + 1.0) }
+        val delta = listOf(interval(200.0, 201.0), interval(202.0, 203.0))
+        registry.acquireClaim(
+            platform,
+            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(established))
+        )
+        val append = registry.beginAppendClaim(platform, routeOwner, 4L, delta)
+        assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
+
+        established.forEachIndexed { index, resource ->
+            val shrink = registry.shrinkClaimWithEvidence(platform, routeOwner, listOf(resource))
+            assertEquals(InfrastructureMutationStatus.REPLACED, shrink.mutation.status)
+            assertEquals(index == established.lastIndex, shrink.pendingAppendOnly)
+        }
+        assertEquals(delta, registry.claimSnapshots().single().footprint.resources)
         assertEquals(InfrastructureMutationStatus.RELEASED, registry.rollbackClaimAppend(append).status)
         assertTrue(registry.claimSnapshots().isEmpty())
     }

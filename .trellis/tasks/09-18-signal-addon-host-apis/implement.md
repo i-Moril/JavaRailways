@@ -144,8 +144,14 @@
     coherent observation/topology/occupancy before publishing a grant, while ordinary epoch advancement
     rebinds the grant to the newer stamp. Release keeps one queue plus a head index, avoids empty-world
     train indexing and redundant linear membership checks, and retains tests for sequential release and
-    suffix installation. Registry shrink still copies its immutable footprint; worst-case repeated
-    single-resource release remains quadratic and is not represented as solved.
+    suffix installation. This review identified the then-remaining quadratic registry shrink cost.
+  - [x] Remove that registry shrink cost without changing public claim snapshots: store only live claim
+    resources in one lock-protected ordered identity set, validate a complete release batch before
+    in-place deletion, and materialize immutable footprints only on explicit snapshot reads. Pending
+    initial rollback still checks an immutable original footprint; pending append protects its delta
+    while prefix release continues. Regression tests cover detached snapshots, order, repeated releases,
+    append rollback and delta-only evidence. With fixed pending-attempt count, sequential release is
+    average linear in the number of resources; pending-owner lookup and conflict scanning remain separate.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.

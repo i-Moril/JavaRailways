@@ -95,13 +95,26 @@ request不携带可替代Basic推导的raw `InfrastructureFootprint`或可信列
 Registry现已提供internal同步、只减不增的live-claim shrink primitive。调用方提交platform owner、完全匹配的
 `InfrastructureOwner`以及非空、无重复的**准确资源身份**集合；它不是重建一份remaining footprint。registry在
 同一把锁内拒绝closed、missing claim、owner不匹配和pending admission，证明每个待释放身份当前确实被该
-claim持有，然后按原footprint顺序过滤这些身份。若仍有资源，以相同platform owner和相同logical owner
-revision替换`Held`并返回`REPLACED`；若为空则删除claim并返回`RELEASED`。任一失败都不产生partial mutation。
+claim持有，然后从内部保序身份集合中删除这些身份。若仍有资源，同一claim继续持有相同platform owner和
+logical owner revision并返回`REPLACED`；若为空则删除claim并返回`RELEASED`。所有待释放身份须在首个删除前
+验证完毕；任一失败都不产生partial mutation。lease与edit permit仍保留不可变footprint。对外
+`claimSnapshots()`只在显式读取时构造新的不可变`InfrastructureFootprint`，不能把内部可变集合泄露给调用方。
+
+初次申请等待设备准备时，registry另外保留不可变的原始footprint作为完成/安全回滚的核对依据，并要求当前claim
+仍是最初取得的对象、owner和有序资源内容均未变。待处理的同路线append保存已验证的delta身份集合；旧prefix
+仍可逐项shrink，但delta本身不能提前释放。由于delta与原资源互斥且始终保留，shrink后仅剩delta可由剩余
+数量等于delta数量证明，不需要复制全部剩余资源。rollback append只删除该delta，不恢复已经释放的prefix。
 
 Shrink不读取topology revision、不调用resource provider、不做overlap blocker查询，也不修改infrastructure
 preparation；删除既有身份不可能产生新冲突。它按`InfrastructureResource.equals`匹配身份，而不是按
 `overlaps`匹配范围，所以同一rail上两个不同但重叠的`RailIntervalResource`可以共存：释放其中一个后，
 另一个仍留在claim中继续保护其覆盖范围。
+
+令`K`为本次释放的身份数、`P`为当前pending mutation/append记录数、`H`为该claim尚持有的身份数。
+内部保序集合使shrink的平均成本为`O(K+P)`，不再随`H`重建footprint；`P`固定时，`H`个资源逐项释放的
+累计平均成本为`O(H)`。显式诊断快照仍需`O(H)`复制。当前按owner查找pending记录仍线性扫描`P`，这是
+单独的索引优化点，不能把整个registry的所有操作都称为常数时间。哈希集合依赖资源身份稳定的`equals/hashCode`；
+物理冲突检测仍按`overlaps`扫描持有者资源，未在本次改变。
 
 内部`LiveClaimTailRelease`只拥有当前已提交资源队列的释放状态。它保留registry、platform owner identity、
 完全匹配的`InfrastructureOwner`、一次校验的有序queue及其head index、已接受的最大authoritative tail route

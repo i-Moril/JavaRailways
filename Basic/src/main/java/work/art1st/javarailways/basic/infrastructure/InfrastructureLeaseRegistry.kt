@@ -54,25 +54,53 @@ class InfrastructureLeaseRegistry(
         val pendingAppendOnly: Boolean
     )
 
+    private interface Stored {
+        val platformOwner: Any
+        val owner: InfrastructureOwner
+        val resources: Collection<InfrastructureResource>
+    }
+
     private data class Held(
-        val platformOwner: Any,
-        val owner: InfrastructureOwner,
+        override val platformOwner: Any,
+        override val owner: InfrastructureOwner,
         val footprint: InfrastructureFootprint
-    )
+    ) : Stored {
+        override val resources: Collection<InfrastructureResource> get() = footprint.resources
+    }
+
+    /** Only live claims mutate; insertion order is the public footprint order. Access is under [lock]. */
+    private class ClaimHeld(
+        override val platformOwner: Any,
+        override val owner: InfrastructureOwner,
+        footprint: InfrastructureFootprint
+    ) : Stored {
+        override val resources = LinkedHashSet(footprint.resources)
+
+        fun hasFootprint(footprint: InfrastructureFootprint): Boolean {
+            if (resources.size != footprint.resources.size) return false
+            val held = resources.iterator()
+            return footprint.resources.all { held.next() == it }
+        }
+
+        fun snapshotFootprint() = InfrastructureFootprint(resources)
+    }
 
     private data class PendingClaimMutation(
-        val after: Held
+        val after: ClaimHeld,
+        /** Independent immutable admission state; [after] owns mutable live resources. */
+        val expectedFootprint: InfrastructureFootprint
     )
 
     private data class PendingClaimAppend(
         val platformOwner: Any,
         val owner: InfrastructureOwner,
-        val delta: List<InfrastructureResource>
+        val delta: List<InfrastructureResource>,
+        val deltaSet: Set<InfrastructureResource>
     )
 
     private val lock = Any()
     private val leases = linkedMapOf<String, Held>()
-    private val claims = linkedMapOf<String, Held>()
+    private val claims = linkedMapOf<String, ClaimHeld>()
     private val pendingClaimMutations = linkedMapOf<UUID, PendingClaimMutation>()
     private val pendingClaimAppends = linkedMapOf<UUID, PendingClaimAppend>()
     private val editPermits = linkedMapOf<UUID, Held>()
@@ -191,7 +219,7 @@ class InfrastructureLeaseRegistry(
                     null
                 )
             }
-            val alreadyHeld = delta.firstOrNull { it in existing.footprint.resources }
+            val alreadyHeld = delta.firstOrNull { it in existing.resources }
             if (alreadyHeld != null) {
                 return@synchronized ClaimAppendReservation(
                     result(
@@ -210,11 +238,9 @@ class InfrastructureLeaseRegistry(
                 return@synchronized ClaimAppendReservation(conflict(blockers), null)
             }
 
-            claims[expectedOwner.ownerId] = existing.copy(
-                footprint = InfrastructureFootprint(existing.footprint.resources + delta)
-            )
+            existing.resources.addAll(delta)
             val token = UUID.randomUUID()
-            pendingClaimAppends[token] = PendingClaimAppend(platformOwner, expectedOwner, delta)
+            pendingClaimAppends[token] = PendingClaimAppend(platformOwner, expectedOwner, delta, delta.toHashSet())
             ClaimAppendReservation(result(InfrastructureMutationStatus.REPLACED), token)
         }
     }
@@ -287,8 +313,7 @@ class InfrastructureLeaseRegistry(
             }
 
             val pendingAppend = pendingAppendForOwner(expectedOwner.ownerId)
-            val pendingDelta = pendingAppend?.delta.orEmpty()
-            val pendingRelease = requested.firstOrNull { it in pendingDelta }
+            val pendingRelease = requested.firstOrNull { it in pendingAppend?.deltaSet.orEmpty() }
             if (pendingRelease != null) {
                 return@synchronized shrinkResult(
                     InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
@@ -296,13 +321,8 @@ class InfrastructureLeaseRegistry(
                 )
             }
 
-            val heldResources = existing.footprint.resources
-            val missing = if (requested.size == 1) {
-                requested.firstOrNull { it !in heldResources }
-            } else {
-                val heldSet = heldResources.toHashSet()
-                requested.firstOrNull { it !in heldSet }
-            }
+            val heldResources = existing.resources
+            val missing = requested.firstOrNull { it !in heldResources }
             if (missing != null) {
                 return@synchronized shrinkResult(
                     InfrastructureMutationStatus.NOT_FOUND,
@@ -310,18 +330,17 @@ class InfrastructureLeaseRegistry(
                 )
             }
 
-            val remaining = heldResources.filterNot(releaseSet::contains)
-            if (remaining.isEmpty()) {
+            releaseSet.forEach(heldResources::remove)
+            if (heldResources.isEmpty()) {
                 claims.remove(expectedOwner.ownerId)
                 return@synchronized ClaimShrinkResult(
                     result(InfrastructureMutationStatus.RELEASED),
                     pendingAppendOnly = false
                 )
             }
-            claims[expectedOwner.ownerId] = existing.copy(footprint = InfrastructureFootprint(remaining))
             ClaimShrinkResult(
                 result(InfrastructureMutationStatus.REPLACED),
-                pendingAppendOnly = pendingAppend != null && remaining == pendingDelta
+                pendingAppendOnly = pendingAppend != null && heldResources.size == pendingAppend.delta.size
             )
         }
     }
@@ -333,7 +352,7 @@ class InfrastructureLeaseRegistry(
     internal fun completeClaimMutation(mutation: ClaimMutation): Boolean = synchronized(lock) {
         val token = mutation.rollbackToken ?: return@synchronized true
         val pending = pendingClaimMutations[token] ?: return@synchronized false
-        if (!sameHeld(claims[pending.after.owner.ownerId], pending.after)) return@synchronized false
+        if (!sameHeld(claims[pending.after.owner.ownerId], pending)) return@synchronized false
         pendingClaimMutations.remove(token)
         true
     }
@@ -348,7 +367,7 @@ class InfrastructureLeaseRegistry(
                 "claim admission rollback token does not exist"
             )
         val current = claims[pending.after.owner.ownerId]
-        if (!sameHeld(current, pending.after)) {
+        if (!sameHeld(current, pending)) {
             return@synchronized result(
                 InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
                 "claim changed while its admission transaction was in progress"
@@ -367,7 +386,7 @@ class InfrastructureLeaseRegistry(
         if (current.platformOwner !== pending.platformOwner || current.owner != pending.owner) {
             return@synchronized false
         }
-        if (!current.footprint.resources.containsAll(pending.delta)) return@synchronized false
+        if (!current.resources.containsAll(pending.delta)) return@synchronized false
         pendingClaimAppends.remove(token)
         true
     }
@@ -392,7 +411,7 @@ class InfrastructureLeaseRegistry(
                 "claim disappeared while its append reservation was pending"
             )
         if (current.platformOwner !== pending.platformOwner || current.owner != pending.owner ||
-            !current.footprint.resources.containsAll(pending.delta)
+            !current.resources.containsAll(pending.delta)
         ) {
             return@synchronized result(
                 InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
@@ -400,16 +419,13 @@ class InfrastructureLeaseRegistry(
             )
         }
 
-        val deltaSet = pending.delta.toHashSet()
-        val remaining = current.footprint.resources.filterNot(deltaSet::contains)
-        if (remaining.isEmpty()) {
+        pending.deltaSet.forEach(current.resources::remove)
+        if (current.resources.isEmpty()) {
             claims.remove(pending.owner.ownerId)
-        } else {
-            claims[pending.owner.ownerId] = current.copy(footprint = InfrastructureFootprint(remaining))
         }
         pendingClaimAppends.remove(token)
         result(
-            if (remaining.isEmpty()) InfrastructureMutationStatus.RELEASED
+            if (current.resources.isEmpty()) InfrastructureMutationStatus.RELEASED
             else InfrastructureMutationStatus.REPLACED
         )
     }
@@ -441,7 +457,7 @@ class InfrastructureLeaseRegistry(
     }
 
     fun claimSnapshots(): List<InfrastructureClaimSnapshot> = synchronized(lock) {
-        Collections.unmodifiableList(claims.values.map { InfrastructureClaimSnapshot(it.owner, it.footprint) })
+        Collections.unmodifiableList(claims.values.map { InfrastructureClaimSnapshot(it.owner, it.snapshotFootprint()) })
     }
 
     fun releasePlatformOwner(platformOwner: Any) = synchronized(lock) {
@@ -482,7 +498,7 @@ class InfrastructureLeaseRegistry(
         }
         claims[request.owner.ownerId]?.let { existing ->
             if (existing.platformOwner === platformOwner && existing.owner == request.owner &&
-                existing.footprint == request.footprint
+                existing.hasFootprint(request.footprint)
             ) {
                 return@synchronized ClaimMutation(result(InfrastructureMutationStatus.UNCHANGED), null)
             }
@@ -500,23 +516,25 @@ class InfrastructureLeaseRegistry(
             InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
         ) + blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
         if (blockers.isNotEmpty()) return@synchronized ClaimMutation(conflict(blockers), null)
-        val acquired = Held(platformOwner, request.owner, request.footprint)
+        val acquired = ClaimHeld(platformOwner, request.owner, request.footprint)
         claims[request.owner.ownerId] = acquired
         trackedMutation(
             result(InfrastructureMutationStatus.ACQUIRED),
             after = acquired,
+            expectedFootprint = request.footprint,
             rollbackTracked = rollbackTracked
         )
     }
 
     private fun trackedMutation(
         result: InfrastructureMutationResult,
-        after: Held,
+        after: ClaimHeld,
+        expectedFootprint: InfrastructureFootprint,
         rollbackTracked: Boolean
     ): ClaimMutation {
         if (!rollbackTracked) return ClaimMutation(result, null)
         val token = UUID.randomUUID()
-        pendingClaimMutations[token] = PendingClaimMutation(after)
+        pendingClaimMutations[token] = PendingClaimMutation(after, expectedFootprint)
         return ClaimMutation(result, token)
     }
 
@@ -529,9 +547,9 @@ class InfrastructureLeaseRegistry(
     private fun pendingAppendForOwner(ownerId: String): PendingClaimAppend? =
         pendingClaimAppends.values.firstOrNull { it.owner.ownerId == ownerId }
 
-    private fun sameHeld(first: Held?, second: Held): Boolean =
-        first != null && first.platformOwner === second.platformOwner &&
-            first.owner == second.owner && first.footprint == second.footprint
+    private fun sameHeld(first: ClaimHeld?, pending: PendingClaimMutation): Boolean =
+        first === pending.after && first.platformOwner === pending.after.platformOwner &&
+            first.owner == pending.after.owner && first.hasFootprint(pending.expectedFootprint)
 
     private fun validate(
         topologyRevision: Long,
@@ -570,11 +588,11 @@ class InfrastructureLeaseRegistry(
 
     private fun blockers(
         requested: InfrastructureFootprint,
-        held: Collection<Held>,
+        held: Collection<Stored>,
         kind: InfrastructureBlockerKind
     ): List<InfrastructureBlocker> = held.mapNotNull { holder ->
         val overlapping = requested.resources.filter { wanted ->
-            holder.footprint.resources.any(wanted::overlaps)
+            holder.resources.any(wanted::overlaps)
         }
         overlapping.takeIf { it.isNotEmpty() }?.let {
             InfrastructureBlocker(kind, holder.owner, it.toList())

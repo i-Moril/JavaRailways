@@ -261,7 +261,7 @@ boundary。safe abort只删除新delta；unsafe或无法证明的abort保留最�
 
 Let `R` be projected route slices, `B` route-bound catalog hits, `A` additional resources, `H` resources in the final claim, `I` occupancy-query intervals, `C` bucket-selected swept-span candidates and `M` resources in all other claims/edit permits. Projection is linear in `R`; rail-indexed catalog lookup reads route occurrences plus binary-search/candidate scans, then merges/sorts hits. Physical interval and release ordering can cost `O((R+B+A) log(R+B+A))`. Occupancy comparison is worst-case `O(C×I)` after bucket selection. The current registry checks requested resources against other held resources pairwise, worst-case `O(H×M)`; it does not yet have a conflict index. These are request-time costs, not unchanged per-tick work. Basic must not invoke every installed signal plugin, scan all regions or execute arbitrary JS during this pass.
 
-Observation dispatch builds one train-ID lookup only when at least one live grant exists. With grants, ordinary cursor checks start at the current occurrence and queue inspection starts at the current head; releasing `K` eligible resources costs `O(K)` locally. Registry shrink still reconstructs its immutable remaining footprint in `O(H)` for that release. If `H` resources clear one by one, cumulative registry reconstruction remains worst-case `O(H²)`; do not claim the head-index change removes that cost. Completed admission handles remain repeatable while held by callers without a world-lifetime terminal-result table.
+Observation dispatch builds one train-ID lookup only when at least one live grant exists. With grants, ordinary cursor checks start at the current occurrence and queue inspection starts at the current head; releasing `K` eligible resources costs `O(K)` locally. The registry keeps the live claim in one lock-protected ordered identity set: after validating the complete release batch, it deletes those `K` identities in place instead of rebuilding the other `H` resources. Its average shrink cost is `O(K+P)`, where `P` is the pending-record count currently scanned to find this owner. With fixed `P`, releasing `H` resources one by one is cumulatively average `O(H)`; this is not a bound on conflict lookup or explicit diagnostic snapshots, which still copy `O(H)` resources on read. Completed admission handles remain repeatable while held by callers without a world-lifetime terminal-result table.
 
 Unchanged state performs no request compilation by itself. SimpleATO/resource inspection decides when a request is needed. Missing indexes, stale revisions or resource-handler failure fail closed; Basic must not fall back to a live-world full scan that silently grants authority.
 
@@ -270,7 +270,9 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - **Good**：a Japanese-signalling plugin requests a throat route, adds a flank turnout and holds it to a later boundary; Basic also inserts all traversed rails, turnouts and diamond conflicts before one atomic claim.
 - **Good**：a different interlocking plugin submits route-table resources and approach locking without creating any Basic protection region.
 - **Base**：a straight route has only mandatory rail intervals and no plugin additions.
+- **Good**：a long claim releases one resource at a time; older diagnostic snapshots remain unchanged, while the registry removes only the named live identities.
 - **Bad**：a plugin submits only its region ID and expects Basic to discover region policy or scan successor regions.
+- **Bad**：each tail-clear event reconstructs an immutable footprint of every still-held resource; a long route then pays quadratic cumulative release work.
 - **Bad**：a plugin omits a traversed turnout or supplies another identity; Basic still derives the canonical turnout resource.
 - **Bad**：Basic treats plugin additions as authoritative replacement footprint or lets JS directly mutate a claim.
 
@@ -285,6 +287,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - Delayed `READY` on a newer safe epoch rebinds the grant stamp; changed topology root, missing/moved train tail or newly occupied route publishes no grant and retains the claim under Stall.
 - Two pending attempts cannot publish a grant after either one has stalled the world; the second claim stays retained and the Stall callback fires once.
 - Tail release and same-route extension retain the existing cursor, release only a contiguous eligible prefix and never shorten plugin-specified holds.
+- Many sequential single-resource releases preserve the remaining claim order and owner; snapshots taken before shrink/append/rollback stay detached, while pending append forbids delta release and permits old-prefix shrink.
 - Plugin disable/reload tests prove existing grants remain fail-closed and releasable without executing plugin policy again.
 
 ## 10. 迁移、未决事项与 Wrong / Correct

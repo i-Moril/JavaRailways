@@ -55,9 +55,11 @@ Core frame shape/epoch成功语义由[Core runtime](../core/runtime-publication.
 
 Bukkit adapter在exact physics ticket成功后的serialized simulation context同步发布；listener不在physics worker运行，必须快速返回，且不能直接执行entity/location/block/region side effect。world unload移除latest snapshot，plugin disable移除owner subscriptions。慢listener不得反向阻塞physics worker，也不得要求Core为每个subscriber保留逐epoch backlog。
 
-当前`ProtectedRouteClaimService.consumeObservation`只提供main-thread显式驱动seam，尚未接入上述Bukkit/Core
-publication调用点。接入后同一observation只能建立一次train ID lookup，并按logical owner稳定顺序驱动；
-fail-closed controller触发Stall后必须立即停止本次后续controller及Dispatcher mutation。
+当前Bukkit生产composition在`DefaultRailwayObservationService.publish`返回本次新建的同一observation后，直接调用
+world-local `RouteResourceAdmissionRuntime.consumeObservation`；这条host安全链不借用普通插件listener，也没有第二个
+队列或第二次Core frame投影。runtime内部一次建立train ID lookup并按logical owner稳定顺序驱动车尾释放；
+fail-closed controller触发`AtoWorldCoordinator` Stall，随后Dispatcher入口观察同一latch并停止本tick mutation。
+外部listener异常仍按订阅合同隔离，不能代替这条host安全链。
 
 ## 禁止实现
 

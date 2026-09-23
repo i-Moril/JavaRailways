@@ -15,18 +15,26 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.infrastructure.InfrastructureLeaseRegistry
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
+import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermitResult
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.core.api.physics.World
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, AutoCloseable {
     private val lock = Any()
-    private val registries = linkedMapOf<UUID, InfrastructureLeaseRegistry>()
+    private data class WorldRuntime(
+        val registry: InfrastructureLeaseRegistry,
+        var routeAdmission: RouteResourceAdmissionRuntime? = null
+    )
+
+    private val worlds = linkedMapOf<UUID, WorldRuntime>()
     private data class ProviderRegistration(val pluginOwner: Plugin, val provider: InfrastructureResourceProvider)
     private val resourceProviders = linkedMapOf<String, ProviderRegistration>()
     private var closed = false
@@ -37,8 +45,43 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         resourceExists: (InfrastructureResource) -> Boolean
     ) = synchronized(lock) {
         check(!closed) { "InfrastructureLeaseService is closed" }
-        check(worldId !in registries) { "Infrastructure lease registry already exists for world $worldId" }
-        registries[worldId] = InfrastructureLeaseRegistry(currentTopologyRevision, resourceExists)
+        check(worldId !in worlds) { "Infrastructure lease registry already exists for world $worldId" }
+        worlds[worldId] = WorldRuntime(InfrastructureLeaseRegistry(currentTopologyRevision, resourceExists))
+    }
+
+    /** Completes world composition after Basic data is attached and before the first physics wake. */
+    fun attachRouteAdmission(
+        worldId: UUID,
+        world: World,
+        latestObservation: () -> RailwayObservation?,
+        stallWorld: (String, Exception) -> Unit
+    ) = BukkitThreadGuardBridge.runInSimulationContext {
+        val runtime = synchronized(lock) {
+            check(!closed) { "InfrastructureLeaseService is closed" }
+            checkNotNull(worlds[worldId]) { "Infrastructure lease registry is not registered for world $worldId" }
+        }
+        check(runtime.routeAdmission == null) { "Route admission runtime already exists for world $worldId" }
+        val admission = RouteResourceAdmissionRuntime.create(
+            worldId = worldId.toString(),
+            world = world,
+            registry = runtime.registry,
+            hostClaimOwner = runtime,
+            latestObservation = latestObservation,
+            validateAddition = { requester, addition ->
+                val plugin = requester as? Plugin ?: return@create additionFailure(
+                    RouteAdmissionFailureCode.INVALID_ADDITION,
+                    "route additions require an authenticated Bukkit plugin requester"
+                )
+                validateRouteAddition(plugin, worldId, addition)
+            },
+            stallWorld = stallWorld
+        )
+        synchronized(lock) {
+            check(!closed && worlds[worldId] === runtime && runtime.routeAdmission == null) {
+                "railway world changed while attaching route admission for $worldId"
+            }
+            runtime.routeAdmission = admission
+        }
     }
 
     override fun registerResourceProvider(
@@ -83,7 +126,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "requesting plugin is disabled"
             )
         }
-        if (synchronized(lock) { closed || worldId !in registries }) {
+        if (synchronized(lock) { closed || worldId !in worlds }) {
             return@runInSimulationContext additionFailure(
                 RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "railway world is not registered"
             )
@@ -112,7 +155,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}"
             )
         }
-        if (synchronized(lock) { closed || worldId !in registries }) {
+        if (synchronized(lock) { closed || worldId !in worlds }) {
             return@runInSimulationContext additionFailure(
                 RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "railway world became unavailable during validation"
             )
@@ -147,8 +190,25 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
 
     fun removeWorld(worldId: UUID) {
         BukkitThreadGuardBridge.runInSimulationContext {
-            synchronized(lock) { registries.remove(worldId) }?.close()
+            synchronized(lock) { worlds.remove(worldId) }?.let { runtime ->
+                runtime.routeAdmission?.close()
+                runtime.registry.close()
+            }
         }
+    }
+
+    /** Runs tail release before Dispatcher observes the same completed physics epoch. */
+    fun consumeObservation(
+        worldId: UUID,
+        observation: RailwayObservation
+    ) = BukkitThreadGuardBridge.runInSimulationContext {
+        val admission = synchronized(lock) {
+            check(!closed) { "InfrastructureLeaseService is closed" }
+            checkNotNull(worlds[worldId]?.routeAdmission) {
+                "Route admission runtime is not attached for world $worldId"
+            }
+        }
+        admission.consumeObservation(observation)
     }
 
     override fun acquireLease(pluginOwner: Plugin, worldId: UUID, request: InfrastructureLeaseRequest) =
@@ -215,7 +275,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         BukkitThreadGuardBridge.runInSimulationContext {
             val snapshot = synchronized(lock) {
                 resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
-                registries.values.toList()
+                worlds.values.map(WorldRuntime::registry)
             }
             snapshot.forEach { it.releasePlatformOwner(pluginOwner) }
         }
@@ -227,14 +287,17 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 if (closed) return@runInSimulationContext
                 closed = true
                 resourceProviders.clear()
-                registries.values.toList().also { registries.clear() }
+                worlds.values.toList().also { worlds.clear() }
             }
-            snapshot.forEach(InfrastructureLeaseRegistry::close)
+            snapshot.forEach { runtime ->
+                runtime.routeAdmission?.close()
+                runtime.registry.close()
+            }
         }
     }
 
     private fun registry(worldId: UUID): InfrastructureLeaseRegistry? = synchronized(lock) {
-        if (closed) null else registries[worldId]
+        if (closed) null else worlds[worldId]?.registry
     }
 
     private fun requireEnabled(pluginOwner: Plugin): Plugin {

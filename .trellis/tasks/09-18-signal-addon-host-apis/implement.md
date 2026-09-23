@@ -140,6 +140,12 @@
     transitions, host-held claim ownership after requester unload and physical tail release.
     It is not the public service: extension, production
     route-bound catalog publication, authenticated Bukkit provider binding and caller migration remain.
+  - [x] Bind that engine to the production world lifecycle without changing Dispatcher behavior: one Bukkit
+    world record now owns the existing lease registry plus one Basic route-admission runtime, authenticates
+    additions through the existing provider registry, uses the live turnout actuator, and consumes the exact
+    observation returned after each successful physics ticket before Dispatcher. Physics starts only after
+    composition; unload and failed startup close the runtime and registry together. The route-bound catalog is
+    complete-empty until diamond bindings exist, and public request/caller/grant-constraint wiring remains.
   - [x] Review the internal first-admission and release hot paths: delayed `READY` now rechecks the latest
     coherent observation/topology/occupancy before publishing a grant, while ordinary epoch advancement
     rebinds the grant to the newer stamp. Release keeps one queue plus a head index, avoids empty-world

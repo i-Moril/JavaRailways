@@ -3,7 +3,7 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖；它仍未绑定生产世界的资源目录、Bukkit认证调用方或公开服务。Bukkit现有资源提供者注册已要求显式实现进路附加校验，但仍未接入这条Basic流程。当前`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；provider准备派发、生产caller迁移尚未完成，不能把内部测试当作真实插件申请成功。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology/live turnout actuator、认证addition validator和同epoch observation tail-release输入；物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。当前route-bound catalog只发布完整空集，等待diamond detector提供真实bindings；公开准入service、Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已运行但尚无生产caller的runtime误称为列车已经使用新授权流程。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
 - **Caller**：SimpleATO提供冻结路线与列车/观察身份；不需要信号策略时由SimpleATO提交无addition的intent，需要插件策略时由该信号插件的认证准入协调器提交同一路线和自己的addition。SimpleATO不冒充插件来源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。

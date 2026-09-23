@@ -59,14 +59,18 @@ internal class DefaultRailwayObservationService(
         }
     }
 
-    /** Publishes at most once for a completed world epoch and invokes listeners without a queue. */
-    fun publish(worldId: UUID, frame: RailwayWorldFrameSnapshot, completedPhysicsEpoch: Long): Boolean {
+    /** Publishes at most once for a completed world epoch and returns that exact observation. */
+    fun publish(
+        worldId: UUID,
+        frame: RailwayWorldFrameSnapshot,
+        completedPhysicsEpoch: Long
+    ): RailwayObservation? {
         require(frame.physicsEpoch == completedPhysicsEpoch) {
             "world frame epoch ${frame.physicsEpoch} does not match completed ticket $completedPhysicsEpoch"
         }
         val observation = RailwayObservation.fromCore(worldId.toString(), frame)
         val listeners = synchronized(lock) {
-            if (closed) return false
+            if (closed) return null
             val previous = latestByWorld[worldId]
             require(previous == null || previous.stamp.physicsEpoch <= observation.stamp.physicsEpoch) {
                 "observation epoch moved backwards for world $worldId"
@@ -75,7 +79,7 @@ internal class DefaultRailwayObservationService(
                 require(previous.stamp == observation.stamp) {
                     "one physics epoch cannot be published with multiple topology revisions"
                 }
-                return false
+                return null
             }
             latestByWorld[worldId] = observation
             registrations.values.filter { it.worldId == worldId }.sortedBy(Registration::id)
@@ -91,7 +95,7 @@ internal class DefaultRailwayObservationService(
                 )
             }
         }
-        return true
+        return observation
     }
 
     fun removeWorld(worldId: UUID) {

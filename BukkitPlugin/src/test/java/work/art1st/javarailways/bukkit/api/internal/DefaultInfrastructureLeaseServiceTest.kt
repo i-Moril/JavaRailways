@@ -17,13 +17,49 @@ import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.util.plugin.Plugin as CorePlugin
+import work.art1st.javarailways.core.api.util.plugin.ExtensionData
+import work.art1st.javarailways.core.api.util.tick.TickManager
+import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.lang.reflect.Proxy
 import java.util.UUID
 
 class DefaultInfrastructureLeaseServiceTest {
+    @Test
+    fun `world route admission is attached once consumes the published observation and closes with world`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val topology = buildTestTopology(7L, emptyList(), emptyMap())
+        val world = TestWorld(topology)
+        val observation = RailwayObservation.fromCore(
+            worldId.toString(),
+            RailwayWorldFrameSnapshot.create(1L, topology.revision, emptyList())
+        )
+        service.registerWorld(worldId, { topology.revision }) { false }
+        service.attachRouteAdmission(worldId, world, { observation }) { reason, failure ->
+            throw IllegalStateException("unexpected stall: $reason", failure)
+        }
+
+        service.consumeObservation(worldId, observation)
+        assertThrows(IllegalStateException::class.java) {
+            service.attachRouteAdmission(worldId, world, { observation }) { _, _ -> }
+        }
+
+        service.removeWorld(worldId)
+        assertThrows(IllegalStateException::class.java) {
+            service.consumeObservation(worldId, observation)
+        }
+    }
+
     @Test
     fun `route additions require resource owner authorization beyond lease existence`() {
         val service = DefaultInfrastructureLeaseService()
@@ -337,6 +373,22 @@ class DefaultInfrastructureLeaseServiceTest {
             }
         } as Plugin
         return proxy
+    }
+
+    @OptIn(ExtensionData::class)
+    private class TestWorld(override val topologyState: TopologyState) : World {
+        override val tickManager: TickManager get() = error("tick manager is not used by this test")
+        override val allTrains: Collection<Train> = emptyList()
+
+        override fun getTrain(name: String): Train? = null
+        override fun removeTrain(train: Train) = Unit
+        override fun getRail(id: UUID): Rail? = null
+        override fun removeRail(rail: Rail) = Unit
+        override fun <T : Any> getExtensionDataOrNull(plugin: CorePlugin): T? = null
+        override fun <T : Any> requireExtensionData(plugin: CorePlugin): T = error("no extensions")
+        override fun <T : Any> registerExtensionData(plugin: CorePlugin, data: T) = Unit
+        override fun forEachExtensionData(action: (Any) -> Unit) = Unit
+        override fun <T> forEachExtensionData(action: (Any) -> T): List<T> = emptyList()
     }
 
     private fun primitiveDefault(type: Class<*>): Any? = when (type) {

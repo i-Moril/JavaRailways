@@ -30,6 +30,12 @@ data class BasicWorldData(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。constructor要求`StationStore`与`railObjects`为同一instance。
 
+通用资源运行时由Bukkit composition为每个world另建一条成对生命周期记录：同一记录持有唯一
+`InfrastructureLeaseRegistry`和`RouteResourceAdmissionRuntime`，后者复用前者完成自动进路claim、设备准备、
+grant与车尾释放。它不是第二份资源表，也不进入`BasicWorldData`持久化。创建顺序必须是注册registry、attach
+route runtime与published-frame processor，最后才启动`PhysicsCoordinator`；卸载按逆序关闭runtime/registry、
+coordinator与tick owner。attach失败不得把半构造world放入`WorldManager.railWorlds`。
+
 `BasicPlugin.INSTANCE`只是Core extension slot identity；`Plugin.identifier`不持久化。Production accessor missing plugin/data必须抛错，不隐式创建。Bukkit factory与test fixture显式`world.registerExtensionData(plugin,data)`。
 
 ## RailObject lifecycle
@@ -65,6 +71,7 @@ byRail[registered.location.rail.id]?.remove(registered)
 ## 禁止实现
 
 - singleton map存world mutable state或一个Dispatcher给多个world；
+- 为lease API与自动进路分别创建两个`InfrastructureLeaseRegistry`；
 - accessor fallback到`TestBasicWorldDataRegistry`；
 - `BasicPlugin.INSTANCE`持有world data；
 - 单独改Destination/WayPoint/Station等多store state，不走domain service；

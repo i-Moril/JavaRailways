@@ -8,6 +8,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
@@ -148,37 +149,86 @@ class WorldManager internal constructor(
             basicInfrastructure = splitInfrastructure?.basic(),
             basicRuntime = splitRuntime?.basic()
         )
-        railWorlds[bukkitWorld] = railWorld
-        if (railWorld is CoreWorld) {
-            infrastructureLeaseService?.registerWorld(
-                bukkitWorld.uid,
-                railWorld::topologyRevision
-            ) { resource ->
-                when (resource) {
-                    is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength
-                        ?.let { resource.endAbMeters <= it } == true
-                    is StableInfrastructureResource ->
-                        infrastructureLeaseService.stableResourceExists(bukkitWorld.uid, resource)
+        try {
+            if (railWorld is CoreWorld) {
+                infrastructureLeaseService?.registerWorld(
+                    bukkitWorld.uid,
+                    railWorld::topologyRevision
+                ) { resource ->
+                    when (resource) {
+                        is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength
+                            ?.let { resource.endAbMeters <= it } == true
+                        is StableInfrastructureResource ->
+                            infrastructureLeaseService.stableResourceExists(bukkitWorld.uid, resource)
+                    }
                 }
-            }
-            val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
-            val monitor = SpeedSafetyMonitor(
-                railWorld,
-                SpeedSafetyMonitor.Config(
-                    derailEnabled = config.derailEnabled,
-                    toleranceMetersPerSecond = config.toleranceKmH / 3.6,
-                    graceTicks = config.graceTicks
+                infrastructureLeaseService?.attachRouteAdmission(
+                    worldId = bukkitWorld.uid,
+                    world = railWorld,
+                    latestObservation = {
+                        observationService?.latest(bukkitWorld.uid)?.orElse(null)
+                    },
+                    stallWorld = { reason, failure ->
+                        stallInfrastructureRuntime(bukkitWorld, railWorld, reason, failure)
+                    }
                 )
+                val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
+                val monitor = SpeedSafetyMonitor(
+                    railWorld,
+                    SpeedSafetyMonitor.Config(
+                        derailEnabled = config.derailEnabled,
+                        toleranceMetersPerSecond = config.toleranceKmH / 3.6,
+                        graceTicks = config.graceTicks
+                    )
+                )
+                speedSafetyMonitors[railWorld] = monitor
+                railWorld.physicsCoordinator.registerPublishedFrameProcessor(monitor)
+            }
+            val restoredTrains = split?.runtime?.core()?.trains.orEmpty()
+            if (restoredTrains.isNotEmpty() && railWorld is CoreWorld) {
+                restoreBukkitTrainExtensions(railWorld, restoredTrains)
+                refreshTrainSpeedProfiles(railWorld)
+                markSkippedPersistedTrains(bukkitWorld, railWorld, restoredTrains)
+            }
+            (railWorld as? CoreWorld)?.physicsCoordinator?.start()
+            railWorlds[bukkitWorld] = railWorld
+        } catch (failure: Exception) {
+            infrastructureLeaseService?.removeWorld(bukkitWorld.uid)
+            observationService?.removeWorld(bukkitWorld.uid)
+            (railWorld as? CoreWorld)?.let { coreWorld ->
+                speedSafetyMonitors.remove(coreWorld)
+                    ?.let(coreWorld.physicsCoordinator::unregisterPublishedFrameProcessor)
+                coreWorld.physicsCoordinator.close()
+            }
+            runCatching { railWorld.renderChunkManager.close() }
+            runCatching { (railWorld.tickManager as? AutoCloseable)?.close() }
+            throw failure
+        }
+    }
+
+    private fun stallInfrastructureRuntime(
+        bukkitWorld: BukkitWorld,
+        coreWorld: CoreWorld,
+        reason: String,
+        failure: Exception
+    ) {
+        val observation = observationService?.latest(bukkitWorld.uid)?.orElse(null)
+        coreWorld.basicWorldData.atoCoordinator.stall(
+            AtoStallReport(
+                worldId = bukkitWorld.uid.toString(),
+                trainId = "<infrastructure>",
+                tick = observation?.stamp?.physicsEpoch ?: 0L,
+                errorType = failure::class.qualifiedName ?: failure.javaClass.name,
+                message = "$reason: ${failure.message.orEmpty()}",
+                stackTrace = failure.stackTraceToString(),
+                initialTrain = null,
+                currentTrain = null,
+                route = null,
+                perception = null,
+                activeProviderId = null,
+                constraints = emptyMap()
             )
-            speedSafetyMonitors[railWorld] = monitor
-            railWorld.physicsCoordinator.registerPublishedFrameProcessor(monitor)
-        }
-        val restoredTrains = split?.runtime?.core()?.trains.orEmpty()
-        if (restoredTrains.isNotEmpty() && railWorld is CoreWorld) {
-            restoreBukkitTrainExtensions(railWorld, restoredTrains)
-            refreshTrainSpeedProfiles(railWorld)
-            markSkippedPersistedTrains(bukkitWorld, railWorld, restoredTrains)
-        }
+        )
     }
 
     private fun restoreBukkitTrainExtensions(
@@ -252,6 +302,8 @@ class WorldManager internal constructor(
                 coreWorld?.let { world ->
                     speedSafetyMonitors.remove(world)?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor)
                 }
+                infrastructureLeaseService?.removeWorld(bukkitWorld.uid)
+                observationService?.removeWorld(bukkitWorld.uid)
                 coreWorld?.physicsCoordinator?.close()
                 try {
                     rw.renderChunkManager.close()
@@ -262,8 +314,6 @@ class WorldManager internal constructor(
         }
         AbnormalTrainMarker.clearWorld(bukkitWorld)
         railWorlds.remove(bukkitWorld)
-        observationService?.removeWorld(bukkitWorld.uid)
-        infrastructureLeaseService?.removeWorld(bukkitWorld.uid)
     }
 
     @EventHandler
@@ -309,11 +359,14 @@ class WorldManager internal constructor(
                 blockedWaitAsyncNanos += physicsWaitNanos
 
                 val observationPublishNanos = measureNanoTime {
-                    observationService?.publish(
+                    val observation = observationService?.publish(
                         world.uid,
                         coreWorld.latestWorldFrame(),
                         physicsTicket.epoch
                     )
+                    if (observation != null) {
+                        infrastructureLeaseService?.consumeObservation(world.uid, observation)
+                    }
                 }
                 phaseBreakdown["world:${world.name}:observation_publish"] = observationPublishNanos
                 computeNanos += observationPublishNanos

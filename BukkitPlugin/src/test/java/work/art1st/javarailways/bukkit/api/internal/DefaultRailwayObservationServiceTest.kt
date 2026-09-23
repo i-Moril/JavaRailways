@@ -2,7 +2,6 @@ package work.art1st.javarailways.bukkit.api.internal
 
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -26,9 +25,9 @@ class DefaultRailwayObservationServiceTest {
             epochs += observation.stamp.physicsEpoch
         }
 
-        assertTrue(service.publish(worldId, frame(1L), 1L))
-        assertFalse(service.publish(worldId, frame(1L), 1L))
-        assertTrue(service.publish(worldId, frame(2L), 2L))
+        assertEquals(1L, service.publish(worldId, frame(1L), 1L)?.stamp?.physicsEpoch)
+        assertEquals(null, service.publish(worldId, frame(1L), 1L))
+        assertEquals(2L, service.publish(worldId, frame(2L), 2L)?.stamp?.physicsEpoch)
 
         assertEquals(listOf(1L, 2L), epochs)
         assertEquals(2L, service.latest(worldId).orElseThrow().stamp.physicsEpoch)
@@ -81,7 +80,7 @@ class DefaultRailwayObservationServiceTest {
 
         service.close()
         service.close()
-        assertFalse(service.publish(worldId, frame(2L), 2L))
+        assertEquals(null, service.publish(worldId, frame(2L), 2L))
         assertTrue(service.latest(worldId).isEmpty)
         assertEquals(1, calls.get())
         assertThrows(IllegalStateException::class.java) {

@@ -119,7 +119,6 @@ object RailWorldFactory {
         if (restored.size != persisted.size) {
             RailRenderMetaStore.saveAll(bukkitWorld, restored)
         }
-        physicsCoordinator.start()
         return coreWorld
     }
 }

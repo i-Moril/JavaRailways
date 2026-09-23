@@ -87,9 +87,9 @@ The live grant owns one monotonic route cursor and one ordered release queue. It
 
 ## Resource inspection and reactive constraints
 
-`InspectionDistance(train)` tells SimpleATO when to inspect/request a resource; it is not a signal-update tick callback. Route/resource/configuration and low-frequency train-capability inputs produce a cached declared distance. SimpleATO independently computes current braking distance each physics tick and uses the larger value plus margin.
+`InspectionDistance(train)` tells SimpleATO when to inspect/request a resource; it is not a signal-update tick callback. SimpleATO independently computes current braking distance each physics tick. The inspection declaration's cache and invalidation rules remain to be reviewed before implementation.
 
-One shared route perception detects inspection-range entry. Resource `update(train)` runs on first entry or when its declared dependencies change, such as occupancy, claim/grant, configuration or a downstream signal state. Unchanged resources remain `IDLE`. A plugin publishes immutable restrictions; SimpleATO combines them with Basic grant, following, operational stops and infrastructure speed constraints. Plugin code can only keep or tighten the result.
+One shared route perception must avoid a second forward scan. A plugin publishes immutable restrictions; SimpleATO combines them with Basic grant, following, operational stops and infrastructure speed constraints. Plugin code can only keep or tighten the result. The owner of dependency tracking, activation/update timing and fail-closed invalidation is deliberately deferred to the reactive implementation review; unchanged resources must not invoke plugin code every tick.
 
 ## Public service capabilities
 
@@ -98,7 +98,7 @@ remaining public surfaces still arrive in separate reviewable batches:
 
 - immutable railway observation subscription/read service;
 - namespaced infrastructure resource registration and validation;
-- topology-bound route admission/extension/grant inspection;
+- topology-bound route admission/extension and pending-attempt progress;
 - generic infrastructure preparation handler registration;
 - namespaced train restrictions and dependency-change publication;
 - shared applied-plan infrastructure leases and edit permits.

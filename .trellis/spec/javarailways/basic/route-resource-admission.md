@@ -156,7 +156,7 @@ authenticated intent caller与preparation descriptor validation、可选preparat
 `RouteAdmissionResult`是`admit`、`extend`和`progress`共用的sealed value result，只有三种顶层结果：
 
 - `Granted(RouteGrantSnapshot)`：union已原子claim，全部准备`READY`；snapshot含grant ID、owner、train、route
-  identity/revision、observation stamp与committed authority boundary；
+  identity/revision、observation stamp与committed authority boundary；topology revision仅从stamp读取，不复制第二字段；
 - `Pending(RouteAdmissionHandle, RouteGrantSnapshot?)`：新request/delta已保留但准备未完成；initial request的
   snapshot为null，extension返回仍有效的旧committed grant；
 - `Rejected(RouteAdmissionFailure)`：typed failure；除preparation unsafe分支外不产生mutation。

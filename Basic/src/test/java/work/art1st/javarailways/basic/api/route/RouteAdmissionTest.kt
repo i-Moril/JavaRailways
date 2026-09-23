@@ -20,10 +20,7 @@ class RouteAdmissionTest {
         assertThrows(IllegalArgumentException::class.java) { grant(trainId = " ") }
         assertThrows(IllegalArgumentException::class.java) { grant(routeId = " ") }
         assertThrows(IllegalArgumentException::class.java) { grant(routeRevision = -1L) }
-        assertThrows(IllegalArgumentException::class.java) { grant(topologyRevision = -1L) }
-        assertThrows(IllegalArgumentException::class.java) {
-            grant(topologyRevision = 4L, stamp = RailwayStateStamp("world", 8L, 3L))
-        }
+        assertEquals(3L, grant().observationStamp.topologyRevision)
     }
 
     @Test
@@ -120,15 +117,13 @@ class RouteAdmissionTest {
         trainId: String = "train-1",
         routeId: String = "route-1",
         routeRevision: Long = 2L,
-        topologyRevision: Long = 3L,
-        stamp: RailwayStateStamp = RailwayStateStamp("world", 8L, topologyRevision)
+        stamp: RailwayStateStamp = RailwayStateStamp("world", 8L, 3L)
     ) = RouteGrantSnapshot(
         grantId = RouteGrantId(),
         owner = InfrastructureOwner("test:route/main", 2L),
         trainId = trainId,
         routeId = routeId,
         routeRevision = routeRevision,
-        topologyRevision = topologyRevision,
         observationStamp = stamp,
         committedAuthority = RouteBoundary(40.0)
     )

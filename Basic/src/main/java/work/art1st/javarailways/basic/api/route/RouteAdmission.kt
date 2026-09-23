@@ -35,7 +35,6 @@ class RouteGrantId internal constructor()
  * @property trainId stable train identity from the coherent observation
  * @property routeId identity of the frozen selected route
  * @property routeRevision revision of that selected traversal
- * @property topologyRevision Core topology revision against which the route was validated
  * @property observationStamp coherent observation used to commit this grant version
  * @property committedAuthority route-metre boundary currently available to the train
  */
@@ -45,7 +44,6 @@ data class RouteGrantSnapshot(
     val trainId: String,
     val routeId: String,
     val routeRevision: Long,
-    val topologyRevision: Long,
     val observationStamp: RailwayStateStamp,
     val committedAuthority: RouteBoundary
 ) {
@@ -53,10 +51,6 @@ data class RouteGrantSnapshot(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(routeId.isNotBlank()) { "routeId must not be blank" }
         require(routeRevision >= 0L) { "routeRevision must be non-negative" }
-        require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
-        require(observationStamp.topologyRevision == topologyRevision) {
-            "observationStamp and grant must use the same topology revision"
-        }
     }
 }
 

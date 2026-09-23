@@ -38,7 +38,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - A region ID must not be an exclusive whole-region lock by default. Physical path/conflict resources and explicit flank/approach resources determine conflicts, allowing disjoint paths through one throat when the concrete policy permits it.
 - Implement fixed blocks as plugin-owned authority/resource policy. Protection regions and blocks may expose a common plugin-local section observation API, but Basic and SimpleATO do not own or persist that abstraction.
 - Derive every permissive aspect from a confirmed Basic grant plus current SimpleATO authority. Plugin output can only keep or tighten speed/authority; missing, stale, corrupt or disabled state is restrictive.
-- Use SimpleATO's inspection scheduler: low-frequency `InspectionDistance(train)` declarations are cached, dynamic braking distance remains host-owned per tick, and `update(train)` runs only on range entry or declared dependency changes.
+- Use SimpleATO's shared route perception for resource inspection while keeping dynamic braking distance host-owned per tick. Do not invoke unchanged signal policy every tick or add a second forward scan. The reactive scheduling and cache design must be reviewed before its implementation batch.
 - Do not add a second per-train route scanner, world-wide per-signal tick loop or `allTrains × allSignals` lookup.
 - Support diamond conflicts through Basic's route-bound physical resources without treating a diamond as a switch or topology continuation.
 - Release resources through the host grant/cursor lifecycle. Plugin disable must stop new permissive decisions; existing grants remain host-owned until physical clearance or explicit safe recovery.

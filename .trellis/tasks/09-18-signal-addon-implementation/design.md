@@ -73,6 +73,8 @@ When the protection-region exit leads into a fixed block, the plugin can extend 
 
 ### Inspection and reactive updates
 
+**Deferred design review:** The mechanism below is a candidate, not a frozen implementation contract. Before this batch, decide which layer owns dependency tracking, inspection activation and fail-closed invalidation. In particular, avoid duplicating a host scheduler with a signal-plugin scheduler or building multiple reverse indexes and revision-keyed caches without a demonstrated need. The retained requirements are no duplicate forward scan, no unchanged per-tick policy execution, host-owned dynamic braking and no stale permissive authority.
+
 `InspectionDistance(train)` has two parts:
 
 - plugin-declared distance depending on resource definition, route and low-frequency train capabilities, cached by their revisions;

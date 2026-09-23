@@ -41,9 +41,10 @@
 
 ## Reactive signal state and customization
 
-- [ ] Declare resource dependencies and maintain a reverse invalidation index for affected signal updates.
-- [ ] Trigger `update(train)` on inspection activation or dependency revision changes; prove unchanged resources remain idle.
-- [ ] Propagate changed downstream state upstream until stable with bounded/cycle-fail-closed behavior.
+- [ ] Review the deferred reactive design with the user before implementing this section; settle scheduler/dependency ownership and the minimum cache/index needed.
+- [ ] Implement only the dependency/invalidation mechanism approved in that review; update affected signals without a world-wide scan.
+- [ ] Prove unchanged resources remain idle and stale permissive outputs cannot survive invalidation.
+- [ ] Propagate changed downstream state only as far as needed; stop when an output is unchanged and fail closed if an actual feedback loop cannot settle.
 - [ ] Define `JapaneseSignals` Java/Kotlin aspect/block/interlocking rules before adding scripts.
 - [ ] In a separately reviewed batch, define optional JS/YAML input views, setters such as speed/model variant, validation, execution budget and failure behavior.
 - [ ] Keep scripts away from mutable world objects and raw Basic claim mutation; all outputs pass plugin validation and host restriction/resource APIs.

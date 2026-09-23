@@ -154,7 +154,7 @@
     observation/projection/release invariant failures into one latched Stall callback.
 - [ ] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
 - [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
-- [ ] Add cached resource inspection-distance declarations, dependency-change publication and event-driven `update(train)` scheduling; keep dynamic braking distance in the SimpleATO tick.
+- [ ] Before the reactive batch, review dependency ownership, cache keys, activation timing and fail-closed invalidation with the user; then implement resource inspection without duplicate forward scans or unchanged per-tick plugin callbacks. Keep dynamic braking distance in the SimpleATO tick.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
 - [ ] Add topology edit guards for active external claims.
@@ -167,8 +167,8 @@
 - [ ] Focused Basic tests for no-partial atomic claims, conflicts, zero/one/multi-turnout paths, mandatory physical floor, additive plugin resources, stale revisions, tail release and timetable migration.
 - [ ] Migration tests prove protection-region/fixed-block ownership leaves Basic without changing generic topology projection, claims, preparation or release behavior.
 - [ ] Tests prove omitted/replaced turnout or diamond resources are restored from Basic derivation, while plugin configuration failures remain restrictive without a Basic `PROTECTION_REQUIRED` policy.
-- [ ] Inspection scheduler tests prove cached declaration invalidation, host-owned dynamic braking distance and no unchanged per-tick plugin callback.
-- [ ] Tests for overlapping shared timetable leases, atomic lease acquisition/release, edit denial diagnostics, reload reconstruction, and no partial mutation across every supported infrastructure editor.
+- [ ] Inspection tests prove the reviewed declaration/invalidation behavior, host-owned dynamic braking distance, no duplicate forward scan and no unchanged per-tick plugin callback.
+- [ ] Tests for overlapping shared timetable leases, atomic lease acquisition/release, edit denial diagnostics, and no partial mutation across every supported infrastructure editor. Test in-process disable/world reload separately from restart recovery; do not require reconstruction of in-flight claims without an approved persistence contract.
 - [ ] Bukkit tests for service registration/lookup, plugin disable, world unload, and target-aware dispatch.
 - [ ] Compile-only external consumer test imports public packages only.
 - [ ] Run `./gradlew :Core:test :Basic:test :BukkitPlugin:test`.

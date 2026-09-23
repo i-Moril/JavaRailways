@@ -13,14 +13,20 @@
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；不得包含render car或live Core对象。
 - `InfrastructureResource`、lease/edit request、typed result与read-only snapshot属于公开host contract；raw live-claim mutation只属于Basic路线准入实现，不进入add-on API。
-- 目标`work.art1st.javarailways.basic.api.route.RouteResourceIntent`复用现有`RouteSnapshot`，并携带nonblank stable train ID、
-  同一观察stamp、从冻结路线起点起算的米制authority boundary及可选的**附加**注册资源。request不得复制
-  topology revision、可信列车长度或替代Basic物理推导的raw footprint。Basic自行加入不可删除的
-  rail/turnout/diamond资源，再与合法addition合并为唯一claim。确切字段、单位、结果和extension关系由
+- 目标`work.art1st.javarailways.basic.api.route.RouteResourceIntent`复用现有`RouteSnapshot`，并只携带nonblank stable
+  train ID、同一观察stamp及从冻结路线起点起算的米制authority boundary。ATO request不得携带具体resource identity、
+  preparation descriptor、topology revision副本、可信列车长度或替代Basic物理推导的raw footprint。Basic自行加入
+  不可删除的rail/turnout/diamond资源，再与宿主从认证route contributor收集的合法资源合并为唯一claim。确切字段、
+  单位、结果和extension关系由
   [路线资源准入](./route-resource-admission.md)冻结。
-- 附加资源只接受exact `StableInfrastructureResource`，每项显式声明车尾释放route-metre boundary；没有默认
-  释放点。可选准备target是namespaced kind加immutable scalar arguments的runtime-only descriptor，不接受
-  `Any`、mutable object、JVM class reflection或JSON persistence payload。
+- Contributor结果只接受exact `StableInfrastructureResource`，每项显式声明车尾释放route-metre boundary；没有默认
+  释放点。可选准备target仍可使用namespaced kind加immutable scalar arguments的runtime-only descriptor，但它只在
+  contributor与resource owner之间传递，SimpleATO不构造或解释；不接受`Any`、mutable object、JVM class reflection
+  或JSON persistence payload。
+- 通用preparation ticket的state/snapshot属于platform-independent Basic API；Bukkit handler registration只绑定
+  plugin/world lifecycle并返回该ticket。认证contributor每次route request最多调用一次并使用自己的索引产生需求；
+  handler只接收attempt UUID、world UUID、exact stable resource和descriptor，不接收train/route/registry/live Core
+  object。迁移直接删除caller-additions constructor和三参数provider registration，不保留兼容overload。
 - Basic production不得import Bukkit/Paper/Minecraft；platform side effect只经`TrainOperationGateway`等semantic adapter。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。

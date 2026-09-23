@@ -10,13 +10,14 @@ import work.art1st.javarailways.bukkit.api.rail.RailTargetService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider;
+import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
-import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement;
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource;
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor;
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult;
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
@@ -41,6 +42,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     private Services services;
     private RailwayObservationSubscription observationSubscription;
     private InfrastructureResourceProviderRegistration resourceProviderRegistration;
+    private RouteResourceContributorRegistration routeContributorRegistration;
 
     @Override
     public void onEnable() {
@@ -62,16 +64,26 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 }
 
                 @Override
-                public RouteAdmissionFailureCode validateRouteAddition(
-                    Plugin requester, UUID candidateWorld, String resourceId, ResourcePreparationDescriptor preparation
+                public RouteAdmissionFailureCode validateRouteContribution(
+                    Plugin contributor, UUID candidateWorld, String resourceId, ResourcePreparationDescriptor preparation
                 ) {
-                    if (requester != SignalApiConsumerPlugin.this || preparation != null ||
+                    if (contributor != SignalApiConsumerPlugin.this || preparation != null ||
                         !exists(candidateWorld, resourceId)) {
-                        return RouteAdmissionFailureCode.INVALID_ADDITION;
+                        return RouteAdmissionFailureCode.INVALID_CONTRIBUTION;
                     }
                     return null;
                 }
             }
+        );
+        routeContributorRegistration = services.infrastructure().registerRouteResourceContributor(
+            this,
+            (candidateWorld, intent) -> candidateWorld.equals(worldId)
+                ? List.of(new ContributedRouteResource(
+                    new StableInfrastructureResource("example.signaladdon:signal", "home"),
+                    intent.getDesiredAuthority(),
+                    null
+                ))
+                : List.of()
         );
         services.observations().latest(worldId).ifPresent(observation -> {
             var request = new InfrastructureLeaseRequest(
@@ -100,6 +112,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             observationSubscription.close();
             observationSubscription = null;
         }
+        if (routeContributorRegistration != null) {
+            routeContributorRegistration.close();
+            routeContributorRegistration = null;
+        }
         if (resourceProviderRegistration != null) {
             resourceProviderRegistration.close();
             resourceProviderRegistration = null;
@@ -124,12 +140,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             "example-train",
             observationStamp,
             route,
-            new RouteBoundary(100.0),
-            List.of(new AdditionalResourceRequirement(
-                new StableInfrastructureResource("example.signaladdon:signal", "home"),
-                new RouteBoundary(100.0),
-                null
-            ))
+            new RouteBoundary(100.0)
         );
     }
 

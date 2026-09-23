@@ -3,7 +3,7 @@ package work.art1st.javarailways.basic.infrastructure
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -32,15 +32,15 @@ internal data class ResolvedTurnoutSelection(
     }
 }
 
-/** Provider-owned preparation data, retained only after the addition has been validated. */
-internal data class ResolvedAddedResourcePreparation(
+/** Provider-owned preparation data, retained only after the contribution has been validated. */
+internal data class ResolvedContributedResourcePreparation(
     override val resource: StableInfrastructureResource,
     val descriptor: ResourcePreparationDescriptor
 ) : InfrastructurePreparationRequirement
 
-internal sealed interface RouteAdditionsCompilation {
-    data class Compiled(val admission: CompiledRouteAdmission) : RouteAdditionsCompilation
-    data class Rejected(val failure: RouteAdmissionFailure) : RouteAdditionsCompilation
+internal sealed interface RouteContributionsCompilation {
+    data class Compiled(val admission: CompiledRouteAdmission) : RouteContributionsCompilation
+    data class Rejected(val failure: RouteAdmissionFailure) : RouteContributionsCompilation
 }
 
 /**
@@ -60,45 +60,47 @@ internal class CompiledRouteAdmission private constructor(
     val routeProgressPath: CompiledRouteProgressPath
 ) {
     /**
-     * Adds validated caller resources to this already compiled physical floor before any claim.
+     * Adds validated contributor resources to this already compiled physical floor before any claim.
      * [validate] is supplied by the world-local resource owner registry and must check the
-     * authenticated caller, exact identity, and optional preparation descriptor without mutation.
+     * authenticated contributor, exact identity, and optional preparation descriptor without mutation.
      * A duplicate physical identity may delay release, but cannot replace physical preparation.
      */
-    fun withAdditions(
-        additions: Collection<AdditionalResourceRequirement>,
-        validate: (AdditionalResourceRequirement) -> RouteAdmissionFailure?
-    ): RouteAdditionsCompilation {
-        if (additions.isEmpty()) return RouteAdditionsCompilation.Compiled(this)
+    fun withContributions(
+        contributions: Collection<ContributedRouteResource>,
+        validate: (ContributedRouteResource) -> RouteAdmissionFailure?
+    ): RouteContributionsCompilation {
+        if (contributions.isEmpty()) return RouteContributionsCompilation.Compiled(this)
         val originalResources = resources.resources.toSet()
         val seen = HashSet<StableInfrastructureResource>()
         val added = ArrayList<StableInfrastructureResource>()
         val addedPreparations = ArrayList<InfrastructurePreparationRequirement>()
         val releaseByResource = tailReleaseEntries.associateByTo(LinkedHashMap()) { it.resource }
-        for (addition in additions) {
-            if (!seen.add(addition.resource)) {
-                return RouteAdditionsCompilation.Rejected(RouteAdmissionFailure(
-                    RouteAdmissionFailureCode.INVALID_ADDITION,
-                    "duplicate added resource ${addition.resource.typeId}/${addition.resource.resourceId}"
+        for (contribution in contributions) {
+            if (!seen.add(contribution.resource)) {
+                return RouteContributionsCompilation.Rejected(RouteAdmissionFailure(
+                    RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                    "duplicate contributed resource ${contribution.resource.typeId}/${contribution.resource.resourceId}"
                 ))
             }
-            validate(addition)?.let { return RouteAdditionsCompilation.Rejected(it) }
-            if (addition.resource in originalResources && addition.preparation != null) {
-                return RouteAdditionsCompilation.Rejected(RouteAdmissionFailure(
+            validate(contribution)?.let { return RouteContributionsCompilation.Rejected(it) }
+            if (contribution.resource in originalResources && contribution.preparation != null) {
+                return RouteContributionsCompilation.Rejected(RouteAdmissionFailure(
                     RouteAdmissionFailureCode.INVALID_PREPARATION,
-                    "added preparation cannot replace physical preparation for ${addition.resource.resourceId}"
+                    "contributed preparation cannot replace physical preparation for ${contribution.resource.resourceId}"
                 ))
             }
-            val previous = releaseByResource[addition.resource]
-            releaseByResource[addition.resource] = ResolvedTailReleaseEntry(
-                addition.resource,
+            val previous = releaseByResource[contribution.resource]
+            releaseByResource[contribution.resource] = ResolvedTailReleaseEntry(
+                contribution.resource,
                 maxOf(previous?.tailClearRouteMeters ?: 0.0,
-                    addition.releaseAfterTailPasses.distanceFromRouteStartMeters)
+                    contribution.releaseAfterTailPasses.distanceFromRouteStartMeters)
             )
-            if (previous == null) added += addition.resource
-            addition.preparation?.let { addedPreparations += ResolvedAddedResourcePreparation(addition.resource, it) }
+            if (previous == null) added += contribution.resource
+            contribution.preparation?.let {
+                addedPreparations += ResolvedContributedResourcePreparation(contribution.resource, it)
+            }
         }
-        return RouteAdditionsCompilation.Compiled(create(
+        return RouteContributionsCompilation.Compiled(create(
             InfrastructureFootprint(resources.resources + added.sortedWith(compareBy(
                 StableInfrastructureResource::typeId,
                 StableInfrastructureResource::resourceId

@@ -1,7 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
-import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
@@ -60,6 +60,10 @@ class RouteResourceAdmissionRuntime private constructor(
     fun providerActivity(typeIds: Set<String>): List<RouteAdmissionRequesterActivity> =
         if (closed) emptyList() else engine.providerActivity(typeIds)
 
+    /** True until every route using the currently installed contributor set has ended. */
+    @MainThread
+    fun hasRouteState(): Boolean = !closed && engine.hasRouteState()
+
     /** Discards only empty route state and terminal-handle references for a departing requester. */
     @MainThread
     fun discardInactiveRequester(requester: Any): Boolean =
@@ -80,6 +84,11 @@ class RouteResourceAdmissionRuntime private constructor(
         providerDescription: String
     ): List<RouteAdmissionRequesterActivity> =
         if (closed) emptyList() else engine.failClosedProviderLoss(typeIds, providerDescription)
+
+    /** Prevents a forced contributor loss from weakening later admissions in this world. */
+    @MainThread
+    fun failClosedContributorLoss(contributorDescription: String): Boolean =
+        !closed && engine.failClosedContributorLoss(contributorDescription)
 
     @MainThread
     override fun close() {
@@ -113,7 +122,8 @@ class RouteResourceAdmissionRuntime private constructor(
             registry: InfrastructureLeaseRegistry,
             hostClaimOwner: Any,
             latestObservation: () -> RailwayObservation?,
-            validateAddition: (Any, AdditionalResourceRequirement) -> RouteAdmissionFailure?,
+            collectContributions: (RouteResourceIntent) -> List<Pair<Any, ContributedRouteResource>>,
+            validateContribution: (Any, ContributedRouteResource) -> RouteAdmissionFailure?,
             stallWorld: (String, Exception) -> Unit
         ): RouteResourceAdmissionRuntime {
             val topology = world.topologyState
@@ -128,7 +138,8 @@ class RouteResourceAdmissionRuntime private constructor(
                 currentTopology = { world.topologyState },
                 latestObservation = latestObservation,
                 routeBoundResources = catalog,
-                validateAddition = validateAddition,
+                collectContributions = collectContributions,
+                validateContribution = validateContribution,
                 preparationActuator = LiveInfrastructurePreparationActuator(world),
                 stallWorld = stallWorld
             )

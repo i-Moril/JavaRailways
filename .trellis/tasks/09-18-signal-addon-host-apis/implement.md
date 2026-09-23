@@ -44,7 +44,7 @@
   - [ ] When production Dispatcher batches route selection for one observation, build one train-ID index
     in that dispatch context and share it across selectors; keep the current one-off linear lookup for
     isolated requests and do not add a cross-observation cache.
-- [ ] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one mandatory physical footprint plus validated plugin additions, and route-ordered turnout selections. Occupancy geometry is validation evidence, not a second footprint. No Basic path search or protection-policy closure.
+- [ ] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one mandatory physical footprint plus validated plugin contributions, and route-ordered turnout selections. Occupancy geometry is validation evidence, not a second footprint. No Basic path search or recursive protection-policy closure.
   - [x] Basic internal route projection validates one frozen `RouteSnapshot` against `TopologyState` in one linear pass, emits immutable edge occurrences and derives turnout node/from/to traversals; protection-window validation reuses this projection. Public request shape, route-bound diamond index and closure compilation remain.
   - [x] Turnout traversals derive one direction-independent `javarailways:turnout` resource identity from the sorted persistent endpoint set; revision-local topology node IDs remain validation-only. Route validation and diamond identities remain.
   - [x] Transitional route validation clips canonical rail intervals, adds turnout resources and rejects uncovered turnouts. The projection/identity work is retained; uncovered-turnout policy and contributor-closure target are superseded by the mandatory physical floor plus additive plugin resources. Automatic callers are not migrated yet.
@@ -107,7 +107,7 @@
       compile only the farther suffix, query only its occupancy geometry, reserve and prepare only
       its delta, then finalize and install entries on the same controller. Prefix release remains
       active while pending, including a registry proof when only pending delta remains. Public
-      SimpleATO request wiring and additive plugin-resource API remain separate later batches.
+      SimpleATO request wiring and host-collected plugin-resource contributions remain separate later batches.
 - [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
   - [x] Align the transitional `RouteSectionAllocator` with the immediate in-memory turnout seam: resolve connections, conflicts and physical locks for the complete batch before the first selection write, then apply directly without capturing previous selections or claiming fictional apply-failure rollback. Dispatcher migration remains pending.
 
@@ -159,6 +159,11 @@
   - [x] Apply the same disable guard to resource-provider ownership without a second owner table: at unregister/disable,
     inspect existing claims, committed release queues and pending compiled requests for the provider's registered type IDs.
     Another requester's use therefore rejects planned unregister or retains resources and Stalls on forced provider loss.
+  - [x] Implement corrected resource ownership before generic delayed preparation: remove contributed resources and descriptors
+    from the ATO intent, add authenticated Bukkit route contributors, collect each once per admission, and validate their copied
+    output through the existing resource owners. Provider validation receives contributor identity rather than ATO identity;
+    no old intent constructor, requirement type or failure-code alias remains. Contributor membership is frozen while any route
+    state exists, and forced contributor loss stalls affected worlds instead of silently weakening later suffix requests.
   - [x] Review the internal first-admission and release hot paths: delayed `READY` now rechecks the latest
     coherent observation/topology/occupancy before publishing a grant, while ordinary epoch advancement
     rebinds the grant to the newer stamp. Release keeps one queue plus a head index, avoids empty-world
@@ -189,7 +194,9 @@
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.
-  - [ ] Remove the superseded recursive provider-closure target. Expose namespaced resource registration plus bounded data additions; Basic does not execute signal policy callbacks while scanning the route.
+  - [ ] Remove the superseded recursive provider-closure implementation. Expose namespaced resource registration plus bounded,
+    non-recursive route contributions collected once per admission; Basic does not execute signal policy callbacks while scanning
+    physical topology, and SimpleATO does not construct contributed resources.
 - [ ] Keep protection-region/fixed-block definitions, graph-cut validation and catalog/window resolution explicitly transitional in Basic during Stage 1; remove their use from the generic host contract and hand their implementation/persistence migration to the Stage 2 `JapaneseSignals` task. Do not add runtime compatibility without separate approval.
 - [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.
 - [ ] Remove turnout-derived protection-point synthesis from route compilation. Concrete signal plugins decide whether their configuration is complete; Basic always retains the physical-resource floor.

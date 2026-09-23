@@ -36,11 +36,12 @@ Independent signal-system plugin
 ```text
 Core publishes TopologyState(revision) + coherent train observation
   -> SimpleATO selects one frozen route
-  -> inspection scheduler identifies relevant signal-plugin resources
-  -> signal plugin chooses a desired boundary and optional added resources
+  -> inspection/constraint arbitration chooses a desired authority boundary
+  -> SimpleATO submits only route + train/stamp + boundary
+  -> host asks authenticated signal-plugin contributors for resource requirements
   -> Basic validates the route against the same topology/observation
   -> Basic derives rail + turnout + diamond mandatory resources
-  -> Basic validates union(mandatory resources, plugin additions)
+  -> Basic validates union(mandatory resources, plugin contributions)
   -> one atomic claim
   -> generic resource handlers prepare claimed equipment
   -> READY publishes a grant
@@ -48,19 +49,19 @@ Core publishes TopologyState(revision) + coherent train observation
   -> authoritative tail progress shrinks the claim queue
 ```
 
-Neither the caller nor a plugin submits a replacement physical footprint. Plugins only add resources and stricter hold/restriction semantics. Basic never calls a recursive protection-region/provider closure and never decides a signalling system's route policy.
+Neither the ATO caller nor a plugin submits a replacement physical footprint. Plugins only contribute resources and stricter hold/restriction semantics. Basic never calls a recursive protection-region/provider closure and never decides a signalling system's route policy.
 
-The exact target request/result, route-metre boundary and runtime-only preparation descriptor are frozen in
+The exact target request/result, route-metre boundary, authenticated contribution and runtime-only preparation descriptor are frozen in
 [`route-resource-admission.md`](../../spec/javarailways/basic/route-resource-admission.md); this task design does not copy
-that owner contract. Every addition has one exact stable identity and explicit tail-release boundary. A duplicate
+that owner contract. The public ATO intent contains no additions or descriptors. Every contribution has one exact stable identity and explicit tail-release boundary. A duplicate
 mandatory identity can only extend its hold and cannot replace Basic's physical preparation.
 
 ```text
 SimpleATO produces frozen route + coherent train/stamp + operational scan horizon
-signal plugin chooses the desired boundary and submits its authenticated intent + additions
-(or SimpleATO chooses a moving-block boundary and submits no additions when no signal policy is needed)
+SimpleATO submits desired authority without signal-system resource knowledge
+host invokes each registered signal-policy contributor once for that request
 Basic validates coherent state and route -> compiles mandatory physical floor
-Basic validates additions/descriptors -> exact-identity union -> occupancy query
+Basic validates contributions/descriptors -> exact-identity union -> occupancy query
 Basic atomically claims union -> prepares -> publishes grant only after READY
 ```
 
@@ -73,13 +74,24 @@ The request carries one frozen route, coherent observation stamp, target train a
 3. route-bound diamond/shared-conflict identities from the catalog tied to the same topology root;
 4. occupancy-query geometry, preparation requirements and release boundaries.
 
-Items 1-3 form a non-removable footprint. Plugin additions are validated through the namespaced resource registry and unioned by exact identity. Occupancy geometry and release/preparation metadata never form alternate footprints.
+Items 1-3 form a non-removable footprint. Plugin contributions are validated through the namespaced resource registry and unioned by exact identity. Occupancy geometry and release/preparation metadata never form alternate footprints.
 
 This division gives Basic a physical safety floor while allowing different interlocking models. A protection-region plugin can validate entry/exit and request enough route plus flank resources to clear a throat. A route-table plugin can request approach locking and sectional-release resources. An incomplete policy may cause a restrictive stop or deadlock, but it cannot omit traversed physical conflict resources or widen authority beyond Basic's grant.
 
 ## Resource preparation and lifecycle
 
 Claims and physical readiness are distinct. Basic claims the complete union before asking registered handlers to prepare movable or delayed equipment. `PREPARING` retains the reservation and publishes no grant; `READY` commits the grant; `ABORTED_SAFE` removes only the new request/delta; `UNSAFE` or an unprovable abort retains protection and stalls the world.
+
+Route contributors are authenticated lifecycle-bound policy entry points, not another resource catalog. They run once per admission
+and use the signal plugin's own index; SimpleATO never sees their identities or descriptors. Provider preparation uses one handler
+collection on the existing resource-type registration. Basic owns the platform-neutral ticket states and one deterministic composite
+batch; Bukkit handlers receive only attempt/world/resource/descriptor values. Complete preflight precedes side effects, while any
+exception after start is unprovable and retains the claim under Stall. Handler polling occurs only through a pending admission handle,
+not from every physics tick.
+
+Contributor membership is frozen while any route state can request a farther suffix. Planned add/remove is refused during that
+window; forced contributor loss stalls every affected world while retaining host-owned claims. This uses no generation token,
+takeover or recovery state machine.
 
 A planned add-on disable must first unregister its infrastructure owner. The host refuses that step while the requester has
 a pending route reservation or any resource left in its route claim; an otherwise empty route state does not block disable.
@@ -144,6 +156,6 @@ transitional Basic types; neither stage adds a runtime compatibility layer witho
 
 ## Failure and threading
 
-All validation failure is atomic and does not widen authority. Missing resource indexes, stale revisions, plugin failure or invalid additions fail closed. Existing committed grants remain host-owned through physical release, so unloading a signal plugin cannot drop resources beneath a train.
+All validation failure is atomic and does not widen authority. Missing resource indexes, stale revisions, contributor failure or invalid contributed resources fail closed. Existing committed grants remain host-owned through physical release, so unloading a signal plugin cannot drop resources beneath a train.
 
 Physics workers consume immutable observations and constraint snapshots. Route claim and equipment preparation execute on their documented world/main owner. Add-on callbacks are bounded, non-blocking and are never invoked once per world resource every tick.

@@ -12,7 +12,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
-import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
@@ -27,11 +27,14 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
 import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
+import java.util.IdentityHashMap
 
 class RouteResourceAdmissionEngineTest {
     private val railId = UUID(0L, 101L)
     private val block = StableInfrastructureResource("test:block", "main")
     private val hostClaimOwner = Any()
+    private val contributorOwner = Any()
+    private val contributionsByIntent = IdentityHashMap<RouteResourceIntent, List<ContributedRouteResource>>()
     private var topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
     private var observation = observation(7L, train("first", 0.0, 1.0, 7L))
     private val registry = InfrastructureLeaseRegistry(
@@ -41,13 +44,13 @@ class RouteResourceAdmissionEngineTest {
     private val catalog = RouteBoundResourceCatalog { topology }.also {
         assertEquals(RouteBoundResourceCatalogUpdate.Published, it.publish(topology, emptyList()))
     }
-    private var additionValidation: (AdditionalResourceRequirement) -> RouteAdmissionFailure? = { null }
+    private var additionValidation: (ContributedRouteResource) -> RouteAdmissionFailure? = { null }
 
     @Test
     fun `one admission claims physical rail and approved block then releases after the tail`() {
         val platformOwner = Any()
         val service = service()
-        val intent = intent(additions = listOf(AdditionalResourceRequirement(block, RouteBoundary(20.0))))
+        val intent = intent(contributions = listOf(ContributedRouteResource(block, RouteBoundary(20.0))))
         val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
             service.request(platformOwner, intent)).grant
 
@@ -78,13 +81,14 @@ class RouteResourceAdmissionEngineTest {
         val stalls = mutableListOf<String>()
         val service = RouteResourceAdmissionEngine(
             "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
-            { _, addition -> additionValidation(addition) },
+            { _, contribution -> additionValidation(contribution) },
             InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
-            { reason, _ -> stalls += reason }
+            { reason, _ -> stalls += reason },
+            ::authenticatedContributions
         )
         val pending = assertInstanceOf(
             RouteAdmissionResult.Pending::class.java,
-            service.request(requester, intent(additions = emptyList()))
+            service.request(requester, intent(contributions = emptyList()))
         )
 
         val active = service.requesterActivity(requester).single()
@@ -116,15 +120,16 @@ class RouteResourceAdmissionEngineTest {
         val stalls = mutableListOf<String>()
         val service = RouteResourceAdmissionEngine(
             "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
-            { _, addition -> additionValidation(addition) },
+            { _, contribution -> additionValidation(contribution) },
             InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
-            { reason, _ -> stalls += reason }
+            { reason, _ -> stalls += reason },
+            ::authenticatedContributions
         )
         assertInstanceOf(
             RouteAdmissionResult.Pending::class.java,
             service.request(
                 requester,
-                intent(additions = listOf(AdditionalResourceRequirement(block, RouteBoundary(20.0))))
+                intent(contributions = listOf(ContributedRouteResource(block, RouteBoundary(20.0))))
             )
         )
 
@@ -142,30 +147,30 @@ class RouteResourceAdmissionEngineTest {
     }
 
     @Test
-    fun `denied addition occupancy and claim conflict do not make a partial claim`() {
+    fun `denied contribution occupancy and claim conflict do not make a partial claim`() {
         val platformOwner = Any()
         val service = service()
-        val withBlock = intent(additions = listOf(AdditionalResourceRequirement(block, RouteBoundary(20.0))))
+        val withBlock = intent(contributions = listOf(ContributedRouteResource(block, RouteBoundary(20.0))))
         additionValidation = {
-            RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_ADDITION, "owner denied block")
+            RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "owner denied block")
         }
         val denied = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
             service.request(platformOwner, withBlock))
-        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION, denied.failure.code)
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, denied.failure.code)
         assertTrue(registry.claimSnapshots().isEmpty())
         additionValidation = { null }
 
         observation = observation(8L, train("first", 0.0, 1.0, 8L), train("second", 5.0, 6.0, 8L))
         val occupied = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-            service.request(platformOwner, intent(additions = emptyList())))
+            service.request(platformOwner, intent(contributions = emptyList())))
         assertEquals(RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED, occupied.failure.code)
         assertTrue(registry.claimSnapshots().isEmpty())
 
         observation = observation(9L, train("first", 0.0, 1.0, 9L))
         val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.request(platformOwner, intent(additions = emptyList())))
+            service.request(platformOwner, intent(contributions = emptyList())))
         val conflict = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-            service.request(Any(), intent(ownerId = "test:route/other", additions = emptyList())))
+            service.request(Any(), intent(ownerId = "test:route/other", contributions = emptyList())))
         assertEquals(RouteAdmissionFailureCode.RESOURCE_CONFLICT, conflict.failure.code)
         assertEquals(first.grant.owner, registry.claimSnapshots().single().owner)
     }
@@ -175,19 +180,20 @@ class RouteResourceAdmissionEngineTest {
         val platformOwner = Any()
         val service = RouteResourceAdmissionEngine(
             "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
-            { actualOwner, addition ->
-                assertSame(platformOwner, actualOwner)
-                assertEquals(block, addition.resource)
+            { actualOwner, contribution ->
+                assertSame(contributorOwner, actualOwner)
+                assertEquals(block, contribution.resource)
                 error("resource owner unavailable")
             },
             InfrastructurePreparationActuator { error("must not prepare") },
-            { _, _ -> error("must not stall") }
+            { _, _ -> error("must not stall") },
+            ::authenticatedContributions
         )
         val result = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-            service.request(platformOwner, intent(additions = listOf(
-                AdditionalResourceRequirement(block, RouteBoundary(20.0))
+            service.request(platformOwner, intent(contributions = listOf(
+                ContributedRouteResource(block, RouteBoundary(20.0))
             ))))
-        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION, result.failure.code)
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, result.failure.code)
         assertTrue(registry.claimSnapshots().isEmpty())
     }
 
@@ -199,12 +205,13 @@ class RouteResourceAdmissionEngineTest {
             "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
             { _, _ -> providerCalled = true; null },
             InfrastructurePreparationActuator { error("must not prepare") },
-            { _, _ -> error("must not stall") }
+            { _, _ -> error("must not stall") },
+            ::authenticatedContributions
         )
 
         val result = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-            service.request(Any(), intent(additions = listOf(
-                AdditionalResourceRequirement(block, RouteBoundary(20.0))
+            service.request(Any(), intent(contributions = listOf(
+                ContributedRouteResource(block, RouteBoundary(20.0))
             ))))
 
         assertEquals(RouteAdmissionFailureCode.INVALID_ROUTE, result.failure.code)
@@ -522,13 +529,13 @@ class RouteResourceAdmissionEngineTest {
         })
         val requester = Any()
         val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.request(requester, intent(additions = listOf(
-                AdditionalResourceRequirement(block, RouteBoundary(20.0))
+            service.request(requester, intent(contributions = listOf(
+                ContributedRouteResource(block, RouteBoundary(20.0))
             )))).grant
         val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
             service.request(requester, intent(
                 authority = 40.0,
-                additions = listOf(AdditionalResourceRequirement(block, RouteBoundary(40.0)))
+                contributions = listOf(ContributedRouteResource(block, RouteBoundary(40.0)))
             )))
         assertEquals(first, pending.committedGrant)
         assertEquals(RouteAdmissionFailureCode.REQUEST_BUSY,
@@ -567,13 +574,13 @@ class RouteResourceAdmissionEngineTest {
         })
         val requester = Any()
         val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.request(requester, intent(additions = listOf(
-                AdditionalResourceRequirement(block, RouteBoundary(20.0))
+            service.request(requester, intent(contributions = listOf(
+                ContributedRouteResource(block, RouteBoundary(20.0))
             )))).grant
         val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
             service.request(requester, intent(
                 authority = 40.0,
-                additions = listOf(AdditionalResourceRequirement(block, RouteBoundary(40.0)))
+                contributions = listOf(ContributedRouteResource(block, RouteBoundary(40.0)))
             )))
         observation = observation(8L, train("first", 21.0, 22.0, 8L))
         service.consumeObservation(observation)
@@ -726,7 +733,7 @@ class RouteResourceAdmissionEngineTest {
     }
 
     @Test
-    fun `already prepared held addition may extend its hold but cannot change preparation`() {
+    fun `already prepared held contribution may extend its hold but cannot change preparation`() {
         val batches = mutableListOf<List<InfrastructurePreparationRequirement>>()
         val service = service(InfrastructurePreparationActuator { requirements ->
             batches += requirements.toList()
@@ -735,19 +742,19 @@ class RouteResourceAdmissionEngineTest {
         val requester = Any()
         val preparation = ResourcePreparationDescriptor("test:prepare", emptyMap())
         val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.request(requester, intent(additions = listOf(
-                AdditionalResourceRequirement(block, RouteBoundary(20.0), preparation)
+            service.request(requester, intent(contributions = listOf(
+                ContributedRouteResource(block, RouteBoundary(20.0), preparation)
             )))).grant
         val changed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
             service.request(requester, intent(
-                authority = 40.0, additions = listOf(AdditionalResourceRequirement(
+                authority = 40.0, contributions = listOf(ContributedRouteResource(
                     block, RouteBoundary(40.0), ResourcePreparationDescriptor("test:other", emptyMap())
                 )))))
         assertEquals(RouteAdmissionFailureCode.INVALID_PREPARATION, changed.failure.code)
         assertEquals(1, batches.size)
         val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
             service.request(requester, intent(
-                authority = 40.0, additions = listOf(AdditionalResourceRequirement(
+                authority = 40.0, contributions = listOf(ContributedRouteResource(
                     block, RouteBoundary(40.0), preparation
                 ))))).grant
         assertEquals(RouteBoundary(40.0), extended.committedAuthority)
@@ -761,23 +768,33 @@ class RouteResourceAdmissionEngineTest {
         }
     ) = RouteResourceAdmissionEngine(
         "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
-        { _, addition -> additionValidation(addition) }, actuator,
-        { _, _ -> error("unexpected world stall") }
+        { _, contribution -> additionValidation(contribution) }, actuator,
+        { _, _ -> error("unexpected world stall") },
+        ::authenticatedContributions
     )
 
     private fun intent(
         ownerId: String = "test:route/main",
         ownerRevision: Long = 1L,
-        additions: List<AdditionalResourceRequirement> = emptyList(),
+        contributions: List<ContributedRouteResource> = emptyList(),
         trainId: String = "first",
         routeStart: Double = 0.0,
         authority: Double = 20.0
-    ) = RouteResourceIntent(
-        "test:request/main", InfrastructureOwner(ownerId, ownerRevision), trainId, observation.stamp,
-        RouteSnapshot("test:route/main", 1L, topology.revision,
-            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, routeStart, 100.0))),
-        RouteBoundary(authority), additions
-    )
+    ): RouteResourceIntent {
+        val intent = RouteResourceIntent(
+            "test:request/main", InfrastructureOwner(ownerId, ownerRevision), trainId, observation.stamp,
+            RouteSnapshot("test:route/main", 1L, topology.revision,
+                listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, routeStart, 100.0))),
+            RouteBoundary(authority)
+        )
+        contributionsByIntent[intent] = contributions
+        return intent
+    }
+
+    private fun authenticatedContributions(
+        intent: RouteResourceIntent
+    ): List<Pair<Any, ContributedRouteResource>> =
+        contributionsByIntent[intent].orEmpty().map { contributorOwner to it }
 
     private fun observation(epoch: Long, vararg trains: TrainFrameSnapshot) = RailwayObservation.fromCore(
         "world", RailwayWorldFrameSnapshot.create(epoch, topology.revision, trains.toList())

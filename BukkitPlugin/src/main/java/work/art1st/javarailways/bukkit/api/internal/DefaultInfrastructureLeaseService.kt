@@ -10,7 +10,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationS
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
@@ -27,6 +27,8 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPerm
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
+import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributor
+import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World
 import java.util.UUID
@@ -42,6 +44,11 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     private val worlds = linkedMapOf<UUID, WorldRuntime>()
     private data class ProviderRegistration(val pluginOwner: Plugin, val provider: InfrastructureResourceProvider)
     private val resourceProviders = linkedMapOf<String, ProviderRegistration>()
+    private class ContributorRegistration(
+        val pluginOwner: Plugin,
+        val contributor: RouteResourceContributor
+    )
+    private val routeContributors = linkedSetOf<ContributorRegistration>()
     private var closed = false
 
     fun registerWorld(
@@ -72,12 +79,13 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
             registry = runtime.registry,
             hostClaimOwner = runtime,
             latestObservation = latestObservation,
-            validateAddition = { requester, addition ->
-                val plugin = requester as? Plugin ?: return@create additionFailure(
-                    RouteAdmissionFailureCode.INVALID_ADDITION,
-                    "route additions require an authenticated Bukkit plugin requester"
+            collectContributions = { intent -> collectRouteContributions(worldId, intent) },
+            validateContribution = { contributor, contribution ->
+                val plugin = contributor as? Plugin ?: return@create contributionFailure(
+                    RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                    "route contributions require an authenticated Bukkit plugin owner"
                 )
-                validateRouteAddition(plugin, worldId, addition)
+                validateRouteContribution(plugin, worldId, contribution)
             },
             stallWorld = stallWorld
         )
@@ -104,12 +112,102 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         }
         val registrationClosed = AtomicBoolean()
         return InfrastructureResourceProviderRegistration {
-            if (registrationClosed.compareAndSet(false, true)) {
-                synchronized(lock) {
-                    resourceProviders[typeId]?.takeIf { it.pluginOwner === owner && it.provider === provider }
-                        ?.let { resourceProviders.remove(typeId) }
-                }
+            if (!registrationClosed.get()) {
+                unregisterResourceProvider(owner, typeId, provider)
+                registrationClosed.set(true)
             }
+        }
+    }
+
+    override fun registerRouteResourceContributor(
+        pluginOwner: Plugin,
+        contributor: RouteResourceContributor
+    ): RouteResourceContributorRegistration = BukkitThreadGuardBridge.runInSimulationContext {
+        val registration = ContributorRegistration(requireEnabled(pluginOwner), contributor)
+        synchronized(lock) {
+            check(!closed) { "InfrastructureLeaseService is closed" }
+            check(worlds.values.none { it.routeAdmission?.hasRouteState() == true }) {
+                "Cannot change route-resource contributors while route states remain active"
+            }
+            check(routeContributors.none {
+                it.pluginOwner === registration.pluginOwner && it.contributor === contributor
+            }) { "Route-resource contributor is already registered" }
+            routeContributors += registration
+        }
+        val registrationClosed = AtomicBoolean()
+        return@runInSimulationContext RouteResourceContributorRegistration {
+            if (!registrationClosed.get()) {
+                unregisterRouteResourceContributor(registration)
+                registrationClosed.set(true)
+            }
+        }
+    }
+
+    private fun unregisterRouteResourceContributor(
+        registration: ContributorRegistration
+    ) = BukkitThreadGuardBridge.runInSimulationContext {
+        synchronized(lock) {
+            if (closed || registration !in routeContributors) return@runInSimulationContext
+            check(worlds.values.none { it.routeAdmission?.hasRouteState() == true }) {
+                "Cannot unregister route-resource contributor ${registration.pluginOwner.name} " +
+                    "while route states remain active"
+            }
+            routeContributors.remove(registration)
+        }
+    }
+
+    private fun collectRouteContributions(
+        worldId: UUID,
+        intent: RouteResourceIntent
+    ): List<Pair<Any, ContributedRouteResource>> {
+        val snapshot = synchronized(lock) {
+            check(!closed && worldId in worlds) { "railway world is unavailable" }
+            routeContributors.toList()
+        }
+        val collected = ArrayList<Pair<Any, ContributedRouteResource>>()
+        for (registration in snapshot) {
+            check(registration.pluginOwner.isEnabled) {
+                "route-resource contributor ${registration.pluginOwner.name} is disabled"
+            }
+            val contributions = registration.contributor.contribute(worldId, intent)
+            contributions.forEach { contribution ->
+                collected += registration.pluginOwner to contribution
+            }
+        }
+        synchronized(lock) {
+            check(!closed && worldId in worlds && routeContributors.toList() == snapshot &&
+                snapshot.all { it.pluginOwner.isEnabled }
+            ) { "route-resource contributor registration changed during collection" }
+        }
+        return collected
+    }
+
+    private fun unregisterResourceProvider(
+        pluginOwner: Plugin,
+        typeId: String,
+        provider: InfrastructureResourceProvider
+    ) = BukkitThreadGuardBridge.runInSimulationContext {
+        val snapshot = synchronized(lock) {
+            if (closed) return@runInSimulationContext
+            val current = resourceProviders[typeId]
+            if (current?.pluginOwner !== pluginOwner || current.provider !== provider) {
+                return@runInSimulationContext
+            }
+            worlds.entries.map { it.key to it.value }
+        }
+        val activity = snapshot.flatMap { (worldId, runtime) ->
+            runtime.routeAdmission?.providerActivity(setOf(typeId)).orEmpty().map { worldId to it }
+        }
+        check(activity.isEmpty()) {
+            "Cannot unregister infrastructure resource provider $typeId while route resources remain active: " +
+                activity.joinToString { (worldId, active) ->
+                    "world=$worldId route=${active.owner.ownerId} train=${active.trainId}"
+                }
+        }
+        synchronized(lock) {
+            resourceProviders[typeId]?.takeIf {
+                it.pluginOwner === pluginOwner && it.provider === provider
+            }?.let { resourceProviders.remove(typeId) }
         }
     }
 
@@ -166,76 +264,76 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     }
 
     /** Pre-claim route-use validation against the same provider registration used by leases. */
-    fun validateRouteAddition(
-        requester: Plugin,
+    fun validateRouteContribution(
+        contributor: Plugin,
         worldId: UUID,
-        addition: AdditionalResourceRequirement
+        contribution: ContributedRouteResource
     ): RouteAdmissionFailure? = BukkitThreadGuardBridge.runInSimulationContext {
-        if (!requester.isEnabled) {
-            return@runInSimulationContext additionFailure(
-                RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "requesting plugin is disabled"
+        if (!contributor.isEnabled) {
+            return@runInSimulationContext contributionFailure(
+                RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "contributing plugin is disabled"
             )
         }
         if (synchronized(lock) { closed || worldId !in worlds }) {
-            return@runInSimulationContext additionFailure(
+            return@runInSimulationContext contributionFailure(
                 RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "railway world is not registered"
             )
         }
         val registered = synchronized(lock) {
-            resourceProviders[addition.resource.typeId]
-        } ?: return@runInSimulationContext additionFailure(
-            RouteAdmissionFailureCode.INVALID_ADDITION, "resource type is not registered"
+            resourceProviders[contribution.resource.typeId]
+        } ?: return@runInSimulationContext contributionFailure(
+            RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "resource type is not registered"
         )
         if (!registered.pluginOwner.isEnabled) {
-            return@runInSimulationContext additionFailure(
-                RouteAdmissionFailureCode.INVALID_ADDITION, "resource owner is disabled"
+            return@runInSimulationContext contributionFailure(
+                RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "resource owner is disabled"
             )
         }
         val validation = try {
-            if (!registered.provider.exists(worldId, addition.resource.resourceId)) {
-                RouteAdmissionFailureCode.INVALID_ADDITION
+            if (!registered.provider.exists(worldId, contribution.resource.resourceId)) {
+                RouteAdmissionFailureCode.INVALID_CONTRIBUTION
             } else {
-                registered.provider.validateRouteAddition(
-                    requester, worldId, addition.resource.resourceId, addition.preparation
+                registered.provider.validateRouteContribution(
+                    contributor, worldId, contribution.resource.resourceId, contribution.preparation
                 )
             }
         } catch (failure: Exception) {
-            return@runInSimulationContext additionFailure(
-                RouteAdmissionFailureCode.INVALID_ADDITION,
+            return@runInSimulationContext contributionFailure(
+                RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                 "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}"
             )
         }
         if (synchronized(lock) { closed || worldId !in worlds }) {
-            return@runInSimulationContext additionFailure(
+            return@runInSimulationContext contributionFailure(
                 RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "railway world became unavailable during validation"
             )
         }
-        if (synchronized(lock) { resourceProviders[addition.resource.typeId] !== registered } ||
+        if (synchronized(lock) { resourceProviders[contribution.resource.typeId] !== registered } ||
             !registered.pluginOwner.isEnabled
         ) {
-            return@runInSimulationContext additionFailure(
-                RouteAdmissionFailureCode.INVALID_ADDITION, "resource registration changed during validation"
+            return@runInSimulationContext contributionFailure(
+                RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "resource registration changed during validation"
             )
         }
-        if (validation == null && addition.preparation != null) {
-            return@runInSimulationContext additionFailure(
+        if (validation == null && contribution.preparation != null) {
+            return@runInSimulationContext contributionFailure(
                 RouteAdmissionFailureCode.INVALID_PREPARATION,
-                "route-addition preparation handler is not registered yet"
+                "route-contribution preparation handler is not registered yet"
             )
         }
         when (validation) {
             null -> null
-            RouteAdmissionFailureCode.INVALID_ADDITION,
-            RouteAdmissionFailureCode.INVALID_PREPARATION -> additionFailure(
-                validation, "resource owner rejected route addition"
+            RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            RouteAdmissionFailureCode.INVALID_PREPARATION -> contributionFailure(
+                validation, "resource owner rejected route contribution"
             )
-            else -> additionFailure(
-                RouteAdmissionFailureCode.INVALID_ADDITION, "resource owner returned an invalid validation code"
+            else -> contributionFailure(
+                RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "resource owner returned an invalid validation code"
             )
         }
     }
 
-    private fun additionFailure(code: RouteAdmissionFailureCode, detail: String) =
+    private fun contributionFailure(code: RouteAdmissionFailureCode, detail: String) =
         RouteAdmissionFailure(code, detail)
 
     fun removeWorld(worldId: UUID) {
@@ -323,11 +421,13 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
 
     override fun unregisterOwner(pluginOwner: Plugin) {
         BukkitThreadGuardBridge.runInSimulationContext {
-            val (snapshot, providedTypeIds) = synchronized(lock) {
+            val (snapshot, providedTypeIds, ownsContributor) = synchronized(lock) {
                 check(!closed) { "InfrastructureLeaseService is closed" }
-                worlds.entries.map { it.key to it.value } to resourceProviders
-                    .filterValues { it.pluginOwner === pluginOwner }
-                    .keys.toSet()
+                Triple(
+                    worlds.entries.map { it.key to it.value },
+                    resourceProviders.filterValues { it.pluginOwner === pluginOwner }.keys.toSet(),
+                    routeContributors.any { it.pluginOwner === pluginOwner }
+                )
             }
             val requesterActivity = snapshot.flatMap { (worldId, runtime) ->
                 runtime.routeAdmission?.requesterActivity(pluginOwner).orEmpty().map { worldId to it }
@@ -344,6 +444,11 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                                 ?.joinToString(prefix = " types=", separator = ",").orEmpty()
                     }
             }
+            check(!ownsContributor || snapshot.none { (_, runtime) ->
+                runtime.routeAdmission?.hasRouteState() == true
+            }) {
+                "Cannot unregister route-resource contributor ${pluginOwner.name} while route states remain active"
+            }
             snapshot.forEach { (_, runtime) ->
                 check(runtime.routeAdmission?.discardInactiveRequester(pluginOwner) != false) {
                     "Route resources changed while unregistering ${pluginOwner.name}"
@@ -351,6 +456,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
             }
             synchronized(lock) {
                 resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
+                routeContributors.removeIf { it.pluginOwner === pluginOwner }
             }
             snapshot.forEach { (_, runtime) -> runtime.registry.releasePlatformOwner(pluginOwner) }
         }
@@ -362,13 +468,15 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
      */
     fun forcedDisableOwner(pluginOwner: Plugin) {
         BukkitThreadGuardBridge.runInSimulationContext {
-            val (snapshot, providedTypeIds) = synchronized(lock) {
+            val (snapshot, providedTypeIds, ownedContributor) = synchronized(lock) {
                 if (closed) return@runInSimulationContext
                 val ownedTypes = resourceProviders
                     .filterValues { it.pluginOwner === pluginOwner }
                     .keys.toSet()
+                val ownsContributor = routeContributors.any { it.pluginOwner === pluginOwner }
                 resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
-                worlds.entries.map { it.key to it.value } to ownedTypes
+                routeContributors.removeIf { it.pluginOwner === pluginOwner }
+                Triple(worlds.entries.map { it.key to it.value }, ownedTypes, ownsContributor)
             }
             snapshot.forEach { (worldId, runtime) ->
                 runtime.routeAdmission?.failClosedRequesterLoss(
@@ -379,6 +487,11 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                     providedTypeIds,
                     "Bukkit plugin ${pluginOwner.name} in world $worldId"
                 )
+                if (ownedContributor) {
+                    runtime.routeAdmission?.failClosedContributorLoss(
+                        "Bukkit plugin ${pluginOwner.name} in world $worldId"
+                    )
+                }
                 runtime.registry.releasePlatformOwner(pluginOwner)
             }
         }
@@ -390,6 +503,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 if (closed) return@runInSimulationContext
                 closed = true
                 resourceProviders.clear()
+                routeContributors.clear()
                 worlds.values.toList().also { worlds.clear() }
             }
             snapshot.forEach { runtime ->

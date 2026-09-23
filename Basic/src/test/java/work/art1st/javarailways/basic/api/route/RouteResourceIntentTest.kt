@@ -6,24 +6,16 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
 
 class RouteResourceIntentTest {
     @Test
-    fun `intent defensively copies unique additions`() {
-        val additions = mutableListOf(requirement("test:signal", "entry", 60.0))
-        val intent = intent(additionalResources = additions)
+    fun `intent contains no signalling resource model`() {
+        val fields = RouteResourceIntent::class.java.declaredFields.map { it.name }.toSet()
 
-        additions.clear()
-
-        assertEquals(1, intent.additionalResources.size)
-        assertThrows(UnsupportedOperationException::class.java) {
-            @Suppress("UNCHECKED_CAST")
-            (intent.additionalResources as MutableList<AdditionalResourceRequirement>).clear()
-        }
+        assertEquals(false, "additionalResources" in fields)
     }
 
     @Test
@@ -44,15 +36,9 @@ class RouteResourceIntentTest {
     }
 
     @Test
-    fun `route and release boundaries use the containing route range`() {
+    fun `desired authority uses the containing route range`() {
         assertThrows(IllegalArgumentException::class.java) {
             intent(desiredAuthorityMeters = 100.1)
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            intent(
-                desiredAuthorityMeters = 80.0,
-                additionalResources = listOf(requirement("test:signal", "entry", 80.1))
-            )
         }
     }
 
@@ -67,23 +53,17 @@ class RouteResourceIntentTest {
                 trainId = "train-1",
                 observationStamp = RailwayStateStamp("world", 7L, route.topologyRevision + 1L),
                 route = route,
-                desiredAuthority = RouteBoundary(80.0),
-                additionalResources = emptyList()
+                desiredAuthority = RouteBoundary(80.0)
             )
         }
     }
 
     @Test
-    fun `intent rejects blank identity empty route and duplicate additions`() {
+    fun `intent rejects blank identity and empty route`() {
         assertThrows(IllegalArgumentException::class.java) { intent(requestId = "request") }
         assertThrows(IllegalArgumentException::class.java) { intent(trainId = " ") }
         assertThrows(IllegalArgumentException::class.java) {
             intent(route = RouteSnapshot("route", 1L, 3L, emptyList()))
-        }
-
-        val repeated = requirement("test:signal", "entry", 60.0)
-        assertThrows(IllegalArgumentException::class.java) {
-            intent(additionalResources = listOf(repeated, repeated.copy()))
         }
     }
 
@@ -107,16 +87,14 @@ class RouteResourceIntentTest {
         requestId: String = "test:request/main",
         trainId: String = "train-1",
         route: RouteSnapshot = route(),
-        desiredAuthorityMeters: Double = 80.0,
-        additionalResources: Collection<AdditionalResourceRequirement> = emptyList()
+        desiredAuthorityMeters: Double = 80.0
     ) = RouteResourceIntent(
         requestId = requestId,
         owner = InfrastructureOwner("test:route/main", 2L),
         trainId = trainId,
         observationStamp = RailwayStateStamp("world", 7L, route.topologyRevision),
         route = route,
-        desiredAuthority = RouteBoundary(desiredAuthorityMeters),
-        additionalResources = additionalResources
+        desiredAuthority = RouteBoundary(desiredAuthorityMeters)
     )
 
     private fun route() = RouteSnapshot(
@@ -126,14 +104,5 @@ class RouteResourceIntentTest {
         segments = listOf(
             RouteSegmentSnapshot(UUID.randomUUID(), ViewDirection.BA, 0.0, 100.0)
         )
-    )
-
-    private fun requirement(
-        typeId: String,
-        resourceId: String,
-        releaseMeters: Double
-    ) = AdditionalResourceRequirement(
-        resource = StableInfrastructureResource(typeId, resourceId),
-        releaseAfterTailPasses = RouteBoundary(releaseMeters)
     )
 }

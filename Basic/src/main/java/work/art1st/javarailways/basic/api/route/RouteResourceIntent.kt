@@ -29,15 +29,15 @@ data class RouteBoundary(
 }
 
 /**
- * One caller-added stable resource and the route position after which the authoritative train tail,
- * including Basic's safety margin, may release it. [preparation] is absent when the resource only
- * needs to be claimed.
+ * One resource contributed by an authenticated signalling policy and the route position after
+ * which the authoritative train tail, including Basic's safety margin, may release it.
+ * [preparation] is absent when the resource only needs to be claimed.
  *
- * @property resource exact registered resource identity requested in addition to Basic's physical floor
+ * @property resource exact registered resource identity contributed in addition to Basic's physical floor
  * @property releaseAfterTailPasses minimum route boundary through which the resource is held
  * @property preparation optional provider-owned runtime preparation request
  */
-data class AdditionalResourceRequirement(
+data class ContributedRouteResource(
     val resource: StableInfrastructureResource,
     val releaseAfterTailPasses: RouteBoundary,
     val preparation: ResourcePreparationDescriptor? = null
@@ -67,7 +67,7 @@ sealed interface PreparationScalar {
 }
 
 /**
- * Opaque runtime-only preparation data dispatched to the owner of an added resource.
+ * Opaque runtime-only preparation data passed from a signalling contributor to the resource owner.
  *
  * [kindId] is a stable namespaced runtime identifier. [arguments] is defensively copied and
  * exposed in key order so equivalent requests have deterministic value semantics. This descriptor
@@ -111,9 +111,9 @@ class ResourcePreparationDescriptor(
  * Immutable request data for admitting one authority range on an already selected frozen route.
  *
  * The route boundary values use actual metres from the first point of [route] and increase in
- * traversal order. The request contains only caller additions: it carries no raw footprint and
- * cannot replace the physical rail, turnout, or shared-conflict resources derived by Basic.
- * [additionalResources] is defensively copied and is unique by exact stable resource identity.
+ * traversal order. The request carries no resource identities or raw footprint. Authenticated
+ * signalling contributors are invoked by the host after this value is submitted; SimpleATO
+ * therefore does not know or encode their resource model.
  *
  * This is an in-process runtime value. [requestId] is only a caller correlation identity; neither
  * it nor this request creates retry, persistence, or schema-compatibility semantics.
@@ -127,35 +127,15 @@ class ResourcePreparationDescriptor(
  * @property observationStamp coherent world, physics-epoch, and topology observation identity
  * @property route immutable selected route bound to the observation's topology revision
  * @property desiredAuthority requested route-metre authority boundary
- * @property additionalResources immutable unique caller additions; never a replacement footprint
  */
-@ConsistentCopyVisibility
-data class RouteResourceIntent private constructor(
+data class RouteResourceIntent(
     val requestId: String,
     val owner: InfrastructureOwner,
     val trainId: String,
     val observationStamp: RailwayStateStamp,
     val route: RouteSnapshot,
-    val desiredAuthority: RouteBoundary,
-    val additionalResources: List<AdditionalResourceRequirement>
+    val desiredAuthority: RouteBoundary
 ) {
-    constructor(
-        requestId: String,
-        owner: InfrastructureOwner,
-        trainId: String,
-        observationStamp: RailwayStateStamp,
-        route: RouteSnapshot,
-        desiredAuthority: RouteBoundary,
-        additionalResources: Collection<AdditionalResourceRequirement>
-    ) : this(
-        requestId = requestId,
-        owner = owner,
-        trainId = trainId,
-        observationStamp = observationStamp,
-        route = route,
-        desiredAuthority = desiredAuthority,
-        additionalResources = immutableRequirements(additionalResources)
-    )
 
     init {
         require(NAMESPACED_ROUTE_INTENT_ID.matches(requestId)) { "requestId must be namespaced" }
@@ -167,22 +147,5 @@ data class RouteResourceIntent private constructor(
         require(desiredAuthority.distanceFromRouteStartMeters <= route.totalLengthMeters) {
             "desiredAuthority exceeds the frozen route"
         }
-        require(additionalResources.all {
-            it.releaseAfterTailPasses.distanceFromRouteStartMeters <=
-                desiredAuthority.distanceFromRouteStartMeters
-        }) {
-            "additional resource release boundary exceeds desiredAuthority"
-        }
-        require(additionalResources.map(AdditionalResourceRequirement::resource).distinct().size ==
-            additionalResources.size
-        ) {
-            "additionalResources contains duplicate stable resource identities"
-        }
-    }
-
-    private companion object {
-        fun immutableRequirements(
-            source: Collection<AdditionalResourceRequirement>
-        ): List<AdditionalResourceRequirement> = Collections.unmodifiableList(ArrayList(source))
     }
 }

@@ -16,6 +16,9 @@ pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有pend
 provider/platform ownership，但不释放route-admission claim/reservation，并通过每world既有Stall回调fail-close。
 检查同时覆盖插件作为requester持有的路线，以及它作为provider注册、但由其他requester持有的stable resource类型；
 provider ownership不另建长期索引，而是只在低频停用边界读取现有claim、release queue和pending compiled request。
+单个`InfrastructureResourceProviderRegistration.close()`执行同一检查，不能绕过owner unregister删除仍被使用的type。
+route-resource contributor集合在任一world仍有route state时不可增删；强制失去contributor会通过既有Stall owner
+fail-close该world，不能让后续suffix申请少执行一套信号策略。
 空claim、无pending、仅遗漏`endGrant`的route state可直接清除。JavaRailways自身禁用、service已关闭或
 `Bukkit.isStopping()`时走正常world/service close，不把服务器shutdown误报为附属插件故障。不使用永久owner tombstone、
 启用周期token、自动drain、跨插件实例继承或恢复状态机。

@@ -7,7 +7,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
-import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionBlocker
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -33,9 +33,10 @@ internal class RouteResourceAdmissionEngine(
     private val currentTopology: () -> TopologyState,
     private val latestObservation: () -> RailwayObservation?,
     routeBoundResources: RouteBoundResourceCatalog,
-    private val validateAddition: (Any, AdditionalResourceRequirement) -> RouteAdmissionFailure?,
+    private val validateContribution: (Any, ContributedRouteResource) -> RouteAdmissionFailure?,
     private val preparationActuator: InfrastructurePreparationActuator,
-    private val stallWorld: (String, Exception) -> Unit
+    private val stallWorld: (String, Exception) -> Unit,
+    private val collectContributions: (RouteResourceIntent) -> List<Pair<Any, ContributedRouteResource>> = { emptyList() }
 ) {
     private val physicalCompiler = PhysicalRouteResourceCompiler(routeBoundResources)
     private val pending = LinkedHashMap<RouteAdmissionHandle, PendingRequest>()
@@ -265,17 +266,36 @@ internal class RouteResourceAdmissionEngine(
             }
             initialized.cursor
         } else null
+        val authenticatedContributions = try {
+            collectContributions(intent)
+        } catch (failure: Exception) {
+            return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                "route-resource contributor failed: ${failure.message ?: failure.javaClass.simpleName}")
+        }
+        val contributionOwnerByResource = LinkedHashMap<StableInfrastructureResource, Any>()
+        val contributions = ArrayList<ContributedRouteResource>(authenticatedContributions.size)
+        for ((contributor, contribution) in authenticatedContributions) {
+            if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > newFrontier) {
+                return rejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
+                    "contributed resource release boundary exceeds desired authority")
+            }
+            if (contributionOwnerByResource.putIfAbsent(contribution.resource, contributor) != null) {
+                return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                    "duplicate contributed resource ${contribution.resource.typeId}/${contribution.resource.resourceId}")
+            }
+            contributions += contribution
+        }
         val release = existing?.tailRelease
         val held = release?.remainingEntries?.associateBy(ResolvedTailReleaseEntry::resource).orEmpty()
-        for (addition in intent.additionalResources) {
-            val previous = held[addition.resource] ?: continue
-            if (addition.releaseAfterTailPasses.distanceFromRouteStartMeters < previous.tailClearRouteMeters) {
+        for (contribution in contributions) {
+            val previous = held[contribution.resource] ?: continue
+            if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters < previous.tailClearRouteMeters) {
                 return rejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
                     "request cannot shorten an already-held resource")
             }
-            val descriptor = addition.preparation
+            val descriptor = contribution.preparation
             if (descriptor != null &&
-                (existing?.preparationsByResource?.get(addition.resource) as? ResolvedAddedResourcePreparation)
+                (existing?.preparationsByResource?.get(contribution.resource) as? ResolvedContributedResourcePreparation)
                     ?.descriptor != descriptor
             ) {
                 return rejected(RouteAdmissionFailureCode.INVALID_PREPARATION,
@@ -283,16 +303,16 @@ internal class RouteResourceAdmissionEngine(
             }
         }
         val merged = try {
-            physical.withAdditions(intent.additionalResources) { addition ->
-                validateAddition(requester, addition)
+            physical.withContributions(contributions) { contribution ->
+                validateContribution(contributionOwnerByResource.getValue(contribution.resource), contribution)
             }
         } catch (failure: Exception) {
-            return rejected(RouteAdmissionFailureCode.INVALID_ADDITION,
+            return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                 "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}")
         }
         val compiled = when (merged) {
-            is RouteAdditionsCompilation.Compiled -> merged.admission
-            is RouteAdditionsCompilation.Rejected -> return RouteAdmissionResult.Rejected(merged.failure)
+            is RouteContributionsCompilation.Compiled -> merged.admission
+            is RouteContributionsCompilation.Rejected -> return RouteAdmissionResult.Rejected(merged.failure)
         }
         val blockers = observation.occupancy.blockingTrainIds(compiled.occupancyGeometry.intervals, intent.trainId)
         if (blockers.isNotEmpty()) {
@@ -358,7 +378,7 @@ internal class RouteResourceAdmissionEngine(
             }
         }
         val preparations = compiled.preparations.filterNot {
-            it is ResolvedAddedResourcePreparation && it.resource in held
+            it is ResolvedContributedResourcePreparation && it.resource in held
         }
         val started = try {
             preparationActuator.start(preparations)
@@ -474,6 +494,22 @@ internal class RouteResourceAdmissionEngine(
             val activity = routeActivity(route, claimed.size) ?: return@mapNotNull null
             activity.copy(resourceTypeIds = matchingTypes)
         }
+    }
+
+    /** Contributor membership is frozen while any route state may request another suffix. */
+    @MainThread
+    fun hasRouteState(): Boolean = routes.isNotEmpty()
+
+    /** A forced policy loss cannot silently make later route extensions less restrictive. */
+    @MainThread
+    fun failClosedContributorLoss(contributorDescription: String): Boolean {
+        if (routes.isEmpty()) return false
+        markWorldStalled(
+            "route-resource contributor $contributorDescription disappeared while route states remain; " +
+                "future admissions disabled",
+            IllegalStateException("route-resource contributor disappeared before routes ended")
+        )
+        return true
     }
 
     /** Removes requester references only when no pending request or registry resource remains. */

@@ -8,7 +8,7 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -137,22 +137,22 @@ class PhysicalRouteResourceCompilerTest {
 
         val block = StableInfrastructureResource("test:block", "east")
         val descriptor = ResourcePreparationDescriptor("test:prepare", emptyMap())
-        val additions = listOf(
-            AdditionalResourceRequirement(diamond, RouteBoundary(20.0)),
-            AdditionalResourceRequirement(block, RouteBoundary(44.0), descriptor)
+        val contributions = listOf(
+            ContributedRouteResource(diamond, RouteBoundary(20.0)),
+            ContributedRouteResource(block, RouteBoundary(44.0), descriptor)
         )
         val validated = ArrayList<StableInfrastructureResource>()
         val expanded = assertInstanceOf(
-            RouteAdditionsCompilation.Compiled::class.java,
-            compiled.admission.withAdditions(additions) { addition ->
-                validated += addition.resource
+            RouteContributionsCompilation.Compiled::class.java,
+            compiled.admission.withContributions(contributions) { contribution ->
+                validated += contribution.resource
                 null
             }
         ).admission
         assertEquals(listOf(diamond, block), validated)
         assertEquals(compiled.admission.resources.resources.toSet() + block, expanded.resources.resources.toSet())
         assertEquals(
-            compiled.admission.preparations + ResolvedAddedResourcePreparation(block, descriptor),
+            compiled.admission.preparations + ResolvedContributedResourcePreparation(block, descriptor),
             expanded.preparations
         )
         assertEquals(compiled.admission.occupancyGeometry, expanded.occupancyGeometry)
@@ -163,42 +163,42 @@ class PhysicalRouteResourceCompilerTest {
         assertSame(
             compiled.admission,
             assertInstanceOf(
-                RouteAdditionsCompilation.Compiled::class.java,
-                compiled.admission.withAdditions(emptyList()) { error("no addition to validate") }
+                RouteContributionsCompilation.Compiled::class.java,
+                compiled.admission.withContributions(emptyList()) { error("no contribution to validate") }
             ).admission
         )
         assertEquals(
             13.0,
             assertInstanceOf(
-                RouteAdditionsCompilation.Compiled::class.java,
-                compiled.admission.withAdditions(listOf(
-                    AdditionalResourceRequirement(diamond, RouteBoundary(10.0))
+                RouteContributionsCompilation.Compiled::class.java,
+                compiled.admission.withContributions(listOf(
+                    ContributedRouteResource(diamond, RouteBoundary(10.0))
                 )) { null }
             ).admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters
         )
 
-        val denied = RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_ADDITION, "unregistered block")
+        val denied = RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "unregistered block")
         assertEquals(
-            RouteAdditionsCompilation.Rejected(denied),
-            compiled.admission.withAdditions(additions) { addition ->
-                if (addition.resource == block) denied else null
+            RouteContributionsCompilation.Rejected(denied),
+            compiled.admission.withContributions(contributions) { contribution ->
+                if (contribution.resource == block) denied else null
             }
         )
         assertEquals(compiled.admission.resources.resources.toSet(), compiled.admission.tailReleaseEntries
             .map(ResolvedTailReleaseEntry::resource).toSet())
         assertEquals(
-            RouteAdmissionFailureCode.INVALID_ADDITION,
+            RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
             assertInstanceOf(
-                RouteAdditionsCompilation.Rejected::class.java,
-                compiled.admission.withAdditions(listOf(additions[0], additions[0])) { null }
+                RouteContributionsCompilation.Rejected::class.java,
+                compiled.admission.withContributions(listOf(contributions[0], contributions[0])) { null }
             ).failure.code
         )
         assertEquals(
             RouteAdmissionFailureCode.INVALID_PREPARATION,
             assertInstanceOf(
-                RouteAdditionsCompilation.Rejected::class.java,
-                compiled.admission.withAdditions(listOf(
-                    AdditionalResourceRequirement(diamond, RouteBoundary(20.0), descriptor)
+                RouteContributionsCompilation.Rejected::class.java,
+                compiled.admission.withContributions(listOf(
+                    ContributedRouteResource(diamond, RouteBoundary(20.0), descriptor)
                 )) { null }
             ).failure.code
         )

@@ -46,11 +46,24 @@ public interface InfrastructureLeaseService {
     /**
      * Registers the authoritative resolver for one namespaced stable resource type.
      * Only one enabled plugin may provide a type at a time.
+     *
+     * <p>Closing the returned registration is guarded by the same active-resource check as
+     * {@link #unregisterOwner(Plugin)} and may be retried after those routes release the type.</p>
      */
     InfrastructureResourceProviderRegistration registerResourceProvider(
         Plugin pluginOwner,
         String typeId,
         InfrastructureResourceProvider provider
+    );
+
+    /**
+     * Registers one signalling-policy contributor whose results are collected inside route
+     * admission. The caller of {@link #routeAdmission(Plugin, UUID)} never sees those resources.
+     * Contributor membership cannot change while any route state remains active.
+     */
+    RouteResourceContributorRegistration registerRouteResourceContributor(
+        Plugin pluginOwner,
+        RouteResourceContributor contributor
     );
 
     InfrastructureMutationResult acquireLease(

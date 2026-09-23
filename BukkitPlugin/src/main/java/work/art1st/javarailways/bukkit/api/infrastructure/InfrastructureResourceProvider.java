@@ -16,15 +16,15 @@ public interface InfrastructureResourceProvider {
     boolean exists(UUID worldId, String resourceId);
 
     /**
-     * Checks one route addition requested by an authenticated plugin. Return {@code null} only
+     * Checks one route resource contributed by an authenticated signalling plugin. Return {@code null} only
      * when both the resource use and optional preparation descriptor are allowed. Otherwise
-     * return {@code INVALID_ADDITION} or {@code INVALID_PREPARATION}. This callback is invoked
+     * return {@code INVALID_CONTRIBUTION} or {@code INVALID_PREPARATION}. This callback is invoked
      * on the simulation owner before any claim mutation and must be quick and side-effect-free.
      * Lease existence alone is never route authorization. Every provider must explicitly
      * decide whether its resources may be added to a route.
      */
-    RouteAdmissionFailureCode validateRouteAddition(
-        Plugin requester,
+    RouteAdmissionFailureCode validateRouteContribution(
+        Plugin contributor,
         UUID worldId,
         String resourceId,
         ResourcePreparationDescriptor preparation

@@ -3,9 +3,10 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology/live turnout actuator、认证addition validator和同epoch observation tail-release输入；物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。外部插件现可从现有`InfrastructureLeaseService`取得绑定插件身份和确切world runtime的`RouteResourceAdmissionService`；request、pending/terminal handle inspection及grant end均使用同一认证身份，旧binding不会在同UUID world reload后复活，plugin disable也不会删除host-owned claim。当前route-bound catalog只发布完整空集，等待diamond detector提供真实bindings；Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已公开但尚无生产caller的runtime误称为列车已经使用新授权流程。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withContributions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology/live turnout actuator、认证addition validator和同epoch observation tail-release输入；物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。外部插件现可从现有`InfrastructureLeaseService`取得绑定插件身份和确切world runtime的`RouteResourceAdmissionService`；request、pending/terminal handle inspection及grant end均使用同一认证身份，旧binding不会在同UUID world reload后复活，plugin disable也不会删除host-owned claim。当前route-bound catalog只发布完整空集，等待diamond detector提供真实bindings；Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已公开但尚无生产caller的runtime误称为列车已经使用新授权流程。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
-- **Caller**：SimpleATO提供冻结路线与列车/观察身份；不需要信号策略时由SimpleATO提交无addition的intent，需要插件策略时由该信号插件的认证准入协调器提交同一路线和自己的addition。SimpleATO不冒充插件来源。
+- **Caller**：SimpleATO只提供冻结路线、列车/观察身份和目标authority；它不提交、解释或枚举具体信号资源。
+  Bukkit宿主在同一次准入内调用已认证的route-resource contributor，由信号插件根据通用路线上下文产生附加资源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。
 
 触发：修改自动进路申请、route-bound resource、turnout/diamond claim、外部资源注册、设备准备、rolling extension、grant 或车尾释放。
@@ -15,11 +16,11 @@
 一次正常申请只有一份冻结路线和一份最终 claim：
 
 ```text
-SimpleATO selects one frozen route and desired authority boundary
-  -> a signalling plugin may attach additional registered resource requirements
+SimpleATO submits one frozen route and desired authority boundary
+  -> the host asks registered signalling contributors for requirements for that route
   -> Basic validates route/topology/observation coherence
   -> Basic derives the non-removable physical resource floor from the route
-  -> Basic validates and unions caller additions with that floor
+  -> Basic validates and unions contributor results with that floor
   -> Basic checks authoritative occupancy and atomically claims the union
   -> registered resource handlers prepare the claimed resources
   -> Basic retains one frozen-route state with a tail cursor and nullable committed grant
@@ -44,20 +45,20 @@ This derived set is the **mandatory physical footprint**. The request cannot rep
 
 ### 3.2 插件附加资源
 
-A signalling plugin may add stable resources that it owns or is allowed to request, for example a flank turnout, an approach-lock resource or a whole-block token. These additions are data, not executable callbacks inside Basic's route scan. Basic validates each identity through the resource registry and checks that any requested preparation capability is registered for that resource.
+A signalling plugin may contribute stable resources that it owns or is allowed to request, for example a flank turnout, an approach-lock resource or a whole-block token. SimpleATO never constructs these values. The host invokes each registered contributor once per new/extended admission, outside Basic's physical route scan; a contributor uses its own index to return only requirements intersecting or protecting that request. Basic validates each identity through the resource registry and checks that any requested preparation capability is registered for that resource.
 
-The plugin remains responsible for computing why the addition is needed and how far the desired authority must extend. Basic does not call a chain of region/provider resolvers, ask one region to inspect its successor, or synthesize protection coverage. The final footprint is:
+The plugin remains responsible for computing why the addition is needed. Desired authority is already chosen through the generic inspection/constraint path; contribution cannot widen it. Basic does not recursively ask one resource to inspect its successor or synthesize protection coverage. The final footprint is:
 
 ```text
 mandatoryPhysicalFootprint(frozenRoute, requestedRange)
-  union validatedAdditionalResources
+  union validatedContributorResources
 ```
 
 The union is unique by exact resource identity and is committed once. Occupancy query geometry, preparation requirements and release entries are metadata for validation/operation/lifecycle; none is a second claim footprint.
 
-当前纯合并步骤从已编译的物理footprint复制资源身份与释放元数据，逐项调用由world-local资源owner提供的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint，附加准备descriptor保留为待provider派发的要求；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加descriptor覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间均随本次footprint及additions线性增长（排序释放队列除外）；空additions直接复用原结果。此步骤不验证occupancy、不claim、不让当前仅支持即时道岔的actuator执行新增准备，后续准入服务必须在原子claim前接入真实registration validation并在claim后接入对应provider。
+当前纯合并步骤仍可复用，但它的输入必须从公开ATO intent移到宿主收集的contribution batch。宿主先收集所有contributor结果，再从已编译的物理footprint复制资源身份与释放元数据，逐项调用world-local资源owner的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加准备覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间随物理footprint及本次contribution总量线性增长（排序释放队列除外）。
 
-当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和同revision的拓扑root。没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；已有route state时，核对申请身份与路线，只编译已提交authority至新boundary的suffix。两者共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不扩大grant；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍符合冻结路线，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次新增claim。整个前claim阶段无registry mutation；附加资源提供者异常按`INVALID_ADDITION`拒绝。该内部owner仍不能单独注册为公开`RouteResourceAdmissionService`；Bukkit的认证provider校验及生产catalog绑定仍待后续批次。
+当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和同revision的拓扑root。没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；已有route state时，核对申请身份与路线，只编译已提交authority至新boundary的suffix。两者共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不扩大grant；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍符合冻结路线，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次新增claim。整个前claim阶段无registry mutation；附加资源提供者异常按`INVALID_CONTRIBUTION`拒绝。该内部owner仍不能单独注册为公开`RouteResourceAdmissionService`；Bukkit的认证provider校验及生产catalog绑定仍待后续批次。
 
 ### 3.3 申请、准备和释放
 
@@ -67,7 +68,7 @@ The current route state owns the frozen route and one monotonic tail cursor, ind
 
 Committed resources enter one route-ordered release queue attached to that route state. Each observation advances the same monotonic frozen-route cursor from the authoritative train tail. Basic atomically removes only the eligible queue prefix, then advances a head index in the retained queue; normal releases do not copy and revalidate the entire remaining queue. A signalling plugin may supply a stricter release boundary for its added resource; it cannot release a mandatory physical resource earlier than Basic's physical clear boundary.
 
-The same request operation also grows an existing grant along that route. Basic compiles only the farther suffix, derives its physical floor, and unions additions for that request. Exact identities still held by the grant are not claimed or prepared again. If an addition asks to hold one of them longer, Basic validates that its new tail-clear boundary is no earlier than the committed one, then temporarily places that identity after ordinary eligible entries in the **same** release queue while the new delta is pending. Other old resources remain releasable by the tail. `READY` checks the latest coherent observation and suffix occupancy, commits only the new delta, then publishes the later hold boundaries and authority together; `ABORTED_SAFE` removes only the delta, restores old boundaries and immediately releases any restored entry already passed by the accepted tail. Unsafe or unprovable completion retains the safest reservation and stalls. If the old queue and registry claim are already empty, the route state keeps its cursor and acquires the suffix under the same grant identity. A changed route is a replan at a safe operational boundary, not a whole-claim replacement.
+The same request operation also grows an existing grant along that route. Basic compiles only the farther suffix, derives its physical floor, and unions contributions collected for that request. Exact identities still held by the grant are not claimed or prepared again. If a contribution asks to hold one of them longer, Basic validates that its new tail-clear boundary is no earlier than the committed one, then temporarily places that identity after ordinary eligible entries in the **same** release queue while the new delta is pending. Other old resources remain releasable by the tail. `READY` checks the latest coherent observation and suffix occupancy, commits only the new delta, then publishes the later hold boundaries and authority together; `ABORTED_SAFE` removes only the delta, restores old boundaries and immediately releases any restored entry already passed by the accepted tail. Unsafe or unprovable completion retains the safest reservation and stalls. If the old queue and registry claim are already empty, the route state keeps its cursor and acquires the suffix under the same grant identity. A changed route is a replan at a safe operational boundary, not a whole-claim replacement.
 
 ## 4. 冻结的公开请求合同
 
@@ -83,8 +84,7 @@ data class RouteResourceIntent(
     val trainId: String,
     val observationStamp: RailwayStateStamp,
     val route: RouteSnapshot,
-    val desiredAuthority: RouteBoundary,
-    val additionalResources: List<AdditionalResourceRequirement>
+    val desiredAuthority: RouteBoundary
 )
 
 data class RouteBoundary(
@@ -92,11 +92,16 @@ data class RouteBoundary(
     val distanceFromRouteStartMeters: Double
 )
 
-data class AdditionalResourceRequirement(
+data class ContributedRouteResource(
     val resource: StableInfrastructureResource,
     val releaseAfterTailPasses: RouteBoundary,
     val preparation: ResourcePreparationDescriptor? = null
 )
+
+fun interface RouteResourceContributor {
+    // Called by the authenticated host, never by SimpleATO.
+    fun contribute(intent: RouteResourceIntent): Collection<ContributedRouteResource>
+}
 
 data class ResourcePreparationDescriptor(
     val kindId: String,
@@ -124,7 +129,7 @@ interface RouteResourceAdmissionService {
 enum class RouteAdmissionFailureCode {
     WORLD_UNAVAILABLE, OWNER_MISMATCH, STALE_OBSERVATION, TRAIN_NOT_FOUND,
     STALE_TOPOLOGY, INVALID_ROUTE, INVALID_BOUNDARY, INVALID_INFRASTRUCTURE,
-    INVALID_ADDITION, INVALID_PREPARATION, PHYSICALLY_OCCUPIED, RESOURCE_CONFLICT,
+    INVALID_CONTRIBUTION, INVALID_PREPARATION, PHYSICALLY_OCCUPIED, RESOURCE_CONFLICT,
     ROUTE_STATE_MISMATCH, REQUEST_BUSY, PREPARATION_ABORTED_SAFE, WORLD_STALLED
 }
 ```
@@ -135,40 +140,128 @@ route/grant owner及其non-negative plan revision；Bukkit/service binding在字
 service；physics epoch必须仍能解析到准入所用immutable observation；stamp topology revision必须等于
 `route.topologyRevision`。request不复制第二个expected-topology字段。
 
-`RouteBoundary`只在包含它的intent及其唯一`route`内解释，不重复保存route identity/revision。有限且非负的
+`RouteResourceIntent`不含resource identity、resource type、preparation descriptor或provider callback。
+SimpleATO只需理解冻结路线、列车身份和所需authority。`RouteBoundary`只在包含它的intent及其唯一`route`内解释，
+不重复保存route identity/revision。有限且非负的
 distance从`RouteSnapshot.segments`第一个点起，以冻结路线行进方向递增，单位为实际米；即使某一segment沿BA
-行驶，它也不是canonical rail AB坐标。`desiredAuthority`不得超过`route.totalLengthMeters`。每一个
+行驶，它也不是canonical rail AB坐标。`desiredAuthority`不得超过`route.totalLengthMeters`。每一个contribution的
 `releaseAfterTailPasses`都必须显式提供，并落在`[0, desiredAuthority]`。它表示命名资源
 至少保持到权威**车尾**加Basic提供的非负安全余量通过该路线位置。不存在隐式/default释放点。
 
-caller不提交raw rail interval或turnout/diamond selection。`additionalResources` defensive copy，并且必须按
-exact `(typeId, resourceId)`唯一。若addition identity也出现在Basic物理底线，它不形成第二份资源，只能把该资源
+ATO caller不提交raw rail interval、turnout/diamond selection或任何附加资源。Bukkit宿主按稳定注册顺序调用
+route-resource contributors，每个contributor每次申请最多调用一次；调用发生在物理编译之后、registry mutation之前，
+不是physics-tick callback。宿主把全部返回值复制为immutable contribution batch，并要求最终结果按exact
+`(typeId, resourceId)`唯一。若contributed identity也出现在Basic物理底线，它不形成第二份资源，只能把该资源
 的释放边界向后延长；不得替换identity、缩短Basic物理clear boundary或覆盖Basic推导的turnout/物理准备target。
 非路线/flank资源可以带一个optional provider-owned `preparation`；缺省descriptor表示只claim、不准备。
 
-`ResourcePreparationDescriptor`是小型runtime request value。`kindId`为namespaced stable identifier；argument
+descriptor不是ATO API的一部分，而是**contributor与resource owner之间**的小型runtime request value。
+`kindId`为namespaced stable identifier；argument
 key非空，map defensive copy并按key稳定排序，decimal必须finite，value只能是上面四种scalar。Basic将它作为
 opaque data，只派发给拥有该resource type且声明该preparation kind的registration。descriptor不含mutable
 train/world、callback、JVM class name或serialized JSON。它**不是持久化schema**，不产生兼容或restore承诺；
 以后若持久化资源定义或in-flight recovery，必须另审独立schema boundary。
 
 Resource registration是namespaced、world-local并绑定认证platform owner。registration定义stable identity、
-authenticated intent caller与preparation descriptor validation、可选preparation handler和lifecycle ownership；
-它不允许直接修改Basic registry。请求者不必拥有resource type：例如JapaneseSignals可以请求Basic拥有的侧面防护
-道岔，但Basic的turnout registration必须按请求者身份、resource identity与descriptor明确接受，否则返回
-`INVALID_ADDITION`或`INVALID_PREPARATION`。
+authenticated contributor与preparation descriptor validation、可选preparation handler和lifecycle ownership；
+它不允许直接修改Basic registry。contributor不必拥有resource type：例如JapaneseSignals可以贡献Basic拥有的侧面防护
+道岔，但Basic的turnout registration必须按contributor身份、resource identity与descriptor明确接受，否则返回
+`INVALID_CONTRIBUTION`或`INVALID_PREPARATION`。
 
 当前Bukkit适配器复用已有的唯一`typeId → provider`注册表，不另外建立进路资源catalog。注册表跨world保存
 provider，但每次校验都指向已注册的确切world ID；这是迁移期实现，Basic目标中的world-local准入服务仍未完成。
 `exists(worldId, resourceId)`只证明资源存在，绝不自动许可进路申请。provider必须显式实现进路校验，
-由资源owner检查认证requester、world、resource ID与可选preparation descriptor，返回允许或
-`INVALID_ADDITION`/`INVALID_PREPARATION`。Bukkit在simulation owner执行回调，不在注册表锁内调用provider；
+由资源owner检查认证contributor、world、resource ID与可选preparation descriptor，返回允许或
+`INVALID_CONTRIBUTION`/`INVALID_PREPARATION`。Bukkit在simulation owner执行回调，不在注册表锁内调用provider；
 回调后复查world/registration/owner仍有效，失效或异常一律拒绝且不修改claim。当前只形成待准入服务使用的
-校验入口，尚未把它误称为已经完成的Basic授权或设备准备。由于此注册尚无provider准备执行器，即使owner
-同意，带非空preparation descriptor的附加项目前也返回`INVALID_PREPARATION`；必须先接入真正的准备handler
-并证明其生命周期，才能允许这类请求进入后续claim。
+校验入口；当前公开intent仍错误地携带caller additions。迁移批次必须先把这些字段移出intent并由宿主收集认证
+contribution，直接更新全部内部调用方，不保留旧constructor或运行时兼容路径。
 
-### 4.1 Result与准备协议
+### 4.1 目标contributor与provider preparation合同
+
+下一实现批次先把caller additions从ATO intent移到认证contributor，再把通用ticket状态移到
+platform-independent Basic API并由Bukkit注册实际handler：
+
+```kotlin
+enum class ResourcePreparationState { PREPARING, READY, ABORTED_SAFE, UNSAFE }
+
+data class ResourcePreparationSnapshot(
+    val state: ResourcePreparationState,
+    val detail: String = ""
+)
+
+interface ResourcePreparationTicket {
+    @MainThread fun snapshot(): ResourcePreparationSnapshot
+    @MainThread fun abort()
+}
+```
+
+```java
+RouteResourceContributorRegistration registerRouteResourceContributor(
+    Plugin owner,
+    RouteResourceContributor contributor
+);
+
+interface InfrastructureResourcePreparationHandler {
+    String kindId();
+    ResourcePreparationTicket start(
+        UUID attemptId,
+        UUID worldId,
+        StableInfrastructureResource resource,
+        ResourcePreparationDescriptor descriptor
+    );
+}
+
+InfrastructureResourceProviderRegistration registerResourceProvider(
+    Plugin owner,
+    String typeId,
+    InfrastructureResourceProvider provider,
+    Collection<InfrastructureResourcePreparationHandler> preparationHandlers
+);
+```
+
+contributor registration只是少量信号策略入口的lifecycle/authentication列表，不复制资源定义或建立第二个resource
+catalog。每次request按稳定顺序调用每个contributor一次；插件必须用自己的route index查找相关定义，禁止宿主逐资源
+调用。ATO和Basic都不解释返回资源的领域含义。任一route state仍可能申请后续suffix时，宿主冻结完整contributor
+membership：planned register/unregister/registration close均拒绝。forced contributor disable保留既有claim并Stall
+相关world，防止之后的申请静默少执行一套信号策略；不增加membership revision、session token或恢复协议。
+
+一个type registration同时拥有existence/route-use validator及零个或多个preparation kind；不建立第二个handler
+catalog。`kindId`必须namespaced且在该type内唯一。没有handler的provider传空collection；不保留旧三参数注册
+overload。pre-claim validation要求descriptor已被provider允许且exact kind已有handler，否则
+`INVALID_PREPARATION`且无mutation。`attemptId`是每个resource preparation的process-local UUID，只用于handler
+关联自己的异步状态；它不是request ID、retry key或持久化字段。handler只接收上面的immutable值，不接收train、route、
+registry或Core world。
+
+claim成功后的batch仍只有一个Basic preparation ticket。宿主先解析完整物理+provider requirement列表及其确切
+registration/handler，确认全部存在后才允许第一个side effect；然后按已编译顺序启动。provider `start`必须快速、
+非阻塞，在需要Bukkit region/entity side effect时自行交给target-aware scheduler并立即返回ticket。任何start异常都
+无法证明该handler未产生side effect，因此保留完整claim并Stall；只有完整preflight在首个side effect前失败，才可按
+现有`Rejected`路径安全撤销claim。
+
+组合ticket按以下规则合并子ticket，不建立独立恢复状态机：
+
+```text
+snapshot all child tickets in deterministic order
+if any UNSAFE -> UNSAFE
+if abort was requested or any child is ABORTED_SAFE:
+    abort every still-PREPARING child once
+    if any child remains PREPARING -> PREPARING
+    else -> ABORTED_SAFE
+if every child is READY -> READY
+else -> PREPARING
+```
+
+`abort()`只向仍在准备的resource请求安全中止；READY handler及资源默认/静止状态仍由resource owner管理，Basic
+不恢复旧值或设置默认值。planned provider unregister及单独registration `close()`都必须在该type不再出现于claim、
+release queue或pending compiled request后才成功。forced provider disable保留资源并Stall；在世界已Stall或owner
+disabled后不得再调用该plugin的ticket。timeout、duration、ticket persistence、restart recovery及设备默认状态不在本批次。
+
+令`C`为已注册contributor数、`P`为它们返回的requirement总数。一次新/扩展申请的收集为`O(C + P)`加各插件
+内部索引查询；preflight/start及每次显式`progress(handle)`最多访问`O(P)`个requirement/ticket。不会从physics tick
+遍历全部provider或resource，也不会在无pending handle时轮询handler。
+
+### 4.2 Result与准备协议
 
 `RouteAdmissionResult`是`request`和`progress`共用的sealed value result，只有三种顶层结果：
 
@@ -187,13 +280,13 @@ identity列表；不得用exception class作为公开错误类型。`progress`�
 不重放request或再执行provider。完成的handle不由world service永久强引用；调用方不再保留时，其终态缓存可被回收。handle是进程内runtime
 能力，不持久化，也不模拟网络丢包/retry。
 
-preparation provider只接收immutable `resource + descriptor + attemptId`，在world owner thread快速启动并返回
+preparation provider只接收由认证contributor生成的immutable `resource + descriptor + attemptId`，在world owner thread快速启动并返回
 现有`PREPARING/READY/ABORTED_SAFE/UNSAFE` ticket语义。它不接收train、route、claim registry、Core world或其他
 mutable Basic object；设备如何达到target、READY后是否自行恢复默认状态，由resource owner管理。Basic不在route
-scan过程中调用provider，也不允许provider追加资源。所有addition已完成纯数据校验并形成final union后Basic才
+scan过程中调用provider，也不允许provider追加资源。所有contribution已完成纯数据校验并形成final union后Basic才
 claim；claim成功后才按确定顺序启动准备。
 
-### 4.2 冻结的校验与提交顺序
+### 4.3 冻结的校验与提交顺序
 
 ```text
 require service open and authenticated platform owner
@@ -202,7 +295,8 @@ require route topology == observation topology == current TopologyState root
 validate route identity, segment values, connectivity, legal continuations and tail start
 validate desiredAuthority and every explicit tail-release boundary in route metres
 compile Basic physical floor + physical preparation/occupancy/release metadata once
-validate unique additions against world-local registrations and preparation kinds
+collect each authenticated route-resource contributor once
+validate unique contributions against world-local registrations and preparation kinds
 merge by exact identity; duplicate physical identities may only extend release
 query authoritative same-epoch occupancy geometry
 atomically claim the complete union
@@ -216,7 +310,7 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 
 - Route, observation and route-bound resource catalog must refer to the same topology root/revision.
 - Delayed preparation may cross physics epochs. `READY` is not permission to publish the original observation's authority: recheck the current coherent frame and route-start/occupancy evidence, then bind the grant to that validated frame. If the safety evidence is lost after preparation, retain the claim and Stall rather than inventing a safe device abort. A Stall caused by another pending attempt also forbids later `READY` publication; retain those pending claims and notify the world Stall owner only on the first local failure.
-- The mandatory physical footprint is always present in the committed union, regardless of caller additions.
+- The mandatory physical footprint is always present in the committed union, regardless of contributor results.
 - Validation/preparation failure never publishes a wider grant. Unsafe or unprovable device state retains the safest claim and stalls that world rather than releasing protection.
 - Planned signal-plugin disable first calls the Bukkit owner-unregister check. Basic classifies a requester as active only
   when its route has a pending reservation or its registry claim still contains resources; an empty committed `RouteState`
@@ -233,7 +327,7 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 - Registration belongs to one authenticated platform-plugin owner. A successful planned unregister proves that requester
   has no pending route request and no resources remaining in its host-owned registry claim before removing its provider,
   leases and empty route state. Forced disable rejects new calls immediately, does not delete host-owned live claims,
-  release queues or copied descriptors, and stalls each world with requester-owned pending/held route resources. Provider
+  release queues or copied contribution data, and stalls each world with requester-owned pending/held route resources. Provider
   disappearance during pending preparation is unprovable, so Basic retains the safest reservation and stalls the world.
 
 ## 6. 校验与错误矩阵
@@ -248,7 +342,7 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 | disconnected or illegal frozen traversal | `INVALID_ROUTE` | none |
 | route-boundary identity/range invalid | `INVALID_BOUNDARY` | none |
 | mandatory physical resource cannot be resolved | `INVALID_INFRASTRUCTURE` | none |
-| duplicate addition or unknown/unauthorized resource | `INVALID_ADDITION` | none |
+| contributor failure, duplicate contribution or unknown/unauthorized resource | `INVALID_CONTRIBUTION` | none |
 | preparation kind/arguments rejected by owner registration | `INVALID_PREPARATION` | none |
 | occupancy intersects compiled physical geometry | `PHYSICALLY_OCCUPIED` | none |
 | final union conflicts with another claim | `RESOURCE_CONFLICT` | none |
@@ -270,7 +364,7 @@ Basic按logical owner ID找到当前route state。若不存在，`request`建立
 authenticated requester、logical owner及plan revision、stable train ID、`routeId`、`routeRevision`、topology revision
 和ordered segments完全相同。它可以使用更新的successful physics epoch，但topology revision必须不变。已提交
 grant存在时，新desired boundary必须严格晚于committed boundary且不超过route length；Basic只编译该suffix。
-新增addition遵循相同校验；已经由该grant持有的identity只能单调延后release boundary，不能改变已committed
+新增contribution遵循相同校验；已经由该grant持有的identity只能单调延后release boundary，不能改变已committed
 preparation descriptor。一个route state同一时刻只允许一个pending request。route/topology/plan改变必须在
 安全运营边界replan，不得用新请求覆盖现有route state或whole-claim replacement。
 
@@ -282,7 +376,7 @@ boundary。safe abort只删除新delta；unsafe或无法证明的abort保留最�
 
 ## 7. 性能、复杂度与退化行为
 
-Let `R` be projected route slices, `B` route-bound catalog hits, `A` additional resources, `H` resources in the final claim, `I` occupancy-query intervals, `C` bucket-selected swept-span candidates and `M` resources in all other claims/edit permits. Projection is linear in `R`; rail-indexed catalog lookup reads route occurrences plus binary-search/candidate scans, then merges/sorts hits. Physical interval and release ordering can cost `O((R+B+A) log(R+B+A))`. Occupancy comparison is worst-case `O(C×I)` after bucket selection. The current registry checks requested resources against other held resources pairwise, worst-case `O(H×M)`; it does not yet have a conflict index. These are request-time costs, not unchanged per-tick work. Basic must not invoke every installed signal plugin, scan all regions or execute arbitrary JS during this pass.
+Let `R` be projected route slices, `B` route-bound catalog hits, `G` registered route contributors, `A` contributed resources, `H` resources in the final claim, `I` occupancy-query intervals, `C` bucket-selected swept-span candidates and `M` resources in all other claims/edit permits. Projection is linear in `R`; rail-indexed catalog lookup reads route occurrences plus binary-search/candidate scans, then merges/sorts hits. Each new/extended admission calls each of the normally few registered contributors once, so collection is `O(G+A)` plus their indexed lookups; it must not call every resource instance or execute per-resource JS. Physical interval and release ordering can cost `O((R+B+A) log(R+B+A))`. Occupancy comparison is worst-case `O(C×I)` after bucket selection. The current registry checks requested resources against other held resources pairwise, worst-case `O(H×M)`; it does not yet have a conflict index. These are request-time costs, not unchanged per-tick work.
 
 Observation dispatch builds one train-ID lookup only when at least one live grant exists. With grants, ordinary cursor checks start at the current occurrence and queue inspection starts at the current head; releasing `K` eligible resources costs `O(K)` locally. The registry keeps the live claim in one lock-protected ordered identity set: after validating the complete release batch, it deletes those `K` identities in place instead of rebuilding the other `H` resources. Its average shrink cost is `O(K+P)`, where `P` is the pending-record count currently scanned to find this owner. With fixed `P`, releasing `H` resources one by one is cumulatively average `O(H)`; this is not a bound on conflict lookup or explicit diagnostic snapshots, which still copy `O(H)` resources on read. Completed admission handles remain repeatable while held by callers without a world-lifetime terminal-result table.
 
@@ -292,24 +386,24 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 
 ## 8. Good / Base / Bad cases
 
-- **Good**：a Japanese-signalling plugin requests a throat route, adds a flank turnout and holds it to a later boundary; Basic also inserts all traversed rails, turnouts and diamond conflicts before one atomic claim.
-- **Good**：a different interlocking plugin submits route-table resources and approach locking without creating any Basic protection region.
-- **Base**：a straight route has only mandatory rail intervals and no plugin additions.
+- **Good**：SimpleATO submits only route/train/authority; a Japanese-signalling contributor adds a flank turnout and later hold without SimpleATO knowing either identity or descriptor.
+- **Good**：a different interlocking contributor emits route-table resources and approach locking without creating any Basic protection region.
+- **Base**：a straight route has only mandatory rail intervals because every contributor returns empty.
 - **Good**：a long claim releases one resource at a time; older diagnostic snapshots remain unchanged, while the registry removes only the named live identities.
 - **Good**：the first request waits for a device with `committedGrant = null`; on `READY`, the route state installs its first grant and release queue using the already-established cursor.
 - **Good**：after all committed resources have been tail-released, another request along the same frozen route reacquires a farther suffix without inventing a second route cursor.
-- **Bad**：a plugin submits only its region ID and expects Basic to discover region policy or scan successor regions.
+- **Bad**：SimpleATO constructs a protection-region ID, preparation kind or signal-system-specific argument.
 - **Bad**：an initial safe abort leaves an owner permanently busy with an empty route state, or a later safe abort deletes an earlier committed grant.
 - **Bad**：each tail-clear event reconstructs an immutable footprint of every still-held resource; a long route then pays quadratic cumulative release work.
 - **Bad**：a plugin omits a traversed turnout or supplies another identity; Basic still derives the canonical turnout resource.
-- **Bad**：Basic treats plugin additions as authoritative replacement footprint or lets JS directly mutate a claim.
+- **Bad**：Basic treats plugin contributions as authoritative replacement footprint or lets JS directly mutate a claim.
 
 ## 9. 必需测试与断言点
 
 - Route projection covers AB/BA, zero/one/multiple turnouts, loops and route-bound diamonds with deterministic identities.
-- Omitting every caller addition still produces the complete mandatory physical footprint.
-- A caller cannot remove/replace a derived rail, turnout or diamond resource.
-- Valid additions join the same atomic footprint; unknown/unauthorized additions and conflicts leave no partial claim.
+- An intent with every contributor returning empty still produces the complete mandatory physical footprint.
+- Neither caller nor contributor can remove/replace a derived rail, turnout or diamond resource.
+- Valid contributions join the same atomic footprint; contributor failure, unknown/unauthorized resources and conflicts leave no partial claim.
 - Occupancy geometry and preparation/release metadata never become alternate claim sets.
 - Immediate and delayed preparation publish no grant before `READY`; unsafe failure retains the safest claim.
 - First pending request has one route cursor and no committed grant; safe abort after successful rollback removes the unused route state, allowing a fresh request from a fresh observation.
@@ -328,8 +422,8 @@ Migration keeps the implemented generic pieces—topology projection, canonical 
 Still open for later API batches: optional administration UI/policy for restricting cross-plugin resource use,
 persistence/recovery formats and plugin-local script identifiers. The runtime contract already permits a provider to validate
 an authenticated request from another plugin, which is required for a signal plugin to request Basic-owned flank turnouts.
-The signal plugin submits that intent under its own platform identity; SimpleATO supplies the frozen route and later consumes
-the committed grant, but does not repackage the plugin's addition under a SimpleATO identity. `JapaneseSignals` does not change the
+The host authenticates each contributor independently from the SimpleATO route caller; SimpleATO supplies the frozen route and later
+consumes the committed grant, but does not repackage a plugin contribution under its own identity. `JapaneseSignals` does not change the
 physical-floor invariant or turn the runtime descriptor into a persisted format.
 
 ```text
@@ -337,8 +431,8 @@ Wrong: the caller supplies the complete footprint and Basic trusts omissions
 Correct: Basic derives the non-removable physical floor and only accepts additive resources
 
 Wrong: Basic owns one universal protection-region/fixed-block model
-Correct: each signalling plugin owns its policy model and compiles it into generic additions and restrictions
+Correct: each signalling plugin owns its policy model and contributes generic resources and restrictions
 
-Wrong: Basic invokes a recursive provider closure to decide signalling policy
-Correct: the signalling plugin decides the requested boundary/additions; Basic validates and claims one union
+Wrong: SimpleATO constructs resource identities or preparation arguments for each signal system
+Correct: the host authenticates contributors; Basic validates their bounded results and claims one union
 ```

@@ -4,6 +4,7 @@ import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -17,7 +18,7 @@ import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
@@ -71,8 +72,7 @@ class DefaultInfrastructureLeaseServiceTest {
                 topology.revision,
                 listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
             ),
-            RouteBoundary(20.0),
-            emptyList()
+            RouteBoundary(20.0)
         )
 
         val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
@@ -143,8 +143,7 @@ class DefaultInfrastructureLeaseServiceTest {
                 topology.revision,
                 listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
             ),
-            RouteBoundary(20.0),
-            emptyList()
+            RouteBoundary(20.0)
         )
         assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.request(intent))
 
@@ -163,28 +162,81 @@ class DefaultInfrastructureLeaseServiceTest {
     }
 
     @Test
+    fun `forced contributor disable stalls even when it contributed no resource`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        val requester = plugin("ato")
+        var contributorEnabled = true
+        val contributor = plugin("signal-policy") { contributorEnabled }
+        val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
+        val stalls = mutableListOf<String>()
+        service.registerRouteResourceContributor(contributor) { _, _ -> emptyList() }
+        service.registerWorld(worldId, { topology.revision }) { resource ->
+            resource is RailIntervalResource && resource.railId == railId
+        }
+        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, _ ->
+            stalls += reason
+        }
+        val intent = RouteResourceIntent(
+            "test.ato:request/main",
+            InfrastructureOwner("test.ato:route/main", 1L),
+            "train",
+            observation.stamp,
+            RouteSnapshot(
+                "test.ato:route/main",
+                1L,
+                topology.revision,
+                listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
+            ),
+            RouteBoundary(20.0)
+        )
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.routeAdmission(requester, worldId).request(intent))
+
+        contributorEnabled = false
+        service.forcedDisableOwner(contributor)
+
+        assertEquals(1, stalls.size)
+        assertTrue(stalls.single().contains("route-resource contributor"))
+        assertEquals(1, service.liveClaims(worldId).size)
+    }
+
+    @Test
     fun `resource provider cannot unregister while another plugin holds its route resource`() {
         val service = DefaultInfrastructureLeaseService()
         val worldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
         var providerEnabled = true
         val providerOwner = plugin("block-provider") { providerEnabled }
-        val requester = plugin("signal")
+        val requester = plugin("ato")
+        val contributor = plugin("signal-policy")
         val block = StableInfrastructureResource("example.block:section", "main")
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
         val stalls = mutableListOf<String>()
-        service.registerResourceProvider(providerOwner, block.typeId, object : InfrastructureResourceProvider {
+        val registration = service.registerResourceProvider(providerOwner, block.typeId, object : InfrastructureResourceProvider {
             override fun exists(candidateWorld: UUID, resourceId: String) =
                 candidateWorld == worldId && resourceId == block.resourceId
 
-            override fun validateRouteAddition(
-                requester: Plugin,
+            override fun validateRouteContribution(
+                actualContributor: Plugin,
                 candidateWorld: UUID,
                 resourceId: String,
                 descriptor: ResourcePreparationDescriptor?
-            ): RouteAdmissionFailureCode? = null
+            ): RouteAdmissionFailureCode? {
+                assertSame(contributor, actualContributor)
+                return null
+            }
         })
+        val contributorRegistration = service.registerRouteResourceContributor(contributor) { candidateWorld, _ ->
+            if (candidateWorld == worldId) {
+                listOf(ContributedRouteResource(block, RouteBoundary(20.0)))
+            } else {
+                emptyList()
+            }
+        }
         service.registerWorld(worldId, { topology.revision }) { resource ->
             resource is RailIntervalResource && resource.railId == railId ||
                 resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
@@ -204,11 +256,21 @@ class DefaultInfrastructureLeaseServiceTest {
                 topology.revision,
                 listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
             ),
-            RouteBoundary(20.0),
-            listOf(AdditionalResourceRequirement(block, RouteBoundary(20.0)))
+            RouteBoundary(20.0)
         )
         assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.request(intent))
 
+        val contributorActive = assertThrows(IllegalStateException::class.java) {
+            contributorRegistration.close()
+        }
+        assertTrue(contributorActive.message.orEmpty().contains("route states remain active"))
+        assertThrows(IllegalStateException::class.java) {
+            service.unregisterOwner(contributor)
+        }
+        val registrationActive = assertThrows(IllegalStateException::class.java) {
+            registration.close()
+        }
+        assertTrue(registrationActive.message.orEmpty().contains(block.typeId))
         val active = assertThrows(IllegalStateException::class.java) {
             service.unregisterOwner(providerOwner)
         }
@@ -250,21 +312,21 @@ class DefaultInfrastructureLeaseServiceTest {
     }
 
     @Test
-    fun `route additions require resource owner authorization beyond lease existence`() {
+    fun `route contributions require resource owner authorization beyond lease existence`() {
         val service = DefaultInfrastructureLeaseService()
         val worldId = UUID.randomUUID()
         val owner = plugin("resource-owner")
         val allowed = plugin("allowed-signal")
         val denied = plugin("other-signal")
         val resource = StableInfrastructureResource("example.signal:block", "home")
-        val addition = AdditionalResourceRequirement(resource, RouteBoundary(10.0))
+        val contribution = ContributedRouteResource(resource, RouteBoundary(10.0))
         val preparation = ResourcePreparationDescriptor("example.signal:prepare", emptyMap())
         registerWorld(service, worldId)
         service.registerResourceProvider(owner, resource.typeId, object : InfrastructureResourceProvider {
             override fun exists(candidateWorld: UUID, resourceId: String) =
                 candidateWorld == worldId && resourceId == "home"
 
-            override fun validateRouteAddition(
+            override fun validateRouteContribution(
                 requester: Plugin,
                 candidateWorld: UUID,
                 resourceId: String,
@@ -274,7 +336,7 @@ class DefaultInfrastructureLeaseServiceTest {
                 assertEquals(worldId, candidateWorld)
                 assertEquals("home", resourceId)
                 return when {
-                    requester !== allowed -> RouteAdmissionFailureCode.INVALID_ADDITION
+                    requester !== allowed -> RouteAdmissionFailureCode.INVALID_CONTRIBUTION
                     descriptor != null && descriptor.kindId != preparation.kindId ->
                         RouteAdmissionFailureCode.INVALID_PREPARATION
                     else -> null
@@ -282,32 +344,32 @@ class DefaultInfrastructureLeaseServiceTest {
             }
         })
 
-        assertEquals(null, service.validateRouteAddition(allowed, worldId, addition))
+        assertEquals(null, service.validateRouteContribution(allowed, worldId, contribution))
         assertEquals(
             RouteAdmissionFailureCode.INVALID_PREPARATION,
-            service.validateRouteAddition(allowed, worldId, addition.copy(preparation = preparation))?.code
+            service.validateRouteContribution(allowed, worldId, contribution.copy(preparation = preparation))?.code
         )
         assertEquals(
-            RouteAdmissionFailureCode.INVALID_ADDITION,
-            service.validateRouteAddition(denied, worldId, addition)?.code
+            RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            service.validateRouteContribution(denied, worldId, contribution)?.code
         )
         assertEquals(
-            RouteAdmissionFailureCode.INVALID_ADDITION,
-            service.validateRouteAddition(
+            RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            service.validateRouteContribution(
                 allowed, worldId,
-                AdditionalResourceRequirement(resource.copy(resourceId = "missing"), RouteBoundary(10.0))
+                ContributedRouteResource(resource.copy(resourceId = "missing"), RouteBoundary(10.0))
             )?.code
         )
         assertEquals(
             RouteAdmissionFailureCode.INVALID_PREPARATION,
-            service.validateRouteAddition(
+            service.validateRouteContribution(
                 allowed, worldId,
-                addition.copy(preparation = ResourcePreparationDescriptor("example.signal:wrong", emptyMap()))
+                contribution.copy(preparation = ResourcePreparationDescriptor("example.signal:wrong", emptyMap()))
             )?.code
         )
         assertEquals(
             RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
-            service.validateRouteAddition(allowed, UUID.randomUUID(), addition)?.code
+            service.validateRouteContribution(allowed, UUID.randomUUID(), contribution)?.code
         )
         assertTrue(service.liveClaims(worldId).isEmpty())
     }
@@ -319,46 +381,46 @@ class DefaultInfrastructureLeaseServiceTest {
         val owner = plugin("resource-owner")
         val requester = plugin("signal")
         val resource = StableInfrastructureResource("example.signal:block", "home")
-        val addition = AdditionalResourceRequirement(resource, RouteBoundary(10.0))
+        val contribution = ContributedRouteResource(resource, RouteBoundary(10.0))
         registerWorld(service, worldId)
         val registration = service.registerResourceProvider(owner, resource.typeId, rejectingRouteProvider { _, _ -> true })
 
-        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
-            service.validateRouteAddition(requester, worldId, addition)?.code)
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            service.validateRouteContribution(requester, worldId, contribution)?.code)
         registration.close()
-        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
-            service.validateRouteAddition(requester, worldId, addition)?.code)
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            service.validateRouteContribution(requester, worldId, contribution)?.code)
         assertTrue(service.liveClaims(worldId).isEmpty())
     }
 
     @Test
-    fun `provider failure or removal during validation cannot authorize an addition`() {
+    fun `provider failure or removal during validation cannot authorize an contribution`() {
         val service = DefaultInfrastructureLeaseService()
         val worldId = UUID.randomUUID()
         val owner = plugin("resource-owner")
         val requester = plugin("signal")
         val resource = StableInfrastructureResource("example.signal:block", "home")
-        val addition = AdditionalResourceRequirement(resource, RouteBoundary(10.0))
+        val contribution = ContributedRouteResource(resource, RouteBoundary(10.0))
         registerWorld(service, worldId)
         val failing = service.registerResourceProvider(owner, resource.typeId, object : InfrastructureResourceProvider {
             override fun exists(candidateWorld: UUID, resourceId: String) = true
 
-            override fun validateRouteAddition(
+            override fun validateRouteContribution(
                 requester: Plugin,
                 candidateWorld: UUID,
                 resourceId: String,
                 descriptor: ResourcePreparationDescriptor?
             ): RouteAdmissionFailureCode? = error("provider failed")
         })
-        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
-            service.validateRouteAddition(requester, worldId, addition)?.code)
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            service.validateRouteContribution(requester, worldId, contribution)?.code)
         failing.close()
 
         lateinit var registration: InfrastructureResourceProviderRegistration
         registration = service.registerResourceProvider(owner, resource.typeId, object : InfrastructureResourceProvider {
             override fun exists(candidateWorld: UUID, resourceId: String) = true
 
-            override fun validateRouteAddition(
+            override fun validateRouteContribution(
                 requester: Plugin,
                 candidateWorld: UUID,
                 resourceId: String,
@@ -368,8 +430,8 @@ class DefaultInfrastructureLeaseServiceTest {
                 return null
             }
         })
-        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
-            service.validateRouteAddition(requester, worldId, addition)?.code)
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            service.validateRouteContribution(requester, worldId, contribution)?.code)
         assertTrue(service.liveClaims(worldId).isEmpty())
     }
 
@@ -530,12 +592,12 @@ class DefaultInfrastructureLeaseServiceTest {
     private fun rejectingRouteProvider(exists: (UUID, String) -> Boolean) = object : InfrastructureResourceProvider {
         override fun exists(worldId: UUID, resourceId: String) = exists.invoke(worldId, resourceId)
 
-        override fun validateRouteAddition(
+        override fun validateRouteContribution(
             requester: Plugin,
             worldId: UUID,
             resourceId: String,
             descriptor: ResourcePreparationDescriptor?
-        ) = RouteAdmissionFailureCode.INVALID_ADDITION
+        ) = RouteAdmissionFailureCode.INVALID_CONTRIBUTION
     }
 
     private fun lease(ownerId: String, typeId: String, resourceId: String) = InfrastructureLeaseRequest(

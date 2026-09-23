@@ -107,12 +107,13 @@ class RouteAdmissionTest {
     }
 
     @Test
-    fun `pending start distinguishes initial request from extension`() {
-        val initial = RouteAdmissionStart.Pending(RouteAdmissionHandle(), null)
-        val extension = RouteAdmissionStart.Pending(RouteAdmissionHandle(), grant())
+    fun `pending result distinguishes initial request from extension`() {
+        val initial = RouteAdmissionResult.Pending(RouteAdmissionHandle(), null)
+        val extension = RouteAdmissionResult.Pending(RouteAdmissionHandle(), grant())
 
         assertEquals(null, initial.committedGrant)
         assertEquals(40.0, extension.committedGrant?.committedAuthority?.distanceFromRouteStartMeters)
+        assertEquals(extension, RouteAdmissionResult.Pending(extension.handle, extension.committedGrant))
     }
 
     private fun grant(

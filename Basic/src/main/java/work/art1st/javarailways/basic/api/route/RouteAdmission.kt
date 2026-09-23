@@ -156,10 +156,14 @@ data class RouteAdmissionFailure private constructor(
     }
 }
 
-/** Immediate, non-blocking result of starting an admission or extension. */
-sealed interface RouteAdmissionStart {
+/**
+ * Current result of an admission attempt, returned by both submission and later inspection.
+ * A pending result carries the same process-local handle on every read; callers inspect that
+ * handle rather than submitting the request again.
+ */
+sealed interface RouteAdmissionResult {
     /** The complete union is claimed, ready, and committed at [grant]'s authority boundary. */
-    data class Granted(val grant: RouteGrantSnapshot) : RouteAdmissionStart
+    data class Granted(val grant: RouteGrantSnapshot) : RouteAdmissionResult
 
     /**
      * Preparation is still running under [handle]. [committedGrant] is null for an initial request
@@ -168,29 +172,17 @@ sealed interface RouteAdmissionStart {
     data class Pending(
         val handle: RouteAdmissionHandle,
         val committedGrant: RouteGrantSnapshot?
-    ) : RouteAdmissionStart
+    ) : RouteAdmissionResult
 
     /** No wider authority was published. */
-    data class Rejected(val failure: RouteAdmissionFailure) : RouteAdmissionStart
-}
-
-/** Non-blocking observation of an admission attempt previously returned as pending. */
-sealed interface RouteAdmissionProgress {
-    /** Preparation remains in progress; callers may inspect the same handle again later. */
-    data object Pending : RouteAdmissionProgress
-
-    /** Terminal success; repeated reads of the handle return the same committed result. */
-    data class Granted(val grant: RouteGrantSnapshot) : RouteAdmissionProgress
-
-    /** Terminal failure; repeated reads of the handle return the same rejection. */
-    data class Rejected(val failure: RouteAdmissionFailure) : RouteAdmissionProgress
+    data class Rejected(val failure: RouteAdmissionFailure) : RouteAdmissionResult
 }
 
 /**
  * World-local owner-thread entry point for generic route-resource admission.
  *
  * Every call is immediate and non-blocking. A call may start provider preparation and return
- * [RouteAdmissionStart.Pending], but it must not wait on device animation or another thread.
+ * [RouteAdmissionResult.Pending], but it must not wait on device animation or another thread.
  * Pending handles and grants belong to this service instance and remain process-local. The host
  * owns live claims and their release lifecycle even if the requesting plugin is disabled; these
  * API values themselves provide no persistence or restart recovery.
@@ -198,13 +190,13 @@ sealed interface RouteAdmissionProgress {
 interface RouteResourceAdmissionService {
     /** Validates, claims, and starts preparation for a new route authority request. */
     @MainThread
-    fun admit(intent: RouteResourceIntent): RouteAdmissionStart
+    fun admit(intent: RouteResourceIntent): RouteAdmissionResult
 
     /** Extends one live grant along the same frozen route without replacing its committed prefix. */
     @MainThread
-    fun extend(grantId: RouteGrantId, intent: RouteResourceIntent): RouteAdmissionStart
+    fun extend(grantId: RouteGrantId, intent: RouteResourceIntent): RouteAdmissionResult
 
     /** Reads current or terminal state for a handle created by this same world-local service. */
     @MainThread
-    fun progress(handle: RouteAdmissionHandle): RouteAdmissionProgress
+    fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult
 }

@@ -105,13 +105,13 @@ sealed interface PreparationScalar {
 
 interface RouteResourceAdmissionService {
     @MainThread
-    fun admit(intent: RouteResourceIntent): RouteAdmissionStart
+    fun admit(intent: RouteResourceIntent): RouteAdmissionResult
 
     @MainThread
-    fun extend(grantId: RouteGrantId, intent: RouteResourceIntent): RouteAdmissionStart
+    fun extend(grantId: RouteGrantId, intent: RouteResourceIntent): RouteAdmissionResult
 
     @MainThread
-    fun progress(handle: RouteAdmissionHandle): RouteAdmissionProgress
+    fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult
 }
 
 enum class RouteAdmissionFailureCode {
@@ -153,7 +153,7 @@ authenticated intent caller与preparation descriptor validation、可选preparat
 
 ### 4.1 Result与准备协议
 
-`RouteAdmissionStart`是sealed value result，只有三种顶层结果：
+`RouteAdmissionResult`是`admit`、`extend`和`progress`共用的sealed value result，只有三种顶层结果：
 
 - `Granted(RouteGrantSnapshot)`：union已原子claim，全部准备`READY`；snapshot含grant ID、owner、train、route
   identity/revision、observation stamp与committed authority boundary；
@@ -163,7 +163,8 @@ authenticated intent caller与preparation descriptor validation、可选preparat
 
 `RouteAdmissionFailure`必须携带上面一个稳定code、非空诊断detail，以及仅在占用/冲突时出现的immutable blocker
 identity列表；不得用exception class作为公开错误类型。`progress`只读取一个由同一service产生的opaque handle，
-返回`Pending/Granted/Rejected`终态；重复读取终态幂等，不重放request或再执行provider。handle是进程内runtime
+未完成时返回带**同一个handle**的`Pending`，完成后返回`Granted/Rejected`终态；重复读取终态幂等，
+不重放request或再执行provider。handle是进程内runtime
 能力，不持久化，也不模拟网络丢包/retry。
 
 preparation provider只接收immutable `resource + descriptor + attemptId`，在world owner thread快速启动并返回

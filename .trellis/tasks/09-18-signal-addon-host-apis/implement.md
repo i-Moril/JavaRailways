@@ -160,6 +160,13 @@
     overdue resource. An empty old queue reacquires the suffix under the same live grant. Focused and
     full Core/Basic tests cover pending, ready, conflict, abort, unsafe, old-prefix release, resource-idle
     extension and changed occupancy. Production catalog/provider binding and caller migration remain.
+  - [x] Simplify the generic request lifecycle before production binding: expose one request operation
+    for first authority and same-route growth, with route state (frozen route and one tail cursor)
+    separate from its nullable committed grant. Reuse the same pending-attempt path and only branch
+    where an existing grant changes the range or registry mutation; remove the unpublished `admit`/
+    `extend` API split rather than add compatibility wrappers. Verify a first safe abort removes an
+    unused route state, while later safe abort preserves the earlier grant, and a resource-idle route
+    still accepts its next suffix. Update the Basic owner spec and focused integration tests.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.

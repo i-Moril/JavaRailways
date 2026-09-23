@@ -83,7 +83,7 @@ Claims and physical readiness are distinct. Basic claims the complete union befo
 
 Current in-memory turnout switching is immediate and has no fictional rollback. Future animated turnouts, movable bridges or other delayed devices use the same generic preparation contract; their default/resting state belongs to the resource implementation, not the train.
 
-The live grant owns one monotonic route cursor and one ordered release queue. It shrinks the registry before dropping the eligible prefix locally. A same-route extension compiles and prepares only the farther delta, while existing resources continue tail release. A changed route ends/replans at a safe operational boundary rather than replacing the claim in place.
+The current route state owns one frozen route and one monotonic tail cursor; its committed grant is initially absent. The first request establishes that state after resource reservation succeeds, and `READY` installs the committed grant and its ordered release queue without replacing the cursor. Later requests on the same route compile and prepare only the farther suffix while existing resources continue tail release. A safe abort before the first grant removes the now-unused route state; after a grant exists, even an emptied resource queue retains the route and cursor until explicit end. A changed route ends/replans at a safe operational boundary rather than replacing the claim in place.
 
 ## Resource inspection and reactive constraints
 
@@ -98,7 +98,7 @@ remaining public surfaces still arrive in separate reviewable batches:
 
 - immutable railway observation subscription/read service;
 - namespaced infrastructure resource registration and validation;
-- topology-bound route admission/extension and pending-attempt progress;
+- one topology-bound route-resource request for both first authority and farther same-route authority, plus pending-attempt progress;
 - generic infrastructure preparation handler registration;
 - namespaced train restrictions and dependency-change publication;
 - shared applied-plan infrastructure leases and edit permits.

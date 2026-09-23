@@ -27,8 +27,8 @@ class RouteGrantId internal constructor()
  * Immutable caller-visible state of one committed route grant.
  *
  * [committedAuthority] is measured in route metres using the same traversal-oriented coordinate as
- * [RouteResourceIntent.desiredAuthority]. A pending extension continues to expose the previous
- * snapshot until the complete extension delta is ready and a new snapshot is published.
+ * [RouteResourceIntent.desiredAuthority]. A pending request continues to expose the previous
+ * snapshot, if any, until its new resources are ready and a new snapshot is published.
  *
  * @property grantId opaque identity of the host-owned live grant
  * @property owner logical grant owner and applied/request revision
@@ -68,8 +68,8 @@ enum class RouteAdmissionFailureCode {
     INVALID_PREPARATION,
     PHYSICALLY_OCCUPIED,
     RESOURCE_CONFLICT,
-    EXTENSION_MISMATCH,
-    EXTENSION_BUSY,
+    ROUTE_STATE_MISMATCH,
+    REQUEST_BUSY,
     PREPARATION_ABORTED_SAFE,
     WORLD_STALLED
 }
@@ -160,8 +160,8 @@ sealed interface RouteAdmissionResult {
     data class Granted(val grant: RouteGrantSnapshot) : RouteAdmissionResult
 
     /**
-     * Preparation is still running under [handle]. [committedGrant] is null for an initial request
-     * and is the still-valid previous grant for an extension.
+     * Preparation is still running under [handle]. [committedGrant] is null until this route has
+     * published its first grant, and otherwise is the still-valid previous grant.
      */
     data class Pending(
         val handle: RouteAdmissionHandle,
@@ -182,13 +182,9 @@ sealed interface RouteAdmissionResult {
  * API values themselves provide no persistence or restart recovery.
  */
 interface RouteResourceAdmissionService {
-    /** Validates, claims, and starts preparation for a new route authority request. */
+    /** Requests a farther authority boundary on one frozen route, with or without a prior grant. */
     @MainThread
-    fun admit(intent: RouteResourceIntent): RouteAdmissionResult
-
-    /** Extends one live grant along the same frozen route without replacing its committed prefix. */
-    @MainThread
-    fun extend(grantId: RouteGrantId, intent: RouteResourceIntent): RouteAdmissionResult
+    fun request(intent: RouteResourceIntent): RouteAdmissionResult
 
     /** Reads current or terminal state for a handle created by this same world-local service. */
     @MainThread

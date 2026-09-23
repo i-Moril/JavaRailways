@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.basic.api.route.ResourcePreparationState as InfrastructurePreparationState
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket as InfrastructurePreparationTicket
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -7,6 +10,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
+import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
@@ -143,6 +148,87 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
+    fun `contributed preparations share one aggregate ticket with physical turnout work`() {
+        val fixture = turnout()
+        fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
+        val firstResource = StableInfrastructureResource("test:device", "first")
+        val secondResource = StableInfrastructureResource("test:device", "second")
+        val descriptor = ResourcePreparationDescriptor("test:align", emptyMap())
+        val firstTicket = MutableTicket()
+        val secondTicket = MutableTicket()
+        val actuator = LiveInfrastructurePreparationActuator(fixture.world) { resource, actualDescriptor ->
+            assertEquals(descriptor, actualDescriptor)
+            when (resource) {
+                firstResource -> ({ firstTicket })
+                secondResource -> ({ secondTicket })
+                else -> null
+            }
+        }
+
+        val ticket = accepted(actuator.start(listOf(
+            fixture.selection(fixture.stem, fixture.second),
+            ResolvedContributedResourcePreparation(firstResource, descriptor),
+            ResolvedContributedResourcePreparation(secondResource, descriptor)
+        )))
+
+        assertSame(fixture.second.viewAB, fixture.stem.viewAB.nextActiveRail)
+        assertEquals(InfrastructurePreparationState.PREPARING, ticket.snapshot().state)
+        firstTicket.state = InfrastructurePreparationState.READY
+        assertEquals(InfrastructurePreparationState.PREPARING, ticket.snapshot().state)
+        secondTicket.state = InfrastructurePreparationState.READY
+        assertEquals(InfrastructurePreparationState.READY, ticket.snapshot().state)
+    }
+
+    @Test
+    fun `missing contributed handler rejects before turnout work starts`() {
+        val fixture = turnout()
+        fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
+        val unsupported = ResolvedContributedResourcePreparation(
+            StableInfrastructureResource("test:device", "missing"),
+            ResourcePreparationDescriptor("test:align", emptyMap())
+        )
+
+        val result = LiveInfrastructurePreparationActuator(fixture.world).start(listOf(
+            fixture.selection(fixture.stem, fixture.second),
+            unsupported
+        ))
+
+        assertTrue(result is InfrastructurePreparationStart.Rejected)
+        assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)
+    }
+
+    @Test
+    fun `aggregate abort asks only preparing children and becomes safely aborted`() {
+        val world = world()
+        val ready = MutableTicket(InfrastructurePreparationState.READY)
+        val preparing = MutableTicket()
+        val descriptor = ResourcePreparationDescriptor("test:align", emptyMap())
+        val actuator = LiveInfrastructurePreparationActuator(world) { resource, _ ->
+            when (resource.resourceId) {
+                "ready" -> ({ ready })
+                "preparing" -> ({ preparing })
+                else -> null
+            }
+        }
+        val ticket = accepted(actuator.start(listOf(
+            ResolvedContributedResourcePreparation(
+                StableInfrastructureResource("test:device", "ready"), descriptor
+            ),
+            ResolvedContributedResourcePreparation(
+                StableInfrastructureResource("test:device", "preparing"), descriptor
+            )
+        )))
+
+        ticket.abort()
+
+        assertEquals(0, ready.abortCalls)
+        assertEquals(1, preparing.abortCalls)
+        assertEquals(InfrastructurePreparationState.ABORTED_SAFE, ticket.snapshot().state)
+        ticket.abort()
+        assertEquals(1, preparing.abortCalls)
+    }
+
+    @Test
     fun `terminal ticket abort is idempotent no-op`() {
         val fixture = turnout()
         val ticket = accepted(
@@ -160,6 +246,21 @@ class LiveInfrastructurePreparationActuatorTest {
 
     private fun accepted(start: InfrastructurePreparationStart): InfrastructurePreparationTicket =
         (start as InfrastructurePreparationStart.Accepted).ticket
+
+    private class MutableTicket(
+        var state: InfrastructurePreparationState = InfrastructurePreparationState.PREPARING
+    ) : InfrastructurePreparationTicket {
+        var abortCalls = 0
+
+        override fun snapshot() = ResourcePreparationSnapshot(state)
+
+        override fun abort() {
+            abortCalls++
+            if (state == InfrastructurePreparationState.PREPARING) {
+                state = InfrastructurePreparationState.ABORTED_SAFE
+            }
+        }
+    }
 
     private fun turnout(): Fixture = turnout(world(), 0.0)
 

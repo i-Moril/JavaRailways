@@ -59,7 +59,7 @@ Basic只知道semantic request/result；region scheduling与model action完成�
 | extension identity | namespaced stable ID/version | JVM FQCN reflection |
 | 世界观察 | 同一`RailwayStateStamp`下的immutable train values | 分别读取live train与latest topology再拼装 |
 | 基础设施仲裁 | immutable footprint + typed atomic result | 向add-on暴露raw claim mutation或registry implementation |
-| 路线资源准入 | topology-bound frozen route + train/observation/boundary + optional additions；Basic推导不可删除的物理底线并原子claim union | add-on替换物理footprint/列车长度、Basic替其寻路或执行具体信号制式 |
+| 路线资源准入 | ATO只提交topology-bound frozen route + train/observation/boundary；宿主收集认证contribution，Basic推导不可删除的物理底线并原子claim union | ATO认识信号资源、add-on替换物理footprint/列车长度、Basic替其寻路或执行具体信号制式 |
 | 自定义资源准备 | exact identity + provider-owned runtime descriptor；world owner thread返回typed ticket | handler读取mutable train/world、扫描路线、追加资源或把descriptor当存档schema |
 
 每个signature/KDoc必须包含world/host owner、stable identity、字段类型和单位、thread/blocking、live/value、failure/result、register/unregister、persistence含义。annotation不能替代文字。

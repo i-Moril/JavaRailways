@@ -3,7 +3,7 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withContributions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology/live turnout actuator、认证addition validator和同epoch observation tail-release输入；物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。外部插件现可从现有`InfrastructureLeaseService`取得绑定插件身份和确切world runtime的`RouteResourceAdmissionService`；request、pending/terminal handle inspection及grant end均使用同一认证身份，旧binding不会在同UUID world reload后复活，plugin disable也不会删除host-owned claim。当前route-bound catalog只发布完整空集，等待diamond detector提供真实bindings；Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已公开但尚无生产caller的runtime误称为列车已经使用新授权流程。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withContributions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology、认证contributor/provider和同epoch observation tail-release输入；同一准备批次可驱动即时道岔及provider注册的异步资源handler，全部`READY`前不发布grant。物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。外部插件现可从现有`InfrastructureLeaseService`取得绑定插件身份和确切world runtime的`RouteResourceAdmissionService`；request、pending/terminal handle inspection及grant end均使用同一认证身份，旧binding不会在同UUID world reload后复活，plugin disable也不会删除host-owned claim。当前route-bound catalog只发布完整空集，等待diamond detector提供真实bindings；Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已公开但尚无生产caller的runtime误称为列车已经使用新授权流程。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
 - **Caller**：SimpleATO只提供冻结路线、列车/观察身份和目标authority；它不提交、解释或枚举具体信号资源。
   Bukkit宿主在同一次准入内调用已认证的route-resource contributor，由信号插件根据通用路线上下文产生附加资源。
@@ -177,10 +177,10 @@ provider，但每次校验都指向已注册的确切world ID；这是迁移期�
 校验入口；当前公开intent仍错误地携带caller additions。迁移批次必须先把这些字段移出intent并由宿主收集认证
 contribution，直接更新全部内部调用方，不保留旧constructor或运行时兼容路径。
 
-### 4.1 目标contributor与provider preparation合同
+### 4.1 当前contributor与provider preparation合同
 
-下一实现批次先把caller additions从ATO intent移到认证contributor，再把通用ticket状态移到
-platform-independent Basic API并由Bukkit注册实际handler：
+caller contributions已经从ATO intent移到认证contributor；通用ticket状态位于platform-independent Basic API，
+Bukkit在同一个resource provider registration中注册实际handler：
 
 ```kotlin
 enum class ResourcePreparationState { PREPARING, READY, ABORTED_SAFE, UNSAFE }

@@ -9,6 +9,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationR
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -47,13 +48,17 @@ public interface InfrastructureLeaseService {
      * Registers the authoritative resolver for one namespaced stable resource type.
      * Only one enabled plugin may provide a type at a time.
      *
+     * <p>{@code preparationHandlers} belongs to the same registration; kind IDs must be unique and
+     * namespaced. Pass an empty collection when this resource type has no delayed preparation.</p>
+     *
      * <p>Closing the returned registration is guarded by the same active-resource check as
      * {@link #unregisterOwner(Plugin)} and may be retried after those routes release the type.</p>
      */
     InfrastructureResourceProviderRegistration registerResourceProvider(
         Plugin pluginOwner,
         String typeId,
-        InfrastructureResourceProvider provider
+        InfrastructureResourceProvider provider,
+        Collection<InfrastructureResourcePreparationHandler> preparationHandlers
     );
 
     /**

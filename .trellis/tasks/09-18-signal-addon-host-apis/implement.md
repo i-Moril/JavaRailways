@@ -164,6 +164,12 @@
     output through the existing resource owners. Provider validation receives contributor identity rather than ATO identity;
     no old intent constructor, requirement type or failure-code alias remains. Contributor membership is frozen while any route
     state exists, and forced contributor loss stalls affected worlds instead of silently weakening later suffix requests.
+  - [x] Expose the existing preparation state/ticket as a platform-neutral Basic API and add provider-owned Bukkit handlers
+    without a second catalog. Each resource type registration owns its unique namespaced handler kinds; pre-claim validation
+    rejects missing kinds, while the post-claim actuator resolves the complete physical/provider batch before its first side
+    effect and aggregates child tickets into the existing pending admission. Provider start/snapshot failure or forced owner
+    loss retains the claim and Stalls; handlers cannot inspect trains/routes or change claims, and no old three-argument
+    registration overload remains. Focused Basic/Bukkit tests and the independent Java consumer cover pending-to-ready flow.
   - [x] Review the internal first-admission and release hot paths: delayed `READY` now rechecks the latest
     coherent observation/topology/occupancy before publishing a grant, while ordinary epoch advancement
     rebinds the grant to the newer stamp. Release keeps one queue plus a head index, avoids empty-world

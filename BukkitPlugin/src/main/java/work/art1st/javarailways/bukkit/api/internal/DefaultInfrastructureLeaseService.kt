@@ -11,6 +11,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
@@ -18,6 +19,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.basic.infrastructure.InfrastructureLeaseRegistry
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
@@ -27,6 +29,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPerm
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourcePreparationHandler
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributor
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
@@ -42,7 +45,11 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     )
 
     private val worlds = linkedMapOf<UUID, WorldRuntime>()
-    private data class ProviderRegistration(val pluginOwner: Plugin, val provider: InfrastructureResourceProvider)
+    private data class ProviderRegistration(
+        val pluginOwner: Plugin,
+        val provider: InfrastructureResourceProvider,
+        val preparationHandlers: Map<String, InfrastructureResourcePreparationHandler>
+    )
     private val resourceProviders = linkedMapOf<String, ProviderRegistration>()
     private class ContributorRegistration(
         val pluginOwner: Plugin,
@@ -87,6 +94,9 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 )
                 validateRouteContribution(plugin, worldId, contribution)
             },
+            resolveContributedPreparation = { resource, descriptor ->
+                resolveContributedPreparation(worldId, resource, descriptor)
+            },
             stallWorld = stallWorld
         )
         synchronized(lock) {
@@ -100,15 +110,28 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     override fun registerResourceProvider(
         pluginOwner: Plugin,
         typeId: String,
-        provider: InfrastructureResourceProvider
+        provider: InfrastructureResourceProvider,
+        preparationHandlers: Collection<InfrastructureResourcePreparationHandler>
     ): InfrastructureResourceProviderRegistration {
         val owner = requireEnabled(pluginOwner)
         // Reuse the public value object's validation instead of maintaining a second typeId grammar.
         StableInfrastructureResource(typeId, "validation")
+        val handlersByKind = LinkedHashMap<String, InfrastructureResourcePreparationHandler>()
+        preparationHandlers.forEach { handler ->
+            val kindId = handler.kindId()
+            ResourcePreparationDescriptor(kindId, emptyMap())
+            check(handlersByKind.putIfAbsent(kindId, handler) == null) {
+                "Duplicate infrastructure preparation handler kind $kindId for $typeId"
+            }
+        }
         synchronized(lock) {
             check(!closed) { "InfrastructureLeaseService is closed" }
             check(typeId !in resourceProviders) { "Infrastructure resource provider already exists for $typeId" }
-            resourceProviders[typeId] = ProviderRegistration(owner, provider)
+            resourceProviders[typeId] = ProviderRegistration(
+                owner,
+                provider,
+                java.util.Collections.unmodifiableMap(LinkedHashMap(handlersByKind))
+            )
         }
         val registrationClosed = AtomicBoolean()
         return InfrastructureResourceProviderRegistration {
@@ -315,10 +338,14 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "resource registration changed during validation"
             )
         }
-        if (validation == null && contribution.preparation != null) {
+        val preparation = contribution.preparation
+        if (validation == null && preparation != null &&
+            preparation.kindId !in registered.preparationHandlers
+        ) {
             return@runInSimulationContext contributionFailure(
                 RouteAdmissionFailureCode.INVALID_PREPARATION,
-                "route-contribution preparation handler is not registered yet"
+                "preparation handler ${preparation.kindId} is not registered for " +
+                    contribution.resource.typeId
             )
         }
         when (validation) {
@@ -330,6 +357,25 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
             else -> contributionFailure(
                 RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "resource owner returned an invalid validation code"
             )
+        }
+    }
+
+    /** Resolves one exact provider handler before the preparation batch starts any side effect. */
+    private fun resolveContributedPreparation(
+        worldId: UUID,
+        resource: StableInfrastructureResource,
+        descriptor: ResourcePreparationDescriptor
+    ): (() -> ResourcePreparationTicket)? {
+        val registered = synchronized(lock) {
+            if (closed || worldId !in worlds) null else resourceProviders[resource.typeId]
+        } ?: return null
+        if (!registered.pluginOwner.isEnabled) return null
+        val handler = registered.preparationHandlers[descriptor.kindId] ?: return null
+        val attemptId = UUID.randomUUID()
+        return {
+            requireNotNull(handler.start(attemptId, worldId, resource, descriptor)) {
+                "preparation handler ${descriptor.kindId} returned no ticket"
+            }
         }
     }
 

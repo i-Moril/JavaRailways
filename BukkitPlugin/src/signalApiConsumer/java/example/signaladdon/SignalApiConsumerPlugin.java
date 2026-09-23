@@ -10,6 +10,7 @@ import work.art1st.javarailways.bukkit.api.rail.RailTargetService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider;
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourcePreparationHandler;
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest;
@@ -19,6 +20,9 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource;
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor;
+import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot;
+import work.art1st.javarailways.basic.api.route.ResourcePreparationState;
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket;
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult;
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
 import work.art1st.javarailways.basic.api.route.RouteBoundary;
@@ -67,13 +71,40 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 public RouteAdmissionFailureCode validateRouteContribution(
                     Plugin contributor, UUID candidateWorld, String resourceId, ResourcePreparationDescriptor preparation
                 ) {
-                    if (contributor != SignalApiConsumerPlugin.this || preparation != null ||
-                        !exists(candidateWorld, resourceId)) {
+                    if (contributor != SignalApiConsumerPlugin.this || !exists(candidateWorld, resourceId)) {
                         return RouteAdmissionFailureCode.INVALID_CONTRIBUTION;
                     }
-                    return null;
+                    return preparation != null &&
+                        preparation.getKindId().equals("example.signaladdon:display")
+                        ? null
+                        : RouteAdmissionFailureCode.INVALID_PREPARATION;
                 }
-            }
+            },
+            List.of(new InfrastructureResourcePreparationHandler() {
+                @Override
+                public String kindId() {
+                    return "example.signaladdon:display";
+                }
+
+                @Override
+                public ResourcePreparationTicket start(
+                    UUID attemptId,
+                    UUID candidateWorld,
+                    StableInfrastructureResource resource,
+                    ResourcePreparationDescriptor descriptor
+                ) {
+                    return new ResourcePreparationTicket() {
+                        @Override
+                        public ResourcePreparationSnapshot snapshot() {
+                            return new ResourcePreparationSnapshot(ResourcePreparationState.READY, "");
+                        }
+
+                        @Override
+                        public void abort() {
+                        }
+                    };
+                }
+            })
         );
         routeContributorRegistration = services.infrastructure().registerRouteResourceContributor(
             this,
@@ -81,7 +112,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 ? List.of(new ContributedRouteResource(
                     new StableInfrastructureResource("example.signaladdon:signal", "home"),
                     intent.getDesiredAuthority(),
-                    null
+                    new ResourcePreparationDescriptor("example.signaladdon:display", java.util.Map.of())
                 ))
                 : List.of()
         );

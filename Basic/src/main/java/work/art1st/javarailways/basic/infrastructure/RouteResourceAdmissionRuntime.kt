@@ -8,6 +8,9 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -124,6 +127,10 @@ class RouteResourceAdmissionRuntime private constructor(
             latestObservation: () -> RailwayObservation?,
             collectContributions: (RouteResourceIntent) -> List<Pair<Any, ContributedRouteResource>>,
             validateContribution: (Any, ContributedRouteResource) -> RouteAdmissionFailure?,
+            resolveContributedPreparation: (
+                StableInfrastructureResource,
+                ResourcePreparationDescriptor
+            ) -> (() -> ResourcePreparationTicket)?,
             stallWorld: (String, Exception) -> Unit
         ): RouteResourceAdmissionRuntime {
             val topology = world.topologyState
@@ -140,7 +147,10 @@ class RouteResourceAdmissionRuntime private constructor(
                 routeBoundResources = catalog,
                 collectContributions = collectContributions,
                 validateContribution = validateContribution,
-                preparationActuator = LiveInfrastructurePreparationActuator(world),
+                preparationActuator = LiveInfrastructurePreparationActuator(
+                    world,
+                    resolveContributedPreparation
+                ),
                 stallWorld = stallWorld
             )
             return RouteResourceAdmissionRuntime({ world.topologyState }, catalog, engine, topology)

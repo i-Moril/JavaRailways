@@ -1,5 +1,9 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot as InfrastructurePreparationSnapshot
+import work.art1st.javarailways.basic.api.route.ResourcePreparationState as InfrastructurePreparationState
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket as InfrastructurePreparationTicket
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf

@@ -1,5 +1,9 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot as InfrastructurePreparationSnapshot
+import work.art1st.javarailways.basic.api.route.ResourcePreparationState as InfrastructurePreparationState
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket as InfrastructurePreparationTicket
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -105,11 +109,13 @@ class RouteResourceAdmissionEngineTest {
         service.failClosedRequesterLoss(requester, "test signal plugin")
         assertEquals(1, stalls.size)
         ticket.state = InfrastructurePreparationState.READY
+        val snapshotsBeforeStalledProgress = ticket.snapshotCalls
         assertEquals(
             RouteAdmissionFailureCode.WORLD_STALLED,
             assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
                 service.progress(requester, pending.handle)).failure.code
         )
+        assertEquals(snapshotsBeforeStalledProgress, ticket.snapshotCalls)
         assertEquals(1, registry.claimSnapshots().size)
     }
 
@@ -810,9 +816,14 @@ class RouteResourceAdmissionEngineTest {
 
     private class MutableTicket(var state: InfrastructurePreparationState = InfrastructurePreparationState.PREPARING) :
         InfrastructurePreparationTicket {
-        override fun snapshot() = InfrastructurePreparationSnapshot(
-            state, if (state == InfrastructurePreparationState.UNSAFE) "device state unknown" else ""
-        )
+        var snapshotCalls = 0
+
+        override fun snapshot(): InfrastructurePreparationSnapshot {
+            snapshotCalls++
+            return InfrastructurePreparationSnapshot(
+                state, if (state == InfrastructurePreparationState.UNSAFE) "device state unknown" else ""
+            )
+        }
         override fun abort() = Unit
     }
 }

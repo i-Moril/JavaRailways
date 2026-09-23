@@ -16,6 +16,8 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
+import work.art1st.javarailways.basic.api.route.ResourcePreparationState
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -80,21 +82,21 @@ internal class RouteResourceAdmissionEngine(
         val newlyControlledResources: Set<StableInfrastructureResource>,
         val topologyRoot: TopologyState,
         val reservation: ReservedDelta,
-        val ticket: InfrastructurePreparationTicket
+        val ticket: ResourcePreparationTicket
     ) {
         fun progress(): RouteAdmissionResult {
+            if (worldStalled) {
+                return rejected(RouteAdmissionFailureCode.WORLD_STALLED,
+                    "world is already stalled; reservation retained")
+            }
             val state = try {
                 ticket.snapshot()
             } catch (failure: Exception) {
                 return stalled(intent, failure, "preparation state could not be read")
             }
-            if (worldStalled) {
-                return rejected(RouteAdmissionFailureCode.WORLD_STALLED,
-                    "world is already stalled; reservation retained")
-            }
             return when (state.state) {
-                InfrastructurePreparationState.PREPARING -> RouteAdmissionResult.Pending(handle, route.committedGrant)
-                InfrastructurePreparationState.READY -> try {
+                ResourcePreparationState.PREPARING -> RouteAdmissionResult.Pending(handle, route.committedGrant)
+                ResourcePreparationState.READY -> try {
                     val observation = latestObservation()
                         ?: error("no coherent observation when preparation became ready")
                     check(observation.stamp.worldId == worldId &&
@@ -151,7 +153,7 @@ internal class RouteResourceAdmissionEngine(
                 } catch (failure: Exception) {
                     stalled(intent, failure, "ready preparation could not publish a grant")
                 }
-                InfrastructurePreparationState.ABORTED_SAFE -> try {
+                ResourcePreparationState.ABORTED_SAFE -> try {
                     if (route.committedGrant != null) {
                         val observation = latestObservation()
                             ?: error("no coherent observation when request safely aborted")
@@ -183,7 +185,7 @@ internal class RouteResourceAdmissionEngine(
                 } catch (failure: Exception) {
                     stalled(intent, failure, "safe request abort could not restore its resources")
                 }
-                InfrastructurePreparationState.UNSAFE -> stalled(
+                ResourcePreparationState.UNSAFE -> stalled(
                     intent, IllegalStateException(state.detail), "resource preparation became unsafe"
                 )
             }

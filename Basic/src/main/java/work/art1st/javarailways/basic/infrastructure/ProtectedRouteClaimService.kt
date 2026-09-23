@@ -8,6 +8,8 @@ import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult
 import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus
 import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest
+import work.art1st.javarailways.basic.api.route.ResourcePreparationState
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import java.util.TreeMap
 
@@ -54,7 +56,7 @@ internal data class ProtectedRouteTailReleaseDispatch(
 internal class ProtectedRouteAdmissionHandle internal constructor(
     private val requestId: String,
     private val owner: InfrastructureOwner,
-    private val preparationTicket: InfrastructurePreparationTicket,
+    private val preparationTicket: ResourcePreparationTicket,
     private val finishReady: () -> ProtectedRouteClaimResult,
     private val finishSafeAbort: (String) -> ProtectedRouteClaimResult,
     private val stallWorld: (String, Exception) -> Unit,
@@ -82,20 +84,20 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
             )
         }
         return when (snapshot.state) {
-            InfrastructurePreparationState.PREPARING -> ProtectedRouteAdmissionProgress.Pending
-            InfrastructurePreparationState.READY -> {
+            ResourcePreparationState.PREPARING -> ProtectedRouteAdmissionProgress.Pending
+            ResourcePreparationState.READY -> {
                 try {
                     finish(finishReady())
                 } catch (failure: Exception) {
                     finishStalled(failure, "$operationName preparation became ready but completion failed")
                 }
             }
-            InfrastructurePreparationState.ABORTED_SAFE -> try {
+            ResourcePreparationState.ABORTED_SAFE -> try {
                 finish(finishSafeAbort(snapshot.detail))
             } catch (failure: Exception) {
                 finishStalled(failure, "$operationName preparation was safe but rollback failed")
             }
-            InfrastructurePreparationState.UNSAFE -> finishStalled(
+            ResourcePreparationState.UNSAFE -> finishStalled(
                 IllegalStateException(snapshot.detail),
                 "infrastructure preparation state is unsafe; claim and rollback reservation retained: ${snapshot.detail}"
             )

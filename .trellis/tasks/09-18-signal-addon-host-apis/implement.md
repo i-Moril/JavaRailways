@@ -127,6 +127,9 @@
   - [x] Implement typed generic admission result and service contracts: opaque process-local pending/grant identities,
     immutable committed-grant snapshots, structurally checked conflict diagnostics, one result type shared by submit/progress and
     the world-local main-thread service boundary. Runtime admission implementation and caller wiring remain later batches.
+  - [x] Add a pure compiled-admission merge for caller additions: validate each addition through a supplied owner check,
+    preserve the physical footprint/preparation, extend rather than shorten a duplicate physical resource's hold, and retain
+    added preparation metadata. Registration, provider dispatch, atomic claim and production caller wiring remain later batches.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.

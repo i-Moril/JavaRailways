@@ -3,7 +3,7 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；当前 `ProtectedRouteRequestValidator` 仍作为保护窗口策略适配器调用它。公开通用 intent contract已在本页冻结，但API、插件附加资源实现和生产caller迁移尚未完成。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能在内存中将经调用方提供的资源所有者校验后的附加项并入同一份编译结果。当前 `ProtectedRouteRequestValidator` 仍作为保护窗口策略适配器调用物理编译器；附加资源注册/校验的实际服务、provider准备派发、公开准入实现和生产caller迁移尚未完成，不能把纯合并测试当作真实申请成功。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
 - **Caller**：SimpleATO提供冻结路线与列车/观察身份；不需要信号策略时由SimpleATO提交无addition的intent，需要插件策略时由该信号插件的认证准入协调器提交同一路线和自己的addition。SimpleATO不冒充插件来源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。
@@ -53,6 +53,8 @@ mandatoryPhysicalFootprint(frozenRoute, requestedRange)
 ```
 
 The union is unique by exact resource identity and is committed once. Occupancy query geometry, preparation requirements and release entries are metadata for validation/operation/lifecycle; none is a second claim footprint.
+
+当前纯合并步骤从已编译的物理footprint复制资源身份与释放元数据，逐项调用由world-local资源owner提供的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint，附加准备descriptor保留为待provider派发的要求；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加descriptor覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间均随本次footprint及additions线性增长（排序释放队列除外）；空additions直接复用原结果。此步骤不验证occupancy、不claim、不让当前仅支持即时道岔的actuator执行新增准备，后续准入服务必须在原子claim前接入真实registration validation并在claim后接入对应provider。
 
 ### 3.3 申请、准备和释放
 

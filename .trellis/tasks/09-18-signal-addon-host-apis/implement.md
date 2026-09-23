@@ -130,6 +130,10 @@
   - [x] Add a pure compiled-admission merge for caller additions: validate each addition through a supplied owner check,
     preserve the physical footprint/preparation, extend rather than shorten a duplicate physical resource's hold, and retain
     added preparation metadata. Registration, provider dispatch, atomic claim and production caller wiring remain later batches.
+  - [x] Reuse the existing Bukkit resource-provider registration for world-aware route-addition validation: lease-only
+    providers deny by default; the resource owner must explicitly approve requester, resource and preparation values,
+    and a disappearing/throwing provider cannot authorize an addition. Non-null preparation is still rejected until
+    a real handler exists; generic admission service wiring remains.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.

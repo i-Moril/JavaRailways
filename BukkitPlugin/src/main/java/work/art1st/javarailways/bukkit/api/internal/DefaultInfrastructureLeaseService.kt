@@ -10,6 +10,9 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationS
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.infrastructure.InfrastructureLeaseRegistry
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
@@ -68,6 +71,79 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         } ?: return false
         return provider.exists(worldId, resource.resourceId)
     }
+
+    /** Pre-claim route-use validation against the same provider registration used by leases. */
+    fun validateRouteAddition(
+        requester: Plugin,
+        worldId: UUID,
+        addition: AdditionalResourceRequirement
+    ): RouteAdmissionFailure? = BukkitThreadGuardBridge.runInSimulationContext {
+        if (!requester.isEnabled) {
+            return@runInSimulationContext additionFailure(
+                RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "requesting plugin is disabled"
+            )
+        }
+        if (synchronized(lock) { closed || worldId !in registries }) {
+            return@runInSimulationContext additionFailure(
+                RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "railway world is not registered"
+            )
+        }
+        val registered = synchronized(lock) {
+            resourceProviders[addition.resource.typeId]
+        } ?: return@runInSimulationContext additionFailure(
+            RouteAdmissionFailureCode.INVALID_ADDITION, "resource type is not registered"
+        )
+        if (!registered.pluginOwner.isEnabled) {
+            return@runInSimulationContext additionFailure(
+                RouteAdmissionFailureCode.INVALID_ADDITION, "resource owner is disabled"
+            )
+        }
+        val validation = try {
+            if (!registered.provider.exists(worldId, addition.resource.resourceId)) {
+                RouteAdmissionFailureCode.INVALID_ADDITION
+            } else {
+                registered.provider.validateRouteAddition(
+                    requester, worldId, addition.resource.resourceId, addition.preparation
+                )
+            }
+        } catch (failure: Exception) {
+            return@runInSimulationContext additionFailure(
+                RouteAdmissionFailureCode.INVALID_ADDITION,
+                "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}"
+            )
+        }
+        if (synchronized(lock) { closed || worldId !in registries }) {
+            return@runInSimulationContext additionFailure(
+                RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "railway world became unavailable during validation"
+            )
+        }
+        if (synchronized(lock) { resourceProviders[addition.resource.typeId] !== registered } ||
+            !registered.pluginOwner.isEnabled
+        ) {
+            return@runInSimulationContext additionFailure(
+                RouteAdmissionFailureCode.INVALID_ADDITION, "resource registration changed during validation"
+            )
+        }
+        if (validation == null && addition.preparation != null) {
+            return@runInSimulationContext additionFailure(
+                RouteAdmissionFailureCode.INVALID_PREPARATION,
+                "route-addition preparation handler is not registered yet"
+            )
+        }
+        when (validation) {
+            null -> null
+            RouteAdmissionFailureCode.INVALID_ADDITION,
+            RouteAdmissionFailureCode.INVALID_PREPARATION -> additionFailure(
+                validation, "resource owner rejected route addition"
+            )
+            else -> additionFailure(
+                RouteAdmissionFailureCode.INVALID_ADDITION, "resource owner returned an invalid validation code"
+            )
+        }
+    }
+
+    private fun additionFailure(code: RouteAdmissionFailureCode, detail: String) =
+        RouteAdmissionFailure(code, detail)
 
     fun removeWorld(worldId: UUID) {
         BukkitThreadGuardBridge.runInSimulationContext {

@@ -13,11 +13,141 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationS
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
+import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import java.lang.reflect.Proxy
 import java.util.UUID
 
 class DefaultInfrastructureLeaseServiceTest {
+    @Test
+    fun `route additions require resource owner authorization beyond lease existence`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("resource-owner")
+        val allowed = plugin("allowed-signal")
+        val denied = plugin("other-signal")
+        val resource = StableInfrastructureResource("example.signal:block", "home")
+        val addition = AdditionalResourceRequirement(resource, RouteBoundary(10.0))
+        val preparation = ResourcePreparationDescriptor("example.signal:prepare", emptyMap())
+        registerWorld(service, worldId)
+        service.registerResourceProvider(owner, resource.typeId, object : InfrastructureResourceProvider {
+            override fun exists(candidateWorld: UUID, resourceId: String) =
+                candidateWorld == worldId && resourceId == "home"
+
+            override fun validateRouteAddition(
+                requester: Plugin,
+                candidateWorld: UUID,
+                resourceId: String,
+                descriptor: ResourcePreparationDescriptor?
+            ): RouteAdmissionFailureCode? {
+                assertTrue(BukkitThreadGuardBridge.isMainThread())
+                assertEquals(worldId, candidateWorld)
+                assertEquals("home", resourceId)
+                return when {
+                    requester !== allowed -> RouteAdmissionFailureCode.INVALID_ADDITION
+                    descriptor != null && descriptor.kindId != preparation.kindId ->
+                        RouteAdmissionFailureCode.INVALID_PREPARATION
+                    else -> null
+                }
+            }
+        })
+
+        assertEquals(null, service.validateRouteAddition(allowed, worldId, addition))
+        assertEquals(
+            RouteAdmissionFailureCode.INVALID_PREPARATION,
+            service.validateRouteAddition(allowed, worldId, addition.copy(preparation = preparation))?.code
+        )
+        assertEquals(
+            RouteAdmissionFailureCode.INVALID_ADDITION,
+            service.validateRouteAddition(denied, worldId, addition)?.code
+        )
+        assertEquals(
+            RouteAdmissionFailureCode.INVALID_ADDITION,
+            service.validateRouteAddition(
+                allowed, worldId,
+                AdditionalResourceRequirement(resource.copy(resourceId = "missing"), RouteBoundary(10.0))
+            )?.code
+        )
+        assertEquals(
+            RouteAdmissionFailureCode.INVALID_PREPARATION,
+            service.validateRouteAddition(
+                allowed, worldId,
+                addition.copy(preparation = ResourcePreparationDescriptor("example.signal:wrong", emptyMap()))
+            )?.code
+        )
+        assertEquals(
+            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            service.validateRouteAddition(allowed, UUID.randomUUID(), addition)?.code
+        )
+        assertTrue(service.liveClaims(worldId).isEmpty())
+    }
+
+    @Test
+    fun `lease-only providers deny route additions and unregister invalidates authorization`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("resource-owner")
+        val requester = plugin("signal")
+        val resource = StableInfrastructureResource("example.signal:block", "home")
+        val addition = AdditionalResourceRequirement(resource, RouteBoundary(10.0))
+        registerWorld(service, worldId)
+        val registration = service.registerResourceProvider(owner, resource.typeId) { _, _ -> true }
+
+        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
+            service.validateRouteAddition(requester, worldId, addition)?.code)
+        registration.close()
+        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
+            service.validateRouteAddition(requester, worldId, addition)?.code)
+        assertTrue(service.liveClaims(worldId).isEmpty())
+    }
+
+    @Test
+    fun `provider failure or removal during validation cannot authorize an addition`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("resource-owner")
+        val requester = plugin("signal")
+        val resource = StableInfrastructureResource("example.signal:block", "home")
+        val addition = AdditionalResourceRequirement(resource, RouteBoundary(10.0))
+        registerWorld(service, worldId)
+        val failing = service.registerResourceProvider(owner, resource.typeId, object : InfrastructureResourceProvider {
+            override fun exists(candidateWorld: UUID, resourceId: String) = true
+
+            override fun validateRouteAddition(
+                requester: Plugin,
+                candidateWorld: UUID,
+                resourceId: String,
+                descriptor: ResourcePreparationDescriptor?
+            ): RouteAdmissionFailureCode? = error("provider failed")
+        })
+        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
+            service.validateRouteAddition(requester, worldId, addition)?.code)
+        failing.close()
+
+        lateinit var registration: InfrastructureResourceProviderRegistration
+        registration = service.registerResourceProvider(owner, resource.typeId, object : InfrastructureResourceProvider {
+            override fun exists(candidateWorld: UUID, resourceId: String) = true
+
+            override fun validateRouteAddition(
+                requester: Plugin,
+                candidateWorld: UUID,
+                resourceId: String,
+                descriptor: ResourcePreparationDescriptor?
+            ): RouteAdmissionFailureCode? {
+                registration.close()
+                return null
+            }
+        })
+        assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
+            service.validateRouteAddition(requester, worldId, addition)?.code)
+        assertTrue(service.liveClaims(worldId).isEmpty())
+    }
+
     @Test
     fun `authoritative provider accepts existing add-on resource and rejects missing or unknown refs`() {
         val service = DefaultInfrastructureLeaseService()

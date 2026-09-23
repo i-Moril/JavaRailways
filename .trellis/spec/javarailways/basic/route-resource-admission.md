@@ -3,7 +3,7 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能在内存中将经调用方提供的资源所有者校验后的附加项并入同一份编译结果。当前 `ProtectedRouteRequestValidator` 仍作为保护窗口策略适配器调用物理编译器；附加资源注册/校验的实际服务、provider准备派发、公开准入实现和生产caller迁移尚未完成，不能把纯合并测试当作真实申请成功。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能在内存中合并经过资源所有者校验的附加项。Bukkit现有资源提供者注册已经增加默认拒绝的进路附加校验，并核对资源存在、请求者和注册生命周期；但此校验尚未由公开准入服务接入合并步骤。当前 `ProtectedRouteRequestValidator` 仍作为保护窗口策略适配器调用物理编译器；provider准备派发、公开准入实现和生产caller迁移尚未完成，不能把各自的组件测试当作真实申请成功。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
 - **Caller**：SimpleATO提供冻结路线与列车/观察身份；不需要信号策略时由SimpleATO提交无addition的intent，需要插件策略时由该信号插件的认证准入协调器提交同一路线和自己的addition。SimpleATO不冒充插件来源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。
@@ -152,6 +152,16 @@ authenticated intent caller与preparation descriptor validation、可选preparat
 它不允许直接修改Basic registry。请求者不必拥有resource type：例如JapaneseSignals可以请求Basic拥有的侧面防护
 道岔，但Basic的turnout registration必须按请求者身份、resource identity与descriptor明确接受，否则返回
 `INVALID_ADDITION`或`INVALID_PREPARATION`。
+
+当前Bukkit适配器复用已有的唯一`typeId → provider`注册表，不另外建立进路资源catalog。注册表跨world保存
+provider，但每次校验都指向已注册的确切world ID；这是迁移期实现，Basic目标中的world-local准入服务仍未完成。
+原`exists(worldId, resourceId)`只证明资源存在，绝不自动许可进路申请。新增的provider进路校验默认拒绝，
+需要资源owner显式检查认证requester、world、resource ID与可选preparation descriptor，返回允许或
+`INVALID_ADDITION`/`INVALID_PREPARATION`。Bukkit在simulation owner执行回调，不在注册表锁内调用provider；
+回调后复查world/registration/owner仍有效，失效或异常一律拒绝且不修改claim。当前只形成待准入服务使用的
+校验入口，尚未把它误称为已经完成的Basic授权或设备准备。由于此注册尚无provider准备执行器，即使owner
+同意，带非空preparation descriptor的附加项目前也返回`INVALID_PREPARATION`；必须先接入真正的准备handler
+并证明其生命周期，才能允许这类请求进入后续claim。
 
 ### 4.1 Result与准备协议
 

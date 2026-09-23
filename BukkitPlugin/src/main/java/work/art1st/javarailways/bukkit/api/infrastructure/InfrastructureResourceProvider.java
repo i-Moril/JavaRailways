@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.api.infrastructure;
 
+import org.bukkit.plugin.Plugin;
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor;
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
+
 import java.util.UUID;
 
 /**
@@ -11,4 +15,20 @@ import java.util.UUID;
 @FunctionalInterface
 public interface InfrastructureResourceProvider {
     boolean exists(UUID worldId, String resourceId);
+
+    /**
+     * Checks one route addition requested by an authenticated plugin. Return {@code null} only
+     * when both the resource use and optional preparation descriptor are allowed. Otherwise
+     * return {@code INVALID_ADDITION} or {@code INVALID_PREPARATION}. This callback is invoked
+     * on the simulation owner before any claim mutation and must be quick and side-effect-free.
+     * The default denies route use; lease existence alone is never route authorization.
+     */
+    default RouteAdmissionFailureCode validateRouteAddition(
+        Plugin requester,
+        UUID worldId,
+        String resourceId,
+        ResourcePreparationDescriptor preparation
+    ) {
+        return RouteAdmissionFailureCode.INVALID_ADDITION;
+    }
 }

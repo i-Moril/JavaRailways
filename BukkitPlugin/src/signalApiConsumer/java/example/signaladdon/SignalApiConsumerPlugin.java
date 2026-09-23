@@ -1,6 +1,7 @@
 package example.signaladdon;
 
 import org.bukkit.Server;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService;
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService;
@@ -8,6 +9,7 @@ import work.art1st.javarailways.bukkit.api.observation.RailwayObservationSubscri
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration;
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
@@ -24,6 +26,8 @@ import work.art1st.javarailways.basic.api.route.ProtectionRegionRef;
 import work.art1st.javarailways.basic.api.route.ProtectionBoundaryDefinition;
 import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition;
 import work.art1st.javarailways.basic.api.route.ProtectionRegionProvider;
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor;
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp;
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
@@ -56,7 +60,23 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         resourceProviderRegistration = services.infrastructure().registerResourceProvider(
             this,
             "example.signaladdon:signal",
-            (candidateWorld, resourceId) -> candidateWorld.equals(worldId) && resourceId.equals("home")
+            new InfrastructureResourceProvider() {
+                @Override
+                public boolean exists(UUID candidateWorld, String resourceId) {
+                    return candidateWorld.equals(worldId) && resourceId.equals("home");
+                }
+
+                @Override
+                public RouteAdmissionFailureCode validateRouteAddition(
+                    Plugin requester, UUID candidateWorld, String resourceId, ResourcePreparationDescriptor preparation
+                ) {
+                    if (requester != SignalApiConsumerPlugin.this || preparation != null ||
+                        !exists(candidateWorld, resourceId)) {
+                        return RouteAdmissionFailureCode.INVALID_ADDITION;
+                    }
+                    return null;
+                }
+            }
         );
         services.observations().latest(worldId).ifPresent(observation -> {
             var request = new InfrastructureLeaseRequest(

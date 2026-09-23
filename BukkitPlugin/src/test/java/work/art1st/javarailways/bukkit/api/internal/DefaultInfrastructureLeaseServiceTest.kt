@@ -88,7 +88,7 @@ class DefaultInfrastructureLeaseServiceTest {
     }
 
     @Test
-    fun `lease-only providers deny route additions and unregister invalidates authorization`() {
+    fun `explicit route denial and unregister prevent authorization`() {
         val service = DefaultInfrastructureLeaseService()
         val worldId = UUID.randomUUID()
         val owner = plugin("resource-owner")
@@ -96,7 +96,7 @@ class DefaultInfrastructureLeaseServiceTest {
         val resource = StableInfrastructureResource("example.signal:block", "home")
         val addition = AdditionalResourceRequirement(resource, RouteBoundary(10.0))
         registerWorld(service, worldId)
-        val registration = service.registerResourceProvider(owner, resource.typeId) { _, _ -> true }
+        val registration = service.registerResourceProvider(owner, resource.typeId, rejectingRouteProvider { _, _ -> true })
 
         assertEquals(RouteAdmissionFailureCode.INVALID_ADDITION,
             service.validateRouteAddition(requester, worldId, addition)?.code)
@@ -154,10 +154,10 @@ class DefaultInfrastructureLeaseServiceTest {
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
         var providerRanInSimulationContext = false
-        val provider = service.registerResourceProvider(plugin, "example.signal:signal") { candidateWorld, id ->
+        val provider = service.registerResourceProvider(plugin, "example.signal:signal", rejectingRouteProvider { candidateWorld, id ->
             providerRanInSimulationContext = BukkitThreadGuardBridge.isMainThread()
             candidateWorld == worldId && id == "home"
-        }
+        })
         registerWorld(service, worldId)
 
         assertEquals(
@@ -188,7 +188,7 @@ class DefaultInfrastructureLeaseServiceTest {
         val worldId = UUID.randomUUID()
         val first = plugin("same-name")
         val second = plugin("same-name")
-        service.registerResourceProvider(first, "example.signal:signal") { _, id -> id == "home" }
+        service.registerResourceProvider(first, "example.signal:signal", rejectingRouteProvider { _, id -> id == "home" })
         registerWorld(service, worldId)
         service.acquireLease(first, worldId, lease("example.signal:plan/main", "example.signal:signal", "home"))
         val edit = service.acquireEditPermit(
@@ -202,7 +202,7 @@ class DefaultInfrastructureLeaseServiceTest {
         )
         // Register a second provider so the edit target has an authoritative identity.
         assertFalse(edit.result().successful)
-        service.registerResourceProvider(first, "example.signal:other") { _, id -> id == "edit-target" }
+        service.registerResourceProvider(first, "example.signal:other", rejectingRouteProvider { _, id -> id == "edit-target" })
         val heldEdit = service.acquireEditPermit(
             first,
             worldId,
@@ -230,7 +230,7 @@ class DefaultInfrastructureLeaseServiceTest {
         val service = DefaultInfrastructureLeaseService()
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
-        service.registerResourceProvider(plugin, "example.signal:signal") { _, _ -> true }
+        service.registerResourceProvider(plugin, "example.signal:signal", rejectingRouteProvider { _, _ -> true })
         registerWorld(service, worldId)
         val decision = service.acquireEditPermit(
             plugin,
@@ -254,7 +254,7 @@ class DefaultInfrastructureLeaseServiceTest {
         service.close()
         service.close()
         assertThrows(IllegalStateException::class.java) {
-            service.registerResourceProvider(plugin, "example.signal:late") { _, _ -> true }
+            service.registerResourceProvider(plugin, "example.signal:late", rejectingRouteProvider { _, _ -> true })
         }
     }
 
@@ -264,7 +264,7 @@ class DefaultInfrastructureLeaseServiceTest {
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
         var currentRevision = 7L
-        service.registerResourceProvider(plugin, "example.signal:signal") { _, _ -> true }
+        service.registerResourceProvider(plugin, "example.signal:signal", rejectingRouteProvider { _, _ -> true })
         service.registerWorld(worldId, { currentRevision }) { resource ->
             resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
@@ -282,7 +282,7 @@ class DefaultInfrastructureLeaseServiceTest {
         val service = DefaultInfrastructureLeaseService()
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
-        service.registerResourceProvider(plugin, "example.signal:signal") { _, _ -> error("provider offline") }
+        service.registerResourceProvider(plugin, "example.signal:signal", rejectingRouteProvider { _, _ -> error("provider offline") })
         registerWorld(service, worldId)
 
         val result = service.acquireLease(
@@ -300,6 +300,17 @@ class DefaultInfrastructureLeaseServiceTest {
         service.registerWorld(worldId, { 7L }) { resource: InfrastructureResource ->
             resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
+    }
+
+    private fun rejectingRouteProvider(exists: (UUID, String) -> Boolean) = object : InfrastructureResourceProvider {
+        override fun exists(worldId: UUID, resourceId: String) = exists.invoke(worldId, resourceId)
+
+        override fun validateRouteAddition(
+            requester: Plugin,
+            worldId: UUID,
+            resourceId: String,
+            descriptor: ResourcePreparationDescriptor?
+        ) = RouteAdmissionFailureCode.INVALID_ADDITION
     }
 
     private fun lease(ownerId: String, typeId: String, resourceId: String) = InfrastructureLeaseRequest(

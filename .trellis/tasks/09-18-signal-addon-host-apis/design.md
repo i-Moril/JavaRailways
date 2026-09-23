@@ -93,8 +93,9 @@ One shared route perception must avoid a second forward scan. A plugin publishes
 
 ## Public service capabilities
 
-Route-admission value names and semantics are now frozen by the Basic owner spec; implementation/package wiring and the
-remaining public surfaces still arrive in separate reviewable batches:
+Route-admission value names and semantics are frozen by the Basic owner spec. The generic request/progress/end service is
+now exposed through an authenticated plugin/world binding on the existing Bukkit infrastructure service; production callers
+and the remaining public surfaces still arrive in separate reviewable batches:
 
 - immutable railway observation subscription/read service;
 - namespaced infrastructure resource registration and validation;

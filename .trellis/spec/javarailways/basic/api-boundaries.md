@@ -24,6 +24,9 @@
 - Basic production不得import Bukkit/Paper/Minecraft；platform side effect只经`TrainOperationGateway`等semantic adapter。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。
+- Bukkit `InfrastructureLeaseService.routeAdmission(plugin, worldId)` 是公开准入service的认证入口：返回值绑定
+  该plugin实例和确切world runtime，所有request/progress/endGrant沿用该身份。plugin disable、service close或
+  world unload后返回`WORLD_UNAVAILABLE`/false；同UUID的新world不能复活旧binding，且失效不能删除host-owned live claim。
 
 代表性platform-independent签名（`Basic/src/main/java/work/art1st/javarailways/basic/api/operation/TrainOperation.kt`）：
 

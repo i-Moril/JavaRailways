@@ -189,4 +189,14 @@ interface RouteResourceAdmissionService {
     /** Reads current or terminal state for a handle created by this same world-local service. */
     @MainThread
     fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult
+
+    /**
+     * Ends host-owned route state after the train tail has released every committed resource.
+     *
+     * Returns false while preparation is pending, resources remain held, [grantId] is unknown, or
+     * the grant belongs to another authenticated service binding. This operation does not force
+     * release infrastructure and is not a plugin-disable cleanup hook.
+     */
+    @MainThread
+    fun endGrant(grantId: RouteGrantId): Boolean
 }

@@ -7,6 +7,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequ
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseSnapshot;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
+import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 
 import java.util.List;
 import java.util.UUID;
@@ -26,6 +27,20 @@ import java.util.UUID;
  * same footprint; adjacent rail intervals do not implicitly claim the node between them.</p>
  */
 public interface InfrastructureLeaseService {
+    /**
+     * Returns the route-resource admission entry point for one plugin and railway world.
+     *
+     * <p>The returned service authenticates every request, handle inspection, and grant end as
+     * {@code pluginOwner}. It becomes unavailable when that plugin is disabled, this host service
+     * closes, or this exact world runtime unloads. A later world runtime with the same UUID does not
+     * revive an old binding. Existing host-owned claims are not released merely because the caller
+     * becomes unavailable.</p>
+     *
+     * @throws IllegalStateException if the plugin is disabled or route admission is not attached
+     *                               for the requested world
+     */
+    RouteResourceAdmissionService routeAdmission(Plugin pluginOwner, UUID worldId);
+
     /**
      * Registers the authoritative resolver for one namespaced stable resource type.
      * Only one enabled plugin may provide a type at a time.
@@ -66,6 +81,10 @@ public interface InfrastructureLeaseService {
     /** Read-only diagnostics for claims created by the protected route-resource service. */
     List<InfrastructureClaimSnapshot> liveClaims(UUID worldId);
 
-    /** Releases every lease, live claim, and edit permit held through this plugin instance. */
+    /**
+     * Removes providers, leases, and edit permits directly owned by this plugin instance.
+     * Host-owned route grants remain protected until their normal physical release and explicit
+     * grant end.
+     */
     void unregisterOwner(Plugin pluginOwner);
 }

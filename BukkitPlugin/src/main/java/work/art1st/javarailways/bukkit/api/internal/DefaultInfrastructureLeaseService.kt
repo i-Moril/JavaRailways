@@ -13,6 +13,11 @@ import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureRes
 import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
+import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
+import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
+import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.infrastructure.InfrastructureLeaseRegistry
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
@@ -24,6 +29,8 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -37,6 +44,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     private val worlds = linkedMapOf<UUID, WorldRuntime>()
     private data class ProviderRegistration(val pluginOwner: Plugin, val provider: InfrastructureResourceProvider)
     private val resourceProviders = linkedMapOf<String, ProviderRegistration>()
+    private val retiredOwners = Collections.newSetFromMap(IdentityHashMap<Plugin, Boolean>())
     private var closed = false
 
     fun registerWorld(
@@ -105,6 +113,55 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                         ?.let { resourceProviders.remove(typeId) }
                 }
             }
+        }
+    }
+
+    override fun routeAdmission(
+        pluginOwner: Plugin,
+        worldId: UUID
+    ): RouteResourceAdmissionService {
+        val requester = requireEnabled(pluginOwner)
+        val worldRuntime = synchronized(lock) {
+            check(!closed) { "InfrastructureLeaseService is closed" }
+            check(requester !in retiredOwners) {
+                "Route admission owner is no longer registered: ${requester.name}"
+            }
+            val runtime = checkNotNull(worlds[worldId]) {
+                "Railway world is not registered: $worldId"
+            }
+            checkNotNull(runtime.routeAdmission) {
+                "Route admission is not attached for world $worldId"
+            }
+            runtime
+        }
+        return BoundRouteAdmissionService(requester, worldId, worldRuntime)
+    }
+
+    private inner class BoundRouteAdmissionService(
+        private val requester: Plugin,
+        private val worldId: UUID,
+        private val boundWorld: WorldRuntime
+    ) : RouteResourceAdmissionService {
+        override fun request(intent: RouteResourceIntent): RouteAdmissionResult =
+            BukkitThreadGuardBridge.runInSimulationContext {
+                admission()?.request(requester, intent) ?: routeAdmissionUnavailable()
+            }
+
+        override fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult =
+            BukkitThreadGuardBridge.runInSimulationContext {
+                admission()?.progress(requester, handle) ?: routeAdmissionUnavailable()
+            }
+
+        override fun endGrant(grantId: RouteGrantId): Boolean =
+            BukkitThreadGuardBridge.runInSimulationContext {
+                admission()?.endGrant(requester, grantId) ?: false
+            }
+
+        private fun admission(): RouteResourceAdmissionRuntime? = synchronized(lock) {
+            if (closed || !requester.isEnabled || requester in retiredOwners ||
+                worlds[worldId] !== boundWorld
+            ) null
+            else boundWorld.routeAdmission
         }
     }
 
@@ -275,6 +332,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         BukkitThreadGuardBridge.runInSimulationContext {
             val snapshot = synchronized(lock) {
                 resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
+                retiredOwners += pluginOwner
                 worlds.values.map(WorldRuntime::registry)
             }
             snapshot.forEach { it.releasePlatformOwner(pluginOwner) }
@@ -287,6 +345,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 if (closed) return@runInSimulationContext
                 closed = true
                 resourceProviders.clear()
+                retiredOwners.clear()
                 worlds.values.toList().also { worlds.clear() }
             }
             snapshot.forEach { runtime ->
@@ -308,5 +367,12 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     private fun unavailable(worldId: UUID) = InfrastructureMutationResult(
         InfrastructureMutationStatus.WORLD_UNAVAILABLE,
         detail = "railway world is not registered: $worldId"
+    )
+
+    private fun routeAdmissionUnavailable() = RouteAdmissionResult.Rejected(
+        RouteAdmissionFailure(
+            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "route admission binding is unavailable"
+        )
     )
 }

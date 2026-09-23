@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.api.internal
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -12,11 +13,16 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequ
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
+import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
@@ -24,16 +30,95 @@ import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.plugin.Plugin as CorePlugin
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.tick.TickManager
+import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
 import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.lang.reflect.Proxy
 import java.util.UUID
 
 class DefaultInfrastructureLeaseServiceTest {
+    @Test
+    fun `bound route service owns authentication lifecycle and host claim`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        val requester = plugin("signal")
+        val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        var observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
+        service.registerWorld(worldId, { topology.revision }) { resource ->
+            resource is RailIntervalResource && resource.railId == railId
+        }
+        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, failure ->
+            throw IllegalStateException("unexpected stall: $reason", failure)
+        }
+        val admission = service.routeAdmission(requester, worldId)
+        val intent = RouteResourceIntent(
+            "test.signal:request/main",
+            InfrastructureOwner("test.signal:route/main", 1L),
+            "train",
+            observation.stamp,
+            RouteSnapshot(
+                "test.signal:route/main",
+                1L,
+                topology.revision,
+                listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
+            ),
+            RouteBoundary(20.0),
+            emptyList()
+        )
+
+        val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            admission.request(intent)).grant
+        assertEquals(1, service.liveClaims(worldId).size)
+        service.unregisterOwner(requester)
+        assertEquals(1, service.liveClaims(worldId).size)
+        assertEquals(
+            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                admission.request(intent)).failure.code
+        )
+        assertThrows(IllegalStateException::class.java) {
+            service.routeAdmission(requester, worldId)
+        }
+
+        observation = routeObservation(worldId, topology.revision, 2L, railId, 21.0, 22.0)
+        service.consumeObservation(worldId, observation)
+        assertTrue(service.liveClaims(worldId).isEmpty())
+        assertFalse(admission.endGrant(grant.grantId))
+
+        var pluginEnabled = true
+        val laterDisabledPlugin = plugin("later-disabled") { pluginEnabled }
+        val disabledBinding = service.routeAdmission(laterDisabledPlugin, worldId)
+        pluginEnabled = false
+        assertEquals(
+            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                disabledBinding.request(intent)).failure.code
+        )
+
+        service.removeWorld(worldId)
+        assertEquals(
+            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                admission.request(intent)).failure.code
+        )
+        service.registerWorld(worldId, { topology.revision }) { false }
+        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { _, _ -> }
+        assertEquals(
+            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                admission.request(intent)).failure.code
+        )
+    }
+
     @Test
     fun `world route admission is attached once consumes the published observation and closes with world`() {
         val service = DefaultInfrastructureLeaseService()
@@ -358,7 +443,34 @@ class DefaultInfrastructureLeaseServiceTest {
     private fun footprint(typeId: String, resourceId: String) =
         InfrastructureFootprint(listOf(StableInfrastructureResource(typeId, resourceId)))
 
-    private fun plugin(name: String): Plugin {
+    private fun routeObservation(
+        worldId: UUID,
+        topologyRevision: Long,
+        epoch: Long,
+        railId: UUID,
+        tail: Double,
+        head: Double
+    ): RailwayObservation {
+        val train = TrainFrameSnapshot.create(
+            trainId = "train",
+            trainName = "train",
+            revision = 1L,
+            physicsEpoch = epoch,
+            speedMetersPerSecond = 0.0,
+            derailed = false,
+            reversed = false,
+            cars = emptyList(),
+            head = RailPositionSnapshot(railId, ViewDirection.AB, head),
+            tail = RailPositionSnapshot(railId, ViewDirection.AB, tail),
+            sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head))
+        )
+        return RailwayObservation.fromCore(
+            worldId.toString(),
+            RailwayWorldFrameSnapshot.create(epoch, topologyRevision, listOf(train))
+        )
+    }
+
+    private fun plugin(name: String, enabled: () -> Boolean = { true }): Plugin {
         lateinit var proxy: Plugin
         proxy = Proxy.newProxyInstance(
             Plugin::class.java.classLoader,
@@ -366,7 +478,7 @@ class DefaultInfrastructureLeaseServiceTest {
         ) { _, method, args ->
             when (method.name) {
                 "getName", "toString" -> name
-                "isEnabled" -> true
+                "isEnabled" -> enabled()
                 "hashCode" -> System.identityHashCode(proxy)
                 "equals" -> proxy === args?.firstOrNull()
                 else -> primitiveDefault(method.returnType)

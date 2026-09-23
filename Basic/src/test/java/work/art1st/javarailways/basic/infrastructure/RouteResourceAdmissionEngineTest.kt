@@ -147,16 +147,23 @@ class RouteResourceAdmissionEngineTest {
             service.request(platformOwner, intent()))
         assertEquals(null, pending.committedGrant)
         assertEquals(1, registry.claimSnapshots().size)
+        assertEquals(RouteAdmissionFailureCode.OWNER_MISMATCH,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                service.progress(Any(), pending.handle)).failure.code)
         assertSame(pending.handle, assertInstanceOf(RouteAdmissionResult.Pending::class.java,
-            service.progress(pending.handle)).handle)
+            service.progress(platformOwner, pending.handle)).handle)
         assertEquals(RouteAdmissionFailureCode.REQUEST_BUSY,
             assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
                 service.request(platformOwner, intent(authority = 40.0))).failure.code)
 
         ticket.state = InfrastructurePreparationState.ABORTED_SAFE
-        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(pending.handle))
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(platformOwner, pending.handle))
         assertEquals(RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE, rejected.failure.code)
-        assertSame(rejected, service.progress(pending.handle))
+        assertEquals(RouteAdmissionFailureCode.OWNER_MISMATCH,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                service.progress(Any(), pending.handle)).failure.code)
+        assertSame(rejected, service.progress(platformOwner, pending.handle))
         assertTrue(registry.claimSnapshots().isEmpty())
 
         ticket.state = InfrastructurePreparationState.READY
@@ -208,14 +215,16 @@ class RouteResourceAdmissionEngineTest {
     fun `pending preparation publishes exactly one grant only after ready`() {
         val ticket = MutableTicket()
         val service = service(InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) })
+        val requester = Any()
         val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
-            service.request(Any(), intent()))
+            service.request(requester, intent()))
         assertEquals(1, registry.claimSnapshots().size)
-        assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.progress(pending.handle))
+        assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.progress(requester, pending.handle))
 
         ticket.state = InfrastructurePreparationState.READY
-        val granted = assertInstanceOf(RouteAdmissionResult.Granted::class.java, service.progress(pending.handle))
-        assertSame(granted, service.progress(pending.handle))
+        val granted = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.progress(requester, pending.handle))
+        assertSame(granted, service.progress(requester, pending.handle))
         assertEquals(1, registry.claimSnapshots().size)
     }
 
@@ -223,12 +232,14 @@ class RouteResourceAdmissionEngineTest {
     fun `ready on a newer safe epoch grants with the current coherent stamp`() {
         val ticket = MutableTicket()
         val service = service(InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) })
-        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.request(Any(), intent()))
+        val requester = Any()
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.request(requester, intent()))
         observation = observation(8L, train("first", 0.0, 1.0, 8L))
 
         ticket.state = InfrastructurePreparationState.READY
         val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.progress(pending.handle)).grant
+            service.progress(requester, pending.handle)).grant
 
         assertEquals(observation.stamp, grant.observationStamp)
         assertInstanceOf(ProtectedRouteTailReleaseUpdate.Active::class.java,
@@ -245,14 +256,17 @@ class RouteResourceAdmissionEngineTest {
             InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
             { _, _ -> stalls++ }
         )
-        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.request(Any(), intent()))
+        val requester = Any()
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.request(requester, intent()))
         observation = observation(8L, train("first", 0.0, 1.0, 8L), train("second", 5.0, 6.0, 8L))
 
         ticket.state = InfrastructurePreparationState.READY
-        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(pending.handle))
+        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(requester, pending.handle))
 
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, failed.failure.code)
-        assertSame(failed, service.progress(pending.handle))
+        assertSame(failed, service.progress(requester, pending.handle))
         assertEquals(1, stalls)
         assertEquals(1, registry.claimSnapshots().size)
         assertTrue(service.consumeObservation(observation).isEmpty())
@@ -268,12 +282,15 @@ class RouteResourceAdmissionEngineTest {
             InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
             { _, _ -> stalls++ }
         )
-        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.request(Any(), intent()))
+        val requester = Any()
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.request(requester, intent()))
         topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         observation = observation(8L, train("first", 0.0, 1.0, 8L))
 
         ticket.state = InfrastructurePreparationState.READY
-        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(pending.handle))
+        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(requester, pending.handle))
 
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, failed.failure.code)
         assertEquals(1, stalls)
@@ -290,11 +307,14 @@ class RouteResourceAdmissionEngineTest {
             InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
             { _, _ -> stalls++ }
         )
-        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.request(Any(), intent()))
+        val requester = Any()
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.request(requester, intent()))
         observation = observation(8L, train("first", 2.0, 3.0, 8L))
 
         ticket.state = InfrastructurePreparationState.READY
-        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(pending.handle))
+        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(requester, pending.handle))
 
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, failed.failure.code)
         assertEquals(1, stalls)
@@ -316,21 +336,25 @@ class RouteResourceAdmissionEngineTest {
             },
             { _, _ -> stalls++ }
         )
+        val unsafeRequester = Any()
+        val readyRequester = Any()
         val unsafe = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
-            service.request(Any(), intent()))
+            service.request(unsafeRequester, intent()))
         val ready = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
-            service.request(Any(), intent(ownerId = "test:route/second", trainId = "second", routeStart = 40.0)))
+            service.request(readyRequester,
+                intent(ownerId = "test:route/second", trainId = "second", routeStart = 40.0)))
         assertEquals(2, registry.claimSnapshots().size)
 
         unsafeTicket.state = InfrastructurePreparationState.UNSAFE
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED,
             assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-                service.progress(unsafe.handle)).failure.code)
+                service.progress(unsafeRequester, unsafe.handle)).failure.code)
         readyTicket.state = InfrastructurePreparationState.READY
-        val blocked = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(ready.handle))
+        val blocked = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(readyRequester, ready.handle))
 
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, blocked.failure.code)
-        assertSame(blocked, service.progress(ready.handle))
+        assertSame(blocked, service.progress(readyRequester, ready.handle))
         assertEquals(1, stalls)
         assertEquals(2, registry.claimSnapshots().size)
         assertTrue(service.consumeObservation(observation).isEmpty())
@@ -351,15 +375,20 @@ class RouteResourceAdmissionEngineTest {
             },
             { _, _ -> stalls++ }
         )
+        val firstRequester = Any()
+        val secondRequester = Any()
         val first = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
-            service.request(Any(), intent()))
+            service.request(firstRequester, intent()))
         val second = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
-            service.request(Any(), intent(ownerId = "test:route/second", trainId = "second", routeStart = 40.0)))
+            service.request(secondRequester,
+                intent(ownerId = "test:route/second", trainId = "second", routeStart = 40.0)))
 
         firstTicket.state = InfrastructurePreparationState.UNSAFE
         secondTicket.state = InfrastructurePreparationState.UNSAFE
-        assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(first.handle))
-        assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(second.handle))
+        assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(firstRequester, first.handle))
+        assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(secondRequester, second.handle))
 
         assertEquals(1, stalls)
         assertEquals(2, registry.claimSnapshots().size)
@@ -375,12 +404,14 @@ class RouteResourceAdmissionEngineTest {
             InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) },
             { _, _ -> stalls++ }
         )
+        val requester = Any()
         val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
-            service.request(Any(), intent()))
+            service.request(requester, intent()))
         ticket.state = InfrastructurePreparationState.UNSAFE
-        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(pending.handle))
+        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(requester, pending.handle))
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, failed.failure.code)
-        assertSame(failed, service.progress(pending.handle))
+        assertSame(failed, service.progress(requester, pending.handle))
         assertEquals(1, stalls)
         assertEquals(1, registry.claimSnapshots().size)
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED,
@@ -435,16 +466,16 @@ class RouteResourceAdmissionEngineTest {
             registry.claimSnapshots().single().footprint.resources.toSet())
         assertFalse(service.endGrant(requester, first.grantId))
         assertEquals(first, assertInstanceOf(RouteAdmissionResult.Pending::class.java,
-            service.progress(pending.handle)).committedGrant)
+            service.progress(requester, pending.handle)).committedGrant)
 
         ticket.state = InfrastructurePreparationState.READY
         val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.progress(pending.handle)).grant
+            service.progress(requester, pending.handle)).grant
         assertSame(first.grantId, extended.grantId)
         assertEquals(RouteBoundary(40.0), extended.committedAuthority)
         assertEquals(observation.stamp, extended.observationStamp)
         assertSame(extended, assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.progress(pending.handle)).grant)
+            service.progress(requester, pending.handle)).grant)
         observation = observation(9L, train("first", 41.0, 42.0, 9L))
         assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
             service.consumeObservation(observation).single())
@@ -475,10 +506,10 @@ class RouteResourceAdmissionEngineTest {
         ticket.state = InfrastructurePreparationState.ABORTED_SAFE
 
         val aborted = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-            service.progress(pending.handle))
+            service.progress(requester, pending.handle))
         assertEquals(RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE, aborted.failure.code)
         assertTrue(registry.claimSnapshots().isEmpty())
-        assertSame(aborted, service.progress(pending.handle))
+        assertSame(aborted, service.progress(requester, pending.handle))
         assertTrue(service.endGrant(requester, first.grantId))
     }
 
@@ -502,7 +533,7 @@ class RouteResourceAdmissionEngineTest {
         assertFalse(service.endGrant(requester, first.grantId))
         ticket.state = InfrastructurePreparationState.READY
         val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.progress(pending.handle)).grant
+            service.progress(requester, pending.handle)).grant
         assertSame(first.grantId, extended.grantId)
         assertEquals(listOf(RailIntervalResource(railId, 20.0, 40.0)),
             registry.claimSnapshots().single().footprint.resources)
@@ -530,7 +561,7 @@ class RouteResourceAdmissionEngineTest {
         assertFalse(service.endGrant(requester, first.grantId))
         ticket.state = InfrastructurePreparationState.READY
         val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
-            service.progress(pending.handle)).grant
+            service.progress(requester, pending.handle)).grant
         assertSame(first.grantId, extended.grantId)
         assertEquals(RouteBoundary(40.0), extended.committedAuthority)
         observation = observation(9L, train("first", 41.0, 42.0, 9L))
@@ -580,7 +611,7 @@ class RouteResourceAdmissionEngineTest {
         ticket.state = InfrastructurePreparationState.UNSAFE
 
         val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-            service.progress(pending.handle))
+            service.progress(requester, pending.handle))
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, rejected.failure.code)
         assertEquals(1, stalls)
         assertEquals(setOf(RailIntervalResource(railId, 0.0, 20.0),
@@ -611,7 +642,7 @@ class RouteResourceAdmissionEngineTest {
         ticket.state = InfrastructurePreparationState.READY
 
         val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
-            service.progress(pending.handle))
+            service.progress(requester, pending.handle))
         assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, rejected.failure.code)
         assertEquals(1, stalls)
         assertEquals(RouteBoundary(20.0), first.committedAuthority)

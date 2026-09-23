@@ -146,6 +146,12 @@
     observation returned after each successful physics ticket before Dispatcher. Physics starts only after
     composition; unload and failed startup close the runtime and registry together. The route-bound catalog is
     complete-empty until diamond bindings exist, and public request/caller/grant-constraint wiring remains.
+  - [x] Expose that world runtime through the existing Bukkit `InfrastructureLeaseService` as one
+    plugin/world-bound `RouteResourceAdmissionService`. Request, pending/terminal progress and explicit
+    grant end all retain the authenticated plugin identity; plugin disable and exact world-runtime
+    replacement invalidate the binding without releasing host-owned train claims. Replace the external
+    compile fixture's superseded protection-region request with the generic route intent. Dispatcher and
+    train-protection consumption remain separate.
   - [x] Review the internal first-admission and release hot paths: delayed `READY` now rechecks the latest
     coherent observation/topology/occupancy before publishing a grant, while ordinary epoch advancement
     rebinds the grant to the newer stamp. Release keeps one queue plus a head index, avoids empty-world

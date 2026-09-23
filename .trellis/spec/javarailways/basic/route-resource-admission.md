@@ -3,7 +3,7 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology/live turnout actuator、认证addition validator和同epoch observation tail-release输入；物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。当前route-bound catalog只发布完整空集，等待diamond detector提供真实bindings；公开准入service、Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已运行但尚无生产caller的runtime误称为列车已经使用新授权流程。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withAdditions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology/live turnout actuator、认证addition validator和同epoch observation tail-release输入；物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。外部插件现可从现有`InfrastructureLeaseService`取得绑定插件身份和确切world runtime的`RouteResourceAdmissionService`；request、pending/terminal handle inspection及grant end均使用同一认证身份，旧binding不会在同UUID world reload后复活，plugin disable也不会删除host-owned claim。当前route-bound catalog只发布完整空集，等待diamond detector提供真实bindings；Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已公开但尚无生产caller的runtime误称为列车已经使用新授权流程。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
 - **Caller**：SimpleATO提供冻结路线与列车/观察身份；不需要信号策略时由SimpleATO提交无addition的intent，需要插件策略时由该信号插件的认证准入协调器提交同一路线和自己的addition。SimpleATO不冒充插件来源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。
@@ -116,6 +116,9 @@ interface RouteResourceAdmissionService {
 
     @MainThread
     fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult
+
+    @MainThread
+    fun endGrant(grantId: RouteGrantId): Boolean
 }
 
 enum class RouteAdmissionFailureCode {
@@ -174,6 +177,9 @@ provider，但每次校验都指向已注册的确切world ID；这是迁移期�
 - `Pending(RouteAdmissionHandle, RouteGrantSnapshot?)`：本次新增资源已保留但准备未完成；尚无committed grant时
   snapshot为null，已有grant时返回仍有效的旧snapshot；
 - `Rejected(RouteAdmissionFailure)`：typed failure；前置校验拒绝不修改资源，准备安全中止只撤销本次新增资源，unsafe或无法证明的设备状态保留保护并Stall。
+
+`endGrant`只结束已经由车尾释放清空、没有pending申请的route state；它不强制释放资源，也不是plugin disable
+cleanup。未知、未清空或不属于该认证service binding的grant返回false。
 
 `RouteAdmissionFailure`必须携带上面一个稳定code、非空诊断detail，以及仅在占用/冲突时出现的immutable blocker
 identity列表；不得用exception class作为公开错误类型。`progress`只读取一个由同一service产生的opaque handle，

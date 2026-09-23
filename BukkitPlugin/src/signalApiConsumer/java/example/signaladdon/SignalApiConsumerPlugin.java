@@ -16,25 +16,20 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
-import work.art1st.javarailways.basic.api.route.DirectedRouteBoundary;
-import work.art1st.javarailways.basic.api.route.ExitClearanceEnvelope;
-import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimResult;
-import work.art1st.javarailways.basic.api.route.ProtectedRouteClaimStatus;
-import work.art1st.javarailways.basic.api.route.ProtectedRouteWindow;
-import work.art1st.javarailways.basic.api.route.ProtectedRouteRequest;
-import work.art1st.javarailways.basic.api.route.ProtectionRegionRef;
-import work.art1st.javarailways.basic.api.route.ProtectionBoundaryDefinition;
-import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition;
-import work.art1st.javarailways.basic.api.route.ProtectionRegionProvider;
+import work.art1st.javarailways.basic.api.route.AdditionalResourceRequirement;
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor;
+import work.art1st.javarailways.basic.api.route.RouteAdmissionResult;
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
+import work.art1st.javarailways.basic.api.route.RouteBoundary;
+import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent;
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp;
-import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Compile-only fixture for an independently built JavaRailways add-on.
@@ -89,13 +84,13 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             var result = services.infrastructure().acquireLease(this, worldId, request);
             getLogger().fine("Infrastructure lease result: " + result.getStatus());
 
-            // Compile the protected-route contract without gaining access to raw live claims.
-            var protectedRoute = protectedRouteExample(observation.getStamp());
-            getLogger().fine("Protected-route request: " + protectedRoute.getRequestId());
-            var regionProvider = protectionRegionProviderExample(
-                protectedRoute.getRoute().getSegments().get(0).getRailId()
-            );
-            getLogger().fine("Protection-region provider: " + regionProvider.getProviderId());
+            // Independent add-ons receive an authenticated, world-bound admission service. The
+            // fixture builds a request but does not submit its synthetic random route at runtime.
+            var routeAdmission = services.infrastructure().routeAdmission(this, worldId);
+            var routeIntent = routeIntentExample(observation.getStamp());
+            Function<RouteResourceIntent, RouteAdmissionResult> requestRoute = routeAdmission::request;
+            getLogger().fine("Route-resource request: " + routeIntent.getRequestId());
+            getLogger().finest("Route-resource submitter: " + requestRoute);
         });
     }
 
@@ -115,7 +110,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         return Objects.requireNonNull(services, "plugin is not enabled");
     }
 
-    private static ProtectedRouteRequest protectedRouteExample(RailwayStateStamp observationStamp) {
+    private static RouteResourceIntent routeIntentExample(RailwayStateStamp observationStamp) {
         var railId = UUID.randomUUID();
         var route = new RouteSnapshot(
             "example.signaladdon:route/main",
@@ -123,62 +118,33 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             observationStamp.getTopologyRevision(),
             List.of(new RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 120.0))
         );
-        var entry = boundary("example.signaladdon:boundary/entry", railId, 20.0);
-        var exit = boundary("example.signaladdon:boundary/exit", railId, 80.0);
-        var clearance = boundary("example.signaladdon:boundary/clear", railId, 100.0);
-        var window = new ProtectedRouteWindow(
-            new ProtectionRegionRef("example.signaladdon:region/throat", 1L),
-            entry,
-            exit,
-            new ExitClearanceEnvelope(clearance)
-        );
-        return new ProtectedRouteRequest(
+        return new RouteResourceIntent(
             "example.signaladdon:request/main",
             new InfrastructureOwner("example.signaladdon:route/main", 1L),
             "example-train",
             observationStamp,
             route,
-            window
+            new RouteBoundary(100.0),
+            List.of(new AdditionalResourceRequirement(
+                new StableInfrastructureResource("example.signaladdon:signal", "home"),
+                new RouteBoundary(100.0),
+                null
+            ))
         );
     }
 
-    private static DirectedRouteBoundary boundary(String id, UUID railId, double metres) {
-        return new DirectedRouteBoundary(
-            id,
-            new RailPositionSnapshot(railId, ViewDirection.AB, metres),
-            metres
-        );
-    }
-
-    private static ProtectionRegionProvider protectionRegionProviderExample(UUID railId) {
-        return new ProtectionRegionProvider() {
-            @Override
-            public String getProviderId() {
-                return "example.signaladdon:regions";
-            }
-
-            @Override
-            public List<ProtectionRegionDefinition> definitions(long topologyRevision) {
-                return List.of(new ProtectionRegionDefinition(
-                    new ProtectionRegionRef("example.signaladdon:region/throat", 1L),
-                    topologyRevision,
-                    List.of(
-                        new ProtectionBoundaryDefinition(
-                            "example.signaladdon:boundary/entry",
-                            new RailPositionSnapshot(railId, ViewDirection.AB, 20.0)
-                        ),
-                        new ProtectionBoundaryDefinition(
-                            "example.signaladdon:boundary/exit",
-                            new RailPositionSnapshot(railId, ViewDirection.BA, 80.0)
-                        )
-                    )
-                ));
-            }
-        };
-    }
-
-    private static boolean requiresProtectionDefinition(ProtectedRouteClaimResult result) {
-        return result.getStatus() == ProtectedRouteClaimStatus.PROTECTION_REQUIRED;
+    /** Compile-only proof of pending inspection and explicit safe grant end. */
+    private static RouteAdmissionResult compileAdmissionLifecycle(
+        RouteResourceAdmissionService admission,
+        RouteAdmissionResult result
+    ) {
+        if (result instanceof RouteAdmissionResult.Pending pending) {
+            return admission.progress(pending.getHandle());
+        }
+        if (result instanceof RouteAdmissionResult.Granted granted) {
+            admission.endGrant(granted.getGrant().getGrantId());
+        }
+        return result;
     }
 
     private static Services loadServices(Server server) {

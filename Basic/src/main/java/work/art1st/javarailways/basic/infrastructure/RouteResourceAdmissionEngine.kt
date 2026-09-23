@@ -41,7 +41,12 @@ internal class RouteResourceAdmissionEngine(
     private val pending = LinkedHashMap<RouteAdmissionHandle, PendingRequest>()
     // A terminal result remains repeatable while its caller retains the process-local handle.
     // Completed attempts without a retained handle must not accumulate for the world's lifetime.
-    private val terminal = java.util.WeakHashMap<RouteAdmissionHandle, RouteAdmissionResult>()
+    private data class TerminalRequest(
+        val requester: Any,
+        val result: RouteAdmissionResult
+    )
+
+    private val terminal = java.util.WeakHashMap<RouteAdmissionHandle, TerminalRequest>()
     private val routes = java.util.TreeMap<String, RouteState>()
     private var worldStalled = false
 
@@ -384,18 +389,27 @@ internal class RouteResourceAdmissionEngine(
         pending[handle] = PendingRequest(handle, intent, route, compiled, deltaEntries,
             physicalResult.controlledResources, topology,
             reservation, (started as InfrastructurePreparationStart.Accepted).ticket)
-        return progress(handle)
+        return progress(requester, handle)
     }
 
     @MainThread
-    fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult {
-        terminal[handle]?.let { return it }
+    fun progress(requester: Any, handle: RouteAdmissionHandle): RouteAdmissionResult {
+        terminal[handle]?.let { completed ->
+            return if (completed.requester === requester) completed.result else rejected(
+                RouteAdmissionFailureCode.OWNER_MISMATCH,
+                "admission handle belongs to another requester"
+            )
+        }
         val attempt = pending[handle]
             ?: return rejected(RouteAdmissionFailureCode.OWNER_MISMATCH, "unknown admission handle")
+        if (attempt.route.requester !== requester) {
+            return rejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
+                "admission handle belongs to another requester")
+        }
         val result = attempt.progress()
         if (result !is RouteAdmissionResult.Pending) {
             pending.remove(handle)
-            terminal[handle] = result
+            terminal[handle] = TerminalRequest(requester, result)
         }
         return result
     }

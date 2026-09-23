@@ -37,8 +37,8 @@ class RouteResourceAdmissionRuntime private constructor(
     }
 
     @MainThread
-    fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult =
-        if (closed) unavailable() else engine.progress(handle)
+    fun progress(requester: Any, handle: RouteAdmissionHandle): RouteAdmissionResult =
+        if (closed) unavailable() else engine.progress(requester, handle)
 
     /** Advances every committed route from one already-published coherent world observation. */
     @MainThread

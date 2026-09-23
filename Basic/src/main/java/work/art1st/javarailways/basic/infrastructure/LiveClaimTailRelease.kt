@@ -54,7 +54,9 @@ internal sealed interface LiveClaimTailReleaseResult {
  * first inspects only the queue's eligible head prefix, then asks the registry to remove those exact
  * resource identities. It knows only already-committed resources; pending extension reservation and
  * preparation belong to the resource-acquisition/live-grant owner. Local queue/progress state changes
- * only after the registry reports the exact expected success status. Invalid progress and unexpected
+ * only after the registry reports the exact expected success status. The compiled queue is retained
+ * with a moving head index, so normal releases never copy or revalidate its remaining suffix.
+ * Invalid progress and unexpected
  * registry results latch the lifecycle fail-closed; the live-grant owner turns that into a world Stall.
  */
 internal class LiveClaimTailRelease(
@@ -65,13 +67,16 @@ internal class LiveClaimTailRelease(
 ) {
     private val lock = Any()
     private var remainingQueue: CompiledTailReleaseQueue? = queue
+    private var headIndex = 0
     private var committedQueueTail: ResolvedTailReleaseEntry = queue.entries.last()
     private var maximumProgress: Double? = null
     private var terminalFailure: LiveClaimTailReleaseResult.FailedClosed? = null
 
     val remainingEntries: List<ResolvedTailReleaseEntry>
         get() = synchronized(lock) {
-            remainingQueue?.entries ?: emptyList()
+            remainingQueue?.entries?.let { entries ->
+                java.util.List.copyOf(entries.subList(headIndex, entries.size))
+            } ?: emptyList()
         }
 
     val maximumAcceptedTailRouteProgressMeters: Double?
@@ -95,9 +100,10 @@ internal class LiveClaimTailRelease(
         validateSuffix(suffix)
 
         val merged = remainingQueue?.let { current ->
-            CompiledTailReleaseQueue(current.entries + suffix.entries)
+            CompiledTailReleaseQueue(current.entries.subList(headIndex, current.entries.size) + suffix.entries)
         } ?: suffix
         remainingQueue = merged
+        headIndex = 0
         committedQueueTail = suffix.entries.last()
     }
 
@@ -150,31 +156,32 @@ internal class LiveClaimTailRelease(
                 )
             }
 
-            val inspection = queue.inspectEligiblePrefix(authoritativeTailRouteProgressMeters)
-            if (inspection is TailReleaseInspectionResult.Rejected) {
-                return@synchronized failClosed(
-                    TailReleaseFailureKind.INVALID_PROGRESS,
-                    inspection.detail
-                )
+            val entries = queue.entries
+            val eligible = ArrayList<InfrastructureResource>()
+            var nextHead = headIndex
+            while (nextHead < entries.size &&
+                authoritativeTailRouteProgressMeters >= entries[nextHead].tailClearRouteMeters
+            ) {
+                eligible += entries[nextHead].resource
+                nextHead++
             }
-            val eligible = (inspection as TailReleaseInspectionResult.Eligible).resources
             if (eligible.isEmpty()) {
                 maximumProgress = authoritativeTailRouteProgressMeters
                 return@synchronized LiveClaimTailReleaseResult.Retained(
                     maximumAcceptedTailRouteProgressMeters = authoritativeTailRouteProgressMeters,
-                    remainingResourceCount = queue.entries.size
+                    remainingResourceCount = entries.size - headIndex
                 )
             }
 
-            val remainingEntries = queue.entries.drop(eligible.size)
-            val expectedStatus = if (remainingEntries.isEmpty()) {
+            val queueCompleted = nextHead == entries.size
+            val expectedStatus = if (queueCompleted) {
                 InfrastructureMutationStatus.RELEASED
             } else {
                 InfrastructureMutationStatus.REPLACED
             }
             val shrink = registry.shrinkClaimWithEvidence(platformOwner, claimOwner, eligible)
             val mutation = shrink.mutation
-            val pendingDeltaKeptClaimAlive = remainingEntries.isEmpty() &&
+            val pendingDeltaKeptClaimAlive = queueCompleted &&
                 mutation.status == InfrastructureMutationStatus.REPLACED && shrink.pendingAppendOnly
             if (mutation.status != expectedStatus && !pendingDeltaKeptClaimAlive) {
                 return@synchronized failClosed(
@@ -188,18 +195,19 @@ internal class LiveClaimTailRelease(
             }
 
             maximumProgress = authoritativeTailRouteProgressMeters
-            if (remainingEntries.isEmpty()) {
+            if (queueCompleted) {
                 remainingQueue = null
+                headIndex = 0
                 return@synchronized LiveClaimTailReleaseResult.Completed(
-                    releasedResources = eligible,
+                    releasedResources = java.util.List.copyOf(eligible),
                     alreadyCompleted = false
                 )
             }
-            remainingQueue = CompiledTailReleaseQueue(remainingEntries)
+            headIndex = nextHead
             LiveClaimTailReleaseResult.Shrunk(
-                releasedResources = eligible,
+                releasedResources = java.util.List.copyOf(eligible),
                 maximumAcceptedTailRouteProgressMeters = authoritativeTailRouteProgressMeters,
-                remainingResourceCount = remainingEntries.size
+                remainingResourceCount = entries.size - headIndex
             )
         }
 

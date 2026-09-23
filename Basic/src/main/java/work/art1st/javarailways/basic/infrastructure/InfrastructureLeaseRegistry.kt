@@ -262,7 +262,8 @@ class InfrastructureLeaseRegistry(
     ): ClaimShrinkResult {
         val requested = resourcesToRelease.toList()
         require(requested.isNotEmpty()) { "resourcesToRelease must not be empty" }
-        require(requested.distinct().size == requested.size) {
+        val releaseSet = requested.toHashSet()
+        require(releaseSet.size == requested.size) {
             "resourcesToRelease contains duplicate resources"
         }
 
@@ -295,9 +296,13 @@ class InfrastructureLeaseRegistry(
                 )
             }
 
-            val releaseSet = requested.toHashSet()
             val heldResources = existing.footprint.resources
-            val missing = requested.firstOrNull { it !in heldResources }
+            val missing = if (requested.size == 1) {
+                requested.firstOrNull { it !in heldResources }
+            } else {
+                val heldSet = heldResources.toHashSet()
+                requested.firstOrNull { it !in heldSet }
+            }
             if (missing != null) {
                 return@synchronized shrinkResult(
                     InfrastructureMutationStatus.NOT_FOUND,

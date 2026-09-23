@@ -48,26 +48,12 @@ internal data class ResolvedTailReleaseEntry(
     }
 }
 
-internal sealed interface TailReleaseInspectionResult {
-    /** Eligible resources in queue order. The queue itself remains unchanged. */
-    data class Eligible(val resources: List<InfrastructureResource>) :
-        TailReleaseInspectionResult
-
-    /** Invalid tail progress fails this inspection closed; no resource is eligible. */
-    data class Rejected(val detail: String) : TailReleaseInspectionResult {
-        init {
-            require(detail.isNotBlank())
-        }
-    }
-}
-
 /**
  * Immutable route-ordered release queue for one compiled claim.
  *
- * Inspection reads only the queue head and its consecutive eligible successors. It never removes
- * entries: the future grant owner must atomically shrink the registry claim first, then replace its
- * retained queue with the remaining suffix. Tail-progress monotonicity belongs to that stateful
- * owner rather than this pure helper.
+ * The grant owner reads eligible entries from its current head, atomically shrinks the registry
+ * claim, and only then advances that head. Tail-progress monotonicity belongs to that stateful
+ * owner rather than this immutable value.
  */
 internal class CompiledTailReleaseQueue(entries: Collection<ResolvedTailReleaseEntry>) {
     val entries: List<ResolvedTailReleaseEntry> = java.util.List.copyOf(entries)
@@ -84,20 +70,5 @@ internal class CompiledTailReleaseQueue(entries: Collection<ResolvedTailReleaseE
         }) {
             "tail release queue must use deterministic compiled tail-clear order"
         }
-    }
-
-    fun inspectEligiblePrefix(tailRouteProgressMeters: Double): TailReleaseInspectionResult {
-        if (!tailRouteProgressMeters.isFinite() || tailRouteProgressMeters < 0.0) {
-            return TailReleaseInspectionResult.Rejected(
-                "tail route progress must be finite and non-negative: $tailRouteProgressMeters"
-            )
-        }
-
-        val eligible = ArrayList<InfrastructureResource>()
-        for (entry in entries) {
-            if (tailRouteProgressMeters < entry.tailClearRouteMeters) break
-            eligible += entry.resource
-        }
-        return TailReleaseInspectionResult.Eligible(java.util.List.copyOf(eligible))
     }
 }

@@ -90,7 +90,7 @@ request不携带可替代Basic推导的raw `InfrastructureFootprint`或可信列
 
 `ProtectedRouteClaimService`现为host-side transitional admission seam，并未替换旧`RouteSectionAllocator`调用者。service消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/READY/ABORTED_SAFE/UNSAFE`，pending admission handle持有claim mutation，只有`READY`才完成claim，只有资源handler确认`ABORTED_SAFE`才删除本次新claim。`abort()`不规定恢复旧状态或默认状态。当前live actuator只处理turnout requirement：它在任何side effect前解析并验证完整的双向selection批次，然后即时写入并返回`READY`；当前内存选择没有虚构的运行时失败或旧selection恢复路径。执行未完成时不会返回成功claim结果，也不存在grant；任一snapshot/actuator异常或`UNSAFE`均保留当前claim reservation并Stall world。当前仍缺目标公开intent、附加资源API、grant/recovery和调用方迁移，因此不得声称自动/`MANUAL_ROUTED`流程已全面迁移。后续迁移必须删除可绕过mandatory physical footprint的automatic overload。
 
-同一个`CompiledRouteAdmission`还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。immutable queue helper从队首返回连续eligible prefix但不自行pop；world-local claim service持有的释放控制器必须先完成registry原子shrink再丢弃该前缀。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；service已有显式observation驱动入口，但尚未自动接入publication。
+同一个`CompiledRouteAdmission`还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。释放控制器从当前队首扫描连续eligible prefix，但不先出队；必须先完成registry原子shrink，再推进队首索引。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；service已有显式observation驱动入口，但尚未自动接入publication。
 
 Registry现已提供internal同步、只减不增的live-claim shrink primitive。调用方提交platform owner、完全匹配的
 `InfrastructureOwner`以及非空、无重复的**准确资源身份**集合；它不是重建一份remaining footprint。registry在
@@ -104,9 +104,9 @@ preparation；删除既有身份不可能产生新冲突。它按`Infrastructure
 另一个仍留在claim中继续保护其覆盖范围。
 
 内部`LiveClaimTailRelease`只拥有当前已提交资源队列的释放状态。它保留registry、platform owner identity、
-完全匹配的`InfrastructureOwner`、immutable remaining queue suffix和已接受的最大authoritative tail route
-progress。每次advance只检查连续eligible prefix；非空prefix先提交给`shrinkClaim`，只有remaining非空得到
-`REPLACED`、remaining为空得到`RELEASED`后，才同时推进最大进度并替换本地queue suffix。仅进度有效但队首未
+完全匹配的`InfrastructureOwner`、一次校验的有序queue及其head index、已接受的最大authoritative tail route
+progress。每次advance从当前head只检查连续eligible prefix；非空prefix先提交给`shrinkClaim`，只有remaining非空得到
+`REPLACED`、remaining为空得到`RELEASED`后，才同时推进最大进度与head index，不重新复制/校验remaining queue。仅进度有效但队首未
 清除时可以单独推进最大进度。非有限/负数、相对已接受值倒退，或任何非预期registry结果都会锁存同一个
 fail-closed结果，本地queue/progress保持原值，后续调用不重试shrink。正常failure result保证claim未变；若
 registry违反预期返回另一种successful status，则可能已经只减了claim，owner仍必须保留本地状态并Stall，不能
@@ -118,7 +118,7 @@ status的诊断情况，而普通failure为false。全部释放后进入幂等co
 live-grant owner可在registry delta已经finalize且全部设备已经READY后，向同一个
 `LiveClaimTailRelease`安装一组committed suffix entries。安装只做本地immutable queue校验：suffix自身非空、
 无重复且有序；首项必须严格位于历史已安装队尾之后；每个tail-clear boundary必须严格晚于当前已接受的最大
-tail progress。全部校验在修改本地状态前完成。原队列仍有资源时合并两个immutable queue；原队列已空时重新
+tail progress。全部校验在修改本地状态前完成。原队列仍有资源时只合并尚未通过head的旧队尾与新suffix；原队列已空时重新
 建立queue。两种情况均不重置最大progress或外层frozen-route cursor。该方法不访问registry、不保存reservation
 handle，也不执行preparation、finalize或rollback。
 

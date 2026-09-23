@@ -61,8 +61,8 @@
   - [x] Verify the same admission path on one genuinely connected two-turnout route inside one protection region: validation emits both stable turnout resources in the canonical footprint, both route-ordered selections, all incident-port occupancy evidence and one ordered release queue. The immediate live actuator resolves the complete batch before its first write; an invalid second turnout leaves the first turnout unchanged, while success aligns both. No production change or single-turnout special case was required.
 - [ ] Release/recovery: tail-clear queue, atomic footprint shrink, provider-disable and reload fail-closed behavior.
   - [x] Compile one immutable tail-clear queue entry per claimed resource in the same validation
-    pass and add a pure head-prefix inspector. It never pops before a future registry shrink;
-    explicit clearance-margin source, grant integration, provider-disable and reload recovery remain.
+    pass; the live release owner now scans the head prefix and advances it only after registry shrink.
+    Explicit clearance-margin source, grant integration, provider-disable and reload recovery remain.
   - [x] Add an internal synchronous removal-only registry shrink that atomically removes exact
     resource identities while preserving the remaining claim order and logical owner revision.
   - [x] Connect queue prefix inspection and exact registry shrink through one internal live-claim
@@ -140,6 +140,12 @@
     transitions, host-held claim ownership after requester unload and physical tail release.
     It is not the public service: extension, production
     route-bound catalog publication, authenticated Bukkit provider binding and caller migration remain.
+  - [x] Review the internal first-admission and release hot paths: delayed `READY` now rechecks the latest
+    coherent observation/topology/occupancy before publishing a grant, while ordinary epoch advancement
+    rebinds the grant to the newer stamp. Release keeps one queue plus a head index, avoids empty-world
+    train indexing and redundant linear membership checks, and retains tests for sequential release and
+    suffix installation. Registry shrink still copies its immutable footprint; worst-case repeated
+    single-resource release remains quadratic and is not represented as solved.
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.
@@ -149,8 +155,8 @@
 - [ ] Remove turnout-derived protection-point synthesis from route compilation. Concrete signal plugins decide whether their configuration is complete; Basic always retains the physical-resource floor.
 - [ ] Centralize turnout mutation and add the physical-lock/active-claim checked manual operation that produces no automatic authority.
 - [ ] Replace turnout-derived release assumptions with generic per-resource hold boundaries and physical clear envelopes.
-  - [x] Add internal generic tail-clear queue metadata and immutable eligible-prefix inspection
-    without per-resource occupancy state or live-claim mutation.
+  - [x] Add internal generic tail-clear queue metadata without per-resource occupancy state;
+    eligible-prefix inspection now belongs to the live release owner.
   - [x] Add exact-identity atomic live-claim shrink without topology revalidation, conflict lookup,
     preparation changes, or public API changes.
   - [x] Add the internal tail-release lifecycle owner that performs shrink-before-pop, preserves

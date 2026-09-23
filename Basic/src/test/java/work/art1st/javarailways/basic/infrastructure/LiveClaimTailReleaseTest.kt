@@ -12,6 +12,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationS
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import java.util.UUID
 
 class LiveClaimTailReleaseTest {
@@ -94,6 +95,27 @@ class LiveClaimTailReleaseTest {
     }
 
     @Test
+    fun `many sequential releases advance only the queue head and retain ordered suffix`() {
+        val resources = (1..64).map { StableInfrastructureResource("test:release", "segment/$it") }
+        val fixture = fixture(resources.mapIndexed { index, resource -> entry(resource, (index + 1).toDouble()) })
+
+        resources.forEachIndexed { index, resource ->
+            val update = fixture.release.advance((index + 1).toDouble())
+            if (index == resources.lastIndex) {
+                assertEquals(listOf(resource),
+                    assertInstanceOf(LiveClaimTailReleaseResult.Completed::class.java, update).releasedResources)
+            } else {
+                val shrunk = assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, update)
+                assertEquals(listOf(resource), shrunk.releasedResources)
+                assertEquals(resources.size - index - 1, shrunk.remainingResourceCount)
+                assertEquals(resources.drop(index + 1), fixture.release.remainingEntries.map { it.resource })
+                assertEquals(resources.drop(index + 1), fixture.singleClaim().footprint.resources)
+            }
+        }
+        assertTrue(fixture.registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
     fun `committed suffix appends to the active queue and releases in the same order`() {
         val first = interval(0.0, 10.0)
         val suffixResource = interval(20.0, 30.0)
@@ -121,6 +143,26 @@ class LiveClaimTailReleaseTest {
             LiveClaimTailReleaseResult.Completed::class.java,
             fixture.release.advance(20.0)
         )
+    }
+
+    @Test
+    fun `suffix append after partial release keeps only the unpassed queue tail`() {
+        val first = interval(0.0, 10.0)
+        val second = interval(10.0, 20.0)
+        val suffix = interval(20.0, 30.0)
+        val fixture = fixture(listOf(entry(first, 10.0), entry(second, 20.0)))
+        assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, fixture.release.advance(10.0))
+        val append = fixture.registry.beginAppendClaim(
+            platformOwner, claimOwner, topologyRevision = 8L, deltaResources = listOf(suffix)
+        )
+        assertTrue(fixture.registry.completeClaimAppend(append))
+
+        fixture.release.installCommittedSuffix(listOf(entry(suffix, 30.0)))
+
+        assertEquals(listOf(second, suffix), fixture.release.remainingEntries.map { it.resource })
+        assertEquals(listOf(second, suffix), fixture.singleClaim().footprint.resources)
+        assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, fixture.release.advance(20.0))
+        assertInstanceOf(LiveClaimTailReleaseResult.Completed::class.java, fixture.release.advance(30.0))
     }
 
     @Test

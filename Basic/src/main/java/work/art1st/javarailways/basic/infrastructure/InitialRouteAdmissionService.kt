@@ -34,7 +34,9 @@ internal class InitialRouteAdmissionService(
 ) {
     private val physicalCompiler = PhysicalRouteResourceCompiler(routeBoundResources)
     private val pending = LinkedHashMap<RouteAdmissionHandle, PendingAdmission>()
-    private val terminal = LinkedHashMap<RouteAdmissionHandle, RouteAdmissionResult>()
+    // A terminal result remains repeatable while its caller retains the process-local handle.
+    // Completed attempts without a retained handle must not accumulate for the world's lifetime.
+    private val terminal = java.util.WeakHashMap<RouteAdmissionHandle, RouteAdmissionResult>()
     private val live = java.util.TreeMap<String, LiveGrant>()
     private val activeOwnerIds = HashSet<String>()
     private var worldStalled = false
@@ -51,7 +53,7 @@ internal class InitialRouteAdmissionService(
         val intent: RouteResourceIntent,
         val mutation: InfrastructureLeaseRegistry.ClaimMutation,
         val compiled: CompiledRouteAdmission,
-        val cursor: RouteProgressCursor,
+        val topologyRoot: TopologyState,
         val ticket: InfrastructurePreparationTicket
     ) {
         fun progress(): RouteAdmissionResult {
@@ -63,21 +65,46 @@ internal class InitialRouteAdmissionService(
             return when (state.state) {
                 InfrastructurePreparationState.PREPARING -> RouteAdmissionResult.Pending(handle, null)
                 InfrastructurePreparationState.READY -> {
+                    if (worldStalled) {
+                        return rejected(RouteAdmissionFailureCode.WORLD_STALLED,
+                            "world is already stalled; prepared claim retained")
+                    }
                     try {
+                        // Preparation may span physics epochs. Keep the reservation until the
+                        // current coherent frame proves that the original route is still safe.
+                        val observation = latestObservation()
+                            ?: error("no coherent observation when preparation became ready")
+                        check(observation.stamp.worldId == worldId &&
+                            observation.stamp.physicsEpoch >= intent.observationStamp.physicsEpoch &&
+                            observation.stamp.topologyRevision == topologyRoot.revision &&
+                            currentTopology() === topologyRoot
+                        ) { "route topology or observation changed during preparation" }
+                        val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
+                            ?: error("train disappeared during preparation")
+                        val initialized = compiled.routeProgressPath.initializeCursor(train.tail)
+                        check(initialized is RouteProgressCursorInitialization.Initialized) {
+                            "train tail no longer starts at the frozen route"
+                        }
+                        check(observation.occupancy.blockingTrainIds(
+                            compiled.occupancyGeometry.intervals, intent.trainId
+                        ).isEmpty()) { "another train entered the prepared route" }
+                        check(currentTopology() === topologyRoot &&
+                            latestObservation()?.stamp == observation.stamp
+                        ) { "topology or observation changed while checking prepared route" }
+                        check(!worldStalled) { "world stalled while checking prepared route" }
                         check(registry.completeClaimMutation(mutation)) { "claim reservation disappeared" }
                         val snapshot = RouteGrantSnapshot(
                             RouteGrantId(), intent.owner, intent.trainId, intent.route.routeId,
-                            intent.route.revision, intent.observationStamp, intent.desiredAuthority
+                            intent.route.revision, observation.stamp, intent.desiredAuthority
                         )
                         val release = ProtectedRouteTailRelease(
                             worldId, intent.route.topologyRevision, intent.trainId,
-                            intent.observationStamp.physicsEpoch, cursor,
+                            observation.stamp.physicsEpoch, initialized.cursor,
                             LiveClaimTailRelease(
                                 registry, hostClaimOwner, intent.owner,
                                 CompiledTailReleaseQueue(compiled.tailReleaseEntries)
                             ), { reason, failure ->
-                                worldStalled = true
-                                stallWorld(reason, failure)
+                                markWorldStalled(reason, failure)
                             }
                         )
                         live[intent.owner.ownerId] = LiveGrant(requester, snapshot, release)
@@ -153,6 +180,10 @@ internal class InitialRouteAdmissionService(
                 result.detail
             )
         }
+        val initialized = physical.routeProgressPath.initializeCursor(train.tail)
+        if (initialized !is RouteProgressCursorInitialization.Initialized) {
+            return rejected(RouteAdmissionFailureCode.INVALID_ROUTE, "frozen route does not start at train tail")
+        }
         val merged = try {
             physical.withAdditions(intent.additionalResources) { addition ->
                 validateAddition(requester, addition)
@@ -164,10 +195,6 @@ internal class InitialRouteAdmissionService(
         val compiled = when (val result = merged) {
             is RouteAdditionsCompilation.Compiled -> result.admission
             is RouteAdditionsCompilation.Rejected -> return RouteAdmissionResult.Rejected(result.failure)
-        }
-        val initialized = compiled.routeProgressPath.initializeCursor(train.tail)
-        if (initialized !is RouteProgressCursorInitialization.Initialized) {
-            return rejected(RouteAdmissionFailureCode.INVALID_ROUTE, "frozen route does not start at train tail")
         }
         val blockers = observation.occupancy.blockingTrainIds(compiled.occupancyGeometry.intervals, intent.trainId)
         if (blockers.isNotEmpty()) {
@@ -202,7 +229,7 @@ internal class InitialRouteAdmissionService(
             }
         }
         val handle = RouteAdmissionHandle()
-        pending[handle] = PendingAdmission(handle, requester, intent, mutation, compiled, initialized.cursor,
+        pending[handle] = PendingAdmission(handle, requester, intent, mutation, compiled, topology,
             (started as InfrastructurePreparationStart.Accepted).ticket)
         return progress(handle)
     }
@@ -223,6 +250,7 @@ internal class InitialRouteAdmissionService(
     /** One already-published observation drives only committed grants, not pending attempts. */
     @MainThread
     fun consumeObservation(observation: RailwayObservation): List<ProtectedRouteTailReleaseUpdate> {
+        if (live.isEmpty()) return emptyList()
         val trains = observation.trains.associateBy { it.trainId }
         val updates = ArrayList<ProtectedRouteTailReleaseUpdate>(live.size)
         for (grant in live.values) {
@@ -264,9 +292,14 @@ internal class InitialRouteAdmissionService(
     }
 
     private fun stalled(intent: RouteResourceIntent, cause: Exception, detail: String): RouteAdmissionResult {
-        worldStalled = true
-        stallWorld("route admission ${intent.requestId}: $detail; safest claim retained", cause)
+        markWorldStalled("route admission ${intent.requestId}: $detail; safest claim retained", cause)
         return rejected(RouteAdmissionFailureCode.WORLD_STALLED, detail)
+    }
+
+    private fun markWorldStalled(reason: String, cause: Exception) {
+        if (worldStalled) return
+        worldStalled = true
+        stallWorld(reason, cause)
     }
 
     private fun rejected(code: RouteAdmissionFailureCode, detail: String) =

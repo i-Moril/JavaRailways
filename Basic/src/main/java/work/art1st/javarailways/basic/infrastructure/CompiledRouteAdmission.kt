@@ -127,7 +127,8 @@ internal class CompiledRouteAdmission private constructor(
             require(uniqueResourceCount == immutablePreparations.size) {
                 "validated route claim contains duplicate preparation resources"
             }
-            require(immutablePreparations.all { it.resource in resources.resources }) {
+            val claimedResources = resources.resources.toHashSet()
+            require(immutablePreparations.all { it.resource in claimedResources }) {
                 "every infrastructure preparation must be represented in the claim footprint"
             }
             require(immutableTailReleaseEntries.isNotEmpty()) {
@@ -137,7 +138,7 @@ internal class CompiledRouteAdmission private constructor(
             require(releasedResources.size == releasedResources.distinct().size) {
                 "each claimed resource must appear in release metadata exactly once"
             }
-            require(releasedResources.toSet() == resources.resources.toSet()) {
+            require(releasedResources.toSet() == claimedResources) {
                 "release metadata must cover the complete claim footprint exactly once"
             }
             require(immutableTailReleaseEntries.zipWithNext().all { (first, second) ->

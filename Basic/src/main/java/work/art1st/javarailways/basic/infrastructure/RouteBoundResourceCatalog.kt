@@ -150,7 +150,7 @@ internal class RouteBoundResourceCatalog(
             if (binding.anchors.isEmpty()) {
                 return SnapshotBuild.Rejected("route-bound resource ${binding.resource} has no anchors")
             }
-            if (binding.resource.typeId == DIAMOND_TYPE_ID &&
+            if (binding.resource.typeId == PhysicalTopologyResources.DIAMOND_TYPE_ID &&
                 (binding.anchors.size != 2 || binding.anchors.distinct().size != 2)
             ) {
                 return SnapshotBuild.Rejected(
@@ -287,7 +287,4 @@ internal class RouteBoundResourceCatalog(
         data class Rejected(val detail: String) : SnapshotBuild
     }
 
-    private companion object {
-        const val DIAMOND_TYPE_ID = "javarailways:diamond"
-    }
 }

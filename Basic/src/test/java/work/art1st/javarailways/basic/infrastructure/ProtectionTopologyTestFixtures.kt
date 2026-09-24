@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.infrastructure
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -22,7 +23,8 @@ internal fun lineTopologyState(revision: Long, vararg railIds: UUID): TopologySt
 internal fun topologyState(
     revision: Long,
     railIds: Collection<UUID>,
-    connections: Collection<Pair<RailEndpointRef, RailEndpointRef>>
+    connections: Collection<Pair<RailEndpointRef, RailEndpointRef>>,
+    atGradeCrossings: List<AtGradeRailCrossing> = emptyList()
 ): TopologyState {
     val continuations = linkedMapOf<RailEndpointRef, MutableSet<RailEndpointRef>>()
     connections.forEach { (first, second) ->
@@ -32,7 +34,8 @@ internal fun topologyState(
     return buildTestTopology(
         revision = revision,
         rails = railIds.map { TestTopologyRail(it, 10.0) },
-        continuations = continuations
+        continuations = continuations,
+        atGradeCrossings = atGradeCrossings
     )
 }
 

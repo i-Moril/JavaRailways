@@ -37,6 +37,8 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
+import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
@@ -50,6 +52,55 @@ import java.lang.reflect.Proxy
 import java.util.UUID
 
 class DefaultInfrastructureLeaseServiceTest {
+    @Test
+    fun `Basic-owned diamond is claimable without an external resource provider`() {
+        val service = DefaultInfrastructureLeaseService()
+        val worldId = UUID.randomUUID()
+        val firstRail = UUID(0L, 1L)
+        val secondRail = UUID(0L, 2L)
+        val requester = plugin("ato")
+        val topology = buildTestTopology(
+            revision = 7L,
+            rails = listOf(TestTopologyRail(firstRail, 100.0), TestTopologyRail(secondRail, 100.0)),
+            continuations = emptyMap(),
+            atGradeCrossings = listOf(
+                AtGradeRailCrossing(
+                    RailCrossingPoint(firstRail, 10.0),
+                    RailCrossingPoint(secondRail, 20.0)
+                )
+            )
+        )
+        val observation = routeObservation(worldId, topology.revision, 1L, firstRail, 0.0, 1.0)
+        service.registerWorld(worldId, { topology.revision }) { resource ->
+            resource is RailIntervalResource && resource.railId in setOf(firstRail, secondRail) ||
+                resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
+        }
+        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, failure ->
+            throw IllegalStateException("unexpected stall: $reason", failure)
+        }
+
+        val result = service.routeAdmission(requester, worldId).request(
+            RouteResourceIntent(
+                "test.ato:request/diamond",
+                InfrastructureOwner("test.ato:route/diamond", 1L),
+                "train",
+                observation.stamp,
+                RouteSnapshot(
+                    "test.ato:route/diamond",
+                    1L,
+                    topology.revision,
+                    listOf(RouteSegmentSnapshot(firstRail, ViewDirection.AB, 0.0, 100.0))
+                ),
+                RouteBoundary(20.0)
+            )
+        )
+
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java, result)
+        assertTrue(service.liveClaims(worldId).single().footprint.resources.any { resource ->
+            resource is StableInfrastructureResource && resource.typeId == "javarailways:diamond"
+        })
+    }
+
     @Test
     fun `normal unregister rejects active route resources and accepts an empty route state`() {
         val service = DefaultInfrastructureLeaseService()

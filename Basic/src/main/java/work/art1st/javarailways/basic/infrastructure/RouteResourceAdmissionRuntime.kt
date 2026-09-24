@@ -29,14 +29,27 @@ class RouteResourceAdmissionRuntime private constructor(
     initialTopology: TopologyState
 ) : AutoCloseable {
     private var catalogTopology = initialTopology
+    private var physicalResources: Set<StableInfrastructureResource> = emptySet()
     private var closed = false
+
+    init {
+        publishPhysicalResources(initialTopology)
+    }
 
     /** Handles both the first authority request and farther authority on the same frozen route. */
     @MainThread
     fun request(requester: Any, intent: RouteResourceIntent): RouteAdmissionResult {
         if (closed) return unavailable()
-        refreshEmptyRouteBoundCatalog()
+        refreshPhysicalResources()
         return engine.request(requester, intent)
+    }
+
+    /** Validates Basic-owned turnout/diamond identities without requiring an external provider. */
+    @MainThread
+    fun physicalResourceExists(resource: StableInfrastructureResource): Boolean {
+        if (closed) return false
+        refreshPhysicalResources()
+        return resource in physicalResources
     }
 
     @MainThread
@@ -98,18 +111,19 @@ class RouteResourceAdmissionRuntime private constructor(
         closed = true
     }
 
-    /**
-     * Until route-bound diamond resources have a production publisher, the complete catalog is
-     * empty. Republish that complete-empty snapshot after a topology edit instead of leaving every
-     * later request permanently bound to the old topology root.
-     */
-    private fun refreshEmptyRouteBoundCatalog() {
+    private fun refreshPhysicalResources() {
         val topology = currentTopology()
         if (topology === catalogTopology) return
-        check(routeBoundResources.publish(topology, emptyList()) is RouteBoundResourceCatalogUpdate.Published) {
-            "complete-empty route-bound resource catalog could not follow the current topology"
-        }
+        publishPhysicalResources(topology)
         catalogTopology = topology
+    }
+
+    private fun publishPhysicalResources(topology: TopologyState) {
+        val bindings = PhysicalTopologyResources.routeBoundBindings(topology)
+        check(routeBoundResources.publish(topology, bindings) is RouteBoundResourceCatalogUpdate.Published) {
+            "physical route-bound resource catalog could not follow the current topology"
+        }
+        physicalResources = PhysicalTopologyResources.controlledResources(topology, bindings)
     }
 
     private fun unavailable() = RouteAdmissionResult.Rejected(
@@ -135,9 +149,6 @@ class RouteResourceAdmissionRuntime private constructor(
         ): RouteResourceAdmissionRuntime {
             val topology = world.topologyState
             val catalog = RouteBoundResourceCatalog { world.topologyState }
-            check(catalog.publish(topology, emptyList()) is RouteBoundResourceCatalogUpdate.Published) {
-                "initial complete-empty route-bound resource catalog could not be published"
-            }
             val engine = RouteResourceAdmissionEngine(
                 worldId = worldId,
                 registry = registry,

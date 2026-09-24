@@ -8,7 +8,7 @@
 
 ## Owner、类型与 transaction
 
-- `CoreWorld`拥有rail map、`RailSpatialIndex`、`ReentrantReadWriteLock`。
+- `CoreWorld`拥有rail map、`RailSpatialIndex`、增量`AtGradeRailCrossingIndex`与`ReentrantReadWriteLock`。两份索引共享curve真实piecewise-linear断点，不用`stream()`的1m直线虚拟点；spatial index沿相邻断点的线段填充cell，而不只记录断点所在cell。交叉检测从相同/相邻cell取候选后仍须做三维exact segment检查，并只在专用20 cm平交容差内发布近似交点；该常量不改变`Curve.TOLERANCE`或普通连接/occupancy容差。
 - `CoreRail`拥有canonical curve与AB/BA views；迁移期间`RailView.nextRails`是Core内部physical connection编辑模型，发布给consumer的authoritative连通结构是同一transaction产生的`TopologyState`；`nextActiveRail`是runtime selected branch，不进入structural state。
 - Basic `allowedDirection`/route allocation不是Core physical topology。
 - structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先await current `PhysicsTicket`，再持write lock；expensive curve build在transaction外。
@@ -69,6 +69,7 @@ state = when {
 - consumer从`RailwayWorldFrameSnapshot.trains`重复建立另一份全world occupancy index；
 - release时强制把turnout切回旧branch；
 - `getNearestRail`在main/per-Tick调用；coarse index候选仍须exact check。
+- 把spatial cell共享直接当作diamond，或在route request/per-Tick重新扫描rail geometry；cell只做structural-edit broad phase。
 
 ## 必需测试与验证
 

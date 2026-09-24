@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.physics.rail.topology
 
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
@@ -9,7 +10,11 @@ import java.util.UUID
 
 /** Captures the mutable Core rail model exactly; the builder rejects incomplete connectivity. */
 internal object CoreTopologyInputAdapter {
-    fun capture(revision: Long, sourceRails: Collection<CoreRail>): TopologyInput {
+    fun capture(
+        revision: Long,
+        sourceRails: Collection<CoreRail>,
+        atGradeCrossings: List<AtGradeRailCrossing> = emptyList()
+    ): TopologyInput {
         val railsById = sourceRails.associateByUniqueId()
         val continuations = linkedMapOf<RailEndpointRef, MutableSet<RailEndpointRef>>()
 
@@ -32,7 +37,8 @@ internal object CoreTopologyInputAdapter {
             rails = railsById.values.map { rail ->
                 TopologyInputRail(rail.id, rail.curve.totalArcLength)
             },
-            continuations = continuations.mapValues { (_, targets) -> targets.toSet() }
+            continuations = continuations.mapValues { (_, targets) -> targets.toSet() },
+            atGradeCrossings = atGradeCrossings
         )
     }
 

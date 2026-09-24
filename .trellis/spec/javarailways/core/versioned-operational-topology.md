@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`PARTIAL`；已有revision-scoped public read-only `TopologyState`、纯归一化构建器及`CoreWorld`原子publication；通用edge-distance查询层与全部结构编辑入口封装尚未完成。
+- **Status**：`PARTIAL`；已有revision-scoped public read-only `TopologyState`、纯归一化构建器、平交观测及`CoreWorld`原子publication；通用edge-distance查询层与全部结构编辑入口封装尚未完成。
 - **Owner**：Core/host拥有物理结构、归一化索引及其publication；外部模块只能消费指定revision。
 - **Non-goals**：本页不定义运营overlay、选路策略、资源身份/claim、信号规则或持久化schema。
 
@@ -33,7 +33,9 @@ rail structural transaction
 
 从每个结构节点的尚未访问port开始，按唯一continuation连续行走，直到下一个结构节点；沿途按行进次序记录`RailSliceRef(railId,startAb,endAb)`并形成一个`TrackEdge`。每个物理rail slice必须被恰好一个edge覆盖；重复、遗漏、断裂或方向不相容使candidate无效。若一个连通分量全部是二度连接而没有结构节点，构建器选择一个可确定重建的anchor再执行同样遍历，避免产生无端点edge。
 
-At-grade diamond即使由外部资源层检测并绑定，也不改变物理continuation：空间相交不产生跨线连接，不成为结构节点，也不切分edge。任何外部binding若引用rail slices，必须针对一个确切`TopologyState`解析；rail删除或移动后旧引用失效，不能由Core在图中隐式补出连接。
+At-grade diamond不改变物理continuation：空间相交不产生跨线连接，不成为结构节点，也不切分edge。Core在rail加入/替换时先从`RailSpatialIndex`相同或相邻cell取得候选rail，再把两条curve的有序采样点视为其实际分段线性几何，对候选segment pair执行clamped closest-points计算。索引遍历所有通过AABB筛选的segment pair，包括平行pair，并为每一rail pair只保留三维距离最小的P/Q；距离相同时保留AB遍历顺序中最早的结果。最终获胜的segment pair方向不平行且全局最小距离不超过专用的`AT_GRADE_CROSSING_TOLERANCE_METERS=0.2 m`才形成一个`AtGradeRailCrossing`；因此连接处的平行/重合切线仍可成为全局P/Q并抑制伪交叉，但平行邻线本身不会形成diamond。超过20 cm高度差的桥梁和更远候选同样不会命中。同一rail pair只表达一个交叉；暂不支持同一对复杂曲线多次相交。
+
+检测索引为每条rail缓存一次真实piecewise-linear断点，并保留按rail UUID pair组织的唯一交叉观测；它不调用会把直线扩成1m虚拟点的`Curve.stream()`。连续共线断点会被精确压成一个segment；同一份断点同时供spatial cell填充与交叉exact phase使用。rail AABB与segment AABB先排除不可能相交的组合，再运行closest-points。新增或替换一条rail只删除并重算包含该rail的pair；删除rail同步删除cache与这些pair。纯连接更新无需重做几何：若全局最近的P/Q分别位于两rail相连端点的20 cm弧长范围内，且这两个端点属于同一physical connection group，builder就排除该观测。该规则同时覆盖普通接头和道岔直股/侧股，不读取或特判`NodeKind.TURNOUT`；几何接近但没有连接关系的端点仍保留。暂不支持同一对已连接rail在远处再次形成独立平交；这种线路需要先切分rail。最终`AtGradeRailCrossing`只保存两个persistent rail UUID与canonical AB弧长，是同一`TopologyState`root内的immutable几何事实；它没有资源身份。Basic针对该root绑定共享资源，rail删除或移动后旧binding随旧root失效。
 
 ### 3.2 edge与rail位置映射
 
@@ -50,7 +52,13 @@ data class TopologyState(
     val revision: Long,
     val nodes: Map<TopologyNodeId, TopologyNode>,
     val edges: Map<TrackEdgeId, TrackEdge>,
-    val railProjection: Map<UUID, List<TrackEdgeSlice>>
+    val railProjection: Map<UUID, List<TrackEdgeSlice>>,
+    val atGradeCrossings: List<AtGradeRailCrossing>
+)
+
+data class AtGradeRailCrossing(
+    val first: RailCrossingPoint, // lower rail UUID, canonical AB metres
+    val second: RailCrossingPoint
 )
 
 sealed interface TopologyNode {
@@ -72,7 +80,7 @@ data class TrackEdge(
 
 - Core/host 是 `TopologyState` 的唯一 structural owner。`TopologySnapshot` 若保留该名称，只能是对某个已发布 `TopologyState(revision)` 的只读引用/包装，不能重新遍历并复制出另一份独立事实来源。
 - 普通二度连接折叠进 `TrackEdge`；edge 仍保存对每段 Core rail 及 canonical AB 范围的投影，保证占用、编辑和持久化诊断可回到物理 rail。
-- `Turnout`和`Terminus`是结构节点。菱形交叉是绑定到edge/rail slices的共享冲突资源，不是节点。纯环没有结构节点时插入一个可确定重建的`LoopAnchor`，避免把整环表示成无端点edge。
+- `Turnout`和`Terminus`是结构节点。`AtGradeRailCrossing`只是可供外部owner绑定到edge/rail slices的几何观测，共享冲突资源身份不在Core，也不是节点。纯环没有结构节点时插入一个可确定重建的`LoopAnchor`，避免把整环表示成无端点edge。
 - 路径起点、终点或停车点落在 edge 内部时，寻路查询创建临时 virtual node；不得为每个站台或信号永久切分 authoritative graph。
 - 外部模块只能把node/edge对象当作revision-local read model；运营或资源 ownership 由各自模块规范定义，不在Core页重复。
 
@@ -111,7 +119,7 @@ data class TrackEdge(
 ## 7. 性能、复杂度与退化行为
 
 - graph normalization对输入rail slices与connections做一次`O(V + E)`遍历；为生成不依赖输入集合顺序的revision-local ID，还需`O(V log V)`确定性排序。该工作只发生在structural edit，不进入每tick路径。
-- 初版可以在structural edit时重建完整candidate state；不得在寻路、信号查询或每列车tick时重建。后续增量化只能改变构建成本，不能改变原子publication和完整覆盖校验。
+- graph candidate仍可在structural edit时完整重建；平交检测按新增/替换rail增量更新。设目标rail压缩后采样段数为`S`、空间候选集合为`C`，采样只对新增rail执行一次，当前精确检测最坏成本为`O(sum(S * segments(candidate)))`，但rail/segment AABB先剪枝；长直轨压缩后只有一个segment。该工作只发生在结构编辑，不进入寻路、资源申请、信号查询或每列车tick。cell broad phase可以产生多余候选，但exact phase必须拒绝；不得用cell命中直接认定交叉。
 - edge位置查询应利用累计距离索引而不是线性扫描长edge；目标签名冻结时必须明确边界规则和复杂度。
 - 旧state可在读者持有期间继续存在；实现必须有有界保留策略或正常对象生命周期，不能为每个tick复制整图或永久保存所有revision。
 - 任一结构coverage不完整或revision不一致均fail closed；不得退化为读取live mutable adjacency补齐。

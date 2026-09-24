@@ -20,6 +20,7 @@ import work.art1st.javarailways.core.control.signal.Signal
 import work.art1st.javarailways.core.di.WorldParentContext
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailSpatialIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyQueryResult
@@ -50,6 +51,7 @@ class CoreWorld(
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
 ) : World, Extendable<Any> by extensionDataContainer {
     private val railSpatialIndex = RailSpatialIndex()
+    private val atGradeRailCrossingIndex = AtGradeRailCrossingIndex(railSpatialIndex)
     private val railTopologyLock = ReentrantReadWriteLock()
     private val railTopologyTransactionContext = ThreadLocal<RailTopologyTransactionContext?>()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
@@ -65,7 +67,11 @@ class CoreWorld(
     private var railTopologyHealth: RailTopologyHealth = RailTopologyHealth.Healthy
     @Volatile
     private var publishedTopologyState: TopologyState = TopologyStateBuilder.build(
-        CoreTopologyInputAdapter.capture(revision = 0L, sourceRails = rails.values)
+        CoreTopologyInputAdapter.capture(
+            revision = 0L,
+            sourceRails = rails.values,
+            atGradeCrossings = atGradeRailCrossingIndex.snapshot()
+        )
     )
 
     init {
@@ -225,7 +231,7 @@ class CoreWorld(
 
     private fun addRailInTransaction(rail: CoreRail) {
         rails[rail.id] = rail
-        railSpatialIndex.addRail(rail)
+        atGradeRailCrossingIndex.addOrReplace(rail)
     }
 
     /**
@@ -263,7 +269,11 @@ class CoreWorld(
                 if (captureRailTopologyFingerprint() != context.before) {
                     val nextRevision = Math.addExact(publishedTopologyState.revision, 1L)
                     val candidate = TopologyStateBuilder.build(
-                        CoreTopologyInputAdapter.capture(nextRevision, rails.values)
+                        CoreTopologyInputAdapter.capture(
+                            nextRevision,
+                            rails.values,
+                            atGradeRailCrossingIndex.snapshot()
+                        )
                     )
                     publishedTopologyState = candidate
                 }
@@ -363,6 +373,7 @@ class CoreWorld(
             removed.viewBA.activeRail = null
             removed.viewAB.mutableNextRails.clear()
             removed.viewBA.mutableNextRails.clear()
+            atGradeRailCrossingIndex.remove(removed.id)
             railSpatialIndex.removeRail(removed)
         }
         rails.remove(rail.id)

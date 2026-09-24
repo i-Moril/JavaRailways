@@ -13,10 +13,12 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
+import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
-import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
 import java.util.UUID
 
 class PhysicalRouteResourceCompilerTest {
@@ -50,6 +52,12 @@ class PhysicalRouteResourceCompilerTest {
                 endpoint(secondTrunk, RailEndpoint.B) to endpoint(east, RailEndpoint.A),
                 endpoint(secondTrunk, RailEndpoint.B) to endpoint(secondBranch, RailEndpoint.A),
                 endpoint(east, RailEndpoint.B) to endpoint(clearance, RailEndpoint.A)
+            ),
+            atGradeCrossings = listOf(
+                AtGradeRailCrossing(
+                    RailCrossingPoint(middle, 2.5),
+                    RailCrossingPoint(crossingRail, 4.5)
+                )
             )
         )
         val route = RouteSnapshot(
@@ -64,22 +72,12 @@ class PhysicalRouteResourceCompilerTest {
             TopologyRouteProjectionResult.Projected::class.java,
             TopologyRouteProjector.project(route, topology)
         ).route
-        val diamond = StableInfrastructureResource("javarailways:diamond", "test:diamond/main")
         val routeBoundResources = RouteBoundResourceCatalog { topology }
+        val diamondBindings = PhysicalTopologyResources.routeBoundBindings(topology)
+        val diamond = diamondBindings.single().resource
         assertEquals(
             RouteBoundResourceCatalogUpdate.Published,
-            routeBoundResources.publish(
-                topology,
-                listOf(
-                    RouteBoundResourceBinding(
-                        diamond,
-                        listOf(
-                            RailSliceRef(middle, 2.0, 3.0),
-                            RailSliceRef(crossingRail, 4.0, 5.0)
-                        )
-                    )
-                )
-            )
+            routeBoundResources.publish(topology, diamondBindings)
         )
 
         val compiled = assertInstanceOf(
@@ -123,7 +121,7 @@ class PhysicalRouteResourceCompilerTest {
         )
         assertEquals(setOf(firstTurnout, secondTurnout, diamond), compiled.controlledResources)
         assertEquals(
-            RailInterval(crossingRail, 4.0, 5.0),
+            RailInterval(crossingRail, 4.5 - Curve.TOLERANCE, 4.5 + Curve.TOLERANCE),
             compiled.admission.occupancyGeometry.intervals.single { it.railId == crossingRail }
         )
         assertEquals(
@@ -131,8 +129,9 @@ class PhysicalRouteResourceCompilerTest {
             compiled.admission.tailReleaseEntries.map(ResolvedTailReleaseEntry::resource).toSet()
         )
         assertEquals(
-            13.0,
-            compiled.admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters
+            12.5 + Curve.TOLERANCE,
+            compiled.admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters,
+            1.0e-12
         )
 
         val block = StableInfrastructureResource("test:block", "east")
@@ -158,7 +157,11 @@ class PhysicalRouteResourceCompilerTest {
         assertEquals(compiled.admission.occupancyGeometry, expanded.occupancyGeometry)
         assertEquals(20.0, expanded.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters)
         assertEquals(44.0, expanded.tailReleaseEntries.single { it.resource == block }.tailClearRouteMeters)
-        assertEquals(13.0, compiled.admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters)
+        assertEquals(
+            12.5 + Curve.TOLERANCE,
+            compiled.admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters,
+            1.0e-12
+        )
 
         assertSame(
             compiled.admission,
@@ -168,13 +171,14 @@ class PhysicalRouteResourceCompilerTest {
             ).admission
         )
         assertEquals(
-            13.0,
+            12.5 + Curve.TOLERANCE,
             assertInstanceOf(
                 RouteContributionsCompilation.Compiled::class.java,
                 compiled.admission.withContributions(listOf(
                     ContributedRouteResource(diamond, RouteBoundary(10.0))
                 )) { null }
-            ).admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters
+            ).admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters,
+            1.0e-12
         )
 
         val denied = RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "unregistered block")

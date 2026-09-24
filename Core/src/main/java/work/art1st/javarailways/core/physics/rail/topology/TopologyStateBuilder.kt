@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail.topology
 
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
@@ -10,6 +12,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.rail.topology.TrackEdge
 import work.art1st.javarailways.core.api.physics.rail.topology.TrackEdgeId
 import work.art1st.javarailways.core.api.physics.rail.topology.TrackEdgeSlice
+import work.art1st.javarailways.core.physics.rail.AT_GRADE_CROSSING_TOLERANCE_METERS
 import java.util.UUID
 
 /** Pure normalizer. It never reads live rails or runtime turnout selection. */
@@ -89,8 +92,56 @@ internal object TopologyStateBuilder {
             revision = input.revision,
             nodes = nodes,
             edges = edges,
-            railProjection = projection
+            railProjection = projection,
+            atGradeCrossings = validateCrossings(
+                input.atGradeCrossings,
+                rails,
+                endpointGroups
+            )
         )
+    }
+
+    private fun validateCrossings(
+        crossings: List<AtGradeRailCrossing>,
+        rails: Map<UUID, TopologyInputRail>,
+        endpointGroups: Map<RailEndpointRef, List<RailEndpointRef>>
+    ): List<AtGradeRailCrossing> {
+        val endpointGroupByPort = endpointGroups.flatMap { (group, ports) ->
+            ports.map { port -> port to group }
+        }.toMap()
+        val retained = crossings
+            .sortedWith(compareBy(
+                { it.first.railId.toString() },
+                { it.second.railId.toString() },
+                { it.first.arcLengthAbMeters },
+                { it.second.arcLengthAbMeters }
+            ))
+            .filterNot { crossing ->
+                val firstRail = rails[crossing.first.railId]
+                    ?: throw IllegalArgumentException("crossing references unknown rail ${crossing.first.railId}")
+                val secondRail = rails[crossing.second.railId]
+                    ?: throw IllegalArgumentException("crossing references unknown rail ${crossing.second.railId}")
+                require(crossing.first.arcLengthAbMeters <= firstRail.lengthMeters + Curve.TOLERANCE) {
+                    "crossing lies outside rail ${firstRail.id}"
+                }
+                require(crossing.second.arcLengthAbMeters <= secondRail.lengthMeters + Curve.TOLERANCE) {
+                    "crossing lies outside rail ${secondRail.id}"
+                }
+                val firstEndpoint = endpointAt(crossing.first.arcLengthAbMeters, firstRail.lengthMeters)
+                val secondEndpoint = endpointAt(crossing.second.arcLengthAbMeters, secondRail.lengthMeters)
+                if (firstEndpoint == null || secondEndpoint == null) return@filterNot false
+                val firstRef = RailEndpointRef(firstRail.id, firstEndpoint)
+                val secondRef = RailEndpointRef(secondRail.id, secondEndpoint)
+                endpointGroupByPort.getValue(firstRef) == endpointGroupByPort.getValue(secondRef)
+            }
+        require(retained.distinct().size == retained.size) { "duplicate at-grade crossing observation" }
+        return retained
+    }
+
+    private fun endpointAt(arcLength: Double, railLength: Double): RailEndpoint? = when {
+        arcLength <= AT_GRADE_CROSSING_TOLERANCE_METERS -> RailEndpoint.A
+        railLength - arcLength <= AT_GRADE_CROSSING_TOLERANCE_METERS -> RailEndpoint.B
+        else -> null
     }
 
     private fun List<TopologyInputRail>.associateByUniqueId(): Map<UUID, TopologyInputRail> {

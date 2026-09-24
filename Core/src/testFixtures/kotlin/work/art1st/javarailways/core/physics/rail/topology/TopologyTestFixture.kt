@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.physics.rail.topology
 
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
@@ -20,13 +21,15 @@ data class TestTopologyRail(
 fun buildTestTopology(
     revision: Long,
     rails: Collection<TestTopologyRail>,
-    continuations: Map<RailEndpointRef, Set<RailEndpointRef>>
+    continuations: Map<RailEndpointRef, Set<RailEndpointRef>>,
+    atGradeCrossings: List<AtGradeRailCrossing> = emptyList()
 ): TopologyState = TopologyStateBuilder.build(
     TopologyInput(
         revision = revision,
         rails = rails.map { rail ->
             TopologyInputRail(rail.id, rail.lengthMeters)
         },
-        continuations = continuations
+        continuations = continuations,
+        atGradeCrossings = atGradeCrossings
     )
 )

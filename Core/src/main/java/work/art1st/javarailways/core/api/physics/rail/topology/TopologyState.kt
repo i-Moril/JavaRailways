@@ -160,6 +160,39 @@ data class RailSliceRef(
     val lengthMeters: Double = abs(endAbMeters - startAbMeters)
 }
 
+/** One canonical point where a physical rail participates in an at-grade crossing. */
+data class RailCrossingPoint(
+    /** Persistent UUID of the crossed rail. */
+    val railId: UUID,
+    /** Crossing position measured from the rail's canonical A endpoint. */
+    val arcLengthAbMeters: Double
+) {
+    init {
+        require(arcLengthAbMeters.isFinite() && arcLengthAbMeters >= 0.0) {
+            "arcLengthAbMeters must be finite and non-negative"
+        }
+    }
+}
+
+/**
+ * Geometry-only observation of two rails intersecting at grade without becoming connected.
+ *
+ * This value is not a topology node and grants no continuation between [first] and [second].
+ * Resource owners may bind both points to one shared conflict identity for this topology root.
+ */
+data class AtGradeRailCrossing(
+    /** Crossing point on the rail with the lexicographically smaller persistent UUID. */
+    val first: RailCrossingPoint,
+    /** Crossing point on the rail with the lexicographically larger persistent UUID. */
+    val second: RailCrossingPoint
+) {
+    init {
+        require(first.railId.toString() < second.railId.toString()) {
+            "crossing rail points must use deterministic rail UUID order"
+        }
+    }
+}
+
 /** One end of a normalized track edge. */
 data class TopologyEdgeEnd(
     /** Revision-local structural node reached at this edge end. */
@@ -237,13 +270,18 @@ data class TopologyState private constructor(
     /** Normalized non-branching edges keyed by identities valid only in [revision]. */
     val edges: Map<TrackEdgeId, TrackEdge>,
     /** Reverse projection from persistent rail UUIDs to their normalized edge slices. */
-    val railProjection: Map<UUID, List<TrackEdgeSlice>>
+    val railProjection: Map<UUID, List<TrackEdgeSlice>>,
+    /** At-grade shared conflicts detected from geometry; never structural continuations. */
+    val atGradeCrossings: List<AtGradeRailCrossing>
 ) {
     init {
         require(revision >= 0L) { "revision must be non-negative" }
         require(nodes.all { (id, node) -> id == node.id && id.revision == revision })
         require(edges.all { (id, edge) -> id == edge.id && id.revision == revision })
         require(railProjection.values.flatten().all { it.edgeId in edges })
+        require(atGradeCrossings.all { crossing ->
+            crossing.first.railId in railProjection && crossing.second.railId in railProjection
+        })
     }
 
     internal companion object {
@@ -251,14 +289,16 @@ data class TopologyState private constructor(
             revision: Long,
             nodes: Map<TopologyNodeId, TopologyNode>,
             edges: Map<TrackEdgeId, TrackEdge>,
-            railProjection: Map<UUID, List<TrackEdgeSlice>>
+            railProjection: Map<UUID, List<TrackEdgeSlice>>,
+            atGradeCrossings: Collection<AtGradeRailCrossing>
         ): TopologyState = TopologyState(
             revision = revision,
             nodes = immutableMap(nodes),
             edges = immutableMap(edges),
             railProjection = immutableMap(
                 railProjection.mapValues { (_, slices) -> immutableList(slices) }
-            )
+            ),
+            atGradeCrossings = immutableList(atGradeCrossings)
         )
     }
 }

@@ -265,6 +265,11 @@ open class PrimeCurveImpl : PrimeCurve {
         return lo.coerceAtMost(pointList.lastIndex - 1)
     }
 
+    /** Exact endpoints of the implementation's piecewise-linear geometry, without stream virtual samples. */
+    internal fun geometryBreakpoints(): List<Curve.Point> = pointList.map { point ->
+        Curve.Point(point.position, point.tangent, point.normal, this, point.arcLength)
+    }
+
     @Heavy
     override fun stream(): Stream<Curve.Point> {
         // 对 LINE 段按步长生成虚拟点；对 DISCRETE 段用存储点

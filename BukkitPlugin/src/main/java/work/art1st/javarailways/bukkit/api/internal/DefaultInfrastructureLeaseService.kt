@@ -280,9 +280,12 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     }
 
     fun stableResourceExists(worldId: UUID, resource: StableInfrastructureResource): Boolean {
-        val provider = synchronized(lock) {
-            if (closed) null else resourceProviders[resource.typeId]?.provider
-        } ?: return false
+        val (admission, provider) = synchronized(lock) {
+            if (closed) null to null
+            else worlds[worldId]?.routeAdmission to resourceProviders[resource.typeId]?.provider
+        }
+        if (admission?.physicalResourceExists(resource) == true) return true
+        provider ?: return false
         return provider.exists(worldId, resource.resourceId)
     }
 

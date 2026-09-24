@@ -60,6 +60,13 @@ Manual：`MANUAL_ROUTED`仍分配/验证/release；`FULL_MANUAL`不申请new rou
 
 每个请求携带authoritative `topologyRevision`。Registry在resource validation前后各读取一次当前revision；任一次不匹配返回`STALE_TOPOLOGY`。rail区间由world验证存在与长度；stable resource由唯一namespaced provider验证。missing返回`INVALID_RESOURCE`，provider异常返回`RESOURCE_PROVIDER_FAILED`。所有非成功结果保持registry不变，并只在`RESOURCE_CONFLICT`中返回blocker owner/revision/resource diagnostics。
 
+`InfrastructureEditFootprintCompiler`是Basic implementation package中的host-internal桥接，不属于`basic.api`。
+它接收同一个`TopologyState`、当前rail length map和编辑准备阶段给出的existing rail ID集合：空集合不制造
+空footprint；非空集合按stable rail ID顺序加入每根rail的`[0,length]`完整canonical interval，再通过
+`PhysicalTopologyResources`加入任一affected rail所incident的当前turnout与diamond stable identity。缺失rail、
+缺失/非法length立即拒绝。设affected rail数为`R`、topology turnout数为`T`、diamond数为`D`，当前编译为
+`O(R log R + T + D)`，仅发生在结构编辑准备/提交边界，不进入tick path。
+
 ## 跨轨道 infrastructure footprint
 
 `RailIntervalResource(railId,startAbMeters,endAbMeters)`表示恰好一根rail上的canonical AB闭区间，单位米且`0 <= start <= end`。它不存在跨rail的全局里程。沿route跨越多根rail时，必须在同一个`InfrastructureFootprint`中放入每根rail各自的interval；申请、替换和编辑许可都以整个footprint为原子单位。

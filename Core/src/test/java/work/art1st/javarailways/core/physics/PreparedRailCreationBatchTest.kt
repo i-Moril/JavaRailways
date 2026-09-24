@@ -16,6 +16,31 @@ import java.util.UUID
 
 class PreparedRailCreationBatchTest {
     @Test
+    fun `prepared batch exposes immutable conservative existing rail candidates`() {
+        val world = createTestWorld()
+        val spatialCandidate = world.createRailForTest(line(0.1, -5.0, 0.1, 5.0))
+        val replacementSource = world.createRailForTest(line(500.0, 0.0, 510.0, 0.0))
+        val unrelated = world.createRailForTest(line(1_000.0, 0.0, 1_010.0, 0.0))
+
+        val prepared = world.prepareRailCreation(
+            line(0.0, -5.0, 0.0, 5.0),
+            setOf(replacementSource.id)
+        )
+
+        assertTrue(prepared.crossings.isEmpty())
+        assertEquals(
+            setOf(spatialCandidate.id, replacementSource.id),
+            prepared.potentiallyAffectedExistingRailIds
+        )
+        assertTrue(unrelated.id !in prepared.potentiallyAffectedExistingRailIds)
+        @Suppress("UNCHECKED_CAST")
+        val mutableView = prepared.potentiallyAffectedExistingRailIds as MutableSet<UUID>
+        assertThrows(UnsupportedOperationException::class.java) {
+            mutableView += unrelated.id
+        }
+    }
+
+    @Test
     fun `exact crossing detection happens during preparation and not installation`() {
         val world = createTestWorld()
         world.createRailForTest(line(-5.0, 0.0, 5.0, 0.0))

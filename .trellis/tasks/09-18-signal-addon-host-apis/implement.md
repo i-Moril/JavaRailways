@@ -245,6 +245,16 @@
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
 - [ ] Add topology edit guards for active external claims.
+  - [x] Add the conservative edit-footprint foundation: Core prepared
+    rail batches expose the immutable union of spatial broad-phase existing candidates and excluded
+    replacement sources; Basic expands those rails into full intervals plus incident turnout/diamond
+    stable resources. Empty edits produce no footprint.
+  - [x] Route every RailWand structural commit through one Bukkit edit guard: turnout/create/connect,
+    endpoint and geometry rebuild, grade smoothing, split, merge, delete, and world-snapshot undo
+    hold one permit across topology plus metadata/persistence side effects. Prepared batches reuse their
+    conservative candidates; delete expands connection neighbors; snapshot restore guards all current rails.
+    Legacy Dispatcher checks remain until its caller migration, and non-RailWand administrative/signal editors
+    remain under the next checklist item.
 - [ ] Replace dispatcher-specific RailWand/auto-connect guards with the common edit guard and cover protection-region, signal, topology migration, and administrative mutation paths.
 - [ ] Document a minimal external consumer and supported failure/lifecycle behavior.
 

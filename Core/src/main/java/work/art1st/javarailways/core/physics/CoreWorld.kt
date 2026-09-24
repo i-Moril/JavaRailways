@@ -36,6 +36,7 @@ import work.art1st.javarailways.core.physics.train.SavedTrainV1
 import work.art1st.javarailways.core.physics.tick.LatestTrainFrameMailbox
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.LinkedHashMap
+import java.util.LinkedHashSet
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantReadWriteLock
@@ -240,20 +241,21 @@ class CoreWorld(
     ): PreparedRailCreationBatch {
         ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailCreationBatch")
         require(curvesInOrder.isNotEmpty()) { "rail creation batch must not be empty" }
+        val excludedRailIds = LinkedHashSet(excludedExistingRailIds)
         val creations = curvesInOrder.map { curve -> PreparedRailCreation(UUID.randomUUID(), curve) }
         val sampledRails = creations.map { creation ->
             atGradeRailCrossingIndex.prepareGeometry(creation.railId, creation.curve)
         }
         val captured = railTopologyLock.read {
             ensureTopologyHealthy()
-            require(excludedExistingRailIds.all(rails::containsKey)) {
+            require(excludedRailIds.all(rails::containsKey)) {
                 "excluded rails must exist in the captured world topology"
             }
             CapturedRailCreationCandidates(
                 topologyRoot = publishedTopologyState,
                 candidates = atGradeRailCrossingIndex.captureCandidateSnapshot(
                     sampledRails,
-                    excludedExistingRailIds
+                    excludedRailIds
                 )
             )
         }
@@ -261,11 +263,18 @@ class CoreWorld(
             sampledRails,
             captured.candidates
         )
+        val potentiallyAffectedExistingRailIds = buildSet {
+            addAll(excludedRailIds)
+            captured.candidates.existingRailsByNewRailId.values.forEach { candidates ->
+                candidates.mapTo(this) { candidate -> candidate.railId }
+            }
+        }
         return PreparedRailCreationBatch.create(
             ownerWorld = this,
             topologyRoot = captured.topologyRoot,
             creations = creations,
-            excludedExistingRailIds = excludedExistingRailIds,
+            excludedExistingRailIds = excludedRailIds,
+            potentiallyAffectedExistingRailIds = potentiallyAffectedExistingRailIds,
             sampledRails = sampledRails,
             crossings = crossings
         )

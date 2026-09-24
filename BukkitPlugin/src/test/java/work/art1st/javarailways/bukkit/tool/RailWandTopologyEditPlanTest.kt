@@ -17,7 +17,7 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class RailWandTopologyEditPlanTest {
     @Test
-    fun `snapshot diff preserves replacement UUID and wrapper excludes unrelated rail`() {
+    fun `snapshot plan derives replacement UUID and wrapper excludes unrelated rail`() {
         val world = createTestWorld()
         try {
             val source = world.createRailForTest(
@@ -34,17 +34,11 @@ class RailWandTopologyEditPlanTest {
                     curveAB = replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
                 ) else saved
             }
-            val diff = RailWorldSnapshotTopologyDiff.compare(current, target)
-            val prepared = world.prepareRailWorldSnapshotRestore(
-                diff.currentRails,
-                diff.targetRails,
-                diff.removedOrReplacedRailIds,
-                diff.createdOrReplacedRailIds
-            )
+            val prepared = world.prepareRailWorldSnapshotRestore(current, target)
             val plan = RailWandTopologyEditPlan.capturePreparedSnapshotRestore(world, prepared)
 
-            assertEquals(setOf(source.id), diff.removedOrReplacedRailIds)
-            assertEquals(setOf(source.id), diff.createdOrReplacedRailIds)
+            assertEquals(setOf(source.id), prepared.removedOrReplacedRailIds)
+            assertEquals(setOf(source.id), prepared.createdOrReplacedRailIds)
             assertEquals(setOf(source.id), plan.snapshotGeometryChangedRailIds)
             assertTrue(crossing.id in requireNotNull(plan.impact).railIds)
             assertFalse(unrelated.id in requireNotNull(plan.impact).railIds)

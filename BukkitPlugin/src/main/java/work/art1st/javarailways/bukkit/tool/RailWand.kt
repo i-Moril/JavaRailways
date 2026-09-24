@@ -5549,28 +5549,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val currentSnapshot = captureRailWorldUndoSnapshot(player, coreWorld)
         if (currentSnapshot != action.expectedAfter) return CompletableFuture.completedFuture(false)
         val target = action.before
-        val topologyDiff = try {
-            RailWorldSnapshotTopologyDiff.compare(currentSnapshot.rails, target.rails)
-        } catch (failure: Exception) {
-            plugin.logger.warning("RailWand world undo snapshot is invalid: ${failure.message}")
-            return CompletableFuture.completedFuture(false)
-        }
-        val currentRails = coreWorld.allRails.associateBy(CoreRail::id)
-        val railsRemovedOrReplaced = topologyDiff.removedOrReplacedRailIds.map(currentRails::getValue)
-        if (railsRemovedOrReplaced.isNotEmpty() &&
-            nonOccupancyTopologySafetyError(coreWorld, railsRemovedOrReplaced) != null
-        ) {
-            return CompletableFuture.completedFuture(false)
-        }
 
         try {
             plugin.platformDispatcher.runAsync {
                 val prepared = runCatching {
                     coreWorld.prepareRailWorldSnapshotRestore(
-                        topologyDiff.currentRails,
-                        topologyDiff.targetRails,
-                        topologyDiff.removedOrReplacedRailIds,
-                        topologyDiff.createdOrReplacedRailIds
+                        currentSnapshot.rails,
+                        target.rails
                     )
                 }
                 val scheduled = runCatching {
@@ -5584,6 +5569,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                         getCoreWorld(livePlayer) !== coreWorld ||
                                         captureRailWorldUndoSnapshot(livePlayer, coreWorld) != currentSnapshot
                                     ) {
+                                        result.complete(false)
+                                        return@fold
+                                    }
+                                    val railsRemovedOrReplaced = snapshotPlan.removedOrReplacedRailIds
+                                        .mapNotNull(coreWorld::getRail)
+                                    val missingSourceRail =
+                                        railsRemovedOrReplaced.size != snapshotPlan.removedOrReplacedRailIds.size
+                                    val dispatcherStillUsesSourceRail = railsRemovedOrReplaced.isNotEmpty() &&
+                                        nonOccupancyTopologySafetyError(coreWorld, railsRemovedOrReplaced) != null
+                                    if (missingSourceRail || dispatcherStillUsesSourceRail) {
                                         result.complete(false)
                                         return@fold
                                     }

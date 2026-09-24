@@ -31,17 +31,13 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
                     curveAB = replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
                 ) else saved
             }
-            val plan = world.prepareRailWorldSnapshotRestore(
-                current, target, setOf(source.id), setOf(source.id)
-            )
-            val introduced = plan.introducedCrossings.single()
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             val impact = requireNotNull(snapshotImpact(plan))
 
             assertTrue(source.id in impact.railIds)
             assertTrue(crossing.id in impact.railIds)
             assertTrue(unrelated.id !in impact.railIds)
-            assertTrue(PhysicalTopologyResources.diamondResource(introduced) !in impact.resourceIds)
             assertTrue(impact.railIds.all(plan.topologyRoot.railProjection::containsKey))
             val currentNodeKeys = plan.topologyRoot.nodes.values.mapTo(hashSetOf()) { node ->
                 StableTopologyNodeKey(node.ports)
@@ -71,11 +67,9 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
                 savedRail(firstId, first),
                 savedRail(secondId, second)
             )
-            val plan = world.prepareRailWorldSnapshotRestore(
-                current, target, emptySet(), setOf(firstId, secondId)
-            )
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
-            assertEquals(1, plan.introducedCrossings.size)
+            assertTrue(plan.affectedExistingRailIds.isEmpty())
             assertNull(snapshotImpact(plan))
         } finally {
             world.physicsCoordinator.close()
@@ -96,7 +90,7 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
                 newId,
                 curve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
             )
-            val plan = world.prepareRailWorldSnapshotRestore(current, target, emptySet(), setOf(newId))
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             val impact = requireNotNull(snapshotImpact(plan))
 

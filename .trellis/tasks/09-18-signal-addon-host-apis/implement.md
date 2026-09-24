@@ -271,13 +271,14 @@
       endpoints, batch-internal adjacency and old-to-new replacement mappings. The plan binds the prepared batch/root, records exact
       endpoint state plus prepared crossings and applies without target re-selection. Basic maps only those finalized identities into
       the common edit impact; nearby candidates are excluded.
-    - [x] Plan prospective crossings for whole-world snapshot undo. Bukkit compares current/target snapshots, Core reuses the
-      prepared geometry pipeline with persisted stable UUIDs (including same-ID replacement), validates explicit saved
-      connections and currentness, and publishes exact old/new crossing identities. Basic maps only the exact plan into the
-      common permit using current-valid identities: removed diamond resources and the existing rail participants of prospective
-      crossings, never target-only identities. Preparation is async; apply revalidates on the player owner and holds the permit through the outer Core
-      transaction plus metadata/render/player side effects. Snapshot-plan occupancy replaces the old broad duplicate check; the
-      Dispatcher allocation guard remains until that production caller migrates into the common registry.
+    - [x] Plan prospective crossings for whole-world snapshot undo. Bukkit captures current/target snapshots; Core performs the
+      sole physical diff, reuses the prepared geometry pipeline with persisted stable UUIDs (including same-ID replacement),
+      validates explicit saved connections and currentness, and keeps target topology/crossings local to preparation. Basic maps
+      only the exact plan into the common permit using current-valid identities: removed diamond resources and the existing rail
+      participants of prospective crossings, never target-only identities. Preparation is async; apply revalidates on the player
+      owner and holds the permit through the outer Core transaction plus metadata/render/player side effects. Snapshot-plan
+      occupancy replaces the old broad duplicate check; the Dispatcher allocation guard runs once after async
+      preparation/revalidation and remains until that production caller migrates into the common registry.
 - [ ] Replace remaining dispatcher-specific RailWand edit guards with the common edit guard and cover protection-region, signal, topology migration, and administrative mutation paths.
 - [ ] Document a minimal external consumer and supported failure/lifecycle behavior.
 

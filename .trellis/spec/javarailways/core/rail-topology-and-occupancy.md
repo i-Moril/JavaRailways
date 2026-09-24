@@ -111,14 +111,14 @@ apply还要求prepared batch是当前outer transaction中唯一已经发生的ra
 
 whole-world RailWand snapshot restore仍复用同一prepared geometry pipeline。普通创建入口先生成随机UUID；内部
 stable-identity入口接收snapshot中的`(UUID, PrimeCurve)`，其余sampling、spatial candidate capture与exact crossing
-detection完全相同。Bukkit以current/target snapshot做一次`O(N)` geometry/identity比较，Core复核该diff、按target geometry
-解码saved connection并自行导出surviving endpoint变化；Bukkit不从只保存相邻rail UUID的格式猜target endpoint。
+detection完全相同。Bukkit只捕获current/target snapshot；Core以一次`O(N)` geometry/identity比较导出完整diff，并按target
+geometry解码saved connection及surviving endpoint变化。Bukkit不重复比较，也不从只保存相邻rail UUID的格式猜target endpoint。
 saved `nextRailAtA/B`与active selection仍是唯一连接来源，不搜索无声明的附近rail。same-UUID geometry replacement使用专用
 plan：在outer transaction内完整验证root、rail instance、endpoint state和occupancy后，批量断开/移除旧实例，再以相同
 UUID安装预采样实例，最后写入snapshot声明的endpoint state。普通`installPreparedRails`的duplicate-ID与
 install-before-remove规则不放宽。旧raw crossing去除被替换rail后与prepared crossings合并，并通过target explicit
-connections重新归一化，因而plan能报告removed old crossings与introduced exact target crossings，而不是spatial候选；
-Basic permit只提交其中current-valid的旧diamond resource与prospective crossing existing-rail参与者。
+connections重新归一化。target topology和introduced crossings只在prepare内部用于导出removed old crossings及
+prospective crossing的existing-rail参与者，不随plan长期保留；Basic permit只提交这些current-valid身份。
 async prepare只解析owner线程已捕获的current/target saved values和immutable curve geometry，不读取live mutable connection或
 active branch；回到player owner后，plan以captured endpoint state逐项复核live rail，再允许permit/apply。
 比较与target topology构建为`O(N + M + K)`，其中`M`为snapshot连接数、`K`为相关crossing数；exact geometry成本仍沿用

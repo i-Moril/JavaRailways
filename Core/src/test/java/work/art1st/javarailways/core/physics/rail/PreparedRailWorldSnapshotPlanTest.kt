@@ -37,9 +37,7 @@ class PreparedRailWorldSnapshotPlanTest {
                 ) else saved
             }
 
-            val plan = world.prepareRailWorldSnapshotRestore(
-                current, target, setOf(source.id), setOf(source.id)
-            )
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             assertEquals(setOf(RailEndpointRef(peer.id, RailEndpoint.A)), plan.changedExistingEndpoints)
             world.railTopologyTransaction { plan.apply(world) }
@@ -78,7 +76,7 @@ class PreparedRailWorldSnapshotPlanTest {
                 }
             }
 
-            val plan = world.prepareRailWorldSnapshotRestore(current, target, emptySet(), emptySet())
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             assertEquals(
                 setOf(
@@ -114,9 +112,7 @@ class PreparedRailWorldSnapshotPlanTest {
                     curveAB = curved.save() as PrimeCurveImpl.SavedPrimeCurveV1
                 ) else saved
             }
-            val plan = world.prepareRailWorldSnapshotRestore(
-                current, target, setOf(source.id), setOf(source.id)
-            )
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             world.railTopologyTransaction { plan.apply(world) }
 
@@ -146,14 +142,10 @@ class PreparedRailWorldSnapshotPlanTest {
                     curveAB = targetCurve.save() as PrimeCurveImpl.SavedPrimeCurveV1
                 ) else saved
             }
-            val plan = world.prepareRailWorldSnapshotRestore(
-                current, target, setOf(source.id), setOf(source.id)
-            )
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             assertEquals(setOf(source.id, crossing.id), plan.affectedExistingRailIds)
             assertFalse(unrelated.id in plan.affectedExistingRailIds)
-            assertEquals(1, plan.introducedCrossings.size)
-
             val oldSource = source
             world.railTopologyTransaction { plan.apply(world) }
 
@@ -161,7 +153,7 @@ class PreparedRailWorldSnapshotPlanTest {
             assertNotSame(oldSource, restored)
             assertSame(crossing, world.getRail(crossing.id))
             assertSame(unrelated, world.getRail(unrelated.id))
-            assertEquals(plan.targetTopology.atGradeCrossings, world.topologyState.atGradeCrossings)
+            assertEquals(1, world.topologyState.atGradeCrossings.size)
         } finally {
             world.physicsCoordinator.close()
             (world.tickManager as AutoCloseable).close()
@@ -182,9 +174,7 @@ class PreparedRailWorldSnapshotPlanTest {
             val target = listOf(current.single().copy(
                 curveAB = replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
             ))
-            val plan = world.prepareRailWorldSnapshotRestore(
-                current, target, setOf(source.id), setOf(source.id)
-            )
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
             world.createRailForTest(line(Vector3d(20.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0)))
 
             assertFalse(plan.isCurrent(world))
@@ -219,9 +209,7 @@ class PreparedRailWorldSnapshotPlanTest {
                     curveAB = replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
                 ) else saved
             }
-            val plan = world.prepareRailWorldSnapshotRestore(
-                current, target, setOf(source.id), setOf(source.id)
-            )
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             source.viewAB.activeRail = second.viewAB
 
@@ -244,9 +232,7 @@ class PreparedRailWorldSnapshotPlanTest {
             val target = listOf(current.single().copy(
                 curveAB = replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
             ))
-            val plan = world.prepareRailWorldSnapshotRestore(
-                current, target, setOf(source.id), setOf(source.id)
-            )
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             assertThrows(IllegalArgumentException::class.java) {
                 world.railTopologyTransaction { plan.apply(world) }

@@ -18,38 +18,6 @@ import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
 import work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlan
 import java.util.UUID
 
-internal data class RailWorldSnapshotTopologyDiff(
-    val currentRails: List<CoreRail.SavedRailV1>,
-    val targetRails: List<CoreRail.SavedRailV1>,
-    val removedOrReplacedRailIds: Set<UUID>,
-    val createdOrReplacedRailIds: Set<UUID>
-) {
-    companion object {
-        fun compare(
-            currentRails: List<CoreRail.SavedRailV1>,
-            targetRails: List<CoreRail.SavedRailV1>
-        ): RailWorldSnapshotTopologyDiff {
-            fun index(rails: List<CoreRail.SavedRailV1>): Map<UUID, CoreRail.SavedRailV1> {
-                val result = rails.associateBy { UUID.fromString(it.id) }
-                require(result.size == rails.size) { "rail snapshot contains duplicate IDs" }
-                return result
-            }
-            val current = index(currentRails)
-            val target = index(targetRails)
-            val removedOrReplaced = current.keys.filterTo(linkedSetOf()) { railId ->
-                target[railId]?.curveAB != current.getValue(railId).curveAB
-            }
-            val createdOrReplaced = target.keys.filterTo(linkedSetOf()) { railId ->
-                current[railId]?.curveAB != target.getValue(railId).curveAB
-            }
-            return RailWorldSnapshotTopologyDiff(
-                currentRails.toList(), targetRails.toList(), removedOrReplaced,
-                createdOrReplaced
-            )
-        }
-    }
-}
-
 /** Exact pre-edit state retained by the RailWand between permit check and structural commit. */
 internal class RailWandTopologyEditPlan private constructor(
     private val world: CoreWorld,

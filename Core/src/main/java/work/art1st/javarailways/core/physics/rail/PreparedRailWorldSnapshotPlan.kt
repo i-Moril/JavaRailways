@@ -23,10 +23,10 @@ internal data class SnapshotEndpointState(
 /**
  * Off-thread prepared structural part of one whole-world RailWand snapshot restore.
  *
- * Bukkit chooses the current/target snapshots and their exact diff. Core validates that diff,
- * prepares only added/replaced geometry through [PreparedRailCreationBatch], and binds the result
- * to one live topology root. The target snapshot is the sole source of connection and active-branch
- * state; no nearby endpoint search creates an undeclared connection.
+ * Bukkit chooses the current/target snapshots. Core derives their exact physical diff, prepares
+ * only added/replaced geometry through [PreparedRailCreationBatch], and binds the result to one
+ * live topology root. The target snapshot is the sole source of connection and active-branch state;
+ * no nearby endpoint search creates an undeclared connection.
  */
 class PreparedRailWorldSnapshotPlan private constructor(
     @get:JvmSynthetic internal val ownerWorld: CoreWorld,
@@ -37,9 +37,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
     changedExistingEndpoints: Set<RailEndpointRef>,
     @get:JvmSynthetic internal val preparedCreations: PreparedRailCreationBatch?,
     @get:JvmSynthetic internal val targetEndpointStates: Map<RailEndpointRef, SnapshotEndpointState>,
-    val targetTopology: TopologyState,
     removedCrossings: Set<AtGradeRailCrossing>,
-    introducedCrossings: Set<AtGradeRailCrossing>,
     affectedExistingRailIds: Set<UUID>,
     private val capturedEndpointStates: Map<RailEndpointRef, SnapshotEndpointState>
 ) {
@@ -52,8 +50,6 @@ class PreparedRailWorldSnapshotPlan private constructor(
         Collections.unmodifiableSet(LinkedHashSet(changedExistingEndpoints))
     val removedCrossings: Set<AtGradeRailCrossing> =
         Collections.unmodifiableSet(LinkedHashSet(removedCrossings))
-    val introducedCrossings: Set<AtGradeRailCrossing> =
-        Collections.unmodifiableSet(LinkedHashSet(introducedCrossings))
     val affectedExistingRailIds: Set<UUID> =
         Collections.unmodifiableSet(LinkedHashSet(affectedExistingRailIds))
 
@@ -95,17 +91,6 @@ class PreparedRailWorldSnapshotPlan private constructor(
             preparedCreations: PreparedRailCreationBatch?,
             rawCurrentCrossings: List<AtGradeRailCrossing>
         ): PreparedRailWorldSnapshotPlan {
-            val exactRemovedOrReplaced = currentSaved.keys.filterTo(linkedSetOf()) { railId ->
-                val target = targetSaved[railId]
-                target == null || currentSaved.getValue(railId).curveAB != target.curveAB
-            }
-            val exactCreatedOrReplaced = targetSaved.keys.filterTo(linkedSetOf()) { railId ->
-                val current = currentSaved[railId]
-                current == null || current.curveAB != targetSaved.getValue(railId).curveAB
-            }
-            require(removedOrReplacedRailIds == exactRemovedOrReplaced) { "snapshot removal/replacement diff is incomplete" }
-            require(createdOrReplacedRailIds == exactCreatedOrReplaced) { "snapshot creation/replacement diff is incomplete" }
-
             val currentCurves = currentSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
             val targetCurves = targetSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
             val currentStates = decodeEndpointStates(currentSaved, currentCurves)
@@ -169,8 +154,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
             return PreparedRailWorldSnapshotPlan(
                 world, topologyRoot, currentById.filterKeys(affectedExistingIds::contains),
                 removedOrReplacedRailIds, createdOrReplacedRailIds, changedExistingEndpoints,
-                preparedCreations, targetStates, targetTopology, removedCrossings, introducedCrossings,
-                affectedExistingIds, capturedStates
+                preparedCreations, targetStates, removedCrossings, affectedExistingIds, capturedStates
             )
         }
 

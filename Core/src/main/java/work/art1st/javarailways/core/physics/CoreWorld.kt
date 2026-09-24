@@ -285,18 +285,15 @@ class CoreWorld(
     }
 
     /**
-     * Prepares the exact structural portion of one persisted RailWand snapshot restore.
-     * [removedOrReplacedRailIds] and [createdOrReplacedRailIds] are calculated by Bukkit; Core
-     * validates that they describe the complete geometry diff and derives endpoint changes after
-     * decoding the target snapshot against its target geometry.
+     * Prepares the exact structural portion of one persisted RailWand snapshot restore. Core owns
+     * the complete physical diff and derives endpoint changes after decoding the target snapshot
+     * against its target geometry.
      */
     @JvmSynthetic
     @OptIn(Heavy::class)
     fun prepareRailWorldSnapshotRestore(
         currentSnapshot: List<CoreRail.SavedRailV1>,
-        targetSnapshot: List<CoreRail.SavedRailV1>,
-        removedOrReplacedRailIds: Set<UUID>,
-        createdOrReplacedRailIds: Set<UUID>
+        targetSnapshot: List<CoreRail.SavedRailV1>
     ): PreparedRailWorldSnapshotPlan {
         ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailWorldSnapshotRestore")
         fun index(snapshot: List<CoreRail.SavedRailV1>): Map<UUID, CoreRail.SavedRailV1> {
@@ -306,6 +303,14 @@ class CoreWorld(
         }
         val currentSaved = index(currentSnapshot)
         val targetSaved = index(targetSnapshot)
+        val removedOrReplacedRailIds = currentSaved.keys.filterTo(linkedSetOf()) { railId ->
+            val target = targetSaved[railId]
+            target == null || currentSaved.getValue(railId).curveAB != target.curveAB
+        }
+        val createdOrReplacedRailIds = targetSaved.keys.filterTo(linkedSetOf()) { railId ->
+            val current = currentSaved[railId]
+            current == null || current.curveAB != targetSaved.getValue(railId).curveAB
+        }
         val targetCreations = createdOrReplacedRailIds.map { railId ->
             val saved = requireNotNull(targetSaved[railId]) { "missing target rail $railId" }
             PreparedRailCreation(railId, saved.curveAB.load(Unit))

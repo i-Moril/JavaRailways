@@ -60,9 +60,9 @@ mandatoryPhysicalFootprint(frozenRoute, requestedRange)
 
 The union is unique by exact resource identity and is committed once. Occupancy query geometry, preparation requirements and release entries are metadata for validation/operation/lifecycle; none is a second claim footprint.
 
-当前纯合并步骤仍可复用，但它的输入必须从公开ATO intent移到宿主收集的contribution batch。宿主先收集所有contributor结果，再从已编译的物理footprint复制资源身份与释放元数据，逐项调用world-local资源owner的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加准备覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间随物理footprint及本次contribution总量线性增长（排序释放队列除外）。
+当前纯合并步骤接收宿主收集并复制的contribution batch，而不是公开ATO intent中的字段。宿主先收集所有contributor结果，再从已编译的物理footprint复制资源身份与释放元数据，逐项调用world-local资源owner的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加准备覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间随物理footprint及本次contribution总量线性增长（排序释放队列除外）。
 
-当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和同revision的拓扑root。没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；已有route state时，核对申请身份与路线，只编译已提交authority至新boundary的suffix。两者共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不扩大grant；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍符合冻结路线，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次新增claim。整个前claim阶段无registry mutation；附加资源提供者异常按`INVALID_CONTRIBUTION`拒绝。该内部owner仍不能单独注册为公开`RouteResourceAdmissionService`；Bukkit的认证provider校验及生产catalog绑定仍待后续批次。
+当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和同revision的拓扑root。没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；已有route state时，核对申请身份与路线，只编译已提交authority至新boundary的suffix。两者共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不扩大grant；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍符合冻结路线，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次新增claim。整个前claim阶段无registry mutation；附加资源提供者异常按`INVALID_CONTRIBUTION`拒绝。Bukkit现已把这个owner绑定为world-local、认证过调用方身份的`RouteResourceAdmissionService`；生产Dispatcher/SimpleATO caller迁移仍待后续批次。
 
 ### 3.3 申请、准备和释放
 
@@ -76,9 +76,9 @@ The same request operation also grows an existing grant along that route. Basic 
 
 ## 4. 冻结的公开请求合同
 
-下一实现批次必须在 `work.art1st.javarailways.basic.api.route` 提供下列等价的不可变 value
-contract；允许调整 Kotlin 文件拆分，但不得改变字段语义、增加 raw footprint overload，或把 provider
-callback 塞进 intent。`RouteSnapshot`、`RailwayStateStamp`、`InfrastructureOwner` 与
+当前 `work.art1st.javarailways.basic.api.route` 提供下列等价的不可变 value contract；后续允许调整
+Kotlin 文件拆分，但不得改变字段语义、增加 raw footprint overload，或把 provider callback 塞进 intent。
+`RouteSnapshot`、`RailwayStateStamp`、`InfrastructureOwner` 与
 `StableInfrastructureResource` 复用现有 Basic API value，不建立平行模型。
 
 ```kotlin
@@ -173,13 +173,12 @@ authenticated contributor与preparation descriptor validation、可选preparatio
 `INVALID_CONTRIBUTION`或`INVALID_PREPARATION`。
 
 当前Bukkit适配器复用已有的唯一`typeId → provider`注册表，不另外建立进路资源catalog。注册表跨world保存
-provider，但每次校验都指向已注册的确切world ID；这是迁移期实现，Basic目标中的world-local准入服务仍未完成。
+provider，但每次校验都指向已注册的确切world ID；对外准入service binding仍绑定一个确切world runtime。
 `exists(worldId, resourceId)`只证明资源存在，绝不自动许可进路申请。provider必须显式实现进路校验，
 由资源owner检查认证contributor、world、resource ID与可选preparation descriptor，返回允许或
 `INVALID_CONTRIBUTION`/`INVALID_PREPARATION`。Bukkit在simulation owner执行回调，不在注册表锁内调用provider；
-回调后复查world/registration/owner仍有效，失效或异常一律拒绝且不修改claim。当前只形成待准入服务使用的
-校验入口；当前公开intent仍错误地携带caller additions。迁移批次必须先把这些字段移出intent并由宿主收集认证
-contribution，直接更新全部内部调用方，不保留旧constructor或运行时兼容路径。
+回调后复查world/registration/owner仍有效，失效或异常一律拒绝且不修改claim。公开intent不携带caller
+additions；宿主收集认证contribution并直接交给同一次准入，不保留旧constructor或运行时兼容路径。
 
 ### 4.1 当前contributor与provider preparation合同
 
@@ -229,6 +228,14 @@ catalog。每次request按稳定顺序调用每个contributor一次；插件必�
 调用。ATO和Basic都不解释返回资源的领域含义。任一route state仍可能申请后续suffix时，宿主冻结完整contributor
 membership：planned register/unregister/registration close均拒绝。forced contributor disable保留既有claim并Stall
 相关world，防止之后的申请静默少执行一套信号策略；不增加membership revision、session token或恢复协议。
+
+当前非递归边界由调用结构本身保证：`PhysicalRouteResourceCompiler.compile`只从已验证路线与
+`RouteBoundResourceCatalog`编译物理底线，不持有任何插件回调；
+`DefaultInfrastructureLeaseService.collectRouteContributions`快照当前注册列表并对每项调用一次；
+`RouteResourceAdmissionEngine.request`只消费这一份有界列表，通过`withContributions`校验后合并一次。
+`InfrastructureResourceProvider.validateRouteContribution`只能批准或拒绝单个已返回资源，不能生成后续贡献。
+因此Basic的物理扫描、contributor收集与resource-owner验证是三个单向阶段，不存在回调到物理
+编译或再次收集的closure/fixed-point路径。
 
 一个type registration同时拥有existence/route-use validator及零个或多个preparation kind；不建立第二个handler
 catalog。`kindId`必须namespaced且在该type内唯一。没有handler的provider传空collection；不保留旧三参数注册

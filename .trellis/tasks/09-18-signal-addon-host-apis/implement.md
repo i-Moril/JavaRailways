@@ -200,14 +200,18 @@
   - [x] Delete superseded contributor-closure, Basic-owned `AuthoritySection`/fixed-block and provider-callback target prose
     from the transitional protection spec. Retain only current implementation mechanisms and migration regression evidence;
     the generic target remains solely in `route-resource-admission.md`.
-  - [ ] Remove the superseded recursive provider-closure implementation. Expose namespaced resource registration plus bounded,
-    non-recursive route contributions collected once per admission; Basic does not execute signal policy callbacks while scanning
-    physical topology, and SimpleATO does not construct contributed resources.
-- [ ] Keep protection-region/fixed-block definitions, graph-cut validation and catalog/window resolution explicitly transitional in Basic during Stage 1; remove their use from the generic host contract and hand their implementation/persistence migration to the Stage 2 `JapaneseSignals` task. Do not add runtime compatibility without separate approval.
-- [ ] Generalize route resources from turnout-owner keys to all-or-nothing rail, turnout, fixed-crossing, and clearance claims.
+  - [x] Audit the superseded recursive provider-closure target and retain only the bounded non-recursive implementation. The old
+    closure existed as design prose, not as a separate runtime implementation to delete: `PhysicalRouteResourceCompiler` has no
+    plugin callback; `DefaultInfrastructureLeaseService.collectRouteContributions` snapshots the registered contributors and invokes
+    each once; `RouteResourceAdmissionEngine.request` validates and merges that one returned list after physical compilation.
+    `InfrastructureResourceProvider` can only approve/reject an exact returned resource, `RouteResourceIntent` carries no contribution,
+    and SimpleATO imports no contributed-resource type. No closure compatibility API remains. The transitional protection-region
+    catalog/graph/window types stay for the separately tracked Stage 2 migration.
+- [x] Keep the existing protection-region definitions, graph-cut validation and catalog/window resolution explicitly transitional in Basic during Stage 1; keep fixed-block policy out of Basic's generic host contract and hand protection implementation/persistence migration to the Stage 2 `JapaneseSignals` task. `protected-route-admission.md` now marks the complete catalog/graph/window surface `TRANSITIONAL`, the generic route intent and admission service contain no protection-region type, and the separate Stage 2 task owns code/persistence migration. No runtime compatibility path was added.
+- [x] Generalize route resources from turnout-owner keys to one all-or-nothing claim containing rail intervals, canonical turnout identities, route-bound fixed crossings and the requested clearance rail slices. `PhysicalRouteResourceCompilerTest` proves a two-turnout route plus diamond and post-exit clearance produces one footprint, one matching release entry per identity and the complete occupancy evidence without a protection region; authenticated plugin resources join that same union rather than a second claim.
 - [ ] Remove turnout-derived protection-point synthesis from route compilation. Concrete signal plugins decide whether their configuration is complete; Basic always retains the physical-resource floor.
 - [ ] Centralize turnout mutation and add the physical-lock/active-claim checked manual operation that produces no automatic authority.
-- [ ] Replace turnout-derived release assumptions with generic per-resource hold boundaries and physical clear envelopes.
+- [x] Replace turnout-derived release assumptions with generic per-resource hold boundaries and physical clear envelopes.
   - [x] Add internal generic tail-clear queue metadata without per-resource occupancy state;
     eligible-prefix inspection now belongs to the live release owner.
   - [x] Add exact-identity atomic live-claim shrink without topology revalidation, conflict lookup,

@@ -272,6 +272,7 @@ class DefaultInfrastructureLeaseServiceTest {
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
         val stalls = mutableListOf<String>()
+        var contributionCalls = 0
         val registration = service.registerResourceProvider(providerOwner, block.typeId, object : InfrastructureResourceProvider {
             override fun exists(candidateWorld: UUID, resourceId: String) =
                 candidateWorld == worldId && resourceId == block.resourceId
@@ -287,6 +288,7 @@ class DefaultInfrastructureLeaseServiceTest {
             }
         }, emptyList())
         val contributorRegistration = service.registerRouteResourceContributor(contributor) { candidateWorld, _ ->
+            contributionCalls++
             if (candidateWorld == worldId) {
                 listOf(ContributedRouteResource(block, RouteBoundary(20.0)))
             } else {
@@ -315,6 +317,7 @@ class DefaultInfrastructureLeaseServiceTest {
             RouteBoundary(20.0)
         )
         assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.request(intent))
+        assertEquals(1, contributionCalls)
 
         val contributorActive = assertThrows(IllegalStateException::class.java) {
             contributorRegistration.close()
@@ -353,6 +356,7 @@ class DefaultInfrastructureLeaseServiceTest {
         val descriptor = ResourcePreparationDescriptor("example.device:align", emptyMap())
         val ticket = MutablePreparationTicket()
         var attemptId: UUID? = null
+        var contributionCalls = 0
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
         service.registerResourceProvider(
@@ -391,6 +395,7 @@ class DefaultInfrastructureLeaseServiceTest {
             })
         )
         service.registerRouteResourceContributor(contributor) { candidateWorld, _ ->
+            contributionCalls++
             if (candidateWorld == worldId) {
                 listOf(ContributedRouteResource(resource, RouteBoundary(20.0), descriptor))
             } else emptyList()
@@ -418,11 +423,13 @@ class DefaultInfrastructureLeaseServiceTest {
         )
 
         val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java, admission.request(intent))
+        assertEquals(1, contributionCalls)
         assertTrue(attemptId != null)
         assertEquals(1, service.liveClaims(worldId).size)
         ticket.state = ResourcePreparationState.READY
 
         assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.progress(pending.handle))
+        assertEquals(1, contributionCalls)
     }
 
     @Test

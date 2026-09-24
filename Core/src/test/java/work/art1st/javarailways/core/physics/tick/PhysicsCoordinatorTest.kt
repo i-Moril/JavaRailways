@@ -13,6 +13,7 @@ import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
+import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -222,6 +223,155 @@ class PhysicsCoordinatorTest {
                 @Suppress("UNCHECKED_CAST")
                 (frame.trains as MutableList<TrainFrameSnapshot>).clear()
             }
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `exact ticket waits for synchronous railway epoch processor`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor { frame ->
+            assertEquals(1L, frame.physicsEpoch)
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to release epoch processor" }
+        })
+        coordinator.start()
+        try {
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertEquals(0L, world.latestWorldFrame().physicsEpoch)
+            assertTrue(!ticket.isDone)
+
+            release.countDown()
+            ticket.await()
+            assertEquals(ticket.epoch, world.latestWorldFrame().physicsEpoch)
+        } finally {
+            release.countDown()
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `railway epoch processor failure stalls without publishing candidate frame`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
+            error("signal recomputation failed")
+        })
+        coordinator.start()
+        try {
+            val failure = assertThrows(ExecutionException::class.java) {
+                coordinator.stepSimulation(50.0).await()
+            }
+
+            assertTrue(failure.cause is PhysicsStalledException)
+            assertEquals(PhysicsCoordinatorStatus.STALLED, coordinator.status)
+            assertEquals(0L, world.latestWorldFrame().physicsEpoch)
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `railway epoch processor membership is static after start`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val processor = RailwayEpochProcessor { }
+        coordinator.registerRailwayEpochProcessor(processor)
+        coordinator.start()
+        try {
+            assertThrows(IllegalStateException::class.java) {
+                coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor { })
+            }
+            assertThrows(IllegalStateException::class.java) {
+                coordinator.unregisterRailwayEpochProcessor(processor)
+            }
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `closed coordinator rejects new railway epoch processor`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        coordinator.close()
+
+        assertThrows(IllegalStateException::class.java) {
+            coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor { })
+        }
+    }
+
+    @Test
+    fun `candidate occupancy is revalidated after railway epoch processing`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to release epoch processor" }
+        })
+        coordinator.start()
+        try {
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            world.rebuildSweptOccupancyIndex(ticket.epoch)
+            release.countDown()
+
+            val failure = assertThrows(ExecutionException::class.java) { ticket.await() }
+            assertTrue(failure.cause is PhysicsStalledException)
+            assertEquals(PhysicsCoordinatorStatus.STALLED, coordinator.status)
+            assertEquals(0L, world.latestWorldFrame().physicsEpoch)
+        } finally {
+            release.countDown()
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `railway epoch processor time contributes to epoch metrics`() {
+        val clock = AtomicLong()
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = clock::get,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
+            clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(7L))
+        })
+        coordinator.start()
+        try {
+            val metrics = coordinator.stepSimulation(50.0).await()
+
+            assertEquals(TimeUnit.MILLISECONDS.toNanos(7L), metrics.coordinatorNanos)
+            assertEquals(TimeUnit.MILLISECONDS.toNanos(7L), metrics.wallNanos)
         } finally {
             coordinator.close()
         }

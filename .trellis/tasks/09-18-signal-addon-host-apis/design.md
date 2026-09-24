@@ -108,7 +108,7 @@ The current route state owns one frozen route and one monotonic tail cursor; its
 
 `InspectionDistance(train)` tells SimpleATO when to inspect/request a resource; it is not a signal-update tick callback. SimpleATO independently computes current braking distance each physics tick. The inspection declaration's cache and invalidation rules remain to be reviewed before implementation.
 
-One shared route perception must avoid a second forward scan. A plugin publishes immutable restrictions; SimpleATO combines them with Basic grant, following, operational stops and infrastructure speed constraints. Plugin code can only keep or tighten the result. The owner of dependency tracking, activation/update timing and fail-closed invalidation is deliberately deferred to the reactive implementation review; unchanged resources must not invoke plugin code every tick.
+One shared route perception must avoid a second forward scan. A plugin publishes immutable restrictions; SimpleATO combines them with Basic grant, following, operational stops and infrastructure speed constraints. Plugin code can only keep or tighten the result. The first reviewed reactive slice now routes Basic monitored-area changes synchronously to their static Java/Kotlin source before the Core epoch completes; unchanged areas do not invoke plugin code. Concrete plugin-internal downstream dependency propagation and the separate inspection-distance cache/perception scheduler remain later work.
 
 The railway safety loop is independent of the Minecraft main thread and serializes complete epochs:
 

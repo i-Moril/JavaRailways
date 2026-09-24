@@ -68,6 +68,7 @@ data class RailwayOccupancyAreaDefinition private constructor(
         }
     }
 
+    /** Factory for validated immutable monitored-area definitions. */
     companion object {
         /** Validates and defensively copies one monitored-area definition. */
         @JvmStatic
@@ -162,5 +163,29 @@ class RailwayAreaOccupancyBatch(
         require(this.updates.map(RailwayAreaOccupancyUpdate::areaId).distinct().size == this.updates.size) {
             "occupancy batch must not contain duplicate area updates"
         }
+    }
+}
+
+/**
+ * Serialized world-local derivation of monitored-area occupancy and ordered boundary crossings.
+ *
+ * The caller must feed exactly one coherent [RailwayObservation] per consecutive physics epoch.
+ * This engine owns no signalling, block, interlocking, resource-claim, or restriction policy.
+ * Replacing definitions resets its baseline; the next [consume] reports every new definition with
+ * its current occupants and no fabricated crossing.
+ */
+interface RailwayAreaOccupancyEngine {
+    /** Atomically replaces all plugin-owned geometry and resets the next observation to baseline. */
+    fun replaceDefinitions(definitions: Collection<RailwayOccupancyAreaDefinition>)
+
+    /** Derives changed/baselined areas from exactly the next coherent observation. */
+    fun consume(observation: RailwayObservation): RailwayAreaOccupancyBatch
+
+    /** Factory for independent monitored-area engines. */
+    companion object {
+        /** Creates one independent serialized engine and defensively captures [definitions]. */
+        @JvmStatic
+        fun create(definitions: Collection<RailwayOccupancyAreaDefinition>): RailwayAreaOccupancyEngine =
+            work.art1st.javarailways.basic.observation.RailwayAreaOccupancyTracker(definitions)
     }
 }

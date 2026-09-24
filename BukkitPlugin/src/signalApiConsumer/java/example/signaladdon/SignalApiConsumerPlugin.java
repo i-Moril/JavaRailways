@@ -28,8 +28,20 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
 import work.art1st.javarailways.basic.api.route.RouteBoundary;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent;
+import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine;
+import work.art1st.javarailways.basic.api.observation.RailwayObservation;
+import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition;
+import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary;
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp;
+import work.art1st.javarailways.core.api.physics.rail.RailInterval;
+import work.art1st.javarailways.core.api.physics.rail.RailObjectRef;
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult;
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus;
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher;
+import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult;
+import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
 
 import java.util.List;
 import java.util.Objects;
@@ -173,6 +185,39 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             route,
             new RouteBoundary(100.0)
         );
+    }
+
+    /** Compile-only proof that the reactive signal slice is consumable from ordinary Java. */
+    private static SignalEpochSource compileReactiveSignalApi(RailwayObservation observation) {
+        var railId = UUID.randomUUID();
+        var area = RailwayOccupancyAreaDefinition.create(
+            new RailObjectRef("example.signaladdon", "home-block"),
+            1L,
+            observation.getStamp().getTopologyRevision(),
+            List.of(new RailInterval(railId, 0.0, 100.0)),
+            List.of(new RailwayOccupancyBoundary(
+                new RailObjectRef("example.signaladdon", "home-entry"),
+                new RailPositionSnapshot(railId, ViewDirection.AB, 0.0)
+            ))
+        );
+        var occupancy = RailwayAreaOccupancyEngine.create(List.of(area));
+        var baseline = occupancy.consume(observation);
+        var source = new SignalEpochSource(
+            "example.signaladdon:main",
+            List.of(area),
+            input -> {
+                Objects.requireNonNull(input.getObservation());
+                Objects.requireNonNull(input.getAreaUpdates());
+                return new SignalEpochResult(List.of());
+            }
+        );
+        TrainRestrictionPublisher publisher = snapshot -> new TrainRestrictionPublicationResult(
+            TrainRestrictionPublicationStatus.ACCEPTED,
+            snapshot.getRevision()
+        );
+        Objects.requireNonNull(publisher);
+        Objects.requireNonNull(baseline.getUpdates());
+        return source;
     }
 
     /** Compile-only proof of pending inspection and explicit safe grant end. */

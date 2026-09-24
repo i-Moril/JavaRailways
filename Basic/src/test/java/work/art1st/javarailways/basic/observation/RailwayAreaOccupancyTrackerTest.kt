@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyCrossingKind
@@ -211,6 +212,34 @@ class RailwayAreaOccupancyTrackerTest {
         val wrongTopology = RailwayAreaOccupancyTracker(listOf(definition))
         assertThrows(IllegalArgumentException::class.java) {
             wrongTopology.consume(observation(1L, topologyRevision = 8L, occupied = emptyList()))
+        }
+    }
+
+    @Test
+    fun `public engine factory exposes baseline and defensively copied updates`() {
+        val engine = RailwayAreaOccupancyEngine.create(
+            listOf(
+                area(
+                    intervals = listOf(RailInterval(firstRail, 10.0, 90.0)),
+                    boundaries = listOf(
+                        boundary(entryId, firstRail, ViewDirection.AB, 10.0),
+                        boundary(exitId, firstRail, ViewDirection.BA, 90.0)
+                    )
+                )
+            )
+        )
+
+        val batch = engine.consume(
+            observation(1L, occupied = listOf(RailInterval(firstRail, 20.0, 30.0)))
+        )
+        assertEquals(setOf("train"), batch.updates.single().occupants)
+        assertThrows(UnsupportedOperationException::class.java) {
+            @Suppress("UNCHECKED_CAST")
+            (batch.updates as MutableList).clear()
+        }
+        assertThrows(UnsupportedOperationException::class.java) {
+            @Suppress("UNCHECKED_CAST")
+            (batch.updates.single().occupants as MutableSet).clear()
         }
     }
 

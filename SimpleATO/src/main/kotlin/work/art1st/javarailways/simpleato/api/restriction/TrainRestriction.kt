@@ -4,7 +4,7 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import java.util.Collections
 
-private val NAMESPACED_RESTRICTION_ID = Regex("[a-z0-9_.-]+:[A-Za-z0-9_./-]+")
+internal val NAMESPACED_RESTRICTION_ID = Regex("[a-z0-9_.-]+:[A-Za-z0-9_./-]+")
 
 /**
  * Constant-time identity and range binding for one already frozen route.
@@ -205,6 +205,19 @@ data class TrainRestrictionPublicationResult(
     /** Whether the supplied snapshot became the retained source value. */
     val accepted: Boolean
         get() = status == TrainRestrictionPublicationStatus.ACCEPTED
+}
+
+/**
+ * Platform-neutral synchronous publication boundary used after a signal epoch result is validated.
+ *
+ * Implementations must retain or apply the complete immutable replacement before returning and
+ * must not defer safety work to Bukkit or another epoch. When called from the railway-epoch
+ * runtime, any non-[TrainRestrictionPublicationStatus.ACCEPTED] result or thrown failure prevents
+ * that Core candidate frame and exact ticket from being published.
+ */
+fun interface TrainRestrictionPublisher {
+    /** Publishes one complete replacement snapshot and returns its authoritative acceptance result. */
+    fun publish(snapshot: TrainRestrictionSnapshot): TrainRestrictionPublicationResult
 }
 
 private fun requireNamespacedRestrictionId(value: String) {

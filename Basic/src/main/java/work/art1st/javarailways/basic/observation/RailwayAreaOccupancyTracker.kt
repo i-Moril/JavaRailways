@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.observation
 
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyBatch
+import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyUpdate
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
@@ -25,20 +26,20 @@ import kotlin.math.min
  */
 internal class RailwayAreaOccupancyTracker(
     definitions: Collection<RailwayOccupancyAreaDefinition>
-) {
+) : RailwayAreaOccupancyEngine {
     private var compiled = CompiledDefinitions.create(definitions)
     private var lastStamp: RailwayStateStamp? = null
     private var occupantsByArea: Map<RailObjectRef, Set<String>> = emptyMap()
 
     /** Replaces geometry atomically; the next observation establishes a fresh baseline. */
-    fun replaceDefinitions(definitions: Collection<RailwayOccupancyAreaDefinition>) {
+    override fun replaceDefinitions(definitions: Collection<RailwayOccupancyAreaDefinition>) {
         compiled = CompiledDefinitions.create(definitions)
         lastStamp = null
         occupantsByArea = emptyMap()
     }
 
     /** Consumes exactly the next completed physics epoch. */
-    fun consume(observation: RailwayObservation): RailwayAreaOccupancyBatch {
+    override fun consume(observation: RailwayObservation): RailwayAreaOccupancyBatch {
         validateStamp(observation.stamp)
         val previousStamp = lastStamp
         if (previousStamp != null) {

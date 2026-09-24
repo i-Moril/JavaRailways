@@ -10,7 +10,7 @@
 
 - owner：Core 定义 API；consumer 只消费。Core production 不得 import Basic、Bukkit、Paper 或 Minecraft。
 - Dokka publication 只保留 `work.art1st.javarailways.core.api.*`；普通 `public` implementation 不成为 API。
-- 认可的跨线程 value 类型：`RailPositionSnapshot(UUID, ViewDirection, Double)`、`RailTraversalSegmentSnapshot`、revision-rooted `TopologyState`及其`RailCrossingPoint/AtGradeRailCrossing`、`RailObjectRef(namespace,id)`、`RailObjectSnapshot`、`TrainSnapshot`、`Vector3Snapshot`、`RenderableFrameSnapshot`、`CarFrameSnapshot`、`TrainFrameSnapshot`、`RailwayOccupancySnapshot`、`RailwayWorldFrameSnapshot`。
+- 认可的跨线程 value 类型：`RailPositionSnapshot(UUID, ViewDirection, Double)`、`RailTraversalSegmentSnapshot`、revision-rooted `TopologyState`及其`RailCrossingPoint/AtGradeRailCrossing`、`RailObjectRef(namespace,id)`、`RailObjectSnapshot`、`TrainSnapshot`、`Vector3Snapshot`、`RenderableFrameSnapshot`、`CarFrameSnapshot`、`TrainFrameSnapshot`、`RailwayOccupancySnapshot`、`RailwayWorldFrameSnapshot`。`RailwayEpochProcessor`是同步value-only callback，不暴露live Core对象。
 - live 类型：`World`、`Train`、`Rail`、`RailView`。`World.allTrains` 与 `RailView.nextRails` 不得当 immutable collection 缓存。
 - `@MainThread`、`@Heavy`、`@Concurrent`、`@Pure` 只表达 contract，不调度；只有实现显式调用 `ThreadGuard.ensure*` 才 runtime fail-fast。
 
@@ -27,6 +27,8 @@ data class RailPositionSnapshot(
 `arcLengthInAbMeters` 必须 finite、`>= 0`；它不保留 live `Rail`。完整 render frame contract 归[render publication](./render-publication.md)。
 
 `RailwayWorldFrameSnapshot(physicsEpoch,topologyRevision,trains,occupancy)`是世界级一致发布，不是若干独立getter的容器。它要求所有train frame与occupancy属于同一physics epoch、train ID唯一、集合不可变并按稳定ID排序。`occupancy`与Core collision共享一次构建的immutable bucket index，consumer只做局部区间查询，不从`trains`重建world index。`topologyRevision`仅表示runtime structural topology，不得当作持久化schema version或Basic infrastructure revision。
+
+`RailwayEpochProcessor.process(frame)`在同一世界的physics coordinator线程串行执行。输入是尚未公开的完整候选world frame；callback返回前ticket不能完成，callback抛错则该frame不发布并令coordinator Stall。processor不能调用Bukkit、保留live Core对象或把安全处理排入下一epoch；完整顺序由[runtime publication](./runtime-publication.md)拥有。
 
 `AtGradeRailCrossing`只携带按UUID稳定排序的两项`RailCrossingPoint(railId,arcLengthAbMeters)`；弧长为canonical AB米制位置。它是所属immutable `TopologyState`的几何观测，不是persistent资源身份、可跨线port或独立持久化边界。consumer必须与同一topology root的rail projection一起使用。
 

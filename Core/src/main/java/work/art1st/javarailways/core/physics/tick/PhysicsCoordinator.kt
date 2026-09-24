@@ -4,6 +4,7 @@ import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.event.CollisionEvent
 import work.art1st.javarailways.core.api.event.CollisionResolution
 import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
+import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.CoreTrain
@@ -125,6 +126,7 @@ class PhysicsCoordinator(
     private val stateLock = Any()
     private val controllers = ConcurrentHashMap<String, TrainController>()
     private val publishedFrameProcessors = CopyOnWriteArrayList<PublishedTrainFrameProcessor>()
+    private val railwayEpochProcessors = CopyOnWriteArrayList<RailwayEpochProcessor>()
     private val trainsPublishingMotionFrames = ConcurrentHashMap.newKeySet<String>()
     private val overloadTimesNanos = ArrayDeque<Long>()
     private val collisionClaims = ConcurrentHashMap.newKeySet<CollisionPair>()
@@ -200,6 +202,26 @@ class PhysicsCoordinator(
 
     fun unregisterPublishedFrameProcessor(processor: PublishedTrainFrameProcessor) {
         publishedFrameProcessors.remove(processor)
+    }
+
+    /** Registers serialized value-only work in deterministic registration order. */
+    fun registerRailwayEpochProcessor(processor: RailwayEpochProcessor) {
+        synchronized(stateLock) {
+            check(status == PhysicsCoordinatorStatus.RUNNING) {
+                "railway epoch processors cannot be registered after coordinator stall or close"
+            }
+            check(!started) { "railway epoch processors must be registered before coordinator start" }
+            railwayEpochProcessors.addIfAbsent(processor)
+        }
+    }
+
+    fun unregisterRailwayEpochProcessor(processor: RailwayEpochProcessor) {
+        synchronized(stateLock) {
+            check(!started || status != PhysicsCoordinatorStatus.RUNNING) {
+                "railway epoch processors remain static while the coordinator is running"
+            }
+            railwayEpochProcessors.remove(processor)
+        }
     }
 
     fun wakeFromMainThread(): PhysicsTicket {
@@ -424,6 +446,12 @@ class PhysicsCoordinator(
             runPublishedFrameProcessors(publishedTrains.toList(), ticket.epoch)
             world?.rebuildSweptOccupancyIndex(ticket.epoch)
             val occupancyStats = world?.sweptOccupancyStats() ?: (0 to 0)
+            val capturedWorldFrame = world?.captureWorldFrame(ticket.epoch)
+            if (capturedWorldFrame != null) {
+                railwayEpochProcessors.toList().forEach { processor ->
+                    processor.process(capturedWorldFrame)
+                }
+            }
             val coordinatorNanos = nanoTime() - coordinatorStart
             val wallNanos = nanoTime() - epochStartNanos
             val overloadCount = recordOverloadIfNeeded(wallNanos, epochStartNanos)
@@ -471,7 +499,9 @@ class PhysicsCoordinator(
 
             // This is the final coherent publication boundary for a successful epoch. Ticket
             // completion below guarantees platform consumers cannot observe it before all work ends.
-            world?.publishWorldFrame(ticket.epoch)
+            if (capturedWorldFrame != null) {
+                world?.publishCapturedWorldFrame(capturedWorldFrame)
+            }
             synchronized(stateLock) {
                 latestCompleted = ticket
                 inFlight = null

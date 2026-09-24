@@ -22,7 +22,7 @@ tail表示保守安全车尾。未来近似实现可延后其位置和`LEFT`，�
 
 ## 派生算法与时序
 
-tracker由一个world-local串行owner调用，只接受同world、拓扑匹配且physics epoch严格连续的observation。替换整组定义会原子重建索引并让下一帧成为新baseline；baseline发布当前occupants但不伪造穿越事件。
+公开`RailwayAreaOccupancyEngine`由一个world-local串行owner调用；工厂防御性复制定义，并由internal tracker实现。它只接受同world、拓扑匹配且physics epoch严格连续的observation。替换整组定义会原子重建索引并让下一帧成为新baseline；baseline发布当前occupants但不伪造穿越事件。接口不公开索引、mutable tracker状态或信号策略。
 
 每个正常epoch：
 
@@ -61,6 +61,7 @@ tracker由一个world-local串行owner调用，只接受同world、拓扑匹配�
 - swept envelope覆盖区域而epoch末placement在外时，occupants为空；
 - 瞬移、生成、删除改变occupants但不伪造crossing；
 - 定义defensive copy，拒绝拓扑不匹配与epoch缺口。
+- public engine factory可在不导入Basic internal package的情况下建立baseline；batch/update collection不可修改。
 
 ```bash
 ./gradlew :Core:test --tests '*CoreTrainPublicationBoundaryTest'

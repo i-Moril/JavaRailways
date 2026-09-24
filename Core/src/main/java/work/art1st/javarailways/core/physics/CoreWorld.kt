@@ -550,11 +550,11 @@ class CoreWorld(
     }
 
     /**
-     * Publishes the coherent world frame after train frames and swept occupancy for [physicsEpoch].
-     * Mismatched train epochs fail the physics ticket instead of exposing a mixed observation.
+     * Captures a coherent candidate after train frames and swept occupancy for [physicsEpoch].
+     * The candidate is not externally visible until [publishCapturedWorldFrame] validates it again.
      */
-    internal fun publishWorldFrame(physicsEpoch: Long): RailwayWorldFrameSnapshot {
-        val frame = railTopologyLock.read {
+    internal fun captureWorldFrame(physicsEpoch: Long): RailwayWorldFrameSnapshot =
+        railTopologyLock.read {
             ensureTopologyHealthy()
             RailwayWorldFrameSnapshot.createWithOccupancy(
                 physicsEpoch = physicsEpoch,
@@ -563,7 +563,36 @@ class CoreWorld(
                 occupancy = sweptOccupancy
             )
         }
-        publishedWorldFrame = frame
+
+    /**
+     * Publishes an earlier [captureWorldFrame] result only if no constituent state changed while
+     * synchronous epoch processors ran.
+     */
+    internal fun publishCapturedWorldFrame(frame: RailwayWorldFrameSnapshot): RailwayWorldFrameSnapshot =
+        railTopologyLock.read {
+            ensureTopologyHealthy()
+            check(frame.topologyRevision == publishedTopologyState.revision) {
+                "rail topology changed while processing physics epoch ${frame.physicsEpoch}"
+            }
+            check(frame.occupancy === sweptOccupancy) {
+                "swept occupancy changed while processing physics epoch ${frame.physicsEpoch}"
+            }
+            val currentFrames = trains.values.map(CoreTrain::publishedFrame)
+                .sortedBy(TrainFrameSnapshot::trainId)
+            check(frame.trains == currentFrames) {
+                "train frames changed while processing physics epoch ${frame.physicsEpoch}"
+            }
+            publishedWorldFrame = frame
+            frame
+        }
+
+    /**
+     * Captures and immediately publishes one coherent frame for existing serialized internal
+     * callers that have no intervening railway-epoch processing.
+     */
+    internal fun publishWorldFrame(physicsEpoch: Long): RailwayWorldFrameSnapshot {
+        val frame = captureWorldFrame(physicsEpoch)
+        publishCapturedWorldFrame(frame)
         return frame
     }
 

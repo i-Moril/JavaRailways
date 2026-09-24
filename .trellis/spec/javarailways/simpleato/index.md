@@ -11,6 +11,7 @@ SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调
 | 文档 | 何时加载 | 唯一归属 |
 | --- | --- | --- |
 | [运营选路与行车授权](./operational-routing-and-authority.md) | 改 mission、运营 overlay、冻结路线、资源准入调用或约束合成 | SimpleATO 选路、准入客户端、单一列车保护管线 |
+| [响应式信号epoch](./reactive-signal-epochs.md) | 改监测区更新路由、信号callback或同步restriction publication | 平台无关source host、校验、fail-closed epoch顺序 |
 
 后续为信号脚本、运营对象与持久化分别建立 owner spec；在对应接口冻结前，不把概念草图写成已存在 API。
 

@@ -109,6 +109,8 @@ adapter以该来源的constraint key安装零速`DepartureHoldConstraint`而不�
 
 ### 3.4 资源检查距离与响应式更新
 
+监测区变化到同步restriction publication的已实现owner contract见[响应式信号epoch](./reactive-signal-epochs.md)。该接缝只负责area-driven dirty source，不提前冻结下面仍待单独review的resource inspection-distance缓存与共享route perception调度。
+
 每个可被ATO提前申请的资源通过信号插件提供`InspectionDistance(train)`语义和`update(train)`检查语义。检查距离不是每tick运行任意脚本的理由：依赖路线、资源定义、信号配置或低频列车能力（例如长度、制动等级、车型）的部分按对应revision缓存；当前速度产生的实时制动距离由SimpleATO自己的控制数学每tick计算。有效检查距离取缓存的资源声明与动态制动距离加安全余量中的较大值。
 
 SimpleATO的一次共享route perception负责判断列车何时进入资源检查范围。首次进入、占用/claim/grant变化、相关配置revision变化或依赖的下游信号状态变化时，调度该资源的`update(train)`；输入和依赖均未变化时资源保持`IDLE`，不重复执行插件代码。信号插件必须显式发布其依赖变化，不能通过每tick全世界轮询来弥补缺失依赖。
@@ -195,7 +197,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 
 准入request/result、单位、preparation descriptor与rolling extension关系已由Basic owner spec冻结。尚未冻结：
 client lookahead policy、路线 cost policy、overlay持久化边界、信号插件检查/限制接口、具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些
-问题必须在对应实现批次单独审查；本页不替它们选择兼容格式。
+问题必须在对应实现批次单独审查；signal epoch source/result已经由[响应式信号epoch](./reactive-signal-epochs.md)冻结，但inspection-distance、JS能力和WebUI仍不由本页选择兼容格式。
 
 ```text
 Wrong: SimpleATO selects a destination; Basic searches and chooses the physical route

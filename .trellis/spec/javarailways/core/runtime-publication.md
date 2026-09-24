@@ -21,7 +21,7 @@ class PhysicsTicket internal constructor(
 
 来源：`Core/src/main/java/work/art1st/javarailways/core/physics/tick/PhysicsCoordinator.kt`。
 
-Lifecycle：`attachWorld` 仅一次 → composition完成后 `start()` → wake/capture/await → unload停止新work并final save → unregister processors → `close()`。`close()`幂等并使 in-flight ticket exceptional；`STALLED/CLOSED` 不返回旧成功 ticket。
+Lifecycle：`attachWorld` 仅一次 → composition注册静态railway-epoch processors → `start()` → wake/capture/await → unload停止新work并final save → `close()`/unregister processors。`RailwayEpochProcessor`在`start()`后不能增删；Stall/close后才可清理。`close()`幂等并使 in-flight ticket exceptional；`STALLED/CLOSED` 不返回旧成功 ticket。
 
 Wall-clock delta首 epoch 50 ms，默认 clamp 200 ms；drop计入 `droppedDeltaMillis`，不补跑 catch-up epochs。`stepSimulation(deltaMillis)` 要求 finite、`0 < delta <= maxPhysicsDeltaMillis` 且 `automaticFallback=false`。
 
@@ -36,7 +36,9 @@ apply prior collision decisions
 → publish TrainFrameSnapshot
 → process frames per train；completeEpoch once
 → build one shared RailwayOccupancySnapshot
-→ publish RailwayWorldFrameSnapshot(physicsEpoch, topologyRevision, trains, occupancy)
+→ capture candidate RailwayWorldFrameSnapshot under topology read lock
+→ run registered RailwayEpochProcessor synchronously in registration order
+→ revalidate candidate topology/occupancy/train frames and publish it
 → complete exact PhysicsTicket
 ```
 
@@ -50,6 +52,8 @@ apply prior collision decisions
 | deterministic step参数非法 | `require/check`失败，无新epoch | 修正caller输入 |
 
 Generic TickManager 的 `postTick()` 只 await workers并drain `afterCommitTasks/postTickTasks`；平台之后才 `drainPendingCommits()`。`scheduleMainThreadAfterCommitTask` 的历史命名不表示 platform commit 已执行。
+
+world frame的capture与publication是两个阶段，但不是两个可独立观察的revision。capture持有topology read lock并保存当时同epoch的train frames、共享occupancy实例和topology revision；processor只读该value。最终publication再次持有read lock，要求topology revision未变、occupancy仍为同一实例、按train ID排序的当前published frames与candidate相等。任一不匹配都令ticket失败，不发布candidate。processor耗时计入`wallNanos`、`coordinatorNanos`与overload窗口；它不是不受physics预算约束的异步队列。
 
 `RailwayWorldFrameSnapshot` 是一个 value-only 一致副本：所有 `TrainFrameSnapshot.physicsEpoch` 必须等于 world frame 的 `physicsEpoch`，列车按稳定 ID 排序且集合 defensive copy。每个train frame同时携带三种不能混用的物理事实：`occupiedIntervals`是epoch结束时的保守车体占用，`sweptSpans`是整个epoch扫过的合并包络，head/tail traversal是带方向和顺序的边界穿越证据。`topologyRevision` 是该次发布持有 topology read lock 时捕获的 runtime structural revision；它不是 schema version、配置 revision 或可独立拼接到其他 epoch 的“最新值”。平台 service 必须先等待 exact `PhysicsTicket` 成功，再发布该 world frame；不得把旧列车 frame 与新 topology revision 重新组合。
 
@@ -82,7 +86,8 @@ override fun register(obj: TickingObject) {
 - `PhysicsCoordinatorTest.kt`：exact ticket 完成后 world frame 的 epoch、topology revision、稳定排序和不可变集合一致。
 - `CoreTrainPublicationBoundaryTest.kt`：commit前不可见、epoch后可见。
 - `TickManagerImplTest.kt`：`postTick`不执行platform commit、deferred registration、metrics。
-- processor failure test：ticket exceptional后consumer无side effect。
+- railway-epoch processor阻塞测试：exact ticket保持未完成且latest world frame不前移；释放后才一起完成。
+- processor failure test：ticket exceptional、coordinator Stall且latest world frame保持上一成功epoch。
 
 ```bash
 ./gradlew :Core:test --tests 'work.art1st.javarailways.core.physics.tick.*' \

@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.api.physics.train
 
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import java.util.UUID
@@ -81,9 +82,14 @@ data class RailTraversalSegmentSnapshot(
  * Complete value-only frame atomically published by one train after a physics epoch.
  *
  * Consumers must use only this frame for a render update and must not fill missing data from the
- * mutable live train. [sweptSpans] is a direction-independent occupancy envelope. [headTraversal]
- * and [tailTraversal] are separate ordered movement evidence for this epoch and must not be merged
- * by rail identity. Collection arguments are defensively copied before publication.
+ * mutable live train. [occupiedIntervals] is the conservative placement at epoch end, while
+ * [sweptSpans] is the direction-independent envelope swept during the complete epoch.
+ * [headTraversal] and [tailTraversal] are separate ordered movement evidence for this epoch and
+ * must not be merged by rail identity. [tail] and [tailTraversal] describe the conservative safety
+ * rear: an implementation may publish a rear that lags the exact geometry, but it must never lead
+ * the actual train tail in the direction of travel. Collection arguments are defensively copied.
+ *
+ * @property occupiedIntervals conservative train placement on each rail at epoch end
  */
 @ConsistentCopyVisibility
 data class TrainFrameSnapshot private constructor(
@@ -99,6 +105,7 @@ data class TrainFrameSnapshot private constructor(
     val cars: List<CarFrameSnapshot>,
     val head: RailPositionSnapshot,
     val tail: RailPositionSnapshot,
+    val occupiedIntervals: List<RailInterval>,
     val sweptSpans: List<SweptRailSpanSnapshot>,
     val headTraversal: List<RailTraversalSegmentSnapshot>,
     val tailTraversal: List<RailTraversalSegmentSnapshot>
@@ -125,6 +132,7 @@ data class TrainFrameSnapshot private constructor(
             cars: Collection<CarFrameSnapshot>,
             head: RailPositionSnapshot,
             tail: RailPositionSnapshot,
+            occupiedIntervals: Collection<RailInterval>,
             sweptSpans: Collection<SweptRailSpanSnapshot>,
             headTraversal: Collection<RailTraversalSegmentSnapshot>,
             tailTraversal: Collection<RailTraversalSegmentSnapshot>
@@ -139,6 +147,7 @@ data class TrainFrameSnapshot private constructor(
             cars = java.util.List.copyOf(cars),
             head = head,
             tail = tail,
+            occupiedIntervals = java.util.List.copyOf(occupiedIntervals),
             sweptSpans = java.util.List.copyOf(sweptSpans),
             headTraversal = java.util.List.copyOf(headTraversal),
             tailTraversal = java.util.List.copyOf(tailTraversal)

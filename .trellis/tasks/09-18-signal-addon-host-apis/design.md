@@ -126,6 +126,12 @@ This is a direct in-epoch safety handoff, not an asynchronously drained occupanc
 contract therefore also needs ordered directed traversal evidence for the train head and tail. Crossing a complete short
 area in one epoch emits `ENTER(entryBoundary)` followed by `LEFT(exitBoundary)` rather than a synthetic pass event.
 
+Final area membership cannot use the same swept envelope: a train may have crossed an area earlier in the epoch but be
+fully outside when the epoch ends. Core therefore also publishes conservative epoch-end `occupiedIntervals`. The three
+facts stay separate: placement answers “still inside”, swept spans answer “touched during this epoch”, and ordered
+head/safety-rear traversal answers “which boundary was crossed, in what direction and order”. A future approximate rear
+may lag the exact train tail and delay `LEFT`, but must never lead it or release early.
+
 Only presentation crosses into the Bukkit scheduler asynchronously. A signal plugin publishes immutable per-object visual
 state with a monotonic revision; its Bukkit adapter keeps at most the newest pending revision and applies it on the proper
 platform thread. A stalled Minecraft thread may delay or skip obsolete lamp/model transitions, but never delays logical

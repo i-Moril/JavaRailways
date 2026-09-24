@@ -25,6 +25,7 @@ import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -811,6 +812,7 @@ class RouteResourceAdmissionEngineTest {
         speedMetersPerSecond = 0.0, derailed = false, reversed = false, cars = emptyList(),
         head = RailPositionSnapshot(railId, ViewDirection.AB, head),
         tail = RailPositionSnapshot(railId, ViewDirection.AB, tail),
+        occupiedIntervals = listOf(RailInterval(railId, tail, head)),
         sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head)),
         headTraversal = emptyList(),
         tailTraversal = emptyList()

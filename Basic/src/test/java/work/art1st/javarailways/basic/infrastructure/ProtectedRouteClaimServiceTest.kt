@@ -1163,6 +1163,7 @@ class ProtectedRouteClaimServiceTest {
         cars = emptyList(),
         head = RailPositionSnapshot(railId, ViewDirection.AB, maxArcMeters),
         tail = RailPositionSnapshot(railId, ViewDirection.AB, minArcMeters),
+        occupiedIntervals = listOf(RailInterval(railId, minArcMeters, maxArcMeters)),
         sweptSpans = listOf(SweptRailSpanSnapshot(railId, minArcMeters, maxArcMeters)),
         headTraversal = emptyList(),
         tailTraversal = emptyList()

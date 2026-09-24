@@ -51,7 +51,7 @@ apply prior collision decisions
 
 Generic TickManager 的 `postTick()` 只 await workers并drain `afterCommitTasks/postTickTasks`；平台之后才 `drainPendingCommits()`。`scheduleMainThreadAfterCommitTask` 的历史命名不表示 platform commit 已执行。
 
-`RailwayWorldFrameSnapshot` 是一个 value-only 一致副本：所有 `TrainFrameSnapshot.physicsEpoch` 必须等于 world frame 的 `physicsEpoch`，列车按稳定 ID 排序且集合 defensive copy。`topologyRevision` 是该次发布持有 topology read lock 时捕获的 runtime structural revision；它不是 schema version、配置 revision 或可独立拼接到其他 epoch 的“最新值”。平台 service 必须先等待 exact `PhysicsTicket` 成功，再发布该 world frame；不得把旧列车 frame 与新 topology revision 重新组合。
+`RailwayWorldFrameSnapshot` 是一个 value-only 一致副本：所有 `TrainFrameSnapshot.physicsEpoch` 必须等于 world frame 的 `physicsEpoch`，列车按稳定 ID 排序且集合 defensive copy。每个train frame同时携带三种不能混用的物理事实：`occupiedIntervals`是epoch结束时的保守车体占用，`sweptSpans`是整个epoch扫过的合并包络，head/tail traversal是带方向和顺序的边界穿越证据。`topologyRevision` 是该次发布持有 topology read lock 时捕获的 runtime structural revision；它不是 schema version、配置 revision 或可独立拼接到其他 epoch 的“最新值”。平台 service 必须先等待 exact `PhysicsTicket` 成功，再发布该 world frame；不得把旧列车 frame 与新 topology revision 重新组合。
 
 ## 项目内正确示例
 

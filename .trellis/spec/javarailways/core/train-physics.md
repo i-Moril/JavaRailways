@@ -8,7 +8,7 @@
 
 ## Owner、签名、单位与 lifecycle
 
-`CoreTrain`拥有有序cars、head/tail、published swept spans和controller registration。`moveTrainForward(deltaS: Double)` 仅physics worker调用，`deltaS`单位米且`>=0`：
+`CoreTrain`拥有有序cars、head/tail、epoch-end placement spans、published swept spans和controller registration。`moveTrainForward(deltaS: Double)` 仅physics worker调用，`deltaS`单位米且`>=0`：
 
 ```kotlin
 override fun moveTrainForward(deltaS: Double) {
@@ -28,6 +28,8 @@ occupancy补全和head traversal publication使用。tail endpoint仍通过既�
 并保留该search的`RailSegments`作为tail traversal；不得从反向`RailView`或移动后的active branch重建。
 publication把每个segment转换为canonical AB弧长但保留local facing与列表顺序。零距离移动显式发布
 空traversal，下一epoch无移动也清空前一epoch证据；traversal不是持续占用状态。
+
+公开`tail`与`tailTraversal`的长期安全语义是“保守安全车尾”，而不是强制精确几何车尾。当前实现发布精确train-end；未来低精度模式可让安全车尾落后于真实车尾并延迟释放，但禁止让它沿行驶方向领先真实车尾。与此一致，`occupiedIntervals`必须覆盖epoch末真实车体；允许多占，不允许漏占。
 
 完整删除由`CoreTrain.destroy()`拥有：deferred structural task → remove controller → destroy head/tail/cars/extensions → `world.removeTrain(this)`。`World.removeTrain`只删index，不能独立代表destroy。
 
@@ -68,6 +70,7 @@ override fun destroy() {
 - collision同epoch检测并立即link/derail；
 - tail沿独立reverse active branch求位置；
 - 从合并swept span或epoch终点反推head/tail经过顺序；
+- 用整epoch `sweptSpans`判断epoch末列车是否仍占用一个监测区；
 - structure mutation直接改cars/map而无serialized task、prevalidation与rollback；
 - 用`world.removeTrain`代替destroy；
 - 未验证/未测试的split实现当成熟API。

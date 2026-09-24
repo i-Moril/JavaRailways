@@ -36,6 +36,7 @@ import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
@@ -794,6 +795,7 @@ class DefaultInfrastructureLeaseServiceTest {
             cars = emptyList(),
             head = RailPositionSnapshot(railId, ViewDirection.AB, head),
             tail = RailPositionSnapshot(railId, ViewDirection.AB, tail),
+            occupiedIntervals = listOf(RailInterval(railId, tail, head)),
             sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head)),
             headTraversal = emptyList(),
             tailTraversal = emptyList()

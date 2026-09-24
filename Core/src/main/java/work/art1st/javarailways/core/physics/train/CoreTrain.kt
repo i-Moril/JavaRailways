@@ -85,6 +85,8 @@ open class CoreTrain @MainThread internal constructor(
     @Volatile
     internal var publishedSweptSpans: List<SweptRailSpan> = emptyList()
         private set
+    @Volatile
+    private var publishedPlacementIntervals: List<RailInterval> = emptyList()
     private var pendingSweptSpans: List<SweptRailSpan>? = null
     private var publishedHeadTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
     private var publishedTailTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
@@ -133,9 +135,7 @@ open class CoreTrain @MainThread internal constructor(
     override val tailLocation: RailLocation
         get() = tail.location
     override val occupiedRailIntervals: List<RailInterval>
-        get() = publishedSweptSpans.map { span ->
-            RailInterval(span.railId, span.minArcAB, span.maxArcAB)
-        }
+        get() = publishedPlacementIntervals
 
     init {
         head = TrainEnd(
@@ -153,6 +153,7 @@ open class CoreTrain @MainThread internal constructor(
         world.addTrain(this)
         this.initialize(savedExtensionData)
         publishedSweptSpans = spansFromLocations(currentRailLocations())
+        publishedPlacementIntervals = intervalsFromSpans(publishedSweptSpans)
         publishedFrameRef.set(captureFrame(revision = 0L, physicsEpoch = 0L))
     }
 
@@ -541,6 +542,7 @@ open class CoreTrain @MainThread internal constructor(
             publishedSweptSpans = it
             pendingSweptSpans = null
         }
+        publishedPlacementIntervals = intervalsFromSpans(spansFromLocations(currentRailLocations()))
         publishedHeadTraversal = pendingHeadTraversal ?: emptyList()
         publishedTailTraversal = pendingTailTraversal ?: emptyList()
         pendingHeadTraversal = null
@@ -583,6 +585,7 @@ open class CoreTrain @MainThread internal constructor(
         },
         head = RailPositionSnapshot.capture(head.location, head.location.facing),
         tail = RailPositionSnapshot.capture(tail.location, tail.location.facing),
+        occupiedIntervals = occupiedRailIntervals,
         sweptSpans = publishedSweptSpans.map { span ->
             SweptRailSpanSnapshot(span.railId, span.minArcAB, span.maxArcAB)
         },
@@ -623,6 +626,11 @@ open class CoreTrain @MainThread internal constructor(
         }
         return mergeSweptSpans(spans)
     }
+
+    private fun intervalsFromSpans(spans: List<SweptRailSpan>): List<RailInterval> =
+        java.util.List.copyOf(spans.map { span ->
+            RailInterval(span.railId, span.minArcAB, span.maxArcAB)
+        })
 
     private fun spanFromSegment(segment: RailSegment): SweptRailSpan = spanFromViewRange(
         segment.railView,

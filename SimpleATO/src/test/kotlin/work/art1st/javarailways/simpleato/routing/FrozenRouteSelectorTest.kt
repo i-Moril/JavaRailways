@@ -204,6 +204,7 @@ class FrozenRouteSelectorTest {
             cars = emptyList(),
             head = tail,
             tail = tail,
+            occupiedIntervals = emptyList(),
             sweptSpans = emptyList(),
             headTraversal = emptyList(),
             tailTraversal = emptyList()
@@ -217,6 +218,7 @@ class FrozenRouteSelectorTest {
             reversed = frame.reversed,
             head = frame.head,
             tail = frame.tail,
+            occupiedIntervals = frame.occupiedIntervals,
             sweptSpans = frame.sweptSpans,
             headTraversal = frame.headTraversal,
             tailTraversal = frame.tailTraversal

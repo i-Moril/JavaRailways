@@ -11,6 +11,7 @@ import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -251,6 +252,7 @@ class ProtectedRouteTailReleaseTest {
         cars = emptyList(),
         head = position(tailMeters + 1.0),
         tail = position(tailMeters),
+        occupiedIntervals = listOf(RailInterval(railId, tailMeters, tailMeters + 1.0)),
         sweptSpans = listOf(SweptRailSpanSnapshot(railId, tailMeters, tailMeters + 1.0)),
         headTraversal = emptyList(),
         tailTraversal = emptyList()

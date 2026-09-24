@@ -33,6 +33,9 @@ class CoreTrainPublicationBoundaryTest {
         assertEquals(15.0, frame.headTraversal[1].endArcLengthInAbMeters, 1e-6)
         assertEquals(0.0, frame.headTraversal.last().startArcLengthInAbMeters, 1e-6)
         assertEquals(5.0, frame.headTraversal.last().endArcLengthInAbMeters, 1e-6)
+        assertTrue(frame.sweptSpans.any { it.railId == first.id })
+        assertFalse(frame.occupiedIntervals.any { it.railId == first.id })
+        assertEquals(train.occupiedRailIntervals, frame.occupiedIntervals)
 
         train.moveTrainForward(0.0)
         train.commit()

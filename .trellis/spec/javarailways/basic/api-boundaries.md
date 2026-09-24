@@ -11,7 +11,8 @@
 - `Basic/build.gradle.kts` Dokka只保留`work.art1st.javarailways.basic.api.*`；`Module.md`定义`1.0-SNAPSHOT`实验面，无binary compatibility promise。
 - Basic以`compileOnly(project(":Core"))`、`compileOnly(ConfigLib/JOML)`编译；artifact不自动携带这些runtime。
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
-- `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们保留同epoch的有序head/tail rail traversal供通用边界检测，但不得包含render car或live Core对象。
+- `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们分别保留epoch-end保守`occupiedIntervals`、整epoch`sweptSpans`及同epoch有序head/tail rail traversal，三者不得互相替代，也不得包含render car或live Core对象。
+- `RailwayOccupancyAreaDefinition`只描述插件拥有的监测区几何和有向边界；Basic由连续observation推导`ENTER`/`LEFT`，不把该area解释成固定闭塞、保护区域或授权资源。详见[监测区占用](./railway-area-occupancy.md)。
 - `InfrastructureResource`、lease/edit request、typed result与read-only snapshot属于公开host contract；raw live-claim mutation只属于Basic路线准入实现，不进入add-on API。
 - 目标`work.art1st.javarailways.basic.api.route.RouteResourceIntent`复用现有`RouteSnapshot`，并只携带nonblank stable
   train ID、同一观察stamp及从冻结路线起点起算的米制authority boundary。ATO request不得携带具体resource identity、

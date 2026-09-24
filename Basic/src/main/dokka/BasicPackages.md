@@ -48,7 +48,7 @@ Phase C3 的平台无关语义列车操作、稳定 request、可确认 ticket �
 
 # Package work.art1st.javarailways.basic.api.observation
 
-由同一个 Core world frame 投影得到的不可变铁路观察；物理 epoch、拓扑 revision、frame revision、列车位置与占用始终来自同一次发布。
+由同一个 Core world frame 投影得到的不可变铁路观察；物理 epoch、拓扑 revision、frame revision、列车位置、epoch末保守占用、整epoch扫过范围与有序边界穿越始终来自同一次发布。插件可用通用监测区定义获取带边界身份的`ENTER`/`LEFT`物理变化，但信号含义仍由插件拥有。
 
 # Package work.art1st.javarailways.basic.api.route
 

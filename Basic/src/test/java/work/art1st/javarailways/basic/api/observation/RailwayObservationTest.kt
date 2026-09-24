@@ -36,6 +36,7 @@ class RailwayObservationTest {
         assertEquals(train.publishedFrame.head.arcLengthInAbMeters, projected.head.arcLengthInAbMeters)
         assertEquals(train.publishedFrame.tail.arcLengthInAbMeters, projected.tail.arcLengthInAbMeters)
         assertEquals(train.publishedFrame.revision, projected.frameRevision)
+        assertEquals(train.publishedFrame.occupiedIntervals, projected.occupiedIntervals)
         assertEquals(train.publishedFrame.sweptSpans, projected.sweptSpans)
         assertEquals(train.publishedFrame.headTraversal, projected.headTraversal)
         assertEquals(train.publishedFrame.tailTraversal, projected.tailTraversal)

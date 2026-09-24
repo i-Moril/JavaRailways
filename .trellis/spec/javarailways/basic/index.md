@@ -11,6 +11,7 @@
 | [API 边界](./api-boundaries.md) | 改`basic.api.*`、Dokka、Core/Bukkit imports | 候选API与consumer边界 |
 | [world runtime](./world-runtime.md) | 构造/查找`BasicWorldData`或world stores | world-local composition与RailObject lifecycle |
 | [threading 与 publication](./threading-and-publication.md) | main↔physics command、ATO publication、Dispatcher顺序 | cross-thread handoff与world Stall |
+| [监测区占用](./railway-area-occupancy.md) | 区间占用、边界ENTER/LEFT、响应式信号输入 | Basic通用物理派生，不包含信号制式策略 |
 | [ATO mission 与 perception](./ato-missions-and-perception.md) | mission、route/perception snapshot | revision、resolve、immutable perception |
 | [ATO control 与 constraints](./ato-control-and-constraints.md) | ATO tick、actuator、speed/stop/authority | control skeleton与constraint math |
 | [ATO providers](./ato-providers.md) | 注册provider/boundary | world-local factory、worker purity |

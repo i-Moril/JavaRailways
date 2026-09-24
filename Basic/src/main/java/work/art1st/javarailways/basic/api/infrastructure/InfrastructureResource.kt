@@ -3,7 +3,7 @@ package work.art1st.javarailways.basic.api.infrastructure
 import java.util.UUID
 import java.util.Collections
 
-/** Stable infrastructure identity used by applied plans, live claims, and edit guards. */
+/** Stable infrastructure identity used by live claims and runtime resource arbitration. */
 sealed interface InfrastructureResource {
     /** Returns true when both identities protect any common infrastructure. */
     fun overlaps(other: InfrastructureResource): Boolean
@@ -34,7 +34,12 @@ data class RailIntervalResource(
             startAbMeters <= other.endAbMeters && other.startAbMeters <= endAbMeters
 }
 
-/** Stable reference to a topology node, controlled resource, signal, region, or operational object. */
+/**
+ * Stable identity of an actual runtime or operational resource.
+ *
+ * Examples include a turnout actuator/conflict object or a signal-system-owned interlocking
+ * resource. Structural topology nodes are referenced separately by [StableTopologyNodeKey].
+ */
 data class StableInfrastructureResource(
     val typeId: String,
     val resourceId: String
@@ -68,7 +73,7 @@ data class InfrastructureOwner(
 }
 
 /**
- * Complete immutable resource set acquired, replaced, released, or guarded as one atomic unit.
+ * Complete immutable live-claim resource set acquired or released as one atomic unit.
  *
  * For example, a protected range from rail A's 80 m point through its end and then to rail B's
  * 35 m point contains `RailIntervalResource(A, 80, lengthA)` and
@@ -93,31 +98,7 @@ class InfrastructureFootprint(resources: Collection<InfrastructureResource>) {
     override fun toString(): String = "InfrastructureFootprint(resources=$resources)"
 }
 
-/** Atomic shared applied-plan lease request pinned to one authoritative topology revision. */
-data class InfrastructureLeaseRequest(
-    val topologyRevision: Long,
-    val owner: InfrastructureOwner,
-    val footprint: InfrastructureFootprint
-) {
-    init {
-        require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
-    }
-}
-
-/** Request for an exclusive permit held across the complete infrastructure mutation transaction. */
-data class InfrastructureEditRequest(
-    val topologyRevision: Long,
-    val owner: InfrastructureOwner,
-    val footprint: InfrastructureFootprint
-) {
-    init {
-        require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
-    }
-}
-
 enum class InfrastructureBlockerKind {
-    /** Shared long-lived reference held by an applied operational plan. */
-    APPLIED_PLAN_LEASE,
     /** Exclusive resource use held by an admitted runtime route. */
     LIVE_RUNTIME_CLAIM,
     /** Another infrastructure mutation is currently in progress. */
@@ -157,9 +138,9 @@ enum class InfrastructureMutationStatus {
     RESOURCE_PROVIDER_FAILED,
     /** The logical owner, expected revision, or platform owner did not match. */
     OWNER_REVISION_CONFLICT,
-    /** At least one overlapping lease, runtime claim, or edit permit blocks the operation. */
+    /** At least one overlapping runtime claim or edit permit blocks the operation. */
     RESOURCE_CONFLICT,
-    /** The exact lease or claim requested for release/replacement was not found. */
+    /** The exact live claim requested for release or update was not found. */
     NOT_FOUND,
     /** The world-local registry has already been closed. */
     SERVICE_CLOSED
@@ -191,12 +172,6 @@ class InfrastructureMutationResult(
         )
     }
 }
-
-/** Immutable read-only view of one applied-plan lease. */
-data class InfrastructureLeaseSnapshot(
-    val owner: InfrastructureOwner,
-    val footprint: InfrastructureFootprint
-)
 
 /** Immutable read-only diagnostic view of one live route claim. */
 data class InfrastructureClaimSnapshot(

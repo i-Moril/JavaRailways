@@ -15,7 +15,7 @@ import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
-import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureLeaseService
+import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
@@ -55,7 +55,7 @@ data class CarFrameDispatchMetrics(
 class WorldManager internal constructor(
     val railWorlds: MutableMap<BukkitWorld, World> = ConcurrentHashMap(),
     private val observationService: DefaultRailwayObservationService? = null,
-    private val infrastructureLeaseService: DefaultInfrastructureLeaseService? = null
+    private val infrastructureResourceService: DefaultInfrastructureResourceService? = null
 ) : Listener {
     private var serverTickIndex: Long = 0L
     private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()
@@ -151,18 +151,25 @@ class WorldManager internal constructor(
         )
         try {
             if (railWorld is CoreWorld) {
-                infrastructureLeaseService?.registerWorld(
+                infrastructureResourceService?.registerWorld(
                     bukkitWorld.uid,
-                    railWorld::topologyRevision
-                ) { resource ->
+                    railWorld::topologyRevision,
+                    railExists = { railId -> railWorld.getRail(railId) != null },
+                    topologyNodeExists = { key ->
+                        railWorld.topologyState.nodes.values.any { node ->
+                            node.ports.distinct().sorted() == key.ports
+                        }
+                    },
+                    resourceExists = { resource ->
                     when (resource) {
                         is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength
                             ?.let { resource.endAbMeters <= it } == true
                         is StableInfrastructureResource ->
-                            infrastructureLeaseService.stableResourceExists(bukkitWorld.uid, resource)
+                            infrastructureResourceService.stableResourceExists(bukkitWorld.uid, resource)
                     }
-                }
-                infrastructureLeaseService?.attachRouteAdmission(
+                    }
+                )
+                infrastructureResourceService?.attachRouteAdmission(
                     worldId = bukkitWorld.uid,
                     world = railWorld,
                     latestObservation = {
@@ -193,7 +200,7 @@ class WorldManager internal constructor(
             (railWorld as? CoreWorld)?.physicsCoordinator?.start()
             railWorlds[bukkitWorld] = railWorld
         } catch (failure: Exception) {
-            infrastructureLeaseService?.removeWorld(bukkitWorld.uid)
+            infrastructureResourceService?.removeWorld(bukkitWorld.uid)
             observationService?.removeWorld(bukkitWorld.uid)
             (railWorld as? CoreWorld)?.let { coreWorld ->
                 speedSafetyMonitors.remove(coreWorld)
@@ -302,7 +309,7 @@ class WorldManager internal constructor(
                 coreWorld?.let { world ->
                     speedSafetyMonitors.remove(world)?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor)
                 }
-                infrastructureLeaseService?.removeWorld(bukkitWorld.uid)
+                infrastructureResourceService?.removeWorld(bukkitWorld.uid)
                 observationService?.removeWorld(bukkitWorld.uid)
                 coreWorld?.physicsCoordinator?.close()
                 try {
@@ -365,7 +372,7 @@ class WorldManager internal constructor(
                         physicsTicket.epoch
                     )
                     if (observation != null) {
-                        infrastructureLeaseService?.consumeObservation(world.uid, observation)
+                        infrastructureResourceService?.consumeObservation(world.uid, observation)
                     }
                 }
                 phaseBreakdown["world:${world.name}:observation_publish"] = observationPublishNanos

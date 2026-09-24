@@ -2,7 +2,7 @@
 
 ## 适用场景与用途
 
-触发：修改turnout/route section/berth ownership、movement authority、release detector、applied-plan lease、live claim、edit permit或manual control resource semantics。
+触发：修改turnout/route section/berth ownership、movement authority、release detector、applied-plan dependency、live claim、edit permit或manual control resource semantics。
 
 用途：一个world的allocator先预校验完整resource set再原子提交；conflict不preempt，失败不留下partial ownership，release由full physical occupancy/tail驱动而非run状态或head位置。
 
@@ -48,28 +48,36 @@ Release必须由`RailIntervalReleaseDetector`观察`BEFORE→OCCUPIED→RELEASED
 
 Manual：`MANUAL_ROUTED`仍分配/验证/release；`FULL_MANUAL`不申请new route但old resources tail-release；release control后`REPLAN_REQUIRED`，仅在无old locks/berth、stopped、explicit origin时replan。
 
-## Shared infrastructure lease 与 edit guard
+## Applied-plan dependency、live claim 与 edit guard
 
-`InfrastructureLeaseRegistry`是world-local原子registry，现阶段与尚未迁移的`RouteSectionAllocator`并存；不得把两者并存误写成进路资源统一已经完成。它区分三类持有：
+`InfrastructureCoordinationRegistry`是world-local原子registry，现阶段与尚未迁移的`RouteSectionAllocator`并存；不得把两者并存误写成进路资源统一已经完成。它区分三类持有：
 
-- applied-plan lease：共享、长生命周期，可彼此重叠，不预留turnout方向，也不阻止正常live claim；
+- applied-plan dependency：共享、长生命周期，分别保存persistent rail ID、`StableTopologyNodeKey`和
+  `StableInfrastructureResource`三类引用；可彼此重叠，只用于阻止相关结构编辑，不参与列车资源仲裁；
 - live runtime claim：同一resource上互斥；受保护进路runtime使用acquire、append、shrink/release，不提供整份claim replace；add-on service只暴露read-only diagnostics；
-- edit permit：独占并跨完整mutation transaction持有，与overlap的lease、claim和其他permit冲突。
+- edit permit：独占并跨完整mutation transaction持有，以`TopologyEditImpact`的rail/node/resource三类精确影响
+  与applied dependency逐字段求交；对live claim则以rail ID及runtime resource identity求交。
 
-`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。claim acquire/append/shrink/release必须匹配platform owner与expected logical owner；内部footprint变化不伪造新的caller plan revision。plugin disable释放该plugin直接拥有的lease/permit；路线资源准入产生的live claim由host token持有，requester disable后按[route resource admission](./route-resource-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
+`InfrastructureOwner(ownerId, revision)`稳定标识logical owner与其revision；platform plugin token只用于lifecycle ownership，不进入持久化identity或公开diagnostic。claim acquire/append/shrink/release必须匹配platform owner与expected logical owner；内部footprint变化不伪造新的caller plan revision。正常plugin disable前必须显式unapply并删除该plugin拥有的applied dependencies；仍有dependency时owner unregister失败。强制disable保留dependency并Stall受影响world，不能静默解除编辑保护。路线资源准入产生的live claim由host token持有，requester disable后按[route resource admission](./route-resource-admission.md)转入fail-closed recovery，不能在列车清除前释放。world unload与service close必须先由composition layer处理相同的recovery/restore语义。
 
-每个请求携带authoritative `topologyRevision`。Registry在resource validation前后各读取一次当前revision；任一次不匹配返回`STALE_TOPOLOGY`。rail区间由world验证存在与长度；stable resource由唯一namespaced provider验证。missing返回`INVALID_RESOURCE`，provider异常返回`RESOURCE_PROVIDER_FAILED`。所有非成功结果保持registry不变，并只在`RESOURCE_CONFLICT`中返回blocker owner/revision/resource diagnostics。
+`StableTopologyNodeKey`由结构节点的persistent `RailEndpointRef` ports去重排序得到；不得用revision-local
+`TopologyNodeId`作为长期依赖。`StableInfrastructureResource`只表示真实运行/运营资源，不得把rail或结构节点包装成
+resource。计划apply/replace时，registry对三类引用调用各自validator，并在validation前后核对topology revision；
+成功后依赖不会仅因不相交编辑使全局revision增加而自动失效。编辑申请同样双重核对revision，再在同一把锁内完成
+依赖、live claim及其他permit的冲突检查并安装permit，避免check与mutation之间的竞态。
 
-`InfrastructureEditFootprintCompiler`是Basic implementation package中的host-internal桥接，不属于`basic.api`。
-它接收同一个`TopologyState`、当前rail length map和编辑准备阶段给出的existing rail ID集合：空集合不制造
-空footprint；非空集合按stable rail ID顺序加入每根rail的`[0,length]`完整canonical interval，再通过
-`PhysicalTopologyResources`加入任一affected rail所incident的当前turnout与diamond stable identity。缺失rail、
-缺失/非法length立即拒绝。设affected rail数为`R`、topology turnout数为`T`、diamond数为`D`，当前编译为
-`O(R log R + T + D)`，仅发生在结构编辑准备/提交边界，不进入tick path。
+Plan dependency mutation与edit decision使用独立typed result。Claim的`InfrastructureMutationResult`仍只描述运行
+资源冲突，不能塞入nullable rail/node diagnostics。编辑冲突返回每个owner的`TopologyEditOverlap`，明确指出三类集合
+各自的交集。设当前计划数为`P`、live claim数为`C`、permit数为`E`，编辑检查为`O(P+C+E)`次持有者扫描，集合相交
+为hash lookup；该低频路径不进入physics tick。未来若规模证明需要索引，再按三类identity建立倒排索引。
+
+编辑器必须在mutation前生成精确`TopologyEditImpact`。不得从空间broad-phase候选、整图incident扫描或完整rail
+interval猜测影响范围。当前RailWand尚未有可在mutation前给出精确自动连接结果的plan阶段，因此尚未接入新permit；
+后续先冻结plan/apply边界，再覆盖所有结构编辑入口。
 
 ## 跨轨道 infrastructure footprint
 
-`RailIntervalResource(railId,startAbMeters,endAbMeters)`表示恰好一根rail上的canonical AB闭区间，单位米且`0 <= start <= end`。它不存在跨rail的全局里程。沿route跨越多根rail时，必须在同一个`InfrastructureFootprint`中放入每根rail各自的interval；申请、替换和编辑许可都以整个footprint为原子单位。
+`RailIntervalResource(railId,startAbMeters,endAbMeters)`表示恰好一根rail上的canonical AB闭区间，单位米且`0 <= start <= end`。它不存在跨rail的全局里程。沿route跨越多根rail时，必须在同一个`InfrastructureFootprint`中放入每根rail各自的interval；live claim申请与释放以该footprint为原子单位。编辑影响使用独立的rail ID集合，不复用footprint。
 
 如果路径经过turnout、diamond或其他共享conflict node，还必须加入对应`StableInfrastructureResource(typeId,resourceId)`。两侧相邻rail intervals不会隐式表达共享节点冲突。例：
 
@@ -104,7 +112,7 @@ Registry现已提供internal同步、只减不增的live-claim shrink primitive�
 同一把锁内拒绝closed、missing claim、owner不匹配和pending admission，证明每个待释放身份当前确实被该
 claim持有，然后从内部保序身份集合中删除这些身份。若仍有资源，同一claim继续持有相同platform owner和
 logical owner revision并返回`REPLACED`；若为空则删除claim并返回`RELEASED`。所有待释放身份须在首个删除前
-验证完毕；任一失败都不产生partial mutation。lease与edit permit仍保留不可变footprint。对外
+验证完毕；任一失败都不产生partial mutation。对外
 `claimSnapshots()`只在显式读取时构造新的不可变`InfrastructureFootprint`，不能把内部可变集合泄露给调用方。
 
 初次申请等待设备准备时，registry另外保留不可变的原始footprint作为完成/安全回滚的核对依据，并要求当前claim
@@ -227,13 +235,13 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - `RouteSectionAllocatorTest.kt`：完整batch在首个写入前检查conflict/physical lock、idempotent、release不reset；不构造同步内存selection的虚构apply failure。
 - `TimetableDispatcherTest.kt`：protection-point stop/retry、stable priority、short claim tail release、sameTick Stall停止后续allocation、manual modes。
 - `TimetableStationCallDispatcherTest.kt`：berth/old mission tail release。
-- `InfrastructureLeaseRegistryTest.kt`：shared leases、exclusive claims、held edit permit、owner revision、双重topology check、provider failure和无partial mutation。
-- `InfrastructureLeaseRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
+- `InfrastructureCoordinationRegistryTest.kt`：重叠applied-plan dependencies、exclusive claims、held edit permit、owner revision、双重topology check、provider failure和无partial mutation。
+- `InfrastructureCoordinationRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
 - `LiveClaimTailReleaseTest.kt`：先shrink后出队、单调进度、重叠identity独立释放、unexpected result锁存
   fail closed、全部释放后的幂等completed、active queue追加、empty queue恢复和非法suffix原子拒绝。
 - registry append tests：只保留delta、与其他claim冲突时existing不变、owner/grant/pending校验、finalize保持logical
   owner revision、安全失败只撤销delta、pending期间prefix shrink继续释放旧资源、unsafe abort保留reservation。
-- public consumer fixture：能构造多rail footprint并申请lease，但不能导入raw `InfrastructureClaimRequest`。
+- public consumer fixture：能声明rail/node/resource三类applied-plan dependencies并申请edit permit，但不能导入raw `InfrastructureClaimRequest`。
 
 ```bash
 ./gradlew :Basic:test --tests '*RouteSectionAllocatorTest' --tests '*TimetableDispatcherTest' --tests '*TimetableStationCallDispatcherTest'

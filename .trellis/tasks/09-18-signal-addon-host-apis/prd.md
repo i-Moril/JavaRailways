@@ -24,7 +24,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - Validate the union and authoritative occupancy before one atomic claim. A rejected request changes no claim, selection or authority.
 - Keep claim, device preparation and grant distinct: claimed movable resources do not widen authority until every required handler reports `READY`.
 - Generalize tail release and same-route suffix extension for zero, one and multiple turnouts. Release only an atomically shrunk contiguous queue prefix after the authoritative train tail clears each compiled boundary.
-- Expose generic resource registration/admission, pending-attempt progress, train restriction and infrastructure lease/edit-guard services through documented public packages and Bukkit discovery. Do not add a separate grant-by-ID lookup without a concrete caller.
+- Expose generic resource registration/admission, pending-attempt progress, train restriction and applied-plan dependency/edit-guard services through documented public packages and Bukkit discovery. Do not add a separate grant-by-ID lookup without a concrete caller.
 - Let each signal-system plugin own its fixed blocks, protection regions, interlocking tables, signal aspects, authoring, persistence and optional JS/YAML layer. Basic has no `PROTECTION_REQUIRED` policy and does not execute a recursive protection-provider closure.
 - Keep SimpleATO responsible for operating-route choice, inspection scheduling and most-restrictive ATO/ATP arbitration. A signal plugin may only tighten Basic/SimpleATO authority or speed, never widen it.
 - Keep resource inspection distinct from per-tick braking. The exact cache keys, dependency ownership and `update(train)` scheduling are deferred for review immediately before implementing the reactive batch; avoid unchanged per-tick plugin callbacks and duplicate forward scans.
@@ -32,7 +32,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - Run each railway epoch as one host-thread-independent safety pipeline: physics publication, ordered boundary occupancy changes, signal/interlocking recomputation and next-epoch restriction publication must finish before another physics epoch begins. Bukkit rendering must not own or block this pipeline.
 - Represent monitored-area crossings only as ordered `ENTER` and `LEFT` changes carrying stable area and boundary identities. Core must retain enough ordered head/tail traversal evidence to report a complete same-epoch enter-then-leave sequence; a synthetic `PASSED_THROUGH` change is not part of the contract.
 - Send logical signal results to Bukkit through immutable revisioned presentation state. Platform adapters may coalesce pending presentation updates per object to the newest revision; they may not discard, reorder or asynchronously replay safety changes.
-- Preserve timetable compile/apply requirements: validate statically reachable routes and required signalling configuration before apply, atomically acquire shared infrastructure leases for the applied revision, and block covered edits until safe unapply/replacement.
+- Preserve timetable compile/apply requirements: validate statically reachable routes and required signalling configuration before apply, atomically publish non-exclusive rail/node/resource dependencies for the applied revision, and block only intersecting edits until safe unapply/replacement. These dependencies never arbitrate train resources.
 - Separate explicit manual turnout selection from automatic allocation. Manual selection checks physical occupancy and active claims, grants no movement authority and cannot bypass a live route lock.
 - Follow the project persistence policy: no new runtime compatibility path or schema boundary without separate review.
 
@@ -51,7 +51,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - [ ] Resource inspection uses cached declarations plus host braking math; unchanged inputs do not repeatedly run plugin code.
 - [ ] A train that enters and leaves a short monitored area within one physics epoch produces ordered boundary-bearing `ENTER` then `LEFT` changes, and the signal runtime consumes both before the next physics epoch.
 - [ ] Railway physics and logical signalling continue without waiting for the Minecraft main thread; after a platform stall, each rendered signal converges to its newest published presentation revision without replaying obsolete visual states.
-- [ ] Applied timetable leases overlap safely between readers, coexist with runtime claims, block every covered editor and change atomically.
+- [ ] Applied timetable dependencies overlap safely, remain separate from runtime claims, block every covered editor by rail/node/resource intersection and change atomically.
 - [ ] Service registration, plugin disable, world unload/reload and train removal have focused fail-closed lifecycle tests.
 - [ ] Existing Core, Basic, BukkitPlugin, SimpleATO, timetable and ATO tests pass.
 - [ ] Public documentation states identities, units, direction basis, snapshot/live semantics, threading, lifecycle and typed failure behavior.

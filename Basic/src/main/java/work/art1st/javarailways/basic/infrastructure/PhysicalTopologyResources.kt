@@ -6,7 +6,6 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
-import java.util.UUID
 
 /** Converts one immutable Core topology root into Basic-owned physical resource identities. */
 internal object PhysicalTopologyResources {
@@ -31,21 +30,6 @@ internal object PhysicalTopologyResources {
         topology.nodes.values.filterIsInstance<TopologyNode.Turnout>()
             .mapTo(this) { turnout -> TurnoutResourceIdentity.fromPorts(turnout.ports) }
         routeBoundBindings.mapTo(this, RouteBoundResourceBinding::resource)
-    }
-
-    /** Stable turnout and diamond resources touching any of the supplied physical rails. */
-    fun incidentResources(
-        topology: TopologyState,
-        railIds: Set<UUID>
-    ): Set<StableInfrastructureResource> = buildSet {
-        if (railIds.isEmpty()) return@buildSet
-        topology.nodes.values.asSequence()
-            .filterIsInstance<TopologyNode.Turnout>()
-            .filter { turnout -> turnout.ports.any { port -> port.railId in railIds } }
-            .mapTo(this) { turnout -> TurnoutResourceIdentity.fromPorts(turnout.ports) }
-        routeBoundBindings(topology).asSequence()
-            .filter { binding -> binding.anchors.any { anchor -> anchor.railId in railIds } }
-            .mapTo(this, RouteBoundResourceBinding::resource)
     }
 
     private fun diamondResource(crossing: AtGradeRailCrossing): StableInfrastructureResource =

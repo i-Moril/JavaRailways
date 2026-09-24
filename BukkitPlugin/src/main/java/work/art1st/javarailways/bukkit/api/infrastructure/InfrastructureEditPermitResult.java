@@ -1,39 +1,39 @@
 package work.art1st.javarailways.bukkit.api.infrastructure;
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult;
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision;
 
 import java.util.Objects;
 import java.util.Optional;
 
-/** Typed edit decision with lease/live-claim diagnostics and an optional held permit. */
+/** Typed edit decision with dependency/live-claim diagnostics and an optional held permit. */
 public final class InfrastructureEditPermitResult {
-    private final InfrastructureMutationResult result;
+    private final TopologyEditDecision decision;
     private final InfrastructureEditPermit permit;
 
     private InfrastructureEditPermitResult(
-        InfrastructureMutationResult result,
+        TopologyEditDecision decision,
         InfrastructureEditPermit permit
     ) {
-        this.result = Objects.requireNonNull(result, "result");
+        this.decision = Objects.requireNonNull(decision, "decision");
         this.permit = permit;
-        if ((permit != null) != result.getSuccessful()) {
+        if ((permit != null) != decision.getSuccessful()) {
             throw new IllegalArgumentException("successful result and permit presence must agree");
         }
     }
 
     public static InfrastructureEditPermitResult granted(
-        InfrastructureMutationResult result,
+        TopologyEditDecision decision,
         InfrastructureEditPermit permit
     ) {
-        return new InfrastructureEditPermitResult(result, Objects.requireNonNull(permit, "permit"));
+        return new InfrastructureEditPermitResult(decision, Objects.requireNonNull(permit, "permit"));
     }
 
-    public static InfrastructureEditPermitResult denied(InfrastructureMutationResult result) {
-        return new InfrastructureEditPermitResult(result, null);
+    public static InfrastructureEditPermitResult denied(TopologyEditDecision decision) {
+        return new InfrastructureEditPermitResult(decision, null);
     }
 
-    public InfrastructureMutationResult result() {
-        return result;
+    public TopologyEditDecision decision() {
+        return decision;
     }
 
     public Optional<InfrastructureEditPermit> permit() {

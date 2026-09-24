@@ -26,7 +26,6 @@ class PreparedRailCreationBatch private constructor(
     @get:JvmSynthetic internal val topologyRoot: TopologyState,
     creations: List<PreparedRailCreation>,
     excludedExistingRailIds: Set<UUID>,
-    potentiallyAffectedExistingRailIds: Set<UUID>,
     sampledRails: List<AtGradeRailCrossingIndex.SampledRail>,
     crossings: List<AtGradeRailCrossing>
 ) {
@@ -34,13 +33,6 @@ class PreparedRailCreationBatch private constructor(
     val creations: List<PreparedRailCreation> = Collections.unmodifiableList(ArrayList(creations))
     val excludedExistingRailIds: Set<UUID> =
         Collections.unmodifiableSet(LinkedHashSet(excludedExistingRailIds))
-    /**
-     * Existing rails conservatively selected by the preparation broad phase, including every
-     * replacement source in [excludedExistingRailIds]. An editor can use this set to guard the
-     * existing infrastructure that the later install transaction may touch.
-     */
-    val potentiallyAffectedExistingRailIds: Set<UUID> =
-        Collections.unmodifiableSet(LinkedHashSet(potentiallyAffectedExistingRailIds))
     @get:JvmSynthetic
     internal val sampledRails: List<AtGradeRailCrossingIndex.SampledRail> =
         Collections.unmodifiableList(ArrayList(sampledRails))
@@ -55,9 +47,6 @@ class PreparedRailCreationBatch private constructor(
         require(sampledRails.map(AtGradeRailCrossingIndex.SampledRail::railId) ==
             this.creations.map(PreparedRailCreation::railId)
         ) { "sampled rail order must match prepared creation order" }
-        require(this.potentiallyAffectedExistingRailIds.containsAll(this.excludedExistingRailIds)) {
-            "potentially affected rails must include every excluded replacement source"
-        }
     }
 
     companion object {
@@ -68,7 +57,6 @@ class PreparedRailCreationBatch private constructor(
             topologyRoot: TopologyState,
             creations: List<PreparedRailCreation>,
             excludedExistingRailIds: Set<UUID>,
-            potentiallyAffectedExistingRailIds: Set<UUID>,
             sampledRails: List<AtGradeRailCrossingIndex.SampledRail>,
             crossings: List<AtGradeRailCrossing>
         ): PreparedRailCreationBatch = PreparedRailCreationBatch(
@@ -76,7 +64,6 @@ class PreparedRailCreationBatch private constructor(
             topologyRoot,
             creations,
             excludedExistingRailIds,
-            potentiallyAffectedExistingRailIds,
             sampledRails,
             crossings
         )

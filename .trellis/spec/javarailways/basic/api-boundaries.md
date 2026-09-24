@@ -13,7 +13,9 @@
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们分别保留epoch-end保守`occupiedIntervals`、整epoch`sweptSpans`及同epoch有序head/tail rail traversal，三者不得互相替代，也不得包含render car或live Core对象。
 - `RailwayOccupancyAreaDefinition`只描述插件拥有的监测区几何和有向边界；公开`RailwayAreaOccupancyEngine`由串行caller喂入连续observation并推导`ENTER`/`LEFT`，不把该area解释成固定闭塞、保护区域或授权资源。详见[监测区占用](./railway-area-occupancy.md)。
-- `InfrastructureResource`、lease/edit request、typed result与read-only snapshot属于公开host contract；raw live-claim mutation只属于Basic路线准入实现，不进入add-on API。
+- `InfrastructureResource`只表示运行资源；`AppliedPlanDependencies`和`TopologyEditImpact`分别以rail ID、stable
+  topology-node key、runtime resource ID三类集合表达计划依赖与编辑影响。它们的typed result/read-only snapshot属于
+  公开host contract；raw live-claim mutation只属于Basic路线准入实现，不进入add-on API。
 - 目标`work.art1st.javarailways.basic.api.route.RouteResourceIntent`复用现有`RouteSnapshot`，并只携带nonblank stable
   train ID、同一观察stamp及从冻结路线起点起算的米制authority boundary。ATO request不得携带具体resource identity、
   preparation descriptor、topology revision副本、可信列车长度或替代Basic物理推导的raw footprint。Basic自行加入
@@ -31,7 +33,7 @@
 - Basic production不得import Bukkit/Paper/Minecraft；platform side effect只经`TrainOperationGateway`等semantic adapter。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。
-- Bukkit `InfrastructureLeaseService.routeAdmission(plugin, worldId)` 是公开准入service的认证入口：返回值绑定
+- Bukkit `InfrastructureResourceService.routeAdmission(plugin, worldId)` 是公开准入service的认证入口：返回值绑定
   该plugin实例和确切world runtime，所有request/progress/endGrant沿用该身份。plugin disable、service close或
   world unload后返回`WORLD_UNAVAILABLE`/false；同UUID的新world不能复活旧binding，且失效不能删除host-owned live claim。
   计划禁用必须先成功调用owner unregister；pending reservation或非空claim会拒绝注销。已发生的强制禁用不可取消，
@@ -59,7 +61,7 @@ Basic只知道semantic request/result；region scheduling与model action完成�
 | API变更 | Dokka+Core/Basic/Bukkit downstream review | 仅compile success |
 | extension identity | namespaced stable ID/version | JVM FQCN reflection |
 | 世界观察 | 同一`RailwayStateStamp`下的immutable train values | 分别读取live train与latest topology再拼装 |
-| 基础设施仲裁 | immutable footprint + typed atomic result | 向add-on暴露raw claim mutation或registry implementation |
+| 基础设施协调 | 运行claim使用immutable footprint；计划依赖/编辑影响使用独立三类引用 + typed atomic result | 把rail/node包装成resource、让计划依赖阻止列车claim，或向add-on暴露raw registry |
 | 路线资源准入 | ATO只提交topology-bound frozen route + train/observation/boundary；宿主收集认证contribution，Basic推导不可删除的物理底线并原子claim union | ATO认识信号资源、add-on替换物理footprint/列车长度、Basic替其寻路或执行具体信号制式 |
 | 自定义资源准备 | exact identity + provider-owned runtime descriptor；world owner thread返回typed ticket | handler读取mutable train/world、扫描路线、追加资源或把descriptor当存档schema |
 
@@ -79,7 +81,7 @@ data class TimetableExtensionCall(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/timetable/TimetableExtension.kt`。`typeId`必须匹配`namespace:name`且`version>0`，不会随Kotlin class rename改变。
 
-`RailwayObservation.fromCore(worldId, frame)`是另一个正确边界：它保留同一Core world frame的physics epoch、topology revision、列车位置/占用与frame revision，但主动丢弃render-only car数据。Infrastructure API同样只暴露stable resource identity、owner revision和immutable diagnostics；Bukkit service负责plugin owner与lifecycle，不把`InfrastructureLeaseRegistry`公开给add-on。
+`RailwayObservation.fromCore(worldId, frame)`是另一个正确边界：它保留同一Core world frame的physics epoch、topology revision、列车位置/占用与frame revision，但主动丢弃render-only car数据。Infrastructure API同样只暴露stable resource identity、owner revision和immutable diagnostics；Bukkit service负责plugin owner与lifecycle，不把`InfrastructureCoordinationRegistry`公开给add-on。
 
 目标route validator是host-owned物理证明边界：它不选择路径或解释保护区域，而是校验调用方traversal的edge连续性与合法continuation，并在同一次线性遍历中从`TopologyState`及route-bound resource index加入不可删除的rail、turnout与diamond资源。调用方可以附加已注册资源，但不能删改该底线。Basic从同一观察读取列车占用、验证最终union并原子提交；`INVALID_ROUTE`、stale、occupancy、无效addition或任一资源冲突都不得留下partial claim。完整算法见[路线资源准入](./route-resource-admission.md)。
 

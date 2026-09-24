@@ -60,7 +60,7 @@ internal sealed interface LiveClaimTailReleaseResult {
  * registry results latch the lifecycle fail-closed; the live-grant owner turns that into a world Stall.
  */
 internal class LiveClaimTailRelease(
-    private val registry: InfrastructureLeaseRegistry,
+    private val registry: InfrastructureCoordinationRegistry,
     private val platformOwner: Any,
     private val claimOwner: InfrastructureOwner,
     queue: CompiledTailReleaseQueue

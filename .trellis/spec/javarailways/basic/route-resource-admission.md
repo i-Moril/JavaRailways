@@ -3,7 +3,7 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TARGET`。当前 `ProtectedRouteClaimService`、保护区域 catalog/window 与部分编译器仍是迁移期实现；它们不能继续冻结为 Basic 的长期领域模型。
-- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withContributions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology、认证contributor/provider和同epoch observation tail-release输入；同一准备批次可驱动即时道岔及provider注册的异步资源handler，全部`READY`前不发布grant。物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。外部插件现可从现有`InfrastructureLeaseService`取得绑定插件身份和确切world runtime的`RouteResourceAdmissionService`；request、pending/terminal handle inspection及grant end均使用同一认证身份，旧binding不会在同UUID world reload后复活，plugin disable也不会删除host-owned claim。Core发布的平交观测现由Basic转换为真实route-bound diamond bindings；runtime同时缓存当前root的turnout/diamond身份供registry验证。Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已公开但尚无生产caller的runtime误称为列车已经使用新授权流程。
+- **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 已能从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withContributions` 已能合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition现已用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology、认证contributor/provider和同epoch observation tail-release输入；同一准备批次可驱动即时道岔及provider注册的异步资源handler，全部`READY`前不发布grant。物理Coordinator只在这些owner attach完成后启动，world卸载成对关闭。外部插件现可从现有`InfrastructureResourceService`取得绑定插件身份和确切world runtime的`RouteResourceAdmissionService`；request、pending/terminal handle inspection及grant end均使用同一认证身份，旧binding不会在同UUID world reload后复活，plugin disable也不会删除host-owned claim。Core发布的平交观测现由Basic转换为真实route-bound diamond bindings；runtime同时缓存当前root的turnout/diamond身份供registry验证。Dispatcher/SimpleATO caller与grant constraint仍未接通。`ProtectedRouteRequestValidator`仍作为保护窗口策略适配器调用物理编译器；不能把已公开但尚无生产caller的runtime误称为列车已经使用新授权流程。
 - **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
 - **Caller**：SimpleATO只提供冻结路线、列车/观察身份和目标authority；它不提交、解释或枚举具体信号资源。
   Bukkit宿主在同一次准入内调用已认证的route-resource contributor，由信号插件根据通用路线上下文产生附加资源。
@@ -231,7 +231,7 @@ membership：planned register/unregister/registration close均拒绝。forced co
 
 当前非递归边界由调用结构本身保证：`PhysicalRouteResourceCompiler.compile`只从已验证路线与
 `RouteBoundResourceCatalog`编译物理底线，不持有任何插件回调；
-`DefaultInfrastructureLeaseService.collectRouteContributions`快照当前注册列表并对每项调用一次；
+`DefaultInfrastructureResourceService.collectRouteContributions`快照当前注册列表并对每项调用一次；
 `RouteResourceAdmissionEngine.request`只消费这一份有界列表，通过`withContributions`校验后合并一次。
 `InfrastructureResourceProvider.validateRouteContribution`只能批准或拒绝单个已返回资源，不能生成后续贡献。
 因此Basic的物理扫描、contributor收集与resource-owner验证是三个单向阶段，不存在回调到物理
@@ -337,7 +337,7 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
   exact successful observation publication; provider handlers may return `Pending` but may not block that owner thread.
 - Registration belongs to one authenticated platform-plugin owner. A successful planned unregister proves that requester
   has no pending route request and no resources remaining in its host-owned registry claim before removing its provider,
-  leases and empty route state. Forced disable rejects new calls immediately, does not delete host-owned live claims,
+  explicitly removed applied-plan dependencies and empty route state. Forced disable rejects new calls immediately, does not delete host-owned live claims,
   release queues or copied contribution data, and stalls each world with requester-owned pending/held route resources. Provider
   disappearance during pending preparation is unprovable, so Basic retains the safest reservation and stalls the world.
 

@@ -1,16 +1,28 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencySnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlocker
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlockerKind
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureEditRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlocker
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditOverlap
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import java.util.UUID
 import java.util.Collections
 
@@ -29,11 +41,13 @@ data class InfrastructureClaimRequest(
  * World-local atomic registry. Platform ownership tokens are deliberately opaque and never enter
  * persisted owner identities or public diagnostics.
  */
-class InfrastructureLeaseRegistry(
+class InfrastructureCoordinationRegistry(
     private val currentTopologyRevision: () -> Long,
-    private val resourceExists: (InfrastructureResource) -> Boolean
+    private val resourceExists: (InfrastructureResource) -> Boolean,
+    private val railExists: (UUID) -> Boolean = { false },
+    private val topologyNodeExists: (StableTopologyNodeKey) -> Boolean = { false }
 ) {
-    class EditPermit internal constructor(val id: UUID, val result: InfrastructureMutationResult)
+    class EditPermit internal constructor(val id: UUID, val decision: TopologyEditDecision)
 
     /** Opaque handle for undoing only the exact claim mutation that created it. */
     internal class ClaimMutation internal constructor(
@@ -60,13 +74,17 @@ class InfrastructureLeaseRegistry(
         val resources: Collection<InfrastructureResource>
     }
 
-    private data class Held(
-        override val platformOwner: Any,
-        override val owner: InfrastructureOwner,
-        val footprint: InfrastructureFootprint
-    ) : Stored {
-        override val resources: Collection<InfrastructureResource> get() = footprint.resources
-    }
+    private data class PlanDependencyHeld(
+        val platformOwner: Any,
+        val owner: InfrastructureOwner,
+        val dependencies: AppliedPlanDependencies
+    )
+
+    private data class EditPermitHeld(
+        val platformOwner: Any,
+        val owner: InfrastructureOwner,
+        val impact: TopologyEditImpact
+    )
 
     /** Only live claims mutate; insertion order is the public footprint order. Access is under [lock]. */
     private class ClaimHeld(
@@ -99,72 +117,72 @@ class InfrastructureLeaseRegistry(
     )
 
     private val lock = Any()
-    private val leases = linkedMapOf<String, Held>()
+    private val planDependencies = linkedMapOf<String, PlanDependencyHeld>()
     private val claims = linkedMapOf<String, ClaimHeld>()
     private val pendingClaimMutations = linkedMapOf<UUID, PendingClaimMutation>()
     private val pendingClaimAppends = linkedMapOf<UUID, PendingClaimAppend>()
-    private val editPermits = linkedMapOf<UUID, Held>()
+    private val editPermits = linkedMapOf<UUID, EditPermitHeld>()
     private var closed = false
 
-    fun acquireLease(platformOwner: Any, request: InfrastructureLeaseRequest): InfrastructureMutationResult =
-        synchronized(lock) {
-            validate(request.topologyRevision, request.footprint)?.let { return@synchronized it }
-            leases[request.owner.ownerId]?.let { existing ->
-                if (existing.platformOwner === platformOwner && existing.owner == request.owner &&
-                    existing.footprint == request.footprint
-                ) {
-                    return@synchronized result(InfrastructureMutationStatus.UNCHANGED)
-                }
-                return@synchronized result(
-                    InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                    "lease owner ${request.owner.ownerId} already has revision ${existing.owner.revision}"
+    fun setAppliedPlanDependencies(
+        platformOwner: Any,
+        request: AppliedPlanDependencyRequest
+    ): AppliedPlanDependencyMutationResult = synchronized(lock) {
+        validateDependencies(request)?.let { return@synchronized it }
+        planDependencies[request.owner.ownerId]?.let { existing ->
+            if (existing.platformOwner !== platformOwner || request.owner.revision < existing.owner.revision) {
+                return@synchronized dependencyResult(
+                    AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT,
+                    "applied plan owner or revision does not match"
                 )
             }
-            blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
-                .takeIf { it.isNotEmpty() }
-                ?.let { return@synchronized conflict(it) }
-            leases[request.owner.ownerId] = Held(platformOwner, request.owner, request.footprint)
-            result(InfrastructureMutationStatus.ACQUIRED)
+            if (request.owner == existing.owner && request.dependencies == existing.dependencies) {
+                return@synchronized dependencyResult(AppliedPlanDependencyMutationStatus.UNCHANGED)
+            }
+            if (request.owner.revision == existing.owner.revision) {
+                return@synchronized dependencyResult(
+                    AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT,
+                    "changing applied dependencies requires a newer owner revision"
+                )
+            }
         }
-
-    fun replaceLease(
-        platformOwner: Any,
-        expectedOwner: InfrastructureOwner,
-        request: InfrastructureLeaseRequest
-    ): InfrastructureMutationResult = synchronized(lock) {
-        validate(request.topologyRevision, request.footprint)?.let { return@synchronized it }
-        if (expectedOwner.ownerId != request.owner.ownerId || request.owner.revision <= expectedOwner.revision) {
-            return@synchronized result(
-                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                "replacement must keep ownerId and advance its revision"
+        if (editPermits.values.any { overlaps(request.dependencies, it.impact) != null }) {
+            return@synchronized dependencyResult(
+                AppliedPlanDependencyMutationStatus.EDIT_IN_PROGRESS,
+                "an infrastructure edit already covers an applied-plan dependency"
             )
         }
-        val existing = leases[expectedOwner.ownerId]
-            ?: return@synchronized result(InfrastructureMutationStatus.NOT_FOUND, "lease does not exist")
-        if (existing.platformOwner !== platformOwner || existing.owner != expectedOwner) {
-            return@synchronized result(
-                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                "lease owner or expected revision does not match"
-            )
-        }
-        blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
-            .takeIf { it.isNotEmpty() }
-            ?.let { return@synchronized conflict(it) }
-        leases[request.owner.ownerId] = Held(platformOwner, request.owner, request.footprint)
-        result(InfrastructureMutationStatus.REPLACED)
+        val replaced = planDependencies.put(
+            request.owner.ownerId,
+            PlanDependencyHeld(platformOwner, request.owner, request.dependencies)
+        ) != null
+        dependencyResult(
+            if (replaced) AppliedPlanDependencyMutationStatus.REPLACED
+            else AppliedPlanDependencyMutationStatus.APPLIED
+        )
     }
 
-    fun releaseLease(platformOwner: Any, owner: InfrastructureOwner): InfrastructureMutationResult = synchronized(lock) {
-        val existing = leases[owner.ownerId]
-            ?: return@synchronized result(InfrastructureMutationStatus.NOT_FOUND, "lease does not exist")
+    fun removeAppliedPlanDependencies(
+        platformOwner: Any,
+        owner: InfrastructureOwner
+    ): AppliedPlanDependencyMutationResult = synchronized(lock) {
+        if (closed) return@synchronized dependencyResult(
+            AppliedPlanDependencyMutationStatus.SERVICE_CLOSED,
+            "registry is closed"
+        )
+        val existing = planDependencies[owner.ownerId]
+            ?: return@synchronized dependencyResult(
+                AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT,
+                "applied plan dependencies do not exist"
+            )
         if (existing.platformOwner !== platformOwner || existing.owner != owner) {
-            return@synchronized result(
-                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-                "lease owner or expected revision does not match"
+            return@synchronized dependencyResult(
+                AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT,
+                "applied plan owner or revision does not match"
             )
         }
-        leases.remove(owner.ownerId)
-        result(InfrastructureMutationStatus.RELEASED)
+        planDependencies.remove(owner.ownerId)
+        dependencyResult(AppliedPlanDependencyMutationStatus.REMOVED)
     }
 
     fun acquireClaim(platformOwner: Any, request: InfrastructureClaimRequest): InfrastructureMutationResult =
@@ -233,7 +251,7 @@ class InfrastructureLeaseRegistry(
                 footprint,
                 claims.values.filterNot { it === existing },
                 InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
-            ) + blockers(footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
+            ) + editPermitClaimBlockers(footprint)
             if (blockers.isNotEmpty()) {
                 return@synchronized ClaimAppendReservation(conflict(blockers), null)
             }
@@ -430,19 +448,34 @@ class InfrastructureLeaseRegistry(
         )
     }
 
-    fun acquireEditPermit(platformOwner: Any, request: InfrastructureEditRequest): EditPermit = synchronized(lock) {
-        validate(request.topologyRevision, request.footprint)?.let { return@synchronized EditPermit(UUID(0L, 0L), it) }
-        val blockers = blockers(request.footprint, leases.values, InfrastructureBlockerKind.APPLIED_PLAN_LEASE) +
-            blockers(
-                request.footprint,
-                claims.values,
-                InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
-            ) +
-            blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
-        if (blockers.isNotEmpty()) return@synchronized EditPermit(UUID(0L, 0L), conflict(blockers))
+    fun acquireEditPermit(platformOwner: Any, request: TopologyEditRequest): EditPermit = synchronized(lock) {
+        validateEdit(request)?.let { return@synchronized EditPermit(UUID(0L, 0L), it) }
+        val blockers = planDependencies.values.mapNotNull { held ->
+            overlaps(held.dependencies, request.impact)?.let { overlap ->
+                TopologyEditBlocker(TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY, held.owner, overlap)
+            }
+        } + claims.values.mapNotNull { held ->
+            claimOverlap(held.resources, request.impact)?.let { overlap ->
+                TopologyEditBlocker(TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM, held.owner, overlap)
+            }
+        } + editPermits.values.mapNotNull { held ->
+            overlaps(held.impact, request.impact)?.let { overlap ->
+                TopologyEditBlocker(TopologyEditBlockerKind.EDIT_PERMIT, held.owner, overlap)
+            }
+        }
+        if (blockers.isNotEmpty()) {
+            return@synchronized EditPermit(
+                UUID(0L, 0L),
+                TopologyEditDecision(
+                    TopologyEditStatus.CONFLICT,
+                    blockers,
+                    "${blockers.size} infrastructure owner(s) block the edit"
+                )
+            )
+        }
         val id = UUID.randomUUID()
-        editPermits[id] = Held(platformOwner, request.owner, request.footprint)
-        EditPermit(id, result(InfrastructureMutationStatus.ACQUIRED))
+        editPermits[id] = EditPermitHeld(platformOwner, request.owner, request.impact)
+        EditPermit(id, TopologyEditDecision(TopologyEditStatus.GRANTED))
     }
 
     fun releaseEditPermit(platformOwner: Any, permitId: UUID): Boolean = synchronized(lock) {
@@ -452,8 +485,26 @@ class InfrastructureLeaseRegistry(
         true
     }
 
-    fun leaseSnapshots(): List<InfrastructureLeaseSnapshot> = synchronized(lock) {
-        Collections.unmodifiableList(leases.values.map { InfrastructureLeaseSnapshot(it.owner, it.footprint) })
+    fun appliedPlanDependencySnapshots(): List<AppliedPlanDependencySnapshot> = synchronized(lock) {
+        Collections.unmodifiableList(planDependencies.values.map {
+            AppliedPlanDependencySnapshot(it.owner, it.dependencies)
+        })
+    }
+
+    fun appliedPlanDependenciesOwnedBy(platformOwner: Any): List<AppliedPlanDependencySnapshot> =
+        synchronized(lock) {
+            Collections.unmodifiableList(planDependencies.values
+                .filter { it.platformOwner === platformOwner }
+                .map { AppliedPlanDependencySnapshot(it.owner, it.dependencies) })
+        }
+
+    fun appliedPlanDependenciesUsingResourceTypes(
+        typeIds: Set<String>
+    ): List<AppliedPlanDependencySnapshot> = synchronized(lock) {
+        if (typeIds.isEmpty()) return@synchronized emptyList()
+        Collections.unmodifiableList(planDependencies.values
+            .filter { held -> held.dependencies.resourceIds.any { it.typeId in typeIds } }
+            .map { AppliedPlanDependencySnapshot(it.owner, it.dependencies) })
     }
 
     fun claimSnapshots(): List<InfrastructureClaimSnapshot> = synchronized(lock) {
@@ -463,7 +514,6 @@ class InfrastructureLeaseRegistry(
     fun releasePlatformOwner(platformOwner: Any) = synchronized(lock) {
         val pendingOwnerIds = pendingClaimMutations.values.mapTo(hashSetOf()) { it.after.owner.ownerId }
         pendingClaimAppends.values.mapTo(pendingOwnerIds) { it.owner.ownerId }
-        leases.values.removeIf { it.platformOwner === platformOwner }
         claims.values.removeIf { held ->
             held.platformOwner === platformOwner && held.owner.ownerId !in pendingOwnerIds
         }
@@ -472,7 +522,7 @@ class InfrastructureLeaseRegistry(
 
     fun close() = synchronized(lock) {
         closed = true
-        leases.clear()
+        planDependencies.clear()
         claims.clear()
         pendingClaimMutations.clear()
         pendingClaimAppends.clear()
@@ -514,7 +564,7 @@ class InfrastructureLeaseRegistry(
             request.footprint,
             claims.values,
             InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
-        ) + blockers(request.footprint, editPermits.values, InfrastructureBlockerKind.EDIT_PERMIT)
+        ) + editPermitClaimBlockers(request.footprint)
         if (blockers.isNotEmpty()) return@synchronized ClaimMutation(conflict(blockers), null)
         val acquired = ClaimHeld(platformOwner, request.owner, request.footprint)
         claims[request.owner.ownerId] = acquired
@@ -550,6 +600,136 @@ class InfrastructureLeaseRegistry(
     private fun sameHeld(first: ClaimHeld?, pending: PendingClaimMutation): Boolean =
         first === pending.after && first.platformOwner === pending.after.platformOwner &&
             first.owner == pending.after.owner && first.hasFootprint(pending.expectedFootprint)
+
+    private fun validateDependencies(
+        request: AppliedPlanDependencyRequest
+    ): AppliedPlanDependencyMutationResult? {
+        if (closed) return dependencyResult(AppliedPlanDependencyMutationStatus.SERVICE_CLOSED, "registry is closed")
+        val currentRevision = currentTopologyRevision()
+        if (request.topologyRevision != currentRevision) {
+            return dependencyResult(
+                AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
+                "requested topology revision ${request.topologyRevision} does not match current $currentRevision"
+            )
+        }
+        val invalid = firstInvalidReference(
+            request.dependencies.railIds,
+            request.dependencies.topologyNodeKeys,
+            request.dependencies.resourceIds
+        )
+        if (invalid != null) {
+            return dependencyResult(AppliedPlanDependencyMutationStatus.INVALID_REFERENCE, invalid)
+        }
+        val confirmedRevision = currentTopologyRevision()
+        if (request.topologyRevision != confirmedRevision) {
+            return dependencyResult(
+                AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
+                "topology changed during validation from requested ${request.topologyRevision} to $confirmedRevision"
+            )
+        }
+        return null
+    }
+
+    private fun validateEdit(request: TopologyEditRequest): TopologyEditDecision? {
+        if (closed) return TopologyEditDecision(TopologyEditStatus.SERVICE_CLOSED, detail = "registry is closed")
+        val currentRevision = currentTopologyRevision()
+        if (request.topologyRevision != currentRevision) {
+            return TopologyEditDecision(
+                TopologyEditStatus.STALE_TOPOLOGY,
+                detail = "requested topology revision ${request.topologyRevision} does not match current $currentRevision"
+            )
+        }
+        val invalid = firstInvalidReference(
+            request.impact.railIds,
+            request.impact.topologyNodeKeys,
+            request.impact.resourceIds
+        )
+        if (invalid != null) {
+            return TopologyEditDecision(TopologyEditStatus.INVALID_REFERENCE, detail = invalid)
+        }
+        val confirmedRevision = currentTopologyRevision()
+        if (request.topologyRevision != confirmedRevision) {
+            return TopologyEditDecision(
+                TopologyEditStatus.STALE_TOPOLOGY,
+                detail = "topology changed during validation from requested ${request.topologyRevision} to $confirmedRevision"
+            )
+        }
+        return null
+    }
+
+    private fun firstInvalidReference(
+        railIds: Set<UUID>,
+        topologyNodeKeys: Set<StableTopologyNodeKey>,
+        resourceIds: Set<StableInfrastructureResource>
+    ): String? = try {
+        railIds.firstOrNull { !railExists(it) }?.let { "rail does not exist: $it" }
+            ?: topologyNodeKeys.firstOrNull { !topologyNodeExists(it) }
+                ?.let { "topology node does not exist: $it" }
+            ?: resourceIds.firstOrNull { !resourceExists(it) }
+                ?.let { "runtime resource does not exist: $it" }
+    } catch (failure: Exception) {
+        "reference provider failed: ${failure::class.simpleName}: ${failure.message.orEmpty()}"
+    }
+
+    private fun overlaps(
+        dependencies: AppliedPlanDependencies,
+        impact: TopologyEditImpact
+    ): TopologyEditOverlap? = overlap(
+        dependencies.railIds,
+        dependencies.topologyNodeKeys,
+        dependencies.resourceIds,
+        impact
+    )
+
+    private fun overlaps(first: TopologyEditImpact, second: TopologyEditImpact): TopologyEditOverlap? = overlap(
+        first.railIds,
+        first.topologyNodeKeys,
+        first.resourceIds,
+        second
+    )
+
+    private fun overlap(
+        railIds: Set<UUID>,
+        topologyNodeKeys: Set<StableTopologyNodeKey>,
+        resourceIds: Set<StableInfrastructureResource>,
+        impact: TopologyEditImpact
+    ): TopologyEditOverlap? {
+        val overlappingRails = railIds.intersect(impact.railIds)
+        val overlappingNodes = topologyNodeKeys.intersect(impact.topologyNodeKeys)
+        val overlappingResources = resourceIds.intersect(impact.resourceIds)
+        if (overlappingRails.isEmpty() && overlappingNodes.isEmpty() && overlappingResources.isEmpty()) return null
+        return TopologyEditOverlap(overlappingRails, overlappingNodes, overlappingResources)
+    }
+
+    private fun claimOverlap(
+        resources: Collection<InfrastructureResource>,
+        impact: TopologyEditImpact
+    ): TopologyEditOverlap? {
+        val rails = resources.asSequence()
+            .filterIsInstance<RailIntervalResource>()
+            .map(RailIntervalResource::railId)
+            .filter(impact.railIds::contains)
+            .toSet()
+        val stableResources = resources.asSequence()
+            .filterIsInstance<StableInfrastructureResource>()
+            .filter(impact.resourceIds::contains)
+            .toSet()
+        if (rails.isEmpty() && stableResources.isEmpty()) return null
+        return TopologyEditOverlap(rails, emptySet(), stableResources)
+    }
+
+    private fun editPermitClaimBlockers(footprint: InfrastructureFootprint): List<InfrastructureBlocker> =
+        editPermits.values.mapNotNull { permit ->
+            val overlapping = footprint.resources.filter { resource ->
+                when (resource) {
+                    is RailIntervalResource -> resource.railId in permit.impact.railIds
+                    is StableInfrastructureResource -> resource in permit.impact.resourceIds
+                }
+            }
+            overlapping.takeIf(List<InfrastructureResource>::isNotEmpty)?.let {
+                InfrastructureBlocker(InfrastructureBlockerKind.EDIT_PERMIT, permit.owner, it)
+            }
+        }
 
     private fun validate(
         topologyRevision: Long,
@@ -607,4 +787,9 @@ class InfrastructureLeaseRegistry(
 
     private fun result(status: InfrastructureMutationStatus, detail: String = "") =
         InfrastructureMutationResult(status, detail = detail)
+
+    private fun dependencyResult(
+        status: AppliedPlanDependencyMutationStatus,
+        detail: String = ""
+    ) = AppliedPlanDependencyMutationResult(status, detail)
 }

@@ -4,4 +4,4 @@
 {"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Bukkit service lifecycle and Folia ownership"}
 {"file": ".trellis/spec/javarailways/basic/api-boundaries.md", "reason": "Basic public API and platform-neutral value boundaries"}
 {"file": ".trellis/spec/javarailways/basic/threading-and-publication.md", "reason": "Coherent observation projection and publication ordering"}
-{"file": ".trellis/spec/javarailways/basic/resource-allocation.md", "reason": "Atomic infrastructure footprints, leases, claims, and edit guards"}
+{"file": ".trellis/spec/javarailways/basic/resource-allocation.md", "reason": "Applied-plan dependencies, atomic live claims, and edit guards"}

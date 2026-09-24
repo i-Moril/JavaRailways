@@ -78,11 +78,6 @@ state = when {
 
 `PreparedRailCreationBatch`是process-local immutable值：按调用方curve顺序保存已分配的stable UUID、curve、压缩后的piecewise-linear samples、spatial footprint、预计算crossing，以及捕获时的exact `CoreWorld`与published `TopologyState` root。它不是持久化边界，也不引入新的revision类型。
 
-同一次candidate capture还保存一个不可变的`potentiallyAffectedExistingRailIds`：它是空间broad phase选中的
-existing rail ID与`excludedExistingRailIds` replacement source的并集。该集合是后续edit permit的保守输入，
-不声称这些rail一定形成crossing，也不能用exact crossing结果替代；否则靠近新几何但未相交、或被candidate
-检测排除的replacement source会绕过编辑锁。
-
 正常流程：
 
 ```text

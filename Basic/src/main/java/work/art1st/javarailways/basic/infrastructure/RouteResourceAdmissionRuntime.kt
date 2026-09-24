@@ -106,6 +106,12 @@ class RouteResourceAdmissionRuntime private constructor(
     fun failClosedContributorLoss(contributorDescription: String): Boolean =
         !closed && engine.failClosedContributorLoss(contributorDescription)
 
+    /** Prevents new admission after forced loss of an applied-plan owner or referenced provider. */
+    @MainThread
+    fun failClosedInfrastructureDependencyLoss(dependencyDescription: String) {
+        if (!closed) engine.failClosedInfrastructureDependencyLoss(dependencyDescription)
+    }
+
     @MainThread
     override fun close() {
         closed = true
@@ -136,7 +142,7 @@ class RouteResourceAdmissionRuntime private constructor(
         fun create(
             worldId: String,
             world: World,
-            registry: InfrastructureLeaseRegistry,
+            registry: InfrastructureCoordinationRegistry,
             hostClaimOwner: Any,
             latestObservation: () -> RailwayObservation?,
             collectContributions: (RouteResourceIntent) -> List<Pair<Any, ContributedRouteResource>>,

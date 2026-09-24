@@ -2,7 +2,7 @@
 
 ## Start gate
 
-- [ ] Stage 1 public resource, restriction, inspection and lease APIs are complete and reviewed.
+- [ ] Stage 1 public resource, restriction, inspection and applied-plan dependency/edit APIs are complete and reviewed.
 - [x] Freeze the module/plugin/product name as `JapaneseSignals`; package names, persisted type IDs and script identifiers remain separate API decisions.
 - [ ] Load SimpleATO, Basic, Bukkit, persistence, interaction/render and shared module specs.
 - [ ] Confirm no runtime compatibility path is required; if development data needs migration, design a separate dry-run tool and recovery point first.
@@ -52,8 +52,8 @@
 ## Timetable, authoring and rendering
 
 - [ ] Add signal-plugin participation in whole-timetable compile/audit with pinned topology/plugin/timetable/train-assignment revisions.
-- [ ] Include every referenced topology/region/block/signal/operational object in one atomic applied-plan lease footprint.
-- [ ] Implement draft/apply/replace/draining/unapply lifecycle with no lease changes from save/dry-run and no release beneath live work.
+- [ ] Include every referenced topology rail/node and runtime resource in one atomic applied-plan dependency declaration.
+- [ ] Implement draft/apply/replace/draining/unapply lifecycle with no dependency changes from save/dry-run and no removal beneath live work.
 - [ ] Route all affected editors through the common edit permit and show blocking owner/revision diagnostics.
 - [ ] Add create/edit/delete/inspect/validate/dry-run commands/tools and topology-migration recovery points.
 - [ ] Add plugin-owned aspect/model rendering with target-aware scheduling, change-only updates and idempotent cleanup.

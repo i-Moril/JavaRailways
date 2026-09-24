@@ -42,7 +42,7 @@ class RouteResourceAdmissionEngineTest {
     private val contributionsByIntent = IdentityHashMap<RouteResourceIntent, List<ContributedRouteResource>>()
     private var topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
     private var observation = observation(7L, train("first", 0.0, 1.0, 7L))
-    private val registry = InfrastructureLeaseRegistry(
+    private val registry = InfrastructureCoordinationRegistry(
         currentTopologyRevision = { topology.revision },
         resourceExists = { resource -> resource == block || resource is RailIntervalResource && resource.railId == railId }
     )

@@ -7,13 +7,13 @@ import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService;
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService;
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationSubscription;
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService;
-import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService;
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourcePreparationHandler;
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest;
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies;
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
@@ -59,11 +59,14 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     private RailwayObservationSubscription observationSubscription;
     private InfrastructureResourceProviderRegistration resourceProviderRegistration;
     private RouteResourceContributorRegistration routeContributorRegistration;
+    private UUID worldId;
+    private InfrastructureOwner appliedPlanOwner;
+    private boolean appliedPlanDependenciesInstalled;
 
     @Override
     public void onEnable() {
         services = loadServices(getServer());
-        var worldId = getServer().getWorlds().getFirst().getUID();
+        worldId = getServer().getWorlds().getFirst().getUID();
         services.observations().latest(worldId).ifPresent(observation ->
             getLogger().fine("Latest railway epoch: " + observation.getStamp().getPhysicsEpoch())
         );
@@ -129,15 +132,17 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 : List.of()
         );
         services.observations().latest(worldId).ifPresent(observation -> {
-            var request = new InfrastructureLeaseRequest(
+            appliedPlanOwner = new InfrastructureOwner("example.signaladdon:plan/main", 1L);
+            var request = new AppliedPlanDependencyRequest(
                 observation.getStamp().getTopologyRevision(),
-                new InfrastructureOwner("example.signaladdon:plan/main", 1L),
-                new InfrastructureFootprint(List.of(
+                appliedPlanOwner,
+                new AppliedPlanDependencies(List.of(), List.of(), List.of(
                     new StableInfrastructureResource("example.signaladdon:signal", "home")
                 ))
             );
-            var result = services.infrastructure().acquireLease(this, worldId, request);
-            getLogger().fine("Infrastructure lease result: " + result.getStatus());
+            var result = services.infrastructure().setAppliedPlanDependencies(this, worldId, request);
+            appliedPlanDependenciesInstalled = result.getSuccessful();
+            getLogger().fine("Applied-plan dependency result: " + result.getStatus());
 
             // Independent add-ons receive an authenticated, world-bound admission service. The
             // fixture builds a request but does not submit its synthetic random route at runtime.
@@ -151,6 +156,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (appliedPlanDependenciesInstalled && services != null && worldId != null && appliedPlanOwner != null) {
+            services.infrastructure().removeAppliedPlanDependencies(this, worldId, appliedPlanOwner);
+            appliedPlanDependenciesInstalled = false;
+        }
         if (observationSubscription != null) {
             observationSubscription.close();
             observationSubscription = null;
@@ -162,6 +171,9 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         if (resourceProviderRegistration != null) {
             resourceProviderRegistration.close();
             resourceProviderRegistration = null;
+        }
+        if (services != null) {
+            services.infrastructure().unregisterOwner(this);
         }
     }
 
@@ -251,8 +263,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 "JavaRailways did not register RailwayObservationService"
             ),
             Objects.requireNonNull(
-                serviceManager.load(InfrastructureLeaseService.class),
-                "JavaRailways did not register InfrastructureLeaseService"
+                serviceManager.load(InfrastructureResourceService.class),
+                "JavaRailways did not register InfrastructureResourceService"
             )
         );
     }
@@ -261,7 +273,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         RailTargetService railTargets,
         PlayerOperationService playerOperations,
         RailwayObservationService observations,
-        InfrastructureLeaseService infrastructure
+        InfrastructureResourceService infrastructure
     ) {
         Services {
             Objects.requireNonNull(railTargets, "railTargets");

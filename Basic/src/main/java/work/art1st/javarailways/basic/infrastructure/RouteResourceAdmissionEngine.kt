@@ -30,7 +30,7 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
  */
 internal class RouteResourceAdmissionEngine(
     private val worldId: String,
-    private val registry: InfrastructureLeaseRegistry,
+    private val registry: InfrastructureCoordinationRegistry,
     private val hostClaimOwner: Any,
     private val currentTopology: () -> TopologyState,
     private val latestObservation: () -> RailwayObservation?,
@@ -512,6 +512,15 @@ internal class RouteResourceAdmissionEngine(
             IllegalStateException("route-resource contributor disappeared before routes ended")
         )
         return true
+    }
+
+    /** Latches the whole admission owner after loss of a non-route safety dependency. */
+    @MainThread
+    fun failClosedInfrastructureDependencyLoss(dependencyDescription: String) {
+        markWorldStalled(
+            "$dependencyDescription disappeared while an applied plan remains active",
+            IllegalStateException("applied-plan infrastructure dependency owner disappeared")
+        )
     }
 
     /** Removes requester references only when no pending request or registry resource remains. */

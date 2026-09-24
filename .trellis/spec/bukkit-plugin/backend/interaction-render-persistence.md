@@ -6,11 +6,6 @@
 - `AbstractWand` 将每个 item instance UUID 与 state 写入 PDC。decode 损坏时保留原 encoded data、使用内存 default 并记录警告；禁止自动覆盖不可读状态。interaction 进入 simulation context，但 player/entity UI 仍要 owner-aware。
 - Dialog 输入 key 只允许 Paper 支持字符，当前用 `.` → `_`；NUMBER_TEXT 先 parse 再检查 finite，trigger enum 变更 commit 后重建可见字段。新增 `ConfigValueType` 时同步 input、capture、validation 与 tests。
 - 玩家文本使用 Adventure `Component` 和资源/locale owner；固定 enum/JSON token 不翻译。
-- RailWand 的结构编辑必须在提交前通过 `RailInfrastructureEditGuard` 取得同一世界的 edit permit，并把
-  permit 保持到 Core topology、Basic metadata、目的地迁移、渲染持久化和 undo snapshot 全部提交完毕。
-  prepared create/replace 使用 Core 已捕获的保守 existing-rail candidates；delete 使用删除集合及连接邻居；
-  world-snapshot restore 因可能重新引入任意几何，保守保护全部当前 rail。permit 拒绝时整个 mutation callback
-  不得开始。仅新增且不接近任何 existing rail 的操作不制造空 footprint，也不调用 lease service。
 
 证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/AbstractWand.kt`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/ui/dialog/DialogRenderer.kt`、`BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/tool/`、`BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/ui/dialog/`。
 

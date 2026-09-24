@@ -5,186 +5,222 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlockerKind
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureEditRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import java.util.UUID
 
-class InfrastructureLeaseRegistryTest {
+class InfrastructureCoordinationRegistryTest {
     private val railId = UUID.randomUUID()
     private var topologyRevision = 4L
     private val validRails = mutableSetOf(railId)
-    private val registry = InfrastructureLeaseRegistry(
+    private val nodeKey = StableTopologyNodeKey(listOf(RailEndpointRef(railId, RailEndpoint.B)))
+    private val validNodes = mutableSetOf(nodeKey)
+    private val runtimeResource = StableInfrastructureResource("test:signal", "home")
+    private val registry = InfrastructureCoordinationRegistry(
         currentTopologyRevision = { topologyRevision },
-        resourceExists = { it is RailIntervalResource && it.railId in validRails }
+        resourceExists = {
+            it == runtimeResource || it is RailIntervalResource && it.railId in validRails
+        },
+        railExists = validRails::contains,
+        topologyNodeExists = validNodes::contains
     )
 
     @Test
-    fun `shared leases overlap and replacement is atomic`() {
+    fun `applied plan dependencies overlap without claiming runtime resources`() {
         val firstPlatform = Any()
         val secondPlatform = Any()
         val first = owner("test:first", 1)
         val second = owner("test:second", 2)
 
-        assertEquals(InfrastructureMutationStatus.ACQUIRED, registry.acquireLease(firstPlatform, lease(first, 0.0, 20.0)).status)
-        assertEquals(InfrastructureMutationStatus.ACQUIRED, registry.acquireLease(secondPlatform, lease(second, 10.0, 30.0)).status)
-
-        val staleReplacement = lease(owner("test:first", 2), 40.0, 50.0, revision = 3L)
         assertEquals(
-            InfrastructureMutationStatus.STALE_TOPOLOGY,
-            registry.replaceLease(firstPlatform, first, staleReplacement).status
+            AppliedPlanDependencyMutationStatus.APPLIED,
+            registry.setAppliedPlanDependencies(firstPlatform, dependencies(first)).status
         )
-        assertEquals(listOf(first, second), registry.leaseSnapshots().map { it.owner })
-        assertEquals(interval(0.0, 20.0), registry.leaseSnapshots().first().footprint.resources.single())
-
-        val replacementOwner = owner("test:first", 2)
         assertEquals(
-            InfrastructureMutationStatus.REPLACED,
-            registry.replaceLease(firstPlatform, first, lease(replacementOwner, 40.0, 50.0)).status
+            AppliedPlanDependencyMutationStatus.APPLIED,
+            registry.setAppliedPlanDependencies(secondPlatform, dependencies(second)).status
         )
-        assertEquals(interval(40.0, 50.0), registry.leaseSnapshots().first().footprint.resources.single())
+        assertEquals(
+            InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(
+                Any(),
+                InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 20.0))
+            ).status
+        )
+
+        val replacement = owner("test:first", 2)
+        assertEquals(
+            AppliedPlanDependencyMutationStatus.REPLACED,
+            registry.setAppliedPlanDependencies(firstPlatform, dependencies(replacement)).status
+        )
+        assertEquals(setOf(replacement, second), registry.appliedPlanDependencySnapshots().map { it.owner }.toSet())
     }
 
     @Test
-    fun `held edit permit blocks overlapping lease and claim but preserves disjoint concurrency`() {
+    fun `edit diagnostics preserve independent rail node and resource intersections`() {
+        registry.setAppliedPlanDependencies(Any(), dependencies(owner("test:plan", 1)))
+        registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 10.0))
+        )
+        val denied = registry.acquireEditPermit(
+            Any(),
+            TopologyEditRequest(4L, owner("test:editor", 1), editImpact())
+        ).decision
+
+        assertEquals(
+            TopologyEditStatus.CONFLICT,
+            denied.status
+        )
+        assertEquals(
+            setOf(TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM),
+            denied.blockers.map { it.kind }.toSet()
+        )
+        assertEquals(
+            setOf(railId),
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY }.overlap.railIds
+        )
+        assertEquals(
+            setOf(nodeKey),
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY }
+                .overlap.topologyNodeKeys
+        )
+        assertEquals(
+            setOf(runtimeResource),
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY }.overlap.resourceIds
+        )
+    }
+
+    @Test
+    fun `held edit permit blocks new dependencies and live claims by category`() {
         val editorPlatform = Any()
         val permit = registry.acquireEditPermit(
             editorPlatform,
-            InfrastructureEditRequest(4L, owner("test:editor", 1), footprint(10.0, 20.0))
+            TopologyEditRequest(4L, owner("test:editor", 1), editImpact())
         )
-        assertTrue(permit.result.successful)
-
-        val blockedLease = registry.acquireLease(Any(), lease(owner("test:plan", 1), 15.0, 25.0))
-        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, blockedLease.status)
-        assertEquals(InfrastructureBlockerKind.EDIT_PERMIT, blockedLease.blockers.single().kind)
-        assertThrows(UnsupportedOperationException::class.java) {
-            @Suppress("UNCHECKED_CAST")
-            (blockedLease.blockers as MutableList).clear()
-        }
-        assertThrows(UnsupportedOperationException::class.java) {
-            @Suppress("UNCHECKED_CAST")
-            (blockedLease.blockers.single().overlappingResources as MutableList).clear()
-        }
-        assertTrue(registry.leaseSnapshots().isEmpty())
-
-        val blockedClaim = registry.acquireClaim(
-            Any(),
-            InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(12.0, 13.0))
-        )
-        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, blockedClaim.status)
-        assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(permit.decision.successful)
 
         assertEquals(
-            InfrastructureMutationStatus.ACQUIRED,
-            registry.acquireLease(Any(), lease(owner("test:disjoint", 1), 30.0, 40.0)).status
+            AppliedPlanDependencyMutationStatus.EDIT_IN_PROGRESS,
+            registry.setAppliedPlanDependencies(Any(), dependencies(owner("test:plan", 1))).status
         )
+        val blockedClaim = registry.acquireClaim(
+            Any(),
+            InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 10.0))
+        )
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, blockedClaim.status)
+        assertEquals(InfrastructureBlockerKind.EDIT_PERMIT, blockedClaim.blockers.single().kind)
         assertTrue(registry.releaseEditPermit(editorPlatform, permit.id))
         assertFalse(registry.releaseEditPermit(editorPlatform, permit.id))
     }
 
     @Test
-    fun `edit diagnostics identify every lease and live claim owner revision`() {
-        registry.acquireLease(Any(), lease(owner("test:plan-a", 5), 0.0, 20.0))
-        registry.acquireLease(Any(), lease(owner("test:plan-b", 8), 10.0, 30.0))
-        registry.acquireClaim(
-            Any(),
-            InfrastructureClaimRequest(4L, owner("test:route", 3), footprint(40.0, 50.0))
-        )
-
-        val denied = registry.acquireEditPermit(
-            Any(),
-            InfrastructureEditRequest(4L, owner("test:editor", 1), InfrastructureFootprint(listOf(
-                interval(15.0, 16.0),
-                interval(45.0, 46.0)
-            )))
-        ).result
-
-        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, denied.status)
+    fun `dependencies validate the three categories only when applied`() {
         assertEquals(
-            setOf("test:plan-a" to 5L, "test:plan-b" to 8L, "test:route" to 3L),
-            denied.blockers.map { it.owner.ownerId to it.owner.revision }.toSet()
+            AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
+            registry.setAppliedPlanDependencies(
+                Any(),
+                dependencies(owner("test:stale", 1), topologyRevision = 3L)
+            ).status
         )
+        validNodes.clear()
         assertEquals(
-            setOf(InfrastructureBlockerKind.APPLIED_PLAN_LEASE, InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM),
-            denied.blockers.map { it.kind }.toSet()
+            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
+            registry.setAppliedPlanDependencies(Any(), dependencies(owner("test:missing", 1))).status
         )
+        assertTrue(registry.appliedPlanDependencySnapshots().isEmpty())
     }
 
     @Test
-    fun `stale topology invalid resources and owner mismatch never partially mutate`() {
-        assertEquals(
-            InfrastructureMutationStatus.STALE_TOPOLOGY,
-            registry.acquireLease(Any(), lease(owner("test:stale", 1), 0.0, 10.0, revision = 3L)).status
-        )
-        validRails.clear()
-        assertEquals(
-            InfrastructureMutationStatus.INVALID_RESOURCE,
-            registry.acquireLease(Any(), lease(owner("test:missing", 1), 0.0, 10.0)).status
-        )
-        assertTrue(registry.leaseSnapshots().isEmpty())
-
-        validRails += railId
-        val platform = Any()
-        val held = owner("test:owned", 1)
-        registry.acquireLease(platform, lease(held, 0.0, 10.0))
-        assertEquals(
-            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
-            registry.releaseLease(Any(), held).status
-        )
-        assertEquals(listOf(held), registry.leaseSnapshots().map { it.owner })
-    }
-
-    @Test
-    fun `topology change during resource validation rejects before commit`() {
+    fun `topology change during dependency validation rejects before commit`() {
         var revision = 4L
-        val changingRegistry = InfrastructureLeaseRegistry(
+        val changingRegistry = InfrastructureCoordinationRegistry(
             currentTopologyRevision = { revision },
-            resourceExists = {
+            resourceExists = { true },
+            railExists = {
                 revision = 5L
                 true
-            }
+            },
+            topologyNodeExists = { true }
         )
 
-        val result = changingRegistry.acquireLease(
+        val result = changingRegistry.setAppliedPlanDependencies(
             Any(),
-            InfrastructureLeaseRequest(4L, owner("test:plan", 1), footprint(0.0, 10.0))
+            dependencies(owner("test:plan", 1))
         )
 
-        assertEquals(InfrastructureMutationStatus.STALE_TOPOLOGY, result.status)
-        assertTrue(changingRegistry.leaseSnapshots().isEmpty())
+        assertEquals(AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY, result.status)
+        assertTrue(changingRegistry.appliedPlanDependencySnapshots().isEmpty())
     }
 
     @Test
-    fun `owner cleanup and close release every held mode`() {
+    fun `owner cleanup keeps applied dependencies until explicit unapply`() {
         val platform = Any()
-        registry.acquireLease(platform, lease(owner("test:plan", 1), 0.0, 10.0))
+        registry.setAppliedPlanDependencies(platform, dependencies(owner("test:plan", 1)))
         registry.acquireClaim(
             platform,
             InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(20.0, 30.0))
         )
         registry.acquireEditPermit(
             platform,
-            InfrastructureEditRequest(4L, owner("test:edit", 1), footprint(40.0, 50.0))
+            TopologyEditRequest(4L, owner("test:edit", 1), editImpact())
         )
 
         registry.releasePlatformOwner(platform)
-        assertTrue(registry.leaseSnapshots().isEmpty())
+        assertEquals(1, registry.appliedPlanDependencySnapshots().size)
         assertTrue(registry.claimSnapshots().isEmpty())
         assertEquals(
-            InfrastructureMutationStatus.ACQUIRED,
+            TopologyEditStatus.CONFLICT,
             registry.acquireEditPermit(
-                Any(), InfrastructureEditRequest(4L, owner("test:next", 1), footprint(40.0, 50.0))
-            ).result.status
+                Any(), TopologyEditRequest(4L, owner("test:next", 1), editImpact())
+            ).decision.status
+        )
+        assertEquals(
+            AppliedPlanDependencyMutationStatus.REMOVED,
+            registry.removeAppliedPlanDependencies(platform, owner("test:plan", 1)).status
         )
 
         registry.close()
         assertEquals(
-            InfrastructureMutationStatus.SERVICE_CLOSED,
-            registry.acquireLease(Any(), lease(owner("test:late", 1), 60.0, 70.0)).status
+            AppliedPlanDependencyMutationStatus.SERVICE_CLOSED,
+            registry.setAppliedPlanDependencies(Any(), dependencies(owner("test:late", 1))).status
+        )
+    }
+
+    @Test
+    fun `applied dependencies survive unrelated topology revisions`() {
+        val platform = Any()
+        val plan = owner("test:plan", 1)
+        assertEquals(
+            AppliedPlanDependencyMutationStatus.APPLIED,
+            registry.setAppliedPlanDependencies(platform, dependencies(plan)).status
+        )
+
+        topologyRevision = 5L
+
+        assertEquals(listOf(plan), registry.appliedPlanDependencySnapshots().map { it.owner })
+        val edit = registry.acquireEditPermit(
+            Any(),
+            TopologyEditRequest(5L, owner("test:editor", 1), editImpact())
+        ).decision
+        assertEquals(TopologyEditStatus.CONFLICT, edit.status)
+        assertEquals(
+            TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY,
+            edit.blockers.first().kind
         )
     }
 
@@ -470,7 +506,7 @@ class InfrastructureLeaseRegistryTest {
         var revision = 4L
         var revisionReads = 0
         var providerCalls = 0
-        val independentRegistry = InfrastructureLeaseRegistry(
+        val independentRegistry = InfrastructureCoordinationRegistry(
             currentTopologyRevision = {
                 revisionReads += 1
                 revision
@@ -522,7 +558,7 @@ class InfrastructureLeaseRegistryTest {
     @Test
     fun `claim shrink reports closed registry without consulting resource providers`() {
         var providerCalls = 0
-        val closedRegistry = InfrastructureLeaseRegistry(
+        val closedRegistry = InfrastructureCoordinationRegistry(
             currentTopologyRevision = { 4L },
             resourceExists = {
                 providerCalls += 1
@@ -775,6 +811,12 @@ class InfrastructureLeaseRegistryTest {
     private fun owner(id: String, revision: Long) = InfrastructureOwner(id, revision)
     private fun interval(start: Double, end: Double) = RailIntervalResource(railId, start, end)
     private fun footprint(start: Double, end: Double) = InfrastructureFootprint(listOf(interval(start, end)))
-    private fun lease(owner: InfrastructureOwner, start: Double, end: Double, revision: Long = 4L) =
-        InfrastructureLeaseRequest(revision, owner, footprint(start, end))
+    private fun dependencies(owner: InfrastructureOwner, topologyRevision: Long = 4L) =
+        AppliedPlanDependencyRequest(
+            topologyRevision,
+            owner,
+            AppliedPlanDependencies(setOf(railId), setOf(nodeKey), setOf(runtimeResource))
+        )
+
+    private fun editImpact() = TopologyEditImpact(setOf(railId), setOf(nodeKey), setOf(runtimeResource))
 }

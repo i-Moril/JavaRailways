@@ -46,7 +46,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 ### C. Timetable, editing and persistence
 
 - Compile every statically reachable automatic timetable route before apply, including required signal-plugin health, definitions, references and route-policy validity for the assigned train envelope.
-- Acquire one revision-pinned shared infrastructure lease footprint atomically with applied-plan installation. Draft save/dry-run acquires no lease; draining unapply blocks new work and releases leases only after live grants clear.
+- Atomically publish one revision-pinned declaration of persistent rail IDs, stable topology-node keys and runtime resource IDs with applied-plan installation. Draft save/dry-run publishes no dependencies; draining unapply blocks new work and removes them only after live grants clear.
 - Route every covered topology, region, block, signal and operational-object edit through the common edit guard with owner/revision diagnostics.
 - Store each plugin's data in its own independently versioned sidecar using stable namespaced IDs, rail UUIDs, canonical AB positions/directions and explicit references.
 - Decode/migrate only at the plugin persistence boundary; business logic sees the current model and writers emit only the current version. No reflection from stored class names and no unreviewed runtime compatibility path.

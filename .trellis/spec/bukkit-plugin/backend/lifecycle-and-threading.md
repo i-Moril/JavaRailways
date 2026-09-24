@@ -10,12 +10,13 @@
 
 新增 component 必须回答：谁创建、何时可用、谁注册、如何停止、world unload 与 plugin disable 是否都释放。不要依赖 JVM 退出回收 executor/task/registration。
 
-独立信号/ATO附属插件的正常停用必须先调用`InfrastructureLeaseService.unregisterOwner`。该调用只是可检查的
-pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有pending route reservation或非空host-owned claim时
-抛出诊断并保持全部状态。`PluginDisableEvent`本身不可取消，事件路径因此只处理“已经被强制禁用”：移除普通
-provider/platform ownership，但不释放route-admission claim/reservation，并通过每world既有Stall回调fail-close。
+独立信号/ATO附属插件的正常停用必须先显式unapply其计划依赖，再调用`InfrastructureResourceService.unregisterOwner`。
+该调用只是可检查的pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有applied-plan dependency、pending
+route reservation或非空host-owned claim时抛出诊断并保持全部状态。`PluginDisableEvent`本身不可取消，事件路径因此
+只处理“已经被强制禁用”：保留applied-plan dependency，移除普通provider/platform ownership，但不释放
+route-admission claim/reservation，并通过每world既有Stall回调fail-close。
 检查同时覆盖插件作为requester持有的路线，以及它作为provider注册、但由其他requester持有的stable resource类型；
-provider ownership不另建长期索引，而是只在低频停用边界读取现有claim、release queue和pending compiled request。
+provider ownership不另建长期索引，而是只在低频停用边界读取applied-plan dependencies、现有claim、release queue和pending compiled request。
 单个`InfrastructureResourceProviderRegistration.close()`执行同一检查，不能绕过owner unregister删除仍被使用的type。
 route-resource contributor集合在任一world仍有route state时不可增删；强制失去contributor会通过既有Stall owner
 fail-close该world，不能让后续suffix申请少执行一套信号策略。

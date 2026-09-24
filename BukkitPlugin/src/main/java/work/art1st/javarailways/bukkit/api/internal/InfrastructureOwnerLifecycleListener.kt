@@ -7,7 +7,7 @@ import org.bukkit.event.server.PluginDisableEvent
 import org.bukkit.plugin.Plugin
 
 internal class InfrastructureOwnerLifecycleListener(
-    private val service: DefaultInfrastructureLeaseService,
+    private val service: DefaultInfrastructureResourceService,
     private val hostPlugin: Plugin
 ) : Listener {
     @EventHandler

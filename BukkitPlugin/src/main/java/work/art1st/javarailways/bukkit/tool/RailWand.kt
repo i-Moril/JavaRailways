@@ -25,7 +25,6 @@ import org.bukkit.util.Transformation
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
@@ -588,38 +587,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         ConcurrentHashMap<UUID, ConcurrentHashMap<String, MutableSet<ItemDisplay>>>()
     private val speedLimitEntities = ConcurrentHashMap<UUID, MutableSet<TextDisplay>>()
     private val heavyOperationGate = PlayerOperationGate()
-    private val infrastructureEditGuard = RailInfrastructureEditGuard(plugin, plugin.infrastructureLeaseService)
     private val anchorCreationOperations =
         ConcurrentHashMap<UUID, ConcurrentHashMap<String, RailWandOperation>>()
-
-    private fun acquireInfrastructureEditPermit(
-        player: Player,
-        world: CoreWorld,
-        affectedExistingRailIds: Set<UUID>
-    ): AutoCloseable? = when (val result = infrastructureEditGuard.acquire(
-        player.world.uid,
-        world,
-        affectedExistingRailIds,
-        "javarailways:rail-wand/${player.uniqueId}"
-    )) {
-        is RailInfrastructureEditGuard.Result.Granted -> result.permit
-        is RailInfrastructureEditGuard.Result.Denied -> {
-            val key = when (result.reason.status) {
-                InfrastructureMutationStatus.RESOURCE_CONFLICT -> "message.infrastructure_edit_blocked"
-                InfrastructureMutationStatus.STALE_TOPOLOGY,
-                InfrastructureMutationStatus.INVALID_RESOURCE -> "message.rail_changed_retry"
-                else -> "message.infrastructure_edit_unavailable"
-            }
-            player.sendActionBar(RailWandI18n.component(player, key).color(NamedTextColor.RED))
-            if (result.reason.status != InfrastructureMutationStatus.RESOURCE_CONFLICT) {
-                plugin.logger.warning(
-                    "RailWand edit permit denied for ${player.uniqueId}: " +
-                        "${result.reason.status} ${result.reason.detail}"
-                )
-            }
-            null
-        }
-    }
 
     private data class SplitPreviewTarget(
         val worldId: UUID,
@@ -1410,12 +1379,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     ).color(NamedTextColor.YELLOW))
                     return@supply
                 }
-                val editPermit = acquireInfrastructureEditPermit(
-                    livePlayer,
-                    coreWorld,
-                    builtTurnout.railCreation.potentiallyAffectedExistingRailIds
-                ) ?: return@supply
-                editPermit.use {
                 val undoSnapshot = captureRailWorldUndoSnapshot(livePlayer, coreWorld)
                 val existingRails = coreWorld.allRails.toList()
                 val connectionSnapshots = existingRails.map(::snapshotRailConnections)
@@ -1478,7 +1441,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     (speedLimits.operatingLimitMetersPerSecond * 3.6).toInt(),
                     autoConnected
                 ).color(NamedTextColor.GREEN))
-                }
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
@@ -1711,12 +1673,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     }
                 }
 
-                val editPermit = acquireInfrastructureEditPermit(
-                    livePlayer,
-                    liveCoreWorld,
-                    preparedConnectionBuild.railCreation.potentiallyAffectedExistingRailIds
-                ) ?: return@supply
-                editPermit.use {
                 val existingRails = liveCoreWorld.allRails.toList()
                 val topologyBefore = existingRails.map(CoreRail::save)
                 val renderMetasBefore = RailRenderMetaStore.load(livePlayer.world)
@@ -1865,7 +1821,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.rail_create_failed",
                         railWandFailureReason(e)
                     ).color(NamedTextColor.RED))
-                }
                 }
             },
             onFailure = { error ->
@@ -2077,12 +2032,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val editPermit = acquireInfrastructureEditPermit(
-                    livePlayer,
-                    liveCoreWorld,
-                    preparedRebuild.railCreation.potentiallyAffectedExistingRailIds
-                ) ?: return@supply
-                editPermit.use {
                 val liveExistingMetas = RailRenderMetaStore.load(livePlayer.world)
                 val liveExistingMetaByRail = liveExistingMetas.associateBy { it.railId }
                 val liveAllRails = liveCoreWorld.allRails.toList()
@@ -2177,7 +2126,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.endpoint_rebuild_failed",
                         railWandFailureReason(e)
                     ).color(NamedTextColor.RED))
-                }
                 }
             },
             onFailure = { error ->
@@ -2824,12 +2772,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ))
             return
         }
-        val editPermit = acquireInfrastructureEditPermit(
-            player,
-            world,
-            preparedRebuild.railCreation.potentiallyAffectedExistingRailIds
-        ) ?: return
-        editPermit.use {
         val allBefore = world.allRails.toList()
         val topologyBefore = allBefore.map(CoreRail::save)
         val renderBefore = RailRenderMetaStore.load(player.world)
@@ -2911,7 +2853,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 "message.grade_smooth_failed",
                 railWandFailureReason(failure)
             ).color(NamedTextColor.RED))
-        }
         }
     }
 
@@ -3492,12 +3433,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val editPermit = acquireInfrastructureEditPermit(
-                    livePlayer,
-                    liveWorld,
-                    preparedBuild.railCreation.potentiallyAffectedExistingRailIds
-                ) ?: return@supply
-                editPermit.use {
                 val persisted = RailRenderMetaStore.load(livePlayer.world)
                 val renderMetaByRail = persisted.associateBy { it.railId }
                 val allRails = liveWorld.allRails.toList()
@@ -3649,7 +3584,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.rebuild_failed",
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
-                }
                 }
             },
             onFailure = { error ->
@@ -4119,12 +4053,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val editPermit = acquireInfrastructureEditPermit(
-                    livePlayer,
-                    liveWorld,
-                    preparedSplit.railCreation.potentiallyAffectedExistingRailIds
-                ) ?: return@supply
-                editPermit.use {
                 val renderMetas = RailRenderMetaStore.load(livePlayer.world)
                 val renderMetaByRail = renderMetas.associateBy { it.railId }
                 val originalRenderMeta = renderMetaByRail[railId]
@@ -4203,7 +4131,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.split_failed",
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
-                }
                 }
             },
             onFailure = { error ->
@@ -4360,12 +4287,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val editPermit = acquireInfrastructureEditPermit(
-                    livePlayer,
-                    liveWorld,
-                    preparedMerge.railCreation.potentiallyAffectedExistingRailIds
-                ) ?: return@supply
-                editPermit.use {
                 val undoSnapshot = captureRailWorldUndoSnapshot(
                     liveWorld,
                     liveWorld.allRails.map(CoreRail::save),
@@ -4444,7 +4365,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.merge_failed",
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
-                }
                 }
             },
             onFailure = { error ->
@@ -4595,8 +4515,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
 
         val targetIds = targetRails.mapTo(linkedSetOf()) { it.id }
-        val editPermit = acquireInfrastructureEditPermit(player, coreWorld, targetIds) ?: return
-        editPermit.use {
         val allRails = coreWorld.allRails.toList()
         val undoSnapshot = captureRailWorldUndoSnapshot(player, coreWorld)
         var removedDestinations = 0
@@ -4640,7 +4558,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 arrayOf(targetRails.size)
             }
         ).color(NamedTextColor.GREEN))
-        }
     }
 
     internal fun findLookedAtRailAsync(
@@ -5478,9 +5395,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val railsRemovedByUndo = (currentSaved.keys - targetSaved.keys).map(currentRails::getValue)
         if (railsRemovedByUndo.isNotEmpty() && splitSafetyError(coreWorld, railsRemovedByUndo) != null) return false
 
-        // Restore snapshots may reintroduce arbitrary geometry, so guard every currently existing rail.
-        val editPermit = acquireInfrastructureEditPermit(player, coreWorld, currentRails.keys) ?: return false
-        editPermit.use {
         val rollback = currentSnapshot
         return try {
             applyRailWorldSnapshot(player, coreWorld, target)
@@ -5498,7 +5412,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 .onFailure(failure::addSuppressed)
             plugin.logger.warning("RailWand world undo failed: ${failure.message ?: failure::class.simpleName}")
             false
-        }
         }
     }
 

@@ -149,15 +149,15 @@ and the remaining public surfaces still arrive in separate reviewable batches:
 - one topology-bound route-resource request for both first authority and farther same-route authority, plus pending-attempt progress;
 - generic infrastructure preparation handler registration;
 - namespaced train restrictions and dependency-change publication;
-- shared applied-plan infrastructure leases and edit permits.
+- non-exclusive applied-plan rail/node/resource dependencies and edit permits.
 
 Raw claim mutation, mutable Core trains/rails, Basic internal cursors and complete registry implementations are not public add-on APIs. Bukkit `ServicesManager` performs platform discovery; platform-neutral DTOs live in documented Core/Basic/SimpleATO API packages.
 
 ## Applied timetable and edit locking
 
-SimpleATO compiles every statically reachable automatic route and required signal-plugin configuration before apply. It pins topology, timetable, signalling package and referenced-object revisions, computes one stable infrastructure lease footprint and atomically installs the applied plan only if the full shared lease acquisition succeeds.
+SimpleATO compiles every statically reachable automatic route and required signal-plugin configuration before apply. It pins topology, timetable, signalling package and referenced-object revisions, computes explicit persistent rail IDs, stable structural-node keys and runtime resource IDs, then atomically installs those non-exclusive dependencies with the applied plan.
 
-Draft save/dry-run acquires no leases. Apply enables service; replacement acquires the new set before dropping no-longer-used leases; unapply enters draining and blocks new departures/grants until live work clears. Every topology, resource, signal or operational-object editor must obtain a common edit permit and return the owning plan/revision when blocked. Runtime occupancy conflicts remain waits, not apply-time structural failures.
+Draft save/dry-run publishes no dependencies. Apply enables service; replacement atomically replaces the complete declaration; unapply enters draining and blocks new departures/grants until live work clears. Every topology, resource, signal or operational-object editor must obtain a common edit permit and return the owning plan/revision plus the intersecting rail/node/resource identities when blocked. Runtime occupancy conflicts remain waits, not apply-time structural failures.
 
 ## Migration
 
@@ -168,7 +168,7 @@ Keep the already implemented generic code:
 - occupancy index/query geometry;
 - atomic registry, preparation lifecycle and multi-turnout validation;
 - monotonic cursor, release queue and same-route suffix extension;
-- infrastructure leases/edit guard.
+- applied-plan dependency/edit coordination.
 
 Migrate or delete Basic-specific policy:
 

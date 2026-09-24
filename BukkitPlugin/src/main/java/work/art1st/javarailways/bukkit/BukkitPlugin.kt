@@ -7,8 +7,8 @@ import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationServic
 import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.ObservationOwnerLifecycleListener
-import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService
-import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureLeaseService
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
+import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.InfrastructureOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
@@ -75,9 +75,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var railwayObservationService: RailwayObservationService
         private set
     private lateinit var railwayObservationServiceImpl: DefaultRailwayObservationService
-    lateinit var infrastructureLeaseService: InfrastructureLeaseService
+    lateinit var infrastructureResourceService: InfrastructureResourceService
         private set
-    private lateinit var infrastructureLeaseServiceImpl: DefaultInfrastructureLeaseService
+    private lateinit var infrastructureResourceServiceImpl: DefaultInfrastructureResourceService
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
@@ -158,11 +158,11 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         playerOperationService = playerOperationServiceImpl
         railwayObservationServiceImpl = DefaultRailwayObservationService(logger)
         railwayObservationService = railwayObservationServiceImpl
-        infrastructureLeaseServiceImpl = DefaultInfrastructureLeaseService()
-        infrastructureLeaseService = infrastructureLeaseServiceImpl
+        infrastructureResourceServiceImpl = DefaultInfrastructureResourceService()
+        infrastructureResourceService = infrastructureResourceServiceImpl
         worldManager = WorldManager(
             observationService = railwayObservationServiceImpl,
-            infrastructureLeaseService = infrastructureLeaseServiceImpl
+            infrastructureResourceService = infrastructureResourceServiceImpl
         )
         server.pluginManager.registerEvents(worldManager, this)
         server.servicesManager.register(RailTargetService::class.java, railTargetService, this, ServicePriority.Normal)
@@ -179,15 +179,15 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             ServicePriority.Normal
         )
         server.servicesManager.register(
-            InfrastructureLeaseService::class.java,
-            infrastructureLeaseService,
+            InfrastructureResourceService::class.java,
+            infrastructureResourceService,
             this,
             ServicePriority.Normal
         )
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
         server.pluginManager.registerEvents(
-            InfrastructureOwnerLifecycleListener(infrastructureLeaseServiceImpl, this),
+            InfrastructureOwnerLifecycleListener(infrastructureResourceServiceImpl, this),
             this
         )
         trainControlManager = TrainControlManager(this)
@@ -286,8 +286,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         if (::railwayObservationServiceImpl.isInitialized) {
             runShutdownStep("railway observation service") { railwayObservationServiceImpl.close() }
         }
-        if (::infrastructureLeaseServiceImpl.isInitialized) {
-            runShutdownStep("infrastructure lease service") { infrastructureLeaseServiceImpl.close() }
+        if (::infrastructureResourceServiceImpl.isInitialized) {
+            runShutdownStep("infrastructure resource service") { infrastructureResourceServiceImpl.close() }
         }
         if (::trainHandleInputListener.isInitialized) {
             runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }

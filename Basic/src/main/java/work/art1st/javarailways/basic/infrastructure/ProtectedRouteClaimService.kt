@@ -139,7 +139,7 @@ internal class ProtectedRouteAdmissionHandle internal constructor(
  * ticket is READY; no route grant or authority is published by this transitional seam.
  */
 internal class ProtectedRouteClaimService(
-    private val registry: InfrastructureLeaseRegistry,
+    private val registry: InfrastructureCoordinationRegistry,
     private val currentTopologyRevision: () -> Long,
     private val latestObservation: () -> RailwayObservation?,
     private val validate: (ProtectedRouteRequest) -> ProtectedRouteValidation,
@@ -406,7 +406,7 @@ internal class ProtectedRouteClaimService(
 
     private fun startAdmission(
         plan: ResolutionResult.Plan,
-        claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
+        claimMutation: InfrastructureCoordinationRegistry.ClaimMutation,
         platformOwner: Any,
         request: ProtectedRouteRequest
     ): ProtectedRouteAdmissionStart {
@@ -486,7 +486,7 @@ internal class ProtectedRouteClaimService(
 
     private fun rejectedStart(
         request: ProtectedRouteRequest,
-        claimMutation: InfrastructureLeaseRegistry.ClaimMutation,
+        claimMutation: InfrastructureCoordinationRegistry.ClaimMutation,
         failure: Exception
     ): ProtectedRouteAdmissionStart {
         val rollback = registry.rollbackClaimMutation(claimMutation)

@@ -94,9 +94,9 @@ There is no host-wide `return "YG"` contract. A plugin-local customization API m
 
 SimpleATO compiles an automatic timetable into an immutable candidate before service start. It asks every required signal plugin to validate the statically reachable routes against one topology, timetable, train-assignment and plugin-definition revision. Structural faults are accumulated as actionable diagnostics; transient occupancy/live claim conflicts are not apply failures.
 
-After rechecking revisions, SimpleATO atomically acquires the shared host infrastructure leases and installs the applied plan. Replacement acquires the new set before releasing no-longer-referenced leases. Unapply enters `DRAINING`, stops new departures/grants and releases leases only after live runs/claims clear or explicit administrative recovery succeeds.
+After rechecking revisions, SimpleATO atomically publishes the host's explicit rail/node/runtime-resource dependencies and installs the applied plan. Replacement atomically replaces the complete declaration. Unapply enters `DRAINING`, stops new departures/grants and removes dependencies only after live runs/claims clear or explicit administrative recovery succeeds.
 
-Plugin definitions and operational objects referenced by an applied timetable are included in its lease footprint. Editors obtain the common host edit permit before mutating topology, regions, blocks, signals or referenced operational objects.
+Plugin definitions and operational objects referenced by an applied timetable are represented by their owning plugin's stable runtime-resource IDs in the dependency declaration. Editors submit the exact affected rail/node/resource identities to the common host edit permit before mutating topology, regions, blocks, signals or referenced operational objects.
 
 ## Persistence and lifecycle
 

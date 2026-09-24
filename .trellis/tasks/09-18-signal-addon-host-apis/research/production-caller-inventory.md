@@ -58,12 +58,12 @@ remove the old Dispatcher-derived authority, not create another MA/Follow scanne
 ## 5. Bukkit services and lifecycle
 
 - `BukkitPlugin` currently creates and registers `RailwayObservationService` and
-  `InfrastructureLeaseService` during enable.
-- `WorldManager.registerRailWorld` creates the world-local lease registry; world unload removes the
+  `InfrastructureResourceService` during enable.
+- `WorldManager.registerRailWorld` creates the world-local infrastructure coordination registry; world unload removes the
   latest observation and closes/removes that registry after the physics coordinator and snapshot
   boundary are handled.
 - Plugin disable unregisters Bukkit services, stops/unregisters worlds, then closes observation and
-  lease services.
+  infrastructure resource services.
 - There is no registered route-resource/admission service, no world-local `ProtectedRouteClaimService`
   composition, and no provider-disable/reload takeover for its live grants. Those must be added as one
   lifecycle slice; live claims cannot be silently released merely because the requesting plugin is
@@ -75,7 +75,7 @@ remove the old Dispatcher-derived authority, not create another MA/Follow scanne
   directly. Their current safety checks query physical occupancy, signals/objects and the legacy
   `TimetableDispatcher.hasRouteAllocationOn` guard.
 - `RailAutoConnector` also consults the legacy Dispatcher allocation guard.
-- `InfrastructureLeaseService.acquireEditPermit` exists, checks applied leases, live claims and other
+- `InfrastructureResourceService.acquireEditPermit` exists, checks applied-plan dependencies, live claims and other
   edit permits atomically, but none of these editors currently call it.
 - Migration must first compute the full affected resource footprint, acquire one permit, perform the
   complete topology plus persistence mutation, and close the permit afterward. Replacing only one

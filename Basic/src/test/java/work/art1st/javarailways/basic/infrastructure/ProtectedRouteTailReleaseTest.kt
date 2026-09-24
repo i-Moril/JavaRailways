@@ -173,7 +173,7 @@ class ProtectedRouteTailReleaseTest {
         entries: List<ResolvedTailReleaseEntry>,
         releasePlatformOwner: Any = platformOwner
     ): Fixture {
-        val registry = InfrastructureLeaseRegistry(
+        val registry = InfrastructureCoordinationRegistry(
             currentTopologyRevision = { topologyRevision },
             resourceExists = { true }
         )
@@ -261,7 +261,7 @@ class ProtectedRouteTailReleaseTest {
     private fun position(meters: Double) = RailPositionSnapshot(railId, ViewDirection.AB, meters)
 
     private data class Fixture(
-        val registry: InfrastructureLeaseRegistry,
+        val registry: InfrastructureCoordinationRegistry,
         val stalls: MutableList<String>,
         val cursor: RouteProgressCursor,
         val tailRelease: ProtectedRouteTailRelease

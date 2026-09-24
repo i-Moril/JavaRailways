@@ -359,7 +359,7 @@ class LiveClaimTailReleaseTest {
         releaseClaimOwner: InfrastructureOwner = claimOwner,
         heldResources: List<InfrastructureResource> = entries.map(ResolvedTailReleaseEntry::resource)
     ): Fixture {
-        val registry = InfrastructureLeaseRegistry(
+        val registry = InfrastructureCoordinationRegistry(
             currentTopologyRevision = { 8L },
             resourceExists = { true }
         )
@@ -388,7 +388,7 @@ class LiveClaimTailReleaseTest {
         ResolvedTailReleaseEntry(resource, tailClearRouteMeters)
 
     private data class Fixture(
-        val registry: InfrastructureLeaseRegistry,
+        val registry: InfrastructureCoordinationRegistry,
         val release: LiveClaimTailRelease
     ) {
         fun singleClaim(): InfrastructureClaimSnapshot = registry.claimSnapshots().single()

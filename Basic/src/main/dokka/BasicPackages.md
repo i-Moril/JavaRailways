@@ -44,7 +44,8 @@ Phase C3 的平台无关语义列车操作、稳定 request、可确认 ticket �
 
 # Package work.art1st.javarailways.basic.api.infrastructure
 
-共享 applied-plan lease、独占 live claim/edit permit 使用的稳定资源、原子 footprint、owner revision、typed result 与只读诊断快照。跨多根轨道的范围由每根轨道各自的 canonical AB interval 和必要的共享节点资源共同表达。
+Applied-plan dependency以persistent rail ID、stable topology-node key和runtime resource ID三类引用阻止相关编辑，
+但不占用列车资源。Live claim使用独立的原子resource footprint；edit permit使用同三类影响集合并返回逐字段冲突诊断。
 
 # Package work.art1st.javarailways.basic.api.observation
 

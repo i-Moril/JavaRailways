@@ -1,15 +1,20 @@
 package work.art1st.javarailways.bukkit.api.internal
 
 import org.bukkit.plugin.Plugin
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencySnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureEditRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
@@ -20,13 +25,13 @@ import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
-import work.art1st.javarailways.basic.infrastructure.InfrastructureLeaseRegistry
+import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermitResult
-import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureLeaseService
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourcePreparationHandler
@@ -37,11 +42,12 @@ import work.art1st.javarailways.core.api.physics.World
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, AutoCloseable {
+internal class DefaultInfrastructureResourceService : InfrastructureResourceService, AutoCloseable {
     private val lock = Any()
     private data class WorldRuntime(
-        val registry: InfrastructureLeaseRegistry,
-        var routeAdmission: RouteResourceAdmissionRuntime? = null
+        val registry: InfrastructureCoordinationRegistry,
+        var routeAdmission: RouteResourceAdmissionRuntime? = null,
+        var stallWorld: ((String, Exception) -> Unit)? = null
     )
 
     private val worlds = linkedMapOf<UUID, WorldRuntime>()
@@ -61,11 +67,15 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     fun registerWorld(
         worldId: UUID,
         currentTopologyRevision: () -> Long,
+        railExists: (UUID) -> Boolean = { false },
+        topologyNodeExists: (StableTopologyNodeKey) -> Boolean = { false },
         resourceExists: (InfrastructureResource) -> Boolean
     ) = synchronized(lock) {
-        check(!closed) { "InfrastructureLeaseService is closed" }
-        check(worldId !in worlds) { "Infrastructure lease registry already exists for world $worldId" }
-        worlds[worldId] = WorldRuntime(InfrastructureLeaseRegistry(currentTopologyRevision, resourceExists))
+        check(!closed) { "InfrastructureResourceService is closed" }
+        check(worldId !in worlds) { "Infrastructure coordination already exists for world $worldId" }
+        worlds[worldId] = WorldRuntime(
+            InfrastructureCoordinationRegistry(currentTopologyRevision, resourceExists, railExists, topologyNodeExists)
+        )
     }
 
     /** Completes world composition after Basic data is attached and before the first physics wake. */
@@ -76,8 +86,8 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         stallWorld: (String, Exception) -> Unit
     ) = BukkitThreadGuardBridge.runInSimulationContext {
         val runtime = synchronized(lock) {
-            check(!closed) { "InfrastructureLeaseService is closed" }
-            checkNotNull(worlds[worldId]) { "Infrastructure lease registry is not registered for world $worldId" }
+            check(!closed) { "InfrastructureResourceService is closed" }
+            checkNotNull(worlds[worldId]) { "Infrastructure coordination is not registered for world $worldId" }
         }
         check(runtime.routeAdmission == null) { "Route admission runtime already exists for world $worldId" }
         val admission = RouteResourceAdmissionRuntime.create(
@@ -104,6 +114,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 "railway world changed while attaching route admission for $worldId"
             }
             runtime.routeAdmission = admission
+            runtime.stallWorld = stallWorld
         }
     }
 
@@ -125,7 +136,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
             }
         }
         synchronized(lock) {
-            check(!closed) { "InfrastructureLeaseService is closed" }
+            check(!closed) { "InfrastructureResourceService is closed" }
             check(typeId !in resourceProviders) { "Infrastructure resource provider already exists for $typeId" }
             resourceProviders[typeId] = ProviderRegistration(
                 owner,
@@ -148,7 +159,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     ): RouteResourceContributorRegistration = BukkitThreadGuardBridge.runInSimulationContext {
         val registration = ContributorRegistration(requireEnabled(pluginOwner), contributor)
         synchronized(lock) {
-            check(!closed) { "InfrastructureLeaseService is closed" }
+            check(!closed) { "InfrastructureResourceService is closed" }
             check(worlds.values.none { it.routeAdmission?.hasRouteState() == true }) {
                 "Cannot change route-resource contributors while route states remain active"
             }
@@ -221,11 +232,18 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         val activity = snapshot.flatMap { (worldId, runtime) ->
             runtime.routeAdmission?.providerActivity(setOf(typeId)).orEmpty().map { worldId to it }
         }
-        check(activity.isEmpty()) {
-            "Cannot unregister infrastructure resource provider $typeId while route resources remain active: " +
-                activity.joinToString { (worldId, active) ->
-                    "world=$worldId route=${active.owner.ownerId} train=${active.trainId}"
-                }
+        val appliedDependencies = snapshot.flatMap { (worldId, runtime) ->
+            runtime.registry.appliedPlanDependenciesUsingResourceTypes(setOf(typeId)).map { worldId to it }
+        }
+        check(activity.isEmpty() && appliedDependencies.isEmpty()) {
+            val routeDetails = activity.joinToString { (worldId, active) ->
+                "world=$worldId route=${active.owner.ownerId} train=${active.trainId}"
+            }
+            val planDetails = appliedDependencies.joinToString { (worldId, dependency) ->
+                "world=$worldId plan=${dependency.owner.ownerId}@${dependency.owner.revision}"
+            }
+            "Cannot unregister infrastructure resource provider $typeId while it remains referenced: " +
+                listOf(routeDetails, planDetails).filter(String::isNotEmpty).joinToString()
         }
         synchronized(lock) {
             resourceProviders[typeId]?.takeIf {
@@ -240,7 +258,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     ): RouteResourceAdmissionService {
         val requester = requireEnabled(pluginOwner)
         val worldRuntime = synchronized(lock) {
-            check(!closed) { "InfrastructureLeaseService is closed" }
+            check(!closed) { "InfrastructureResourceService is closed" }
             val runtime = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
             }
@@ -289,7 +307,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         return provider.exists(worldId, resource.resourceId)
     }
 
-    /** Pre-claim route-use validation against the same provider registration used by leases. */
+    /** Pre-claim route-use validation against the same provider registration used by dependencies. */
     fun validateRouteContribution(
         contributor: Plugin,
         worldId: UUID,
@@ -400,7 +418,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         observation: RailwayObservation
     ) = BukkitThreadGuardBridge.runInSimulationContext {
         val admission = synchronized(lock) {
-            check(!closed) { "InfrastructureLeaseService is closed" }
+            check(!closed) { "InfrastructureResourceService is closed" }
             checkNotNull(worlds[worldId]?.routeAdmission) {
                 "Route admission runtime is not attached for world $worldId"
             }
@@ -408,23 +426,20 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         admission.consumeObservation(observation)
     }
 
-    override fun acquireLease(pluginOwner: Plugin, worldId: UUID, request: InfrastructureLeaseRequest) =
-        BukkitThreadGuardBridge.runInSimulationContext {
-            registry(worldId)?.acquireLease(requireEnabled(pluginOwner), request) ?: unavailable(worldId)
-        }
-
-    override fun replaceLease(
+    override fun setAppliedPlanDependencies(
         pluginOwner: Plugin,
         worldId: UUID,
-        expectedOwner: InfrastructureOwner,
-        replacement: InfrastructureLeaseRequest
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
-        registry(worldId)?.replaceLease(requireEnabled(pluginOwner), expectedOwner, replacement) ?: unavailable(worldId)
-    }
-
-    override fun releaseLease(pluginOwner: Plugin, worldId: UUID, owner: InfrastructureOwner) =
+        request: AppliedPlanDependencyRequest
+    ) =
         BukkitThreadGuardBridge.runInSimulationContext {
-            registry(worldId)?.releaseLease(pluginOwner, owner) ?: unavailable(worldId)
+            registry(worldId)?.setAppliedPlanDependencies(requireEnabled(pluginOwner), request)
+                ?: unavailableDependencies(worldId)
+        }
+
+    override fun removeAppliedPlanDependencies(pluginOwner: Plugin, worldId: UUID, owner: InfrastructureOwner) =
+        BukkitThreadGuardBridge.runInSimulationContext {
+            registry(worldId)?.removeAppliedPlanDependencies(pluginOwner, owner)
+                ?: unavailableDependencies(worldId)
         }
 
     /** Internal seam for the future ProtectedRouteWindow service; deliberately absent from public API. */
@@ -441,14 +456,14 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     override fun acquireEditPermit(
         pluginOwner: Plugin,
         worldId: UUID,
-        request: InfrastructureEditRequest
+        request: TopologyEditRequest
     ): InfrastructureEditPermitResult = BukkitThreadGuardBridge.runInSimulationContext {
         val registry = registry(worldId)
-            ?: return@runInSimulationContext InfrastructureEditPermitResult.denied(unavailable(worldId))
+            ?: return@runInSimulationContext InfrastructureEditPermitResult.denied(unavailableEdit(worldId))
         val owner = requireEnabled(pluginOwner)
         val acquired = registry.acquireEditPermit(owner, request)
-        if (!acquired.result.successful) {
-            return@runInSimulationContext InfrastructureEditPermitResult.denied(acquired.result)
+        if (!acquired.decision.successful) {
+            return@runInSimulationContext InfrastructureEditPermitResult.denied(acquired.decision)
         }
         val permit = object : InfrastructureEditPermit {
             private val permitClosed = AtomicBoolean()
@@ -459,11 +474,11 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 }
             }
         }
-        InfrastructureEditPermitResult.granted(acquired.result, permit)
+        InfrastructureEditPermitResult.granted(acquired.decision, permit)
     }
 
-    override fun leases(worldId: UUID): List<InfrastructureLeaseSnapshot> =
-        registry(worldId)?.leaseSnapshots().orEmpty()
+    override fun appliedPlanDependencies(worldId: UUID): List<AppliedPlanDependencySnapshot> =
+        registry(worldId)?.appliedPlanDependencySnapshots().orEmpty()
 
     override fun liveClaims(worldId: UUID): List<InfrastructureClaimSnapshot> =
         registry(worldId)?.claimSnapshots().orEmpty()
@@ -471,7 +486,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
     override fun unregisterOwner(pluginOwner: Plugin) {
         BukkitThreadGuardBridge.runInSimulationContext {
             val (snapshot, providedTypeIds, ownsContributor) = synchronized(lock) {
-                check(!closed) { "InfrastructureLeaseService is closed" }
+                check(!closed) { "InfrastructureResourceService is closed" }
                 Triple(
                     worlds.entries.map { it.key to it.value },
                     resourceProviders.filterValues { it.pluginOwner === pluginOwner }.keys.toSet(),
@@ -484,13 +499,28 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
             val providerActivity = snapshot.flatMap { (worldId, runtime) ->
                 runtime.routeAdmission?.providerActivity(providedTypeIds).orEmpty().map { worldId to it }
             }
-            check(requesterActivity.isEmpty() && providerActivity.isEmpty()) {
+            val appliedDependencies = snapshot.flatMap { (worldId, runtime) ->
+                runtime.registry.appliedPlanDependenciesOwnedBy(pluginOwner).map { worldId to it }
+            }
+            val dependencyProviderActivity = snapshot.flatMap { (worldId, runtime) ->
+                runtime.registry.appliedPlanDependenciesUsingResourceTypes(providedTypeIds).map { worldId to it }
+            }
+            check(requesterActivity.isEmpty() && providerActivity.isEmpty() && dependencyProviderActivity.isEmpty()) {
                 "Cannot unregister infrastructure owner ${pluginOwner.name} while route resources remain active: " +
                     (requesterActivity + providerActivity).distinct().joinToString { (worldId, active) ->
                         "world=$worldId route=${active.owner.ownerId} train=${active.trainId} " +
                             "pending=${active.pendingRequest} heldResources=${active.heldResourceCount}" +
                             active.resourceTypeIds.takeIf(Set<String>::isNotEmpty)
                                 ?.joinToString(prefix = " types=", separator = ",").orEmpty()
+                    } + dependencyProviderActivity.joinToString(prefix = " appliedPlans=", separator = ",") {
+                        (worldId, dependency) ->
+                        "$worldId/${dependency.owner.ownerId}@${dependency.owner.revision}"
+                    }
+            }
+            check(appliedDependencies.isEmpty()) {
+                "Cannot unregister infrastructure owner ${pluginOwner.name} while applied plans remain active: " +
+                    appliedDependencies.joinToString { (worldId, dependency) ->
+                        "world=$worldId plan=${dependency.owner.ownerId} revision=${dependency.owner.revision}"
                     }
             }
             check(!ownsContributor || snapshot.none { (_, runtime) ->
@@ -528,6 +558,18 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
                 Triple(worlds.entries.map { it.key to it.value }, ownedTypes, ownsContributor)
             }
             snapshot.forEach { (worldId, runtime) ->
+                val appliedDependencies = (
+                    runtime.registry.appliedPlanDependenciesOwnedBy(pluginOwner) +
+                        runtime.registry.appliedPlanDependenciesUsingResourceTypes(providedTypeIds)
+                    ).distinctBy { it.owner }
+                if (appliedDependencies.isNotEmpty()) {
+                    val reason = "Bukkit plugin ${pluginOwner.name} in world $worldId was disabled with active " +
+                        "applied plans: " + appliedDependencies.joinToString { dependency ->
+                            "${dependency.owner.ownerId}@${dependency.owner.revision}"
+                        }
+                    runtime.routeAdmission?.failClosedInfrastructureDependencyLoss(reason)
+                        ?: runtime.stallWorld?.invoke(reason, IllegalStateException(reason))
+                }
                 runtime.routeAdmission?.failClosedRequesterLoss(
                     pluginOwner,
                     "Bukkit plugin ${pluginOwner.name} in world $worldId"
@@ -562,7 +604,7 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
         }
     }
 
-    private fun registry(worldId: UUID): InfrastructureLeaseRegistry? = synchronized(lock) {
+    private fun registry(worldId: UUID): InfrastructureCoordinationRegistry? = synchronized(lock) {
         if (closed) null else worlds[worldId]?.registry
     }
 
@@ -573,6 +615,16 @@ internal class DefaultInfrastructureLeaseService : InfrastructureLeaseService, A
 
     private fun unavailable(worldId: UUID) = InfrastructureMutationResult(
         InfrastructureMutationStatus.WORLD_UNAVAILABLE,
+        detail = "railway world is not registered: $worldId"
+    )
+
+    private fun unavailableDependencies(worldId: UUID) = AppliedPlanDependencyMutationResult(
+        AppliedPlanDependencyMutationStatus.WORLD_UNAVAILABLE,
+        "railway world is not registered: $worldId"
+    )
+
+    private fun unavailableEdit(worldId: UUID) = TopologyEditDecision(
+        TopologyEditStatus.WORLD_UNAVAILABLE,
         detail = "railway world is not registered: $worldId"
     )
 

@@ -47,7 +47,7 @@ class ProtectedRouteClaimServiceTest {
         resource("turnout/a"),
         resource("turnout/b")
     )
-    private val registry = InfrastructureLeaseRegistry(
+    private val registry = InfrastructureCoordinationRegistry(
         currentTopologyRevision = { topologyRevision },
         resourceExists = { resource ->
             resource in validResources || resource is RailIntervalResource && resource.railId == railId

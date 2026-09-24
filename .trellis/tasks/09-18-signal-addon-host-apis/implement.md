@@ -114,7 +114,10 @@
 ## Implementation
 
 - [x] Add immutable epoch/revision observation DTOs and coherent publication access.
-- [x] Add atomic shared infrastructure leases plus one edit-permit/diagnostic service covering applied-plan leases and live route claims.
+- [x] Replace the rejected applied-plan lease model with explicit non-exclusive dependency declarations: persistent rail IDs,
+  stable endpoint-based topology-node keys and runtime resource IDs remain separate from live claim footprints. Edit permits use
+  the same three categories and return field-wise intersections; claims retain their existing operational arbitration. Remove the
+  old lease API without compatibility wrappers and rename the host service/registry accordingly.
 - [x] Add direction-aware boundary, bounded-region, frozen route-window and exit-clearance public contracts.
 - [ ] Replace the transitional single-window seam with a generic route intent: Basic derives the mandatory physical footprint and unions validated additive plugin resources; provide no raw planned-section or replacement-footprint automatic overload.
   - [x] Freeze the public route-intent contract before implementation: reuse one topology-bound `RouteSnapshot`, stable
@@ -141,12 +144,12 @@
     It is not the public service: extension, production
     route-bound catalog publication, authenticated Bukkit provider binding and caller migration remain.
   - [x] Bind that engine to the production world lifecycle without changing Dispatcher behavior: one Bukkit
-    world record now owns the existing lease registry plus one Basic route-admission runtime, authenticates
+    world record now owns the existing coordination registry plus one Basic route-admission runtime, authenticates
     additions through the existing provider registry, uses the live turnout actuator, and consumes the exact
     observation returned after each successful physics ticket before Dispatcher. Physics starts only after
     composition; unload and failed startup close the runtime and registry together. The route-bound catalog is
     complete-empty until diamond bindings exist, and public request/caller/grant-constraint wiring remains.
-  - [x] Expose that world runtime through the existing Bukkit `InfrastructureLeaseService` as one
+  - [x] Expose that world runtime through the existing Bukkit `InfrastructureResourceService` as one
     plugin/world-bound `RouteResourceAdmissionService`. Request, pending/terminal progress and explicit
     grant end all retain the authenticated plugin identity; plugin disable and exact world-runtime
     replacement invalidate the binding without releasing host-owned train claims. Replace the external
@@ -202,7 +205,7 @@
     the generic target remains solely in `route-resource-admission.md`.
   - [x] Audit the superseded recursive provider-closure target and retain only the bounded non-recursive implementation. The old
     closure existed as design prose, not as a separate runtime implementation to delete: `PhysicalRouteResourceCompiler` has no
-    plugin callback; `DefaultInfrastructureLeaseService.collectRouteContributions` snapshots the registered contributors and invokes
+    plugin callback; `DefaultInfrastructureResourceService.collectRouteContributions` snapshots the registered contributors and invokes
     each once; `RouteResourceAdmissionEngine.request` validates and merges that one returned list after physical compilation.
     `InfrastructureResourceProvider` can only approve/reject an exact returned resource, `RouteResourceIntent` carries no contribution,
     and SimpleATO imports no contributed-resource type. No closure compatibility API remains. The transitional protection-region
@@ -245,16 +248,13 @@
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
 - [ ] Add topology edit guards for active external claims.
-  - [x] Add the conservative edit-footprint foundation: Core prepared
-    rail batches expose the immutable union of spatial broad-phase existing candidates and excluded
-    replacement sources; Basic expands those rails into full intervals plus incident turnout/diamond
-    stable resources. Empty edits produce no footprint.
-  - [x] Route every RailWand structural commit through one Bukkit edit guard: turnout/create/connect,
-    endpoint and geometry rebuild, grade smoothing, split, merge, delete, and world-snapshot undo
-    hold one permit across topology plus metadata/persistence side effects. Prepared batches reuse their
-    conservative candidates; delete expands connection neighbors; snapshot restore guards all current rails.
-    Legacy Dispatcher checks remain until its caller migration, and non-RailWand administrative/signal editors
-    remain under the next checklist item.
+  - [x] Define the edit-coordination contract without treating track or topology nodes as runtime resources:
+    `TopologyEditImpact` declares exact rail IDs, stable topology-node keys and runtime resource IDs; the registry checks each
+    category against applied-plan dependencies, live claims and held permits under one lock.
+  - [ ] Add an exact plan/apply phase to RailWand/auto-connect so every editor knows its real impact before mutation, then hold
+    one common permit across topology plus metadata/persistence side effects. The rejected spatial broad-phase candidate union,
+    full-rail footprint compiler, incident-resource graph scan and guessed RailWand guard were removed rather than retained as a
+    compatibility path.
 - [ ] Replace dispatcher-specific RailWand/auto-connect guards with the common edit guard and cover protection-region, signal, topology migration, and administrative mutation paths.
 - [ ] Document a minimal external consumer and supported failure/lifecycle behavior.
 
@@ -265,7 +265,7 @@
 - [ ] Migration tests prove protection-region/fixed-block ownership leaves Basic without changing generic topology projection, claims, preparation or release behavior.
 - [ ] Tests prove omitted/replaced turnout or diamond resources are restored from Basic derivation, while plugin configuration failures remain restrictive without a Basic `PROTECTION_REQUIRED` policy.
 - [ ] Inspection tests prove the reviewed declaration/invalidation behavior, host-owned dynamic braking distance, no duplicate forward scan and no unchanged per-tick plugin callback.
-- [ ] Tests for overlapping shared timetable leases, atomic lease acquisition/release, edit denial diagnostics, and no partial mutation across every supported infrastructure editor. Test in-process disable/world reload separately from restart recovery; do not require reconstruction of in-flight claims without an approved persistence contract.
+- [ ] Tests for overlapping applied-plan dependencies, atomic apply/replace/remove, field-wise edit denial diagnostics, and no partial mutation across every supported infrastructure editor. Test in-process disable/world reload separately from restart recovery; do not require reconstruction of in-flight claims without an approved persistence contract.
 - [ ] Bukkit tests for service registration/lookup, plugin disable, world unload, and target-aware dispatch.
 - [ ] Compile-only external consumer test imports public packages only.
 - [ ] Run `./gradlew :Core:test :Basic:test :BukkitPlugin:test`.

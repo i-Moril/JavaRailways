@@ -8,14 +8,18 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureEditRequest
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureLeaseRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
@@ -52,10 +56,10 @@ import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.lang.reflect.Proxy
 import java.util.UUID
 
-class DefaultInfrastructureLeaseServiceTest {
+class DefaultInfrastructureResourceServiceTest {
     @Test
     fun `Basic-owned diamond is claimable without an external resource provider`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val firstRail = UUID(0L, 1L)
         val secondRail = UUID(0L, 2L)
@@ -104,7 +108,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `normal unregister rejects active route resources and accepts an empty route state`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
         val requester = plugin("signal")
@@ -173,7 +177,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `forced plugin disable retains active route claim and stalls its world`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
         var pluginEnabled = true
@@ -219,7 +223,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `forced contributor disable stalls even when it contributed no resource`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
         val requester = plugin("ato")
@@ -261,7 +265,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `resource provider cannot unregister while another plugin holds its route resource`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
         var providerEnabled = true
@@ -346,7 +350,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `provider preparation keeps route pending until its ticket is ready`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
         val providerOwner = plugin("device-provider")
@@ -434,7 +438,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `world route admission is attached once consumes the published observation and closes with world`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val topology = buildTestTopology(7L, emptyList(), emptyMap())
         val world = TestWorld(topology)
@@ -460,7 +464,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `route contributions require resource owner authorization beyond lease existence`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val owner = plugin("resource-owner")
         val allowed = plugin("allowed-signal")
@@ -523,7 +527,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `explicit route denial and unregister prevent authorization`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val owner = plugin("resource-owner")
         val requester = plugin("signal")
@@ -544,7 +548,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `provider failure or removal during validation cannot authorize an contribution`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val owner = plugin("resource-owner")
         val requester = plugin("signal")
@@ -585,8 +589,8 @@ class DefaultInfrastructureLeaseServiceTest {
     }
 
     @Test
-    fun `authoritative provider accepts existing add-on resource and rejects missing or unknown refs`() {
-        val service = DefaultInfrastructureLeaseService()
+    fun `applied dependencies validate runtime resource identities without claiming them`() {
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
         var providerRanInSimulationContext = false
@@ -597,30 +601,47 @@ class DefaultInfrastructureLeaseServiceTest {
         registerWorld(service, worldId)
 
         assertEquals(
-            InfrastructureMutationStatus.ACQUIRED,
-            service.acquireLease(plugin, worldId, lease("example.signal:plan/main", "example.signal:signal", "home")).status
+            AppliedPlanDependencyMutationStatus.APPLIED,
+            service.setAppliedPlanDependencies(
+                plugin, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
+            ).status
         )
         assertTrue(providerRanInSimulationContext)
         assertEquals(
-            InfrastructureMutationStatus.INVALID_RESOURCE,
-            service.acquireLease(plugin, worldId, lease("example.signal:plan/missing", "example.signal:signal", "missing")).status
+            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
+            service.setAppliedPlanDependencies(
+                plugin, worldId, dependencies("example.signal:plan/missing", "example.signal:signal", "missing")
+            ).status
         )
         assertEquals(
-            InfrastructureMutationStatus.INVALID_RESOURCE,
-            service.acquireLease(plugin, worldId, lease("example.signal:plan/unknown", "other.plugin:signal", "home")).status
+            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
+            service.setAppliedPlanDependencies(
+                plugin, worldId, dependencies("example.signal:plan/unknown", "other.plugin:signal", "home")
+            ).status
         )
 
+        assertThrows(IllegalStateException::class.java) { provider.close() }
+        assertEquals(
+            AppliedPlanDependencyMutationStatus.REMOVED,
+            service.removeAppliedPlanDependencies(
+                plugin,
+                worldId,
+                InfrastructureOwner("example.signal:plan/main", 1L)
+            ).status
+        )
         provider.close()
         provider.close()
         assertEquals(
-            InfrastructureMutationStatus.INVALID_RESOURCE,
-            service.acquireLease(plugin, worldId, lease("example.signal:plan/after-close", "example.signal:signal", "home")).status
+            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
+            service.setAppliedPlanDependencies(
+                plugin, worldId, dependencies("example.signal:plan/after-close", "example.signal:signal", "home")
+            ).status
         )
     }
 
     @Test
-    fun `plugin cleanup removes providers leases and held edit permits by identity`() {
-        val service = DefaultInfrastructureLeaseService()
+    fun `plugin cleanup requires explicit unapply and removes disposable ownership by identity`() {
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val first = plugin("same-name")
         val second = plugin("same-name")
@@ -628,46 +649,118 @@ class DefaultInfrastructureLeaseServiceTest {
             first, "example.signal:signal", rejectingRouteProvider { _, id -> id == "home" }, emptyList()
         )
         registerWorld(service, worldId)
-        service.acquireLease(first, worldId, lease("example.signal:plan/main", "example.signal:signal", "home"))
+        service.setAppliedPlanDependencies(
+            first, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
+        )
         val edit = service.acquireEditPermit(
             first,
             worldId,
-            InfrastructureEditRequest(
+            TopologyEditRequest(
                 7L,
                 InfrastructureOwner("example.signal:editor/main", 1L),
-                footprint("example.signal:other", "edit-target")
+                editImpact("example.signal:other", "edit-target")
             )
         )
         // Register a second provider so the edit target has an authoritative identity.
-        assertFalse(edit.result().successful)
+        assertFalse(edit.decision().successful)
         service.registerResourceProvider(
             first, "example.signal:other", rejectingRouteProvider { _, id -> id == "edit-target" }, emptyList()
         )
         val heldEdit = service.acquireEditPermit(
             first,
             worldId,
-            InfrastructureEditRequest(
+            TopologyEditRequest(
                 7L,
                 InfrastructureOwner("example.signal:editor/main", 1L),
-                footprint("example.signal:other", "edit-target")
+                editImpact("example.signal:other", "edit-target")
             )
         )
-        assertTrue(heldEdit.result().successful)
+        assertTrue(heldEdit.decision().successful)
 
         service.unregisterOwner(second)
-        assertEquals(1, service.leases(worldId).size)
-        service.unregisterOwner(first)
-        assertTrue(service.leases(worldId).isEmpty())
+        assertEquals(1, service.appliedPlanDependencies(worldId).size)
+        assertThrows(IllegalStateException::class.java) { service.unregisterOwner(first) }
+        assertEquals(1, service.appliedPlanDependencies(worldId).size)
         assertEquals(
-            InfrastructureMutationStatus.INVALID_RESOURCE,
-            service.acquireLease(second, worldId, lease("example.signal:plan/new", "example.signal:signal", "home")).status
+            AppliedPlanDependencyMutationStatus.REMOVED,
+            service.removeAppliedPlanDependencies(
+                first,
+                worldId,
+                InfrastructureOwner("example.signal:plan/main", 1L)
+            ).status
+        )
+        service.unregisterOwner(first)
+        assertTrue(service.appliedPlanDependencies(worldId).isEmpty())
+        assertEquals(
+            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
+            service.setAppliedPlanDependencies(
+                second, worldId, dependencies("example.signal:plan/new", "example.signal:signal", "home")
+            ).status
         )
         heldEdit.permit().orElseThrow().close()
     }
 
     @Test
+    fun `forced plugin disable retains applied dependencies and stalls its world`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        var pluginEnabled = true
+        val plugin = plugin("signal") { pluginEnabled }
+        val requester = plugin("ato")
+        val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
+        val stalls = mutableListOf<String>()
+        service.registerResourceProvider(
+            plugin,
+            "example.signal:signal",
+            rejectingRouteProvider { _, id -> id == "home" },
+            emptyList()
+        )
+        service.registerWorld(worldId, { topology.revision }) { resource ->
+            resource is RailIntervalResource && resource.railId == railId ||
+                resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
+        }
+        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, _ -> stalls += reason }
+        assertEquals(
+            AppliedPlanDependencyMutationStatus.APPLIED,
+            service.setAppliedPlanDependencies(
+                plugin,
+                worldId,
+                dependencies("example.signal:plan/main", "example.signal:signal", "home")
+            ).status
+        )
+
+        pluginEnabled = false
+        service.forcedDisableOwner(plugin)
+
+        assertEquals(1, service.appliedPlanDependencies(worldId).size)
+        assertEquals(1, stalls.size)
+        assertTrue(stalls.single().contains("example.signal:plan/main@1"))
+        val rejected = assertInstanceOf(
+            RouteAdmissionResult.Rejected::class.java,
+            service.routeAdmission(requester, worldId).request(
+                RouteResourceIntent(
+                    "test.ato:request/main",
+                    InfrastructureOwner("test.ato:route/main", 1L),
+                    "train",
+                    observation.stamp,
+                    RouteSnapshot(
+                        "test.ato:route/main",
+                        1L,
+                        topology.revision,
+                        listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))
+                    ),
+                    RouteBoundary(20.0)
+                )
+            )
+        )
+        assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, rejected.failure.code)
+    }
+
+    @Test
     fun `world removal and close invalidate service state and permits are idempotent`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
         service.registerResourceProvider(
@@ -677,10 +770,10 @@ class DefaultInfrastructureLeaseServiceTest {
         val decision = service.acquireEditPermit(
             plugin,
             worldId,
-            InfrastructureEditRequest(
+            TopologyEditRequest(
                 7L,
                 InfrastructureOwner("example.signal:editor/main", 1L),
-                footprint("example.signal:signal", "home")
+                editImpact("example.signal:signal", "home")
             )
         )
         val permit = decision.permit().orElseThrow()
@@ -689,8 +782,10 @@ class DefaultInfrastructureLeaseServiceTest {
         permit.close()
         permit.close()
         assertEquals(
-            InfrastructureMutationStatus.WORLD_UNAVAILABLE,
-            service.acquireLease(plugin, worldId, lease("example.signal:plan/main", "example.signal:signal", "home")).status
+            AppliedPlanDependencyMutationStatus.WORLD_UNAVAILABLE,
+            service.setAppliedPlanDependencies(
+                plugin, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
+            ).status
         )
 
         service.close()
@@ -704,7 +799,7 @@ class DefaultInfrastructureLeaseServiceTest {
 
     @Test
     fun `topology revision is read from world at mutation time`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
         var currentRevision = 7L
@@ -717,15 +812,17 @@ class DefaultInfrastructureLeaseServiceTest {
 
         currentRevision = 8L
         assertEquals(
-            InfrastructureMutationStatus.STALE_TOPOLOGY,
-            service.acquireLease(plugin, worldId, lease("example.signal:plan/main", "example.signal:signal", "home")).status
+            AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
+            service.setAppliedPlanDependencies(
+                plugin, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
+            ).status
         )
-        assertTrue(service.leases(worldId).isEmpty())
+        assertTrue(service.appliedPlanDependencies(worldId).isEmpty())
     }
 
     @Test
     fun `resource provider failure is typed and cannot partially acquire`() {
-        val service = DefaultInfrastructureLeaseService()
+        val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
         service.registerResourceProvider(
@@ -734,18 +831,18 @@ class DefaultInfrastructureLeaseServiceTest {
         )
         registerWorld(service, worldId)
 
-        val result = service.acquireLease(
+        val result = service.setAppliedPlanDependencies(
             plugin,
             worldId,
-            lease("example.signal:plan/main", "example.signal:signal", "home")
+            dependencies("example.signal:plan/main", "example.signal:signal", "home")
         )
 
-        assertEquals(InfrastructureMutationStatus.RESOURCE_PROVIDER_FAILED, result.status)
+        assertEquals(AppliedPlanDependencyMutationStatus.INVALID_REFERENCE, result.status)
         assertTrue(result.detail.contains("provider offline"))
-        assertTrue(service.leases(worldId).isEmpty())
+        assertTrue(service.appliedPlanDependencies(worldId).isEmpty())
     }
 
-    private fun registerWorld(service: DefaultInfrastructureLeaseService, worldId: UUID) {
+    private fun registerWorld(service: DefaultInfrastructureResourceService, worldId: UUID) {
         service.registerWorld(worldId, { 7L }) { resource: InfrastructureResource ->
             resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
@@ -774,11 +871,14 @@ class DefaultInfrastructureLeaseServiceTest {
         }
     }
 
-    private fun lease(ownerId: String, typeId: String, resourceId: String) = InfrastructureLeaseRequest(
+    private fun dependencies(ownerId: String, typeId: String, resourceId: String) = AppliedPlanDependencyRequest(
         7L,
         InfrastructureOwner(ownerId, 1L),
-        footprint(typeId, resourceId)
+        AppliedPlanDependencies(emptySet(), emptySet(), setOf(StableInfrastructureResource(typeId, resourceId)))
     )
+
+    private fun editImpact(typeId: String, resourceId: String) =
+        TopologyEditImpact(emptySet(), emptySet(), setOf(StableInfrastructureResource(typeId, resourceId)))
 
     private fun footprint(typeId: String, resourceId: String) =
         InfrastructureFootprint(listOf(StableInfrastructureResource(typeId, resourceId)))

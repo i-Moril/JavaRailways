@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前只拥有手动导航命令的严格解析、临时时刻表生成和时刻表 JSON 展示；ATO controller、运行方向、Destination、Station、Depot、Line、Timetable model/persistence、Dispatcher 与运营寻路仍位于 `Basic/`。因此本层状态是 `TRANSITIONAL`，不能据此声称运行时已经完成解耦。新增或迁移 ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
+本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前拥有手动导航命令的严格解析、临时时刻表生成、时刻表 JSON 展示，以及第一批外部列车限制公开契约与约束适配器；ATO controller、运行方向、Destination、Station、Depot、Line、Timetable model/persistence、Dispatcher 与运营寻路仍位于 `Basic/`。因此本层状态是 `TRANSITIONAL`，不能据此声称运行时已经完成解耦。新增或迁移 ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
 
 SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调度和最严格限制归约。物理铁路图和列车动力学由 Core 拥有；资源身份校验、冻结路线的不可删除物理资源底线、物理占用、原子 claim、设备准备与尾部释放由 Basic 拥有。每一个独立信号系统由自己的Java/Kotlin插件拥有固定闭塞、保护区域、联锁规则、信号显示及可选JS/YAML配置。`SimpleATOBukkit`只作为SimpleATO的平台适配器和可复用运行时，不成为所有信号制式的领域owner。
 
@@ -38,4 +38,4 @@ python3 ./.trellis/scripts/get_context.py --mode packages
 git diff --check
 ```
 
-`SimpleATO` 当前没有冻结的 public API package，因此暂不加入根 Dokka/Javadoc publication。建立稳定 API 后再按明确 package 边界公开，不能把迁移期内部 package 意外变成兼容承诺。
+`SimpleATO` 当前只将 `work.art1st.javarailways.simpleato.api.*` 加入根 Dokka/Javadoc publication。迁移期内部 timetable、routing 和 restriction adapter package 必须保持 suppression，不能因文档聚合而意外形成兼容承诺。

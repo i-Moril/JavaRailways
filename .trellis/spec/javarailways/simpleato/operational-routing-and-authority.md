@@ -89,6 +89,24 @@ replace绕过该边界。同一grant已有pending extension时，SimpleATO轮询
 
 每个 controlled train 在一个成功 physics epoch 中最多执行一次前方路线 perception。区间、车辆和信号插件从这次扫描及 world-level 索引读取数据；任何策略都不得为了自己的信号显示或资源判断再做一次完整路线遍历。Basic 的 grant/denial 作为候选输入，不在 SimpleATO 中复制资源冲突计算。
 
+当前第一批公开限制契约位于`simpleato.api.restriction`。一个外部信号来源为一列车发布完整不可变
+`TrainRestrictionSnapshot`，其中`sourceId`和每项`restrictionId`都必须为namespaced稳定身份；revision只在
+`(sourceId, trainId)`流内严格递增。snapshot绑定生成它的`RailwayStateStamp`以及冻结路线的route ID、route revision、
+topology revision和总长度。远端目标统一用冻结路线起点起算的绝对米数表达，适配时才减去当前route progress，转换成
+现有`CurrentSpeedLimitConstraint`、`RouteSpeedLimitConstraint`、`StopConstraint`或
+`MovementAuthorityConstraint`。信号插件不接触控制器，也不创建第二套constraint归约器。
+
+同一来源的新revision完整替换旧snapshot；更高revision的空列表是唯一的正常撤销语义，迟到或重复revision不能覆盖
+已接受结果。world不匹配、topology过期、冻结路线身份/版本/长度改变、来源被明确标记不可用或当前progress越过路线范围时，
+adapter以该来源的constraint key安装零速`DepartureHoldConstraint`而不是静默删除限制。每列车的adapter把全部来源转换后
+通过一个`SIGNALLING` owner一次性replace，避免逐来源更新期间短暂扩大许可。physics epoch晚于生成观察是正常消费，早于生成
+观察才是时间倒置。当前adapter是SimpleATO内部桥接层，尚未接入production controller、Bukkit服务或响应式inspection调度；
+这些连接必须在后续批次完成，不能把本契约的存在描述成信号插件已经可运行。
+
+每次应用令`S`为该列车已发布的信号来源数、`R`为其限制总数，时间和临时空间均为`O(S + R)`。来源使用有序map在发布时
+以`O(log S)`维护稳定顺序，physics tick不再排序；route binding是常量大小值对象，应用时不扫描或比较路线segment。snapshot
+构造时对限制集合做一次防御性复制，之后physics只读该副本。
+
 ### 3.4 资源检查距离与响应式更新
 
 每个可被ATO提前申请的资源通过信号插件提供`InspectionDistance(train)`语义和`update(train)`检查语义。检查距离不是每tick运行任意脚本的理由：依赖路线、资源定义、信号配置或低频列车能力（例如长度、制动等级、车型）的部分按对应revision缓存；当前速度产生的实时制动距离由SimpleATO自己的控制数学每tick计算。有效检查距离取缓存的资源声明与动态制动距离加安全余量中的较大值。
@@ -140,6 +158,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - 当前内部选路器每次查询从已发布`TopologyState`构造revision-local node→incident-edge只读索引，随后执行Dijkstra。令`P`为可到达入口port状态数、`C`为这些port之间实际展开的合法continuation数、`R_q`为所有候选edge方向过滤实际检查的physical rail slice次数、`S_out`为结果rail slice数，则时间复杂度为`O((P + C) log P + R_q + S_out)`，空间复杂度为`O(P + E)`；不能把高阶turnout的port-pair展开错误地只计成一个edge。它不从live rails重建图、不读取当前道岔选位，也不修改topology；后续批量选路可以按topology root缓存incident-edge索引，但缓存不得跨revision复用。
 - 当前单次`FrozenRouteSelector.select`按`trainId`线性查找一次不可变observation列车列表，成本为`O(T)`；选路是mission/target/revision事件驱动，不得逐tick、逐信号或每次authority extension调用。未来Dispatcher在同一observation批量为多列车选路时，应在该次调度上下文只建立一次`trainId -> RailwayTrainObservation`索引并复用，使批量查找为`O(T + Q)`；不得让每个selector各自复制索引或引入跨observation缓存生命周期。
 - 一旦路线冻结，前方 perception 对实际扫描长度为线性；一个 controlled train、一个 physics epoch 只做一次，constraint 归约对候选数线性。
+- 外部restriction adapter每次应用只线性转换当前列车的来源与限制`O(S + R)`；不得重新扫描冻结路线、排序来源或调用插件代码。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
 - unchanged stable denial 使用缓存的 typed result 与 revision key；相关 revision 不变时不重复昂贵解析。
 - 索引缺失、provider 异常或 revision 在计算中改变时 fail closed；不得退化到另一套 live graph/资源扫描并继续授权。
@@ -166,6 +185,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - signal-plugin integration：固定闭塞、保护区域和移动闭塞插件结果都只能收紧限制；附加资源只增加Basic最终union，不能删除物理底线。
 - inspection scheduling：静态/低频检查距离按revision缓存，动态制动距离每tick由host计算；无依赖变化时插件`update(train)`保持IDLE。
 - control pipeline：车辆、停车、信号和 grant candidates 只做一次 perception，并归约到最严格 speed/authority。
+- external restrictions：严格递增revision、不同来源取最严格结果、绝对route metre到剩余距离转换、空新revision撤销、输入集合防御性复制，以及world/topology/route/source failure的零速fail-close。
 - retry：稳定配置错误 revision 不变时不逐 tick 重算；占用释放事件允许重新准入。
 - migration parity：迁移前后同一 fixture 的 route、stop/speed constraint、dispatcher priority 与 manual-mode 行为一致。
 

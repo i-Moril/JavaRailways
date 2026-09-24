@@ -2,6 +2,8 @@ plugins {
     id("java")
     kotlin("jvm")
     kotlin("plugin.serialization") version "2.3.0"
+    id("org.jetbrains.dokka")
+    id("org.jetbrains.dokka-javadoc")
 }
 
 group = "work.art1st"
@@ -41,4 +43,34 @@ kotlin {
 
 tasks.withType<JavaCompile>().configureEach {
     options.release.set(17)
+}
+
+tasks.register<Jar>("dokkaJavadocJar") {
+    description = "Packages the SimpleATO API Dokka Javadoc output."
+    dependsOn("dokkaGeneratePublicationJavadoc")
+    from(layout.buildDirectory.dir("dokka/javadoc"))
+    archiveClassifier.set("javadoc")
+}
+
+dokka {
+    dokkaPublications.html {
+        moduleName.set("JavaRailways SimpleATO API")
+        includes.from("src/main/dokka/Module.md", "src/main/dokka/SimpleATOPackages.md")
+        failOnWarning.set(false)
+    }
+    dokkaSourceSets.main {
+        reportUndocumented.set(true)
+        skipEmptyPackages.set(true)
+        perPackageOption {
+            matchingRegex.set("""work\.art1st\.javarailways\.simpleato(?!\.api(?:\.|$)).*""")
+            suppress.set(true)
+        }
+        providers.environmentVariable("DOKKA_SOURCE_URL").orNull?.let { sourceRoot ->
+            sourceLink {
+                localDirectory.set(file("src/main/kotlin"))
+                remoteUrl.set(uri("${sourceRoot.trimEnd('/')}/${project.name}/src/main/kotlin"))
+                remoteLineSuffix.set("#L")
+            }
+        }
+    }
 }

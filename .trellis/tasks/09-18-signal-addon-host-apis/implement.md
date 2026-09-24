@@ -225,7 +225,12 @@
     the existing registry claim, makes repeated epochs/completion idempotent and translates all
     observation/projection/release invariant failures into one latched Stall callback.
 - [x] Add route-bound diamond conflict resources plus placement/update spatial-candidate, exact-geometry detection, and rail/edge interval reverse indexing; do not create topology nodes or cross-line continuations.
-- [ ] Add namespaced revisioned train restriction contracts and enforcement adapter.
+- [x] Add namespaced revisioned train restriction contracts and enforcement adapter. The first public
+  `SimpleATO` API accepts complete immutable per-source/per-train snapshots with strict revisions,
+  coherent observation and compact frozen-route binding, route-relative targets and explicit empty
+  withdrawal. Its internal adapter maps them into the existing Basic constraint manager in `O(S + R)`
+  and fails closed on source/world/topology/route invalidation. Production controller/Bukkit service
+  binding remains in the later service and dispatcher items; this batch does not claim runtime wiring.
 - [ ] Before the reactive batch, review dependency ownership, cache keys, activation timing and fail-closed invalidation with the user; then implement resource inspection without duplicate forward scans or unchanged per-tick plugin callbacks. Keep dynamic braking distance in the SimpleATO tick.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.

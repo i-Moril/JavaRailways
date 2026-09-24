@@ -25,6 +25,7 @@ dependencies {
     compileOnly("io.insert-koin:koin-core:4.1.1")
     dokka(project(":Core"))
     dokka(project(":Basic"))
+    dokka(project(":SimpleATO"))
 }
 
 dokka {
@@ -39,8 +40,8 @@ dokka {
 }
 
 tasks.register('apiJavadocJars') {
-    description = 'Builds Dokka Javadoc jars for the public Core and Basic API modules.'
-    dependsOn(':Core:dokkaJavadocJar', ':Basic:dokkaJavadocJar')
+    description = 'Builds Dokka Javadoc jars for the public Core, Basic, and SimpleATO API modules.'
+    dependsOn(':Core:dokkaJavadocJar', ':Basic:dokkaJavadocJar', ':SimpleATO:dokkaJavadocJar')
 }
 
 def targetJavaVersion = 17

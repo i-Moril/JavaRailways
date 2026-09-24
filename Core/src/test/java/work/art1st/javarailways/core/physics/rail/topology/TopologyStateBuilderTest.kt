@@ -73,6 +73,14 @@ class TopologyStateBuilderTest {
             TrackEdgeSlice(edge.id, 10.0, 30.0, 20.0, 0.0),
             state.railProjection.getValue(reversed.id).single()
         )
+        assertEquals(
+            endpoint(reversed, RailEndpoint.B),
+            state.ordinaryContinuationAt(endpoint(first, RailEndpoint.B))
+        )
+        assertEquals(
+            endpoint(first, RailEndpoint.B),
+            state.ordinaryContinuationAt(endpoint(reversed, RailEndpoint.B))
+        )
     }
 
     @Test

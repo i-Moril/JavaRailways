@@ -274,6 +274,33 @@ data class TopologyState private constructor(
     /** At-grade shared conflicts detected from geometry; never structural continuations. */
     val atGradeCrossings: List<AtGradeRailCrossing>
 ) {
+    private val structuralNodesByPort: Map<RailEndpointRef, TopologyNode> = immutableMap(
+        nodes.values.flatMap { node -> node.ports.map { port -> port to node } }.toMap()
+    )
+    private val structuralNodesByPorts: Map<List<RailEndpointRef>, TopologyNode> = immutableMap(
+        nodes.values.associateBy { node -> node.ports.distinct().sorted() }
+    )
+    private val atGradeCrossingsByRail: Map<UUID, List<AtGradeRailCrossing>> = immutableMap(
+        buildMap<UUID, MutableList<AtGradeRailCrossing>> {
+            atGradeCrossings.forEach { crossing ->
+                getOrPut(crossing.first.railId, ::ArrayList).add(crossing)
+                getOrPut(crossing.second.railId, ::ArrayList).add(crossing)
+            }
+        }.mapValues { (_, crossings) -> immutableList(crossings) }
+    )
+    private val ordinaryContinuationByPort: Map<RailEndpointRef, RailEndpointRef> = immutableMap(
+        buildMap {
+            edges.values.forEach { edge ->
+                edge.railSlices.zipWithNext().forEach { (first, second) ->
+                    val firstPort = sliceEndPort(first)
+                    val secondPort = sliceStartPort(second)
+                    put(firstPort, secondPort)
+                    put(secondPort, firstPort)
+                }
+            }
+        }
+    )
+
     init {
         require(revision >= 0L) { "revision must be non-negative" }
         require(nodes.all { (id, node) -> id == node.id && id.revision == revision })
@@ -283,6 +310,45 @@ data class TopologyState private constructor(
             crossing.first.railId in railProjection && crossing.second.railId in railProjection
         })
     }
+
+    /**
+     * Returns the structural node owning [port] in this immutable root.
+     *
+     * The lookup is constant-time. `null` means that [port] is not part of a structural node;
+     * callers may use [ordinaryContinuationAt] to distinguish an ordinary joint from an open end.
+     */
+    fun structuralNodeAt(port: RailEndpointRef): TopologyNode? = structuralNodesByPort[port]
+
+    /**
+     * Resolves a structural node in this root by its persistent canonical port set.
+     * Canonicalizing [ports] costs `O(P log P)`; the subsequent lookup is constant-time. Returns
+     * `null` when no structural node in this root has exactly those ports.
+     */
+    fun structuralNodeWithPorts(ports: Collection<RailEndpointRef>): TopologyNode? =
+        structuralNodesByPorts[ports.distinct().sorted()]
+
+    /**
+     * Returns the unique opposite port at an ordinary degree-2 joint in this root.
+     * Returns `null` at structural nodes, open ends, and for ports absent from this root.
+     */
+    fun ordinaryContinuationAt(port: RailEndpointRef): RailEndpointRef? = ordinaryContinuationByPort[port]
+
+    /**
+     * Returns the immutable at-grade crossings incident to [railId] in this exact root.
+     * The returned list is empty when the rail is absent or has no crossing.
+     */
+    fun atGradeCrossingsOn(railId: UUID): List<AtGradeRailCrossing> =
+        atGradeCrossingsByRail[railId].orEmpty()
+
+    private fun sliceStartPort(slice: RailSliceRef): RailEndpointRef = RailEndpointRef(
+        slice.railId,
+        if (slice.startAbMeters < slice.endAbMeters) RailEndpoint.A else RailEndpoint.B
+    )
+
+    private fun sliceEndPort(slice: RailSliceRef): RailEndpointRef = RailEndpointRef(
+        slice.railId,
+        if (slice.startAbMeters < slice.endAbMeters) RailEndpoint.B else RailEndpoint.A
+    )
 
     internal companion object {
         fun create(

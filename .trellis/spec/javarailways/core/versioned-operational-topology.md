@@ -43,6 +43,11 @@ At-grade diamond不改变物理continuation：空间相交不产生跨线连接�
 
 路径起点、终点或停车点位于edge内部时，查询层创建仅属于该次计算的virtual node/edge slices，不修改或发布新的`TopologyState`。
 
+同一immutable root同时构建三个结构编辑用反向索引：persistent endpoint到结构节点、canonical port set到结构节点、
+rail ID到平交观测。普通二度接头不成为节点；它由相邻`TrackEdge.railSlices`直接建立endpoint到唯一对端endpoint的
+映射。替换/删除编辑因此可从明确source rail的两个端点做`O(1)`定点查询，不能为寻找邻接影响扫描全部nodes、edges
+或crossings。索引只是同一root的派生value，不能独立更新或跨revision复用。
+
 ## 4. 概念数据模型与所有权
 
 下列拓扑读取模型已经位于`core.api.physics.rail.topology`；构建input/builder仍是Core internal：
@@ -119,6 +124,10 @@ data class TrackEdge(
 ## 7. 性能、复杂度与退化行为
 
 - graph normalization对输入rail slices与connections做一次`O(V + E)`遍历；为生成不依赖输入集合顺序的revision-local ID，还需`O(V log V)`确定性排序。该工作只发生在structural edit，不进入每tick路径。
+- endpoint/node、ordinary continuation及rail/crossing反向索引在root构造时线性建立；canonical port-set key另按各node
+  的port数量排序。一次replacement impact定点查询为`O(R + K + sum(D log D))`，其中`R`为明确source rail及其projection
+  数、`K`为source rail实际平交数、`D`为命中旧结构节点各自的port数量；它还会从source所在edge命中可能移位/消失的旧
+  deterministic loop anchor。查询不得退化成world graph scan。
 - graph candidate仍可在structural edit时完整重建；平交检测按新增/替换rail增量更新。设目标rail压缩后采样段数为`S`、空间候选集合为`C`，采样只对新增rail执行一次，当前精确检测最坏成本为`O(sum(S * segments(candidate)))`，但rail/segment AABB先剪枝；长直轨压缩后只有一个segment。该工作只发生在结构编辑，不进入寻路、资源申请、信号查询或每列车tick。cell broad phase可以产生多余候选，但exact phase必须拒绝；不得用cell命中直接认定交叉。
 - edge位置查询应利用累计距离索引而不是线性扫描长edge；目标签名冻结时必须明确边界规则和复杂度。
 - 旧state可在读者持有期间继续存在；实现必须有有界保留策略或正常对象生命周期，不能为每个tick复制整图或永久保存所有revision。
@@ -139,6 +148,7 @@ data class TrackEdge(
 - edge lookup：累计距离边界、首尾slice、正反方向、二分命中和virtual split不修改published state。
 - diamond topology：空间相交不新增continuation/结构节点、不切edge并禁止跨线。
 - external reference：edge内virtual split不修改state；旧revision引用不能与新root混用。
+- edit reverse lookup：普通二度接头返回唯一对端，结构节点按endpoint/canonical ports命中，rail crossing查询只返回该rail的immutable观测。
 
 ```bash
 ./gradlew :Core:test

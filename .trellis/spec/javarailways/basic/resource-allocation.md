@@ -72,8 +72,20 @@ Plan dependency mutation与edit decision使用独立typed result。Claim的`Infr
 为hash lookup；该低频路径不进入physics tick。未来若规模证明需要索引，再按三类identity建立倒排索引。
 
 编辑器必须在mutation前生成精确`TopologyEditImpact`。不得从空间broad-phase候选、整图incident扫描或完整rail
-interval猜测影响范围。当前RailWand尚未有可在mutation前给出精确自动连接结果的plan阶段，因此尚未接入新permit；
-后续先冻结plan/apply边界，再覆盖所有结构编辑入口。
+interval猜测影响范围。Rail replacement/removal调用方只提交实际被替换的source rail ID；Basic通过同一
+`TopologyState`root的endpoint/node、ordinary continuation及rail/crossing反向索引，加入这些source rail实际连接处
+会被改写connection list的既有rail、source endpoint上的旧node/turnout identity，以及只涉及source rail的旧diamond
+identity。Turnout处只加入source port的实际legal continuations，不能把不与该支路相连的sibling branch扩成rail影响；
+邻接rail另一端的node/diamond也不得因邻接关系被扩大纳入。计划绑定该root及最终impact中每个既有rail实例，
+pure degree-2 loop内任一source还必须加入其所在edge的旧deterministic loop-anchor key，因为replace后该anchor可能移位或
+消失；这不扩张邻接rail另一端的普通node/diamond。Permit获取前后及Core write transaction内都复核；查询只做source、
+命中node/edge及source crossing的定点访问，不扫描图。
+
+当前RailWand的split、merge和delete已使用上述exact replacement plan，并把permit持有到Core topology、Basic metadata、
+render persistence及undo record side effect全部完成。这些步骤位于一个外层Core topology transaction；嵌套结构editor加入
+同一transaction，因此结构mutation之后的metadata、sidecar、player state或undo异常会使Core fail-close，而不是作为普通
+失败被吞掉。Auto-connect仍在新rail安装后边判断边mutation，尚不能在mutation前证明精确结果；create/rebuild及可能恢复
+prospective crossing的world-snapshot undo在纯plan/apply seam完成前不得接入猜测impact，父迁移项保持未完成。
 
 ## 跨轨道 infrastructure footprint
 

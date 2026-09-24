@@ -155,11 +155,7 @@ class WorldManager internal constructor(
                     bukkitWorld.uid,
                     railWorld::topologyRevision,
                     railExists = { railId -> railWorld.getRail(railId) != null },
-                    topologyNodeExists = { key ->
-                        railWorld.topologyState.nodes.values.any { node ->
-                            node.ports.distinct().sorted() == key.ports
-                        }
-                    },
+                    topologyNodeExists = { key -> railWorld.topologyState.structuralNodeWithPorts(key.ports) != null },
                     resourceExists = { resource ->
                     when (resource) {
                         is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength

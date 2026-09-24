@@ -4053,84 +4053,92 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val renderMetas = RailRenderMetaStore.load(livePlayer.world)
-                val renderMetaByRail = renderMetas.associateBy { it.railId }
-                val originalRenderMeta = renderMetaByRail[railId]
-                val railMetadataBefore = liveWorld.basicWorldData.railMetadata.snapshot()
-                val undoSnapshot = captureRailWorldUndoSnapshot(
+                val editPlan = RailWandTopologyEditPlan.captureReplacementOrRemoval(
                     liveWorld,
-                    liveWorld.allRails.map(CoreRail::save),
-                    renderMetas,
-                    railMetadataBefore
+                    listOf(liveRail.id)
                 )
-                try {
-                    val (result, changedExistingIds) = liveWorld.railTopologyTransaction {
-                        val result = RailTopologyEditor.splitWithPreparedRails(
-                            liveRail,
-                            preparedSplit.railCreation,
-                            signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
-                        )
-                        RailInfrastructureMetadataTopology.split(
-                            liveWorld.basicWorldData.railMetadata,
-                            railId,
-                            result.before.id,
-                            result.after.id,
-                            result.operationId
-                        )
-                        OperationalSpeedLimitSignalMaterializer.materializeRail(result.before)
-                        OperationalSpeedLimitSignalMaterializer.materializeRail(result.after)
-                        OperationalDestinationService(liveWorld).migrateAfterRailSplit(
-                            oldRailId = railId,
-                            beforeRailId = result.before.id,
-                            afterRailId = result.after.id,
-                            splitArcLengthInAbMeters = arcLength
-                        )
-                        val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
-                        val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
-                            .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
-                        result to changedExistingIds
-                    }
-                    RailVisualBootstrap.unregisterRail(railId)
-                    val replacementMetas = buildList {
-                        originalRenderMeta?.let { oldMeta ->
-                            add(registerRailWithTemplate(result.before, oldMeta.templateSnapshot))
-                            add(registerRailWithTemplate(result.after, oldMeta.templateSnapshot))
-                        }
-                        changedExistingIds.forEach { changedId ->
-                            val changedRail = liveWorld.getRail(changedId) ?: return@forEach
-                            val oldMeta = renderMetaByRail[changedId] ?: return@forEach
-                            RailVisualBootstrap.unregisterRail(changedId)
-                            add(registerRailWithTemplate(changedRail, oldMeta.templateSnapshot))
-                        }
-                    }
-                    RailRenderMetaStore.saveAll(
-                        livePlayer.world,
-                        renderMetas.filterNot { it.railId == railId || it.railId in changedExistingIds } +
-                            replacementMetas
+                val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
+                editPermit.use {
+                    val renderMetas = RailRenderMetaStore.load(livePlayer.world)
+                    val renderMetaByRail = renderMetas.associateBy { it.railId }
+                    val originalRenderMeta = renderMetaByRail[railId]
+                    val railMetadataBefore = liveWorld.basicWorldData.railMetadata.snapshot()
+                    val undoSnapshot = captureRailWorldUndoSnapshot(
+                        liveWorld,
+                        liveWorld.allRails.map(CoreRail::save),
+                        renderMetas,
+                        railMetadataBefore
                     )
-                    val liveState = getState(livePlayer)
-                    clearPendingSplit(liveState)
-                    liveState.selectedRails.clear()
-                    liveState.selectedRails.addAll(listOf(result.before.id, result.after.id))
-                    persistState(livePlayer, liveState)
-                    splitPreviewTargets.remove(livePlayer.uniqueId)
-                    refreshAnchorsForAllViewers()
-                    pushUndo(livePlayer, WandAction.RestoreRailWorld(
-                        livePlayer.world.uid,
-                        undoSnapshot,
-                        captureRailWorldUndoSnapshot(livePlayer, liveWorld)
-                    ))
+                    try {
+                        liveWorld.railTopologyTransaction {
+                            editPlan.requireCurrent(liveWorld)
+                            val result = RailTopologyEditor.splitWithPreparedRails(
+                                liveRail,
+                                preparedSplit.railCreation,
+                                signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
+                            )
+                            RailInfrastructureMetadataTopology.split(
+                                liveWorld.basicWorldData.railMetadata,
+                                railId,
+                                result.before.id,
+                                result.after.id,
+                                result.operationId
+                            )
+                            OperationalSpeedLimitSignalMaterializer.materializeRail(result.before)
+                            OperationalSpeedLimitSignalMaterializer.materializeRail(result.after)
+                            OperationalDestinationService(liveWorld).migrateAfterRailSplit(
+                                oldRailId = railId,
+                                beforeRailId = result.before.id,
+                                afterRailId = result.after.id,
+                                splitArcLengthInAbMeters = arcLength
+                            )
+                            val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
+                            val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
+                                .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
+                            RailVisualBootstrap.unregisterRail(railId)
+                            val replacementMetas = buildList {
+                                originalRenderMeta?.let { oldMeta ->
+                                    add(registerRailWithTemplate(result.before, oldMeta.templateSnapshot))
+                                    add(registerRailWithTemplate(result.after, oldMeta.templateSnapshot))
+                                }
+                                changedExistingIds.forEach { changedId ->
+                                    val changedRail = liveWorld.getRail(changedId) ?: return@forEach
+                                    val oldMeta = renderMetaByRail[changedId] ?: return@forEach
+                                    RailVisualBootstrap.unregisterRail(changedId)
+                                    add(registerRailWithTemplate(changedRail, oldMeta.templateSnapshot))
+                                }
+                            }
+                            RailRenderMetaStore.saveAll(
+                                livePlayer.world,
+                                renderMetas.filterNot { it.railId == railId || it.railId in changedExistingIds } +
+                                    replacementMetas
+                            )
+                            val liveState = getState(livePlayer)
+                            clearPendingSplit(liveState)
+                            liveState.selectedRails.clear()
+                            liveState.selectedRails.addAll(listOf(result.before.id, result.after.id))
+                            persistState(livePlayer, liveState)
+                            splitPreviewTargets.remove(livePlayer.uniqueId)
+                            refreshAnchorsForAllViewers()
+                            pushUndo(livePlayer, WandAction.RestoreRailWorld(
+                                livePlayer.world.uid,
+                                undoSnapshot,
+                                captureRailWorldUndoSnapshot(livePlayer, liveWorld)
+                            ))
+                        }
+                    } catch (error: Throwable) {
+                        plugin.logger.warning("Rail split failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                        livePlayer.sendMessage(RailWandI18n.component(
+                            livePlayer,
+                            "message.split_failed",
+                            railWandFailureReason(error)
+                        ).color(NamedTextColor.RED))
+                        throw error
+                    }
                     livePlayer.sendActionBar(RailWandI18n.component(
                         livePlayer,
                         "message.split_success"
                     ).color(NamedTextColor.GREEN))
-                } catch (error: Throwable) {
-                    plugin.logger.warning("Rail split failed: ${error::class.simpleName}: ${error.message ?: ""}")
-                    livePlayer.sendMessage(RailWandI18n.component(
-                        livePlayer,
-                        "message.split_failed",
-                        railWandFailureReason(error)
-                    ).color(NamedTextColor.RED))
                 }
             },
             onFailure = { error ->
@@ -4287,84 +4295,92 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val undoSnapshot = captureRailWorldUndoSnapshot(
+                val editPlan = RailWandTopologyEditPlan.captureReplacementOrRemoval(
                     liveWorld,
-                    liveWorld.allRails.map(CoreRail::save),
-                    renderMetas,
-                    liveWorld.basicWorldData.railMetadata.snapshot()
+                    listOf(livePair.first.id, livePair.second.id)
                 )
-                try {
-                    val beforeRailId = livePair.first.id
-                    val afterRailId = livePair.second.id
-                    val (merged, changedExistingIds) = liveWorld.railTopologyTransaction {
-                        val beforeLengthMeters = livePair.first.curve.totalArcLength
-                        val railMetadataBefore = liveWorld.basicWorldData.railMetadata.snapshot()
-                        val merged = RailTopologyEditor.mergeWithPreparedRail(
-                            livePair.first,
-                            livePair.second,
-                            preparedMerge.railCreation,
-                            signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
-                        )
-                        RailInfrastructureMetadataTopology.merge(
-                            liveWorld.basicWorldData.railMetadata,
-                            beforeRailId,
-                            afterRailId,
-                            merged.id
-                        )
-                        OperationalSpeedLimitSignalMaterializer.materializeRail(merged)
-                        OperationalDestinationService(liveWorld).migrateAfterRailMerge(
-                            beforeRailId = beforeRailId,
-                            afterRailId = afterRailId,
-                            mergedRailId = merged.id,
-                            beforeLengthMeters = beforeLengthMeters
-                        )
-                        val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
-                        val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
-                            .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
-                        merged to changedExistingIds
-                    }
-                    RailVisualBootstrap.unregisterRail(beforeRailId)
-                    RailVisualBootstrap.unregisterRail(afterRailId)
-                    val replacementMetas = buildList {
-                        beforeRender?.let { oldMeta ->
-                            add(registerRailWithTemplate(merged, oldMeta.templateSnapshot))
-                        }
-                        changedExistingIds.forEach { changedId ->
-                            val changedRail = liveWorld.getRail(changedId) ?: return@forEach
-                            val oldMeta = renderMetaByRail[changedId] ?: return@forEach
-                            RailVisualBootstrap.unregisterRail(changedId)
-                            add(registerRailWithTemplate(changedRail, oldMeta.templateSnapshot))
-                        }
-                    }
-                    RailRenderMetaStore.saveAll(
-                        livePlayer.world,
-                        renderMetas.filterNot {
-                            it.railId == beforeRailId || it.railId == afterRailId ||
-                                it.railId in changedExistingIds
-                        } + replacementMetas
+                val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
+                editPermit.use {
+                    val undoSnapshot = captureRailWorldUndoSnapshot(
+                        liveWorld,
+                        liveWorld.allRails.map(CoreRail::save),
+                        renderMetas,
+                        liveWorld.basicWorldData.railMetadata.snapshot()
                     )
-                    val liveState = getState(livePlayer)
-                    clearPendingSplit(liveState)
-                    liveState.selectedRails.clear()
-                    liveState.selectedRails.add(merged.id)
-                    persistState(livePlayer, liveState)
-                    refreshAnchorsForAllViewers()
-                    pushUndo(livePlayer, WandAction.RestoreRailWorld(
-                        livePlayer.world.uid,
-                        undoSnapshot,
-                        captureRailWorldUndoSnapshot(livePlayer, liveWorld)
-                    ))
+                    try {
+                        liveWorld.railTopologyTransaction {
+                            editPlan.requireCurrent(liveWorld)
+                            val beforeRailId = livePair.first.id
+                            val afterRailId = livePair.second.id
+                            val beforeLengthMeters = livePair.first.curve.totalArcLength
+                            val railMetadataBefore = liveWorld.basicWorldData.railMetadata.snapshot()
+                            val merged = RailTopologyEditor.mergeWithPreparedRail(
+                                livePair.first,
+                                livePair.second,
+                                preparedMerge.railCreation,
+                                signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
+                            )
+                            RailInfrastructureMetadataTopology.merge(
+                                liveWorld.basicWorldData.railMetadata,
+                                beforeRailId,
+                                afterRailId,
+                                merged.id
+                            )
+                            OperationalSpeedLimitSignalMaterializer.materializeRail(merged)
+                            OperationalDestinationService(liveWorld).migrateAfterRailMerge(
+                                beforeRailId = beforeRailId,
+                                afterRailId = afterRailId,
+                                mergedRailId = merged.id,
+                                beforeLengthMeters = beforeLengthMeters
+                            )
+                            val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
+                            val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
+                                .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
+                            RailVisualBootstrap.unregisterRail(beforeRailId)
+                            RailVisualBootstrap.unregisterRail(afterRailId)
+                            val replacementMetas = buildList {
+                                beforeRender?.let { oldMeta ->
+                                    add(registerRailWithTemplate(merged, oldMeta.templateSnapshot))
+                                }
+                                changedExistingIds.forEach { changedId ->
+                                    val changedRail = liveWorld.getRail(changedId) ?: return@forEach
+                                    val oldMeta = renderMetaByRail[changedId] ?: return@forEach
+                                    RailVisualBootstrap.unregisterRail(changedId)
+                                    add(registerRailWithTemplate(changedRail, oldMeta.templateSnapshot))
+                                }
+                            }
+                            RailRenderMetaStore.saveAll(
+                                livePlayer.world,
+                                renderMetas.filterNot {
+                                    it.railId == beforeRailId || it.railId == afterRailId ||
+                                        it.railId in changedExistingIds
+                                } + replacementMetas
+                            )
+                            val liveState = getState(livePlayer)
+                            clearPendingSplit(liveState)
+                            liveState.selectedRails.clear()
+                            liveState.selectedRails.add(merged.id)
+                            persistState(livePlayer, liveState)
+                            refreshAnchorsForAllViewers()
+                            pushUndo(livePlayer, WandAction.RestoreRailWorld(
+                                livePlayer.world.uid,
+                                undoSnapshot,
+                                captureRailWorldUndoSnapshot(livePlayer, liveWorld)
+                            ))
+                        }
+                    } catch (error: Throwable) {
+                        plugin.logger.warning("Rail merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                        livePlayer.sendMessage(RailWandI18n.component(
+                            livePlayer,
+                            "message.merge_failed",
+                            railWandFailureReason(error)
+                        ).color(NamedTextColor.RED))
+                        throw error
+                    }
                     livePlayer.sendActionBar(RailWandI18n.component(
                         livePlayer,
                         "message.merge_success"
                     ).color(NamedTextColor.GREEN))
-                } catch (error: Throwable) {
-                    plugin.logger.warning("Rail merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
-                    livePlayer.sendMessage(RailWandI18n.component(
-                        livePlayer,
-                        "message.merge_failed",
-                        railWandFailureReason(error)
-                    ).color(NamedTextColor.RED))
                 }
             },
             onFailure = { error ->
@@ -4399,6 +4415,22 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             }
         ) return "safety.unsupported_operational_object"
         return null
+    }
+
+    private fun acquireTopologyEditPermit(
+        player: Player,
+        plan: RailWandTopologyEditPlan
+    ): RailWandEditPermitAcquisition.Granted? = when (val acquired = plan.acquire(plugin, player.world.uid)) {
+        is RailWandEditPermitAcquisition.Granted -> acquired
+        is RailWandEditPermitAcquisition.Denied -> {
+            player.sendMessage(RailWandI18n.component(
+                player,
+                "message.infrastructure_edit_denied",
+                acquired.decision.status.name,
+                acquired.decision.detail
+            ).color(NamedTextColor.RED))
+            null
+        }
     }
 
     private fun splitPointSafetyError(coreWorld: CoreWorld, rail: CoreRail, arcLength: Double): String? {
@@ -4515,49 +4547,54 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
 
         val targetIds = targetRails.mapTo(linkedSetOf()) { it.id }
-        val allRails = coreWorld.allRails.toList()
-        val undoSnapshot = captureRailWorldUndoSnapshot(player, coreWorld)
-        var removedDestinations = 0
-        coreWorld.railTopologyTransaction {
-            detachRailReferences(targetIds, allRails.filter { it.id !in targetIds })
-            val destinations = OperationalDestinationService(coreWorld)
-            removedDestinations = targetIds.sumOf { destinations.removeAllOnRail(it).size }
-            val renderAfter = RailRenderMetaStore.load(player.world).filterNot { it.railId in targetIds }
-            targetRails.forEach { target ->
-                RailVisualBootstrap.unregisterRail(target.id)
-                target.destroy()
-                coreWorld.removeRail(target)
-                coreWorld.basicWorldData.railMetadata.remove(target.id)
+        val editPlan = RailWandTopologyEditPlan.captureReplacementOrRemoval(coreWorld, targetIds)
+        val editPermit = acquireTopologyEditPermit(player, editPlan) ?: return
+        editPermit.use {
+            val allRails = coreWorld.allRails.toList()
+            val undoSnapshot = captureRailWorldUndoSnapshot(player, coreWorld)
+            var removedDestinations = 0
+            coreWorld.railTopologyTransaction {
+                editPlan.requireCurrent(coreWorld)
+                detachRailReferences(targetIds, allRails.filter { it.id !in targetIds })
+                val destinations = OperationalDestinationService(coreWorld)
+                removedDestinations = targetIds.sumOf { destinations.removeAllOnRail(it).size }
+                val renderAfter = RailRenderMetaStore.load(player.world).filterNot { it.railId in targetIds }
+                targetRails.forEach { target ->
+                    RailVisualBootstrap.unregisterRail(target.id)
+                    target.destroy()
+                    coreWorld.removeRail(target)
+                    coreWorld.basicWorldData.railMetadata.remove(target.id)
+                }
+                RailRenderMetaStore.saveAll(player.world, renderAfter)
+                state.selectedRails.removeAll(targetIds)
+                state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) in targetIds }
+                targetIds.forEach { removedId ->
+                    removeAnchorDisplay(player, railEndpointAnchorId(removedId, 'A'))
+                    removeAnchorDisplay(player, railEndpointAnchorId(removedId, 'B'))
+                }
+                persistState(player, state)
+                refreshAllAnchorsForPlayer(player)
+                pushUndo(player, WandAction.RestoreRailWorld(
+                    player.world.uid,
+                    undoSnapshot,
+                    captureRailWorldUndoSnapshot(player, coreWorld)
+                ))
             }
-            RailRenderMetaStore.saveAll(player.world, renderAfter)
-        }
-
-        state.selectedRails.removeAll(targetIds)
-        state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) in targetIds }
-        targetIds.forEach { removedId ->
-            removeAnchorDisplay(player, railEndpointAnchorId(removedId, 'A'))
-            removeAnchorDisplay(player, railEndpointAnchorId(removedId, 'B'))
-        }
-        refreshAllAnchorsForPlayer(player)
-        pushUndo(player, WandAction.RestoreRailWorld(
-            player.world.uid,
-            undoSnapshot,
-            captureRailWorldUndoSnapshot(player, coreWorld)
-        ))
-        val deleteMessageKey = if (removedDestinations > 0) {
-            "message.rail_deleted_with_destinations"
-        } else {
-            "message.rail_deleted"
-        }
-        player.sendActionBar(RailWandI18n.component(
-            player,
-            deleteMessageKey,
-            *if (removedDestinations > 0) {
-                arrayOf(targetRails.size, removedDestinations)
+            val deleteMessageKey = if (removedDestinations > 0) {
+                "message.rail_deleted_with_destinations"
             } else {
-                arrayOf(targetRails.size)
+                "message.rail_deleted"
             }
-        ).color(NamedTextColor.GREEN))
+            player.sendActionBar(RailWandI18n.component(
+                player,
+                deleteMessageKey,
+                *if (removedDestinations > 0) {
+                    arrayOf(targetRails.size, removedDestinations)
+                } else {
+                    arrayOf(targetRails.size)
+                }
+            ).color(NamedTextColor.GREEN))
+        }
     }
 
     internal fun findLookedAtRailAsync(

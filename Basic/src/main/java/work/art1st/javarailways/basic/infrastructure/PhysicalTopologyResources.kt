@@ -90,13 +90,7 @@ object PhysicalTopologyReplacementOrRemovalImpactResolver {
         val affectedRailIds = LinkedHashSet(sourceRailIds)
         val affectedNodes = linkedSetOf<TopologyNode>()
         sourceRailIds.forEach { railId ->
-            topology.railProjection.getValue(railId).forEach { projection ->
-                val edge = topology.edges.getValue(projection.edgeId)
-                sequenceOf(edge.first.nodeId, edge.second.nodeId)
-                    .map(topology.nodes::getValue)
-                    .filterIsInstance<TopologyNode.LoopAnchor>()
-                    .forEach(affectedNodes::add)
-            }
+            topology.loopAnchorsOn(railId).forEach(affectedNodes::add)
             RailEndpoint.entries.forEach { endpoint ->
                 val port = RailEndpointRef(railId, endpoint)
                 val node = topology.structuralNodeAt(port)
@@ -127,3 +121,42 @@ object PhysicalTopologyReplacementOrRemovalImpactResolver {
         return TopologyEditImpact(affectedRailIds, nodeKeys, resources)
     }
 }
+
+/** Maps an already finalized Core addition plan into Basic edit-coordination identities. */
+object PhysicalTopologyExplicitConnectionImpactResolver {
+    fun resolve(
+        topology: TopologyState,
+        changedExistingEndpoints: Collection<RailEndpointRef>,
+        prospectiveCrossingExistingRailIds: Collection<UUID>
+    ): TopologyEditImpact? {
+        val endpointSet = LinkedHashSet(changedExistingEndpoints)
+        val railIds = LinkedHashSet<UUID>().apply {
+            endpointSet.mapTo(this, RailEndpointRef::railId)
+            addAll(prospectiveCrossingExistingRailIds)
+        }
+        require(railIds.all(topology.railProjection::containsKey)) {
+            "physical topology connection references a rail outside the captured topology"
+        }
+        val nodes = endpointSet.mapNotNullTo(linkedSetOf()) { endpoint ->
+            topology.structuralNodeAt(endpoint)
+        }
+        endpointSet.asSequence()
+            .map(RailEndpointRef::railId)
+            .distinct()
+            .flatMap(topology::loopAnchorsOn)
+            .forEach(nodes::add)
+        val nodeKeys = nodes.mapTo(linkedSetOf()) { node -> StableTopologyNodeKey(node.ports) }
+        val resources = nodes.filterIsInstance<TopologyNode.Turnout>()
+            .mapTo(linkedSetOf()) { turnout -> TurnoutResourceIdentity.fromPorts(turnout.ports) }
+        if (railIds.isEmpty() && nodeKeys.isEmpty() && resources.isEmpty()) return null
+        return TopologyEditImpact(railIds, nodeKeys, resources)
+    }
+}
+
+private fun TopologyState.loopAnchorsOn(railId: UUID): Sequence<TopologyNode.LoopAnchor> =
+    railProjection.getValue(railId).asSequence().flatMap { projection ->
+        val edge = edges.getValue(projection.edgeId)
+        sequenceOf(edge.first.nodeId, edge.second.nodeId)
+            .map(nodes::getValue)
+            .filterIsInstance<TopologyNode.LoopAnchor>()
+    }

@@ -25,7 +25,6 @@ import work.art1st.javarailways.basic.api.ato.provider.AtoProviderContext
 import work.art1st.javarailways.basic.api.ato.provider.ProviderBoundaryAction
 import work.art1st.javarailways.basic.pathFinding.RailDestination
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
-import work.art1st.javarailways.basic.rail.RailAutoConnector
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
@@ -40,6 +39,7 @@ import work.art1st.javarailways.basic.route.ConfirmedRouteWindow
 import work.art1st.javarailways.basic.route.RouteSectionAllocationKey
 import work.art1st.javarailways.basic.route.RouteSectionOwner
 import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.physics.rail.configureTurnoutForTest
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
@@ -366,8 +366,7 @@ class SimpleATOTest {
         val branch = world.createRailForTest(
             straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0))
         )
-        RailAutoConnector.connectIfAllowed(approach, straight)
-        RailAutoConnector.connectIfAllowed(approach, branch)
+        configureTurnoutForTest(approach, listOf(straight, branch))
         approach.viewAB.selectNextRail(straight.viewAB)
         val train = createTrainWithConfig("cross-tick-duplicate", approach, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("cross-tick-duplicate", reportSink = {})
@@ -485,8 +484,7 @@ class SimpleATOTest {
         val branch = world.createRailForTest(
             straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0))
         )
-        RailAutoConnector.connectIfAllowed(approach, straight)
-        RailAutoConnector.connectIfAllowed(approach, branch)
+        configureTurnoutForTest(approach, listOf(straight, branch))
         approach.viewAB.selectNextRail(straight.viewAB)
 
         val train = createTrainWithConfig("turnout-change", approach, world, listOf(10.0))

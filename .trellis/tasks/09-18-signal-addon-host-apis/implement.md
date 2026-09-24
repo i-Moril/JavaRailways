@@ -251,7 +251,7 @@
   - [x] Define the edit-coordination contract without treating track or topology nodes as runtime resources:
     `TopologyEditImpact` declares exact rail IDs, stable topology-node keys and runtime resource IDs; the registry checks each
     category against applied-plan dependencies, live claims and held permits under one lock.
-  - [ ] Add an exact plan/apply phase to RailWand/auto-connect so every editor knows its real impact before mutation, then hold
+  - [ ] Add an exact plan/apply phase to RailWand topology edits so every editor knows its real impact before mutation, then hold
     one common permit across topology plus metadata/persistence side effects. The rejected spatial broad-phase candidate union,
     full-rail footprint compiler, incident-resource graph scan and guessed RailWand guard were removed rather than retained as a
     compatibility path.
@@ -260,9 +260,13 @@
       nodes/turnouts, source-edge deterministic loop anchors and source-rail diamonds. The plan binds the exact topology root plus
       every affected existing rail instance, and holds the common permit through one outer Core transaction spanning topology,
       metadata/render persistence, player-state persistence and undo-record side effects.
-    - [ ] Refactor auto-connect into pure plan/apply before wiring create/rebuild, and plan prospective crossings before guarding
-      whole-world snapshot undo. Do not infer either impact from nearby candidates or a graph-wide scan.
-- [ ] Replace dispatcher-specific RailWand/auto-connect guards with the common edit guard and cover protection-region, signal, topology migration, and administrative mutation paths.
+    - [x] Delete proximity auto-connect and wire turnout create, selected-anchor connect, endpoint rebuild, grade smoothing and
+      geometry rebuild through a Core-owned explicit plan/apply. Standalone rails remain disconnected; callers supply only selected
+      endpoints, batch-internal adjacency and old-to-new replacement mappings. The plan binds the prepared batch/root, records exact
+      endpoint state plus prepared crossings and applies without target re-selection. Basic maps only those finalized identities into
+      the common edit impact; nearby candidates are excluded.
+    - [ ] Plan prospective crossings for whole-world snapshot undo; do not infer its impact from nearby candidates or a graph-wide scan.
+- [ ] Replace remaining dispatcher-specific RailWand edit guards with the common edit guard and cover protection-region, signal, topology migration, and administrative mutation paths.
 - [ ] Document a minimal external consumer and supported failure/lifecycle behavior.
 
 ## Validation

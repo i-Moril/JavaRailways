@@ -6,11 +6,14 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyReplacementOrRemovalImpactResolver
+import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyExplicitConnectionImpactResolver
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlan
+import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
 import java.util.UUID
 
 /** Exact pre-edit state retained by the RailWand between permit check and structural commit. */
@@ -18,13 +21,17 @@ internal class RailWandTopologyEditPlan private constructor(
     private val world: CoreWorld,
     private val topologyRoot: TopologyState,
     private val affectedRails: Map<UUID, CoreRail>,
-    val impact: TopologyEditImpact
+    val impact: TopologyEditImpact?,
+    private val explicitConnectionPlan: PreparedRailConnectionPlan? = null
 ) {
     val topologyRevision: Long = topologyRoot.revision
+    val explicitConnectionAffectedExistingRailIds: Set<UUID> =
+        explicitConnectionPlan?.affectedExistingRailIds.orEmpty()
 
     fun isCurrent(candidateWorld: CoreWorld): Boolean =
         candidateWorld === world && candidateWorld.topologyState === topologyRoot &&
-            affectedRails.all { (railId, rail) -> candidateWorld.getRail(railId) === rail }
+            affectedRails.all { (railId, rail) -> candidateWorld.getRail(railId) === rail } &&
+            (explicitConnectionPlan == null || explicitConnectionPlan.isCurrent(candidateWorld))
 
     fun requireCurrent(candidateWorld: CoreWorld) {
         check(isCurrent(candidateWorld)) {
@@ -32,8 +39,14 @@ internal class RailWandTopologyEditPlan private constructor(
         }
     }
 
+    fun requireReadyToApply(candidateWorld: CoreWorld) {
+        requireCurrent(candidateWorld)
+        explicitConnectionPlan?.requireReadyToApply(candidateWorld)
+    }
+
     fun acquire(plugin: BukkitPlugin, worldId: UUID): RailWandEditPermitAcquisition {
         if (!isCurrent(world)) return stale("rail topology changed before edit permit acquisition")
+        if (impact == null) return RailWandEditPermitAcquisition.Granted(null)
         val owner = InfrastructureOwner("javarailways:railwand/${UUID.randomUUID()}", topologyRevision)
         val result = plugin.infrastructureResourceService.acquireEditPermit(
             plugin,
@@ -47,6 +60,11 @@ internal class RailWandTopologyEditPlan private constructor(
             return stale("rail topology changed after edit permit acquisition")
         }
         return RailWandEditPermitAcquisition.Granted(permit)
+    }
+
+    fun applyExplicitConnections(candidateWorld: CoreWorld, installedRails: Collection<CoreRail>) {
+        val plan = requireNotNull(explicitConnectionPlan) { "RailWand edit plan has no explicit connection actions" }
+        plan.apply(candidateWorld, installedRails)
     }
 
     private fun stale(detail: String) = RailWandEditPermitAcquisition.Denied(
@@ -73,14 +91,54 @@ internal class RailWandTopologyEditPlan private constructor(
             plan.requireCurrent(world)
             return plan
         }
+
+        fun capturePreparedExplicitConnections(
+            world: CoreWorld,
+            preparedBatch: PreparedRailCreationBatch,
+            explicitConnections: PreparedRailConnectionPlan
+        ): RailWandTopologyEditPlan {
+            explicitConnections.requireCurrent(world)
+            val additionImpact = PhysicalTopologyExplicitConnectionImpactResolver.resolve(
+                explicitConnections.topologyRoot,
+                explicitConnections.affectedExistingEndpoints,
+                explicitConnections.prospectiveCrossingExistingRailIds
+            )
+            val replacementImpact = preparedBatch.excludedExistingRailIds.takeIf(Set<UUID>::isNotEmpty)?.let {
+                PhysicalTopologyReplacementOrRemovalImpactResolver.resolve(explicitConnections.topologyRoot, it)
+            }
+            val impact = mergeImpacts(replacementImpact, additionImpact)
+            val rails = impact?.railIds.orEmpty().associateWith { railId ->
+                requireNotNull(world.getRail(railId)) { "RailWand edit references missing rail $railId" }
+            }
+            return RailWandTopologyEditPlan(
+                world,
+                explicitConnections.topologyRoot,
+                rails,
+                impact,
+                explicitConnections
+            ).also { it.requireCurrent(world) }
+        }
+
+        private fun mergeImpacts(
+            first: TopologyEditImpact?,
+            second: TopologyEditImpact?
+        ): TopologyEditImpact? {
+            if (first == null) return second
+            if (second == null) return first
+            return TopologyEditImpact(
+                first.railIds + second.railIds,
+                first.topologyNodeKeys + second.topologyNodeKeys,
+                first.resourceIds + second.resourceIds
+            )
+        }
     }
 }
 
 internal sealed interface RailWandEditPermitAcquisition {
     class Granted(
-        private val permit: InfrastructureEditPermit
+        private val permit: InfrastructureEditPermit?
     ) : RailWandEditPermitAcquisition, AutoCloseable {
-        override fun close() = permit.close()
+        override fun close() = permit?.close() ?: Unit
     }
 
     data class Denied(val decision: TopologyEditDecision) : RailWandEditPermitAcquisition

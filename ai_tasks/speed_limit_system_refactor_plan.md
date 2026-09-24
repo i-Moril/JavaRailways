@@ -175,7 +175,7 @@ data class CurveSafetyMetadata(
 2. 在 `BasicInfrastructureSnapshot` 增加按 Rail UUID 保存的 metadata records。
 3. 将所有消费者改为查询 Basic store：
    - PathFinder / RoutePlanner 的方向限制
-   - RailAutoConnector / PlannedRoute 的道岔参数
+   - RailWand 道岔几何维护 / PlannedRoute 的道岔参数
    - RailWand authoring / assembly / grade lock
    - RailVisualBootstrap 的 assembly 查询
    - RailObjectWand 的方向限制编辑

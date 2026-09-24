@@ -160,6 +160,77 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
         }
     }
 
+    @Test
+    fun `addition maps only finalized existing endpoints and exact crossing rails`() {
+        val world = createTestWorld()
+        try {
+            val connected = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+            val crossing = world.createRailForTest(curve(Vector3d(20.0, 0.0, -5.0), Vector3d(20.0, 0.0, 5.0)))
+            val nearbyButUnselected = world.createRailForTest(
+                curve(Vector3d(11.0, 0.0, 0.0), Vector3d(19.0, 0.0, 0.0))
+            )
+            val topology = world.topologyState
+            val changedEndpoint = RailEndpointRef(connected.id, RailEndpoint.B)
+            val oldTerminus = requireNotNull(topology.structuralNodeAt(changedEndpoint))
+
+            val impact = requireNotNull(PhysicalTopologyExplicitConnectionImpactResolver.resolve(
+                topology,
+                listOf(changedEndpoint),
+                listOf(crossing.id)
+            ))
+
+            assertEquals(setOf(connected.id, crossing.id), impact.railIds)
+            assertEquals(setOf(StableTopologyNodeKey(oldTerminus.ports)), impact.topologyNodeKeys)
+            assertTrue(impact.resourceIds.isEmpty())
+            assertTrue(nearbyButUnselected.id !in impact.railIds)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `addition with no existing effect needs no edit impact`() {
+        val world = createTestWorld()
+        try {
+            assertEquals(
+                null,
+                PhysicalTopologyExplicitConnectionImpactResolver.resolve(world.topologyState, emptyList(), emptyList())
+            )
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `explicit connection change in a pure loop includes its deterministic anchor`() {
+        val world = createTestWorld()
+        try {
+            val first = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0)))
+            val second = world.createRailForTest(curve(Vector3d(5.0, 0.0, 0.0), Vector3d(5.0, 0.0, 5.0)))
+            val third = world.createRailForTest(curve(Vector3d(5.0, 0.0, 5.0), Vector3d(0.0, 0.0, 0.0)))
+            CoreRail.connect(first, second)
+            CoreRail.connect(second, third)
+            CoreRail.connect(third, first)
+            val topology = world.topologyState
+            val anchor = topology.nodes.values.filterIsInstance<TopologyNode.LoopAnchor>().single()
+            val changedEndpoint = RailEndpointRef(first.id, RailEndpoint.A)
+
+            val impact = requireNotNull(PhysicalTopologyExplicitConnectionImpactResolver.resolve(
+                topology,
+                listOf(changedEndpoint),
+                emptyList()
+            ))
+
+            assertTrue(StableTopologyNodeKey(anchor.ports) in impact.topologyNodeKeys)
+            assertEquals(setOf(first.id), impact.railIds)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
     private fun curve(from: Vector3d, to: Vector3d): PrimeCurve {
         val displacement = Vector3d(to).sub(from)
         val tangent = Vector3d(displacement).normalize()

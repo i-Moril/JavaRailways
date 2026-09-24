@@ -2,7 +2,7 @@
 
 ## 适用场景与用途
 
-触发：修改rail authoring/operating metadata、split/merge/replacement、auto-connect、turnout topology或Core topology synchronization。
+触发：修改rail authoring/operating metadata、split/merge/replacement、显式endpoint连接、turnout topology或Core topology synchronization。
 
 用途：Basic metadata与Core physical topology必须在同一上层transaction一致迁移；metadata区分authoring、operating、speed与safety，不让adapter复制turnout policy。
 
@@ -39,7 +39,9 @@ data class RailInfrastructureMetadata(
 | delete | remove metadata | operational destinations先处理 |
 | failure任一步 | rollback Core topology + metadata + projections | 不留partial |
 
-`RailAutoConnector.connectIfAllowed(first:CoreRail,second:CoreRail,options): Result`在transaction外先awaitphysics，要求same world；检查endpoint distance/tangent、full-body occupancy、active route allocation、最多3 endpoints、turnout stem唯一、locking leg length、node grade continuity。Result包含`Outcome`及distance/angle/required/available/rail/grade context。
+Basic不拥有按距离搜索并自动连接轨道的策略。RailWand把玩家选中的endpoint、批内明确相邻段及replacement旧→新endpoint映射
+交给Core的`PreparedRailConnectionPlan`；Basic只将计划公布的准确既有endpoint/physical identity转换为edit impact。
+道岔几何维护继续由RailWand在编辑前验证边界frame、占用与route lock；不得通过附近endpoint搜索猜测第三条支路。
 
 ## 项目内正确示例
 
@@ -62,14 +64,14 @@ var Rail.infrastructureMetadata: RailInfrastructureMetadata
 | --- | --- |
 | rails different world | `require`失败，无mutation |
 | occupied/active allocation | fail-fast，无connection change |
-| endpoint too far/angle sharp/ambiguous turnout | typed `Outcome`，无partial |
-| locking leg too short/grade discontinuity | Result含required/actual context，无partial |
-| successful three-leg turnout | closure完整，active branch尽量preserve |
+| 显式endpoint不存在、不重合、非对称或容量超限 | plan capture失败，无mutation |
+| topology root、rail实例或endpoint state过期 | apply前拒绝，不重新选择 |
+| replacement成功 | 旧connection顺序与active branch通过显式映射保留 |
 
 ## 禁止实现
 
 - 只改Core topology或只迁Basic metadata；
-- Bukkit RailWand复制distance/turnout/grade/allocation检查；
+- Bukkit RailWand按距离搜索附近endpoint或推断turnout stem/branch；
 - 直接mutable Core topology绕过barrier/transaction；
 - merge unrelated lineage或不同metadata；
 - speed/safety值塞回authoring一层；
@@ -78,8 +80,8 @@ var Rail.infrastructureMetadata: RailInfrastructureMetadata
 ## 必需测试与验证
 
 - `RailInfrastructureMetadataTopologyTest.kt`：split/merge/lineage/assembly/grade/turnout/additive old JSON。
-- `RailCurvePartitionTopologyTest.kt`：logical parts与Core connections。
-- `RailAutoConnectorTest.kt`/`TurnoutTopologyTest.kt`：所有Outcome、occupancy/allocation、closure、active preservation。
+- `PreparedRailConnectionPlanTest.kt`：显式选择、standalone断开、stale拒绝、deterministic apply。
+- `TurnoutTopologyTest.kt`与RailWand geometry policy tests：显式fixture、occupancy/allocation、closure与active preservation。
 - 失败test断言Core links、metadata snapshot与Destinations全不变。
 
 ```bash

@@ -64,22 +64,23 @@ remove the old Dispatcher-derived authority, not create another MA/Follow scanne
   boundary are handled.
 - Plugin disable unregisters Bukkit services, stops/unregisters worlds, then closes observation and
   infrastructure resource services.
-- There is no registered route-resource/admission service, no world-local `ProtectedRouteClaimService`
-  composition, and no provider-disable/reload takeover for its live grants. Those must be added as one
-  lifecycle slice; live claims cannot be silently released merely because the requesting plugin is
-  disabled.
+- `InfrastructureResourceService.routeAdmission` now exposes the world-local admission runtime, which
+  composes the internal live-claim owner. Requester/provider/contributor disable is guarded: planned
+  unregister rejects while relevant route state remains, while forced independent loss retains the
+  host-owned state and stalls the affected world instead of silently releasing claims.
 
 ## 6. Topology editors and edit guards
 
-- RailWand create/connect/split/merge/delete/restore paths execute `CoreWorld.railTopologyTransaction`
-  directly. Their current safety checks query physical occupancy, signals/objects and the legacy
-  `TimetableDispatcher.hasRouteAllocationOn` guard.
-- `RailAutoConnector` also consults the legacy Dispatcher allocation guard.
-- `InfrastructureResourceService.acquireEditPermit` exists, checks applied-plan dependencies, live claims and other
-  edit permits atomically, but none of these editors currently call it.
-- Migration must first compute the full affected resource footprint, acquire one permit, perform the
-  complete topology plus persistence mutation, and close the permit afterward. Replacing only one
-  RailWand command would leave unsafe bypasses.
+- RailWand create/connect/split/merge/delete paths now acquire the common edit permit before their
+  `CoreWorld.railTopologyTransaction` and retain it through related side effects. Whole-world snapshot
+  restore remains unguarded until it has an exact prospective plan. The guarded paths still retain some
+  physical occupancy checks and the legacy `TimetableDispatcher.hasRouteAllocationOn` guard during migration.
+- The former proximity `RailAutoConnector` has been deleted; explicit RailWand connection plans still consult the legacy Dispatcher allocation guard until that remaining guard is migrated.
+- `InfrastructureResourceService.acquireEditPermit` checks applied-plan dependencies, live claims and other
+  edit permits atomically and is now used by the exact RailWand plans above.
+- Remaining editors must first compute their exact affected identities, acquire one permit, perform the
+  complete topology plus persistence mutation, and close the permit afterward; guessed nearby candidates
+  or a graph-wide scan are not substitutes for a prospective plan.
 
 ## 7. Ordered migration batches
 

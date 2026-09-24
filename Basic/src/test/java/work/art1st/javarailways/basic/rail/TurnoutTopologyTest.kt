@@ -11,6 +11,7 @@ import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.configureTurnoutForTest
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import kotlin.math.cos
 import kotlin.math.sin
@@ -29,7 +30,7 @@ class TurnoutTopologyTest {
         val world = createTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
         val first = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val second = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
-        RailAutoConnector.connectIfAllowed(first, second)
+        CoreRail.connect(first, second)
 
         assertNull(TurnoutTopology.splitLockingClearanceError(first, 9.5, 5.0))
     }
@@ -57,14 +58,13 @@ class TurnoutTopologyTest {
         val world = createTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
         val stem = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val straight = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
-        RailAutoConnector.connectIfAllowed(stem, straight)
         val radians = Math.toRadians(20.0)
         val branch = rail(
             world,
             Vector3d(0.0, 0.0, 0.0),
             Vector3d(cos(radians) * 10.0, 0.0, sin(radians) * 10.0)
         )
-        RailAutoConnector.connectIfAllowed(stem, branch)
+        configureTurnoutForTest(stem, listOf(straight, branch))
         return Triple(stem, straight, branch)
     }
 

@@ -81,11 +81,15 @@ pure degree-2 loop内任一source还必须加入其所在edge的旧deterministic
 消失；这不扩张邻接rail另一端的普通node/diamond。Permit获取前后及Core write transaction内都复核；查询只做source、
 命中node/edge及source crossing的定点访问，不扫描图。
 
-当前RailWand的split、merge和delete已使用上述exact replacement plan，并把permit持有到Core topology、Basic metadata、
-render persistence及undo record side effect全部完成。这些步骤位于一个外层Core topology transaction；嵌套结构editor加入
-同一transaction，因此结构mutation之后的metadata、sidecar、player state或undo异常会使Core fail-close，而不是作为普通
-失败被吞掉。Auto-connect仍在新rail安装后边判断边mutation，尚不能在mutation前证明精确结果；create/rebuild及可能恢复
-prospective crossing的world-snapshot undo在纯plan/apply seam完成前不得接入猜测impact，父迁移项保持未完成。
+当前RailWand的split、merge和delete使用exact replacement plan；turnout create、selected-anchor connect、endpoint rebuild、
+grade smoothing和geometry rebuild使用Core的prepared explicit-connection plan。Basic不选择连接对象，只把调用方明确声明且
+由Core计划最终改变的
+既有connection component endpoint与exact prospective crossing rail映射为旧root中的rail ID、stable node key和既有turnout resource，再与
+replacement/removal impact取union。改变pure degree-2 loop中的endpoint时还包含该edge的旧deterministic loop anchor。
+附近但未选择的rail、spatial candidate和整图incident resource都不进入impact。
+Permit在安装前取得，并持有到Core topology、Basic metadata、render persistence、player state及undo record side effect完成；
+这些步骤位于一个外层Core topology transaction。依赖whole-world snapshot restore的undo仍需要单独的prospective plan，
+不能用当前creation plan冒充。
 
 ## 跨轨道 infrastructure footprint
 

@@ -97,7 +97,23 @@ owner/world thread
 
 replacement/split/merge必须把同一事务将删除的rail ID作为`excludedIds`整体准备，不能逐rail分别prepare；否则新rail之间的crossing和批次顺序无法在一个root上证明。含excluded ID的batch只能安装在尚未改变rail inventory的outer transaction，且这些source rail必须在该transaction发布前全部移除。安装前world不一致、root/revision过期（包括source已变化/缺失）、outer transaction已改变rail inventory或batch身份冲突均抛`PreparedRailCreationRejectedException`及稳定reason，且batch本身产生零mutation；connection选择等不改变候选geometry的后续编辑可在安装后完成。Bukkit向玩家提示重试，不自动无限retry。安装后的后续编辑失败仍遵循现有transaction fault/rollback规则。
 
-测试必须锁定：exact detector只在prepare运行；batch内new-vs-new crossing；input/output顺序；一次publication；world mismatch、stale root、dirty outer transaction与source缺失在batch mutation前拒绝。world bootstrap/load仍可在physics启动前同步完整重建。
+Rail创建和replacement的连接只能来自调用方已经明确的endpoint关系，不存在按距离自动选择相邻轨道的生产机制。
+新建独立轨道默认不连接；锚点连接只连接玩家选中的endpoint与批内明确相邻的分段；replacement通过旧endpoint到新endpoint
+的显式映射保留既有关系。`PreparedRailConnectionPlan`绑定同一个prepared batch、`TopologyState` root与所有相关既有rail
+实例，只记录每个明确endpoint的最终`next/active`状态。capture只验证声明的对称关系、endpoint位置与容量，不扫描附近
+endpoint，也不推断turnout stem/branch。apply在source rail仍存在时验证world/root、target inventory、占用及全部source
+endpoint的connection顺序与active选择，然后按记录结果写入；任何变化都使整个plan失败，不会重新选择对象或partial apply。Basic只能把plan公布的准确existing endpoint与
+prepared crossing identity转换为编辑影响，不能把spatial broad-phase candidate当作影响。
+apply还要求prepared batch是当前outer transaction中唯一已经发生的rail-inventory mutation；调用方必须先安装该batch、
+立即应用连接计划，再删除replacement source，不能在两者之间插入另一项rail增删。
+一个显式变化会绑定其最终connection component中的全部既有endpoint；即使某条既有支路的本地next列表不变，它仍属于
+正在重构的同一物理接头，必须参与占用检查与edit impact。
+
+设声明中endpoint数为`E`、连接引用总数为`M`、prepared exact crossing数为`K`，capture为`O(E + M + K)`，其后验证与apply为`O(E + M)`，且不执行几何邻近搜索；
+prepared crossing仍由前述creation batch检测。测试必须证明显式选择、附近未选rail排除、standalone保持断开、stale root拒绝、
+deterministic apply与replacement准确重映射。
+
+测试必须锁定：exact detector只在prepare运行；batch内new-vs-new crossing；input/output顺序；一次publication；world mismatch、stale root、dirty outer transaction与source缺失在batch mutation前拒绝；显式连接的exact selection、stale拒绝与deterministic apply。world bootstrap/load仍可在physics启动前同步完整重建。
 
 ## 必需测试与验证
 

@@ -1,0 +1,193 @@
+package work.art1st.javarailways.core.physics.rail
+
+import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.physics.createRailForTest
+import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.createTestWorld
+
+class PreparedRailConnectionPlanTest {
+    @Test
+    fun `explicit connection selects only the named endpoint`() {
+        val world = createTestWorld()
+        val selected = world.createRailForTest(line(0.0, 10.0))
+        val nearbyButUnselected = world.createRailForTest(line(10.0, 15.0))
+        val prepared = world.prepareRailCreation(line(10.0, 20.0))
+        val createdA = RailEndpointRef(prepared.creations.single().railId, RailEndpoint.A)
+        val selectedB = RailEndpointRef(selected.id, RailEndpoint.B)
+        val plan = PreparedRailConnectionPlan.capture(
+            world,
+            prepared,
+            listOf(
+                PreparedRailEndpointConnection(selectedB, listOf(createdA), createdA),
+                PreparedRailEndpointConnection(createdA, listOf(selectedB), selectedB)
+            )
+        )
+
+        lateinit var created: CoreRail
+        world.railTopologyTransaction {
+            created = world.installPreparedRails(prepared).single()
+            plan.apply(world, listOf(created))
+        }
+
+        assertEquals(listOf(created.viewAB), selected.viewAB.nextRails)
+        assertEquals(listOf(selected.viewBA), created.viewBA.nextRails)
+        assertTrue(nearbyButUnselected.viewBA.nextRails.isEmpty())
+        assertEquals(setOf(selected.id), plan.affectedExistingRailIds)
+    }
+
+    @Test
+    fun `standalone prepared rail remains disconnected`() {
+        val world = createTestWorld()
+        world.createRailForTest(line(0.0, 10.0))
+        val prepared = world.prepareRailCreation(line(10.0, 20.0))
+        val plan = PreparedRailConnectionPlan.capture(world, prepared, emptyList())
+
+        lateinit var created: CoreRail
+        world.railTopologyTransaction {
+            created = world.installPreparedRails(prepared).single()
+            plan.apply(world, listOf(created))
+        }
+
+        assertTrue(created.viewAB.nextRails.isEmpty())
+        assertTrue(created.viewBA.nextRails.isEmpty())
+        assertTrue(plan.affectedExistingEndpoints.isEmpty())
+    }
+
+    @Test
+    fun `captured plan rejects a changed topology root`() {
+        val world = createTestWorld()
+        val selected = world.createRailForTest(line(0.0, 10.0))
+        val prepared = world.prepareRailCreation(line(10.0, 20.0))
+        val createdA = RailEndpointRef(prepared.creations.single().railId, RailEndpoint.A)
+        val selectedB = RailEndpointRef(selected.id, RailEndpoint.B)
+        val plan = PreparedRailConnectionPlan.capture(
+            world,
+            prepared,
+            listOf(
+                PreparedRailEndpointConnection(selectedB, listOf(createdA), createdA),
+                PreparedRailEndpointConnection(createdA, listOf(selectedB), selectedB)
+            )
+        )
+
+        world.createRailForTest(line(30.0, 40.0))
+
+        assertFalse(plan.isCurrent(world))
+        assertThrows(IllegalStateException::class.java) { plan.requireCurrent(world) }
+        assertTrue(selected.viewAB.nextRails.isEmpty())
+    }
+
+    @Test
+    fun `captured plan rejects an active branch change`() {
+        val world = createTestWorld()
+        val stem = world.createRailForTest(line(0.0, 10.0))
+        val first = world.createRailForTest(line(10.0, 20.0))
+        val second = world.createRailForTest(line(10.0, 30.0))
+        CoreRail.connect(stem, first)
+        CoreRail.connect(stem, second)
+        stem.viewAB.activeRail = first.viewAB
+        val prepared = world.prepareRailCreation(line(40.0, 50.0))
+        val stemB = RailEndpointRef(stem.id, RailEndpoint.B)
+        val firstA = RailEndpointRef(first.id, RailEndpoint.A)
+        val secondA = RailEndpointRef(second.id, RailEndpoint.A)
+        val plan = PreparedRailConnectionPlan.capture(
+            world,
+            prepared,
+            listOf(
+                PreparedRailEndpointConnection(stemB, listOf(firstA, secondA), firstA),
+                PreparedRailEndpointConnection(firstA, listOf(stemB), stemB),
+                PreparedRailEndpointConnection(secondA, listOf(stemB), stemB)
+            )
+        )
+
+        stem.viewAB.activeRail = second.viewAB
+
+        assertFalse(plan.isCurrent(world))
+        assertThrows(IllegalStateException::class.java) { plan.requireCurrent(world) }
+    }
+
+    @Test
+    fun `removing a surviving connection requires both endpoint states`() {
+        val world = createTestWorld()
+        val first = world.createRailForTest(line(0.0, 10.0))
+        val second = world.createRailForTest(line(10.0, 20.0))
+        CoreRail.connect(first, second)
+        val prepared = world.prepareRailCreation(line(30.0, 40.0))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            PreparedRailConnectionPlan.capture(
+                world,
+                prepared,
+                listOf(PreparedRailEndpointConnection(
+                    RailEndpointRef(first.id, RailEndpoint.B),
+                    emptyList(),
+                    null
+                ))
+            )
+        }
+        assertEquals(listOf(second.viewAB), first.viewAB.nextRails)
+        assertEquals(listOf(first.viewBA), second.viewBA.nextRails)
+    }
+
+    @Test
+    fun `occupied existing endpoint is rejected before installation`() {
+        val world = createTestWorld()
+        val selected = world.createRailForTest(line(0.0, 30.0))
+        val existingPeer = world.createRailForTest(line(30.0, 60.0))
+        CoreRail.connect(selected, existingPeer)
+        createTrainWithConfig("occupied-explicit-plan", existingPeer, world, listOf(8.0))
+        val prepared = world.prepareRailCreation(line(30.0, 40.0))
+        val createdA = RailEndpointRef(prepared.creations.single().railId, RailEndpoint.A)
+        val selectedB = RailEndpointRef(selected.id, RailEndpoint.B)
+        val existingPeerA = RailEndpointRef(existingPeer.id, RailEndpoint.A)
+        val plan = PreparedRailConnectionPlan.capture(
+            world,
+            prepared,
+            listOf(
+                PreparedRailEndpointConnection(selectedB, listOf(existingPeerA, createdA), existingPeerA),
+                PreparedRailEndpointConnection(existingPeerA, listOf(selectedB), selectedB),
+                PreparedRailEndpointConnection(createdA, listOf(selectedB), selectedB)
+            )
+        )
+
+        assertThrows(IllegalArgumentException::class.java) { plan.requireReadyToApply(world) }
+        assertEquals(null, world.getRail(prepared.creations.single().railId))
+        assertEquals(listOf(existingPeer.viewAB), selected.viewAB.nextRails)
+        assertTrue(plan.affectedExistingRailIds.containsAll(setOf(selected.id, existingPeer.id)))
+    }
+
+    @Test
+    fun `apply rejects another inventory mutation after prepared installation`() {
+        val world = createTestWorld()
+        val prepared = world.prepareRailCreation(line(0.0, 10.0))
+        val plan = PreparedRailConnectionPlan.capture(world, prepared, emptyList())
+
+        world.railTopologyTransaction {
+            val installed = world.installPreparedRails(prepared)
+            val unrelated = world.createRailForTest(line(20.0, 30.0))
+
+            assertThrows(IllegalArgumentException::class.java) { plan.apply(world, installed) }
+
+            world.removeRail(unrelated)
+            world.removeRail(installed.single())
+        }
+        assertTrue(world.allRails.isEmpty())
+    }
+
+    private fun line(fromX: Double, toX: Double): PrimeCurve {
+        val tangent = Vector3d(1.0, 0.0, 0.0)
+        val normal = Vector3d(0.0, 1.0, 0.0)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(fromX, 0.0, 0.0), Vector3d(tangent), Vector3d(normal), 0.0),
+            Curve.RawPoint(Vector3d(toX, 0.0, 0.0), Vector3d(tangent), Vector3d(normal), toX - fromX)
+        ))
+    }
+}

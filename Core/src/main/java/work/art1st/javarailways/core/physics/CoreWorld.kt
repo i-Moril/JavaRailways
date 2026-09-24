@@ -475,6 +475,14 @@ class CoreWorld(
     val allRails: Collection<CoreRail>
         get() = railTopologyLock.read { rails.values.toList() }
 
+    @JvmSynthetic
+    internal fun railInventorySize(): Int = railTopologyLock.read { rails.size }
+
+    @JvmSynthetic
+    internal fun preparedInstallIsOnlyInventoryMutation(): Boolean =
+        railTopologyLock.isWriteLockedByCurrentThread &&
+            railTopologyTransactionContext.get()?.railInventoryMutationCount == 1
+
     override fun getRail(id: UUID): CoreRail? = railTopologyLock.read { rails[id] }
 
     fun getRailsNear(position: Vector3dc, radius: Double): Collection<CoreRail> =
@@ -627,7 +635,9 @@ class CoreWorld(
     private class RailTopologyTransactionContext(val before: RailTopologyFingerprint) {
         var nestedFailure: Throwable? = null
             private set
-        var railInventoryMutated: Boolean = false
+        val railInventoryMutated: Boolean
+            get() = railInventoryMutationCount > 0
+        var railInventoryMutationCount: Int = 0
             private set
         val replacementRequirements = mutableListOf<ReplacementRequirement>()
 
@@ -636,7 +646,7 @@ class CoreWorld(
         }
 
         fun recordRailInventoryMutation() {
-            railInventoryMutated = true
+            railInventoryMutationCount++
         }
 
         fun requireRemoval(createdRailIds: Set<UUID>, excludedRailIds: Set<UUID>) {

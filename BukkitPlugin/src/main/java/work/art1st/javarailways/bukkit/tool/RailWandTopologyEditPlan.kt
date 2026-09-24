@@ -7,6 +7,7 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyReplacementOrRemovalImpactResolver
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyExplicitConnectionImpactResolver
+import work.art1st.javarailways.basic.infrastructure.PhysicalTopologySnapshotRestoreImpactResolver
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -14,7 +15,40 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlan
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
+import work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlan
 import java.util.UUID
+
+internal data class RailWorldSnapshotTopologyDiff(
+    val currentRails: List<CoreRail.SavedRailV1>,
+    val targetRails: List<CoreRail.SavedRailV1>,
+    val removedOrReplacedRailIds: Set<UUID>,
+    val createdOrReplacedRailIds: Set<UUID>
+) {
+    companion object {
+        fun compare(
+            currentRails: List<CoreRail.SavedRailV1>,
+            targetRails: List<CoreRail.SavedRailV1>
+        ): RailWorldSnapshotTopologyDiff {
+            fun index(rails: List<CoreRail.SavedRailV1>): Map<UUID, CoreRail.SavedRailV1> {
+                val result = rails.associateBy { UUID.fromString(it.id) }
+                require(result.size == rails.size) { "rail snapshot contains duplicate IDs" }
+                return result
+            }
+            val current = index(currentRails)
+            val target = index(targetRails)
+            val removedOrReplaced = current.keys.filterTo(linkedSetOf()) { railId ->
+                target[railId]?.curveAB != current.getValue(railId).curveAB
+            }
+            val createdOrReplaced = target.keys.filterTo(linkedSetOf()) { railId ->
+                current[railId]?.curveAB != target.getValue(railId).curveAB
+            }
+            return RailWorldSnapshotTopologyDiff(
+                currentRails.toList(), targetRails.toList(), removedOrReplaced,
+                createdOrReplaced
+            )
+        }
+    }
+}
 
 /** Exact pre-edit state retained by the RailWand between permit check and structural commit. */
 internal class RailWandTopologyEditPlan private constructor(
@@ -22,16 +56,21 @@ internal class RailWandTopologyEditPlan private constructor(
     private val topologyRoot: TopologyState,
     private val affectedRails: Map<UUID, CoreRail>,
     val impact: TopologyEditImpact?,
-    private val explicitConnectionPlan: PreparedRailConnectionPlan? = null
+    private val explicitConnectionPlan: PreparedRailConnectionPlan? = null,
+    private val snapshotRestorePlan: PreparedRailWorldSnapshotPlan? = null
 ) {
     val topologyRevision: Long = topologyRoot.revision
     val explicitConnectionAffectedExistingRailIds: Set<UUID> =
         explicitConnectionPlan?.affectedExistingRailIds.orEmpty()
+    val snapshotGeometryChangedRailIds: Set<UUID> = snapshotRestorePlan?.let { plan ->
+        plan.removedOrReplacedRailIds + plan.createdOrReplacedRailIds
+    }.orEmpty()
 
     fun isCurrent(candidateWorld: CoreWorld): Boolean =
         candidateWorld === world && candidateWorld.topologyState === topologyRoot &&
             affectedRails.all { (railId, rail) -> candidateWorld.getRail(railId) === rail } &&
-            (explicitConnectionPlan == null || explicitConnectionPlan.isCurrent(candidateWorld))
+            (explicitConnectionPlan == null || explicitConnectionPlan.isCurrent(candidateWorld)) &&
+            (snapshotRestorePlan == null || snapshotRestorePlan.isCurrent(candidateWorld))
 
     fun requireCurrent(candidateWorld: CoreWorld) {
         check(isCurrent(candidateWorld)) {
@@ -42,6 +81,7 @@ internal class RailWandTopologyEditPlan private constructor(
     fun requireReadyToApply(candidateWorld: CoreWorld) {
         requireCurrent(candidateWorld)
         explicitConnectionPlan?.requireReadyToApply(candidateWorld)
+        snapshotRestorePlan?.requireReadyToApply(candidateWorld)
     }
 
     fun acquire(plugin: BukkitPlugin, worldId: UUID): RailWandEditPermitAcquisition {
@@ -65,6 +105,11 @@ internal class RailWandTopologyEditPlan private constructor(
     fun applyExplicitConnections(candidateWorld: CoreWorld, installedRails: Collection<CoreRail>) {
         val plan = requireNotNull(explicitConnectionPlan) { "RailWand edit plan has no explicit connection actions" }
         plan.apply(candidateWorld, installedRails)
+    }
+
+    fun applySnapshotRestore(candidateWorld: CoreWorld) {
+        requireNotNull(snapshotRestorePlan) { "RailWand edit plan has no snapshot restore actions" }
+            .apply(candidateWorld)
     }
 
     private fun stale(detail: String) = RailWandEditPermitAcquisition.Denied(
@@ -116,6 +161,30 @@ internal class RailWandTopologyEditPlan private constructor(
                 rails,
                 impact,
                 explicitConnections
+            ).also { it.requireCurrent(world) }
+        }
+
+        fun capturePreparedSnapshotRestore(
+            world: CoreWorld,
+            snapshotPlan: PreparedRailWorldSnapshotPlan
+        ): RailWandTopologyEditPlan {
+            snapshotPlan.requireCurrent(world)
+            val impact = PhysicalTopologySnapshotRestoreImpactResolver.resolve(
+                current = snapshotPlan.topologyRoot,
+                removedOrReplacedRailIds = snapshotPlan.removedOrReplacedRailIds,
+                changedExistingEndpoints = snapshotPlan.changedExistingEndpoints,
+                affectedExistingRailIds = snapshotPlan.affectedExistingRailIds,
+                removedCrossings = snapshotPlan.removedCrossings
+            )
+            val rails = snapshotPlan.affectedExistingRailIds.associateWith { railId ->
+                requireNotNull(world.getRail(railId)) { "Snapshot edit references missing rail $railId" }
+            }
+            return RailWandTopologyEditPlan(
+                world = world,
+                topologyRoot = snapshotPlan.topologyRoot,
+                affectedRails = rails,
+                impact = impact,
+                snapshotRestorePlan = snapshotPlan
             ).also { it.requireCurrent(world) }
         }
 

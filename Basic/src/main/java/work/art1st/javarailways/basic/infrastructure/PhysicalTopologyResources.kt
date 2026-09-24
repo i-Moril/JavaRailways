@@ -153,6 +153,58 @@ object PhysicalTopologyExplicitConnectionImpactResolver {
     }
 }
 
+/**
+ * Maps one Core-validated whole-world snapshot plan to current common edit-guard identities.
+ *
+ * The registry validates every submitted identity against the current topology. Target-only rails,
+ * nodes, turnouts and diamonds therefore cannot enter the impact: no current dependency, claim or
+ * permit can hold them. A prospective crossing is guarded through each participating rail that
+ * already exists; removed crossings retain their current diamond identity.
+ */
+object PhysicalTopologySnapshotRestoreImpactResolver {
+    fun resolve(
+        current: TopologyState,
+        removedOrReplacedRailIds: Set<UUID>,
+        changedExistingEndpoints: Set<RailEndpointRef>,
+        affectedExistingRailIds: Set<UUID>,
+        removedCrossings: Set<AtGradeRailCrossing>
+    ): TopologyEditImpact? {
+        require(affectedExistingRailIds.all(current.railProjection::containsKey)) {
+            "snapshot restore impact contains a rail outside the captured topology"
+        }
+        require(removedCrossings.all { crossing ->
+            crossing in current.atGradeCrossingsOn(crossing.first.railId)
+        }) {
+            "snapshot restore impact contains a crossing outside the captured topology"
+        }
+        val sourceImpact = removedOrReplacedRailIds.takeIf(Set<UUID>::isNotEmpty)?.let { railIds ->
+            PhysicalTopologyReplacementOrRemovalImpactResolver.resolve(current, railIds)
+        }
+        val connectionImpact = PhysicalTopologyExplicitConnectionImpactResolver.resolve(
+            current,
+            changedExistingEndpoints,
+            emptyList()
+        )
+        val railIds = linkedSetOf<UUID>().apply {
+            sourceImpact?.railIds?.let(::addAll)
+            connectionImpact?.railIds?.let(::addAll)
+            addAll(affectedExistingRailIds)
+        }
+        val nodeKeys = linkedSetOf<StableTopologyNodeKey>().apply {
+            sourceImpact?.topologyNodeKeys?.let(::addAll)
+            connectionImpact?.topologyNodeKeys?.let(::addAll)
+        }
+        val resources = linkedSetOf<StableInfrastructureResource>().apply {
+            sourceImpact?.resourceIds?.let(::addAll)
+            connectionImpact?.resourceIds?.let(::addAll)
+            removedCrossings
+                .mapTo(this, PhysicalTopologyResources::diamondResource)
+        }
+        if (railIds.isEmpty() && nodeKeys.isEmpty() && resources.isEmpty()) return null
+        return TopologyEditImpact(railIds, nodeKeys, resources)
+    }
+}
+
 private fun TopologyState.loopAnchorsOn(railId: UUID): Sequence<TopologyNode.LoopAnchor> =
     railProjection.getValue(railId).asSequence().flatMap { projection ->
         val edge = edges.getValue(projection.edgeId)

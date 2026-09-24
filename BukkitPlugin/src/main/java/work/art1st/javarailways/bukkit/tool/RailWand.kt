@@ -4517,6 +4517,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun splitSafetyError(coreWorld: CoreWorld, rails: List<CoreRail>): String? {
         val railIds = rails.mapTo(hashSetOf()) { it.id }
         if (coreWorld.occupyingTrainIds(railIds).isNotEmpty()) return "safety.occupied"
+        return nonOccupancyTopologySafetyError(coreWorld, rails)
+    }
+
+    private fun nonOccupancyTopologySafetyError(coreWorld: CoreWorld, rails: List<CoreRail>): String? {
+        val railIds = rails.mapTo(hashSetOf()) { it.id }
         if (rails.any { rail -> rail.signals.any { it !is OperationalSpeedLimitSignal } }) {
             return "safety.signal_present"
         }
@@ -5335,7 +5340,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         override fun description(): Component = Component.text("RailWand operation")
 
         override fun undo(player: Player): CompletionStage<OperationResult> =
-            CompletableFuture.completedFuture(applyUndo(player, action))
+            applyUndo(player, action)
 
         override fun redo(player: Player): CompletionStage<OperationResult> =
             CompletableFuture.completedFuture(applyRedo(player, action))
@@ -5379,32 +5384,33 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         else -> this
     }
 
-    private fun applyUndo(player: Player, action: WandAction): OperationResult {
+    private fun applyUndo(player: Player, action: WandAction): CompletionStage<OperationResult> {
         if (!canUndo(action)) {
-            return OperationResult.unsupported(RailWandI18n.component(
+            return CompletableFuture.completedFuture(OperationResult.unsupported(RailWandI18n.component(
                 player,
                 "operation.undo_unsupported"
-            ).color(NamedTextColor.RED))
+            ).color(NamedTextColor.RED)))
         }
         if (!isInActionWorld(player, action)) {
-            return OperationResult.failed(RailWandI18n.component(
+            return CompletableFuture.completedFuture(OperationResult.failed(RailWandI18n.component(
                 player,
                 "operation.undo_wrong_world"
-            ).color(NamedTextColor.RED))
+            ).color(NamedTextColor.RED)))
         }
-        val applied = applyUndoPart(player, action)
-        if (!applied) {
-            return OperationResult.failed(RailWandI18n.component(
+        return applyUndoPart(player, action).thenApply { applied ->
+            if (!applied) {
+                return@thenApply OperationResult.failed(RailWandI18n.component(
+                    player,
+                    "operation.undo_failed"
+                ).color(NamedTextColor.RED))
+            }
+            forgetCreatedAnchorOperations(player, action)
+            if (action !is WandAction.RestoreRailWorld) persistState(player, getState(player))
+            OperationResult.success(RailWandI18n.component(
                 player,
-                "operation.undo_failed"
-            ).color(NamedTextColor.RED))
+                "operation.undo_success"
+            ).color(NamedTextColor.GREEN))
         }
-        forgetCreatedAnchorOperations(player, action)
-        persistState(player, getState(player))
-        return OperationResult.success(RailWandI18n.component(
-            player,
-            "operation.undo_success"
-        ).color(NamedTextColor.GREEN))
     }
 
     private fun applyRedo(player: Player, action: WandAction): OperationResult {
@@ -5434,14 +5440,20 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         ).color(NamedTextColor.GREEN))
     }
 
-    private fun applyUndoPart(player: Player, action: WandAction): Boolean = when (action) {
-        is WandAction.CreateAnchor -> undoCreateAnchor(player, action)
-        is WandAction.DeleteAnchor -> undoDeleteAnchor(player, action)
-        is WandAction.EditAnchors -> undoEditedAnchors(player, action)
+    private fun applyUndoPart(player: Player, action: WandAction): CompletionStage<Boolean> = when (action) {
+        is WandAction.CreateAnchor -> CompletableFuture.completedFuture(undoCreateAnchor(player, action))
+        is WandAction.DeleteAnchor -> CompletableFuture.completedFuture(undoDeleteAnchor(player, action))
+        is WandAction.EditAnchors -> CompletableFuture.completedFuture(undoEditedAnchors(player, action))
         is WandAction.RestoreRailWorld -> undoRailWorld(player, action)
-        is WandAction.RestoreRailMetadata -> undoRailMetadata(player, action)
-        is WandAction.RestoreDecorations -> undoDecorations(player, action)
-        is WandAction.MultiAction -> action.actions.asReversed().all { applyUndoPart(player, it) }
+        is WandAction.RestoreRailMetadata -> CompletableFuture.completedFuture(undoRailMetadata(player, action))
+        is WandAction.RestoreDecorations -> CompletableFuture.completedFuture(undoDecorations(player, action))
+        is WandAction.MultiAction -> action.actions.asReversed().fold(
+            CompletableFuture.completedFuture(true) as CompletionStage<Boolean>
+        ) { stage, part ->
+            stage.thenCompose { applied ->
+                if (applied) applyUndoPart(player, part) else CompletableFuture.completedFuture(false)
+            }
+        }
     }
 
     private fun applyRedoPart(player: Player, action: WandAction): Boolean = when (action) {
@@ -5528,48 +5540,126 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return true
     }
 
-    private fun undoRailWorld(player: Player, action: WandAction.RestoreRailWorld): Boolean {
-        val coreWorld = getCoreWorld(player) ?: return false
+    private fun undoRailWorld(
+        player: Player,
+        action: WandAction.RestoreRailWorld
+    ): CompletionStage<Boolean> {
+        val result = CompletableFuture<Boolean>()
+        val coreWorld = getCoreWorld(player) ?: return CompletableFuture.completedFuture(false)
         val currentSnapshot = captureRailWorldUndoSnapshot(player, coreWorld)
-        if (currentSnapshot != action.expectedAfter) return false
+        if (currentSnapshot != action.expectedAfter) return CompletableFuture.completedFuture(false)
         val target = action.before
-        val currentRails = coreWorld.allRails.associateBy(CoreRail::id)
-        val currentSaved = currentRails.mapValues { (_, rail) -> rail.save() }
-        val targetSaved = target.rails.associateBy { UUID.fromString(it.id) }
-        val affectedRailIds = buildSet {
-            addAll(currentSaved.keys - targetSaved.keys)
-            addAll(targetSaved.keys - currentSaved.keys)
-            currentSaved.keys.intersect(targetSaved.keys).forEach { railId ->
-                if (currentSaved[railId] != targetSaved[railId]) add(railId)
-            }
-        }
-        if (coreWorld.occupyingTrainIds(affectedRailIds).isNotEmpty()) return false
-        if (coreWorld.basicWorldData.dispatcher.hasRouteAllocationOn(affectedRailIds)) return false
-        val railsRemovedByUndo = (currentSaved.keys - targetSaved.keys).map(currentRails::getValue)
-        if (railsRemovedByUndo.isNotEmpty() && splitSafetyError(coreWorld, railsRemovedByUndo) != null) return false
-
-        val rollback = currentSnapshot
-        return try {
-            applyRailWorldSnapshot(player, coreWorld, target)
-            val state = getState(player)
-            state.selectedRails.removeIf { coreWorld.getRail(it) == null }
-            state.selectedAnchors.removeIf { anchorId ->
-                railIdFromEndpointAnchor(anchorId)?.let { coreWorld.getRail(it) == null } == true
-            }
-            clearPendingSplit(state)
-            refreshAllAnchorsForPlayer(player)
-            updateAnchorDisplay(player)
-            true
+        val topologyDiff = try {
+            RailWorldSnapshotTopologyDiff.compare(currentSnapshot.rails, target.rails)
         } catch (failure: Exception) {
-            runCatching { applyRailWorldSnapshot(player, coreWorld, rollback) }
-                .onFailure(failure::addSuppressed)
-            plugin.logger.warning("RailWand world undo failed: ${failure.message ?: failure::class.simpleName}")
-            false
+            plugin.logger.warning("RailWand world undo snapshot is invalid: ${failure.message}")
+            return CompletableFuture.completedFuture(false)
         }
+        val currentRails = coreWorld.allRails.associateBy(CoreRail::id)
+        val railsRemovedOrReplaced = topologyDiff.removedOrReplacedRailIds.map(currentRails::getValue)
+        if (railsRemovedOrReplaced.isNotEmpty() &&
+            nonOccupancyTopologySafetyError(coreWorld, railsRemovedOrReplaced) != null
+        ) {
+            return CompletableFuture.completedFuture(false)
+        }
+
+        try {
+            plugin.platformDispatcher.runAsync {
+                val prepared = runCatching {
+                    coreWorld.prepareRailWorldSnapshotRestore(
+                        topologyDiff.currentRails,
+                        topologyDiff.targetRails,
+                        topologyDiff.removedOrReplacedRailIds,
+                        topologyDiff.createdOrReplacedRailIds
+                    )
+                }
+                val scheduled = runCatching {
+                    plugin.platformDispatcher.runForEntity(
+                        player,
+                        action = {
+                            prepared.fold(
+                                onSuccess = { snapshotPlan ->
+                                    val livePlayer = plugin.server.getPlayer(player.uniqueId)
+                                    if (livePlayer == null || livePlayer.world.uid != action.worldId ||
+                                        getCoreWorld(livePlayer) !== coreWorld ||
+                                        captureRailWorldUndoSnapshot(livePlayer, coreWorld) != currentSnapshot
+                                    ) {
+                                        result.complete(false)
+                                        return@fold
+                                    }
+                                    val editPlan = runCatching {
+                                        RailWandTopologyEditPlan.capturePreparedSnapshotRestore(coreWorld, snapshotPlan)
+                                    }.getOrElse { failure ->
+                                        plugin.logger.warning(
+                                            "RailWand world undo plan became stale: ${failure.message}"
+                                        )
+                                        result.complete(false)
+                                        return@fold
+                                    }
+                                    val permit = acquireTopologyEditPermit(livePlayer, editPlan)
+                                    if (permit == null) {
+                                        result.complete(false)
+                                        return@fold
+                                    }
+                                    val applied = runCatching {
+                                        permit.use {
+                                            applyRailWorldSnapshot(livePlayer, coreWorld, target, editPlan)
+                                            val state = getState(livePlayer)
+                                            state.selectedRails.removeIf { coreWorld.getRail(it) == null }
+                                            state.selectedAnchors.removeIf { anchorId ->
+                                                railIdFromEndpointAnchor(anchorId)?.let {
+                                                    coreWorld.getRail(it) == null
+                                                } == true
+                                            }
+                                            clearPendingSplit(state)
+                                            refreshAllAnchorsForPlayer(livePlayer)
+                                            updateAnchorDisplay(livePlayer)
+                                            persistState(livePlayer, state)
+                                        }
+                                        true
+                                    }.getOrElse { failure ->
+                                        plugin.logger.warning(
+                                            "RailWand world undo failed: " +
+                                                (failure.message ?: failure::class.simpleName)
+                                        )
+                                        false
+                                    }
+                                    result.complete(applied)
+                                },
+                                onFailure = { failure ->
+                                    plugin.logger.warning(
+                                        "RailWand world undo preparation failed: " +
+                                            (failure.message ?: failure::class.simpleName)
+                                    )
+                                    result.complete(false)
+                                }
+                            )
+                        },
+                        retired = { result.complete(false) }
+                    )
+                }.getOrElse { failure ->
+                    plugin.logger.warning(
+                        "RailWand world undo owner dispatch failed: ${failure.message ?: failure::class.simpleName}"
+                    )
+                    false
+                }
+                if (!scheduled) result.complete(false)
+            }
+        } catch (failure: Exception) {
+            plugin.logger.warning(
+                "RailWand world undo async dispatch failed: ${failure.message ?: failure::class.simpleName}"
+            )
+            result.complete(false)
+        }
+        return result
     }
 
-    private fun applyRailWorldSnapshot(player: Player, coreWorld: CoreWorld, target: RailWorldUndoSnapshot) {
-        val targetById = target.rails.associateBy { UUID.fromString(it.id) }
+    private fun applyRailWorldSnapshot(
+        player: Player,
+        coreWorld: CoreWorld,
+        target: RailWorldUndoSnapshot,
+        editPlan: RailWandTopologyEditPlan
+    ) {
         val infrastructureRestore = planOperationalInfrastructureRestore(
             coreWorld.basicWorldData.destinations.all(),
             coreWorld.basicWorldData.wayPoints.all(),
@@ -5577,44 +5667,26 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             target.wayPoints
         )
         coreWorld.railTopologyTransaction {
+            editPlan.requireReadyToApply(coreWorld)
             removeChangedOperationalInfrastructure(coreWorld, infrastructureRestore)
 
-            val currentRails = coreWorld.allRails.associateBy(CoreRail::id)
-            val currentTopology = currentRails.mapValues { (_, rail) -> rail.save() }
-            val changedTopologyIds = (currentTopology.keys + targetById.keys).filterTo(linkedSetOf()) { railId ->
-                currentTopology[railId] != targetById[railId]
-            }
             val currentRenderMetas = RailRenderMetaStore.load(player.world).associateBy { it.railId }
             val targetRenderMetas = target.renderMetas.associateBy { it.railId }
             val changedRenderIds = (currentRenderMetas.keys + targetRenderMetas.keys).filterTo(linkedSetOf()) { railId ->
                 currentRenderMetas[railId] != targetRenderMetas[railId]
-            }
+            }.apply { addAll(editPlan.snapshotGeometryChangedRailIds) }
             changedRenderIds.forEach(RailVisualBootstrap::unregisterRail)
 
-            currentRails.filterKeys { it !in targetById }.values.forEach { rail ->
-                rail.destroy()
-                coreWorld.removeRail(rail)
-                coreWorld.basicWorldData.railMetadata.remove(rail.id)
-            }
-
-            val dependency = CoreRail.SavedRailV1.Dependency(coreWorld)
-            target.rails.forEach { saved ->
-                val railId = UUID.fromString(saved.id)
-                if (coreWorld.getRail(railId) == null) saved.loadDisconnected(dependency)
-            }
+            editPlan.applySnapshotRestore(coreWorld)
 
             val currentMetadata = coreWorld.basicWorldData.railMetadata.snapshot()
             val changedMetadataIds = (currentMetadata.keys + target.railMetadata.keys).filterTo(linkedSetOf()) { railId ->
                 currentMetadata[railId] != target.railMetadata[railId]
-            }
+            }.apply { addAll(editPlan.snapshotGeometryChangedRailIds) }
             coreWorld.basicWorldData.railMetadata.replace(
                 removals = changedMetadataIds,
                 additions = target.railMetadata.filterKeys { it in changedMetadataIds }
             )
-            target.rails.filter { UUID.fromString(it.id) in changedTopologyIds }.forEach { saved ->
-                val rail = requireNotNull(coreWorld.getRail(UUID.fromString(saved.id)))
-                saved.restoreConnections(rail, dependency)
-            }
             changedMetadataIds.forEach { railId ->
                 coreWorld.getRail(railId)?.let(OperationalSpeedLimitSignalMaterializer::materializeRail)
             }

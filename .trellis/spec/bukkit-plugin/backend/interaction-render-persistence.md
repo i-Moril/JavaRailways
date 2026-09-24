@@ -13,8 +13,12 @@
   Split/merge/delete使用source replacement plan；turnout create、selected-anchor connect、endpoint/grade/geometry rebuild
   使用Core在安装前生成的prepared explicit-connection plan。新独立rail保持断开；selected-anchor只连接选中endpoint及明确的
   批内相邻段；rebuild用旧到新endpoint映射保留已有连接。任何路径都不得按距离搜索附近endpoint或推断turnout stem/branch。
-  Basic仅转换计划公布的exact existing endpoint/crossing identity，禁止用附近rail候选或整图扫描扩大impact。依赖whole-world snapshot restore的undo仍等待独立
-  prospective plan，不能复用creation plan猜测影响。
+  Basic仅转换计划公布的exact existing endpoint/crossing identity，禁止用附近rail候选或整图扫描扩大impact。whole-world
+  snapshot undo先在Bukkit比较current/target rail snapshot，再在async worker用Core stable-identity prepared pipeline生成
+  prospective plan；回到player owner后重新验证world instance、完整current snapshot与topology root，取得共同permit，并持有到
+  outer Core transaction、metadata/render、player state persistence与显示刷新全部完成。MultiAction以CompletionStage逆序串行，
+  不在Bukkit owner线程阻塞等待。snapshot plan统一执行准确occupancy验证；在production Dispatcher尚未迁入common registry期间，
+  undo仍保留其route-allocation guard，迁移完成后随旧allocator一起删除。
 
 证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/AbstractWand.kt`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/ui/dialog/DialogRenderer.kt`、`BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/tool/`、`BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/ui/dialog/`。
 

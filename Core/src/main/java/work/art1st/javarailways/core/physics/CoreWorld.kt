@@ -29,6 +29,7 @@ import work.art1st.javarailways.core.physics.rail.PreparedRailCreation
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectedException
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectionReason
+import work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlan
 import work.art1st.javarailways.core.physics.rail.topology.CoreTopologyInputAdapter
 import work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilder
 import work.art1st.javarailways.core.util.ThreadGuard
@@ -237,11 +238,23 @@ class CoreWorld(
     fun prepareRailCreationBatch(
         curvesInOrder: List<PrimeCurve>,
         excludedExistingRailIds: Set<UUID> = emptySet()
+    ): PreparedRailCreationBatch = prepareRailCreationBatchWithIds(
+        curvesInOrder.map { curve -> PreparedRailCreation(UUID.randomUUID(), curve) },
+        excludedExistingRailIds
+    )
+
+    /** Internal stable-identity variant used only by persisted snapshot restoration. */
+    @OptIn(Heavy::class)
+    private fun prepareRailCreationBatchWithIds(
+        creationsInOrder: List<PreparedRailCreation>,
+        excludedExistingRailIds: Set<UUID>
     ): PreparedRailCreationBatch {
         ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailCreationBatch")
-        require(curvesInOrder.isNotEmpty()) { "rail creation batch must not be empty" }
-        val creations = curvesInOrder.map { curve -> PreparedRailCreation(UUID.randomUUID(), curve) }
-        val sampledRails = creations.map { creation ->
+        require(creationsInOrder.isNotEmpty()) { "rail creation batch must not be empty" }
+        require(creationsInOrder.map(PreparedRailCreation::railId).distinct().size == creationsInOrder.size) {
+            "rail creation IDs must be unique"
+        }
+        val sampledRails = creationsInOrder.map { creation ->
             atGradeRailCrossingIndex.prepareGeometry(creation.railId, creation.curve)
         }
         val captured = railTopologyLock.read {
@@ -264,11 +277,139 @@ class CoreWorld(
         return PreparedRailCreationBatch.create(
             ownerWorld = this,
             topologyRoot = captured.topologyRoot,
-            creations = creations,
+            creations = creationsInOrder,
             excludedExistingRailIds = excludedExistingRailIds,
             sampledRails = sampledRails,
             crossings = crossings
         )
+    }
+
+    /**
+     * Prepares the exact structural portion of one persisted RailWand snapshot restore.
+     * [removedOrReplacedRailIds] and [createdOrReplacedRailIds] are calculated by Bukkit; Core
+     * validates that they describe the complete geometry diff and derives endpoint changes after
+     * decoding the target snapshot against its target geometry.
+     */
+    @JvmSynthetic
+    @OptIn(Heavy::class)
+    fun prepareRailWorldSnapshotRestore(
+        currentSnapshot: List<CoreRail.SavedRailV1>,
+        targetSnapshot: List<CoreRail.SavedRailV1>,
+        removedOrReplacedRailIds: Set<UUID>,
+        createdOrReplacedRailIds: Set<UUID>
+    ): PreparedRailWorldSnapshotPlan {
+        ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailWorldSnapshotRestore")
+        fun index(snapshot: List<CoreRail.SavedRailV1>): Map<UUID, CoreRail.SavedRailV1> {
+            val indexed = snapshot.associateBy { UUID.fromString(it.id) }
+            require(indexed.size == snapshot.size) { "rail snapshot contains duplicate IDs" }
+            return indexed
+        }
+        val currentSaved = index(currentSnapshot)
+        val targetSaved = index(targetSnapshot)
+        val targetCreations = createdOrReplacedRailIds.map { railId ->
+            val saved = requireNotNull(targetSaved[railId]) { "missing target rail $railId" }
+            PreparedRailCreation(railId, saved.curveAB.load(Unit))
+        }
+        val prepared = targetCreations.takeIf(List<PreparedRailCreation>::isNotEmpty)?.let { creations ->
+            prepareRailCreationBatchWithIds(creations, removedOrReplacedRailIds)
+        }
+        val captured = railTopologyLock.read {
+            ensureTopologyHealthy()
+            val liveById = rails.toMap()
+            require(liveById.keys == currentSaved.keys &&
+                liveById.all { (railId, rail) ->
+                    rail.curve.save() == currentSaved.getValue(railId).curveAB
+                }
+            ) { "current rail snapshot changed during restore preparation" }
+            val root = publishedTopologyState
+            require(prepared == null || prepared.topologyRoot === root) {
+                "rail topology changed during restore preparation"
+            }
+            Triple(root, liveById, atGradeRailCrossingIndex.snapshot())
+        }
+        return PreparedRailWorldSnapshotPlan.create(
+            world = this,
+            topologyRoot = captured.first,
+            currentById = captured.second,
+            currentSaved = currentSaved,
+            targetSaved = targetSaved,
+            removedOrReplacedRailIds = removedOrReplacedRailIds,
+            createdOrReplacedRailIds = createdOrReplacedRailIds,
+            preparedCreations = prepared,
+            rawCurrentCrossings = captured.third
+        )
+    }
+
+    /** Applies one already validated stable-identity snapshot plan inside the caller's transaction. */
+    @JvmSynthetic
+    @MainThread
+    internal fun applyPreparedRailWorldSnapshot(plan: PreparedRailWorldSnapshotPlan) {
+        check(railTopologyLock.isWriteLockedByCurrentThread) {
+            "Prepared rail-world snapshot restore requires an outer topology transaction"
+        }
+        plan.requireReadyToApply(this)
+        val removed = plan.removedOrReplacedRailIds.map { railId ->
+            requireNotNull(rails[railId]) { "snapshot replacement source $railId disappeared" }
+        }
+
+        // Disconnect all removed instances in one pass, then remove their geometry/index entries.
+        val removedInstances = removed.toSet()
+        rails.values.asSequence().filterNot(removedInstances::contains).flatMap { rail ->
+            sequenceOf(rail.viewAB, rail.viewBA)
+        }.forEach { view ->
+            if (view.activeRail?.rail in removedInstances) view.activeRail = null
+            view.mutableNextRails.removeIf { it.rail in removedInstances }
+            if (view.activeRail == null) view.activeRail = view.mutableNextRails.firstOrNull()
+        }
+        removed.forEach { rail ->
+            rail.destroy()
+            rail.viewAB.activeRail = null
+            rail.viewBA.activeRail = null
+            rail.viewAB.mutableNextRails.clear()
+            rail.viewBA.mutableNextRails.clear()
+            rails.remove(rail.id)
+            atGradeRailCrossingIndex.remove(rail.id)
+            railSpatialIndex.removeRail(rail)
+        }
+
+        plan.preparedCreations?.let { batch ->
+            val createdRails = batch.creations.map { creation ->
+                require(creation.railId !in rails) { "snapshot target rail already exists: ${creation.railId}" }
+                CoreRail.createUnregistered(creation.railId, this, creation.curve)
+            }
+            val byId = createdRails.associateBy(CoreRail::id)
+            createdRails.forEach { rails[it.id] = it }
+            atGradeRailCrossingIndex.installPrepared(byId, batch.sampledRails, batch.crossings)
+        }
+        if (removed.isNotEmpty() || plan.preparedCreations != null) {
+            railTopologyTransactionContext.get()?.recordRailInventoryMutation()
+        }
+
+        val endpointsToApply = LinkedHashSet<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>().apply {
+            addAll(plan.changedExistingEndpoints)
+            plan.createdOrReplacedRailIds.forEach { railId ->
+                work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint.entries.forEach { endpoint ->
+                    add(work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef(railId, endpoint))
+                }
+            }
+            toList().forEach { endpoint ->
+                plan.targetEndpointStates.getValue(endpoint).connectedEndpoints.forEach(::add)
+            }
+        }
+        fun view(endpoint: work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef): RailView {
+            val rail = requireNotNull(rails[endpoint.railId]) { "missing snapshot target rail ${endpoint.railId}" }
+            return if (endpoint.endpoint == work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint.A) {
+                rail.viewBA
+            } else rail.viewAB
+        }
+        endpointsToApply.forEach { endpoint ->
+            val target = plan.targetEndpointStates.getValue(endpoint)
+            val sourceView = view(endpoint)
+            sourceView.activeRail = null
+            sourceView.mutableNextRails.clear()
+            sourceView.mutableNextRails.addAll(target.connectedEndpoints.map { view(it).reversed })
+            sourceView.activeRail = target.activeEndpoint?.let { view(it).reversed }
+        }
     }
 
     /** Convenience wrapper preserving the single input/output shape while using batch semantics. */

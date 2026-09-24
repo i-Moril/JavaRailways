@@ -109,11 +109,27 @@ apply还要求prepared batch是当前outer transaction中唯一已经发生的ra
 一个显式变化会绑定其最终connection component中的全部既有endpoint；即使某条既有支路的本地next列表不变，它仍属于
 正在重构的同一物理接头，必须参与占用检查与edit impact。
 
+whole-world RailWand snapshot restore仍复用同一prepared geometry pipeline。普通创建入口先生成随机UUID；内部
+stable-identity入口接收snapshot中的`(UUID, PrimeCurve)`，其余sampling、spatial candidate capture与exact crossing
+detection完全相同。Bukkit以current/target snapshot做一次`O(N)` geometry/identity比较，Core复核该diff、按target geometry
+解码saved connection并自行导出surviving endpoint变化；Bukkit不从只保存相邻rail UUID的格式猜target endpoint。
+saved `nextRailAtA/B`与active selection仍是唯一连接来源，不搜索无声明的附近rail。same-UUID geometry replacement使用专用
+plan：在outer transaction内完整验证root、rail instance、endpoint state和occupancy后，批量断开/移除旧实例，再以相同
+UUID安装预采样实例，最后写入snapshot声明的endpoint state。普通`installPreparedRails`的duplicate-ID与
+install-before-remove规则不放宽。旧raw crossing去除被替换rail后与prepared crossings合并，并通过target explicit
+connections重新归一化，因而plan能报告removed old crossings与introduced exact target crossings，而不是spatial候选；
+Basic permit只提交其中current-valid的旧diamond resource与prospective crossing existing-rail参与者。
+async prepare只解析owner线程已捕获的current/target saved values和immutable curve geometry，不读取live mutable connection或
+active branch；回到player owner后，plan以captured endpoint state逐项复核live rail，再允许permit/apply。
+比较与target topology构建为`O(N + M + K)`，其中`M`为snapshot连接数、`K`为相关crossing数；exact geometry成本仍沿用
+前述candidate-pruned bound。apply对surviving endpoints单次遍历并只写changed/created endpoints，不扫描图资源。
+
 设声明中endpoint数为`E`、连接引用总数为`M`、prepared exact crossing数为`K`，capture为`O(E + M + K)`，其后验证与apply为`O(E + M)`，且不执行几何邻近搜索；
 prepared crossing仍由前述creation batch检测。测试必须证明显式选择、附近未选rail排除、standalone保持断开、stale root拒绝、
 deterministic apply与replacement准确重映射。
 
 测试必须锁定：exact detector只在prepare运行；batch内new-vs-new crossing；input/output顺序；一次publication；world mismatch、stale root、dirty outer transaction与source缺失在batch mutation前拒绝；显式连接的exact selection、stale拒绝与deterministic apply。world bootstrap/load仍可在physics启动前同步完整重建。
+snapshot restore还必须覆盖stable UUID、same-ID replacement、exact prospective crossing、unrelated rail exclusion、stale与occupied no-mutation。
 
 ## 必需测试与验证
 

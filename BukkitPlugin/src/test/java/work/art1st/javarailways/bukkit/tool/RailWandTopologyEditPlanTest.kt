@@ -12,9 +12,48 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class RailWandTopologyEditPlanTest {
+    @Test
+    fun `snapshot diff preserves replacement UUID and wrapper excludes unrelated rail`() {
+        val world = createTestWorld()
+        try {
+            val source = world.createRailForTest(
+                lineCurve(Vector3d(0.0, 0.0, 5.0), Vector3d(10.0, 0.0, 5.0))
+            )
+            val crossing = world.createRailForTest(
+                lineCurve(Vector3d(5.0, 0.0, -5.0), Vector3d(5.0, 0.0, 5.0))
+            )
+            val unrelated = world.createRailForTest(straightCurve(30.0, 40.0))
+            val current = world.allRails.map(CoreRail::save)
+            val replacement = lineCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
+            val target = current.map { saved ->
+                if (saved.id == source.id.toString()) saved.copy(
+                    curveAB = replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
+                ) else saved
+            }
+            val diff = RailWorldSnapshotTopologyDiff.compare(current, target)
+            val prepared = world.prepareRailWorldSnapshotRestore(
+                diff.currentRails,
+                diff.targetRails,
+                diff.removedOrReplacedRailIds,
+                diff.createdOrReplacedRailIds
+            )
+            val plan = RailWandTopologyEditPlan.capturePreparedSnapshotRestore(world, prepared)
+
+            assertEquals(setOf(source.id), diff.removedOrReplacedRailIds)
+            assertEquals(setOf(source.id), diff.createdOrReplacedRailIds)
+            assertEquals(setOf(source.id), plan.snapshotGeometryChangedRailIds)
+            assertTrue(crossing.id in requireNotNull(plan.impact).railIds)
+            assertFalse(unrelated.id in requireNotNull(plan.impact).railIds)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
     @Test
     fun `plan binds the exact topology root and existing rail instances`() {
         val world = createTestWorld()

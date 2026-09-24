@@ -18,8 +18,10 @@ data class PreparedRailCreation(
  * Off-thread result for one atomic rail-creation batch.
  *
  * The result belongs to the exact [CoreWorld] instance and [topologyRevision] observed while its
- * spatial candidates were captured. It contains no executor or future. Callers must install it on
- * the world owner thread; a topology change makes the entire batch stale.
+ * spatial candidates were captured. Ordinary live creation supplies random IDs; persisted snapshot
+ * restoration may supply its stable IDs through Core's internal preparation entry. It contains no
+ * executor or future. Callers must install it on the world owner thread; a topology change makes
+ * the entire batch stale.
  */
 class PreparedRailCreationBatch private constructor(
     @get:JvmSynthetic internal val ownerWorld: CoreWorld,

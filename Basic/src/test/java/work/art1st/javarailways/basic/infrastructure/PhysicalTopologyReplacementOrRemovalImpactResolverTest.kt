@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.infrastructure
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
@@ -12,9 +13,102 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
+    @Test
+    fun `snapshot impact guards existing rail at prospective diamond without inventing target resource`() {
+        val world = createTestWorld()
+        try {
+            val source = world.createRailForTest(curve(Vector3d(0.0, 0.0, 5.0), Vector3d(10.0, 0.0, 5.0)))
+            val crossing = world.createRailForTest(curve(Vector3d(5.0, 0.0, -5.0), Vector3d(5.0, 0.0, 5.0)))
+            val unrelated = world.createRailForTest(curve(Vector3d(30.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0)))
+            val current = world.allRails.map(CoreRail::save)
+            val replacement = curve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
+            val target = current.map { saved ->
+                if (saved.id == source.id.toString()) saved.copy(
+                    curveAB = replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
+                ) else saved
+            }
+            val plan = world.prepareRailWorldSnapshotRestore(
+                current, target, setOf(source.id), setOf(source.id)
+            )
+            val introduced = plan.introducedCrossings.single()
+
+            val impact = requireNotNull(snapshotImpact(plan))
+
+            assertTrue(source.id in impact.railIds)
+            assertTrue(crossing.id in impact.railIds)
+            assertTrue(unrelated.id !in impact.railIds)
+            assertTrue(PhysicalTopologyResources.diamondResource(introduced) !in impact.resourceIds)
+            assertTrue(impact.railIds.all(plan.topologyRoot.railProjection::containsKey))
+            val currentNodeKeys = plan.topologyRoot.nodes.values.mapTo(hashSetOf()) { node ->
+                StableTopologyNodeKey(node.ports)
+            }
+            assertTrue(currentNodeKeys.containsAll(impact.topologyNodeKeys))
+            val currentResources = PhysicalTopologyResources.controlledResources(
+                plan.topologyRoot,
+                PhysicalTopologyResources.routeBoundBindings(plan.topologyRoot)
+            )
+            assertTrue(currentResources.containsAll(impact.resourceIds))
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `snapshot addition of only new crossing rails needs no current edit identity`() {
+        val world = createTestWorld()
+        try {
+            val current = world.allRails.map(CoreRail::save)
+            val firstId = java.util.UUID.randomUUID()
+            val secondId = java.util.UUID.randomUUID()
+            val first = curve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
+            val second = curve(Vector3d(5.0, 0.0, -5.0), Vector3d(5.0, 0.0, 5.0))
+            val target = listOf(
+                savedRail(firstId, first),
+                savedRail(secondId, second)
+            )
+            val plan = world.prepareRailWorldSnapshotRestore(
+                current, target, emptySet(), setOf(firstId, secondId)
+            )
+
+            assertEquals(1, plan.introducedCrossings.size)
+            assertNull(snapshotImpact(plan))
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `snapshot addition guards only existing participant of prospective crossing`() {
+        val world = createTestWorld()
+        try {
+            val existing = world.createRailForTest(
+                curve(Vector3d(5.0, 0.0, -5.0), Vector3d(5.0, 0.0, 5.0))
+            )
+            val current = world.allRails.map(CoreRail::save)
+            val newId = java.util.UUID.randomUUID()
+            val target = current + savedRail(
+                newId,
+                curve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
+            )
+            val plan = world.prepareRailWorldSnapshotRestore(current, target, emptySet(), setOf(newId))
+
+            val impact = requireNotNull(snapshotImpact(plan))
+
+            assertEquals(setOf(existing.id), impact.railIds)
+            assertTrue(impact.topologyNodeKeys.isEmpty())
+            assertTrue(impact.resourceIds.isEmpty())
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
     @Test
     fun `replacement includes only the peer at an ordinary endpoint`() {
         val world = createTestWorld()
@@ -239,4 +333,22 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
             Curve.RawPoint(Vector3d(to), Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), displacement.length())
         ))
     }
+
+    private fun savedRail(id: java.util.UUID, curve: PrimeCurve) = CoreRail.SavedRailV1(
+        id = id.toString(),
+        curveAB = curve.save() as PrimeCurveImpl.SavedPrimeCurveV1,
+        nextRailAtA = emptyList(),
+        nextRailAtB = emptyList(),
+        activeTrackAtA = null,
+        activeTrackAtB = null
+    )
+
+    private fun snapshotImpact(plan: work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlan) =
+        PhysicalTopologySnapshotRestoreImpactResolver.resolve(
+            current = plan.topologyRoot,
+            removedOrReplacedRailIds = plan.removedOrReplacedRailIds,
+            changedExistingEndpoints = plan.changedExistingEndpoints,
+            affectedExistingRailIds = plan.affectedExistingRailIds,
+            removedCrossings = plan.removedCrossings
+        )
 }

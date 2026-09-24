@@ -88,8 +88,12 @@ grade smoothing和geometry rebuild使用Core的prepared explicit-connection plan
 replacement/removal impact取union。改变pure degree-2 loop中的endpoint时还包含该edge的旧deterministic loop anchor。
 附近但未选择的rail、spatial candidate和整图incident resource都不进入impact。
 Permit在安装前取得，并持有到Core topology、Basic metadata、render persistence、player state及undo record side effect完成；
-这些步骤位于一个外层Core topology transaction。依赖whole-world snapshot restore的undo仍需要单独的prospective plan，
-不能用当前creation plan冒充。
+这些步骤位于一个外层Core topology transaction。whole-world snapshot restore使用Core单独验证的prospective plan。
+Basic只把当前root中可验证、也可能已被dependency/claim/permit持有的身份加入impact：旧source replacement/removal、
+真实changed surviving endpoints、removed old crossing resource，以及introduced target crossing中仍存在于当前root的参与rail。
+target-only rail/node/turnout/diamond尚不可能被当前持有者引用，也不能提交给只接受current identity的registry validator；
+两条全新rail之间的prospective crossing因此不凭空制造edit identity。只被空间broad phase命中、但未形成target crossing的rail
+同样不进入impact。该映射不重新检测geometry，也不扫描整图incident resource。
 
 ## 跨轨道 infrastructure footprint
 

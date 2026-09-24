@@ -29,6 +29,9 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - Keep SimpleATO responsible for operating-route choice, inspection scheduling and most-restrictive ATO/ATP arbitration. A signal plugin may only tighten Basic/SimpleATO authority or speed, never widen it.
 - Keep resource inspection distinct from per-tick braking. The exact cache keys, dependency ownership and `update(train)` scheduling are deferred for review immediately before implementing the reactive batch; avoid unchanged per-tick plugin callbacks and duplicate forward scans.
 - Compute world occupancy once per published epoch using rail-indexed intervals and reuse one route perception pass per controlled train; do not add `allTrains × allResources` scans.
+- Run each railway epoch as one host-thread-independent safety pipeline: physics publication, ordered boundary occupancy changes, signal/interlocking recomputation and next-epoch restriction publication must finish before another physics epoch begins. Bukkit rendering must not own or block this pipeline.
+- Represent monitored-area crossings only as ordered `ENTER` and `LEFT` changes carrying stable area and boundary identities. Core must retain enough ordered head/tail traversal evidence to report a complete same-epoch enter-then-leave sequence; a synthetic `PASSED_THROUGH` change is not part of the contract.
+- Send logical signal results to Bukkit through immutable revisioned presentation state. Platform adapters may coalesce pending presentation updates per object to the newest revision; they may not discard, reorder or asynchronously replay safety changes.
 - Preserve timetable compile/apply requirements: validate statically reachable routes and required signalling configuration before apply, atomically acquire shared infrastructure leases for the applied revision, and block covered edits until safe unapply/replacement.
 - Separate explicit manual turnout selection from automatic allocation. Manual selection checks physical occupancy and active claims, grants no movement authority and cannot bypass a live route lock.
 - Follow the project persistence policy: no new runtime compatibility path or schema boundary without separate review.
@@ -46,6 +49,8 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - [ ] Diamonds share one conflict identity across both same-line traversals, never create cross-line continuation and require no per-tick geometry scan.
 - [ ] Signal restrictions are namespaced, revisioned and most-restrictive; stale or missing plugin state never silently expands authority.
 - [ ] Resource inspection uses cached declarations plus host braking math; unchanged inputs do not repeatedly run plugin code.
+- [ ] A train that enters and leaves a short monitored area within one physics epoch produces ordered boundary-bearing `ENTER` then `LEFT` changes, and the signal runtime consumes both before the next physics epoch.
+- [ ] Railway physics and logical signalling continue without waiting for the Minecraft main thread; after a platform stall, each rendered signal converges to its newest published presentation revision without replaying obsolete visual states.
 - [ ] Applied timetable leases overlap safely between readers, coexist with runtime claims, block every covered editor and change atomically.
 - [ ] Service registration, plugin disable, world unload/reload and train removal have focused fail-closed lifecycle tests.
 - [ ] Existing Core, Basic, BukkitPlugin, SimpleATO, timetable and ATO tests pass.

@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.api.observation
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 
@@ -22,6 +23,8 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
  * @property head immutable head position with local facing and canonical AB arc
  * @property tail immutable tail position with local facing and canonical AB arc
  * @property sweptSpans immutable occupied/swept intervals in canonical AB arcs
+ * @property headTraversal ordered directed rail segments crossed by the head in this epoch
+ * @property tailTraversal ordered directed rail segments crossed by the tail in this epoch
  */
 @ConsistentCopyVisibility
 data class RailwayTrainObservation private constructor(
@@ -34,7 +37,9 @@ data class RailwayTrainObservation private constructor(
     val reversed: Boolean,
     val head: RailPositionSnapshot,
     val tail: RailPositionSnapshot,
-    val sweptSpans: List<SweptRailSpanSnapshot>
+    val sweptSpans: List<SweptRailSpanSnapshot>,
+    val headTraversal: List<RailTraversalSegmentSnapshot>,
+    val tailTraversal: List<RailTraversalSegmentSnapshot>
 ) {
     init {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
@@ -46,7 +51,7 @@ data class RailwayTrainObservation private constructor(
     }
 
     companion object {
-        /** Creates a validated value snapshot and defensively copies [sweptSpans]. */
+        /** Creates a validated value snapshot and defensively copies all collection values. */
         @JvmStatic
         fun create(
             trainId: String,
@@ -57,7 +62,9 @@ data class RailwayTrainObservation private constructor(
             reversed: Boolean,
             head: RailPositionSnapshot,
             tail: RailPositionSnapshot,
-            sweptSpans: Collection<SweptRailSpanSnapshot>
+            sweptSpans: Collection<SweptRailSpanSnapshot>,
+            headTraversal: Collection<RailTraversalSegmentSnapshot>,
+            tailTraversal: Collection<RailTraversalSegmentSnapshot>
         ): RailwayTrainObservation = RailwayTrainObservation(
             trainId,
             trainName,
@@ -67,7 +74,9 @@ data class RailwayTrainObservation private constructor(
             reversed,
             head,
             tail,
-            java.util.List.copyOf(sweptSpans)
+            java.util.List.copyOf(sweptSpans),
+            java.util.List.copyOf(headTraversal),
+            java.util.List.copyOf(tailTraversal)
         )
     }
 }
@@ -132,7 +141,9 @@ data class RailwayObservation private constructor(
                 reversed = frame.reversed,
                 head = frame.head,
                 tail = frame.tail,
-                sweptSpans = frame.sweptSpans
+                sweptSpans = frame.sweptSpans,
+                headTraversal = frame.headTraversal,
+                tailTraversal = frame.tailTraversal
             )
     }
 }

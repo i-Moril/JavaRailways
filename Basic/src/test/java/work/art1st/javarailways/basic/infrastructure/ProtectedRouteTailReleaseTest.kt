@@ -251,7 +251,9 @@ class ProtectedRouteTailReleaseTest {
         cars = emptyList(),
         head = position(tailMeters + 1.0),
         tail = position(tailMeters),
-        sweptSpans = listOf(SweptRailSpanSnapshot(railId, tailMeters, tailMeters + 1.0))
+        sweptSpans = listOf(SweptRailSpanSnapshot(railId, tailMeters, tailMeters + 1.0)),
+        headTraversal = emptyList(),
+        tailTraversal = emptyList()
     )
 
     private fun position(meters: Double) = RailPositionSnapshot(railId, ViewDirection.AB, meters)

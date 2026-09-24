@@ -110,6 +110,28 @@ The current route state owns one frozen route and one monotonic tail cursor; its
 
 One shared route perception must avoid a second forward scan. A plugin publishes immutable restrictions; SimpleATO combines them with Basic grant, following, operational stops and infrastructure speed constraints. Plugin code can only keep or tighten the result. The owner of dependency tracking, activation/update timing and fail-closed invalidation is deliberately deferred to the reactive implementation review; unchanged resources must not invoke plugin code every tick.
 
+The railway safety loop is independent of the Minecraft main thread and serializes complete epochs:
+
+```text
+physics N
+  -> publish immutable world observation plus ordered head/tail traversal
+  -> Basic derives ordered ENTER/LEFT changes with area and boundary identity
+  -> signal plugins update occupancy, interlocking and dependent restrictions
+  -> SimpleATO-visible restrictions for physics N+1 are committed
+  -> epoch N completes and physics N+1 may start
+```
+
+This is a direct in-epoch safety handoff, not an asynchronously drained occupancy-event queue. Core's existing merged
+`sweptSpans` remain useful for overlap queries but cannot prove boundary order or repeated occurrences; the observation
+contract therefore also needs ordered directed traversal evidence for the train head and tail. Crossing a complete short
+area in one epoch emits `ENTER(entryBoundary)` followed by `LEFT(exitBoundary)` rather than a synthetic pass event.
+
+Only presentation crosses into the Bukkit scheduler asynchronously. A signal plugin publishes immutable per-object visual
+state with a monotonic revision; its Bukkit adapter keeps at most the newest pending revision and applies it on the proper
+platform thread. A stalled Minecraft thread may delay or skip obsolete lamp/model transitions, but never delays logical
+signal evaluation. A resource whose physical preparation genuinely requires a Bukkit-side action stays `PREPARING` until
+the adapter reports completion, so that dependency can stop the affected train without stopping unrelated railway physics.
+
 ## Public service capabilities
 
 Route-admission value names and semantics are frozen by the Basic owner spec. The generic request/progress/end service is
@@ -158,4 +180,7 @@ transitional Basic types; neither stage adds a runtime compatibility layer witho
 
 All validation failure is atomic and does not widen authority. Missing resource indexes, stale revisions, contributor failure or invalid contributed resources fail closed. Existing committed grants remain host-owned through physical release, so unloading a signal plugin cannot drop resources beneath a train.
 
-Physics workers consume immutable observations and constraint snapshots. Route claim and equipment preparation execute on their documented world/main owner. Add-on callbacks are bounded, non-blocking and are never invoked once per world resource every tick.
+Physics workers consume immutable observations and constraint snapshots. The serialized railway coordinator owns the
+post-physics occupancy/signal phase and does not wait for Minecraft presentation work. Route claim and equipment preparation
+execute on their documented railway owner; only platform actions are dispatched to Bukkit/Folia threads. Add-on callbacks
+are bounded and are never invoked once per world resource every tick merely because time advanced.

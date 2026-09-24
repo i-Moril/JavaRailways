@@ -51,7 +51,7 @@ Core frame shape/epoch成功语义由[Core runtime](../core/runtime-publication.
 
 ## 对外 observation contract
 
-`RailwayObservation.fromCore(worldId, frame)`只接受一个完整`RailwayWorldFrameSnapshot`，并生成`RailwayStateStamp(worldId, physicsEpoch, topologyRevision)`。`physicsEpoch`与`topologyRevision`是两个独立runtime计数器，都不是schema version，也不能跨world比较。投影保留head/tail facing、canonical AB位置、速度和完整swept spans，移除render car state和所有live `World/Train/Rail`引用；observation同时保留frame的同epoch `RailwayOccupancySnapshot`引用，供准入、释放和只读consumer做局部查询，不再重建第二份world index。
+`RailwayObservation.fromCore(worldId, frame)`只接受一个完整`RailwayWorldFrameSnapshot`，并生成`RailwayStateStamp(worldId, physicsEpoch, topologyRevision)`。`physicsEpoch`与`topologyRevision`是两个独立runtime计数器，都不是schema version，也不能跨world比较。投影保留head/tail facing、canonical AB位置、速度、完整swept spans以及同epoch有序head/tail traversal，移除render car state和所有live `World/Train/Rail`引用；observation同时保留frame的同epoch `RailwayOccupancySnapshot`引用，供准入、释放和只读consumer做局部查询，不再重建第二份world index。traversal是后续Basic边界检测的输入，不在投影时按rail合并或从topology重建。
 
 Bukkit adapter在exact physics ticket成功后的serialized simulation context同步发布；listener不在physics worker运行，必须快速返回，且不能直接执行entity/location/block/region side effect。world unload移除latest snapshot，plugin disable移除owner subscriptions。慢listener不得反向阻塞physics worker，也不得要求Core为每个subscriber保留逐epoch backlog。
 

@@ -9,6 +9,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailObjectSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -59,6 +60,12 @@ class ImmutableSnapshotTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             RailObjectRef("Invalid Namespace", "object")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RailTraversalSegmentSnapshot(rail.id, ViewDirection.AB, 2.0, 1.0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RailTraversalSegmentSnapshot(rail.id, ViewDirection.BA, 1.0, 2.0)
         }
     }
 }

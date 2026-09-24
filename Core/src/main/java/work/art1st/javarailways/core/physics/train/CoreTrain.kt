@@ -14,6 +14,7 @@ import work.art1st.javarailways.core.api.physics.exception.PhysicsException
 import work.art1st.javarailways.core.api.physics.rail.RailLocation
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainExtension
@@ -85,6 +86,10 @@ open class CoreTrain @MainThread internal constructor(
     internal var publishedSweptSpans: List<SweptRailSpan> = emptyList()
         private set
     private var pendingSweptSpans: List<SweptRailSpan>? = null
+    private var publishedHeadTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
+    private var publishedTailTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
+    private var pendingHeadTraversal: List<RailTraversalSegmentSnapshot>? = null
+    private var pendingTailTraversal: List<RailTraversalSegmentSnapshot>? = null
     private val frameRevision = AtomicLong(0L)
     private val publishedFrameRef = AtomicReference<TrainFrameSnapshot?>()
 
@@ -195,6 +200,8 @@ open class CoreTrain @MainThread internal constructor(
 
         if (deltaS == 0.0) {
             pendingSweptSpans = spansFromLocations(currentRailLocations())
+            pendingHeadTraversal = emptyList()
+            pendingTailTraversal = emptyList()
             return
         }
 
@@ -208,13 +215,15 @@ open class CoreTrain @MainThread internal constructor(
             val previousLocations = currentRailLocations()
             val traversedSegments = head.location.peekCurve(deltaS).toList()
             headBogie.moveForward(deltaS)
-            updateAfterHeadBogie(deltaS)
+            val tailTraversal = updateAfterHeadBogie(deltaS)
             pendingSweptSpans = mergeSweptSpans(
                 spansFromLocations(previousLocations + activeRailLocations()) +
                     traversedSegments
                         .filter { kotlin.math.abs(it.endArcLength - it.startArcLength) > Curve.TOLERANCE }
                         .map(::spanFromSegment)
             )
+            pendingHeadTraversal = traversalSnapshots(traversedSegments)
+            pendingTailTraversal = traversalSnapshots(tailTraversal)
         } catch (e: PhysicsException) {
             markDerailedFromPhysics(e.toString())
         }
@@ -343,7 +352,7 @@ open class CoreTrain @MainThread internal constructor(
         world.removeTrain(this)
     }
 
-    private fun updateAfterHeadBogie(deltaS: Double? = null) {
+    private fun updateAfterHeadBogie(deltaS: Double? = null): List<RailSegment> {
         val orderedCars = if (activeIsReversed) cars.asReversed() else cars
         var prevCar = orderedCars.first()
         prevCar.updateByHeadBogie(activeHeadBogie.activeLocation, deltaS)
@@ -354,13 +363,23 @@ open class CoreTrain @MainThread internal constructor(
         head.location = activeHeadBogie.activeLocation.forward(
             activeHeadCar.activeHeadBogieToEndPointOffset
         ) ?: throw CannotMoveForwardException(this)
-        tail.location = if (deltaS != null) {
+        val tailAdvance = if (deltaS != null) {
             findTailEndForward(tail.activeLocation, activeTailBogie.activeLocation, deltaS)
         } else {
-            activeTailBogie.activeLocation.forward(-activeTailCar.activeTailBogieToEndPointOffset)
-                ?: throw CannotMoveForwardException(this)
+            TailEndAdvance(
+                activeTailBogie.activeLocation.forward(-activeTailCar.activeTailBogieToEndPointOffset)
+                    ?: throw CannotMoveForwardException(this),
+                emptyList()
+            )
         }
+        tail.location = tailAdvance.location
+        return tailAdvance.traversal
     }
+
+    private data class TailEndAdvance(
+        val location: RailLocationWithFacing,
+        val traversal: List<RailSegment>
+    )
 
     /**
      * Re-anchor the tail end from the train-local path used in this tick.
@@ -374,7 +393,7 @@ open class CoreTrain @MainThread internal constructor(
         previousTail: RailLocationWithFacing,
         solvedTailBogie: RailLocationWithFacing,
         deltaS: Double
-    ): RailLocationWithFacing {
+    ): TailEndAdvance {
         val endOffset = activeTailCar.activeTailBogieToEndPointOffset
         val maximumBogieDistance = deltaS + endOffset + TAIL_END_SEARCH_MARGIN_METERS
         val bogieDistance = forwardDistanceTo(previousTail, solvedTailBogie, maximumBogieDistance)
@@ -391,13 +410,15 @@ open class CoreTrain @MainThread internal constructor(
             )
         }
         val endpointSearchDistance = (bogieDistance - endOffset).coerceAtLeast(0.0)
-        return previousTail.peekCurve(endpointSearchDistance).searchRailLocation(Curve.TOLERANCE) { candidate ->
+        val traversal = previousTail.peekCurve(endpointSearchDistance)
+        val location = traversal.searchRailLocation(Curve.TOLERANCE) { candidate ->
             val candidateDistance = forwardDistanceTo(previousTail, candidate, endpointSearchDistance)
                 ?: throw CannotMoveForwardException("tail bisection left its train-local search path: train=$id")
             bogieDistance - candidateDistance - endOffset
         } ?: throw CannotMoveForwardException(
             "tail bisection did not converge: train=$id distance=$bogieDistance offset=$endOffset"
         )
+        return TailEndAdvance(location, traversal.toList())
     }
 
     private fun forwardDistanceTo(
@@ -520,6 +541,10 @@ open class CoreTrain @MainThread internal constructor(
             publishedSweptSpans = it
             pendingSweptSpans = null
         }
+        publishedHeadTraversal = pendingHeadTraversal ?: emptyList()
+        publishedTailTraversal = pendingTailTraversal ?: emptyList()
+        pendingHeadTraversal = null
+        pendingTailTraversal = null
         if (shouldRemoveController) removeController()
     }
 
@@ -560,7 +585,9 @@ open class CoreTrain @MainThread internal constructor(
         tail = RailPositionSnapshot.capture(tail.location, tail.location.facing),
         sweptSpans = publishedSweptSpans.map { span ->
             SweptRailSpanSnapshot(span.railId, span.minArcAB, span.maxArcAB)
-        }
+        },
+        headTraversal = publishedHeadTraversal,
+        tailTraversal = publishedTailTraversal
     )
 
     private fun currentRailLocations(): List<RailLocationWithFacing> = buildList {
@@ -602,6 +629,33 @@ open class CoreTrain @MainThread internal constructor(
         segment.startArcLength,
         segment.endArcLength
     )
+
+    private fun traversalSnapshots(segments: List<RailSegment>): List<RailTraversalSegmentSnapshot> =
+        segments.asSequence()
+            // Crossing evidence must not inherit geometry/occupancy tolerance: even a very short
+            // positive movement can cross a signal-system boundary.
+            .filter { it.endArcLength > it.startArcLength }
+            .map { segment ->
+                val view = segment.railView
+                val curveLength = view.curve.totalArcLength
+                val startAB = if (view.viewDirection == ViewDirection.AB) {
+                    segment.startArcLength
+                } else {
+                    curveLength - segment.startArcLength
+                }
+                val endAB = if (view.viewDirection == ViewDirection.AB) {
+                    segment.endArcLength
+                } else {
+                    curveLength - segment.endArcLength
+                }
+                RailTraversalSegmentSnapshot(
+                    railId = view.rail.id,
+                    facing = view.viewDirection,
+                    startArcLengthInAbMeters = startAB,
+                    endArcLengthInAbMeters = endAB
+                )
+            }
+            .toList()
 
     private fun spanFromViewRange(
         view: RailView,

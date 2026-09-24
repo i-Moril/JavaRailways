@@ -37,7 +37,33 @@ class RailwayObservationTest {
         assertEquals(train.publishedFrame.tail.arcLengthInAbMeters, projected.tail.arcLengthInAbMeters)
         assertEquals(train.publishedFrame.revision, projected.frameRevision)
         assertEquals(train.publishedFrame.sweptSpans, projected.sweptSpans)
+        assertEquals(train.publishedFrame.headTraversal, projected.headTraversal)
+        assertEquals(train.publishedFrame.tailTraversal, projected.tailTraversal)
         assertSame(coreFrame.occupancy, observation.occupancy)
+    }
+
+    @Test
+    fun `projection preserves ordered per-epoch train-end traversal`() {
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(60.0, segmentCount = 4)
+        )
+        val train = createTrainWithConfig("traversal-observation", rail, world, listOf(10.0))
+        train.moveTrainForward(30.0)
+        train.commit()
+        val coreFrame = RailwayWorldFrameSnapshot.create(
+            physicsEpoch = train.publishedFrame.physicsEpoch,
+            topologyRevision = world.topologyRevision,
+            trains = listOf(train.publishedFrame)
+        )
+
+        val projected = RailwayObservation.fromCore("world-id", coreFrame).trains.single()
+
+        assertEquals(3, projected.headTraversal.size)
+        assertEquals(3, projected.tailTraversal.size)
+        assertEquals(train.publishedFrame.headTraversal, projected.headTraversal)
+        assertEquals(train.publishedFrame.tailTraversal, projected.tailTraversal)
     }
 
     @Test

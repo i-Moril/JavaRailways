@@ -811,7 +811,9 @@ class RouteResourceAdmissionEngineTest {
         speedMetersPerSecond = 0.0, derailed = false, reversed = false, cars = emptyList(),
         head = RailPositionSnapshot(railId, ViewDirection.AB, head),
         tail = RailPositionSnapshot(railId, ViewDirection.AB, tail),
-        sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head))
+        sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head)),
+        headTraversal = emptyList(),
+        tailTraversal = emptyList()
     )
 
     private class MutableTicket(var state: InfrastructurePreparationState = InfrastructurePreparationState.PREPARING) :

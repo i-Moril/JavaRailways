@@ -21,7 +21,13 @@ override fun moveTrainForward(deltaS: Double) {
 
 来源：`Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreTrain.kt`。
 
-运动顺序：检查published swept collision → 扫active route signal并同步发event → 解head bogie/cars/tail → 写active buffers/swept spans；`PhysicsException`转physics derail。tail从train-local forward path重算，不依赖reverse branch当前selection。
+运动顺序：检查published swept collision → 扫active route signal并同步发event → 解head bogie/cars/tail → 写active buffers/swept spans及两端有序traversal；`PhysicsException`转physics derail。tail从train-local forward path重算，不依赖reverse branch当前selection。
+
+每次正距离移动已经取得head的`peekCurve(deltaS)`有序segments；同一列表同时供signal扫描、swept
+occupancy补全和head traversal publication使用。tail endpoint仍通过既有train-local forward search求解，
+并保留该search的`RailSegments`作为tail traversal；不得从反向`RailView`或移动后的active branch重建。
+publication把每个segment转换为canonical AB弧长但保留local facing与列表顺序。零距离移动显式发布
+空traversal，下一epoch无移动也清空前一epoch证据；traversal不是持续占用状态。
 
 完整删除由`CoreTrain.destroy()`拥有：deferred structural task → remove controller → destroy head/tail/cars/extensions → `world.removeTrain(this)`。`World.removeTrain`只删index，不能独立代表destroy。
 
@@ -61,6 +67,7 @@ override fun destroy() {
 - worker直接修改published getter或发Main event；
 - collision同epoch检测并立即link/derail；
 - tail沿独立reverse active branch求位置；
+- 从合并swept span或epoch终点反推head/tail经过顺序；
 - structure mutation直接改cars/map而无serialized task、prevalidation与rollback；
 - 用`world.removeTrain`代替destroy；
 - 未验证/未测试的split实现当成熟API。

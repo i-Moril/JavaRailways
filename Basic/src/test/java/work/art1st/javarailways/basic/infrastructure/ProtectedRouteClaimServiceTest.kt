@@ -1163,7 +1163,9 @@ class ProtectedRouteClaimServiceTest {
         cars = emptyList(),
         head = RailPositionSnapshot(railId, ViewDirection.AB, maxArcMeters),
         tail = RailPositionSnapshot(railId, ViewDirection.AB, minArcMeters),
-        sweptSpans = listOf(SweptRailSpanSnapshot(railId, minArcMeters, maxArcMeters))
+        sweptSpans = listOf(SweptRailSpanSnapshot(railId, minArcMeters, maxArcMeters)),
+        headTraversal = emptyList(),
+        tailTraversal = emptyList()
     )
 
     private fun compiledAdmission(

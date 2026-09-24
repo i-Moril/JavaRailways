@@ -204,7 +204,9 @@ class FrozenRouteSelectorTest {
             cars = emptyList(),
             head = tail,
             tail = tail,
-            sweptSpans = emptyList()
+            sweptSpans = emptyList(),
+            headTraversal = emptyList(),
+            tailTraversal = emptyList()
         )
         val train = RailwayTrainObservation.create(
             trainId = trainId,
@@ -215,7 +217,9 @@ class FrozenRouteSelectorTest {
             reversed = frame.reversed,
             head = frame.head,
             tail = frame.tail,
-            sweptSpans = frame.sweptSpans
+            sweptSpans = frame.sweptSpans,
+            headTraversal = frame.headTraversal,
+            tailTraversal = frame.tailTraversal
         )
         return RailwayObservation.create(
             stamp = RailwayStateStamp("test-world", frame.physicsEpoch, topologyRevision),

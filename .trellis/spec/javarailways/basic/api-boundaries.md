@@ -11,7 +11,7 @@
 - `Basic/build.gradle.kts` Dokka只保留`work.art1st.javarailways.basic.api.*`；`Module.md`定义`1.0-SNAPSHOT`实验面，无binary compatibility promise。
 - Basic以`compileOnly(project(":Core"))`、`compileOnly(ConfigLib/JOML)`编译；artifact不自动携带这些runtime。
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
-- `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；不得包含render car或live Core对象。
+- `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们保留同epoch的有序head/tail rail traversal供通用边界检测，但不得包含render car或live Core对象。
 - `InfrastructureResource`、lease/edit request、typed result与read-only snapshot属于公开host contract；raw live-claim mutation只属于Basic路线准入实现，不进入add-on API。
 - 目标`work.art1st.javarailways.basic.api.route.RouteResourceIntent`复用现有`RouteSnapshot`，并只携带nonblank stable
   train ID、同一观察stamp及从冻结路线起点起算的米制authority boundary。ATO request不得携带具体resource identity、

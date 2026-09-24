@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import work.art1st.javarailways.core.api.render.Vector3Snapshot
@@ -63,15 +64,29 @@ class LatestTrainFrameMailboxTest {
             velocity = Vector3Snapshot(0.0, 0.0, 0.0)
         )
         val sourceCars = mutableListOf(CarFrameSnapshot.create("car-a", 20.0, state, emptyList()))
-        val frame = frame("train-a", revision = 1L, cars = sourceCars)
+        val railId = UUID.nameUUIDFromBytes("mailbox-test-rail".toByteArray())
+        val sourceTraversal = mutableListOf(
+            RailTraversalSegmentSnapshot(railId, ViewDirection.AB, 0.0, 1.0)
+        )
+        val frame = frame(
+            "train-a",
+            revision = 1L,
+            cars = sourceCars,
+            headTraversal = sourceTraversal
+        )
 
         sourceCars.clear()
+        sourceTraversal.clear()
 
         assertEquals("Name of train-a", frame.trainName)
         assertEquals(1, frame.cars.size)
         assertEquals(20.0, frame.cars.single().lengthMeters)
+        assertEquals(1, frame.headTraversal.size)
         assertThrows(UnsupportedOperationException::class.java) {
             (frame.cars as MutableList).clear()
+        }
+        assertThrows(UnsupportedOperationException::class.java) {
+            (frame.headTraversal as MutableList).clear()
         }
     }
 
@@ -92,7 +107,8 @@ class LatestTrainFrameMailboxTest {
     private fun frame(
         trainId: String,
         revision: Long,
-        cars: Collection<CarFrameSnapshot> = emptyList()
+        cars: Collection<CarFrameSnapshot> = emptyList(),
+        headTraversal: Collection<RailTraversalSegmentSnapshot> = emptyList()
     ): TrainFrameSnapshot {
         val railId = UUID.nameUUIDFromBytes("mailbox-test-rail".toByteArray())
         val position = RailPositionSnapshot(railId, ViewDirection.AB, revision.toDouble())
@@ -107,7 +123,9 @@ class LatestTrainFrameMailboxTest {
             cars = cars,
             head = position,
             tail = position,
-            sweptSpans = emptyList()
+            sweptSpans = emptyList(),
+            headTraversal = headTraversal,
+            tailTraversal = emptyList()
         )
     }
 }

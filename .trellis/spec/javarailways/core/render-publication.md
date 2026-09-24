@@ -22,13 +22,21 @@ data class TrainFrameSnapshot private constructor(
     val cars: List<CarFrameSnapshot>,
     val head: RailPositionSnapshot,
     val tail: RailPositionSnapshot,
-    val sweptSpans: List<SweptRailSpanSnapshot>
+    val sweptSpans: List<SweptRailSpanSnapshot>,
+    val headTraversal: List<RailTraversalSegmentSnapshot>,
+    val tailTraversal: List<RailTraversalSegmentSnapshot>
 )
 ```
 
 来源：`Core/src/main/java/work/art1st/javarailways/core/api/physics/train/TrainFrameSnapshot.kt`。
 
 `revision` per-train monotonic、`>=0`；`physicsEpoch>=0`（initial为0）；speed finite且`>=0 m/s`；cars/bogies/spans由`List.copyOf`。`RenderableFrameSnapshot`内联position/direction/normal/velocity共12个finite `Double`。
+
+`sweptSpans`是按rail合并的direction-independent占用包络；不能用它恢复边界通过顺序。
+`headTraversal`与`tailTraversal`只描述该physics epoch内两端实际向前经过的有向rail片段，按经过
+occurrence保序且不按rail ID合并。每段保存stable rail UUID、`ViewDirection`及canonical AB米制
+起止弧长；AB数值不减，BA数值不增。静止、reverse-only或maintenance relocation的epoch为空。
+三个collection均由frame defensive copy。
 
 `RenderableStateSnapshot(Vector3dc..., World)` 是live legacy state，不得跨线程。
 
@@ -43,6 +51,12 @@ data class TrainFrameSnapshot private constructor(
 | stationary unchanged | coordinator不逐epochoffer | 保持last applied state |
 | rename/metadata command | owner显式`publishCurrentTrainFrame` | revision guard apply |
 | ticket failure | 可能已有partial flip | consumer不得drain/apply为成功epoch |
+
+轨迹构造复用列车物理解算已经生成的head/tail有序`RailSegment`，只做一次线性value投影；设两端
+本epoch分别经过`H`、`T`个rail occurrence，附加时间与空间均为`O(H + T)`。不得从
+`sweptSpans`、最终head/tail位置或world topology重新寻路；这些替代做法会丢失重复rail occurrence、
+方向或实际选择的turnout branch。任何正长度segment都必须保留，不能套用geometry overlap tolerance，
+否则很短的移动仍可能跨过边界却没有证据。
 
 `CoreTrain.commit()`只flip Core pending state并生成frame，不调用Bukkit extension，也不自动offerworld mailbox。generic `TickManager.postTick`同样不等于platform commit。
 
@@ -64,6 +78,7 @@ if (current != null && current.revision >= frame.revision) {
 
 - 将`RenderableStateSnapshot`、JOML live refs或World放进跨线程队列；
 - frame缺字段时platform再读live train/car；
+- 把有序traversal按rail ID合并、排序，或从`sweptSpans`反推；
 - physics worker创建entity、选viewer或调用region scheduler；
 - slow renderer形成每Tick无界queue；
 - 不检查revision就apply location task；

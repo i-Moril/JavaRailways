@@ -231,7 +231,12 @@
   withdrawal. Its internal adapter maps them into the existing Basic constraint manager in `O(S + R)`
   and fails closed on source/world/topology/route invalidation. Production controller/Bukkit service
   binding remains in the later service and dispatcher items; this batch does not claim runtime wiring.
-- [ ] Before the reactive batch, review dependency ownership, cache keys, activation timing and fail-closed invalidation with the user; then implement resource inspection without duplicate forward scans or unchanged per-tick plugin callbacks. Keep dynamic braking distance in the SimpleATO tick.
+- [ ] Implement the reviewed reactive railway-epoch boundary without binding safety progress to Bukkit's main thread:
+  - [x] Publish ordered directed head/tail traversal evidence in addition to merged swept occupancy. Core now reuses the actual head movement path and train-local tail endpoint search path, preserves directed rail occurrences in immutable frames, and projects them unchanged into Basic observations; merged swept occupancy remains the separate query index.
+  - [ ] Add generic monitored-area boundaries and derive ordered boundary-bearing `ENTER`/`LEFT` changes, including both changes for a complete same-epoch crossing; do not add `PASSED_THROUGH`.
+  - [ ] Consume occupancy changes, recompute dirty signal dependencies and publish next-epoch restrictions before permitting the following physics epoch; do not add a cross-epoch safety-event backlog.
+  - [ ] Bridge only immutable revisioned presentation state to Bukkit/Folia and coalesce each object's pending visual update to its newest revision.
+  - [ ] Complete the remaining inspection cache-key and fail-closed invalidation review before coding resource inspection; keep dynamic braking distance in the SimpleATO tick and avoid duplicate forward scans or unchanged per-tick plugin callbacks.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
 - [ ] Add topology edit guards for active external claims.

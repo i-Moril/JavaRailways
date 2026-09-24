@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.api.physics.train
 
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import java.util.UUID
 
@@ -40,10 +41,49 @@ data class SweptRailSpanSnapshot(
 }
 
 /**
+ * One directed, ordered rail segment traversed by a train end during one physics epoch.
+ *
+ * Both arc values use the rail's canonical AB coordinate in metres. [facing] records the local
+ * direction of travel, so AB segments are non-decreasing and BA segments are non-increasing.
+ * Repeated rail IDs are meaningful: list order preserves distinct occurrences along the movement
+ * path and must not be grouped or merged.
+ *
+ * @property railId stable identity of the traversed rail
+ * @property facing local direction followed on that rail occurrence
+ * @property startArcLengthInAbMeters traversal start in canonical AB metres
+ * @property endArcLengthInAbMeters traversal end in canonical AB metres
+ */
+data class RailTraversalSegmentSnapshot(
+    val railId: UUID,
+    val facing: ViewDirection,
+    val startArcLengthInAbMeters: Double,
+    val endArcLengthInAbMeters: Double
+) {
+    init {
+        require(startArcLengthInAbMeters.isFinite() && startArcLengthInAbMeters >= 0.0) {
+            "startArcLengthInAbMeters must be finite and non-negative"
+        }
+        require(endArcLengthInAbMeters.isFinite() && endArcLengthInAbMeters >= 0.0) {
+            "endArcLengthInAbMeters must be finite and non-negative"
+        }
+        when (facing) {
+            ViewDirection.AB -> require(endArcLengthInAbMeters >= startArcLengthInAbMeters) {
+                "AB traversal must not decrease in canonical AB coordinates"
+            }
+            ViewDirection.BA -> require(endArcLengthInAbMeters <= startArcLengthInAbMeters) {
+                "BA traversal must not increase in canonical AB coordinates"
+            }
+        }
+    }
+}
+
+/**
  * Complete value-only frame atomically published by one train after a physics epoch.
  *
  * Consumers must use only this frame for a render update and must not fill missing data from the
- * mutable live train. Collection arguments are defensively copied before publication.
+ * mutable live train. [sweptSpans] is a direction-independent occupancy envelope. [headTraversal]
+ * and [tailTraversal] are separate ordered movement evidence for this epoch and must not be merged
+ * by rail identity. Collection arguments are defensively copied before publication.
  */
 @ConsistentCopyVisibility
 data class TrainFrameSnapshot private constructor(
@@ -59,7 +99,9 @@ data class TrainFrameSnapshot private constructor(
     val cars: List<CarFrameSnapshot>,
     val head: RailPositionSnapshot,
     val tail: RailPositionSnapshot,
-    val sweptSpans: List<SweptRailSpanSnapshot>
+    val sweptSpans: List<SweptRailSpanSnapshot>,
+    val headTraversal: List<RailTraversalSegmentSnapshot>,
+    val tailTraversal: List<RailTraversalSegmentSnapshot>
 ) {
     init {
         require(trainId.isNotBlank()) { "TrainFrameSnapshot trainId must not be blank" }
@@ -83,7 +125,9 @@ data class TrainFrameSnapshot private constructor(
             cars: Collection<CarFrameSnapshot>,
             head: RailPositionSnapshot,
             tail: RailPositionSnapshot,
-            sweptSpans: Collection<SweptRailSpanSnapshot>
+            sweptSpans: Collection<SweptRailSpanSnapshot>,
+            headTraversal: Collection<RailTraversalSegmentSnapshot>,
+            tailTraversal: Collection<RailTraversalSegmentSnapshot>
         ): TrainFrameSnapshot = TrainFrameSnapshot(
             trainId = trainId,
             trainName = trainName,
@@ -95,7 +139,9 @@ data class TrainFrameSnapshot private constructor(
             cars = java.util.List.copyOf(cars),
             head = head,
             tail = tail,
-            sweptSpans = java.util.List.copyOf(sweptSpans)
+            sweptSpans = java.util.List.copyOf(sweptSpans),
+            headTraversal = java.util.List.copyOf(headTraversal),
+            tailTraversal = java.util.List.copyOf(tailTraversal)
         )
     }
 }

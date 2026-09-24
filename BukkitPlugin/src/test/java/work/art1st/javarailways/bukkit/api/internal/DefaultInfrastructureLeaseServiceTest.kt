@@ -794,7 +794,9 @@ class DefaultInfrastructureLeaseServiceTest {
             cars = emptyList(),
             head = RailPositionSnapshot(railId, ViewDirection.AB, head),
             tail = RailPositionSnapshot(railId, ViewDirection.AB, tail),
-            sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head))
+            sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head)),
+            headTraversal = emptyList(),
+            tailTraversal = emptyList()
         )
         return RailwayObservation.fromCore(
             worldId.toString(),

@@ -247,6 +247,12 @@
   - [ ] Complete the remaining inspection cache-key and fail-closed invalidation review before coding resource inspection; keep dynamic braking distance in the SimpleATO tick and avoid duplicate forward scans or unchanged per-tick plugin callbacks.
 - [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
+  - [x] Add the platform-neutral per-train SimpleATO admission client without changing production Dispatcher. It submits the
+    exact frozen selection through Basic's single request operation, owns at most one pending handle, publishes a 0 m
+    fail-closed authority before the first grant, advances only from `Granted.committedAuthority`, retains the previous
+    boundary for pending/denied extensions, and requires explicit successful lifecycle end before accepting a changed route.
+    The client feeds the existing namespaced `TrainRestriction` adapter/constraint manager and knows no resource identities.
+    Production composition, retry policy and removal of the legacy Dispatcher allocator remain unchecked.
 - [ ] Add topology edit guards for active external claims.
   - [x] Define the edit-coordination contract without treating track or topology nodes as runtime resources:
     `TopologyEditImpact` declares exact rail IDs, stable topology-node keys and runtime resource IDs; the registry checks each

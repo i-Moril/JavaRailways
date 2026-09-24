@@ -83,6 +83,21 @@ extension不会把路线“原地改写”。topology、route revision、有序t
 replace绕过该边界。同一grant已有pending extension时，SimpleATO轮询该handle而不是并行提交另一个extension；这是同进程
 生命周期约束，不需要保存request历史或模拟网络重试。Basic的typed stale/conflict/preparation结果由既有dispatcher策略消费。
 
+当前已实现的内部`RouteAuthorityAdmissionClient`是该生命周期的第一批平台无关consumer。每列车实例同一时刻只保存一份
+完整`FrozenRouteSelectionResult.Selected`、一个nullable committed grant和至多一个pending handle；Basic的首次申请与同路线
+延长都调用同一个`RouteResourceAdmissionService.request`。第一次处理冻结选择时，client先以
+`simpleato:resource-admission`来源发布位于路线起点0 m的`MovementAuthorityRestriction`，因此尚无grant、首次pending或首次
+拒绝（包括选择属于另一列车的调用方错误）都不会产生可用前方权限。`Granted`是唯一能把该来源替换为返回的`committedAuthority`边界的结果；extension pending及
+rejected不发布新restriction，继续使用旧grant边界。pending只通过原handle调用`progress`，不重放intent。
+
+client以route ID/revision/topology binding、train、world、运行方向overlay revision做常量时间的同路线预筛；完整有序traversal仍由
+Basic的现有route state权威核对。新的observation epoch可以用于同路线延长，
+但route/overlay/train/world变化返回`ROUTE_STATE_MISMATCH`或`TRAIN_NOT_FOUND`并要求调用方先在安全运营边界显式结束。结束时，
+有grant的路线必须先由Basic `endGrant`确认资源和pending均已清空，然后client才发布该来源的更高revision空snapshot；若该空
+snapshot发布失败，后续显式结束只重试restriction撤销，不会对已经结束的Basic grant重复调用`endGrant`。首次安全
+中止且从未产生grant的路线可直接显式结束。pending不能通过清空restriction掩盖；`WORLD_STALLED`会锁存并拒绝后续申请或结束。client不实现自动重试、
+timeout、generation token、持久化或Bukkit调度，也不拥有Basic的tail-release队列。生产Dispatcher尚未调用该client。
+
 ### 3.3 单一列车保护管线
 
 车辆跟随、运营停车点、未获准进路、固定闭塞、信号限速、临时限速和线路限速都产生不可变 constraint candidates，随后由现有 ATO/ATP 控制骨架做一次最严格结果归约。MA 是该共享约束状态的输出/诊断视图，不是与 `FollowConstraint` 并行的第二套扫描器或控制器。
@@ -133,6 +148,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - 同一次选路只能组合一个 topology root、一个 coherent physics observation 和一个已应用运营 plan/overlay revision；不得拼接“最新”组件。
 - topology、overlay、mission 或 route target 改变后，旧 route 不会被就地改写；生成新 `routeRevision` 并重新准入。
 - Basic denial 不扩大 authority。现有安全 authority 保持或收紧，直到新 grant 成功。
+- 每列车准入client在首个committed grant前保持0 m authority；只有Basic `Granted`可扩大该来源，pending/denied保持上一已发布边界。
 - 同一路线extension pending、conflict或安全preparation failure时保持旧authority；只有Basic在delta preparation ready后
   完成claim提交、队尾追加与新grant boundary publication，SimpleATO才消费该边界。pending期间旧资源继续按车尾释放。
   SimpleATO不拥有delta rollback或tail queue。
@@ -159,6 +175,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 
 - 当前内部选路器每次查询从已发布`TopologyState`构造revision-local node→incident-edge只读索引，随后执行Dijkstra。令`P`为可到达入口port状态数、`C`为这些port之间实际展开的合法continuation数、`R_q`为所有候选edge方向过滤实际检查的physical rail slice次数、`S_out`为结果rail slice数，则时间复杂度为`O((P + C) log P + R_q + S_out)`，空间复杂度为`O(P + E)`；不能把高阶turnout的port-pair展开错误地只计成一个edge。它不从live rails重建图、不读取当前道岔选位，也不修改topology；后续批量选路可以按topology root缓存incident-edge索引，但缓存不得跨revision复用。
 - 当前单次`FrozenRouteSelector.select`按`trainId`线性查找一次不可变observation列车列表，成本为`O(T)`；选路是mission/target/revision事件驱动，不得逐tick、逐信号或每次authority extension调用。未来Dispatcher在同一observation批量为多列车选路时，应在该次调度上下文只建立一次`trainId -> RailwayTrainObservation`索引并复用，使批量查找为`O(T + Q)`；不得让每个selector各自复制索引或引入跨observation缓存生命周期。
+- 当前准入client只在激活路线时以`O(R)`计算一次restriction route length；之后的request/progress/end均为`O(1)`本地状态处理，完整traversal一致性、资源编译、占用和claim复杂度仍唯一属于Basic。pending期间不轮询路线、不复制资源集合，也不重新发布未变化的旧authority。
 - 一旦路线冻结，前方 perception 对实际扫描长度为线性；一个 controlled train、一个 physics epoch 只做一次，constraint 归约对候选数线性。
 - 外部restriction adapter每次应用只线性转换当前列车的来源与限制`O(S + R)`；不得重新扫描冻结路线、排序来源或调用插件代码。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
@@ -181,6 +198,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
   topology mismatch、列车缺失/脱轨和planner的invalid target/unreachable均保持各自typed rejection。
 - revision binding：route 与 topology revision 独立；任何 observation/topology/overlay stale 都不发请求、不扩大 authority。
 - admission client：请求没有可替代Basic物理底线的第二份资源清单；合法addition、conflict、pending和grant分支均保持规定lifecycle；直线路段仍由Basic推导rail interval claim，不使用旧`NOT_REQUIRED`捷径。
+- admission client lifecycle：首次immediate grant、首次pending的0 m hold、pending→ready、extension pending/denied保留旧boundary、首次safe abort、显式end以及changed-route必须先end均有独立断言；输入stamp/train与Basic typed失败不被重写。
 - rolling extension：只沿同一frozen route发出更远boundary；同一grant最多一个pending handle，期间旧资源继续释放且
   pending/denied不扩大authority，route/topology/plan改变走replan而非extension。client lookahead policy用独立策略测试，
   但其数值尚未冻结。

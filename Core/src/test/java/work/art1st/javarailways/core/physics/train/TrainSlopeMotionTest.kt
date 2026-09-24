@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -14,7 +16,7 @@ class TrainSlopeMotionTest {
     fun `multi car train climbs straight slope`() {
         val world = createTestWorld()
         val curve = createStraightSlope(length = 200.0, rise = 20.0)
-        val rail = world.createRail(curve)
+        val rail = world.createRailForTest(curve)
         val train = createTrainWithConfig("slope", rail, world, listOf(10.0, 10.0, 10.0, 10.0), isLoop = false)
         train.setController(MockTrainController(train, world, 10.0))
 

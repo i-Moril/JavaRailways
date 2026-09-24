@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.junit.jupiter.api.Assertions.assertSame
@@ -62,7 +64,7 @@ class PhysOvalConnectionTest {
         val s2 = makeStraight(Vector3d(a1.lastPoint().position), Vector3d(-1.0, 0.0, 0.0), straightLen, normal)
         val a2 = makeArcRightTurn(Vector3d(s2.lastPoint().position), radius, fromEast = false, normal, step)
 
-        val rails = listOf(s1, a1, s2, a2).map(world::createRail)
+        val rails = listOf(s1, a1, s2, a2).map(world::createRailForTest)
         CoreRail.connect(rails[0], rails[1])
         CoreRail.connect(rails[1], rails[2])
         CoreRail.connect(rails[2], rails[3])

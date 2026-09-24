@@ -85,6 +85,7 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
 import work.art1st.javarailways.core.physics.rail.RailTopologyEditor
 import work.art1st.javarailways.core.physics.rail.RailView
 import java.util.*
@@ -1278,6 +1279,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val role: RailAssemblyRole
     )
 
+    /** Curve-build output paired with one Core topology root before returning to the owner thread. */
+    private data class PreparedRailBuild<T>(
+        val value: T,
+        val railCreation: PreparedRailCreationBatch
+    )
+
     private data class AdjacentRailBuildInput(
         val railId: UUID,
         val orientedCurve: PrimeCurve,
@@ -1323,6 +1330,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
         val worldId = player.world.uid
+        val expectedCoreWorld = getCoreWorld(player) ?: run {
+            heavyOperationGate.finish(player.uniqueId)
+            return
+        }
         val standard = state.turnoutStandard
         val turnoutGeometry = plugin.physicsConfig.turnoutGeometry(standard)
         val cantDeficiencyMeters = state.allowableCantDeficiencyMm / 1000.0
@@ -1338,13 +1349,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     turnoutGeometry,
                     plugin.physicsConfig.geometrySampling.turnoutStepMeters
                 )?.let { result ->
-                    result to RailSpeedCalculator.calculate(
+                    val built = result to RailSpeedCalculator.calculate(
                         curve = result.curve,
                         requestedLimitMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
                         allowableCantDeficiencyMeters = cantDeficiencyMeters,
                         derailLateralAccelerationMetersPerSecondSquared = derailAcceleration,
                         physics = plugin.physicsConfig.railSpeedPhysics()
                     )
+                    PreparedRailBuild(built, expectedCoreWorld.prepareRailCreation(result.curve))
                 }
             },
             onSuccess = { builtTurnout ->
@@ -1358,43 +1370,59 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     ).color(NamedTextColor.RED))
                     return@supply
                 }
-                val (result, speedLimits) = builtTurnout
+                val (result, speedLimits) = builtTurnout.value
                 val coreWorld = getCoreWorld(livePlayer) ?: return@supply
+                if (coreWorld !== expectedCoreWorld) {
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        "message.rail_changed_retry"
+                    ).color(NamedTextColor.YELLOW))
+                    return@supply
+                }
                 val undoSnapshot = captureRailWorldUndoSnapshot(livePlayer, coreWorld)
                 val existingRails = coreWorld.allRails.toList()
-                val rail = coreWorld.createRail(result.curve).also {
-                    it.metadata = RailMetadata(
-                        designSpeedMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
-                        speedLimitMetersPerSecond = speedLimits.operatingLimitMetersPerSecond,
-                        derailSpeedMetersPerSecond = speedLimits.derailSpeedMetersPerSecond,
-                        geometry = RailGeometryMetadata(
-                            curveKind = RailCurveKind.FIVE_SEGMENT,
-                            curveRadiusMeters = turnoutGeometry.radiusMeters,
-                            automaticSuperelevation = false,
-                            allowableCantDeficiencyMeters = cantDeficiencyMeters
-                        )
-                    )
-                }
-                decorationModel?.let { modelName ->
-                    val renderMeta = RailVisualBootstrap.registerRail(rail, modelName)
-                    RailRenderMetaStore.upsertRail(livePlayer.world, renderMeta)
-                }
                 val connectionSnapshots = existingRails.map(::snapshotRailConnections)
-                val autoConnected = try {
-                    connectCreatedRailsToExisting(listOf(rail), existingRails)
-                } catch (failure: Exception) {
-                    rail.destroy()
-                    coreWorld.removeRail(rail)
-                    coreWorld.basicWorldData.railMetadata.remove(rail.id)
-                    RailVisualBootstrap.unregisterRail(rail.id)
-                    RailRenderMetaStore.removeRail(livePlayer.world, rail.id)
-                    restoreRailConnections(connectionSnapshots)
+                var createdRail: CoreRail? = null
+                var autoConnected = 0
+                var creationFailure: Exception? = null
+                coreWorld.railTopologyTransaction {
+                    try {
+                        createdRail = coreWorld.installPreparedRails(builtTurnout.railCreation).single().also {
+                            it.metadata = RailMetadata(
+                                designSpeedMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
+                                speedLimitMetersPerSecond = speedLimits.operatingLimitMetersPerSecond,
+                                derailSpeedMetersPerSecond = speedLimits.derailSpeedMetersPerSecond,
+                                geometry = RailGeometryMetadata(
+                                    curveKind = RailCurveKind.FIVE_SEGMENT,
+                                    curveRadiusMeters = turnoutGeometry.radiusMeters,
+                                    automaticSuperelevation = false,
+                                    allowableCantDeficiencyMeters = cantDeficiencyMeters
+                                )
+                            )
+                        }
+                        autoConnected = connectCreatedRailsToExisting(listOf(requireNotNull(createdRail)), existingRails)
+                    } catch (failure: Exception) {
+                        createdRail?.let { rail ->
+                            rail.destroy()
+                            coreWorld.removeRail(rail)
+                            coreWorld.basicWorldData.railMetadata.remove(rail.id)
+                        }
+                        restoreRailConnections(connectionSnapshots)
+                        creationFailure = failure
+                    }
+                }
+                creationFailure?.let { failure ->
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
                         "message.turnout_create_failed",
                         railWandFailureReason(failure)
                     ).color(NamedTextColor.RED))
                     return@supply
+                }
+                val rail = requireNotNull(createdRail)
+                decorationModel?.let { modelName ->
+                    val renderMeta = RailVisualBootstrap.registerRail(rail, modelName)
+                    RailRenderMetaStore.upsertRail(livePlayer.world, renderMeta)
                 }
                 pushUndo(livePlayer, WandAction.RestoreRailWorld(
                     livePlayer.world.uid,
@@ -1424,7 +1452,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
                 }
-            }
+            },
+            onRetired = { heavyOperationGate.finish(player.uniqueId) }
         )
     }
 
@@ -1557,15 +1586,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             completionEntity = player,
             operation = "RailWand.connectSelectedAnchors",
             supplier = {
-                createConnectionCurves(
+                val build = createConnectionCurves(
                     startAnchors,
                     endAnchors,
                     startAdjacent,
                     endAdjacent,
                     settingsSnapshot
+                ) ?: return@supply null
+                val curves = build.replacementCurves.values.map(BuiltCurve::curve) +
+                    build.newLanes.flatten().map(BuiltRailPart::curve)
+                PreparedRailBuild(
+                    build,
+                    coreWorld.prepareRailCreationBatch(curves, build.replacementCurves.keys)
                 )
             },
-            onSuccess = { connectionBuild ->
+            onSuccess = { preparedConnectionBuild ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -1594,13 +1629,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     ).color(NamedTextColor.YELLOW))
                     return@supply
                 }
-                if (connectionBuild == null) {
+                if (preparedConnectionBuild == null) {
                     livePlayer.sendActionBar(RailWandI18n.component(
                         livePlayer,
                         "message.curve_build_impossible"
                     ).color(NamedTextColor.RED))
                     return@supply
                 }
+                if (liveCoreWorld !== coreWorld) {
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        "message.rail_changed_retry"
+                    ).color(NamedTextColor.YELLOW))
+                    return@supply
+                }
+                val connectionBuild = preparedConnectionBuild.value
                 val builtLanes = connectionBuild.newLanes
                 val liveAdjacentRails = connectionBuild.replacementCurves.keys.associateWith { railId ->
                     val rail = liveCoreWorld.getRail(railId) ?: run {
@@ -1648,15 +1691,17 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val oldToNew = linkedMapOf<UUID, UUID>()
                 val existingConnectionSnapshots = existingRails.map(::snapshotRailConnections)
                 var destinationsMigrated = false
-                liveCoreWorld.railTopologyTransaction {
                 try {
+                    liveCoreWorld.railTopologyTransaction {
+                    try {
+                    val preparedRails = liveCoreWorld.installPreparedRails(preparedConnectionBuild.railCreation).iterator()
                     connectionBuild.replacementCurves.forEach { (oldId, builtCurve) ->
                         val oldRail = liveAdjacentRails.getValue(oldId)
                         val metadata = oldRail.metadata.copy(
                             speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
                             derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond
                         )
-                        val replacement = liveCoreWorld.createRail(builtCurve.curve).also { it.metadata = metadata }
+                        val replacement = preparedRails.next().also { it.metadata = metadata }
                         createdRails += replacement
                         oldToNew[oldId] = replacement.id
                         renderMetaByRail[oldId]?.let { oldMeta ->
@@ -1693,13 +1738,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 gradeLockedAtA = segmentIndex == 0 && isGradeLocked(startAnchors[laneIndex]),
                                 gradeLockedAtB = segmentIndex == segmentCount - 1 && isGradeLocked(endAnchors[laneIndex])
                             )
-                            liveCoreWorld.createRail(part.curve).also { rail ->
+                            preparedRails.next().also { rail ->
                                 rail.metadata = metadata
                                 createdRails += rail
                                 newRails += rail
                             }
                         }
                     }
+                    check(!preparedRails.hasNext()) { "Prepared rail batch does not match connection build" }
                     if (settingsSnapshot.autoDecorate) {
                         newLaneRails.flatten().forEach { rail ->
                             persistedMetas += RailVisualBootstrap.registerRail(rail, settingsSnapshot.decorationModel)
@@ -1750,7 +1796,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     persistState(livePlayer, liveState)
                     refreshAllAnchorsForPlayer(livePlayer)
                     updateAnchorDisplay(livePlayer)
-                } catch (e: Exception) {
+                    } catch (e: Exception) {
                     if (destinationsMigrated && oldToNew.values.all { liveCoreWorld.getRail(it) != null }) {
                         runCatching {
                             OperationalDestinationService(liveCoreWorld).migrateAllOnRails(
@@ -1766,12 +1812,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     }
                     restoreRailConnections(existingConnectionSnapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, renderMetasBefore)
+                    throw e
+                    }
+                }
+                } catch (e: Exception) {
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
                         "message.rail_create_failed",
                         railWandFailureReason(e)
                     ).color(NamedTextColor.RED))
-                }
                 }
             },
             onFailure = { error ->
@@ -1786,7 +1835,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
                 }
-            }
+            },
+            onRetired = { heavyOperationGate.finish(player.uniqueId) }
         )
     }
 
@@ -1920,9 +1970,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     )
                     curvesByRailId[input.railId] = BuiltCurve(curve, limits)
                 }
-                curvesByRailId
+                PreparedRailBuild(
+                    curvesByRailId,
+                    coreWorld.prepareRailCreationBatch(
+                        curvesByRailId.values.map(BuiltCurve::curve),
+                        curvesByRailId.keys
+                    )
+                )
             },
-            onSuccess = { curvesByRailId ->
+            onSuccess = { preparedRebuild ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
@@ -1933,13 +1989,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     ).color(NamedTextColor.RED))
                     return@supply
                 }
-                if (curvesByRailId == null) {
+                if (preparedRebuild == null) {
                     livePlayer.sendActionBar(RailWandI18n.component(
                         livePlayer,
                         "message.endpoint_curve_impossible"
                     ).color(NamedTextColor.RED))
                     return@supply
                 }
+                if (liveCoreWorld !== coreWorld) {
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        "message.rail_changed_retry"
+                    ).color(NamedTextColor.YELLOW))
+                    return@supply
+                }
+                val curvesByRailId = preparedRebuild.value
 
                 val liveAffectedRails = rebuildInputs.map { input ->
                     val rail = liveCoreWorld.getRail(input.railId) ?: run {
@@ -1983,6 +2047,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val oldIds = rebuildInputs.map { it.railId }.toSet()
                 val oldToNew = mutableMapOf<UUID, CoreRail>()
                 try {
+                    liveCoreWorld.railTopologyTransaction {
+                    try {
+                    val preparedRails = liveCoreWorld.installPreparedRails(preparedRebuild.railCreation).iterator()
                     rebuildInputs.forEach { input ->
                         val builtCurve = curvesByRailId[input.railId] ?: error("Missing rebuilt curve for ${input.railId}")
                         val newMetadata = input.oldMetadata.copy(
@@ -1995,13 +2062,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 isGradeLocked(updatedEndpoint)
                             } else input.oldMetadata.gradeLockedAtB
                         )
-                        val newRail = liveCoreWorld.createRail(builtCurve.curve).also { it.metadata = newMetadata }
+                        val newRail = preparedRails.next().also { it.metadata = newMetadata }
                         createdRails.add(newRail)
                         liveExistingMetaByRail[input.railId]?.let { oldMeta ->
                             createdMetas.add(registerRailWithTemplate(newRail, oldMeta.templateSnapshot))
                         }
                         oldToNew[input.railId] = newRail
                     }
+                    check(!preparedRails.hasNext()) { "Prepared rail batch does not match endpoint rebuild" }
 
                     val nextMetas = liveExistingMetas.filterNot { it.railId in oldIds } + createdMetas
                     RailRenderMetaStore.saveAll(livePlayer.world, nextMetas)
@@ -2039,7 +2107,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         livePlayer,
                         "message.endpoint_updated"
                     ).color(NamedTextColor.GREEN))
-                } catch (e: Exception) {
+                    } catch (e: Exception) {
                     createdRails.forEach { rail ->
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
@@ -2049,9 +2117,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     restoreRailConnections(snapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, liveExistingMetas)
                     liveExistingMetas.forEach { RailVisualBootstrap.fromPersisted(liveCoreWorld, it) }
+                    throw e
+                    }
+                }
+                } catch (e: Exception) {
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
-                        "message.endpoint_edit_rollback",
+                        "message.endpoint_rebuild_failed",
                         railWandFailureReason(e)
                     ).color(NamedTextColor.RED))
                 }
@@ -2068,7 +2140,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
                 }
-            }
+            },
+            onRetired = { heavyOperationGate.finish(player.uniqueId) }
         )
     }
 
@@ -2575,13 +2648,23 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         )
                     }
                 }
-                rebuilt
+                PreparedRailBuild(
+                    rebuilt,
+                    world.prepareRailCreationBatch(rebuilt.values.map(BuiltCurve::curve), rebuilt.keys)
+                )
             },
-            onSuccess = { rebuilt ->
+            onSuccess = { preparedRebuild ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
                 val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                if (liveWorld !== world) {
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        "message.rail_changed_retry"
+                    ).color(NamedTextColor.YELLOW))
+                    return@supply
+                }
                 if (getState(livePlayer).selectedAnchors != selectedSnapshot) {
                     livePlayer.sendActionBar(RailWandI18n.component(
                         livePlayer,
@@ -2600,7 +2683,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     ).color(NamedTextColor.YELLOW))
                     return@supply
                 }
-                commitGradeSmoothing(livePlayer, oldRails, rebuilt, selectedSnapshot)
+                commitGradeSmoothing(livePlayer, oldRails, preparedRebuild, selectedSnapshot)
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
@@ -2612,7 +2695,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
                 }
-            }
+            },
+            onRetired = { heavyOperationGate.finish(player.uniqueId) }
         )
     }
 
@@ -2676,10 +2760,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun commitGradeSmoothing(
         player: Player,
         oldRails: List<CoreRail>,
-        rebuilt: Map<UUID, BuiltCurve>,
+        preparedRebuild: PreparedRailBuild<LinkedHashMap<UUID, BuiltCurve>>,
         selectedSnapshot: List<String>
     ) {
         val world = getCoreWorld(player) ?: return
+        val rebuilt = preparedRebuild.value
         splitSafetyError(world, oldRails)?.let { error ->
             player.sendActionBar(Component.text(
                 RailWandI18n.resolve(player, error),
@@ -2704,17 +2789,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val oldToNew = linkedMapOf<UUID, UUID>()
         val connectionSnapshots = allBefore.map(::snapshotRailConnections)
         try {
+            world.railTopologyTransaction {
+            try {
+            val preparedRails = world.installPreparedRails(preparedRebuild.railCreation).iterator()
             oldRails.forEach { old ->
                 val built = rebuilt.getValue(old.id)
                 val replacementMetadata = old.metadata.copy(
                     speedLimitMetersPerSecond = built.speedLimits.operatingLimitMetersPerSecond,
                     derailSpeedMetersPerSecond = built.speedLimits.derailSpeedMetersPerSecond
                 )
-                val replacement = world.createRail(built.curve).also { it.metadata = replacementMetadata }
+                val replacement = preparedRails.next().also { it.metadata = replacementMetadata }
                 created += replacement
                 oldToNew[old.id] = replacement.id
                 renderByRail[old.id]?.let { renderAfter += registerRailWithTemplate(replacement, it.templateSnapshot) }
             }
+            check(!preparedRails.hasNext()) { "Prepared rail batch does not match grade smoothing build" }
             val unchanged = allBefore.filter { it.id !in oldIds }
             detachRailReferences(oldIds, unchanged)
             connectCreatedRailsToExisting(created, unchanged + created)
@@ -2746,7 +2835,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 "message.grade_smoothed",
                 created.size
             ).color(NamedTextColor.GREEN))
-        } catch (failure: Exception) {
+            } catch (failure: Exception) {
             created.forEach { rail ->
                 RailVisualBootstrap.unregisterRail(rail.id)
                 rail.destroy()
@@ -2755,9 +2844,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             }
             restoreRailConnections(connectionSnapshots)
             RailRenderMetaStore.saveAll(player.world, renderBefore)
+            throw failure
+            }
+        }
+        } catch (failure: Exception) {
             player.sendMessage(RailWandI18n.component(
                 player,
-                "message.grade_smooth_rollback",
+                "message.grade_smooth_failed",
                 railWandFailureReason(failure)
             ).color(NamedTextColor.RED))
         }
@@ -3266,16 +3359,38 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             completionEntity = player,
             operation = "RailWand.rebuildRailGeometry",
             supplier = {
-                createCurvesWithSpeedLimits(starts, ends, settings)?.map { built ->
+                val builtLanes = createCurvesWithSpeedLimits(starts, ends, settings)?.map { built ->
                     partitionBuiltCurve(built, settings)
-                }
+                } ?: return@supply null
+                PreparedRailBuild(
+                    builtLanes,
+                    coreWorld.prepareRailCreationBatch(
+                        builtLanes.flatten().map(BuiltRailPart::curve),
+                        oldIds
+                    )
+                )
             },
-            onSuccess = { builtLanes ->
+            onSuccess = { preparedBuild ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
                 val liveWorld = getCoreWorld(livePlayer) ?: return@supply
-                if (builtLanes == null || builtLanes.size != oldLanes.size ||
+                if (preparedBuild == null) {
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        "message.rebuild_curve_impossible"
+                    ).color(NamedTextColor.RED))
+                    return@supply
+                }
+                if (liveWorld !== coreWorld) {
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        "message.rail_changed_retry"
+                    ).color(NamedTextColor.YELLOW))
+                    return@supply
+                }
+                val builtLanes = preparedBuild.value
+                if (builtLanes.size != oldLanes.size ||
                     builtLanes.map { it.size }.distinct().size != 1
                 ) {
                     livePlayer.sendActionBar(RailWandI18n.component(
@@ -3336,8 +3451,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val segmentCount = builtLanes.first().size
                 val assemblyId = if (segmentCount > 1) oldAssemblyId ?: UUID.randomUUID().toString() else null
                 val parallelIds = List(segmentCount) { UUID.randomUUID().toString().takeIf { oldLanes.size > 1 } }
-                liveWorld.railTopologyTransaction {
                 try {
+                    liveWorld.railTopologyTransaction {
+                    try {
+                    val preparedRails = liveWorld.installPreparedRails(preparedBuild.railCreation).iterator()
                     builtLanes.forEachIndexed { laneIndex, parts ->
                         val oldLane = oldLanes[laneIndex]
                         val oldLaneMetadata = oldLane.map { it.metadata }
@@ -3391,13 +3508,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                     turnoutAtB = oldLane.last().metadata.turnoutAtB.takeIf { segmentIndex == segmentCount - 1 }
                                 )
                             )
-                            liveWorld.createRail(part.curve).also {
+                            preparedRails.next().also {
                                 it.metadata = metadata
                                 created += it
                             }
                         }
                         createdLanes += newLane
                     }
+                    check(!preparedRails.hasNext()) { "Prepared rail batch does not match geometry rebuild" }
                     val oldToNew = oldLanes.flatMapIndexed { laneIndex, oldLane ->
                         oldLane.mapIndexed { oldIndex, old ->
                             val replacement = createdLanes[laneIndex].firstOrNull {
@@ -3447,7 +3565,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         livePlayer,
                         "message.curve_updated"
                     ).color(NamedTextColor.GREEN))
-                } catch (error: Exception) {
+                    } catch (error: Exception) {
                     created.forEach { rail ->
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
@@ -3457,12 +3575,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     restoreRailConnections(connectionSnapshots)
                     RailRenderMetaStore.saveAll(livePlayer.world, persisted)
                     persisted.forEach { RailVisualBootstrap.fromPersisted(liveWorld, it) }
+                    throw error
+                    }
+                }
+                } catch (error: Exception) {
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
-                        "message.rebuild_rollback",
+                        "message.rebuild_failed",
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
-                }
                 }
             },
             onFailure = { error ->
@@ -3475,7 +3596,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
                 }
-            }
+            },
+            onRetired = { heavyOperationGate.finish(player.uniqueId) }
         )
     }
 
@@ -3888,12 +4010,25 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.confirmSplit",
-            supplier = { curveSnapshot.splitAt(arcLength) },
-            onSuccess = { curves ->
+            supplier = {
+                val curves = curveSnapshot.splitAt(arcLength)
+                PreparedRailBuild(
+                    curves,
+                    coreWorld.prepareRailCreationBatch(curves.toList(), setOf(railId))
+                )
+            },
+            onSuccess = { preparedSplit ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
                 val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                if (liveWorld !== coreWorld) {
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        "message.split_changed_reselect"
+                    ).color(NamedTextColor.YELLOW))
+                    return@supply
+                }
                 val liveRail = liveWorld.getRail(railId)
                 if (liveRail == null || liveRail.curve !== curveSnapshot || liveRail.metadata != metadataSnapshot) {
                     livePlayer.sendActionBar(RailWandI18n.component(
@@ -3929,30 +4064,32 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     railMetadataBefore
                 )
                 try {
-                    val result = RailTopologyEditor.splitWithPreparedCurves(
-                        liveRail,
-                        curves.first,
-                        curves.second,
-                        signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
-                    )
-                    RailInfrastructureMetadataTopology.split(
-                        liveWorld.basicWorldData.railMetadata,
-                        railId,
-                        result.before.id,
-                        result.after.id,
-                        result.operationId
-                    )
-                    OperationalSpeedLimitSignalMaterializer.materializeRail(result.before)
-                    OperationalSpeedLimitSignalMaterializer.materializeRail(result.after)
-                    OperationalDestinationService(liveWorld).migrateAfterRailSplit(
-                        oldRailId = railId,
-                        beforeRailId = result.before.id,
-                        afterRailId = result.after.id,
-                        splitArcLengthInAbMeters = arcLength
-                    )
-                    val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
-                    val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
-                        .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
+                    val (result, changedExistingIds) = liveWorld.railTopologyTransaction {
+                        val result = RailTopologyEditor.splitWithPreparedRails(
+                            liveRail,
+                            preparedSplit.railCreation,
+                            signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
+                        )
+                        RailInfrastructureMetadataTopology.split(
+                            liveWorld.basicWorldData.railMetadata,
+                            railId,
+                            result.before.id,
+                            result.after.id,
+                            result.operationId
+                        )
+                        OperationalSpeedLimitSignalMaterializer.materializeRail(result.before)
+                        OperationalSpeedLimitSignalMaterializer.materializeRail(result.after)
+                        OperationalDestinationService(liveWorld).migrateAfterRailSplit(
+                            oldRailId = railId,
+                            beforeRailId = result.before.id,
+                            afterRailId = result.after.id,
+                            splitArcLengthInAbMeters = arcLength
+                        )
+                        val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
+                        val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
+                            .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
+                        result to changedExistingIds
+                    }
                     RailVisualBootstrap.unregisterRail(railId)
                     val replacementMetas = buildList {
                         originalRenderMeta?.let { oldMeta ->
@@ -4006,7 +4143,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
                 }
-            }
+            },
+            onRetired = { heavyOperationGate.finish(player.uniqueId) }
         )
     }
 
@@ -4089,12 +4227,28 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             plugin = plugin,
             completionEntity = player,
             operation = "RailWand.mergeSplitAnchor",
-            supplier = { beforeCurve.concatenate(afterCurve) },
-            onSuccess = { mergedCurve ->
+            supplier = {
+                val mergedCurve = beforeCurve.concatenate(afterCurve)
+                PreparedRailBuild(
+                    mergedCurve,
+                    coreWorld.prepareRailCreation(
+                        mergedCurve,
+                        setOf(before.id, after.id)
+                    )
+                )
+            },
+            onSuccess = { preparedMerge ->
                 heavyOperationGate.finish(player.uniqueId)
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
                 val liveWorld = getCoreWorld(livePlayer) ?: return@supply
+                if (liveWorld !== coreWorld) {
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        "message.split_rails_changed"
+                    ).color(NamedTextColor.YELLOW))
+                    return@supply
+                }
                 val livePair = findSplitPair(liveWorld, operationId)
                 if (livePair == null || livePair.first.curve !== beforeCurve || livePair.second.curve !== afterCurve) {
                     livePlayer.sendActionBar(RailWandI18n.component(
@@ -4142,32 +4296,35 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 try {
                     val beforeRailId = livePair.first.id
                     val afterRailId = livePair.second.id
-                    val beforeLengthMeters = livePair.first.curve.totalArcLength
-                    val railMetadataBefore = liveWorld.basicWorldData.railMetadata.snapshot()
-                    val merged = RailTopologyEditor.mergeWithPreparedCurve(
-                        livePair.first,
-                        livePair.second,
-                        mergedCurve,
-                        signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
-                    )
-                    RailInfrastructureMetadataTopology.merge(
-                        liveWorld.basicWorldData.railMetadata,
-                        beforeRailId,
-                        afterRailId,
-                        merged.id
-                    )
-                    OperationalSpeedLimitSignalMaterializer.materializeRail(merged)
-                    OperationalDestinationService(liveWorld).migrateAfterRailMerge(
-                        beforeRailId = beforeRailId,
-                        afterRailId = afterRailId,
-                        mergedRailId = merged.id,
-                        beforeLengthMeters = beforeLengthMeters
-                    )
-                    val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
-                    val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
-                        .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
-                    RailVisualBootstrap.unregisterRail(livePair.first.id)
-                    RailVisualBootstrap.unregisterRail(livePair.second.id)
+                    val (merged, changedExistingIds) = liveWorld.railTopologyTransaction {
+                        val beforeLengthMeters = livePair.first.curve.totalArcLength
+                        val railMetadataBefore = liveWorld.basicWorldData.railMetadata.snapshot()
+                        val merged = RailTopologyEditor.mergeWithPreparedRail(
+                            livePair.first,
+                            livePair.second,
+                            preparedMerge.railCreation,
+                            signalCanBeRebuilt = { it is OperationalSpeedLimitSignal }
+                        )
+                        RailInfrastructureMetadataTopology.merge(
+                            liveWorld.basicWorldData.railMetadata,
+                            beforeRailId,
+                            afterRailId,
+                            merged.id
+                        )
+                        OperationalSpeedLimitSignalMaterializer.materializeRail(merged)
+                        OperationalDestinationService(liveWorld).migrateAfterRailMerge(
+                            beforeRailId = beforeRailId,
+                            afterRailId = afterRailId,
+                            mergedRailId = merged.id,
+                            beforeLengthMeters = beforeLengthMeters
+                        )
+                        val railMetadataAfter = liveWorld.basicWorldData.railMetadata.snapshot()
+                        val changedExistingIds = railMetadataBefore.keys.intersect(railMetadataAfter.keys)
+                            .filterTo(linkedSetOf()) { railMetadataBefore[it] != railMetadataAfter[it] }
+                        merged to changedExistingIds
+                    }
+                    RailVisualBootstrap.unregisterRail(beforeRailId)
+                    RailVisualBootstrap.unregisterRail(afterRailId)
                     val replacementMetas = buildList {
                         beforeRender?.let { oldMeta ->
                             add(registerRailWithTemplate(merged, oldMeta.templateSnapshot))
@@ -4182,7 +4339,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     RailRenderMetaStore.saveAll(
                         livePlayer.world,
                         renderMetas.filterNot {
-                            it.railId == livePair.first.id || it.railId == livePair.second.id ||
+                            it.railId == beforeRailId || it.railId == afterRailId ||
                                 it.railId in changedExistingIds
                         } + replacementMetas
                     )
@@ -4220,7 +4377,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         railWandFailureReason(error)
                     ).color(NamedTextColor.RED))
                 }
-            }
+            },
+            onRetired = { heavyOperationGate.finish(player.uniqueId) }
         )
     }
 

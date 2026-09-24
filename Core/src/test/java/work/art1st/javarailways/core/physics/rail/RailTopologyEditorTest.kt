@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -18,7 +20,7 @@ class RailTopologyEditorTest {
     fun `split preserves outer topology and merge restores geometry`() {
         val world = createTestWorld()
         val previous = rail(world, -5.0, 0.0)
-        val original = world.createRail(straightCurve(0.0, 10.0))
+        val original = world.createRailForTest(straightCurve(0.0, 10.0))
         val next = rail(world, 10.0, 15.0)
         CoreRail.connect(previous, original)
         CoreRail.connect(original, next)
@@ -26,10 +28,9 @@ class RailTopologyEditorTest {
         val (beforeCurve, afterCurve) = originalCurve.splitAt(4.25)
         val revisionBeforeSplit = world.topologyRevision
 
-        val split = RailTopologyEditor.splitWithPreparedCurves(
+        val split = RailTopologyEditor.splitWithPreparedRails(
             original,
-            beforeCurve,
-            afterCurve,
+            world.prepareRailCreationBatch(listOf(beforeCurve, afterCurve), setOf(original.id)),
             operationId = "split-test"
         )
 
@@ -46,7 +47,11 @@ class RailTopologyEditorTest {
 
         val mergedCurve = split.before.curve.concatenate(split.after.curve)
         val revisionBeforeMerge = world.topologyRevision
-        val merged = RailTopologyEditor.mergeWithPreparedCurve(split.before, split.after, mergedCurve)
+        val merged = RailTopologyEditor.mergeWithPreparedRail(
+            split.before,
+            split.after,
+            world.prepareRailCreation(mergedCurve, setOf(split.before.id, split.after.id))
+        )
 
         assertEquals(revisionBeforeMerge + 1L, world.topologyRevision)
         assertNull(world.getRail(split.before.id))
@@ -68,7 +73,10 @@ class RailTopologyEditorTest {
         val (beforeCurve, afterCurve) = original.curve.splitAt(10.0)
 
         assertThrows(IllegalArgumentException::class.java) {
-            RailTopologyEditor.splitWithPreparedCurves(original, beforeCurve, afterCurve)
+            RailTopologyEditor.splitWithPreparedRails(
+                original,
+                world.prepareRailCreationBatch(listOf(beforeCurve, afterCurve), setOf(original.id))
+            )
         }
 
         assertSame(original, world.getRail(original.id))
@@ -80,8 +88,12 @@ class RailTopologyEditorTest {
         val world = createTestWorld()
         val original = rail(world, 0.0, 10.0)
         val (beforeCurve, afterCurve) = original.curve.splitAt(4.0)
-        val split = RailTopologyEditor.splitWithPreparedCurves(original, beforeCurve, afterCurve, "branched")
-        val branch = world.createRail(
+        val split = RailTopologyEditor.splitWithPreparedRails(
+            original,
+            world.prepareRailCreationBatch(listOf(beforeCurve, afterCurve), setOf(original.id)),
+            "branched"
+        )
+        val branch = world.createRailForTest(
             PrimeCurve.fromPoints(
                 listOf(
                     rawPoint(Vector3d(4.0, 0.0, 0.0), Vector3d(0.0, 0.0, 1.0), 0.0, Curve.SegmentType.LINE_START),
@@ -98,7 +110,7 @@ class RailTopologyEditorTest {
     }
 
     private fun rail(world: work.art1st.javarailways.core.physics.CoreWorld, from: Double, to: Double): CoreRail =
-        world.createRail(straightCurve(from, to))
+        world.createRailForTest(straightCurve(from, to))
 
     private fun straightCurve(from: Double, to: Double): PrimeCurve {
         val length = to - from

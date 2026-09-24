@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -184,7 +186,7 @@ class CoreTrainAsymmetricTurnoutTest {
     }
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
-        world.createRail(straightCurve(from, to))
+        world.createRailForTest(straightCurve(from, to))
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
         val tangent = Vector3d(to).sub(from).normalize()

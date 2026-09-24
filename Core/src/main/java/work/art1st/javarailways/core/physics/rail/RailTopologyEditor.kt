@@ -1,7 +1,6 @@
 package work.art1st.javarailways.core.physics.rail
 
 import work.art1st.javarailways.core.api.physics.curve.Curve
-import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.control.signal.Signal
 import java.util.UUID
@@ -22,24 +21,28 @@ object RailTopologyEditor {
 
     /** Commits the complete split under one structural topology-revision boundary. */
     @MainThread
-    fun splitWithPreparedCurves(
+    fun splitWithPreparedRails(
         rail: CoreRail,
-        beforeCurve: PrimeCurve,
-        afterCurve: PrimeCurve,
+        preparedRails: PreparedRailCreationBatch,
         operationId: String = UUID.randomUUID().toString(),
         signalCanBeRebuilt: (Signal) -> Boolean = { false }
     ): SplitResult = rail.world.railTopologyTransaction {
-        splitInTransaction(rail, beforeCurve, afterCurve, operationId, signalCanBeRebuilt)
+        splitInTransaction(rail, preparedRails, operationId, signalCanBeRebuilt)
     }
 
     @MainThread
     private fun splitInTransaction(
         rail: CoreRail,
-        beforeCurve: PrimeCurve,
-        afterCurve: PrimeCurve,
+        preparedRails: PreparedRailCreationBatch,
         operationId: String,
         signalCanBeRebuilt: (Signal) -> Boolean
     ): SplitResult {
+        require(preparedRails.creations.size == 2) { "A split requires exactly two prepared rails" }
+        require(preparedRails.excludedExistingRailIds == setOf(rail.id)) {
+            "Split preparation must exclude exactly the original rail"
+        }
+        val beforeCurve = preparedRails.creations[0].curve
+        val afterCurve = preparedRails.creations[1].curve
         require(operationId.isNotBlank())
         require(rail.world.getRail(rail.id) === rail) { "Rail is no longer registered in its world" }
         val affectedRailIds = buildSet {
@@ -66,8 +69,7 @@ object RailTopologyEditor {
         val world = rail.world
         val existingRails = world.allRails.filter { it !== rail }
         val snapshots = (existingRails + rail).flatMap(::snapshotViews)
-        val before = world.createRailInTransaction(UUID.randomUUID(), beforeCurve)
-        val after = world.createRailInTransaction(UUID.randomUUID(), afterCurve)
+        val (before, after) = world.installPreparedRails(preparedRails)
 
         try {
             val replacements = mapOf(
@@ -126,22 +128,27 @@ object RailTopologyEditor {
     }
 
     @MainThread
-    fun mergeWithPreparedCurve(
+    fun mergeWithPreparedRail(
         before: CoreRail,
         after: CoreRail,
-        mergedCurve: PrimeCurve,
+        preparedRail: PreparedRailCreationBatch,
         signalCanBeRebuilt: (Signal) -> Boolean = { false }
     ): CoreRail = before.world.railTopologyTransaction {
-        mergeInTransaction(before, after, mergedCurve, signalCanBeRebuilt)
+        mergeInTransaction(before, after, preparedRail, signalCanBeRebuilt)
     }
 
     @MainThread
     private fun mergeInTransaction(
         before: CoreRail,
         after: CoreRail,
-        mergedCurve: PrimeCurve,
+        preparedRail: PreparedRailCreationBatch,
         signalCanBeRebuilt: (Signal) -> Boolean
     ): CoreRail {
+        require(preparedRail.creations.size == 1) { "A merge requires exactly one prepared rail" }
+        require(preparedRail.excludedExistingRailIds == setOf(before.id, after.id)) {
+            "Merge preparation must exclude exactly the two source rails"
+        }
+        val mergedCurve = preparedRail.creations.single().curve
         val eligibilityError = mergeEligibilityError(before, after, signalCanBeRebuilt)
         require(eligibilityError == null) { eligibilityError ?: "Rails cannot be merged" }
         require(before.world.getRail(before.id) === before && after.world.getRail(after.id) === after) {
@@ -153,7 +160,7 @@ object RailTopologyEditor {
         val world = before.world
         val existingRails = world.allRails.filter { it !== before && it !== after }
         val snapshots = (existingRails + before + after).flatMap(::snapshotViews)
-        val merged = world.createRailInTransaction(UUID.randomUUID(), mergedCurve)
+        val merged = world.installPreparedRails(preparedRail).single()
 
         try {
             val replacements = mapOf(

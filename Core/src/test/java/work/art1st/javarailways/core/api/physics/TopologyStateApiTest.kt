@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.api.physics
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
@@ -21,8 +23,8 @@ class TopologyStateApiTest {
     fun `world exposes the published root through public API with immutable collections`() {
         val coreWorld = createTestWorld()
         try {
-            val first = coreWorld.createRail(straightCurve(0.0, 10.0))
-            val second = coreWorld.createRail(straightCurve(10.0, 30.0))
+            val first = coreWorld.createRailForTest(straightCurve(0.0, 10.0))
+            val second = coreWorld.createRailForTest(straightCurve(10.0, 30.0))
             CoreRail.connect(first, second)
             val world: World = coreWorld
 

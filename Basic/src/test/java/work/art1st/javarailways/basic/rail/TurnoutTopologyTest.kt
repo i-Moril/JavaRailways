@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -73,6 +75,6 @@ class TurnoutTopologyTest {
             Curve.RawPoint(Vector3d(from), Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), 0.0),
             Curve.RawPoint(Vector3d(to), Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), length)
         ))
-        return world.createRail(curve)
+        return world.createRailForTest(curve)
     }
 }

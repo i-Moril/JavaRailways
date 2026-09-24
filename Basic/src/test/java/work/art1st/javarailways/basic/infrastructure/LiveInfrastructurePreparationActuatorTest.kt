@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState as InfrastructurePreparationState
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket as InfrastructurePreparationTicket
 
@@ -290,7 +292,7 @@ class LiveInfrastructurePreparationActuatorTest {
     private fun world(): CoreWorld = createTestWorld().also(worlds::add)
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
-        world.createRail(straightCurve(from, to))
+        world.createRailForTest(straightCurve(from, to))
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
         val tangent = Vector3d(to).sub(from).normalize()

@@ -11,6 +11,7 @@ import work.art1st.javarailways.core.physics.rail.AT_GRADE_CROSSING_TOLERANCE_ME
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import java.util.UUID
 
 class CoreWorldAtGradeRailCrossingTest {
     @Test
@@ -39,8 +40,14 @@ class CoreWorldAtGradeRailCrossingTest {
         lateinit var first: CoreRail
         lateinit var second: CoreRail
         world.railTopologyTransaction {
-            first = rail(world, Vector3d(20.0, 0.0, 0.0), Vector3d(25.0, 0.0, 0.0))
-            second = rail(world, Vector3d(25.0, 0.0, 0.0), Vector3d(25.0, 0.0, 5.0))
+            first = world.createRailInTransaction(
+                UUID.randomUUID(),
+                straightCurve(Vector3d(20.0, 0.0, 0.0), Vector3d(25.0, 0.0, 0.0))
+            )
+            second = world.createRailInTransaction(
+                UUID.randomUUID(),
+                straightCurve(Vector3d(25.0, 0.0, 0.0), Vector3d(25.0, 0.0, 5.0))
+            )
             RailView.connect(first.viewAB, second.viewBA)
         }
 
@@ -113,14 +120,22 @@ class CoreWorldAtGradeRailCrossingTest {
         lateinit var straight: CoreRail
         lateinit var branch: CoreRail
         world.railTopologyTransaction {
-            stem = rail(world, Vector3d(-5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
-            straight = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0))
-            branch = polylineRail(
-                world,
-                Vector3d(0.0, 0.0, 0.0),
-                Vector3d(1.0, 0.0, 0.0),
-                Vector3d(2.0, 0.0, 0.05),
-                Vector3d(5.0, 0.0, 2.0)
+            stem = world.createRailInTransaction(
+                UUID.randomUUID(),
+                straightCurve(Vector3d(-5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
+            )
+            straight = world.createRailInTransaction(
+                UUID.randomUUID(),
+                straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0))
+            )
+            branch = world.createRailInTransaction(
+                UUID.randomUUID(),
+                polylineCurve(
+                    Vector3d(0.0, 0.0, 0.0),
+                    Vector3d(1.0, 0.0, 0.0),
+                    Vector3d(2.0, 0.0, 0.05),
+                    Vector3d(5.0, 0.0, 2.0)
+                )
             )
             RailView.connect(stem.viewAB, straight.viewBA)
             RailView.connect(stem.viewAB, branch.viewBA)
@@ -143,9 +158,12 @@ class CoreWorldAtGradeRailCrossingTest {
     }
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
-        world.createRail(straightCurve(from, to))
+        world.createRailForTest(straightCurve(from, to))
 
-    private fun polylineRail(world: CoreWorld, vararg positions: Vector3d): CoreRail {
+    private fun polylineRail(world: CoreWorld, vararg positions: Vector3d): CoreRail =
+        world.createRailForTest(polylineCurve(*positions))
+
+    private fun polylineCurve(vararg positions: Vector3d): PrimeCurve {
         require(positions.size >= 2)
         var arcLength = 0.0
         val points = positions.mapIndexed { index, position ->
@@ -162,7 +180,7 @@ class CoreWorldAtGradeRailCrossingTest {
                 arcLength
             )
         }
-        return world.createRail(PrimeCurve.fromPoints(points))
+        return PrimeCurve.fromPoints(points)
     }
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {

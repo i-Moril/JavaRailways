@@ -11,11 +11,14 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.tests.physics.CurveEndpointTest
 import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
 import work.art1st.javarailways.bukkit.persistence.RailRenderMetaStore
+import work.art1st.javarailways.bukkit.util.BukkitAsyncTasks
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
+import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectedException
 import work.art1st.javarailways.core.physics.train.CoreBogie
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CoreTrain
@@ -26,6 +29,11 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 class PhysTestCommand : BasicCommand {
+
+    private data class PreparedPlayground(
+        val curves: List<PrimeCurve>,
+        val rails: PreparedRailCreationBatch
+    )
 
     private val rails = mutableListOf<CoreRail>()
     private var controller: ManualController? = null
@@ -65,34 +73,51 @@ class PhysTestCommand : BasicCommand {
         val radius = 80.0
         val step = 0.005  // 5mm to match Curve.TOLERANCE
 
-        // Build curves, using each segment's actual endpoint as next segment's start
-        val s1 = makeStraight(o, Vector3d(1.0, 0.0, 0.0), straightLen, normal, step)
-        val p1 = s1.lastPoint().position   // end of straight 1
-        val a1 = makeArcRightTurn(Vector3d(p1), radius, fromEast = true, normal, step)
-        val p2 = a1.lastPoint().position    // end of arc 1 (heading west)
-        val s2 = makeStraight(Vector3d(p2), Vector3d(-1.0, 0.0, 0.0), straightLen, normal, step)
-        val p3 = s2.lastPoint().position    // end of straight 2
-        val a2 = makeArcRightTurn(Vector3d(p3), radius, fromEast = false, normal, step)
-
-        // Create rails
-        val r1 = world.createRail(s1)
-        val r2 = world.createRail(a1)
-        val r3 = world.createRail(s2)
-        val r4 = world.createRail(a2)
-
-        // Connect into loop: r1→r2→r3→r4→r1
-        CoreRail.connect(r1, r2)
-        CoreRail.connect(r2, r3)
-        CoreRail.connect(r3, r4)
-        CoreRail.connect(r4, r1)
-
-        for (r in listOf(r1, r2, r3, r4)) {
-            val meta = RailVisualBootstrap.registerRail(r)
-            RailRenderMetaStore.upsertRail(sender.world, meta)
-            rails.add(r)
-        }
-        val total = s1.totalArcLength + a1.totalArcLength + s2.totalArcLength + a2.totalArcLength
-        sender.sendMessage("Oval: 4 rails  L=%.1fm".format(total))
+        BukkitAsyncTasks.supply(
+            plugin = BukkitPlugin.INSTANCE,
+            completionEntity = sender,
+            operation = "PhysTestCommand.createPlayground",
+            supplier = {
+                // Use each segment's actual endpoint as the next segment's start.
+                val s1 = makeStraight(o, Vector3d(1.0, 0.0, 0.0), straightLen, normal, step)
+                val a1 = makeArcRightTurn(Vector3d(s1.lastPoint().position), radius, true, normal, step)
+                val s2 = makeStraight(
+                    Vector3d(a1.lastPoint().position),
+                    Vector3d(-1.0, 0.0, 0.0),
+                    straightLen,
+                    normal,
+                    step
+                )
+                val a2 = makeArcRightTurn(Vector3d(s2.lastPoint().position), radius, false, normal, step)
+                val curves = listOf(s1, a1, s2, a2)
+                PreparedPlayground(curves, world.prepareRailCreationBatch(curves))
+            },
+            onSuccess = { prepared ->
+                if (!sender.isValid || world(sender) !== world) return@supply
+                val created = try {
+                    world.railTopologyTransaction {
+                        val installed = world.installPreparedRails(prepared.rails)
+                        CoreRail.connect(installed[0], installed[1])
+                        CoreRail.connect(installed[1], installed[2])
+                        CoreRail.connect(installed[2], installed[3])
+                        CoreRail.connect(installed[3], installed[0])
+                        installed
+                    }
+                } catch (_: PreparedRailCreationRejectedException) {
+                    sender.sendMessage("Rail topology changed while preparing the oval; run /phys create again")
+                    return@supply
+                }
+                created.forEach { rail ->
+                    val meta = RailVisualBootstrap.registerRail(rail)
+                    RailRenderMetaStore.upsertRail(sender.world, meta)
+                    rails += rail
+                }
+                sender.sendMessage("Oval: 4 rails  L=%.1fm".format(prepared.curves.sumOf { it.totalArcLength }))
+            },
+            onFailure = { failure ->
+                sender.sendMessage("Oval preparation failed: ${failure.message ?: failure::class.simpleName}")
+            }
+        )
     }
 
     @OptIn(Heavy::class)

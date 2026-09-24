@@ -25,6 +25,10 @@ import work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailSpatialIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyQueryResult
+import work.art1st.javarailways.core.physics.rail.PreparedRailCreation
+import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
+import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectedException
+import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectionReason
 import work.art1st.javarailways.core.physics.rail.topology.CoreTopologyInputAdapter
 import work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilder
 import work.art1st.javarailways.core.util.ThreadGuard
@@ -222,16 +226,142 @@ class CoreWorld(
     }
 
     /**
-     * Creates and registers one rail as a structural topology edit.
+     * Performs value-only geometry sampling, briefly captures spatial candidates from one topology
+     * root, and then runs exact at-grade-crossing detection without holding the topology lock.
+     * Scheduling belongs to the platform adapter; Core creates no worker or future.
      *
-     * Curve construction must already be complete before this call. When invoked inside an existing
-     * [railTopologyTransaction], registration joins that transaction; otherwise this method opens
-     * one transaction and publishes one topology revision after registration succeeds.
+     * [excludedExistingRailIds] names rails that the same outer install transaction will replace.
+     * They are omitted from new-vs-existing detection and must still exist when installation starts.
+     */
+    @OptIn(Heavy::class)
+    fun prepareRailCreationBatch(
+        curvesInOrder: List<PrimeCurve>,
+        excludedExistingRailIds: Set<UUID> = emptySet()
+    ): PreparedRailCreationBatch {
+        ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailCreationBatch")
+        require(curvesInOrder.isNotEmpty()) { "rail creation batch must not be empty" }
+        val creations = curvesInOrder.map { curve -> PreparedRailCreation(UUID.randomUUID(), curve) }
+        val sampledRails = creations.map { creation ->
+            atGradeRailCrossingIndex.prepareGeometry(creation.railId, creation.curve)
+        }
+        val captured = railTopologyLock.read {
+            ensureTopologyHealthy()
+            require(excludedExistingRailIds.all(rails::containsKey)) {
+                "excluded rails must exist in the captured world topology"
+            }
+            CapturedRailCreationCandidates(
+                topologyRoot = publishedTopologyState,
+                candidates = atGradeRailCrossingIndex.captureCandidateSnapshot(
+                    sampledRails,
+                    excludedExistingRailIds
+                )
+            )
+        }
+        val crossings = atGradeRailCrossingIndex.detectPreparedCrossings(
+            sampledRails,
+            captured.candidates
+        )
+        return PreparedRailCreationBatch.create(
+            ownerWorld = this,
+            topologyRoot = captured.topologyRoot,
+            creations = creations,
+            excludedExistingRailIds = excludedExistingRailIds,
+            sampledRails = sampledRails,
+            crossings = crossings
+        )
+    }
+
+    /** Convenience wrapper preserving the single input/output shape while using batch semantics. */
+    @OptIn(Heavy::class)
+    fun prepareRailCreation(
+        curve: PrimeCurve,
+        excludedExistingRailIds: Set<UUID> = emptySet()
+    ): PreparedRailCreationBatch = prepareRailCreationBatch(listOf(curve), excludedExistingRailIds)
+
+    /**
+     * Installs one prepared batch on the world owner thread. Validation completes before any map or
+     * index mutation. A replacement batch must join a clean outer topology transaction so its
+     * excluded rails can be removed before that transaction publishes.
      */
     @MainThread
-    fun createRail(curveAB: PrimeCurve): CoreRail = railTopologyTransaction {
-        createRailInTransaction(UUID.randomUUID(), curveAB)
+    fun installPreparedRails(batch: PreparedRailCreationBatch): List<CoreRail> {
+        rejectPreparedWorldMismatch(batch)
+        val activeContext = railTopologyTransactionContext.get()
+        if (batch.excludedExistingRailIds.isNotEmpty() && activeContext == null) {
+            rejectPrepared(
+                PreparedRailCreationRejectionReason.INVALID_BATCH,
+                "Prepared replacement rails must be installed inside their complete topology transaction"
+            )
+        }
+        return if (activeContext != null) {
+            installPreparedRailsInTransaction(batch, activeContext)
+        } else {
+            railTopologyTransaction {
+                installPreparedRailsInTransaction(
+                    batch,
+                    checkNotNull(railTopologyTransactionContext.get())
+                )
+            }
+        }
     }
+
+    private fun installPreparedRailsInTransaction(
+        batch: PreparedRailCreationBatch,
+        context: RailTopologyTransactionContext
+    ): List<CoreRail> {
+        check(railTopologyLock.isWriteLockedByCurrentThread) {
+            "Prepared rail installation must run inside a rail topology transaction"
+        }
+        rejectPreparedWorldMismatch(batch)
+        if (context.railInventoryMutated) {
+            rejectPrepared(
+                PreparedRailCreationRejectionReason.DIRTY_OUTER_TRANSACTION,
+                "The active topology transaction changed the rail inventory before prepared installation"
+            )
+        }
+        if (publishedTopologyState !== batch.topologyRoot) {
+            rejectPrepared(
+                PreparedRailCreationRejectionReason.STALE_TOPOLOGY,
+                "Rail topology changed from revision ${batch.topologyRevision}; rebuild and retry"
+            )
+        }
+        val conflictingIds = batch.creations.map(PreparedRailCreation::railId).filter(rails::containsKey)
+        if (conflictingIds.isNotEmpty()) {
+            rejectPrepared(
+                PreparedRailCreationRejectionReason.INVALID_BATCH,
+                "Prepared rail IDs already exist: ${conflictingIds.sortedBy(UUID::toString)}"
+            )
+        }
+
+        val createdRails = batch.creations.map { creation ->
+            CoreRail.createUnregistered(creation.railId, this, creation.curve)
+        }
+        val railsById = createdRails.associateBy(CoreRail::id)
+        context.recordRailInventoryMutation()
+        createdRails.forEach { rail -> rails[rail.id] = rail }
+        atGradeRailCrossingIndex.installPrepared(
+            railsById = railsById,
+            preparedRails = batch.sampledRails,
+            crossings = batch.crossings
+        )
+        context.requireRemoval(
+            createdRailIds = railsById.keys,
+            excludedRailIds = batch.excludedExistingRailIds
+        )
+        return createdRails
+    }
+
+    private fun rejectPreparedWorldMismatch(batch: PreparedRailCreationBatch) {
+        if (batch.ownerWorld !== this) {
+            rejectPrepared(
+                PreparedRailCreationRejectionReason.WORLD_MISMATCH,
+                "Prepared rails belong to another CoreWorld instance"
+            )
+        }
+    }
+
+    private fun rejectPrepared(reason: PreparedRailCreationRejectionReason, message: String): Nothing =
+        throw PreparedRailCreationRejectedException(reason, message)
 
     /** Core-only primitive for persistent identity restore and atomic bulk topology operations. */
     @JvmSynthetic
@@ -246,6 +376,7 @@ class CoreWorld(
             world = this,
             curveAB = curveAB
         )
+        railTopologyTransactionContext.get()?.recordRailInventoryMutation()
         rails[id] = rail
         atGradeRailCrossingIndex.addOrReplace(rail)
         return rail
@@ -281,6 +412,17 @@ class CoreWorld(
                     throw IllegalStateException(
                         "A nested rail topology transaction failed even though its caller caught the exception",
                         nestedFailure
+                    )
+                }
+                context.replacementRequirements.firstOrNull { requirement ->
+                    !requirement.isCompleteIn(rails.keys)
+                }?.let { incomplete ->
+                    throw IllegalStateException(
+                        "Prepared replacement transaction ended with an incomplete rail set; " +
+                            "created present=" +
+                            incomplete.createdRailIds.filter(rails::containsKey).sortedBy(UUID::toString) +
+                            ", excluded present=" +
+                            incomplete.excludedRailIds.filter(rails::containsKey).sortedBy(UUID::toString)
                     )
                 }
                 if (captureRailTopologyFingerprint() != context.before) {
@@ -390,6 +532,9 @@ class CoreWorld(
             removed.viewBA.activeRail = null
             removed.viewAB.mutableNextRails.clear()
             removed.viewBA.mutableNextRails.clear()
+            if (rails.containsKey(removed.id)) {
+                railTopologyTransactionContext.get()?.recordRailInventoryMutation()
+            }
             atGradeRailCrossingIndex.remove(removed.id)
             railSpatialIndex.removeRail(removed)
         }
@@ -453,11 +598,48 @@ class CoreWorld(
     private class RailTopologyTransactionContext(val before: RailTopologyFingerprint) {
         var nestedFailure: Throwable? = null
             private set
+        var railInventoryMutated: Boolean = false
+            private set
+        val replacementRequirements = mutableListOf<ReplacementRequirement>()
 
         fun recordNestedFailure(failure: Throwable) {
             if (nestedFailure == null) nestedFailure = failure
         }
+
+        fun recordRailInventoryMutation() {
+            railInventoryMutated = true
+        }
+
+        fun requireRemoval(createdRailIds: Set<UUID>, excludedRailIds: Set<UUID>) {
+            if (excludedRailIds.isNotEmpty()) {
+                replacementRequirements += ReplacementRequirement(
+                    createdRailIds.toSet(),
+                    excludedRailIds.toSet()
+                )
+            }
+        }
     }
+
+    private data class ReplacementRequirement(
+        val createdRailIds: Set<UUID>,
+        val excludedRailIds: Set<UUID>
+    ) {
+        fun isCompleteIn(liveRailIds: Set<UUID>): Boolean {
+            val committed = createdRailIds.all(liveRailIds::contains) &&
+                excludedRailIds.none(liveRailIds::contains)
+            val rolledBack = createdRailIds.none(liveRailIds::contains) &&
+                excludedRailIds.all(liveRailIds::contains)
+            return committed || rolledBack
+        }
+    }
+
+    private data class CapturedRailCreationCandidates(
+        val topologyRoot: TopologyState,
+        val candidates: AtGradeRailCrossingIndex.CandidateSnapshot
+    )
+
+    internal fun atGradeExactDetectionCountForTesting(): Long =
+        atGradeRailCrossingIndex.exactDetectionCount()
 
     /** Latest complete immutable world frame. Initial value is epoch zero with no trains. */
     fun latestWorldFrame(): RailwayWorldFrameSnapshot = publishedWorldFrame

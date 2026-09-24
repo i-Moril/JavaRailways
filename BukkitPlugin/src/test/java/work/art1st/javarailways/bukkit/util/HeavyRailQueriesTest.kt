@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.util
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -14,7 +16,7 @@ class HeavyRailQueriesTest {
     @Test
     fun `looked at rail point refines between streamed line samples`() {
         val world = createTestWorld()
-        val rail = world.createRail(
+        val rail = world.createRailForTest(
             PrimeCurve.fromPoints(
                 listOf(
                     Curve.RawPoint(
@@ -48,7 +50,7 @@ class HeavyRailQueriesTest {
         assertEquals(3.375, match.arcLength, 1e-4)
         assertEquals(0.0, match.distanceToRay, 1e-4)
 
-        val otherRail = world.createRail(rail.curve)
+        val otherRail = world.createRailForTest(rail.curve)
         val selected = HeavyRailQueries.findNearestWayPoint(
             wayPoints = listOf(
                 WayPoint("other", "other", otherRail.id, match.arcLength),

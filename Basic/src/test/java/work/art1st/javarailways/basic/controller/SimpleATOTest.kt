@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.controller
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -200,7 +202,7 @@ class SimpleATOTest {
     @Test
     fun `upcoming speed signal creates a route braking constraint`() {
         val fixture = fixture("speed-signal", railLengthMeters = 30.0)
-        val next = fixture.world.createRail(
+        val next = fixture.world.createRailForTest(
             straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
         CoreRail.connect(fixture.train.head.location.rail, next)
@@ -222,7 +224,7 @@ class SimpleATOTest {
     @Test
     fun `removing curve limit restores subgrade then timetable line maximum speed`() {
         val fixture = fixture("layered-speed", railLengthMeters = 30.0)
-        val next = fixture.world.createRail(
+        val next = fixture.world.createRailForTest(
             straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
         CoreRail.connect(fixture.train.head.location.rail, next)
@@ -328,7 +330,7 @@ class SimpleATOTest {
     fun `distinct observed objects with the same world reference stall instead of shadowing`() {
         val fixture = fixture("duplicate-rail-object-ref", railLengthMeters = 30.0)
         val head = fixture.train.head.location
-        val nextRail = fixture.world.createRail(
+        val nextRail = fixture.world.createRailForTest(
             straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(130.0, 0.0, 0.0))
         )
         CoreRail.connect(head.rail, nextRail)
@@ -355,13 +357,13 @@ class SimpleATOTest {
     @Test
     fun `same reference switching to a different live object across ticks stalls`() {
         val world = createTestWorld()
-        val approach = world.createRail(
+        val approach = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0))
         )
-        val straight = world.createRail(
+        val straight = world.createRailForTest(
             straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
-        val branch = world.createRail(
+        val branch = world.createRailForTest(
             straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0))
         )
         RailAutoConnector.connectIfAllowed(approach, straight)
@@ -474,13 +476,13 @@ class SimpleATOTest {
     @Test
     fun `turnout change during planning stalls the world`() {
         val world = createTestWorld()
-        val approach = world.createRail(
+        val approach = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0))
         )
-        val straight = world.createRail(
+        val straight = world.createRailForTest(
             straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
-        val branch = world.createRail(
+        val branch = world.createRailForTest(
             straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0))
         )
         RailAutoConnector.connectIfAllowed(approach, straight)

@@ -15,15 +15,18 @@ import kotlin.math.max
 class RailSpatialIndex(
     val cellSize: Double = DEFAULT_CELL_SIZE
 ) {
-    private data class CellKey(val x: Int, val y: Int, val z: Int)
+    internal data class CellKey(val x: Int, val y: Int, val z: Int)
+
+    /** Immutable coarse geometry prepared without reading this index's live buckets. */
+    internal data class PreparedFootprint(val cells: Set<CellKey>)
 
     private val buckets: MutableMap<CellKey, MutableSet<CoreRail>> = HashMap()
     private val railCells: MutableMap<java.util.UUID, Set<CellKey>> = HashMap()
 
     @Synchronized
-    internal fun addRail(rail: CoreRail, geometryPoints: List<Vector3dc>) {
+    internal fun addRail(rail: CoreRail, footprint: PreparedFootprint) {
         removeRail(rail)
-        val cells = collectCells(rail, geometryPoints)
+        val cells = footprint.cells
         railCells[rail.id] = cells
         cells.forEach { cell ->
             buckets.getOrPut(cell) { LinkedHashSet() }.add(rail)
@@ -94,7 +97,27 @@ class RailSpatialIndex(
         return result
     }
 
-    private fun collectCells(rail: CoreRail, geometryPoints: List<Vector3dc>): Set<CellKey> {
+    /** Captures only rails in this footprint's neighbouring cells; callers still run exact checks. */
+    @Synchronized
+    internal fun candidatesFor(footprint: PreparedFootprint): Set<CoreRail> {
+        val result = LinkedHashSet<CoreRail>()
+        footprint.cells.forEach { cell ->
+            for (x in cell.x - 1..cell.x + 1) {
+                for (y in cell.y - 1..cell.y + 1) {
+                    for (z in cell.z - 1..cell.z + 1) {
+                        buckets[CellKey(x, y, z)]?.let(result::addAll)
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /** Pure geometry preparation; safe to call before taking the world topology read lock. */
+    internal fun prepareFootprint(geometryPoints: List<Vector3dc>): PreparedFootprint =
+        PreparedFootprint(collectCells(geometryPoints).toSet())
+
+    private fun collectCells(geometryPoints: List<Vector3dc>): Set<CellKey> {
         val cells = LinkedHashSet<CellKey>()
         var previous: Vector3dc? = null
         geometryPoints.forEach { current ->
@@ -106,13 +129,7 @@ class RailSpatialIndex(
             }
             previous = current
         }
-        // Defensive fallback for pathological curves with no stream points.
-        if (cells.isEmpty()) {
-            val start = rail.curve.getPointAt(0.0).position
-            val end = rail.curve.getPointAt(rail.curve.totalArcLength).position
-            cells.add(cellAt(start))
-            cells.add(cellAt(end))
-        }
+        require(cells.isNotEmpty()) { "rail geometry must contain at least one point" }
         return cells
     }
 

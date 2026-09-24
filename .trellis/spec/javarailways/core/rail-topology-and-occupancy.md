@@ -12,7 +12,7 @@
 - `CoreRail`拥有canonical curve与AB/BA views；迁移期间`RailView.nextRails`是Core内部physical connection编辑模型，发布给consumer的authoritative连通结构是同一transaction产生的`TopologyState`；`nextActiveRail`是runtime selected branch，不进入structural state。
 - Basic `allowedDirection`/route allocation不是Core physical topology。
 - structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先await current `PhysicsTicket`，再持write lock；expensive curve build在transaction外。
-- rail创建只能通过`CoreWorld.createRail(curve)`进入：独立调用自动开启structural transaction，外层transaction中的调用自动加入同一批次。`CoreRail`构造本身不注册world；持久化UUID恢复和split/merge只使用Core内部transaction-only primitive，因此rail map与平交索引在同一structural transaction内恰好注册一次。
+- live rail创建使用两阶段批量协议：平台worker调用`CoreWorld.prepareRailCreationBatch(curves, excludedIds)`，owner线程调用`installPreparedRails(batch)`；Core不持有executor或future。`CoreRail`构造本身不注册world。持久化restore在physics启动前只使用Core内部同步`createRailInTransaction`重建索引；同步测试建轨只存在于不打入runtime JAR的Core test fixture，runtime不暴露同步创建入口。
 - outer structural transaction在释放write lock前比较进入/退出时的rail identity与structural adjacency；只有成功且结构确实变化时才递增一次`topologyRevision`。nested transaction不重复递增，直接add/remove rail也进入同一边界；成功no-op与完整rollback不发布新revision。
 - transaction exception不自动rollback。若异常前结构未变化，revision不变且world仍可用；若结构已经变化，revision仍保持旧值、world topology进入`RailTopologyHealth.Faulted`并Stall physics，禁止继续发布world frame或执行新结构事务，直到reload/recovery。fault record只保留稳定reason、最后成功revision、异常类型和消息，不长期持有原始`Throwable`；嵌套失败只存在于当前`RailTopologyTransactionContext`。不得把失败后的部分结构伪装成一个正常新revision。
 - `removeRail`检查target及affected rails的full train placement envelope，修复links/spatial index后移除。
@@ -71,6 +71,31 @@ state = when {
 - release时强制把turnout切回旧branch；
 - `getNearestRail`在main/per-Tick调用；coarse index候选仍须exact check。
 - 把spatial cell共享直接当作diamond，或在route request/per-Tick重新扫描rail geometry；cell只做structural-edit broad phase。
+
+## Live rail创建的异步准备与原子安装
+
+`PreparedRailCreationBatch`是process-local immutable值：按调用方curve顺序保存已分配的stable UUID、curve、压缩后的piecewise-linear samples、spatial footprint、预计算crossing，以及捕获时的exact `CoreWorld`与published `TopologyState` root。它不是持久化边界，也不引入新的revision类型。
+
+正常流程：
+
+```text
+Bukkit/Paper async worker
+  -> 为整批curve一次分配rail ID并采样/压缩geometry
+  -> Core在topology read lock内捕获published root及spatial候选geometry
+  -> 释放read lock
+  -> exact new-vs-existing + new-vs-new crossing detection
+owner/world thread
+  -> 验证world identity、同一TopologyState root、ID与replacement source
+  -> 验证outer transaction尚未改变rail inventory
+  -> 一次构造并注册全部CoreRail，安装预计算sample/crossing
+  -> 完成connection/removal等编辑后只发布一次TopologyState
+```
+
+候选捕获只复制被new rail spatial cells及相邻cells命中的existing sampled geometry，不复制完整world graph。设新rail数为`N`、每条压缩段数为`S_i`、空间候选集合为`C_i`，准备阶段sampling为`O(sum S_i)`，new-vs-existing exact上界为`O(sum_i sum_{c in C_i}(S_i * S_c))`；new-vs-new只在spatial footprints相邻且AABB重叠后进入segment exact phase。安装前用transaction内的rail-inventory mutation标记做`O(1)` dirty检查；安装预计算结果为`O(N + K)`，`K`为该批预计算crossing数，不得重新运行exact detector。outer transaction最终仍按既有协议构建并发布完整`TopologyState`。
+
+replacement/split/merge必须把同一事务将删除的rail ID作为`excludedIds`整体准备，不能逐rail分别prepare；否则新rail之间的crossing和批次顺序无法在一个root上证明。含excluded ID的batch只能安装在尚未改变rail inventory的outer transaction，且这些source rail必须在该transaction发布前全部移除。安装前world不一致、root/revision过期（包括source已变化/缺失）、outer transaction已改变rail inventory或batch身份冲突均抛`PreparedRailCreationRejectedException`及稳定reason，且batch本身产生零mutation；connection选择等不改变候选geometry的后续编辑可在安装后完成。Bukkit向玩家提示重试，不自动无限retry。安装后的后续编辑失败仍遵循现有transaction fault/rollback规则。
+
+测试必须锁定：exact detector只在prepare运行；batch内new-vs-new crossing；input/output顺序；一次publication；world mismatch、stale root、dirty outer transaction与source缺失在batch mutation前拒绝。world bootstrap/load仍可在physics启动前同步完整重建。
 
 ## 必需测试与验证
 

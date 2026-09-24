@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -22,7 +24,7 @@ class RailLocationPersistTest {
             Curve.RawPoint(start, tan, nrm, 0.0, Curve.SegmentType.LINE_START),
             Curve.RawPoint(end, tan, nrm, 100.0, Curve.SegmentType.LINE_END)
         ))
-        return world.createRail(curve)
+        return world.createRailForTest(curve)
     }
 
     @Test

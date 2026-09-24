@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.route
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import work.art1st.javarailways.basic.rail.TurnoutEndpointMetadata
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
@@ -33,7 +35,7 @@ class PlannedRouteCompilerTest {
         val world = createTestWorld()
         val start = rail(world, 0.0, 10.0)
         val selected = rail(world, 10.0, 20.0)
-        val otherBranch = world.createRail(
+        val otherBranch = world.createRailForTest(
             polylineCurve(
                 Vector3d(10.0, 0.0, 0.0),
                 Vector3d(15.0, 0.0, 5.0),
@@ -85,7 +87,7 @@ class PlannedRouteCompilerTest {
         val world = createTestWorld()
         val stem = rail(world, 0.0, 10.0)
         val selected = rail(world, 10.0, 20.0)
-        val other = world.createRail(
+        val other = world.createRailForTest(
             straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 4.0))
         )
         CoreRail.connect(stem, selected)
@@ -115,10 +117,10 @@ class PlannedRouteCompilerTest {
         val first = rail(world, 0.0, 10.0)
         val second = rail(world, 10.0, 20.0)
         val third = rail(world, 20.0, 30.0)
-        val firstBranch = world.createRail(
+        val firstBranch = world.createRailForTest(
             straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(15.0, 0.0, 5.0))
         )
-        val secondBranch = world.createRail(
+        val secondBranch = world.createRailForTest(
             straightCurve(Vector3d(20.0, 0.0, 0.0), Vector3d(25.0, 0.0, 5.0))
         )
         CoreRail.connect(first, second)
@@ -199,7 +201,7 @@ class PlannedRouteCompilerTest {
     }
 
     private fun rail(world: CoreWorld, fromX: Double, toX: Double): CoreRail =
-        world.createRail(straightCurve(Vector3d(fromX, 0.0, 0.0), Vector3d(toX, 0.0, 0.0)))
+        world.createRailForTest(straightCurve(Vector3d(fromX, 0.0, 0.0), Vector3d(toX, 0.0, 0.0)))
 
     private fun allowAbOnly(rail: CoreRail) {
         rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -24,7 +26,7 @@ class RailDirectionRestrictionTest {
             Curve.RawPoint(Vector3d(40.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
             Curve.RawPoint(Vector3d(80.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 40.0)
         ))
-        val second = world.createRail(secondCurve)
+        val second = world.createRailForTest(secondCurve)
         RailView.connect(first.viewAB, second.viewBA)
         assertEquals(second.viewAB, first.viewAB.activeRail)
 

@@ -5,6 +5,7 @@ import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
@@ -28,7 +29,7 @@ fun createTestWorld(): CoreWorld {
 fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        world.createRail(curve)
+        world.createRailForTest(curve)
     }
     for (i in rails.indices) {
         val nextView = if (i == rails.lastIndex) rails.first().viewAB else rails[i + 1].viewAB
@@ -44,7 +45,7 @@ fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): Co
 fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        world.createRail(curve)
+        world.createRailForTest(curve)
     }
     for (i in 0 until rails.lastIndex) {
         CoreRail.connect(rails[i], rails[i + 1])

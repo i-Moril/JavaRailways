@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -13,8 +15,8 @@ class RailConnectTest {
     @Test
     fun `save stores connections at semantic endpoints`() {
         val world = createTestWorld()
-        val first = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
-        val second = world.createRail(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
+        val first = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val second = world.createRailForTest(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
 
         CoreRail.connect(first, second)
 
@@ -33,8 +35,8 @@ class RailConnectTest {
     @Test
     fun `connecting the same adjacent rails twice does not duplicate next rails`() {
         val world = createTestWorld()
-        val first = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
-        val second = world.createRail(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
+        val first = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val second = world.createRailForTest(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
 
         val beforeConnect = world.topologyState
 

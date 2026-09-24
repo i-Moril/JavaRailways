@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -39,13 +41,13 @@ class CoreTrainTailBogieTest {
     @Test
     fun `trailing bogies preserve siding path while first bogie enters merged main line`() {
         val world = createTestWorld()
-        val main = world.createRail(
+        val main = world.createRailForTest(
             straightCurve(Vector3d(-30.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val siding = world.createRail(
+        val siding = world.createRailForTest(
             straightCurve(Vector3d(-30.0, 0.0, 5.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val merged = world.createRail(
+        val merged = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
         )
         RailView.connect(main.viewAB, merged.viewBA)
@@ -74,7 +76,7 @@ class CoreTrainTailBogieTest {
     @Test
     fun `curved consist can move after stopping and reversing`() {
         val world = createTestWorld()
-        val rail = world.createRail(PrimeCurveGenerator.buildCircle(30.0, segmentCount = 1).single())
+        val rail = world.createRailForTest(PrimeCurveGenerator.buildCircle(30.0, segmentCount = 1).single())
         rail.viewAB.mutableNextRails.add(rail.viewAB)
         rail.viewAB.activeRail = rail.viewAB
         rail.viewBA.mutableNextRails.add(rail.viewBA)

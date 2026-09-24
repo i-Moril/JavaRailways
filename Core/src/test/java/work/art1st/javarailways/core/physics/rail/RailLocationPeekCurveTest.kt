@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -11,7 +13,7 @@ class RailLocationPeekCurveTest {
     @Test
     fun `positive peek starts from current arc length`() {
         val world = createTestWorld()
-        val rail = world.createRail(straightCurve(4.0))
+        val rail = world.createRailForTest(straightCurve(4.0))
         val location = RailLocationWithFacing(rail.viewAB, 1.0)
 
         val segment = location.peekCurve(2.0).single()
@@ -23,7 +25,7 @@ class RailLocationPeekCurveTest {
     @Test
     fun `negative peek uses reversed current arc length`() {
         val world = createTestWorld()
-        val rail = world.createRail(straightCurve(4.0))
+        val rail = world.createRailForTest(straightCurve(4.0))
         val location = RailLocationWithFacing(rail.viewAB, 1.0)
 
         val segment = location.peekCurve(-2.0).single()

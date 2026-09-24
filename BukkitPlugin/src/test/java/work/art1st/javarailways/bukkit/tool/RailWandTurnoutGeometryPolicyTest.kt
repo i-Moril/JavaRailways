@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.tool
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -137,7 +139,7 @@ class RailWandTurnoutGeometryPolicyTest {
     }
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
-        world.createRail(curve(from, to))
+        world.createRailForTest(curve(from, to))
 
     private fun curve(
         from: Vector3d,

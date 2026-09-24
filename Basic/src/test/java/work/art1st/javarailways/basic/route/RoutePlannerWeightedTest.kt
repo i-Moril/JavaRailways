@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.route
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -95,7 +97,7 @@ class RoutePlannerWeightedTest {
     }
 
     private fun rail(world: CoreWorld, vararg points: Vector3d): CoreRail =
-        world.createRail(curve(*points))
+        world.createRailForTest(curve(*points))
 
     private fun allowAbOnly(rail: CoreRail) {
         rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)

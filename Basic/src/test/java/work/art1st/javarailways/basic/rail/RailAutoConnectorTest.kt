@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -23,10 +25,10 @@ class RailAutoConnectorTest {
     @Test
     fun `occupied endpoint rail must be taken out of service before connection`() {
         val world = createTestWorld()
-        val first = world.createRail(
+        val first = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
         )
-        val second = world.createRail(
+        val second = world.createRailForTest(
             straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 0.0))
         )
         createTrainWithConfig("occupied-connect", first, world, listOf(8.0))
@@ -40,15 +42,15 @@ class RailAutoConnectorTest {
     @Test
     fun `third occupied endpoint rail prevents turnout reconfiguration`() {
         val world = createTestWorld()
-        val stem = world.createRail(
+        val stem = world.createRailForTest(
             straightCurve(Vector3d(-30.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val straight = world.createRail(
+        val straight = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0))
         )
         assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(stem, straight).outcome)
         createTrainWithConfig("occupied-third-leg", straight, world, listOf(8.0))
-        val branch = world.createRail(
+        val branch = world.createRailForTest(
             angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0, length = 40.0)
         )
 
@@ -63,8 +65,8 @@ class RailAutoConnectorTest {
     @Test
     fun `auto connector rejects sharp endpoint branch`() {
         val world = createTestWorld()
-        val approach = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
-        val side = world.createRail(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(10.0, 0.0, 10.0)))
+        val approach = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val side = world.createRailForTest(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(10.0, 0.0, 10.0)))
 
         val result = RailAutoConnector.connectIfAllowed(approach, side)
 
@@ -77,8 +79,8 @@ class RailAutoConnectorTest {
     @Test
     fun `auto connector allows thirty degree endpoint transition`() {
         val world = createTestWorld()
-        val approach = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
-        val turnout = world.createRail(angledCurveFrom(Vector3d(10.0, 0.0, 0.0), 30.0))
+        val approach = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val turnout = world.createRailForTest(angledCurveFrom(Vector3d(10.0, 0.0, 0.0), 30.0))
 
         val result = RailAutoConnector.connectIfAllowed(approach, turnout)
 
@@ -91,9 +93,9 @@ class RailAutoConnectorTest {
     @Test
     fun `created rail can select smoothest active branch after unordered auto connects`() {
         val world = createTestWorld()
-        val created = world.createRail(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
-        val branch = world.createRail(curvedBranchEndingAt(Vector3d(10.0, 0.0, 0.0)))
-        val straight = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val created = world.createRailForTest(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
+        val branch = world.createRailForTest(curvedBranchEndingAt(Vector3d(10.0, 0.0, 0.0)))
+        val straight = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
 
         assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(created, branch).outcome)
         assertSame(branch.viewBA, created.viewBA.nextActiveRail)
@@ -109,9 +111,9 @@ class RailAutoConnectorTest {
     @Test
     fun `auto connector preserves existing active rail when adding another legal branch`() {
         val world = createTestWorld()
-        val approach = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
-        val straight = world.createRail(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
-        val turnout = world.createRail(angledCurveFrom(Vector3d(10.0, 0.0, 0.0), 20.0))
+        val approach = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val straight = world.createRailForTest(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
+        val turnout = world.createRailForTest(angledCurveFrom(Vector3d(10.0, 0.0, 0.0), 20.0))
 
         assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(approach, straight).outcome)
         assertSame(straight.viewAB, approach.viewAB.nextActiveRail)
@@ -127,14 +129,14 @@ class RailAutoConnectorTest {
     @Test
     fun `three-leg turnout requires every immediate leg to cover the locking distance`() {
         val world = createTestWorld()
-        val stem = world.createRail(
+        val stem = world.createRailForTest(
             straightCurve(Vector3d(-4.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val straight = world.createRail(
+        val straight = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
         )
         assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(stem, straight).outcome)
-        val branch = world.createRail(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
+        val branch = world.createRailForTest(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
 
         val result = RailAutoConnector.connectIfAllowed(stem, branch)
 
@@ -149,14 +151,14 @@ class RailAutoConnectorTest {
     @Test
     fun `three-leg turnout rejects a discontinuous node grade`() {
         val world = createTestWorld()
-        val stem = world.createRail(
+        val stem = world.createRailForTest(
             straightCurve(Vector3d(-10.0, -0.2, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val straight = world.createRail(
+        val straight = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.2, 0.0))
         )
         RailAutoConnector.connectIfAllowed(stem, straight)
-        val branch = world.createRail(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
+        val branch = world.createRailForTest(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
 
         val result = RailAutoConnector.connectIfAllowed(stem, branch)
 
@@ -168,15 +170,15 @@ class RailAutoConnectorTest {
     @Test
     fun `three-leg turnout accepts one constant grade across all legs`() {
         val world = createTestWorld()
-        val stem = world.createRail(
+        val stem = world.createRailForTest(
             straightCurve(Vector3d(-10.0, -0.2, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val straight = world.createRail(
+        val straight = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.2, 0.0))
         )
         RailAutoConnector.connectIfAllowed(stem, straight)
         val angle = Math.toRadians(20.0)
-        val branch = world.createRail(
+        val branch = world.createRailForTest(
             straightCurve(
                 Vector3d(),
                 Vector3d(cos(angle) * 10.0, 0.2, sin(angle) * 10.0)
@@ -189,10 +191,10 @@ class RailAutoConnectorTest {
     @Test
     fun `three-leg turnout allows player-authored grade variation inside the locking interval`() {
         val world = createTestWorld()
-        val stem = world.createRail(
+        val stem = world.createRailForTest(
             straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val straight = world.createRail(
+        val straight = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
         )
         RailAutoConnector.connectIfAllowed(stem, straight)
@@ -213,7 +215,7 @@ class RailAutoConnectorTest {
                 10.01
             )
         ))
-        val branch = world.createRail(branchCurve)
+        val branch = world.createRailForTest(branchCurve)
 
         val result = RailAutoConnector.connectIfAllowed(stem, branch)
 
@@ -224,14 +226,14 @@ class RailAutoConnectorTest {
     @Test
     fun `three-leg turnout accepts legs exactly as long as the locking distance`() {
         val world = createTestWorld()
-        val stem = world.createRail(
+        val stem = world.createRailForTest(
             straightCurve(Vector3d(-5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val straight = world.createRail(
+        val straight = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0))
         )
         RailAutoConnector.connectIfAllowed(stem, straight)
-        val branch = world.createRail(
+        val branch = world.createRailForTest(
             angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0, length = 5.0)
         )
 
@@ -241,10 +243,10 @@ class RailAutoConnectorTest {
     @Test
     fun `three-leg turnout connects stem to both branches without propagating endpoint overrides`() {
         val world = createTestWorld()
-        val stem = world.createRail(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
-        val straight = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val stem = world.createRailForTest(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
+        val straight = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
         assertEquals(RailAutoConnector.Outcome.CONNECTED, RailAutoConnector.connectIfAllowed(stem, straight).outcome)
-        val branch = world.createRail(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
+        val branch = world.createRailForTest(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
         val settings = TurnoutEndpointMetadata(30.0, 7.0)
         branch.metadata = branch.metadata.copy(turnoutAtA = settings)
 
@@ -263,10 +265,10 @@ class RailAutoConnectorTest {
     @Test
     fun `connector validates against transaction target topology instead of unpublished rails`() {
         val world = createTestWorld()
-        val unpublished = world.createRail(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
-        val replacement = world.createRail(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
-        val straight = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
-        val branch = world.createRail(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
+        val unpublished = world.createRailForTest(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
+        val replacement = world.createRailForTest(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
+        val straight = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val branch = world.createRailForTest(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
         val targetTopology = listOf(replacement, straight, branch)
         val options = RailAutoConnector.Options(topologyRails = targetTopology)
 
@@ -279,13 +281,13 @@ class RailAutoConnectorTest {
     @Test
     fun `fourth endpoint is rejected without changing the turnout`() {
         val world = createTestWorld()
-        val stem = world.createRail(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
-        val straight = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val stem = world.createRailForTest(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
+        val straight = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
         RailAutoConnector.connectIfAllowed(stem, straight)
-        val branch = world.createRail(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
+        val branch = world.createRailForTest(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), 20.0))
         RailAutoConnector.connectIfAllowed(stem, branch)
         val before = stem.viewAB.nextRails.toList()
-        val fourth = world.createRail(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), -20.0))
+        val fourth = world.createRailForTest(angledCurveFrom(Vector3d(0.0, 0.0, 0.0), -20.0))
 
         val result = RailAutoConnector.connectIfAllowed(stem, fourth)
 
@@ -297,10 +299,10 @@ class RailAutoConnectorTest {
     @Test
     fun `geometrically ambiguous three-leg node is rejected`() {
         val world = createTestWorld()
-        val west = world.createRail(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
-        val east = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val west = world.createRailForTest(straightCurve(Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
+        val east = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
         RailAutoConnector.connectIfAllowed(west, east)
-        val north = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(0.0, 0.0, 10.0)))
+        val north = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(0.0, 0.0, 10.0)))
 
         val result = RailAutoConnector.connectIfAllowed(west, north)
 

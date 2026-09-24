@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.timetable
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -1180,7 +1182,7 @@ class TimetableStationCallDispatcherTest {
         world: work.art1st.javarailways.core.physics.CoreWorld,
         from: Vector3d,
         to: Vector3d
-    ): CoreRail = world.createRail(straightCurve(from, to))
+    ): CoreRail = world.createRailForTest(straightCurve(from, to))
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
         val tangent = Vector3d(to).sub(from).normalize()

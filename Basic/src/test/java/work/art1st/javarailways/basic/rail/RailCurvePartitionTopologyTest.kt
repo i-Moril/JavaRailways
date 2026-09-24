@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.rail
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -25,7 +27,7 @@ class RailCurvePartitionTopologyTest {
         val oldStart = Vector3d(210.5, 71.0, -188.5)
         val joint = Vector3d(162.5, 71.0, -172.5)
         val oldTangent = Vector3d(-0.9486832980505138, 0.0, 0.31622776601683794)
-        val old = world.createRail(line(oldStart, joint, oldTangent))
+        val old = world.createRailForTest(line(oldStart, joint, oldTangent))
         val result = RailCurveFactory.build(
             Anchor("saved-endpoint", joint, oldTangent),
             Anchor("new-endpoint", Vector3d(84.5, 70.0, -134.8), Vector3d(0.866, 0.0, -0.5)),
@@ -39,7 +41,7 @@ class RailCurvePartitionTopologyTest {
             result.logicalBreakFractions[1]
         )
         val curves = RailCurvePartitioner.partitionFiveSegment(curve, observedBreaks).map { it.curve }
-        val created = curves.map(world::createRail)
+        val created = curves.map(world::createRailForTest)
         val topology = listOf(old) + created
         val checked = hashSetOf<Pair<UUID, UUID>>()
 

@@ -5,6 +5,7 @@ import org.joml.Vector3dc
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
 /** Maximum three-dimensional separation still treated as one approximate at-grade crossing. */
@@ -16,11 +17,13 @@ internal class AtGradeRailCrossingIndex(
 ) {
     private val crossingsByPair = linkedMapOf<RailPair, AtGradeRailCrossing>()
     private val sampledRails = hashMapOf<UUID, SampledRail>()
+    private val exactDetectionCounter = AtomicLong()
 
+    /** Synchronous bootstrap path used while restoring a world before live physics starts. */
     fun addOrReplace(rail: CoreRail) {
         remove(rail.id)
-        val addedGeometry = sample(rail)
-        spatialIndex.addRail(rail, addedGeometry.samples.map(Sample::position))
+        val addedGeometry = prepareGeometry(rail.id, rail.curve)
+        spatialIndex.addRail(rail, addedGeometry.footprint)
         sampledRails[rail.id] = addedGeometry
         spatialIndex.candidatesFor(rail)
             .sortedBy { it.id.toString() }
@@ -39,9 +42,9 @@ internal class AtGradeRailCrossingIndex(
                     )
                 ) return@forEach
                 val crossing = detect(
-                    orderedFirst,
+                    orderedFirst.id,
                     firstGeometry.samples,
-                    orderedSecond,
+                    orderedSecond.id,
                     secondGeometry.samples
                 )
                 if (crossing != null) crossingsByPair[pair] = crossing
@@ -57,12 +60,129 @@ internal class AtGradeRailCrossingIndex(
         .sortedWith(compareBy({ it.key.first.toString() }, { it.key.second.toString() }))
         .map { it.value }
 
+    /** Samples one immutable curve and computes its spatial footprint without reading live world state. */
+    fun prepareGeometry(railId: UUID, curve: work.art1st.javarailways.core.api.physics.curve.PrimeCurve): SampledRail {
+        val samples = simplifyCollinear(
+            curve.geometryBreakpoints().map { point -> Sample(Vector3d(point.position), point.arcLength) }
+        )
+        return SampledRail(
+            railId = railId,
+            samples = samples,
+            bounds = Bounds.of(samples),
+            footprint = spatialIndex.prepareFootprint(samples.map(Sample::position))
+        )
+    }
+
+    /**
+     * Copies only existing geometries selected by the spatial broad phase. The caller holds the
+     * world topology read lock, so the IDs and samples belong to one published topology root.
+     */
+    fun captureCandidateSnapshot(
+        newRails: List<SampledRail>,
+        excludedExistingRailIds: Set<UUID>
+    ): CandidateSnapshot {
+        val existingByNewRail = linkedMapOf<UUID, List<SampledRail>>()
+        newRails.forEach { prepared ->
+            existingByNewRail[prepared.railId] = spatialIndex.candidatesFor(prepared.footprint)
+                .asSequence()
+                .filterNot { it.id in excludedExistingRailIds }
+                .sortedBy { it.id.toString() }
+                .map { candidate ->
+                    checkNotNull(sampledRails[candidate.id]) {
+                        "spatial candidate ${candidate.id} has no sampled crossing geometry"
+                    }
+                }
+                .toList()
+        }
+        return CandidateSnapshot(existingByNewRail)
+    }
+
+    /** Runs the exact phase without reading or mutating the live indexes. */
+    fun detectPreparedCrossings(
+        newRails: List<SampledRail>,
+        candidates: CandidateSnapshot
+    ): List<AtGradeRailCrossing> {
+        val result = linkedMapOf<RailPair, AtGradeRailCrossing>()
+        newRails.forEach { added ->
+            candidates.existingRailsByNewRailId.getValue(added.railId).forEach { existing ->
+                detectPair(added, existing)?.let { crossing ->
+                    result[RailPair.of(added.railId, existing.railId)] = crossing
+                }
+            }
+        }
+        val priorNewRailsByCell = hashMapOf<RailSpatialIndex.CellKey, MutableList<SampledRail>>()
+        newRails.forEach { added ->
+            val candidateNewRails = linkedMapOf<UUID, SampledRail>()
+            added.footprint.cells.forEach { cell ->
+                for (x in cell.x - 1..cell.x + 1) {
+                    for (y in cell.y - 1..cell.y + 1) {
+                        for (z in cell.z - 1..cell.z + 1) {
+                            priorNewRailsByCell[RailSpatialIndex.CellKey(x, y, z)]?.forEach { candidate ->
+                                candidateNewRails.putIfAbsent(candidate.railId, candidate)
+                            }
+                        }
+                    }
+                }
+            }
+            candidateNewRails.values.forEach { existingNewRail ->
+                detectPair(existingNewRail, added)?.let { crossing ->
+                    result[RailPair.of(existingNewRail.railId, added.railId)] = crossing
+                }
+            }
+            added.footprint.cells.forEach { cell ->
+                priorNewRailsByCell.getOrPut(cell) { mutableListOf() } += added
+            }
+        }
+        return result.entries
+            .sortedWith(compareBy({ it.key.first.toString() }, { it.key.second.toString() }))
+            .map(Map.Entry<RailPair, AtGradeRailCrossing>::value)
+    }
+
+    /** Installs pre-sampled geometry and precomputed crossings; this method never runs exact detection. */
+    fun installPrepared(
+        railsById: Map<UUID, CoreRail>,
+        preparedRails: List<SampledRail>,
+        crossings: List<AtGradeRailCrossing>
+    ) {
+        preparedRails.forEach { prepared ->
+            val rail = checkNotNull(railsById[prepared.railId]) {
+                "missing prepared rail ${prepared.railId} during crossing-index install"
+            }
+            check(prepared.railId !in sampledRails) { "rail ${prepared.railId} is already indexed" }
+            sampledRails[prepared.railId] = prepared
+            spatialIndex.addRail(rail, prepared.footprint)
+        }
+        crossings.forEach { crossing ->
+            val pair = RailPair.of(crossing.first.railId, crossing.second.railId)
+            check(pair.first in railsById || pair.second in railsById) {
+                "prepared crossing $pair does not involve the installed batch"
+            }
+            crossingsByPair[pair] = crossing
+        }
+    }
+
+    internal fun exactDetectionCount(): Long = exactDetectionCounter.get()
+
+    private fun detectPair(first: SampledRail, second: SampledRail): AtGradeRailCrossing? {
+        if (!first.bounds.overlaps(second.bounds, AT_GRADE_CROSSING_TOLERANCE_METERS)) return null
+        val pair = RailPair.of(first.railId, second.railId)
+        val orderedFirst = if (pair.first == first.railId) first else second
+        val orderedSecond = if (orderedFirst === first) second else first
+        return detect(
+            orderedFirst.railId,
+            orderedFirst.samples,
+            orderedSecond.railId,
+            orderedSecond.samples
+        )
+    }
+
     private fun detect(
-        firstRail: CoreRail,
+        firstRailId: UUID,
         firstSamples: List<Sample>,
-        secondRail: CoreRail,
+        secondRailId: UUID,
         secondSamples: List<Sample>
     ): AtGradeRailCrossing? {
+        exactDetectionCounter.incrementAndGet()
         var bestDistanceSquared = Double.POSITIVE_INFINITY
         var bestCrossing: AtGradeRailCrossing? = null
         var bestApproachIsParallel = false
@@ -90,19 +210,12 @@ internal class AtGradeRailCrossingIndex(
                 bestDistanceSquared = closest.distanceSquared
                 bestApproachIsParallel = closest.parallel
                 bestCrossing = AtGradeRailCrossing(
-                    RailCrossingPoint(firstRail.id, firstArc),
-                    RailCrossingPoint(secondRail.id, secondArc)
+                    RailCrossingPoint(firstRailId, firstArc),
+                    RailCrossingPoint(secondRailId, secondArc)
                 )
             }
         }
         return bestCrossing?.takeUnless { bestApproachIsParallel }
-    }
-
-    private fun sample(rail: CoreRail): SampledRail {
-        val samples = simplifyCollinear(
-            rail.geometryBreakpoints().map { point -> Sample(Vector3d(point.position), point.arcLength) }
-        )
-        return SampledRail(samples, Bounds.of(samples))
     }
 
     /** Curve geometry is piecewise linear, so removing an interior collinear sample is exact. */
@@ -287,11 +400,20 @@ internal class AtGradeRailCrossingIndex(
     private fun interpolate(start: Double, end: Double, fraction: Double): Double =
         start + (end - start) * fraction
 
-    private data class Sample(val position: Vector3dc, val arcLength: Double)
+    internal data class CandidateSnapshot(
+        val existingRailsByNewRailId: Map<UUID, List<SampledRail>>
+    )
 
-    private data class SampledRail(val samples: List<Sample>, val bounds: Bounds)
+    internal data class Sample(val position: Vector3dc, val arcLength: Double)
 
-    private data class Bounds(
+    internal data class SampledRail(
+        val railId: UUID,
+        val samples: List<Sample>,
+        val bounds: Bounds,
+        val footprint: RailSpatialIndex.PreparedFootprint
+    )
+
+    internal data class Bounds(
         val minX: Double,
         val minY: Double,
         val minZ: Double,
@@ -326,7 +448,7 @@ internal class AtGradeRailCrossingIndex(
         val parallel: Boolean
     )
 
-    private data class RailPair(val first: UUID, val second: UUID) {
+    internal data class RailPair(val first: UUID, val second: UUID) {
         companion object {
             fun of(first: UUID, second: UUID): RailPair =
                 if (first.toString() < second.toString()) RailPair(first, second) else RailPair(second, first)

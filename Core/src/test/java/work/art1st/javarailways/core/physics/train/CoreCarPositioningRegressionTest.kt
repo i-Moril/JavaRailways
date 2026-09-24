@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.physics.createRailForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -32,7 +34,7 @@ class CoreCarPositioningRegressionTest {
             Curve.RawPoint(Vector3d(50.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 0.98, 0.20).normalize(), 50.0),
             Curve.RawPoint(Vector3d(100.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 0.92, 0.39).normalize(), 100.0)
         ))
-        val rail = world.createRail(curve)
+        val rail = world.createRailForTest(curve)
         val train = createTrainWithConfig("banked-relocation", rail, world, List(3) { 10.0 }, isLoop = false)
 
         train.setLocation(RailLocationWithFacing(rail.viewAB, 70.0))
@@ -59,7 +61,7 @@ class CoreCarPositioningRegressionTest {
 
     private fun createCurvedRail(world: CoreWorld, radius: Double): CoreRail {
         val curve = PrimeCurveGenerator.buildCircle(radius, segmentCount = 1).single()
-        return world.createRail(curve)
+        return world.createRailForTest(curve)
     }
 
     private fun createCommandStyleTrain(world: CoreWorld, rail: CoreRail, carLength: Double): CoreTrain {

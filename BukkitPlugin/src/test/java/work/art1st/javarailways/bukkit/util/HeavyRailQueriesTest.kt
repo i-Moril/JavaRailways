@@ -14,8 +14,7 @@ class HeavyRailQueriesTest {
     @Test
     fun `looked at rail point refines between streamed line samples`() {
         val world = createTestWorld()
-        val rail = CoreRail(
-            world,
+        val rail = world.createRail(
             PrimeCurve.fromPoints(
                 listOf(
                     Curve.RawPoint(
@@ -33,9 +32,7 @@ class HeavyRailQueriesTest {
                         Curve.SegmentType.LINE_END
                     )
                 )
-            ),
-            mutableListOf(),
-            mutableListOf()
+            )
         )
 
         val match = HeavyRailQueries.findLookedAtRailPoint(
@@ -51,12 +48,7 @@ class HeavyRailQueriesTest {
         assertEquals(3.375, match.arcLength, 1e-4)
         assertEquals(0.0, match.distanceToRay, 1e-4)
 
-        val otherRail = CoreRail(
-            world,
-            rail.curve,
-            mutableListOf(),
-            mutableListOf()
-        )
+        val otherRail = world.createRail(rail.curve)
         val selected = HeavyRailQueries.findNearestWayPoint(
             wayPoints = listOf(
                 WayPoint("other", "other", otherRail.id, match.arcLength),

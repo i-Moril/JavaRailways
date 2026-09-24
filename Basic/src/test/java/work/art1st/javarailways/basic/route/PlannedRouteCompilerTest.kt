@@ -33,15 +33,12 @@ class PlannedRouteCompilerTest {
         val world = createTestWorld()
         val start = rail(world, 0.0, 10.0)
         val selected = rail(world, 10.0, 20.0)
-        val otherBranch = CoreRail(
-            world,
+        val otherBranch = world.createRail(
             polylineCurve(
                 Vector3d(10.0, 0.0, 0.0),
                 Vector3d(15.0, 0.0, 5.0),
                 Vector3d(20.0, 0.0, 0.0)
-            ),
-            mutableListOf(),
-            mutableListOf()
+            )
         )
         val goal = rail(world, 20.0, 30.0)
         CoreRail.connect(start, selected)
@@ -88,11 +85,8 @@ class PlannedRouteCompilerTest {
         val world = createTestWorld()
         val stem = rail(world, 0.0, 10.0)
         val selected = rail(world, 10.0, 20.0)
-        val other = CoreRail(
-            world,
-            straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 4.0)),
-            mutableListOf(),
-            mutableListOf()
+        val other = world.createRail(
+            straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 4.0))
         )
         CoreRail.connect(stem, selected)
         CoreRail.connect(stem, other)
@@ -121,17 +115,11 @@ class PlannedRouteCompilerTest {
         val first = rail(world, 0.0, 10.0)
         val second = rail(world, 10.0, 20.0)
         val third = rail(world, 20.0, 30.0)
-        val firstBranch = CoreRail(
-            world,
-            straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(15.0, 0.0, 5.0)),
-            mutableListOf(),
-            mutableListOf()
+        val firstBranch = world.createRail(
+            straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(15.0, 0.0, 5.0))
         )
-        val secondBranch = CoreRail(
-            world,
-            straightCurve(Vector3d(20.0, 0.0, 0.0), Vector3d(25.0, 0.0, 5.0)),
-            mutableListOf(),
-            mutableListOf()
+        val secondBranch = world.createRail(
+            straightCurve(Vector3d(20.0, 0.0, 0.0), Vector3d(25.0, 0.0, 5.0))
         )
         CoreRail.connect(first, second)
         CoreRail.connect(first, firstBranch)
@@ -210,12 +198,8 @@ class PlannedRouteCompilerTest {
         assertEquals(1, planned.sections.size)
     }
 
-    private fun rail(world: CoreWorld, fromX: Double, toX: Double): CoreRail = CoreRail(
-        world,
-        straightCurve(Vector3d(fromX, 0.0, 0.0), Vector3d(toX, 0.0, 0.0)),
-        mutableListOf(),
-        mutableListOf()
-    )
+    private fun rail(world: CoreWorld, fromX: Double, toX: Double): CoreRail =
+        world.createRail(straightCurve(Vector3d(fromX, 0.0, 0.0), Vector3d(toX, 0.0, 0.0)))
 
     private fun allowAbOnly(rail: CoreRail) {
         rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)

@@ -18,7 +18,7 @@ class RailTopologyEditorTest {
     fun `split preserves outer topology and merge restores geometry`() {
         val world = createTestWorld()
         val previous = rail(world, -5.0, 0.0)
-        val original = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+        val original = world.createRail(straightCurve(0.0, 10.0))
         val next = rail(world, 10.0, 15.0)
         CoreRail.connect(previous, original)
         CoreRail.connect(original, next)
@@ -81,16 +81,13 @@ class RailTopologyEditorTest {
         val original = rail(world, 0.0, 10.0)
         val (beforeCurve, afterCurve) = original.curve.splitAt(4.0)
         val split = RailTopologyEditor.splitWithPreparedCurves(original, beforeCurve, afterCurve, "branched")
-        val branch = CoreRail(
-            world,
+        val branch = world.createRail(
             PrimeCurve.fromPoints(
                 listOf(
                     rawPoint(Vector3d(4.0, 0.0, 0.0), Vector3d(0.0, 0.0, 1.0), 0.0, Curve.SegmentType.LINE_START),
                     rawPoint(Vector3d(4.0, 0.0, 5.0), Vector3d(0.0, 0.0, 1.0), 5.0, Curve.SegmentType.LINE_END)
                 )
-            ),
-            mutableListOf(),
-            mutableListOf()
+            )
         )
         CoreRail.connect(split.before, branch)
 
@@ -101,7 +98,7 @@ class RailTopologyEditorTest {
     }
 
     private fun rail(world: work.art1st.javarailways.core.physics.CoreWorld, from: Double, to: Double): CoreRail =
-        CoreRail(world, straightCurve(from, to), mutableListOf(), mutableListOf())
+        world.createRail(straightCurve(from, to))
 
     private fun straightCurve(from: Double, to: Double): PrimeCurve {
         val length = to - from

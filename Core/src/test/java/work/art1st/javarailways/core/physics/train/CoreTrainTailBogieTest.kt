@@ -39,23 +39,14 @@ class CoreTrainTailBogieTest {
     @Test
     fun `trailing bogies preserve siding path while first bogie enters merged main line`() {
         val world = createTestWorld()
-        val main = CoreRail(
-            world,
-            straightCurve(Vector3d(-30.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val main = world.createRail(
+            straightCurve(Vector3d(-30.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val siding = CoreRail(
-            world,
-            straightCurve(Vector3d(-30.0, 0.0, 5.0), Vector3d(0.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val siding = world.createRail(
+            straightCurve(Vector3d(-30.0, 0.0, 5.0), Vector3d(0.0, 0.0, 0.0))
         )
-        val merged = CoreRail(
-            world,
-            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val merged = world.createRail(
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
         )
         RailView.connect(main.viewAB, merged.viewBA)
         RailView.connect(siding.viewAB, merged.viewBA)
@@ -83,12 +74,7 @@ class CoreTrainTailBogieTest {
     @Test
     fun `curved consist can move after stopping and reversing`() {
         val world = createTestWorld()
-        val rail = CoreRail(
-            world,
-            PrimeCurveGenerator.buildCircle(30.0, segmentCount = 1).single(),
-            mutableListOf(),
-            mutableListOf()
-        )
+        val rail = world.createRail(PrimeCurveGenerator.buildCircle(30.0, segmentCount = 1).single())
         rail.viewAB.mutableNextRails.add(rail.viewAB)
         rail.viewAB.activeRail = rail.viewAB
         rail.viewBA.mutableNextRails.add(rail.viewBA)

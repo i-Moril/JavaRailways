@@ -55,8 +55,7 @@ class DirectionRestrictionTargetLookupTest {
 
     private fun straightRail(): CoreRail {
         val world = createTestWorld()
-        return CoreRail(
-            world,
+        return world.createRail(
             PrimeCurve.fromPoints(
                 listOf(
                     Curve.RawPoint(
@@ -74,9 +73,7 @@ class DirectionRestrictionTargetLookupTest {
                         Curve.SegmentType.LINE_END
                     )
                 )
-            ),
-            mutableListOf(),
-            mutableListOf()
+            )
         )
     }
 }

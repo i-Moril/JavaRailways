@@ -22,7 +22,7 @@ class RailLocationPersistTest {
             Curve.RawPoint(start, tan, nrm, 0.0, Curve.SegmentType.LINE_START),
             Curve.RawPoint(end, tan, nrm, 100.0, Curve.SegmentType.LINE_END)
         ))
-        return CoreRail(world, curve, mutableListOf(), mutableListOf())
+        return world.createRail(curve)
     }
 
     @Test

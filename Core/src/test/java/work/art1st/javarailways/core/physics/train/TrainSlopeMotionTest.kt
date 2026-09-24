@@ -14,7 +14,7 @@ class TrainSlopeMotionTest {
     fun `multi car train climbs straight slope`() {
         val world = createTestWorld()
         val curve = createStraightSlope(length = 200.0, rise = 20.0)
-        val rail = CoreRail(world, curve, mutableListOf(), mutableListOf())
+        val rail = world.createRail(curve)
         val train = createTrainWithConfig("slope", rail, world, listOf(10.0, 10.0, 10.0, 10.0), isLoop = false)
         train.setController(MockTrainController(train, world, 10.0))
 

@@ -33,12 +33,12 @@ class CoreRail @MainThread private constructor(
     curveAB: PrimeCurve,
     nextRailsA: Collection<RailView>,
     nextRailsB: Collection<RailView>,
-    activeTrackAtA: RailView? = null,
-    activeTrackAtB: RailView? = null,
-    val signals: MutableCollection<Signal> = CopyOnWriteArraySet(),
+    activeTrackAtA: RailView?,
+    activeTrackAtB: RailView?,
+    val signals: MutableCollection<Signal>,
     // trains is maintained only on runtime
-    val trains: ConcurrentLinkedQueue<TrainEnd> = ConcurrentLinkedQueue(),
-    val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Rail>> = ExtensionDataContainer()
+    val trains: ConcurrentLinkedQueue<TrainEnd>,
+    val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Rail>>
 ) : Rail, Extendable<RenderableExtension<Rail>> by extensionDataContainer, PersistentBy<CoreRail.SavedRailV1> {
     override val curve: PrimeCurve = curveAB
     val viewAB: RailView = RailView(
@@ -55,17 +55,6 @@ class CoreRail @MainThread private constructor(
         nextRailsA.toMutableList(),
         activeTrackAtA
     )
-
-    init {
-        world.addRail(this)
-    }
-
-    constructor(
-        world: CoreWorld,
-        curveAB: PrimeCurve,
-        nextRailsA: MutableList<RailView>,
-        nextRailsB: MutableList<RailView>
-    ) : this(UUID.randomUUID(), world, curveAB, nextRailsA, nextRailsB)
 
     override fun getView(direction: ViewDirection): RailView {
         return when (direction) {
@@ -131,15 +120,7 @@ class CoreRail @MainThread private constructor(
 
         fun loadDisconnected(dependency: Dependency): CoreRail {
             val curve = curveAB.load(Unit)
-            return CoreRail(
-                UUID.fromString(id),
-                dependency.world,
-                curve,
-                emptyList(),
-                emptyList(),
-                null,
-                null
-            )
+            return dependency.world.createRailInTransaction(UUID.fromString(id), curve)
         }
 
         fun restoreConnections(rail: CoreRail, dependency: Dependency) {
@@ -192,6 +173,31 @@ class CoreRail @MainThread private constructor(
     }
 
     companion object {
+        /**
+         * Constructs an unregistered rail for [CoreWorld]'s topology transaction owner.
+         *
+         * Kotlin module visibility and [JvmSynthetic] keep this out of add-on source APIs; registration
+         * remains exclusively owned by `CoreWorld.createRailInTransaction`.
+         */
+        @JvmSynthetic
+        @MainThread
+        internal fun createUnregistered(
+            id: UUID,
+            world: CoreWorld,
+            curveAB: PrimeCurve
+        ): CoreRail = CoreRail(
+            id = id,
+            world = world,
+            curveAB = curveAB,
+            nextRailsA = emptyList(),
+            nextRailsB = emptyList(),
+            activeTrackAtA = null,
+            activeTrackAtB = null,
+            signals = CopyOnWriteArraySet(),
+            trains = ConcurrentLinkedQueue(),
+            extensionDataContainer = ExtensionDataContainer()
+        )
+
         fun isSamePoint(pointA: Vector3dc, pointB: Vector3dc): Boolean {
             return pointA.distance(pointB) < TOLERANCE
         }

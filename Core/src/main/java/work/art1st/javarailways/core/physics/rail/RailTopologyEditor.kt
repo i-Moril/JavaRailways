@@ -66,8 +66,8 @@ object RailTopologyEditor {
         val world = rail.world
         val existingRails = world.allRails.filter { it !== rail }
         val snapshots = (existingRails + rail).flatMap(::snapshotViews)
-        val before = CoreRail(world, beforeCurve, mutableListOf(), mutableListOf())
-        val after = CoreRail(world, afterCurve, mutableListOf(), mutableListOf())
+        val before = world.createRailInTransaction(UUID.randomUUID(), beforeCurve)
+        val after = world.createRailInTransaction(UUID.randomUUID(), afterCurve)
 
         try {
             val replacements = mapOf(
@@ -153,7 +153,7 @@ object RailTopologyEditor {
         val world = before.world
         val existingRails = world.allRails.filter { it !== before && it !== after }
         val snapshots = (existingRails + before + after).flatMap(::snapshotViews)
-        val merged = CoreRail(world, mergedCurve, mutableListOf(), mutableListOf())
+        val merged = world.createRailInTransaction(UUID.randomUUID(), mergedCurve)
 
         try {
             val replacements = mapOf(

@@ -35,8 +35,8 @@ class CoreWorldTopologyStatePublicationTest {
             lateinit var second: CoreRail
 
             world.railTopologyTransaction {
-                first = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
-                second = CoreRail(world, straightCurve(10.0, 30.0), mutableListOf(), mutableListOf())
+                first = world.createRail(straightCurve(0.0, 10.0))
+                second = world.createRail(straightCurve(10.0, 30.0))
                 RailView.connect(first.viewAB, second.viewBA)
             }
 
@@ -54,8 +54,8 @@ class CoreWorldTopologyStatePublicationTest {
     @Test
     fun `asymmetric adjacency is rejected instead of being repaired in the published topology`() =
         withWorld { world ->
-            val first = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
-            val second = CoreRail(world, straightCurve(10.0, 30.0), mutableListOf(), mutableListOf())
+            val first = world.createRail(straightCurve(0.0, 10.0))
+            val second = world.createRail(straightCurve(10.0, 30.0))
             val before = world.topologyState
 
             val failure = assertThrows(IllegalArgumentException::class.java) {
@@ -72,11 +72,11 @@ class CoreWorldTopologyStatePublicationTest {
 
     @Test
     fun `later publication does not mutate a previously observed topology root`() = withWorld { world ->
-        val first = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+        val first = world.createRail(straightCurve(0.0, 10.0))
         val previous = world.topologyState
         val previousProjection = previous.railProjection
 
-        val second = CoreRail(world, straightCurve(20.0, 30.0), mutableListOf(), mutableListOf())
+        val second = world.createRail(straightCurve(20.0, 30.0))
         val current = world.topologyState
 
         assertNotSame(previous, current)
@@ -93,9 +93,9 @@ class CoreWorldTopologyStatePublicationTest {
         lateinit var first: CoreRail
         lateinit var second: CoreRail
         world.railTopologyTransaction {
-            source = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
-            first = CoreRail(world, straightCurve(10.0, 20.0), mutableListOf(), mutableListOf())
-            second = CoreRail(world, straightCurve(10.0, 25.0), mutableListOf(), mutableListOf())
+            source = world.createRail(straightCurve(0.0, 10.0))
+            first = world.createRail(straightCurve(10.0, 20.0))
+            second = world.createRail(straightCurve(10.0, 25.0))
             RailView.connect(source.viewAB, first.viewBA)
             RailView.connect(source.viewAB, second.viewBA)
             source.viewAB.activeRail = first.viewAB
@@ -129,7 +129,7 @@ class CoreWorldTopologyStatePublicationTest {
 
         assertThrows(IllegalStateException::class.java) {
             world.railTopologyTransaction {
-                CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+                world.createRail(straightCurve(0.0, 10.0))
                 error("commit failed")
             }
         }
@@ -144,8 +144,8 @@ class CoreWorldTopologyStatePublicationTest {
         val world = createTestWorld()
         val otherWorld = createTestWorld()
         try {
-            val source = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
-            val outside = CoreRail(otherWorld, straightCurve(10.0, 20.0), mutableListOf(), mutableListOf())
+            val source = world.createRail(straightCurve(0.0, 10.0))
+            val outside = otherWorld.createRail(straightCurve(10.0, 20.0))
             val before = world.topologyState
 
             val failure = assertThrows(IllegalArgumentException::class.java) {

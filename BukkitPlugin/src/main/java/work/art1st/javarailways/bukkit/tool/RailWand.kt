@@ -1362,12 +1362,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val coreWorld = getCoreWorld(livePlayer) ?: return@supply
                 val undoSnapshot = captureRailWorldUndoSnapshot(livePlayer, coreWorld)
                 val existingRails = coreWorld.allRails.toList()
-                val rail = CoreRail(
-                    coreWorld,
-                    result.curve,
-                    mutableListOf(),
-                    mutableListOf()
-                ).also {
+                val rail = coreWorld.createRail(result.curve).also {
                     it.metadata = RailMetadata(
                         designSpeedMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
                         speedLimitMetersPerSecond = speedLimits.operatingLimitMetersPerSecond,
@@ -1661,12 +1656,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
                             derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond
                         )
-                        val replacement = CoreRail(
-                            liveCoreWorld,
-                            builtCurve.curve,
-                            mutableListOf(),
-                            mutableListOf()
-                        ).also { it.metadata = metadata }
+                        val replacement = liveCoreWorld.createRail(builtCurve.curve).also { it.metadata = metadata }
                         createdRails += replacement
                         oldToNew[oldId] = replacement.id
                         renderMetaByRail[oldId]?.let { oldMeta ->
@@ -1703,12 +1693,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 gradeLockedAtA = segmentIndex == 0 && isGradeLocked(startAnchors[laneIndex]),
                                 gradeLockedAtB = segmentIndex == segmentCount - 1 && isGradeLocked(endAnchors[laneIndex])
                             )
-                            CoreRail(
-                                liveCoreWorld,
-                                part.curve,
-                                mutableListOf(),
-                                mutableListOf()
-                            ).also { rail ->
+                            liveCoreWorld.createRail(part.curve).also { rail ->
                                 rail.metadata = metadata
                                 createdRails += rail
                                 newRails += rail
@@ -2010,12 +1995,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 isGradeLocked(updatedEndpoint)
                             } else input.oldMetadata.gradeLockedAtB
                         )
-                        val newRail = CoreRail(
-                            liveCoreWorld,
-                            builtCurve.curve,
-                            mutableListOf(),
-                            mutableListOf()
-                        ).also { it.metadata = newMetadata }
+                        val newRail = liveCoreWorld.createRail(builtCurve.curve).also { it.metadata = newMetadata }
                         createdRails.add(newRail)
                         liveExistingMetaByRail[input.railId]?.let { oldMeta ->
                             createdMetas.add(registerRailWithTemplate(newRail, oldMeta.templateSnapshot))
@@ -2730,12 +2710,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     speedLimitMetersPerSecond = built.speedLimits.operatingLimitMetersPerSecond,
                     derailSpeedMetersPerSecond = built.speedLimits.derailSpeedMetersPerSecond
                 )
-                val replacement = CoreRail(
-                    world,
-                    built.curve,
-                    mutableListOf(),
-                    mutableListOf()
-                ).also { it.metadata = replacementMetadata }
+                val replacement = world.createRail(built.curve).also { it.metadata = replacementMetadata }
                 created += replacement
                 oldToNew[old.id] = replacement.id
                 renderByRail[old.id]?.let { renderAfter += registerRailWithTemplate(replacement, it.templateSnapshot) }
@@ -3416,7 +3391,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                     turnoutAtB = oldLane.last().metadata.turnoutAtB.takeIf { segmentIndex == segmentCount - 1 }
                                 )
                             )
-                            CoreRail(liveWorld, part.curve, mutableListOf(), mutableListOf()).also {
+                            liveWorld.createRail(part.curve).also {
                                 it.metadata = metadata
                                 created += it
                             }

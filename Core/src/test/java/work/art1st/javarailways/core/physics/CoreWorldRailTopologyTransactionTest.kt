@@ -15,21 +15,60 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 class CoreWorldRailTopologyTransactionTest {
+    @Test
+    fun `CoreRail has no public constructor bypass`() {
+        assertTrue(CoreRail::class.java.constructors.all { it.isSynthetic })
+        val transactionFactories = CoreWorld::class.java.declaredMethods.filter {
+            it.name.startsWith("createRailInTransaction")
+        }
+        assertEquals(1, transactionFactories.size)
+        assertTrue(transactionFactories.single().isSynthetic)
+    }
+
+    @Test
+    fun `transaction-only rail creation rejects calls outside a transaction`() {
+        val world = createTestWorld()
+
+        assertThrows(IllegalStateException::class.java) {
+            world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
+        }
+
+        assertTrue(world.allRails.isEmpty())
+        assertEquals(0L, world.topologyRevision)
+    }
+
+    @Test
+    fun `duplicate rail identity is rejected before mutation`() {
+        val world = createTestWorld()
+        val existing = world.createRail(straightCurve(0.0, 10.0))
+        val beforeRevision = world.topologyRevision
+
+        assertThrows(IllegalArgumentException::class.java) {
+            world.railTopologyTransaction {
+                world.createRailInTransaction(existing.id, straightCurve(10.0, 20.0))
+            }
+        }
+
+        assertEquals(listOf(existing), world.allRails.toList())
+        assertEquals(beforeRevision, world.topologyRevision)
+        assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
+    }
+
     @Test
     fun `structural revision advances for direct edits and once per outer transaction`() {
         val world = createTestWorld()
         assertEquals(0L, world.topologyRevision)
 
-        val first = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+        val first = world.createRail(straightCurve(0.0, 10.0))
         assertEquals(1L, world.topologyRevision)
+        assertTrue(world.getRail(first.id) === first)
 
         world.railTopologyTransaction {
-            CoreRail(world, straightCurve(10.0, 20.0), mutableListOf(), mutableListOf())
-            world.railTopologyTransaction {
-                CoreRail(world, straightCurve(20.0, 30.0), mutableListOf(), mutableListOf())
-            }
+            world.createRail(straightCurve(10.0, 20.0))
+            world.createRail(straightCurve(20.0, 30.0))
         }
         assertEquals(2L, world.topologyRevision)
 
@@ -40,9 +79,9 @@ class CoreWorldRailTopologyTransactionTest {
     @Test
     fun `runtime branch selection does not publish a structural revision`() {
         val world = createTestWorld()
-        val source = CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
-        val first = CoreRail(world, straightCurve(10.0, 20.0), mutableListOf(), mutableListOf())
-        val second = CoreRail(world, straightCurve(10.0, 30.0), mutableListOf(), mutableListOf())
+        val source = world.createRail(straightCurve(0.0, 10.0))
+        val first = world.createRail(straightCurve(10.0, 20.0))
+        val second = world.createRail(straightCurve(10.0, 30.0))
 
         world.railTopologyTransaction {
             RailView.connect(source.viewAB, first.viewBA)
@@ -81,7 +120,7 @@ class CoreWorldRailTopologyTransactionTest {
 
         assertThrows(IllegalStateException::class.java) {
             world.railTopologyTransaction {
-                CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+                world.createRail(straightCurve(0.0, 10.0))
                 error("partial structural commit")
             }
         }
@@ -128,7 +167,7 @@ class CoreWorldRailTopologyTransactionTest {
 
         val writer = CompletableFuture.runAsync {
             world.railTopologyTransaction {
-                CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+                world.createRail(straightCurve(0.0, 10.0))
                 changed.countDown()
                 check(release.await(5, TimeUnit.SECONDS))
             }
@@ -149,13 +188,13 @@ class CoreWorldRailTopologyTransactionTest {
     @Test
     fun `world readers cannot observe an infrastructure transaction mid-commit`() {
         val world = createTestWorld()
-        CoreRail(world, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
+        world.createRail(straightCurve(0.0, 10.0))
         val changed = CountDownLatch(1)
         val release = CountDownLatch(1)
 
         val writer = CompletableFuture.runAsync {
             world.railTopologyTransaction {
-                CoreRail(world, straightCurve(10.0, 20.0), mutableListOf(), mutableListOf())
+                world.createRail(straightCurve(10.0, 20.0))
                 changed.countDown()
                 check(release.await(5, TimeUnit.SECONDS))
             }

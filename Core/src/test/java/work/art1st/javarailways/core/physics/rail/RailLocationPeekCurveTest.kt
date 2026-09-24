@@ -11,7 +11,7 @@ class RailLocationPeekCurveTest {
     @Test
     fun `positive peek starts from current arc length`() {
         val world = createTestWorld()
-        val rail = CoreRail(world, straightCurve(4.0), mutableListOf(), mutableListOf())
+        val rail = world.createRail(straightCurve(4.0))
         val location = RailLocationWithFacing(rail.viewAB, 1.0)
 
         val segment = location.peekCurve(2.0).single()
@@ -23,7 +23,7 @@ class RailLocationPeekCurveTest {
     @Test
     fun `negative peek uses reversed current arc length`() {
         val world = createTestWorld()
-        val rail = CoreRail(world, straightCurve(4.0), mutableListOf(), mutableListOf())
+        val rail = world.createRail(straightCurve(4.0))
         val location = RailLocationWithFacing(rail.viewAB, 1.0)
 
         val segment = location.peekCurve(-2.0).single()

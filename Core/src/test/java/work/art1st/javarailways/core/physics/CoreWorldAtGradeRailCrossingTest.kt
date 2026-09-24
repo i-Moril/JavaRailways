@@ -143,7 +143,7 @@ class CoreWorldAtGradeRailCrossingTest {
     }
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
-        CoreRail(world, straightCurve(from, to), mutableListOf(), mutableListOf())
+        world.createRail(straightCurve(from, to))
 
     private fun polylineRail(world: CoreWorld, vararg positions: Vector3d): CoreRail {
         require(positions.size >= 2)
@@ -162,7 +162,7 @@ class CoreWorldAtGradeRailCrossingTest {
                 arcLength
             )
         }
-        return CoreRail(world, PrimeCurve.fromPoints(points), mutableListOf(), mutableListOf())
+        return world.createRail(PrimeCurve.fromPoints(points))
     }
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {

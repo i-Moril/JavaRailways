@@ -200,11 +200,8 @@ class SimpleATOTest {
     @Test
     fun `upcoming speed signal creates a route braking constraint`() {
         val fixture = fixture("speed-signal", railLengthMeters = 30.0)
-        val next = CoreRail(
-            fixture.world,
-            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val next = fixture.world.createRail(
+            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
         CoreRail.connect(fixture.train.head.location.rail, next)
         next.metadata = RailInfrastructureMetadata(
@@ -225,11 +222,8 @@ class SimpleATOTest {
     @Test
     fun `removing curve limit restores subgrade then timetable line maximum speed`() {
         val fixture = fixture("layered-speed", railLengthMeters = 30.0)
-        val next = CoreRail(
-            fixture.world,
-            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val next = fixture.world.createRail(
+            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
         CoreRail.connect(fixture.train.head.location.rail, next)
         val lineId = LineId("metro")
@@ -334,11 +328,8 @@ class SimpleATOTest {
     fun `distinct observed objects with the same world reference stall instead of shadowing`() {
         val fixture = fixture("duplicate-rail-object-ref", railLengthMeters = 30.0)
         val head = fixture.train.head.location
-        val nextRail = CoreRail(
-            fixture.world,
-            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(130.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val nextRail = fixture.world.createRail(
+            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(130.0, 0.0, 0.0))
         )
         CoreRail.connect(head.rail, nextRail)
         val ref = RailObjectRef("test", "duplicate")
@@ -364,23 +355,14 @@ class SimpleATOTest {
     @Test
     fun `same reference switching to a different live object across ticks stalls`() {
         val world = createTestWorld()
-        val approach = CoreRail(
-            world,
-            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val approach = world.createRail(
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0))
         )
-        val straight = CoreRail(
-            world,
-            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val straight = world.createRail(
+            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
-        val branch = CoreRail(
-            world,
-            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0)),
-            mutableListOf(),
-            mutableListOf()
+        val branch = world.createRail(
+            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0))
         )
         RailAutoConnector.connectIfAllowed(approach, straight)
         RailAutoConnector.connectIfAllowed(approach, branch)
@@ -492,23 +474,14 @@ class SimpleATOTest {
     @Test
     fun `turnout change during planning stalls the world`() {
         val world = createTestWorld()
-        val approach = CoreRail(
-            world,
-            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val approach = world.createRail(
+            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0))
         )
-        val straight = CoreRail(
-            world,
-            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0)),
-            mutableListOf(),
-            mutableListOf()
+        val straight = world.createRail(
+            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
-        val branch = CoreRail(
-            world,
-            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0)),
-            mutableListOf(),
-            mutableListOf()
+        val branch = world.createRail(
+            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0))
         )
         RailAutoConnector.connectIfAllowed(approach, straight)
         RailAutoConnector.connectIfAllowed(approach, branch)

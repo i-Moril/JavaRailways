@@ -274,12 +274,7 @@ class OperationalDestinationTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val replacement = work.art1st.javarailways.core.physics.rail.CoreRail(
-            world,
-            oldRail.curve.reversed,
-            mutableListOf(),
-            mutableListOf()
-        )
+        val replacement = world.createRail(oldRail.curve.reversed)
         val service = OperationalDestinationService(world)
         val role = DestinationRole.StationBerthRole(
             StationId("station"),
@@ -326,12 +321,8 @@ class OperationalDestinationTest {
         world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", original.id, 75.0))
         val splitCurves = original.curve.splitAt(50.0)
         world.removeRail(original)
-        val beforeRail = work.art1st.javarailways.core.physics.rail.CoreRail(
-            world, splitCurves.first, mutableListOf(), mutableListOf()
-        )
-        val afterRail = work.art1st.javarailways.core.physics.rail.CoreRail(
-            world, splitCurves.second, mutableListOf(), mutableListOf()
-        )
+        val beforeRail = world.createRail(splitCurves.first)
+        val afterRail = world.createRail(splitCurves.second)
 
         service.migrateAfterRailSplit(original.id, beforeRail.id, afterRail.id, 50.0)
 
@@ -344,9 +335,7 @@ class OperationalDestinationTest {
         val mergedCurve = beforeRail.curve.concatenate(afterRail.curve)
         world.removeRail(beforeRail)
         world.removeRail(afterRail)
-        val merged = work.art1st.javarailways.core.physics.rail.CoreRail(
-            world, mergedCurve, mutableListOf(), mutableListOf()
-        )
+        val merged = world.createRail(mergedCurve)
 
         service.migrateAfterRailMerge(beforeRail.id, afterRail.id, merged.id, 50.0)
 

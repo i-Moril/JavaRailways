@@ -24,7 +24,7 @@ class RailDirectionRestrictionTest {
             Curve.RawPoint(Vector3d(40.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
             Curve.RawPoint(Vector3d(80.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 40.0)
         ))
-        val second = CoreRail(world, secondCurve, mutableListOf(), mutableListOf())
+        val second = world.createRail(secondCurve)
         RailView.connect(first.viewAB, second.viewBA)
         assertEquals(second.viewAB, first.viewAB.activeRail)
 

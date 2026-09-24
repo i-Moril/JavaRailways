@@ -73,6 +73,6 @@ class TurnoutTopologyTest {
             Curve.RawPoint(Vector3d(from), Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), 0.0),
             Curve.RawPoint(Vector3d(to), Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), length)
         ))
-        return CoreRail(world, curve, mutableListOf(), mutableListOf())
+        return world.createRail(curve)
     }
 }

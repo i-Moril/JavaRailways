@@ -95,7 +95,7 @@ class RoutePlannerWeightedTest {
     }
 
     private fun rail(world: CoreWorld, vararg points: Vector3d): CoreRail =
-        CoreRail(world, curve(*points), mutableListOf(), mutableListOf())
+        world.createRail(curve(*points))
 
     private fun allowAbOnly(rail: CoreRail) {
         rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)

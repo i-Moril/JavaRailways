@@ -13,8 +13,8 @@ class RailConnectTest {
     @Test
     fun `save stores connections at semantic endpoints`() {
         val world = createTestWorld()
-        val first = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
-        val second = CoreRail(world, straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        val first = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val second = world.createRail(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
 
         CoreRail.connect(first, second)
 
@@ -33,8 +33,8 @@ class RailConnectTest {
     @Test
     fun `connecting the same adjacent rails twice does not duplicate next rails`() {
         val world = createTestWorld()
-        val first = CoreRail(world, straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
-        val second = CoreRail(world, straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)), mutableListOf(), mutableListOf())
+        val first = world.createRail(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+        val second = world.createRail(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
 
         val beforeConnect = world.topologyState
 

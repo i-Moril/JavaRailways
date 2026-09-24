@@ -62,7 +62,7 @@ class PhysOvalConnectionTest {
         val s2 = makeStraight(Vector3d(a1.lastPoint().position), Vector3d(-1.0, 0.0, 0.0), straightLen, normal)
         val a2 = makeArcRightTurn(Vector3d(s2.lastPoint().position), radius, fromEast = false, normal, step)
 
-        val rails = listOf(s1, a1, s2, a2).map { CoreRail(world, it, mutableListOf(), mutableListOf()) }
+        val rails = listOf(s1, a1, s2, a2).map(world::createRail)
         CoreRail.connect(rails[0], rails[1])
         CoreRail.connect(rails[1], rails[2])
         CoreRail.connect(rails[2], rails[3])

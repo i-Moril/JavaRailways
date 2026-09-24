@@ -75,10 +75,10 @@ class PhysTestCommand : BasicCommand {
         val a2 = makeArcRightTurn(Vector3d(p3), radius, fromEast = false, normal, step)
 
         // Create rails
-        val r1 = CoreRail(world, s1, mutableListOf(), mutableListOf())
-        val r2 = CoreRail(world, a1, mutableListOf(), mutableListOf())
-        val r3 = CoreRail(world, s2, mutableListOf(), mutableListOf())
-        val r4 = CoreRail(world, a2, mutableListOf(), mutableListOf())
+        val r1 = world.createRail(s1)
+        val r2 = world.createRail(a1)
+        val r3 = world.createRail(s2)
+        val r4 = world.createRail(a2)
 
         // Connect into loop: r1→r2→r3→r4→r1
         CoreRail.connect(r1, r2)

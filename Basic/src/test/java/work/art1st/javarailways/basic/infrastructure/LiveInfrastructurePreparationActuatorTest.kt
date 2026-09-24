@@ -289,12 +289,8 @@ class LiveInfrastructurePreparationActuatorTest {
 
     private fun world(): CoreWorld = createTestWorld().also(worlds::add)
 
-    private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail = CoreRail(
-        world,
-        straightCurve(from, to),
-        mutableListOf(),
-        mutableListOf()
-    )
+    private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
+        world.createRail(straightCurve(from, to))
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
         val tangent = Vector3d(to).sub(from).normalize()

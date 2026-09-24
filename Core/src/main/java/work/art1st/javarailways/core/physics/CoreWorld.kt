@@ -9,6 +9,7 @@ import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -220,18 +221,34 @@ class CoreWorld(
         trainsByName.remove(train.name, train)
     }
 
+    /**
+     * Creates and registers one rail as a structural topology edit.
+     *
+     * Curve construction must already be complete before this call. When invoked inside an existing
+     * [railTopologyTransaction], registration joins that transaction; otherwise this method opens
+     * one transaction and publishes one topology revision after registration succeeds.
+     */
     @MainThread
-    internal fun addRail(rail: CoreRail) {
-        if (railTopologyLock.isWriteLockedByCurrentThread) {
-            addRailInTransaction(rail)
-        } else {
-            railTopologyTransaction { addRailInTransaction(rail) }
-        }
+    fun createRail(curveAB: PrimeCurve): CoreRail = railTopologyTransaction {
+        createRailInTransaction(UUID.randomUUID(), curveAB)
     }
 
-    private fun addRailInTransaction(rail: CoreRail) {
-        rails[rail.id] = rail
+    /** Core-only primitive for persistent identity restore and atomic bulk topology operations. */
+    @JvmSynthetic
+    @MainThread
+    internal fun createRailInTransaction(id: UUID, curveAB: PrimeCurve): CoreRail {
+        check(railTopologyLock.isWriteLockedByCurrentThread) {
+            "Rail creation must run inside a rail topology transaction"
+        }
+        require(id !in rails) { "duplicate rail id in world: $id" }
+        val rail = CoreRail.createUnregistered(
+            id = id,
+            world = this,
+            curveAB = curveAB
+        )
+        rails[id] = rail
         atGradeRailCrossingIndex.addOrReplace(rail)
+        return rail
     }
 
     /**

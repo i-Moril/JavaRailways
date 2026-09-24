@@ -137,7 +137,7 @@ class RailWandTurnoutGeometryPolicyTest {
     }
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
-        CoreRail(world, curve(from, to), mutableListOf(), mutableListOf())
+        world.createRail(curve(from, to))
 
     private fun curve(
         from: Vector3d,

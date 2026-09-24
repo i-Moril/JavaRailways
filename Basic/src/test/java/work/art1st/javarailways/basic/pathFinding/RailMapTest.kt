@@ -118,12 +118,7 @@ private fun createStraightRailFromSegments(
     segments: List<work.art1st.javarailways.core.api.physics.curve.PrimeCurve>
 ): work.art1st.javarailways.core.physics.rail.CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
-    val rails = segments.map { curve ->
-        work.art1st.javarailways.core.physics.rail.CoreRail(
-            world, curve,
-            mutableListOf(), mutableListOf()
-        )
-    }
+    val rails = segments.map(world::createRail)
     for (i in 0 until rails.lastIndex) {
         work.art1st.javarailways.core.physics.rail.CoreRail.connect(rails[i], rails[i + 1])
     }

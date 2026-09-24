@@ -13,8 +13,8 @@ class TrainSlopeJointMotionTest {
     @Test
     fun `multi car train moves from level rail onto connected slope`() {
         val world = createTestWorld()
-        val level = CoreRail(world, line(Vector3d(0.0, 64.0, 0.0), Vector3d(50.0, 64.0, 0.0)), mutableListOf(), mutableListOf())
-        val slope = CoreRail(world, line(Vector3d(50.0, 64.0, 0.0), Vector3d(80.0, 70.0, 0.0)), mutableListOf(), mutableListOf())
+        val level = world.createRail(line(Vector3d(0.0, 64.0, 0.0), Vector3d(50.0, 64.0, 0.0)))
+        val slope = world.createRail(line(Vector3d(50.0, 64.0, 0.0), Vector3d(80.0, 70.0, 0.0)))
         CoreRail.connect(level, slope)
 
         val train = createTrainWithConfig("slope-joint", level, world, listOf(10.0, 10.0), isLoop = false)
@@ -33,8 +33,8 @@ class TrainSlopeJointMotionTest {
     @Test
     fun `long train moves from level rail onto connected slope`() {
         val world = createTestWorld()
-        val level = CoreRail(world, line(Vector3d(0.0, 64.0, 0.0), Vector3d(120.0, 64.0, 0.0)), mutableListOf(), mutableListOf())
-        val slope = CoreRail(world, line(Vector3d(120.0, 64.0, 0.0), Vector3d(180.0, 70.0, 0.0)), mutableListOf(), mutableListOf())
+        val level = world.createRail(line(Vector3d(0.0, 64.0, 0.0), Vector3d(120.0, 64.0, 0.0)))
+        val slope = world.createRail(line(Vector3d(120.0, 64.0, 0.0), Vector3d(180.0, 70.0, 0.0)))
         CoreRail.connect(level, slope)
 
         val train = createTrainWithConfig("long-slope-joint", level, world, List(4) { 17.8 }, isLoop = false)

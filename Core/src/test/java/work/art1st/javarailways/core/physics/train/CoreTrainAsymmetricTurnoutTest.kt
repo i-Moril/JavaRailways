@@ -77,9 +77,10 @@ class CoreTrainAsymmetricTurnoutTest {
 
         val restoredWorld = createTestWorld()
         val dependency = CoreRail.SavedRailV1.Dependency(restoredWorld)
-        val restored = saved.associateWith { it.loadDisconnected(dependency) }
-        restoredWorld.railTopologyTransaction {
-            restored.forEach { (snapshot, rail) -> snapshot.restoreConnections(rail, dependency) }
+        val restored = restoredWorld.railTopologyTransaction {
+            val disconnected = saved.associateWith { it.loadDisconnected(dependency) }
+            disconnected.forEach { (snapshot, rail) -> snapshot.restoreConnections(rail, dependency) }
+            disconnected
         }
         val restoredStem = restoredWorld.getRail(stem.id)!!
 
@@ -182,12 +183,8 @@ class CoreTrainAsymmetricTurnoutTest {
         return Fixture(world, previous, junction, train)
     }
 
-    private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail = CoreRail(
-        world,
-        straightCurve(from, to),
-        mutableListOf(),
-        mutableListOf()
-    )
+    private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =
+        world.createRail(straightCurve(from, to))
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
         val tangent = Vector3d(to).sub(from).normalize()

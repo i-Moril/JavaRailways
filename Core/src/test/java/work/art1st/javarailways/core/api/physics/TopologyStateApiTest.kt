@@ -21,8 +21,8 @@ class TopologyStateApiTest {
     fun `world exposes the published root through public API with immutable collections`() {
         val coreWorld = createTestWorld()
         try {
-            val first = CoreRail(coreWorld, straightCurve(0.0, 10.0), mutableListOf(), mutableListOf())
-            val second = CoreRail(coreWorld, straightCurve(10.0, 30.0), mutableListOf(), mutableListOf())
+            val first = coreWorld.createRail(straightCurve(0.0, 10.0))
+            val second = coreWorld.createRail(straightCurve(10.0, 30.0))
             CoreRail.connect(first, second)
             val world: World = coreWorld
 

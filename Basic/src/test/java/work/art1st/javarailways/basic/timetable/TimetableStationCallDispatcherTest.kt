@@ -1180,7 +1180,7 @@ class TimetableStationCallDispatcherTest {
         world: work.art1st.javarailways.core.physics.CoreWorld,
         from: Vector3d,
         to: Vector3d
-    ): CoreRail = CoreRail(world, straightCurve(from, to), mutableListOf(), mutableListOf())
+    ): CoreRail = world.createRail(straightCurve(from, to))
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
         val tangent = Vector3d(to).sub(from).normalize()

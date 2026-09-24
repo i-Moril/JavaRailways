@@ -28,7 +28,7 @@ fun createTestWorld(): CoreWorld {
 fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        CoreRail(world, curve, mutableListOf(), mutableListOf())
+        world.createRail(curve)
     }
     for (i in rails.indices) {
         val nextView = if (i == rails.lastIndex) rails.first().viewAB else rails[i + 1].viewAB
@@ -44,9 +44,8 @@ fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): Co
 fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): CoreRail {
     if (segments.isEmpty()) error("至少需要一段轨道")
     val rails = segments.map { curve ->
-        CoreRail(world, curve, mutableListOf(), mutableListOf())
+        world.createRail(curve)
     }
-    //rails.forEach { world.addRail(it) }
     for (i in 0 until rails.lastIndex) {
         CoreRail.connect(rails[i], rails[i + 1])
     }

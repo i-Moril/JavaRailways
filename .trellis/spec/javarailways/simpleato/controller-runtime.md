@@ -23,15 +23,14 @@ Basic暂时提供`AbstractATO`、`AtoSafetyProfile`、actuator、mission/snapsho
 6. 成功epoch结束时`AbstractATO`原子发布train snapshot、累计距离和controller value state，Dispatcher只读取这份publication。
 
 Mission、constraint、provider和station-call的mutable集合都只存在于该controller实例，不在
-`SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；本次模块迁移不增加
-扫描、缓存或调度阶段，也不改变legacy route allocator。
+`SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；production Dispatcher
+复用该perception horizon规划滚动授权，不增加第二次路线扫描。legacy route allocator只存在于显式隔离测试路径。
 
-controller现在同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。admission client向adapter发布
-immutable restriction snapshot；后续Dispatcher接线将在serialized owner上用当前stamp、同一冻结route binding及route
-progress调用apply，adapter把结果原子替换进controller原有`ConstraintManager`。这不是第二份约束存储或第二个
-制动器：最终仍由同一个`MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。当前提交只完成
-owner/enforcement接缝；滚动授权现已复用controller的既有perception horizon，但在接入Dispatcher以前，生产运行仍不发布
-resource-admission restriction，也不增加第二次路线扫描。
+controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。production Dispatcher让admission client向adapter发布
+immutable restriction snapshot，并在serialized owner上用当前stamp、同一冻结route binding及route progress调用apply；
+adapter把结果原子替换进controller原有`ConstraintManager`。这不是第二份约束存储或第二个制动器：最终仍由同一个
+`MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。部分Basic授权保留外部MA；当grant覆盖完整
+frozen mission route时，该来源发布更高revision空restriction，终点仍由mission Stop constraint精确停车。
 
 ## Publication边界
 

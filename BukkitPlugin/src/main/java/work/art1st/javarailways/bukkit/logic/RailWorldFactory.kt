@@ -19,6 +19,9 @@ import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContext
+import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
+import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
@@ -73,7 +76,17 @@ object RailWorldFactory {
         val atoLogger = plugin.logger
         val pluginDataFolder = plugin.dataFolder
         val physicsConfig = plugin.physicsConfig
+        var boundRouteAdmission: RouteResourceAdmissionService? = null
+        val routeAdmissionProvider = TimetableRouteAdmissionContextProvider {
+            val observation = plugin.railwayObservationService.latest(bukkitWorld.uid).orElse(null)
+                ?: return@TimetableRouteAdmissionContextProvider null
+            val admission = boundRouteAdmission
+                ?: plugin.infrastructureResourceService.routeAdmission(plugin, bukkitWorld.uid)
+                    .also { boundRouteAdmission = it }
+            TimetableRouteAdmissionContext(observation, admission)
+        }
         val dispatcher = TimetableDispatcher(
+            routeAdmissionContextProvider = routeAdmissionProvider,
             operationGateway = BukkitTrainOperationGateway(
                 coreWorld,
                 operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)

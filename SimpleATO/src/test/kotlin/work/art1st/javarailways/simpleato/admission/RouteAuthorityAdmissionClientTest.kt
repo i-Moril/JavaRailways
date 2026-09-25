@@ -66,6 +66,18 @@ class RouteAuthorityAdmissionClientTest {
     }
 
     @Test
+    fun `complete route grant clears Basic truncation instead of stopping before mission end`() {
+        val grant = grant(route.totalLengthMeters)
+        service.onRequest = { RouteAdmissionResult.Granted(grant) }
+
+        client.request(route.totalLengthMeters)
+
+        assertEquals(listOf(0.0), publisher.authorities())
+        assertTrue(publisher.snapshots.last().restrictions.isEmpty())
+        assertEquals(RouteBoundary(route.totalLengthMeters), client.state.committedAuthority)
+    }
+
+    @Test
     fun `first pending request retains zero authority until progress commits a grant`() {
         val handle = RouteAdmissionTestFixtures.handle()
         val grant = grant(35.0)

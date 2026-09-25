@@ -8,7 +8,7 @@
 
 ## Owner、入口与state
 
-`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、world-bound route/berth allocators、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。入口：
+`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、每run admission client、berth allocator、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。Bukkit production每Tick只取一次coherent observation/context，并使用认证的world-local `RouteResourceAdmissionService`；`RouteSectionAllocator`只保留给显式选择null provider的隔离测试/仿真过渡路径，production不得构造或调用它。入口：
 
 ```kotlin
 fun beginTimetable(world: World, timetableId: String): TimetableEpochStartResult
@@ -41,7 +41,11 @@ Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、stat
 
 Train acquisition以live stopped train location/speed/derail/controller/run/geometry为authority；RollingStock只补metadata。First mission confirmed后Depot reservation才IN_SERVICE。Storage full envelope+old resources clear才handoff。
 
-Control transfer：pending operation先cancel+confirm；`MANUAL_ROUTED`保留route assistance，`FULL_MANUAL`不取new route但tail-releaseold。release后`REPLAN_REQUIRED`；stopped、explicit origin、无old resources、owner released后新ATO/revision。
+Control transfer：pending operation先cancel+confirm；`MANUAL_ROUTED`继续通过同一Basic admission申请前方资源，但人工controller不消费ATO constraint，因此Dispatcher用同一committed boundary执行既有越界保护。`FULL_MANUAL`不发new request，但已有pending handle继续progress到终态，既有claim仍由Basic按车尾释放。release后`REPLAN_REQUIRED`；stale topology或route-state mismatch也直接进入该状态，不在旧route上循环重试。
+
+普通停车点不结束grant。下一条同向mission只把旧frozen route前缀追加到新route revision，ActiveRun的InfrastructureOwner、grant identity和Basic tail cursor保持不变。存车terminal可把仍tail-held的同一client/grant移交给下一forward service；折返或非前向接续仍要求后续独立设计。transient rejection等待既有retry tick，重试时用当Tick的新observation stamp重新构造selection；pending只progress handle，禁止重提intent。
+
+admission client还拥有该ATO中`simpleato:resource-admission`来源的单调restriction revision，因此外部持有的同一ATO连续执行多个service时，即使上一grant已经结束，也必须把已清空route state的client交给下一run复用；不得新建client并从revision 0重新发布。Dispatcher自己创建且随run释放的ATO不需要跨controller继承。
 
 Checkpoint只保存logical clock/diagnostics；restore active runs→`recoveryRequiredRuns`且disable service，不重建locks/queues/tickets/controller。
 
@@ -79,6 +83,7 @@ fun tick(world: World) {
 - `TimetableStationCallDispatcherTest.kt`：door/dwell/berth/operation failure gates。
 - `TimetableExtensionRegistryTest.kt`（Basic）+ Dispatcher action tests（SimpleATO）：condition unavailable/error、start once/ticket。
 - `DispatcherSnapshotTest.kt`：active checkpoint→recovery required/disabled。
+- `TimetableDispatcherSharedAdmissionTest.kt`：production automatic/manual mode、pending、跨epoch retry/extension、ordinary-stop append、stored-run transfer和stale topology。
 
 ```bash
 ./gradlew :SimpleATO:test --tests '*TimetableDispatcherTest' \

@@ -6,7 +6,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 
 /** Mutable operational runtime owned by SimpleATO for one Core world. */
 data class SimpleATOWorldData(
-    val dispatcher: TimetableDispatcher = TimetableDispatcher()
+    val dispatcher: TimetableDispatcher
 )
 
 @OptIn(ExtensionData::class)

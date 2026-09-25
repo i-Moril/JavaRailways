@@ -883,9 +883,12 @@ class TimetableStationCallDispatcherTest {
     @Test
     fun `dwell does not release while the next route section conflicts`() {
         val world = createTestWorld().also(worlds::add)
-        val dispatcher = TimetableDispatcher { train, owningWorld ->
-            SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
-        }
+        val dispatcher = TimetableDispatcher(
+            routeAdmissionContextProvider = null,
+            atoFactory = TimetableAtoFactory { train, owningWorld ->
+                SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
+            }
+        )
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("station-route-wait", reportSink = {})
         )
@@ -974,9 +977,12 @@ class TimetableStationCallDispatcherTest {
     @Test
     fun `conflicting explicit berth keeps the later service held without stalling`() {
         val world = createTestWorld().also(worlds::add)
-        val dispatcher = TimetableDispatcher { train, owningWorld ->
-            SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
-        }
+        val dispatcher = TimetableDispatcher(
+            routeAdmissionContextProvider = null,
+            atoFactory = TimetableAtoFactory { train, owningWorld ->
+                SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
+            }
+        )
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("station-conflict", reportSink = {})
         )
@@ -1097,6 +1103,7 @@ class TimetableStationCallDispatcherTest {
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
+            routeAdmissionContextProvider = null,
             operationGateway = operationGateway,
             operationTimeoutTicks = operationTimeoutTicks,
             atoFactory = TimetableAtoFactory { train, owningWorld ->

@@ -276,9 +276,12 @@ class TimetableValidatorTest {
             safetyDistanceMeters = 1.0,
             stopToleranceMeters = 0.25
         )
-        val dispatcher = TimetableDispatcher { train, owningWorld ->
-            SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
-        }
+        val dispatcher = TimetableDispatcher(
+            routeAdmissionContextProvider = null,
+            atoFactory = TimetableAtoFactory { train, owningWorld ->
+                SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
+            }
+        )
         val coordinator = AtoWorldCoordinator("validator-station", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)

@@ -66,9 +66,12 @@ class ManualNavigationTest {
             safetyDistanceMeters = 2.0,
             stopToleranceMeters = 0.25
         )
-        val dispatcher = TimetableDispatcher { train, world ->
-            SimpleATO(train, world, KinematicTrainActuator(8.0, profile), profile)
-        }
+        val dispatcher = TimetableDispatcher(
+            routeAdmissionContextProvider = null,
+            atoFactory = TimetableAtoFactory { train, world ->
+                SimpleATO(train, world, KinematicTrainActuator(8.0, profile), profile)
+            }
+        )
         val world = createTestWorld()
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("manual-navigation-test", reportSink = {})

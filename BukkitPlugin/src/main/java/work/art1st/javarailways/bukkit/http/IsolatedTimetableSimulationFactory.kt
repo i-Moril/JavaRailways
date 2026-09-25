@@ -128,6 +128,7 @@ internal class IsolatedTimetableSimulationFactory(
             simpleAtoDataFactory = {
                 SimpleATOWorldData(
                     dispatcher = TimetableDispatcher(
+                        routeAdmissionContextProvider = null,
                         operationGateway = operationGateway,
                         atoFactory = TimetableAtoFactory { train, owningWorld ->
                             val profile = requireNotNull(profilesByTrainId[train.id]) {

@@ -24,6 +24,8 @@ import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
  * The client never compiles or inspects infrastructure resources. It submits the selected frozen
  * route unchanged, owns at most one pending handle, and publishes only the authority boundary from
  * a committed Basic grant. Before the first grant, zero route metres is the fail-closed authority.
+ * A grant covering the complete frozen route publishes an empty restriction set: Basic no longer
+ * truncates movement inside that route, while the mission's terminal Stop remains authoritative.
  */
 internal class RouteAuthorityAdmissionClient(
     private val trainId: String,
@@ -248,9 +250,17 @@ internal class RouteAuthorityAdmissionClient(
         stamp: RailwayStateStamp,
         boundaryMeters: Double
     ) {
+        val restrictions = if (
+            boundaryMeters + COMPLETE_ROUTE_EPSILON_METERS >=
+            route.restrictionRoute.totalLengthMeters
+        ) {
+            emptyList()
+        } else {
+            listOf(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters))
+        }
         publish(
             route,
-            listOf(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters)),
+            restrictions,
             stamp
         )
     }
@@ -300,6 +310,7 @@ internal class RouteAuthorityAdmissionClient(
     private companion object {
         const val AUTHORITY_SOURCE_ID = "simpleato:resource-admission"
         const val AUTHORITY_RESTRICTION_ID = "simpleato:committed-authority"
+        const val COMPLETE_ROUTE_EPSILON_METERS = 1.0e-6
 
         fun rejected(code: RouteAdmissionFailureCode, detail: String): RouteAdmissionResult.Rejected =
             RouteAdmissionResult.Rejected(RouteAdmissionFailure(code, detail))

@@ -25,6 +25,7 @@ import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
@@ -61,9 +62,12 @@ class DepotResetCoordinatorTest {
     @Test
     fun `successful reset relocates trains rebuilds ledgers and keeps world stalled`() {
         val world = createTestWorld().also(worlds::add)
-        val dispatcher = TimetableDispatcher { train, trainWorld ->
-            SimpleATO(train, trainWorld, KinematicTrainActuator(10.0, profile), profile)
-        }
+        val dispatcher = TimetableDispatcher(
+            routeAdmissionContextProvider = null,
+            atoFactory = TimetableAtoFactory { train, trainWorld ->
+                SimpleATO(train, trainWorld, KinematicTrainActuator(10.0, profile), profile)
+            }
+        )
         val coordinator = AtoWorldCoordinator("reset-world", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
@@ -230,7 +234,7 @@ class DepotResetCoordinatorTest {
         coordinator.stall(report(coordinator.worldId, riskyTrain.id))
 
         val result = onMainThread {
-            DepotResetCoordinator(world, TimetableDispatcher()).reset(setOf(depotId))
+            DepotResetCoordinator(world, TimetableDispatcher(null)).reset(setOf(depotId))
         }
         riskyTrain.commit()
 
@@ -332,7 +336,7 @@ class DepotResetCoordinatorTest {
         val beforeSecond = secondTrain.head.location
         coordinator.stall(report(coordinator.worldId, firstTrain.id))
 
-        val result = DepotResetCoordinator(world, TimetableDispatcher()).reset(setOf(depotId))
+        val result = DepotResetCoordinator(world, TimetableDispatcher(null)).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_ENVELOPE", result.report.failureStage)
@@ -381,7 +385,7 @@ class DepotResetCoordinatorTest {
         val beforeStock = world.basicWorldData.depots.allRollingStock()
         val beforePoints = world.basicWorldData.depots.stablingPoints(depotId)
 
-        val result = DepotResetCoordinator(world, TimetableDispatcher()).reset(setOf(depotId))
+        val result = DepotResetCoordinator(world, TimetableDispatcher(null)).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_RESOLUTION", result.report.failureStage)

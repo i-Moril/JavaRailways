@@ -55,7 +55,7 @@ class DispatcherSnapshotTest {
                 )
             )
         )
-        val dispatcher = TimetableDispatcher()
+        val dispatcher = TimetableDispatcher(null)
 
         dispatcher.restoreCheckpoint(saved)
 

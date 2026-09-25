@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与 Owner
 
-- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经创建，并拥有第一批手动导航/时刻表展示工具；ATO、路线、时刻表 model/persistence、Dispatcher 与大多数运营对象仍在 Basic。本页描述的完整选路与授权合同仍是迁移目标。
+- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经拥有具体ATO、Dispatcher、内部运营选路/冻结路线、admission client与限制适配器，Bukkit production Dispatcher已接入Basic通用准入。运行方向、Destination、Station、Depot、Line、Timetable model/persistence及共享ATO primitive仍在Basic；具体信号插件与响应式检查仍是后续目标。
 - **Owner**：SimpleATO 拥有运营路线选择、运行方向、任务/时刻表决策和列车保护约束合成。
 - **Inputs**：Core 发布的不可变 `TopologyState` 与同 epoch 物理观察；SimpleATO 自己发布的运营 overlay/plan revision；Basic 的通用资源准入结果；已安装信号系统插件发布的资源检查与限制结果。
 - **Outputs**：一份绑定 topology revision 的冻结路线、资源准入请求，以及交给控制器的统一 authority/stop/speed constraint 结果。
@@ -105,8 +105,7 @@ pending request时，SimpleATO轮询该handle而不是并行提交另一个请�
 完整`FrozenRouteSelectionResult.Selected`、一个nullable committed grant和至多一个pending handle；Basic的首次申请与同路线
 延长都调用同一个`RouteResourceAdmissionService.request`。第一次处理冻结选择时，client先以
 `simpleato:resource-admission`来源发布位于路线起点0 m的`MovementAuthorityRestriction`，因此尚无grant、首次pending或首次
-拒绝（包括选择属于另一列车的调用方错误）都不会产生可用前方权限。`Granted`是唯一能把该来源替换为返回的`committedAuthority`边界的结果；extension pending及
-rejected不发布新restriction，继续使用旧grant边界。pending只通过原handle调用`progress`，不重放intent。
+拒绝（包括选择属于另一列车的调用方错误）都不会产生可用前方权限。`Granted`是唯一能改变该来源的结果：部分授权把来源替换为返回的`committedAuthority`边界；授权已到完整frozen route末端时发布更高revision空restriction，明确撤销旧截断，由同一mission的终点Stop constraint停车。extension pending及rejected不发布新restriction，继续使用旧grant边界。pending只通过原handle调用`progress`，不重放intent。
 
 client以route ID/topology binding、train和world做常量时间预筛；完整有序traversal、revision和append-only关系仍由
 Basic的现有route state权威核对。新的observation epoch可以用于同路线延长或正向mission append。pending continuation保存
@@ -115,7 +114,7 @@ route ID、train、world或topology变化返回`ROUTE_STATE_MISMATCH`或`TRAIN_N
 有grant的路线必须先由Basic `endGrant`确认资源和pending均已清空，然后client才发布该来源的更高revision空snapshot；若该空
 snapshot发布失败，后续显式结束只重试restriction撤销，不会对已经结束的Basic grant重复调用`endGrant`。首次安全
 中止且从未产生grant的路线可直接显式结束。pending不能通过清空restriction掩盖；`WORLD_STALLED`会锁存并拒绝后续申请或结束。client不实现自动重试、
-timeout、generation token、持久化或Bukkit调度，也不拥有Basic的tail-release队列。生产Dispatcher尚未调用该client。
+timeout、generation token、持久化或Bukkit调度，也不拥有Basic的tail-release队列。production Dispatcher在一次Tick共享一个observation/context，自动和`MANUAL_ROUTED`运行复用该client；`FULL_MANUAL`只推进既有pending并尝试正常结束，绝不发新request。
 
 ### 3.3 单一列车保护管线
 
@@ -136,8 +135,8 @@ topology revision和总长度。远端目标统一用冻结路线起点起算的
 已接受结果。world不匹配、topology过期、冻结路线身份/版本/长度改变、来源被明确标记不可用或当前progress越过路线范围时，
 adapter以该来源的constraint key安装零速`DepartureHoldConstraint`而不是静默删除限制。每列车的adapter把全部来源转换后
 通过一个`SIGNALLING` owner一次性replace，避免逐来源更新期间短暂扩大许可。physics epoch晚于生成观察是正常消费，早于生成
-观察才是时间倒置。当前adapter是SimpleATO内部桥接层，尚未接入production controller、Bukkit服务或响应式inspection调度；
-这些连接必须在后续批次完成，不能把本契约的存在描述成信号插件已经可运行。
+观察才是时间倒置。当前adapter已接入production timetable controller与Bukkit认证Basic服务；响应式信号source的
+inspection调度和具体信号插件composition仍未完成，不能把这次Dispatcher接线描述成信号插件已经可运行。
 
 每次应用令`S`为该列车已发布的信号来源数、`R`为其限制总数，时间和临时空间均为`O(S + R)`。来源使用有序map在发布时
 以`O(log S)`维护稳定顺序，physics tick不再排序；route binding是常量大小值对象，应用时不扫描或比较路线segment。snapshot

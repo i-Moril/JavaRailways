@@ -1957,9 +1957,12 @@ class TimetableDispatcherTest {
         assertEquals(1, actionStarts)
     }
 
-    private fun dispatcher(): TimetableDispatcher = TimetableDispatcher { train, world ->
-        SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
-    }
+    private fun dispatcher(): TimetableDispatcher = TimetableDispatcher(
+        routeAdmissionContextProvider = null,
+        atoFactory = TimetableAtoFactory { train, world ->
+            SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
+        }
+    )
 
     private fun timetable(
         timetableId: String,

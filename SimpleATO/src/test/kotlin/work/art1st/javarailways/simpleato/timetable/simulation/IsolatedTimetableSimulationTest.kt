@@ -143,6 +143,7 @@ class IsolatedTimetableSimulationTest {
             simpleAtoDataFactory = {
                 val profile = AtoSafetyProfile()
                 SimpleATOWorldData(TimetableDispatcher(
+                    routeAdmissionContextProvider = null,
                     atoFactory = TimetableAtoFactory { train, world ->
                         SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
                     }

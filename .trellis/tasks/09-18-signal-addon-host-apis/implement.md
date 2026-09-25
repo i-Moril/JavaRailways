@@ -271,7 +271,7 @@
     controller now owns its mutable mission queue, constraint manager, provider state and publication state in SimpleATO; shared
     Basic value/safety primitives remain transitional to avoid reversing the module dependency. AbstractATO exposes one protected
     immutable publication snapshot so the cross-module subclass keeps the original atomic read without exposing mutable state.
-  - [ ] Wire automatic and `MANUAL_ROUTED` production runs to one observation-scoped frozen-route selection and the existing
+  - [x] Wire automatic and `MANUAL_ROUTED` production runs to one observation-scoped frozen-route selection and the existing
     admission client/restriction adapter. Preserve `FULL_MANUAL` no-request behavior and continue release of existing claims.
     - [x] Add the production prerequisites without running a second allocator: the concrete controller owns the existing
       restriction adapter and applies it to its sole constraint manager; Core publishes the ordered body placement needed to
@@ -289,6 +289,13 @@
       pending or rejected preparation leaves the old binding/grant/release active, while READY keeps the same grant ID, owner and
       tail cursor and commits the longer progress path, release suffix and boundary together. Modified prefixes, disconnected
       appends and reversal are rejected without mutation. Dispatcher production composition remains unchecked.
+    - [x] Bind Bukkit production to one authenticated Basic admission service and one observation/context read per Dispatcher
+      Tick. Automatic and `MANUAL_ROUTED` runs now assemble from the preplanned mission without another search or allocator,
+      use rolling request/progress/retry semantics, and apply Basic authority through the controller adapter. `FULL_MANUAL`
+      submits no new request but progresses an existing pending handle; stale topology/route mismatch requires explicit replan.
+      Ordinary-stop and same-direction stored-service continuation keep the same owner/grant/tail cursor. A complete frozen-route
+      grant publishes an empty Basic truncation while the mission Stop constraint retains terminal braking. The legacy allocator
+      remains only behind an explicit null provider for parity tests and isolated simulation; deletion stays in the next item.
   - [ ] Prove parity for priority, stop/station-call behavior, transient retry, stale-route re-selection, manual modes and tail
     release, then delete `RouteSectionAllocator` and the final dispatcher-specific RailWand allocation guard.
 - [ ] Add topology edit guards for active external claims.

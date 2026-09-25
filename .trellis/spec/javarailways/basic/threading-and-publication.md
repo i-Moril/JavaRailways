@@ -93,12 +93,13 @@ final override fun onPhysicsStatePublished() {
 ## 必需测试与验证
 
 - `PhaseAFoundationTest.kt`：100 producers得到`0..99` revisions、stale rejection、defensive copy。
-- `SimpleATOTest.kt`：tick后commit前published state不变，commit后mission revision/state同时更新。
+- SimpleATO `SimpleATOTest.kt`：tick后commit前published state不变，commit后mission revision/state同时更新。
 - `PhaseBConstraintTest.kt`：world Stall独立、first failure/reset。
 - Bukkit tick-order test：await exact ticket后才safety/frame/Dispatcher；failure无后续side effect。
 - `RailwayObservationTest.kt`与Bukkit service tests：一致stamp、稳定排序、defensive copy、owner disable/world unload cleanup。
 
 ```bash
-./gradlew :Basic:test --tests '*PhaseAFoundationTest' --tests '*SimpleATOTest' --tests '*PhaseBConstraintTest'
+./gradlew :Basic:test --tests '*PhaseAFoundationTest' --tests '*PhaseBConstraintTest'
+./gradlew :SimpleATO:test --tests '*SimpleATOTest'
 ./gradlew :BukkitPlugin:test --tests '*WorldManager*' --tests '*BukkitThreadGuardBridgeTest'
 ```

@@ -67,9 +67,10 @@ fun register(id: String, factory: AtoProviderFactory) {
 ## 必需测试与验证
 
 - registry duplicate/unknown/returned ID mismatch。
-- `SimpleATOTest.kt`：activate/deactivate PASS、direction mismatch、unknown只Stall owning world、turnout mutation被before-movement invariant捕获。
+- SimpleATO `SimpleATOTest.kt`：activate/deactivate PASS、direction mismatch、unknown只Stall owning world、turnout mutation被before-movement invariant捕获。
 - provider test断言context snapshots immutable、exception报告含provider ID、freeze speed=0。
 
 ```bash
-./gradlew :Basic:test --tests '*SimpleATOTest' --tests '*RailObjectStoreTest'
+./gradlew :Basic:test --tests '*RailObjectStoreTest'
+./gradlew :SimpleATO:test --tests '*SimpleATOTest'
 ```

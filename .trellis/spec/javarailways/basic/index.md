@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-当前`Basic/`仍承载平台无关ATO controller、Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable model与Basic snapshot；Dispatcher、其checkpoint和隔离模拟runtime已经迁入`SimpleATO`。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：其余ATO与运营对象会继续整体迁入`SimpleATO`；Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`仍承载Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable model、Basic snapshot，以及迁移期由SimpleATO消费的ATO value/safety primitives；具体`SimpleATO` controller、Dispatcher、checkpoint和隔离模拟runtime已经迁入`SimpleATO/`。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：其余运营对象会继续整体迁入`SimpleATO`；Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 
@@ -13,7 +13,7 @@
 | [threading 与 publication](./threading-and-publication.md) | main↔physics command、ATO publication、Dispatcher顺序 | cross-thread handoff与world Stall |
 | [监测区占用](./railway-area-occupancy.md) | 区间占用、边界ENTER/LEFT、响应式信号输入 | Basic通用物理派生，不包含信号制式策略 |
 | [ATO mission 与 perception](./ato-missions-and-perception.md) | mission、route/perception snapshot | revision、resolve、immutable perception |
-| [ATO control 与 constraints](./ato-control-and-constraints.md) | ATO tick、actuator、speed/stop/authority | control skeleton与constraint math |
+| [ATO control primitives 与 constraints](./ato-control-and-constraints.md) | AbstractATO、actuator、speed/stop/authority primitive | Basic共享safety skeleton与constraint math；具体controller归SimpleATO |
 | [ATO providers](./ato-providers.md) | 注册provider/boundary | world-local factory、worker purity |
 | [train operations](./train-operations.md) | door/model/announcement adapter | request/ticket/cancel/completion |
 | [Destinations](./destinations.md) | 创建/migrate operational stop | canonical destination与derived WayPoint transaction |

@@ -7,8 +7,8 @@
 | 模块 | 主要职责 | 关键证据 |
 | --- | --- | --- |
 | `Core` | 平台无关物理、车辆、轨道、事件、Tick 与底层 API | `Core/src/main/java/work/art1st/javarailways/core/api/`、`Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt` |
-| `Basic` | 当前承载曲线、寻路、安全、线路、ATO、时刻表及扩展 API；重构目标保留平台无关底层机制、通用图算法、拓扑/物理资源推导、资源仲裁、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
-| `SimpleATO` | 迁移中的平台无关运营模块；当前拥有手动导航解析/临时时刻表生成和时刻表展示，目标拥有 ATO/ATP、运营对象、时刻表、运营寻路、资源检查调度与限制归约 | `SimpleATO/build.gradle.kts`、`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/` |
+| `Basic` | 当前承载曲线、寻路、安全、线路、时刻表model、资源内核及迁移期共享ATO primitive；重构目标保留平台无关底层机制、通用图算法、拓扑/物理资源推导、资源仲裁、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
+| `SimpleATO` | 迁移中的平台无关运营模块；当前拥有Dispatcher、具体ATO controller、手动导航、运营选路/准入client和限制归约，目标继续拥有运营对象与时刻表 | `SimpleATO/build.gradle.kts`、`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/` |
 | `ConfigLib` | kotlinx.serialization 的持久化代理辅助 | `ConfigLib/src/main/kotlin/work/art1st/configLib/persistence/Persistence.kt` |
 | `Annotation` | 独立 KSP 代码生成实验 | `Annotation/src/main/kotlin/work/art1st/javarailways/annotation/processor/PersistentByProcessor.kt` |
 | `BukkitPlugin` | Paper/Folia composition、命令/工具、渲染、世界生命周期与持久化 | `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt` |

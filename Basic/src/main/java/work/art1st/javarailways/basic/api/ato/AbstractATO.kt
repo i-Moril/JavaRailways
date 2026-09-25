@@ -10,12 +10,6 @@ import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 
-internal data class AtoPublishedState(
-    val trainSnapshot: TrainSnapshot,
-    val lifetimeTravelDistanceMeters: Double,
-    val controllerState: Any?
-)
-
 /** Fixed ATO Tick boundary: plan, actuate, move, or freeze the world-local ATO subsystem. */
 abstract class AbstractATO(
     train: Train,
@@ -24,6 +18,12 @@ abstract class AbstractATO(
     protected val safetyProfile: AtoSafetyProfile,
     protected val atoCoordinator: AtoWorldCoordinator
 ) : TrainController(train, world) {
+    protected data class PublishedAtoState(
+        val trainSnapshot: TrainSnapshot,
+        val lifetimeTravelDistanceMeters: Double,
+        val controllerState: Any?
+    )
+
     val world: World = world
 
     protected var lastTravelDistanceMeters: Double = 0.0
@@ -36,7 +36,7 @@ abstract class AbstractATO(
     private var atoTick: Long = 0L
 
     @Volatile
-    private var publishedState = AtoPublishedState(
+    private var publishedState = PublishedAtoState(
         trainSnapshot = captureTrainSnapshot(0L),
         lifetimeTravelDistanceMeters = 0.0,
         controllerState = null
@@ -99,7 +99,7 @@ abstract class AbstractATO(
     }
 
     final override fun onPhysicsStatePublished() {
-        publishedState = AtoPublishedState(
+        publishedState = PublishedAtoState(
             trainSnapshot = captureTrainSnapshot(atoTick),
             lifetimeTravelDistanceMeters = activeLifetimeTravelDistanceMeters,
             controllerState = capturePublishedControllerState()
@@ -111,7 +111,7 @@ abstract class AbstractATO(
 
     protected open fun afterPhysicsStatePublished() = Unit
 
-    internal fun publishedAtoState(): AtoPublishedState = publishedState
+    protected fun publishedAtoState(): PublishedAtoState = publishedState
 
     private fun createStallReport(failure: Exception): AtoStallReport = AtoStallReport(
         worldId = atoCoordinator.worldId,

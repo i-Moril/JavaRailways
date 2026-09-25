@@ -16,7 +16,7 @@ import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
-import work.art1st.javarailways.basic.controller.SimpleATO
+import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.SimpleATOPlugin

@@ -36,7 +36,7 @@ import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.api.timetable.*
 import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.controller.ManualController
-import work.art1st.javarailways.basic.controller.SimpleATO
+import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve

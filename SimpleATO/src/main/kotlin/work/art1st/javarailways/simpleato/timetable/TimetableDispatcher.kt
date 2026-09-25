@@ -48,8 +48,8 @@ import work.art1st.javarailways.basic.api.timetable.TimetableExtensionActionStar
 import work.art1st.javarailways.basic.api.timetable.TimetableRuntimeContext
 import work.art1st.javarailways.basic.api.timetable.TimetableServiceActivation
 import work.art1st.javarailways.basic.api.timetable.TimetableTrainContext
-import work.art1st.javarailways.basic.controller.SimpleATO
-import work.art1st.javarailways.basic.controller.SimpleAtoPublishedState
+import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.controller.SimpleAtoPublishedState
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1

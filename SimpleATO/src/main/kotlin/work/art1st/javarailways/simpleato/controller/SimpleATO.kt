@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.controller
+package work.art1st.javarailways.simpleato.controller
 
 import work.art1st.javarailways.basic.api.ato.AbstractATO
 import work.art1st.javarailways.basic.api.ato.AtoPlanningContext

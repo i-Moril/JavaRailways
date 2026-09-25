@@ -189,7 +189,7 @@ The first ownership batch is complete: the live dispatcher is constructed in
 `SimpleATORuntimeSnapshotV1`. `BasicWorldData` and `BasicRuntimeSnapshotV2` contain no dispatcher
 field. This keeps the frozen-route selector, admission client, restriction adapter and their future
 production caller on the same side of the module dependency. The dispatcher still consumes
-transitional Basic timetable/controller types and the legacy allocator until the following batches.
+transitional Basic timetable/value types and the legacy allocator until the following batches.
 
 Use the following reviewed migration sequence instead:
 
@@ -200,9 +200,10 @@ Use the following reviewed migration sequence instead:
    through the existing `SimpleATO -> Basic` dependency; no Basic-to-SimpleATO bridge or forwarding
    accessor is added. This first batch is behavior-preserving and continues to use the legacy route
    allocator.
-2. Move the `SimpleATO` controller and its ATO-owned mission/constraint runtime into the SimpleATO
+2. **Implemented.** Move the `SimpleATO` controller and its ATO-owned mission/constraint runtime into the SimpleATO
    module, updating factories, train-controller lifecycle and tests without compatibility aliases.
-   Low-level Basic route validation/resource services remain in Basic.
+   Low-level Basic route validation/resource services and temporarily shared ATO value/safety
+   primitives remain in Basic; Basic contains no concrete controller or forwarding alias.
 3. Give the production dispatcher one coherent route-selection/admission context per published
    observation. Automatic and `MANUAL_ROUTED` runs select a topology-bound frozen route, drive the
    existing per-train admission client and apply its restriction snapshot to the one controller.

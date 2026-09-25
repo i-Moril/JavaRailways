@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.station
+package work.art1st.javarailways.simpleato.station
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -14,7 +14,19 @@ import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
 import work.art1st.javarailways.basic.api.ato.mission.AtoMissionRequest
 import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
-import work.art1st.javarailways.basic.controller.SimpleATO
+import work.art1st.javarailways.basic.api.station.DwellPlan
+import work.art1st.javarailways.basic.api.station.Station
+import work.art1st.javarailways.basic.api.station.StationBerth
+import work.art1st.javarailways.basic.api.station.StationBerthDetector
+import work.art1st.javarailways.basic.api.station.StationBerthRef
+import work.art1st.javarailways.basic.api.station.StationCall
+import work.art1st.javarailways.basic.api.station.StationCallNotification
+import work.art1st.javarailways.basic.api.station.StationCallNotificationType
+import work.art1st.javarailways.basic.api.station.StationCallRequest
+import work.art1st.javarailways.basic.api.station.StationCallResolutionFailure
+import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
+import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator

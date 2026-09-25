@@ -30,7 +30,7 @@ import work.art1st.javarailways.basic.api.station.StationBerth
 import work.art1st.javarailways.basic.api.station.StationBerthRef
 import work.art1st.javarailways.basic.api.station.StationCall
 import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.controller.SimpleATO
+import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.core.api.physics.curve.Curve

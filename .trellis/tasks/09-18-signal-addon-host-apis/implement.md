@@ -264,8 +264,11 @@
     isolated simulation and tests now live in SimpleATO; Bukkit captures/restores Core, Basic runtime V2 and SimpleATO runtime
     V1 as one coherent runtime V2 document and restores them in that order. The normal loader contains no old-format fallback;
     the separately planned packaged migration remains responsible for old development snapshots.
-  - [ ] Move the `SimpleATO` controller and ATO-owned mission/constraint runtime into the SimpleATO module without aliases or a
-    Basic forwarding facade; update Bukkit factories, isolated simulation and controller/dispatcher tests together.
+  - [x] Move the `SimpleATO` controller and ATO-owned mission/constraint runtime into the SimpleATO module without aliases or a
+    Basic forwarding facade; update Bukkit factories, isolated simulation and controller/dispatcher tests together. The concrete
+    controller now owns its mutable mission queue, constraint manager, provider state and publication state in SimpleATO; shared
+    Basic value/safety primitives remain transitional to avoid reversing the module dependency. AbstractATO exposes one protected
+    immutable publication snapshot so the cross-module subclass keeps the original atomic read without exposing mutable state.
   - [ ] Wire automatic and `MANUAL_ROUTED` production runs to one observation-scoped frozen-route selection and the existing
     admission client/restriction adapter. Preserve `FULL_MANUAL` no-request behavior and continue release of existing claims.
   - [ ] Prove parity for priority, stop/station-call behavior, transient retry, stale-route re-selection, manual modes and tail

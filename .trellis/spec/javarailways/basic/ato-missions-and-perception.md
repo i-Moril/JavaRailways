@@ -75,9 +75,10 @@ is RouteBuildResult.Failure ->
 
 - `AtoMissionTest.kt`：continuous legs、unresolved/unreachable、defensive copy、revision。
 - `PhaseAFoundationTest.kt`：route/perception copy、unsorted rejection。
-- `SimpleATOTest.kt`：stale/atomic physics activation、publish boundary、duplicate/live ref Stall、transition顺序。
+- SimpleATO `SimpleATOTest.kt`：stale/atomic physics activation、publish boundary、duplicate/live ref Stall、transition顺序。
 - assertion必须包含failure后current mission/queue不变且world未误Stall（普通resolve failure）。
 
 ```bash
-./gradlew :Basic:test --tests '*AtoMissionTest' --tests '*PhaseAFoundationTest' --tests '*SimpleATOTest'
+./gradlew :Basic:test --tests '*AtoMissionTest' --tests '*PhaseAFoundationTest'
+./gradlew :SimpleATO:test --tests '*SimpleATOTest'
 ```

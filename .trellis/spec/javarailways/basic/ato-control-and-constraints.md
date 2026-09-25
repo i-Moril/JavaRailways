@@ -1,14 +1,14 @@
-# Basic ATO control 与 constraints 契约
+# Basic ATO control primitives 与 constraints 契约
 
 ## 适用场景与用途
 
-触发：修改`AbstractATO` tick skeleton、`TrainActuator`、`AtoSafetyProfile`、constraint math/owner、movement authority或departure hold。
+触发：修改`AbstractATO` tick skeleton、`TrainActuator`、`AtoSafetyProfile`或constraint math/owner。具体`SimpleATO` controller运行时见[SimpleATO controller](../simpleato/controller-runtime.md)。
 
-用途：所有速度决策经owner-scoped constraints取最小许可值，actuator用SI单位生成value movement；exception只Stall owning world并freeze。
+用途：为迁移期SimpleATO和Basic诊断/安全代码提供共享的控制骨架和值类型；所有速度决策经owner-scoped constraints取最小许可值，actuator用SI单位生成value movement；exception只Stall owning world并freeze。Basic不再包含具体`SimpleATO` controller或其可写mission/constraint状态。
 
 ## Tick owner、签名与单位
 
-`AbstractATO.tick(deltaT: Double)`由Core physics worker调用，`deltaT`毫秒。固定顺序不可绕过：process commands → `plan(deltaSeconds)` → `validateBeforeMovement()` → actuator → Core move → active speed/distance；exception→`AtoStallReport`→world Stall→freeze。
+`AbstractATO.tick(deltaT: Double)`由Core physics worker调用，`deltaT`毫秒。固定顺序不可绕过：process commands → `plan(deltaSeconds)` → `validateBeforeMovement()` → actuator → Core move → active speed/distance；exception→`AtoStallReport`→world Stall→freeze。publication仍由AbstractATO原子保存；跨模块subclass只能一次取得protected immutable `PublishedAtoState`来构造自己的公开快照，不能分次读取可能跨epoch的字段，也不能改写内部publication reference。
 
 ```kotlin
 interface TrainActuator {
@@ -74,9 +74,10 @@ return ActuationStep(
 ## 必需测试与验证
 
 - `PhaseBConstraintTest.kt`：`sqrt(v²+2ad)` braking、station zero margin、atomic replace/min wins、actuator 0.5 m、freeze。
-- `SimpleATOTest.kt`：no mission zero、line/infrastructure layers、follow/stop/authority、Stall freeze。
+- SimpleATO `SimpleATOTest.kt`：no mission zero、line/infrastructure layers、follow/stop/authority、Stall freeze。
 - 每种constraint覆盖base(远目标)、boundary(0 distance)、bad(nonfinite/negative)。
 
 ```bash
-./gradlew :Basic:test --tests '*PhaseBConstraintTest' --tests '*SimpleATOTest'
+./gradlew :Basic:test --tests '*PhaseBConstraintTest'
+./gradlew :SimpleATO:test --tests '*SimpleATOTest'
 ```

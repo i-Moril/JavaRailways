@@ -56,7 +56,7 @@ AsyncTickTestSupport.run {
 }
 ```
 
-来源：`Core/src/testFixtures/kotlin/work/art1st/javarailways/core/util/AsyncTickTestSupport.kt`及Basic `SimpleATOTest.kt`。它验证runtime guard而不把测试线程永久标记为worker。
+来源：`Core/src/testFixtures/kotlin/work/art1st/javarailways/core/util/AsyncTickTestSupport.kt`及SimpleATO `SimpleATOTest.kt`。它验证runtime guard而不把测试线程永久标记为worker。
 
 ## 禁止实现
 

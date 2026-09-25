@@ -3,12 +3,27 @@ package work.art1st.javarailways.simpleato.routing
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+
+/** One observation-scoped train lookup shared by all route selections in a Dispatcher pass. */
+internal class FrozenRouteSelectionContext(
+    val observation: RailwayObservation
+) {
+    private val trainsById: Map<String, RailwayTrainObservation> =
+        observation.trains.associateBy(RailwayTrainObservation::trainId).also { indexed ->
+            require(indexed.size == observation.trains.size) {
+                "observation contains duplicate stable train IDs"
+            }
+        }
+
+    fun train(trainId: String): RailwayTrainObservation? = trainsById[trainId]
+}
 
 /** One coherent internal request to freeze an operational route from a published train tail. */
 internal data class FrozenRouteSelectionInput(
     val topology: TopologyState,
-    val observation: RailwayObservation,
+    val context: FrozenRouteSelectionContext,
     val operatingDirections: OperatingDirectionOverlay,
     val trainId: String,
     val target: OperationalRouteLocation,
@@ -20,6 +35,9 @@ internal data class FrozenRouteSelectionInput(
         require(routeId.isNotBlank()) { "routeId must not be blank" }
         require(routeRevision >= 0L) { "routeRevision must be non-negative" }
     }
+
+    val observation: RailwayObservation
+        get() = context.observation
 }
 
 internal enum class FrozenRouteSelectionRejection {
@@ -76,7 +94,7 @@ internal object FrozenRouteSelector {
             )
         }
 
-        val train = input.observation.trains.firstOrNull { it.trainId == input.trainId }
+        val train = input.context.train(input.trainId)
             ?: return rejected(
                 FrozenRouteSelectionRejection.TRAIN_NOT_FOUND,
                 "train ${input.trainId} is absent from observation epoch ${input.observation.stamp.physicsEpoch}"

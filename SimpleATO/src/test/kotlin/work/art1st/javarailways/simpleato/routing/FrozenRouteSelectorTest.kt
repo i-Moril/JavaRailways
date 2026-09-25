@@ -174,7 +174,7 @@ class FrozenRouteSelectorTest {
     ): FrozenRouteSelectionResult = FrozenRouteSelector.select(
         FrozenRouteSelectionInput(
             topology = topology,
-            observation = observation,
+            context = FrozenRouteSelectionContext(observation),
             operatingDirections = OperatingDirectionOverlay(
                 topologyRevision = overlayTopologyRevision,
                 revision = 11L,

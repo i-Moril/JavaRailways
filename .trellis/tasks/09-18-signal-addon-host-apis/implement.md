@@ -41,9 +41,11 @@
     observation and operating-direction overlay, resolve the named authoritative train, derive the route
     start and facing from its published tail, and preserve typed stale/train/planner rejection. Production
     Dispatcher wiring, public API and resource admission remain separate.
-  - [ ] When production Dispatcher batches route selection for one observation, build one train-ID index
-    in that dispatch context and share it across selectors; keep the current one-off linear lookup for
-    isolated requests and do not add a cross-observation cache.
+  - [x] Build one train-ID index per immutable observation in `FrozenRouteSelectionContext` and share it
+    across ordinary and mission-bound selectors; do not retain a cross-observation cache. Add the
+    Dispatcher mission seam that accepts a tail-started topology route only when its head-forward
+    traversal exactly matches the already-selected mission, preventing a second route from being
+    claimed for the same train. Production admission wiring remains the next batch.
 - [ ] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one mandatory physical footprint plus validated plugin contributions, and route-ordered turnout selections. Occupancy geometry is validation evidence, not a second footprint. No Basic path search or recursive protection-policy closure.
   - [x] Basic internal route projection validates one frozen `RouteSnapshot` against `TopologyState` in one linear pass, emits immutable edge occurrences and derives turnout node/from/to traversals; protection-window validation reuses this projection. Public request shape, route-bound diamond index and closure compilation remain.
   - [x] Turnout traversals derive one direction-independent `javarailways:turnout` resource identity from the sorted persistent endpoint set; revision-local topology node IDs remain validation-only. Route validation and diamond identities remain.

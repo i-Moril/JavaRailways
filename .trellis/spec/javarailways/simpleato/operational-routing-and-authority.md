@@ -60,6 +60,16 @@ observation解析具名列车。脱轨列车作为无效权威起点被拒绝；
 抹平。该接缝不读取live train、不申请资源，也不为测试暴露Basic内部progress cursor；首segment的rail、facing
 和局部起点必须精确对应权威tail，Basic随后仍独立验证这一不变量。
 
+生产Dispatcher已经拥有由mission resolver选定的路线，不能在准入时默默接受另一条最短路。内部
+`FrozenMissionRouteSelector`因此只把拓扑选路器用于补齐“物理车尾到mission终点”的路线，并把观测中的
+列车头投影到该路线；只有列车头之后的rail、方向及弧长序列与既有mission traversal完全相同时才返回
+冻结结果。返回值同时记录列车头在tail-started路线上的距离，供后续把head-based mission进度映射到
+Basic route-metre boundary。任一不一致都是typed rejection，不申请资源。
+
+同一次Dispatcher处理使用一个`FrozenRouteSelectionContext`为该不可变observation建立train ID索引；普通
+选择器和mission一致性接缝都从该索引解析列车，不能各自再次线性扫描train列表。context不跨observation
+保存，也不缓存topology或route结果。
+
 ### 3.2 冻结路线与准入客户端
 
 冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp 与期望 authority boundary；不提交 caller-authored route progress/occurrence index、可替代物理底线的 raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。Basic 从同一 observation 的权威列车尾验证冻结路线起点，并自行初始化进度。信号系统插件可以附加自己注册的资源要求，但这些要求只增加最终 union。每项addition必须包含exact stable identity与显式route-metre车尾释放boundary；可选preparation descriptor只描述provider-owned target，不能携带callback或mutable train/world。完整shape由[Basic路线资源准入](../basic/route-resource-admission.md)唯一拥有。
@@ -174,7 +184,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 ## 7. 性能、复杂度与退化行为
 
 - 当前内部选路器每次查询从已发布`TopologyState`构造revision-local node→incident-edge只读索引，随后执行Dijkstra。令`P`为可到达入口port状态数、`C`为这些port之间实际展开的合法continuation数、`R_q`为所有候选edge方向过滤实际检查的physical rail slice次数、`S_out`为结果rail slice数，则时间复杂度为`O((P + C) log P + R_q + S_out)`，空间复杂度为`O(P + E)`；不能把高阶turnout的port-pair展开错误地只计成一个edge。它不从live rails重建图、不读取当前道岔选位，也不修改topology；后续批量选路可以按topology root缓存incident-edge索引，但缓存不得跨revision复用。
-- 当前单次`FrozenRouteSelector.select`按`trainId`线性查找一次不可变observation列车列表，成本为`O(T)`；选路是mission/target/revision事件驱动，不得逐tick、逐信号或每次authority extension调用。未来Dispatcher在同一observation批量为多列车选路时，应在该次调度上下文只建立一次`trainId -> RailwayTrainObservation`索引并复用，使批量查找为`O(T + Q)`；不得让每个selector各自复制索引或引入跨observation缓存生命周期。
+- `FrozenRouteSelectionContext`对一次不可变observation以`O(T)`建立train ID索引，随后同一Dispatcher批次的`Q`次列车解析合计`O(Q)`；选路仍只在mission/target/revision事件触发，不得逐tick、逐信号或每次authority extension调用。索引不跨observation保存。
 - 当前准入client只在激活路线时以`O(R)`计算一次restriction route length；之后的request/progress/end均为`O(1)`本地状态处理，完整traversal一致性、资源编译、占用和claim复杂度仍唯一属于Basic。pending期间不轮询路线、不复制资源集合，也不重新发布未变化的旧authority。
 - 一旦路线冻结，前方 perception 对实际扫描长度为线性；一个 controlled train、一个 physics epoch 只做一次，constraint 归约对候选数线性。
 - 外部restriction adapter每次应用只线性转换当前列车的来源与限制`O(S + R)`；不得重新扫描冻结路线、排序来源或调用插件代码。

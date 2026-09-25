@@ -6,16 +6,6 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import kotlin.math.abs
 
-/** One RouteSection located on the cumulative distance axis of a complete Mission. */
-data class MissionRouteSection(
-    val ordinal: Int,
-    val legIndex: Int,
-    val plannedRoute: PlannedRoute,
-    val section: RouteSection,
-    val entryDistanceMeters: Double,
-    val releaseDistanceMeters: Double
-)
-
 /** Immutable projection helper from published train positions to Mission route progress. */
 class MissionRouteLayout(
     world: World,
@@ -31,13 +21,11 @@ class MissionRouteLayout(
 
     private val segments: List<LocatedSegment>
 
-    val sections: List<MissionRouteSection>
     val totalLengthMeters: Double
 
     init {
         var legStart = 0.0
         val locatedSegments = ArrayList<LocatedSegment>()
-        val locatedSections = ArrayList<MissionRouteSection>()
         mission.legs.forEach { leg ->
             var segmentStart = legStart
             leg.plannedRoute.expandedRoute.segments.forEach { segment ->
@@ -53,20 +41,9 @@ class MissionRouteLayout(
                 )
                 segmentStart += segment.length
             }
-            leg.plannedRoute.sections.forEach { section ->
-                locatedSections += MissionRouteSection(
-                    ordinal = locatedSections.size,
-                    legIndex = leg.index,
-                    plannedRoute = leg.plannedRoute,
-                    section = section,
-                    entryDistanceMeters = legStart + section.entryProtectionDistanceMeters,
-                    releaseDistanceMeters = legStart + section.releaseDistanceMeters
-                )
-            }
             legStart += leg.plannedRoute.expandedRoute.totalLength
         }
         segments = locatedSegments.toList()
-        sections = locatedSections.toList()
         totalLengthMeters = legStart
     }
 

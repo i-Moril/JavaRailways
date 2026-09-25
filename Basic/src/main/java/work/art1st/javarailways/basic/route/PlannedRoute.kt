@@ -3,65 +3,9 @@ package work.art1st.javarailways.basic.route
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailView
-import java.util.Collections
 import kotlin.math.abs
 
-/** One selected branch on a planned route, measured from the route start. */
-data class TurnoutRequirement(
-    val from: RailViewRef,
-    val selectedNext: RailViewRef,
-    val routeDistanceMeters: Double,
-    val protectionDistanceMeters: Double = TurnoutSafetyDefaults.DEFAULT_PROTECTION_DISTANCE_METERS,
-    val lockingDistanceMeters: Double = TurnoutSafetyDefaults.DEFAULT_LOCKING_DISTANCE_METERS
-) {
-    init {
-        require(from != selectedNext)
-        require(routeDistanceMeters.isFinite() && routeDistanceMeters >= 0.0)
-        require(protectionDistanceMeters.isFinite() && protectionDistanceMeters >= 0.0)
-        require(lockingDistanceMeters.isFinite() && lockingDistanceMeters >= 0.0)
-        require(lockingDistanceMeters <= protectionDistanceMeters)
-    }
-}
-
-/** Atomic route-allocation unit between two protection/release points. */
-@ConsistentCopyVisibility
-data class RouteSection private constructor(
-    val index: Int,
-    val entryProtectionDistanceMeters: Double,
-    val releaseDistanceMeters: Double,
-    val turnoutRequirements: List<TurnoutRequirement>
-) {
-    constructor(
-        index: Int,
-        entryProtectionDistanceMeters: Double,
-        releaseDistanceMeters: Double,
-        turnoutRequirements: Collection<TurnoutRequirement>
-    ) : this(
-        index,
-        entryProtectionDistanceMeters,
-        releaseDistanceMeters,
-        immutableSortedCopy(turnoutRequirements)
-    )
-
-    init {
-        require(index >= 0)
-        require(entryProtectionDistanceMeters.isFinite() && entryProtectionDistanceMeters >= 0.0)
-        require(releaseDistanceMeters.isFinite() && releaseDistanceMeters > entryProtectionDistanceMeters)
-        require(turnoutRequirements.all {
-            it.routeDistanceMeters > entryProtectionDistanceMeters - EPSILON &&
-                it.routeDistanceMeters <= releaseDistanceMeters + EPSILON
-        }) { "turnout requirement lies outside RouteSection $index" }
-    }
-
-    private companion object {
-        const val EPSILON = 1.0e-6
-
-        fun immutableSortedCopy(source: Collection<TurnoutRequirement>): List<TurnoutRequirement> =
-            Collections.unmodifiableList(source.sortedBy(TurnoutRequirement::routeDistanceMeters))
-    }
-}
-
-/** Conservative distance upstream of a section protection point at which allocation must start. */
+/** Conservative look-ahead distance at which SimpleATO should extend its current authority. */
 data class RouteAllocationTiming(
     val switchSetupSeconds: Double,
     val reactionTimeSeconds: Double,
@@ -89,42 +33,15 @@ data class RouteAllocationTiming(
     }
 }
 
-/** Immutable timetable-owned route plus its atomic allocation sections. */
-@ConsistentCopyVisibility
-data class PlannedRoute private constructor(
+/** Immutable timetable-owned route after Basic has validated its physical traversal. */
+data class PlannedRoute(
     val routeId: String,
     val revision: Long,
-    val expandedRoute: ExpandedRoute,
-    val sections: List<RouteSection>
+    val expandedRoute: ExpandedRoute
 ) {
-    constructor(
-        routeId: String,
-        revision: Long,
-        expandedRoute: ExpandedRoute,
-        sections: Collection<RouteSection>
-    ) : this(routeId, revision, expandedRoute, immutableCopy(sections))
-
     init {
         require(routeId.isNotBlank())
         require(revision >= 0L)
-        require(sections.isNotEmpty()) { "PlannedRoute must contain at least one RouteSection" }
-        require(sections.map(RouteSection::index) == sections.indices.toList()) {
-            "RouteSection indexes must be contiguous from zero"
-        }
-        require(abs(sections.first().entryProtectionDistanceMeters) <= EPSILON)
-        require(sections.zipWithNext().all { (current, next) ->
-            abs(current.releaseDistanceMeters - next.entryProtectionDistanceMeters) <= EPSILON
-        }) { "RouteSections must be contiguous" }
-        require(abs(sections.last().releaseDistanceMeters - expandedRoute.totalLength) <= EPSILON) {
-            "RouteSections must cover the complete ExpandedRoute"
-        }
-    }
-
-    private companion object {
-        const val EPSILON = 1.0e-6
-
-        fun immutableCopy(source: Collection<RouteSection>): List<RouteSection> =
-            Collections.unmodifiableList(ArrayList(source))
     }
 }
 
@@ -155,16 +72,12 @@ data class TurnoutSafetyDefaults(
     }
 }
 
-/** Resolves stable route references and compiles turnout selections into atomic sections. */
-class PlannedRouteCompiler(
-    private val world: World,
-    private val turnoutDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults()
-) {
+/** Resolves stable route references and validates one already-selected physical traversal. */
+class PlannedRouteCompiler(private val world: World) {
     fun compile(
         routeId: String,
         revision: Long,
-        route: ExpandedRoute,
-        protectionPointDistancesMeters: Collection<Double> = emptyList()
+        route: ExpandedRoute
     ): PlannedRouteCompilationResult {
         require(routeId.isNotBlank())
         require(revision >= 0L)
@@ -183,12 +96,9 @@ class PlannedRouteCompiler(
             }
         }
 
-        val requirements = ArrayList<TurnoutRequirement>()
-        var routeDistance = 0.0
         for (index in route.segments.indices) {
             val segment = route.segments[index]
             val current = views[index]
-            routeDistance += segment.length
             if (index == route.segments.lastIndex) continue
             val nextSegment = route.segments[index + 1]
             val next = views[index + 1]
@@ -210,49 +120,9 @@ class PlannedRouteCompiler(
                     "route selects a direction-restricted branch: ${nextSegment.railViewRef}"
                 )
             }
-            val canonicalTurnout = when {
-                current.nextRails.size > 1 -> current to next
-                next.reversed.nextRails.size > 1 &&
-                    next.reversed.nextRails.any { it === current.reversed } ->
-                    next.reversed to current.reversed
-                else -> null
-            }
-            if (canonicalTurnout != null) {
-                val (stemToJoint, selectedBranch) = canonicalTurnout
-                requirements += TurnoutRequirement(
-                    from = RailViewRef.from(stemToJoint),
-                    selectedNext = RailViewRef.from(selectedBranch),
-                    routeDistanceMeters = routeDistance,
-                    protectionDistanceMeters = turnoutDefaults.protectionDistanceMeters,
-                    lockingDistanceMeters = turnoutDefaults.lockingDistanceMeters
-                )
-            }
-        }
-
-        val turnoutProtectionPoints = requirements.asSequence()
-            .map(TurnoutRequirement::routeDistanceMeters)
-            .filter { it > EPSILON && it < route.totalLength - EPSILON }
-            .toList()
-        val boundaries = buildBoundaries(
-            route.totalLength,
-            protectionPointDistancesMeters + turnoutProtectionPoints
-        )
-            ?: return PlannedRouteCompilationResult.Failure(
-                "protection points must be finite and inside the expanded route"
-            )
-        val sections = boundaries.zipWithNext().mapIndexed { index, (entry, release) ->
-            RouteSection(
-                index = index,
-                entryProtectionDistanceMeters = entry,
-                releaseDistanceMeters = release,
-                turnoutRequirements = requirements.filter { requirement ->
-                    requirement.routeDistanceMeters > entry + EPSILON &&
-                        requirement.routeDistanceMeters <= release + EPSILON
-                }
-            )
         }
         return PlannedRouteCompilationResult.Success(
-            PlannedRoute(routeId, revision, route, sections)
+            PlannedRoute(routeId, revision, route)
         )
     }
 
@@ -261,20 +131,6 @@ class PlannedRouteCompiler(
 
     private fun allowsDirection(view: RailView): Boolean =
         view.rail.infrastructureMetadata.operating.allowedDirection?.let { it == view.viewDirection } ?: true
-
-    private fun buildBoundaries(totalLength: Double, requested: Collection<Double>): List<Double>? {
-        val points = ArrayList<Double>(requested.size + 2)
-        points += 0.0
-        requested.forEach { point ->
-            if (!point.isFinite() || point <= 0.0 || point >= totalLength) return null
-            points += point
-        }
-        points += totalLength
-        val sorted = points.distinct().sorted()
-        return sorted.takeIf { boundaries ->
-            boundaries.zipWithNext().all { (first, second) -> second - first > EPSILON }
-        }
-    }
 
     private companion object {
         const val EPSILON = 1.0e-6

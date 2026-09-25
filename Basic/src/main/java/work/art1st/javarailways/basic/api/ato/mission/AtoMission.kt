@@ -136,10 +136,7 @@ sealed interface AtoMissionSubmissionResult {
 /** Resolves WayPoint references and compiles every mission leg before it reaches physics state. */
 class AtoMissionResolver(private val world: World) {
     private val routePlanner = RoutePlanner(world)
-    private val plannedRouteCompiler = PlannedRouteCompiler(
-        world,
-        world.basicWorldData.turnoutSafetyDefaults
-    )
+    private val plannedRouteCompiler = PlannedRouteCompiler(world)
 
     @MainThread
     fun resolve(request: AtoMissionRequest): AtoMissionResolutionResult {

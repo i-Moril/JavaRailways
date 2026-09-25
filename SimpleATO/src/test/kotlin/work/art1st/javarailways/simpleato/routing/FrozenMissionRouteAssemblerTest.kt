@@ -14,7 +14,6 @@ import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.PlannedRoute
 import work.art1st.javarailways.basic.route.RailViewRef
-import work.art1st.javarailways.basic.route.RouteSection
 import work.art1st.javarailways.basic.route.RouteSegment
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
@@ -329,8 +328,7 @@ class FrozenMissionRouteAssemblerTest {
         val planned = PlannedRoute(
             routeId = "$missionId/leg/0",
             revision = revision,
-            expandedRoute = expanded,
-            sections = listOf(RouteSection(0, 0.0, expanded.totalLength, emptyList()))
+            expandedRoute = expanded
         )
         return AtoMission(
             id = missionId,

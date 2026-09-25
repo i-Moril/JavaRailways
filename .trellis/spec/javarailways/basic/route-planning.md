@@ -24,7 +24,7 @@ data class RouteSegment(
 
 `buildRoute(...): RouteBuildResult.Success(route)|Failure(reason)`使用Dijkstra actual remaining/full arc length。same view goal在start后direct；在start前可绕loop重新进入。
 
-`PlannedRouteCompiler.compile(routeId,revision,route,protectionPoints): Success|Failure`重新resolve stable views，检查segment range、connected endpoint、direction restriction并canonicalize turnout。`PlannedRoute`sections index从0连续，覆盖完整route且defensive copy。
+`PlannedRouteCompiler.compile(routeId,revision,route): Success|Failure`重新resolve stable views，检查segment range、connected endpoint和direction restriction。`PlannedRoute`只保存route identity、revision和已通过验证且自身defensive copy的`ExpandedRoute`；它不保存信号边界、保护点、资源claim或道岔准备参数。
 
 目标流程为：SimpleATO在一个`TopologyState(revision)`上生成一份绑定该revision的冻结traversal；Basic验证该traversal连续且每个continuation合法，并在同一次pass中把沿途rail intervals、受控transition与route-bound shared resources加入唯一claim集合。物理占用范围只是资源binding的验证数据，不是第二份footprint。Basic不得要求调用方另报资源清单，也不得在验证时另行寻路或用保护区域替调用方选择路径。
 
@@ -39,8 +39,8 @@ data class RouteSegment(
 | stale/missing compiled view | compilation `Failure` |
 | transition非endpoint/不connected | compilation `Failure` |
 | direction-restricted selected branch | compilation `Failure` |
-| facing/trailing turnout | canonical同一`TurnoutRequirement(from,selectedNext)` |
-| straight route | section覆盖route但zero synthetic turnout claims |
+| facing/trailing turnout | compiler只验证选定连接；后续物理资源编译从冻结拓扑投影canonical turnout identity |
+| straight/turnout route | 都不生成signal section或synthetic protection point |
 
 `MissionRouteLayout.project(position,previousProgress)`按facing转换AB→view arc，并用previous progress从repeated rail candidates选monotonic值。
 
@@ -72,7 +72,7 @@ return when (direction) {
 
 - `RoutePlannerWeightedTest.kt`：more hops但30 m更短、disconnected failure、same-view loop behind。
 - `DirectionRestrictionRouteTest.kt`：start/goal/branch direction。
-- `PlannedRouteCompilerTest.kt`：range/connection failure、facing/trailing canonical identity、contiguous sections、straight zero claims/default distances。
+- `PlannedRouteCompilerTest.kt`：range/connection failure、direction restriction，以及道岔路线不会生成signal section。
 - `MissionRouteProgressTest.kt`：AB/BA和loop monotonic projection。
 
 ```bash

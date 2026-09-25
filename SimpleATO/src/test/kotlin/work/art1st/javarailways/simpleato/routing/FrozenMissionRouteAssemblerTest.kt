@@ -79,6 +79,8 @@ class FrozenMissionRouteAssemblerTest {
         ) as FrozenMissionRouteResult.Frozen
 
         assertEquals(10.0, frozen.route.headDistanceFromRouteStartMeters, 1.0e-12)
+        assertEquals(10.0, frozen.route.routeProgressMeters(0.0), 1.0e-12)
+        assertEquals(25.0, frozen.route.routeProgressMeters(15.0), 1.0e-12)
         assertEquals(
             listOf(approach, missionBranch, goal),
             frozen.route.selection.route.segments.map { it.railId }
@@ -187,6 +189,8 @@ class FrozenMissionRouteAssemblerTest {
         ) as FrozenMissionRouteResult.Frozen
 
         assertEquals(10.0, frozen.route.headDistanceFromRouteStartMeters, 1.0e-12)
+        assertEquals(50.0, frozen.route.missionHeadProgressAtSelectionMeters, 1.0e-12)
+        assertEquals(15.0, frozen.route.routeProgressMeters(55.0), 1.0e-12)
         assertEquals(40.0, frozen.route.selection.route.segments.single().startArcLengthMeters, 1.0e-12)
         assertEquals(90.0, frozen.route.selection.route.segments.single().endArcLengthMeters, 1.0e-12)
     }

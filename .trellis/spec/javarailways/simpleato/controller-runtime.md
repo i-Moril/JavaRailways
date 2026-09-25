@@ -30,7 +30,8 @@ controller现在同时拥有该列车唯一的`TrainRestrictionConstraintAdapter
 immutable restriction snapshot；后续Dispatcher接线将在serialized owner上用当前stamp、同一冻结route binding及route
 progress调用apply，adapter把结果原子替换进controller原有`ConstraintManager`。这不是第二份约束存储或第二个
 制动器：最终仍由同一个`MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。当前提交只完成
-owner/enforcement接缝；在lookahead policy冻结并接入Dispatcher以前，生产运行尚不发布resource-admission restriction。
+owner/enforcement接缝；滚动授权现已复用controller的既有perception horizon，但在接入Dispatcher以前，生产运行仍不发布
+resource-admission restriction，也不增加第二次路线扫描。
 
 ## Publication边界
 

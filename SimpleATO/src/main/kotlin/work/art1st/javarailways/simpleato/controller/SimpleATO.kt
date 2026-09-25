@@ -350,6 +350,18 @@ class SimpleATO(
         safetyProfile.serviceDecelerationMetersPerSecondSquared
     )
 
+    /**
+     * Distance covered by the controller's one shared forward perception.
+     *
+     * Dispatcher resource admission reuses this value so it never performs or configures a
+     * second route look-ahead independently from the ATO scan.
+     */
+    internal fun routePerceptionHorizonMeters(): Double = brakingDistance(
+        actuator.maximumSpeedMetersPerSecond,
+        safetyProfile.serviceDecelerationMetersPerSecondSquared
+    ) + actuator.maximumSpeedMetersPerSecond * safetyProfile.reactionTimeSeconds +
+        safetyProfile.safetyDistanceMeters + ROUTE_PERCEPTION_MARGIN_METERS
+
     fun isStopped(speedMetersPerSecond: Double): Boolean {
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)
         return speedMetersPerSecond == 0.0
@@ -920,11 +932,7 @@ class SimpleATO(
         val topology = world.topologyState
         val head = train.headLocation as? RailLocationWithFacing
             ?: error("SimpleATO requires a facing-aware train head location")
-        val horizon = brakingDistance(
-            actuator.maximumSpeedMetersPerSecond,
-            safetyProfile.serviceDecelerationMetersPerSecondSquared
-        ) + actuator.maximumSpeedMetersPerSecond * safetyProfile.reactionTimeSeconds +
-            safetyProfile.safetyDistanceMeters + 10.0
+        val horizon = routePerceptionHorizonMeters()
         val segments = head.peekCurve(horizon).toList()
         check(segments.isNotEmpty()) { "SimpleATO cannot build a route from the train head" }
 
@@ -1061,6 +1069,7 @@ class SimpleATO(
         speed * speed / (2.0 * deceleration)
 
     private companion object {
+        const val ROUTE_PERCEPTION_MARGIN_METERS = 10.0
         val INITIAL_RUNTIME_DIAGNOSTICS = SimpleAtoRuntimeDiagnostics(
             missionRevision = null,
             odometerProgressMeters = 0.0,

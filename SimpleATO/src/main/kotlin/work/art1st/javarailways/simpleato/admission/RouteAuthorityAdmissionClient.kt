@@ -39,6 +39,15 @@ internal class RouteAuthorityAdmissionClient(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
     }
 
+    /** Current Basic-backed state used by the Dispatcher to plan the next rolling extension. */
+    val state: RouteAuthorityAdmissionState
+        get() = active?.let { route ->
+            RouteAuthorityAdmissionState(
+                committedAuthority = route.committedGrant?.committedAuthority,
+                pending = route.pending != null
+            )
+        } ?: RouteAuthorityAdmissionState.EMPTY
+
     /** Requests first authority or a farther boundary on the same frozen route. */
     @MainThread
     fun request(
@@ -271,5 +280,14 @@ internal class RouteAuthorityAdmissionClient(
 
         fun rejected(code: RouteAdmissionFailureCode, detail: String): RouteAdmissionResult.Rejected =
             RouteAdmissionResult.Rejected(RouteAdmissionFailure(code, detail))
+    }
+}
+
+internal data class RouteAuthorityAdmissionState(
+    val committedAuthority: RouteBoundary?,
+    val pending: Boolean
+) {
+    companion object {
+        val EMPTY = RouteAuthorityAdmissionState(null, false)
     }
 }

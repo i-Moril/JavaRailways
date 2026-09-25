@@ -276,7 +276,13 @@
     - [x] Add the production prerequisites without running a second allocator: the concrete controller owns the existing
       restriction adapter and applies it to its sole constraint manager; Core publishes the ordered body placement needed to
       assemble Basic's tail-started route from the already-planned mission. Runtime admission identity no longer includes a
-      Basic metadata revision. No request is issued yet because rolling lookahead/inspection policy remains deliberately unfrozen.
+      Basic metadata revision.
+    - [x] Freeze the constant-time rolling-boundary rule without adding a second admission lifecycle or route scan. The admission
+      client exposes only its Basic-backed committed boundary and pending flag; a stateless planner reuses the controller's existing
+      perception horizon, requests only after remaining authority reaches the existing allocation trigger, and caps the result at
+      the frozen route end. The assembled route records its initial mission progress so later head progress maps onto the same
+      tail-started coordinate without another projection. Production requests, retry timing, stale-route replacement and mission
+      transitions remain in the parent migration item.
   - [ ] Prove parity for priority, stop/station-call behavior, transient retry, stale-route re-selection, manual modes and tail
     release, then delete `RouteSectionAllocator` and the final dispatcher-specific RailWand allocation guard.
 - [ ] Add topology edit guards for active external claims.

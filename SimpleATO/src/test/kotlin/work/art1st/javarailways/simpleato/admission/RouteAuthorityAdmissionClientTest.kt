@@ -50,6 +50,8 @@ class RouteAuthorityAdmissionClientTest {
         val grant = grant(40.0)
         service.onRequest = { RouteAdmissionResult.Granted(grant) }
 
+        assertEquals(RouteAuthorityAdmissionState.EMPTY, client.state)
+
         val result = client.request(40.0)
 
         assertSame(grant, (result as RouteAdmissionResult.Granted).grant)
@@ -58,6 +60,8 @@ class RouteAuthorityAdmissionClientTest {
         assertEquals(selection.route, service.intents.single().route)
         assertEquals(selection.observationStamp, service.intents.single().observationStamp)
         assertEquals("train", service.intents.single().trainId)
+        assertEquals(RouteBoundary(40.0), client.state.committedAuthority)
+        assertFalse(client.state.pending)
     }
 
     @Test
@@ -74,11 +78,15 @@ class RouteAuthorityAdmissionClientTest {
 
         assertSame(handle, (pending as RouteAdmissionResult.Pending).handle)
         assertEquals(listOf(0.0), publisher.authorities())
+        assertTrue(client.state.pending)
+        assertEquals(null, client.state.committedAuthority)
 
         val ready = client.progress()
 
         assertSame(grant, (ready as RouteAdmissionResult.Granted).grant)
         assertEquals(listOf(0.0, 35.0), publisher.authorities())
+        assertFalse(client.state.pending)
+        assertEquals(RouteBoundary(35.0), client.state.committedAuthority)
     }
 
     @Test
@@ -178,6 +186,7 @@ class RouteAuthorityAdmissionClientTest {
         assertTrue(client.end())
         assertSame(grant.grantId, service.ended.last())
         assertTrue(publisher.snapshots.last().restrictions.isEmpty())
+        assertEquals(RouteAuthorityAdmissionState.EMPTY, client.state)
     }
 
     @Test

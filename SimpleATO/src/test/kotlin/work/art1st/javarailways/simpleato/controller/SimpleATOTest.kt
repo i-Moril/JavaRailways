@@ -71,6 +71,13 @@ class SimpleATOTest {
     )
 
     @Test
+    fun `resource admission reuses the controller forward perception horizon`() {
+        val fixture = fixture("perception-horizon")
+
+        assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(), 1.0e-12)
+    }
+
+    @Test
     fun `ATO without a Mission remains stopped on an unconstrained rail`() {
         val fixture = fixture("no-mission")
 

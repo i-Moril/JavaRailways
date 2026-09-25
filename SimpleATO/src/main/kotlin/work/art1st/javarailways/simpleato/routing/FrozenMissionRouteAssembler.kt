@@ -8,16 +8,32 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import kotlin.math.abs
 
+private const val POSITION_TOLERANCE_METERS = 0.5
+
 /**
  * One Dispatcher mission adapted to Basic's tail-started admission coordinate.
  *
- * [headDistanceFromRouteStartMeters] is the exact published body length. Mission progress remains
- * head-based, so adding this offset maps it onto the frozen route submitted to Basic.
+ * [headDistanceFromRouteStartMeters] is the exact published body length. The selected route starts
+ * at the observed tail and contains only the part of the mission after
+ * [missionHeadProgressAtSelectionMeters], so [routeProgressMeters] maps later mission progress onto
+ * the same immutable route coordinate without projecting the train again.
  */
 internal data class FrozenMissionRoute(
     val selection: FrozenRouteSelectionResult.Selected,
-    val headDistanceFromRouteStartMeters: Double
-)
+    val headDistanceFromRouteStartMeters: Double,
+    val missionHeadProgressAtSelectionMeters: Double
+) {
+    fun routeProgressMeters(missionHeadProgressMeters: Double): Double {
+        require(missionHeadProgressMeters.isFinite()) { "mission progress must be finite" }
+        require(missionHeadProgressMeters + POSITION_TOLERANCE_METERS >=
+            missionHeadProgressAtSelectionMeters
+        ) { "mission progress moved behind the frozen-route selection point" }
+        return (headDistanceFromRouteStartMeters +
+            missionHeadProgressMeters - missionHeadProgressAtSelectionMeters)
+            .coerceIn(0.0, selection.route.totalLengthMeters)
+    }
+
+}
 
 internal enum class FrozenMissionRouteRejection {
     STALE_OBSERVATION,
@@ -121,7 +137,8 @@ internal object FrozenMissionRouteAssembler {
         return FrozenMissionRouteResult.Frozen(
             FrozenMissionRoute(
                 FrozenRouteSelectionResult.Selected(train.trainId, observation.stamp, route),
-                bodyLength
+                bodyLength,
+                missionHeadProgressMeters
             )
         )
     }
@@ -234,5 +251,4 @@ internal object FrozenMissionRouteAssembler {
     ) = FrozenMissionRouteResult.Rejected(reason, detail)
 
     private const val EPSILON = 1.0e-6
-    private const val POSITION_TOLERANCE_METERS = 0.5
 }

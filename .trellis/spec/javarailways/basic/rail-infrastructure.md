@@ -27,10 +27,6 @@ data class RailInfrastructureMetadata(
 - assembly role token：`LEADING_TANGENT/CURVE/TRAILING_TANGENT`。
 - `RailSplitMetadata(operationId,segmentIndex 0..1,parent?,sourceAssemblyRole?)`；`sourceAssemblyRole=null`是additive default，不升boundary version。
 - store `replace(removals,additions)`在一个lock内；`snapshot()`按UUID stable sort；`restore()`只fresh。
-- `snapshotWithRevision()`在同一把lock内复制完整metadata并读取store-local runtime revision。revision只在
-  `put/remove/replace`产生实际内容变化后递增；missing remove、等值put/replace和失败不递增。fresh restore建立
-  revision 0基线。该值不是Core topology revision、physics epoch或持久化schema version；当前SimpleATO仅把它
-  用作运行方向overlay的保守失效键，因此其他metadata变化也允许触发重新选路。
 
 ## Topology transaction矩阵
 

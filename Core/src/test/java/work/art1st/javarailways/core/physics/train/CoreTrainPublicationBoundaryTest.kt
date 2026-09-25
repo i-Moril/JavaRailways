@@ -36,12 +36,17 @@ class CoreTrainPublicationBoundaryTest {
         assertTrue(frame.sweptSpans.any { it.railId == first.id })
         assertFalse(frame.occupiedIntervals.any { it.railId == first.id })
         assertEquals(train.occupiedRailIntervals, frame.occupiedIntervals)
+        assertEquals(frame.tail.railId, frame.bodyTraversal.first().railId)
+        assertEquals(frame.head.railId, frame.bodyTraversal.last().railId)
+        assertEquals(frame.tail.arcLengthInAbMeters, frame.bodyTraversal.first().startArcLengthInAbMeters, 1e-6)
+        assertEquals(frame.head.arcLengthInAbMeters, frame.bodyTraversal.last().endArcLengthInAbMeters, 1e-6)
 
         train.moveTrainForward(0.0)
         train.commit()
 
         assertTrue(train.publishedFrame.headTraversal.isEmpty())
         assertTrue(train.publishedFrame.tailTraversal.isEmpty())
+        assertTrue(train.publishedFrame.bodyTraversal.isNotEmpty())
     }
 
     @Test
@@ -65,6 +70,7 @@ class CoreTrainPublicationBoundaryTest {
         assertEquals(40.0, headTraversal.startArcLengthInAbMeters, 1e-6)
         assertEquals(30.0, headTraversal.endArcLengthInAbMeters, 1e-6)
         assertTrue(tailTraversal.startArcLengthInAbMeters > tailTraversal.endArcLengthInAbMeters)
+        assertEquals(ViewDirection.BA, train.publishedFrame.bodyTraversal.single().facing)
     }
 
     @Test

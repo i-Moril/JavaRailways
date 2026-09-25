@@ -1164,6 +1164,7 @@ class ProtectedRouteClaimServiceTest {
         head = RailPositionSnapshot(railId, ViewDirection.AB, maxArcMeters),
         tail = RailPositionSnapshot(railId, ViewDirection.AB, minArcMeters),
         occupiedIntervals = listOf(RailInterval(railId, minArcMeters, maxArcMeters)),
+        bodyTraversal = emptyList(),
         sweptSpans = listOf(SweptRailSpanSnapshot(railId, minArcMeters, maxArcMeters)),
         headTraversal = emptyList(),
         tailTraversal = emptyList()

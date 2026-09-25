@@ -114,7 +114,7 @@ The railway safety loop is independent of the Minecraft main thread and serializ
 
 ```text
 physics N
-  -> publish immutable world observation plus ordered head/tail traversal
+  -> publish immutable world observation plus body placement and ordered head/tail movement traversal
   -> Basic derives ordered ENTER/LEFT changes with area and boundary identity
   -> signal plugins update occupancy, interlocking and dependent restrictions
   -> SimpleATO-visible restrictions for physics N+1 are committed

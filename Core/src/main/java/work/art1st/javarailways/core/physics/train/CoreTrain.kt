@@ -87,6 +87,8 @@ open class CoreTrain @MainThread internal constructor(
         private set
     @Volatile
     private var publishedPlacementIntervals: List<RailInterval> = emptyList()
+    @Volatile
+    private var publishedBodyTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
     private var pendingSweptSpans: List<SweptRailSpan>? = null
     private var publishedHeadTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
     private var publishedTailTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
@@ -154,6 +156,13 @@ open class CoreTrain @MainThread internal constructor(
         this.initialize(savedExtensionData)
         publishedSweptSpans = spansFromLocations(currentRailLocations())
         publishedPlacementIntervals = intervalsFromSpans(publishedSweptSpans)
+        publishedBodyTraversal = try {
+            traversalSnapshots(placementSegments(tail.location, head.location))
+        } catch (_: IllegalStateException) {
+            // Command-style construction may relocate an initially unaligned consist immediately.
+            // Such an initial frame is not admissible; the first committed placement is strict.
+            emptyList()
+        }
         publishedFrameRef.set(captureFrame(revision = 0L, physicsEpoch = 0L))
     }
 
@@ -296,20 +305,28 @@ open class CoreTrain @MainThread internal constructor(
     /** Exact rail intervals occupied by the currently active placement from tail to head. */
     @MainThread
     fun activePlacementEnvelope(): List<SweptRailSpan> {
-        val activeHead = head.activeLocation
-        var view = tail.activeLocation.railView
-        var startArc = tail.activeLocation.arcLength
-        val spans = ArrayList<SweptRailSpan>()
+        val spans = placementSegments(tail.activeLocation, head.activeLocation).map(::spanFromSegment)
+        return mergeSweptSpans(spans)
+    }
+
+    /** Ordered train-local placement from [from] to [to], following the currently selected path. */
+    private fun placementSegments(
+        from: RailLocationWithFacing,
+        to: RailLocationWithFacing
+    ): List<RailSegment> {
+        var view = from.railView
+        var startArc = from.arcLength
+        val segments = ArrayList<RailSegment>()
         val visited = HashSet<Pair<java.util.UUID, ViewDirection>>()
         while (true) {
             val curveLength = view.curve.totalArcLength
-            if (view === activeHead.railView && activeHead.arcLength + Curve.TOLERANCE >= startArc) {
-                spans += spanFromViewRange(view, startArc, activeHead.arcLength)
-                return mergeSweptSpans(spans)
+            if (view === to.railView && to.arcLength + Curve.TOLERANCE >= startArc) {
+                segments += RailSegment(view, startArc, to.arcLength.coerceAtLeast(startArc))
+                return segments
             }
             val key = view.rail.id to view.viewDirection
             check(visited.add(key)) { "train placement loops before reaching its head: $id" }
-            spans += spanFromViewRange(view, startArc, curveLength)
+            segments += RailSegment(view, startArc, curveLength)
             view = view.activeRail
                 ?: error("train placement is disconnected between tail and head: $id")
             startArc = 0.0
@@ -542,7 +559,7 @@ open class CoreTrain @MainThread internal constructor(
             publishedSweptSpans = it
             pendingSweptSpans = null
         }
-        publishedPlacementIntervals = intervalsFromSpans(spansFromLocations(currentRailLocations()))
+        refreshPublishedPlacement()
         publishedHeadTraversal = pendingHeadTraversal ?: emptyList()
         publishedTailTraversal = pendingTailTraversal ?: emptyList()
         pendingHeadTraversal = null
@@ -586,6 +603,7 @@ open class CoreTrain @MainThread internal constructor(
         head = RailPositionSnapshot.capture(head.location, head.location.facing),
         tail = RailPositionSnapshot.capture(tail.location, tail.location.facing),
         occupiedIntervals = occupiedRailIntervals,
+        bodyTraversal = publishedBodyTraversal,
         sweptSpans = publishedSweptSpans.map { span ->
             SweptRailSpanSnapshot(span.railId, span.minArcAB, span.maxArcAB)
         },
@@ -664,6 +682,14 @@ open class CoreTrain @MainThread internal constructor(
                 )
             }
             .toList()
+
+    private fun refreshPublishedPlacement() {
+        val segments = placementSegments(tail.location, head.location)
+        publishedBodyTraversal = traversalSnapshots(segments)
+        publishedPlacementIntervals = intervalsFromSpans(
+            mergeSweptSpans(segments.map(::spanFromSegment))
+        )
+    }
 
     private fun spanFromViewRange(
         view: RailView,

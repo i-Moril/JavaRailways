@@ -260,7 +260,6 @@ internal class RouteAuthorityAdmissionClient(
         fun matches(other: FrozenRouteSelectionResult.Selected): Boolean =
             selection.trainId == other.trainId &&
                 selection.observationStamp.worldId == other.observationStamp.worldId &&
-                selection.operatingDirectionRevision == other.operatingDirectionRevision &&
                 selection.route.routeId == other.route.routeId &&
                 selection.route.revision == other.route.revision &&
                 selection.route.topologyRevision == other.route.topologyRevision

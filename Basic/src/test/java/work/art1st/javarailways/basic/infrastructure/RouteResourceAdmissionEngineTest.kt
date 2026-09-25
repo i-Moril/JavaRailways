@@ -813,6 +813,7 @@ class RouteResourceAdmissionEngineTest {
         head = RailPositionSnapshot(railId, ViewDirection.AB, head),
         tail = RailPositionSnapshot(railId, ViewDirection.AB, tail),
         occupiedIntervals = listOf(RailInterval(railId, tail, head)),
+        bodyTraversal = emptyList(),
         sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head)),
         headTraversal = emptyList(),
         tailTraversal = emptyList()

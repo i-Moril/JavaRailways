@@ -52,7 +52,6 @@ internal sealed interface FrozenRouteSelectionResult {
     data class Selected(
         val trainId: String,
         val observationStamp: RailwayStateStamp,
-        val operatingDirectionRevision: Long,
         val route: RouteSnapshot
     ) : FrozenRouteSelectionResult
 
@@ -131,7 +130,6 @@ internal object FrozenRouteSelector {
             is TopologyRoutePlanningResult.Planned -> FrozenRouteSelectionResult.Selected(
                 trainId = train.trainId,
                 observationStamp = input.observation.stamp,
-                operatingDirectionRevision = planned.operatingDirectionRevision,
                 route = planned.route
             )
 

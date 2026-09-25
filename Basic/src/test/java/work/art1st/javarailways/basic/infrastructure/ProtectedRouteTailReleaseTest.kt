@@ -253,6 +253,7 @@ class ProtectedRouteTailReleaseTest {
         head = position(tailMeters + 1.0),
         tail = position(tailMeters),
         occupiedIntervals = listOf(RailInterval(railId, tailMeters, tailMeters + 1.0)),
+        bodyTraversal = emptyList(),
         sweptSpans = listOf(SweptRailSpanSnapshot(railId, tailMeters, tailMeters + 1.0)),
         headTraversal = emptyList(),
         tailTraversal = emptyList()

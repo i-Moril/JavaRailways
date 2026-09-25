@@ -25,6 +25,7 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
  * @property head immutable head position with local facing and canonical AB arc
  * @property tail immutable conservative safety-rear position with local facing and canonical AB arc
  * @property occupiedIntervals conservative placement at the end of this epoch
+ * @property bodyTraversal ordered epoch-end placement from the conservative tail to the head
  * @property sweptSpans immutable occupied/swept intervals in canonical AB arcs
  * @property headTraversal ordered directed rail segments crossed by the head in this epoch
  * @property tailTraversal ordered directed rail segments crossed by the conservative safety rear
@@ -41,6 +42,7 @@ data class RailwayTrainObservation private constructor(
     val head: RailPositionSnapshot,
     val tail: RailPositionSnapshot,
     val occupiedIntervals: List<RailInterval>,
+    val bodyTraversal: List<RailTraversalSegmentSnapshot>,
     val sweptSpans: List<SweptRailSpanSnapshot>,
     val headTraversal: List<RailTraversalSegmentSnapshot>,
     val tailTraversal: List<RailTraversalSegmentSnapshot>
@@ -67,6 +69,7 @@ data class RailwayTrainObservation private constructor(
             head: RailPositionSnapshot,
             tail: RailPositionSnapshot,
             occupiedIntervals: Collection<RailInterval>,
+            bodyTraversal: Collection<RailTraversalSegmentSnapshot>,
             sweptSpans: Collection<SweptRailSpanSnapshot>,
             headTraversal: Collection<RailTraversalSegmentSnapshot>,
             tailTraversal: Collection<RailTraversalSegmentSnapshot>
@@ -80,6 +83,7 @@ data class RailwayTrainObservation private constructor(
             head,
             tail,
             java.util.List.copyOf(occupiedIntervals),
+            java.util.List.copyOf(bodyTraversal),
             java.util.List.copyOf(sweptSpans),
             java.util.List.copyOf(headTraversal),
             java.util.List.copyOf(tailTraversal)
@@ -148,6 +152,7 @@ data class RailwayObservation private constructor(
                 head = frame.head,
                 tail = frame.tail,
                 occupiedIntervals = frame.occupiedIntervals,
+                bodyTraversal = frame.bodyTraversal,
                 sweptSpans = frame.sweptSpans,
                 headTraversal = frame.headTraversal,
                 tailTraversal = frame.tailTraversal

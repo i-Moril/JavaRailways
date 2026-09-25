@@ -22,6 +22,8 @@ data class TrainFrameSnapshot private constructor(
     val cars: List<CarFrameSnapshot>,
     val head: RailPositionSnapshot,
     val tail: RailPositionSnapshot,
+    val occupiedIntervals: List<RailInterval>,
+    val bodyTraversal: List<RailTraversalSegmentSnapshot>,
     val sweptSpans: List<SweptRailSpanSnapshot>,
     val headTraversal: List<RailTraversalSegmentSnapshot>,
     val tailTraversal: List<RailTraversalSegmentSnapshot>
@@ -32,11 +34,14 @@ data class TrainFrameSnapshot private constructor(
 
 `revision` per-train monotonic、`>=0`；`physicsEpoch>=0`（initial为0）；speed finite且`>=0 m/s`；cars/bogies/spans由`List.copyOf`。`RenderableFrameSnapshot`内联position/direction/normal/velocity共12个finite `Double`。
 
-`sweptSpans`是按rail合并的direction-independent占用包络；不能用它恢复边界通过顺序。
+`occupiedIntervals`是epoch末保守占用；`bodyTraversal`是同一时点从保守车尾到车头的有序持续位置，供
+tail-started route装配，不能从无序interval反推。仅尚未对齐、随后将立即relocate的construction initial
+frame允许为空；该frame不可用于自动准入，第一次正常commit严格生成完整路径。`sweptSpans`是按rail合并的direction-independent
+整epoch占用包络；不能用它恢复边界通过顺序。
 `headTraversal`与`tailTraversal`只描述该physics epoch内两端实际向前经过的有向rail片段，按经过
 occurrence保序且不按rail ID合并。每段保存stable rail UUID、`ViewDirection`及canonical AB米制
 起止弧长；AB数值不减，BA数值不增。静止、reverse-only或maintenance relocation的epoch为空。
-三个collection均由frame defensive copy。
+所有collection均由frame defensive copy。
 
 `RenderableStateSnapshot(Vector3dc..., World)` 是live legacy state，不得跨线程。
 
@@ -52,8 +57,9 @@ occurrence保序且不按rail ID合并。每段保存stable rail UUID、`ViewDir
 | rename/metadata command | owner显式`publishCurrentTrainFrame` | revision guard apply |
 | ticket failure | 可能已有partial flip | consumer不得drain/apply为成功epoch |
 
-轨迹构造复用列车物理解算已经生成的head/tail有序`RailSegment`，只做一次线性value投影；设两端
-本epoch分别经过`H`、`T`个rail occurrence，附加时间与空间均为`O(H + T)`。不得从
+movement轨迹构造复用列车物理解算已经生成的head/tail有序`RailSegment`；body placement沿已提交
+train-local path从车尾走到车头一次。设两端本epoch分别经过`H`、`T`个rail occurrence，车体跨越`B`个
+occurrence，附加时间与空间均为`O(H + T + B)`。不得从
 `sweptSpans`、最终head/tail位置或world topology重新寻路；这些替代做法会丢失重复rail occurrence、
 方向或实际选择的turnout branch。任何正长度segment都必须保留，不能套用geometry overlap tolerance，
 否则很短的移动仍可能跨过边界却没有证据。

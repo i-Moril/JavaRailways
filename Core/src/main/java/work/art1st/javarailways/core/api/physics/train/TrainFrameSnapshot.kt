@@ -42,12 +42,14 @@ data class SweptRailSpanSnapshot(
 }
 
 /**
- * One directed, ordered rail segment traversed by a train end during one physics epoch.
+ * One directed, ordered rail segment in an immutable train path.
  *
  * Both arc values use the rail's canonical AB coordinate in metres. [facing] records the local
  * direction of travel, so AB segments are non-decreasing and BA segments are non-increasing.
  * Repeated rail IDs are meaningful: list order preserves distinct occurrences along the movement
- * path and must not be grouped or merged.
+ * or placement path and must not be grouped or merged. [TrainFrameSnapshot.headTraversal] and
+ * [TrainFrameSnapshot.tailTraversal] use this value for one-epoch movement evidence;
+ * [TrainFrameSnapshot.bodyTraversal] uses it for the epoch-end tail-to-head placement.
  *
  * @property railId stable identity of the traversed rail
  * @property facing local direction followed on that rail occurrence
@@ -84,12 +86,17 @@ data class RailTraversalSegmentSnapshot(
  * Consumers must use only this frame for a render update and must not fill missing data from the
  * mutable live train. [occupiedIntervals] is the conservative placement at epoch end, while
  * [sweptSpans] is the direction-independent envelope swept during the complete epoch.
+ * [bodyTraversal] is the ordered epoch-end placement from the conservative safety rear to the head.
+ * It may be empty only for an initial, not-yet-aligned construction frame; such a frame cannot be
+ * used for automatic route admission.
  * [headTraversal] and [tailTraversal] are separate ordered movement evidence for this epoch and
- * must not be merged by rail identity. [tail] and [tailTraversal] describe the conservative safety
- * rear: an implementation may publish a rear that lags the exact geometry, but it must never lead
- * the actual train tail in the direction of travel. Collection arguments are defensively copied.
+ * must not be merged by rail identity. [tail], [bodyTraversal] and [tailTraversal] use the same
+ * conservative safety rear: an implementation may publish a rear that lags the exact geometry, but
+ * it must never lead the actual train tail in the direction of travel. Collection arguments are
+ * defensively copied.
  *
  * @property occupiedIntervals conservative train placement on each rail at epoch end
+ * @property bodyTraversal ordered epoch-end placement from the conservative tail to the head
  */
 @ConsistentCopyVisibility
 data class TrainFrameSnapshot private constructor(
@@ -106,6 +113,7 @@ data class TrainFrameSnapshot private constructor(
     val head: RailPositionSnapshot,
     val tail: RailPositionSnapshot,
     val occupiedIntervals: List<RailInterval>,
+    val bodyTraversal: List<RailTraversalSegmentSnapshot>,
     val sweptSpans: List<SweptRailSpanSnapshot>,
     val headTraversal: List<RailTraversalSegmentSnapshot>,
     val tailTraversal: List<RailTraversalSegmentSnapshot>
@@ -133,6 +141,7 @@ data class TrainFrameSnapshot private constructor(
             head: RailPositionSnapshot,
             tail: RailPositionSnapshot,
             occupiedIntervals: Collection<RailInterval>,
+            bodyTraversal: Collection<RailTraversalSegmentSnapshot>,
             sweptSpans: Collection<SweptRailSpanSnapshot>,
             headTraversal: Collection<RailTraversalSegmentSnapshot>,
             tailTraversal: Collection<RailTraversalSegmentSnapshot>
@@ -148,6 +157,7 @@ data class TrainFrameSnapshot private constructor(
             head = head,
             tail = tail,
             occupiedIntervals = java.util.List.copyOf(occupiedIntervals),
+            bodyTraversal = java.util.List.copyOf(bodyTraversal),
             sweptSpans = java.util.List.copyOf(sweptSpans),
             headTraversal = java.util.List.copyOf(headTraversal),
             tailTraversal = java.util.List.copyOf(tailTraversal)

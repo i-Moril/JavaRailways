@@ -4,9 +4,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
-import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
-import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
-import work.art1st.javarailways.basic.rail.RailOperatingMetadata
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
@@ -15,30 +12,6 @@ import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
 
 class TopologyRoutePlannerTest {
-    @Test
-    fun `operating overlay uses one atomic metadata revision and only explicit directions`() {
-        val first = rail(1, 10.0)
-        val second = rail(2, 20.0)
-        val topology = topology(revision = 6L, rails = listOf(first, second), connections = emptyList())
-        val metadata = RailInfrastructureMetadataStore()
-        metadata.put(
-            first.id,
-            RailInfrastructureMetadata(
-                operating = RailOperatingMetadata(allowedDirection = ViewDirection.BA)
-            )
-        )
-        metadata.put(second.id, RailInfrastructureMetadata())
-
-        val snapshot = metadata.snapshotWithRevision()
-        val overlay = OperatingDirectionOverlay.from(topology, snapshot)
-
-        assertEquals(topology.revision, overlay.topologyRevision)
-        assertEquals(snapshot.revision, overlay.revision)
-        assertEquals(mapOf(first.id to setOf(ViewDirection.BA)), overlay.allowedDirections)
-        metadata.remove(first.id)
-        assertEquals(mapOf(first.id to setOf(ViewDirection.BA)), overlay.allowedDirections)
-    }
-
     @Test
     fun `facing-constrained route at an edge end retains its exact zero-length start`() {
         val first = rail(1, 10.0)
@@ -121,7 +94,6 @@ class TopologyRoutePlannerTest {
             ),
             planned.route.segments
         )
-        assertEquals(11L, planned.operatingDirectionRevision)
         assertEquals(1, topology.edges.size, "query-local virtual endpoints must not split TopologyState")
     }
 
@@ -393,7 +365,6 @@ class TopologyRoutePlannerTest {
         topology = topology,
         operatingDirections = OperatingDirectionOverlay(
             topologyRevision = overlayTopologyRevision,
-            revision = 11L,
             allowedDirections = allowedDirections
         ),
         start = start,

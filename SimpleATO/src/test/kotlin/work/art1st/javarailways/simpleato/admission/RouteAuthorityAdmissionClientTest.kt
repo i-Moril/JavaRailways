@@ -326,7 +326,7 @@ class RouteAuthorityAdmissionClientTest {
     private fun selection(
         route: RouteSnapshot,
         trainId: String = "train"
-    ) = FrozenRouteSelectionResult.Selected(trainId, stamp, 3L, route)
+    ) = FrozenRouteSelectionResult.Selected(trainId, stamp, route)
 
     private fun route(
         routeId: String = "simpleato:route/main",

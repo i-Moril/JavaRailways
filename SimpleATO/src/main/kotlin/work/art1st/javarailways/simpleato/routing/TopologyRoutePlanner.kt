@@ -2,7 +2,6 @@ package work.art1st.javarailways.simpleato.routing
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyEdgeEnd
@@ -30,38 +29,24 @@ internal data class OperationalRouteLocation(
 /** Immutable operating-direction overlay resolved for exactly one topology revision. */
 internal class OperatingDirectionOverlay(
     val topologyRevision: Long,
-    val revision: Long,
     allowedDirections: Map<UUID, Set<ViewDirection>>
 ) {
     val allowedDirections: Map<UUID, Set<ViewDirection>> = immutableDirectionMap(allowedDirections)
 
     init {
         require(topologyRevision >= 0L) { "topology revision must be non-negative" }
-        require(revision >= 0L) { "operating-direction revision must be non-negative" }
     }
 
     fun allows(railId: UUID, direction: ViewDirection): Boolean =
         allowedDirections[railId]?.contains(direction) ?: true
 
-    companion object {
+    private companion object {
         private fun immutableDirectionMap(source: Map<UUID, Set<ViewDirection>>): Map<UUID, Set<ViewDirection>> =
             Collections.unmodifiableMap(
                 source.mapValuesTo(linkedMapOf()) { (_, directions) ->
                     Collections.unmodifiableSet(directions.toSet())
                 }
             )
-
-        /** Projects one atomic metadata snapshot without retaining the mutable Basic store. */
-        fun from(
-            topology: TopologyState,
-            metadata: RailInfrastructureMetadataSnapshot
-        ): OperatingDirectionOverlay = OperatingDirectionOverlay(
-            topologyRevision = topology.revision,
-            revision = metadata.revision,
-            allowedDirections = metadata.values.mapNotNull { (railId, value) ->
-                value.operating.allowedDirection?.let { railId to setOf(it) }
-            }.toMap()
-        )
     }
 }
 
@@ -89,10 +74,7 @@ internal enum class TopologyRoutePlanningRejection {
 }
 
 internal sealed interface TopologyRoutePlanningResult {
-    data class Planned(
-        val route: RouteSnapshot,
-        val operatingDirectionRevision: Long
-    ) : TopologyRoutePlanningResult
+    data class Planned(val route: RouteSnapshot) : TopologyRoutePlanningResult
 
     data class Rejected(
         val reason: TopologyRoutePlanningRejection,
@@ -182,13 +164,12 @@ internal object TopologyRoutePlanner {
             )
         }
         return TopologyRoutePlanningResult.Planned(
-            route = RouteSnapshot(
+            RouteSnapshot(
                 routeId = input.routeId,
                 revision = input.routeRevision,
                 topologyRevision = topology.revision,
                 segments = segments
-            ),
-            operatingDirectionRevision = directions.revision
+            )
         )
     }
 

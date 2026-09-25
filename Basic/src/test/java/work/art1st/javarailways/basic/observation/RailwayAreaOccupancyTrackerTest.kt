@@ -289,6 +289,7 @@ class RailwayAreaOccupancyTrackerTest {
                     head = position,
                     tail = position,
                     occupiedIntervals = occupied,
+                    bodyTraversal = emptyList(),
                     sweptSpans = swept,
                     headTraversal = headTraversal,
                     tailTraversal = tailTraversal

@@ -32,7 +32,6 @@ class FrozenRouteSelectorTest {
 
         assertEquals("train-1", selected.trainId)
         assertEquals(observation.stamp, selected.observationStamp)
-        assertEquals(11L, selected.operatingDirectionRevision)
         assertEquals(7L, selected.route.topologyRevision)
         assertEquals(23L, selected.route.revision)
         assertEquals("test-route", selected.route.routeId)
@@ -177,7 +176,6 @@ class FrozenRouteSelectorTest {
             context = FrozenRouteSelectionContext(observation),
             operatingDirections = OperatingDirectionOverlay(
                 topologyRevision = overlayTopologyRevision,
-                revision = 11L,
                 allowedDirections = allowedDirections
             ),
             trainId = trainId,
@@ -205,6 +203,7 @@ class FrozenRouteSelectorTest {
             head = tail,
             tail = tail,
             occupiedIntervals = emptyList(),
+            bodyTraversal = emptyList(),
             sweptSpans = emptyList(),
             headTraversal = emptyList(),
             tailTraversal = emptyList()
@@ -219,6 +218,7 @@ class FrozenRouteSelectorTest {
             head = frame.head,
             tail = frame.tail,
             occupiedIntervals = frame.occupiedIntervals,
+            bodyTraversal = frame.bodyTraversal,
             sweptSpans = frame.sweptSpans,
             headTraversal = frame.headTraversal,
             tailTraversal = frame.tailTraversal

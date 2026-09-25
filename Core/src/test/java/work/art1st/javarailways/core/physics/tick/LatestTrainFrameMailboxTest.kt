@@ -69,29 +69,36 @@ class LatestTrainFrameMailboxTest {
         val sourceTraversal = mutableListOf(
             RailTraversalSegmentSnapshot(railId, ViewDirection.AB, 0.0, 1.0)
         )
+        val sourceBodyTraversal = sourceTraversal.toMutableList()
         val sourceOccupied = mutableListOf(RailInterval(railId, 0.0, 1.0))
         val frame = frame(
             "train-a",
             revision = 1L,
             cars = sourceCars,
             headTraversal = sourceTraversal,
+            bodyTraversal = sourceBodyTraversal,
             occupiedIntervals = sourceOccupied
         )
 
         sourceCars.clear()
         sourceTraversal.clear()
+        sourceBodyTraversal.clear()
         sourceOccupied.clear()
 
         assertEquals("Name of train-a", frame.trainName)
         assertEquals(1, frame.cars.size)
         assertEquals(20.0, frame.cars.single().lengthMeters)
         assertEquals(1, frame.headTraversal.size)
+        assertEquals(1, frame.bodyTraversal.size)
         assertEquals(1, frame.occupiedIntervals.size)
         assertThrows(UnsupportedOperationException::class.java) {
             (frame.cars as MutableList).clear()
         }
         assertThrows(UnsupportedOperationException::class.java) {
             (frame.headTraversal as MutableList).clear()
+        }
+        assertThrows(UnsupportedOperationException::class.java) {
+            (frame.bodyTraversal as MutableList).clear()
         }
         assertThrows(UnsupportedOperationException::class.java) {
             (frame.occupiedIntervals as MutableList).clear()
@@ -117,6 +124,7 @@ class LatestTrainFrameMailboxTest {
         revision: Long,
         cars: Collection<CarFrameSnapshot> = emptyList(),
         headTraversal: Collection<RailTraversalSegmentSnapshot> = emptyList(),
+        bodyTraversal: Collection<RailTraversalSegmentSnapshot> = emptyList(),
         occupiedIntervals: Collection<RailInterval> = emptyList()
     ): TrainFrameSnapshot {
         val railId = UUID.nameUUIDFromBytes("mailbox-test-rail".toByteArray())
@@ -133,6 +141,7 @@ class LatestTrainFrameMailboxTest {
             head = position,
             tail = position,
             occupiedIntervals = occupiedIntervals,
+            bodyTraversal = bodyTraversal,
             sweptSpans = emptyList(),
             headTraversal = headTraversal,
             tailTraversal = emptyList()

@@ -347,6 +347,7 @@ class SignalEpochRuntimeTest {
                     head = position,
                     tail = position,
                     occupiedIntervals = occupied,
+                    bodyTraversal = emptyList(),
                     sweptSpans = occupied.map {
                         SweptRailSpanSnapshot(
                             it.railId,

@@ -1,13 +1,16 @@
-package work.art1st.javarailways.basic.timetable.simulation
+package work.art1st.javarailways.simpleato.timetable.simulation
 
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableEpochStartResult
-import work.art1st.javarailways.basic.timetable.TimetableServiceRunSnapshot
-import work.art1st.javarailways.basic.timetable.TimetableServiceRunState
+import work.art1st.javarailways.simpleato.SimpleATOPlugin
+import work.art1st.javarailways.simpleato.SimpleATOWorldData
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunSnapshot
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
@@ -96,14 +99,15 @@ class IsolatedTimetableSimulationWorld private constructor(
         request: IsolatedTimetableSimulationRequest
     ): IsolatedTimetableSimulationResult {
         val data = world.basicWorldData
+        val dispatcher = world.simpleAtoWorldData.dispatcher
         data.timetables.add(request.timetable)
-        when (val started = data.dispatcher.beginTimetable(world, request.timetable.id)) {
+        when (val started = dispatcher.beginTimetable(world, request.timetable.id)) {
             is TimetableEpochStartResult.Failure -> return IsolatedTimetableSimulationResult.Failed(
                 0L, started.reason
             )
             is TimetableEpochStartResult.Started -> Unit
         }
-        if (!data.dispatcher.scheduleInitialCycle(request.timetable.id)) {
+        if (!dispatcher.scheduleInitialCycle(request.timetable.id)) {
             return IsolatedTimetableSimulationResult.Failed(0L, "could not schedule initial timetable cycle")
         }
 
@@ -151,13 +155,13 @@ class IsolatedTimetableSimulationWorld private constructor(
         logicalMillis = Math.addExact(logicalMillis, LOGICAL_TICK_MILLIS)
         tickManager.preTick(logicalMillis)
         physicsCoordinator.stepSimulation(LOGICAL_TICK_MILLIS.toDouble()).await()
-        world.basicWorldData.dispatcher.tick(world)
+        world.simpleAtoWorldData.dispatcher.tick(world)
         tickManager.postTick()
         tickManager.drainPendingCommits().forEach { it.commit() }
     }
 
     private fun cycleZeroRuns(timetableId: String): List<TimetableServiceRunSnapshot> =
-        world.basicWorldData.dispatcher.statuses()
+        world.simpleAtoWorldData.dispatcher.statuses()
             .filter { it.id.timetableId == timetableId && it.cycleIndex == 0L }
             .sortedBy { it.id.serviceId }
 
@@ -174,6 +178,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             basicInfrastructure: BasicInfrastructureSnapshotV1,
             workerThreads: Int,
             basicDataFactory: (CoreWorld) -> BasicWorldData,
+            simpleAtoDataFactory: (CoreWorld) -> SimpleATOWorldData,
             seed: (CoreWorld) -> Unit
         ): IsolatedTimetableSimulationWorld {
             require(workerThreads > 0)
@@ -206,6 +211,10 @@ class IsolatedTimetableSimulationWorld private constructor(
                         isolatedWorld.registerExtensionData(
                             BasicPlugin.INSTANCE,
                             basicDataFactory(isolatedWorld)
+                        )
+                        isolatedWorld.registerExtensionData(
+                            SimpleATOPlugin.INSTANCE,
+                            simpleAtoDataFactory(isolatedWorld)
                         )
                         basicInfrastructure.restore(isolatedWorld)
                         seed(isolatedWorld)

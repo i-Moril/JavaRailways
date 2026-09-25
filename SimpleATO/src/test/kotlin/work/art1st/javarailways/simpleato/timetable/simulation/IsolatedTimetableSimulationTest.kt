@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable.simulation
+package work.art1st.javarailways.simpleato.timetable.simulation
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -14,8 +14,10 @@ import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.timetable.TimetableAction
-import work.art1st.javarailways.basic.timetable.TimetableAtoFactory
-import work.art1st.javarailways.basic.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
+import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.SimpleATOPlugin
+import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.basic.timetable.TrainSelector
@@ -29,6 +31,9 @@ class IsolatedTimetableSimulationTest {
     @BeforeEach
     fun initializePlugin() {
         if (BasicPlugin.instanceOrNull() == null) BasicPlugin.INSTANCE = BasicPlugin(100)
+        if (SimpleATOPlugin.instanceOrNull() == null) {
+            SimpleATOPlugin.INSTANCE = SimpleATOPlugin(101)
+        }
     }
 
     @Test
@@ -133,8 +138,11 @@ class IsolatedTimetableSimulationTest {
             basicSnapshot,
             workerThreads = 2,
             basicDataFactory = {
+                BasicWorldData()
+            },
+            simpleAtoDataFactory = {
                 val profile = AtoSafetyProfile()
-                BasicWorldData(dispatcher = TimetableDispatcher(
+                SimpleATOWorldData(TimetableDispatcher(
                     atoFactory = TimetableAtoFactory { train, world ->
                         SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
                     }

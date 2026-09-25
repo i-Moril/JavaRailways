@@ -52,12 +52,11 @@ data class SavedRollingStockV1(
 }
 
 @Serializable
-data class BasicRuntimeSnapshotV1(
+data class BasicRuntimeSnapshotV2(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val physicsEpoch: Long,
     val timetables: List<SavedTimetableV1>,
-    val dispatcher: SavedDispatcherV1,
     val rollingStock: List<SavedRollingStockV1>
 ) {
     fun restore(world: World) {
@@ -68,24 +67,22 @@ data class BasicRuntimeSnapshotV1(
         timetables.map(SavedTimetableV1::restore).forEach(world.basicWorldData.timetables::add)
         rollingStock.map(SavedRollingStockV1::restore)
             .forEach(world.basicWorldData.depots::restoreRollingStock)
-        world.basicWorldData.dispatcher.restoreCheckpoint(dispatcher)
     }
 
     companion object {
-        const val CURRENT_FORMAT_VERSION = 1
+        const val CURRENT_FORMAT_VERSION = 2
 
         fun capture(
             world: World,
             infrastructureRevision: Long,
             physicsEpoch: Long
-        ): BasicRuntimeSnapshotV1 {
+        ): BasicRuntimeSnapshotV2 {
             require(infrastructureRevision >= 0L && physicsEpoch >= 0L)
-            return BasicRuntimeSnapshotV1(
+            return BasicRuntimeSnapshotV2(
                 formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
                 physicsEpoch = physicsEpoch,
                 timetables = world.basicWorldData.timetables.all().map(SavedTimetableV1::capture),
-                dispatcher = world.basicWorldData.dispatcher.saveCheckpoint(),
                 rollingStock = world.basicWorldData.depots.allRollingStock()
                     .map(SavedRollingStockV1::capture)
             )
@@ -95,11 +92,11 @@ data class BasicRuntimeSnapshotV1(
 
 object BasicRuntimeSnapshotCodec {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
-    fun encode(value: BasicRuntimeSnapshotV1): String =
-        json.encodeToString(BasicRuntimeSnapshotV1.serializer(), value)
-    fun decode(value: String): BasicRuntimeSnapshotV1 =
-        json.decodeFromString(BasicRuntimeSnapshotV1.serializer(), value).also {
-            require(it.formatVersion == BasicRuntimeSnapshotV1.CURRENT_FORMAT_VERSION) {
+    fun encode(value: BasicRuntimeSnapshotV2): String =
+        json.encodeToString(BasicRuntimeSnapshotV2.serializer(), value)
+    fun decode(value: String): BasicRuntimeSnapshotV2 =
+        json.decodeFromString(BasicRuntimeSnapshotV2.serializer(), value).also {
+            require(it.formatVersion == BasicRuntimeSnapshotV2.CURRENT_FORMAT_VERSION) {
                 "Unsupported Basic runtime snapshot version: ${it.formatVersion}"
             }
         }

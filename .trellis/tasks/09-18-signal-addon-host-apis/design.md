@@ -182,6 +182,52 @@ implementation stays explicitly transitional and is not exposed as the generic h
 Stage 2 moves its policy and persistence boundary into `JapaneseSignals` and then removes the
 transitional Basic types; neither stage adds a runtime compatibility layer without separate approval.
 
+### Dispatcher ownership prerequisite
+
+The first ownership batch is complete: the live dispatcher is constructed in
+`SimpleATOWorldData`, ticked through that SimpleATO extension and serialized by
+`SimpleATORuntimeSnapshotV1`. `BasicWorldData` and `BasicRuntimeSnapshotV2` contain no dispatcher
+field. This keeps the frozen-route selector, admission client, restriction adapter and their future
+production caller on the same side of the module dependency. The dispatcher still consumes
+transitional Basic timetable/controller types and the legacy allocator until the following batches.
+
+Use the following reviewed migration sequence instead:
+
+1. **Implemented.** Add one world-local `SimpleATOWorldData` extension and make it the sole owner of the dispatcher.
+   Move the dispatcher implementation, checkpoint DTO/codec, tests and Bukkit/isolated-simulation
+   composition together. `BasicWorldData` loses its dispatcher field in the same batch. The moved
+   dispatcher may still consume transitional Basic timetable, station, depot and controller types
+   through the existing `SimpleATO -> Basic` dependency; no Basic-to-SimpleATO bridge or forwarding
+   accessor is added. This first batch is behavior-preserving and continues to use the legacy route
+   allocator.
+2. Move the `SimpleATO` controller and its ATO-owned mission/constraint runtime into the SimpleATO
+   module, updating factories, train-controller lifecycle and tests without compatibility aliases.
+   Low-level Basic route validation/resource services remain in Basic.
+3. Give the production dispatcher one coherent route-selection/admission context per published
+   observation. Automatic and `MANUAL_ROUTED` runs select a topology-bound frozen route, drive the
+   existing per-train admission client and apply its restriction snapshot to the one controller.
+   `FULL_MANUAL` creates no new automatic request, while already-held claims continue normal tail
+   release.
+4. After parity tests cover dispatcher priority, stops, station calls, retries, manual modes and tail
+   release, remove `RouteSectionAllocator` and the remaining dispatcher-specific RailWand edit guard.
+
+The ownership move includes persistence rather than leaving a Basic-owned checkpoint behind. The
+target runtime files are three coherently paired documents: Core runtime, Basic runtime without
+dispatcher state, and SimpleATO runtime containing the dispatcher checkpoint. Restore order is Core,
+Basic infrastructure/runtime, then SimpleATO runtime so timetable, rolling-stock and physical train
+references exist before dispatcher recovery. Capture validates the same infrastructure revision and
+physics epoch across all three documents.
+
+This is a breaking change to the current outer runtime file and Basic runtime document. Existing
+development runtime snapshots are preserved by the packaged pair migrator planned in
+`09-24-explicit-rail-endpoint-connections`. That migration creates recovery copies, extracts the old
+embedded Dispatcher checkpoint into the new SimpleATO document, validates the complete target pair,
+supports dry-run and makes an interrupted two-file apply recoverable before normal world loading.
+
+Do not add a nullable fallback field, forwarding `BasicWorldData.dispatcher`, dual writer or runtime
+V1/V2 business branch. The normal loader and writer handle only the current model after the one-time
+migration boundary has completed.
+
 ## Failure and threading
 
 All validation failure is atomic and does not widen authority. Missing resource indexes, stale revisions, contributor failure or invalid contributed resources fail closed. Existing committed grants remain host-owned through physical release, so unloading a signal plugin cannot drop resources beneath a train.

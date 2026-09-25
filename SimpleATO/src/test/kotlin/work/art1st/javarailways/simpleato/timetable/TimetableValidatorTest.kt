@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -26,6 +26,7 @@ import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -279,7 +280,7 @@ class TimetableValidatorTest {
             SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
         }
         val coordinator = AtoWorldCoordinator("validator-station", reportSink = {})
-        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,

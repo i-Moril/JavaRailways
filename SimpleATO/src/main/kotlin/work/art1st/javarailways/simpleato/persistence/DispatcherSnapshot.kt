@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.persistence
+package work.art1st.javarailways.simpleato.persistence
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

@@ -12,7 +12,7 @@ import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
@@ -28,6 +28,8 @@ import work.art1st.javarailways.bukkit.extension.train.TrainExtension
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.persistence.WorldPersistence
 import work.art1st.javarailways.bukkit.persistence.WorldSnapshotCapture
+import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
@@ -147,7 +149,8 @@ class WorldManager internal constructor(
             infrastructure = splitInfrastructure?.core(),
             runtime = splitRuntime?.core(),
             basicInfrastructure = splitInfrastructure?.basic(),
-            basicRuntime = splitRuntime?.basic()
+            basicRuntime = splitRuntime?.basic(),
+            simpleAtoRuntime = splitRuntime?.simpleAto()
         )
         try {
             if (railWorld is CoreWorld) {
@@ -397,7 +400,7 @@ class WorldManager internal constructor(
             }
 
             val timetableDispatcherNanos = measureNanoTime {
-                railWorld.basicWorldData.dispatcher.tick(railWorld)
+                railWorld.simpleAtoWorldData.dispatcher.tick(railWorld)
             }
             phaseBreakdown["world:${world.name}:timetable_dispatcher"] = timetableDispatcherNanos
             computeNanos += timetableDispatcherNanos
@@ -563,7 +566,12 @@ class WorldManager internal constructor(
         val coreInfrastructure = coreWorld.saveInfrastructure(revision)
         val basicInfrastructure = BasicInfrastructureSnapshotV1.capture(coreWorld, revision)
         val coreRuntime = coreWorld.saveRuntime(revision, physicsEpoch.coerceAtLeast(0L))
-        val basicRuntime = BasicRuntimeSnapshotV1.capture(
+        val basicRuntime = BasicRuntimeSnapshotV2.capture(
+            coreWorld,
+            revision,
+            physicsEpoch.coerceAtLeast(0L)
+        )
+        val simpleAtoRuntime = SimpleATORuntimeSnapshotV1.capture(
             coreWorld,
             revision,
             physicsEpoch.coerceAtLeast(0L)
@@ -572,7 +580,8 @@ class WorldManager internal constructor(
             coreInfrastructure,
             basicInfrastructure,
             coreRuntime,
-            basicRuntime
+            basicRuntime,
+            simpleAtoRuntime
         )
     }
 

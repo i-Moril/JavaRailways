@@ -23,8 +23,9 @@ import work.art1st.javarailways.basic.timetable.TimetableLineSpeedLimit
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.basic.timetable.TrainSelector
-import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationRequest
-import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationResult
+import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationRequest
+import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
+import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -37,6 +38,9 @@ class IsolatedTimetableSimulationFactoryTest {
     @BeforeEach
     fun initializePlugin() {
         if (BasicPlugin.instanceOrNull() == null) BasicPlugin.INSTANCE = BasicPlugin(101)
+        if (SimpleATOPlugin.instanceOrNull() == null) {
+            SimpleATOPlugin.INSTANCE = SimpleATOPlugin(102)
+        }
     }
 
     @Test

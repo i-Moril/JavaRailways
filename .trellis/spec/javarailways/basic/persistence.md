@@ -2,7 +2,7 @@
 
 ## 适用场景与用途
 
-触发：修改Basic infrastructure/runtime、Dispatcher checkpoint、Timetable JSON、diagnostic/provider payload或Core/Basic split pairing。
+触发：修改Basic infrastructure/runtime、Timetable JSON、diagnostic/provider payload或Core/Basic/SimpleATO split pairing。
 
 用途：strict decode current document后做全identity/reference预校验，再materialize fresh world；schema version、revision、physics epoch、provider/diagnostic version各自独立。通用规则见[共享持久化](../shared/persistence.md)。
 
@@ -20,9 +20,9 @@ data class BasicInfrastructureSnapshotV1(
 )
 ```
 
-Runtime `BasicRuntimeSnapshotV1(formatVersion,infrastructureRevision,physicsEpoch,timetables,dispatcher,rollingStock)`。两者current `formatVersion=1`，codec `encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
+Runtime `BasicRuntimeSnapshotV2(formatVersion=2,infrastructureRevision,physicsEpoch,timetables,rollingStock)`不再包含Dispatcher。Basic infrastructure仍为format 1；两个独立boundary各自使用`encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
 
-`SavedDispatcherV1(formatVersion=1,dispatcherTick,missionRevision,clocks,runs)`是checkpoint boundary；restore不建live locks/queues/tickets/controller，active runs转RECOVERY_REQUIRED。`SavedTimetableV1`同时有codec并嵌runtime；演进前必须明确它是否独立document boundary，不从class suffix推断。
+Dispatcher checkpoint和SimpleATO runtime由[SimpleATO persistence](../simpleato/persistence.md)拥有。`SavedTimetableV1`同时有codec并嵌runtime；演进前必须明确它是否独立document boundary，不从class suffix推断。
 
 Diagnostic独立：`AtoStallReportJson.schemaVersion=2`、`DepotResetReportJson.schemaVersion=1`。`lineRevision`是edit revision；`infrastructureRevision`配对files；`physicsEpoch`配对publication；都非schemaVersion。
 
@@ -48,7 +48,7 @@ strict decode current
 | duplicate destination/waypoint/line/metadata或cross-store ID | fail before materialize | fresh |
 | Line missing Station | fail prevalidation | fresh |
 | runtime duplicate timetable/train/orphan point | fail prevalidation | fresh |
-| Core/Basic pair mismatch | outer load拒绝 | 不选partial file |
+| Core/Basic/SimpleATO pair mismatch | outer load拒绝 | 不选partial file |
 | checkpoint active run | recovery record + disabled service | 无live execution |
 | additive default field | fixed old fixture直接decode，不升版 | writer输出current |
 | breaking shape/unit/meaning | 升最小独立boundary；pure decode upcast（仅明确支持） | business只current |
@@ -82,7 +82,7 @@ val standaloneWayPoints = data.wayPoints.all()
 - infrastructure/runtime各有hand-written current/old/future/unknown/corrupt/orphan/duplicate/collision fixtures。
 - 每个failure断言target所有stores fresh/unchanged。
 - pairing tests覆盖main/backup highest matching pair和missing half。
-- `DispatcherSnapshotTest.kt`固定recovery semantics；`TimetableSnapshotTest.kt`固定presentation不进入runtime。
+- `TimetableSnapshotTest.kt`固定presentation不进入runtime；Dispatcher recovery测试属于SimpleATO。
 - additive field固定旧JSON+default+round-trip+version不变。
 
 ```bash

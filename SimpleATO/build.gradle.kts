@@ -16,6 +16,7 @@ repositories {
 dependencies {
     compileOnly(project(":Core"))
     compileOnly(project(":Basic"))
+    compileOnly(project(":ConfigLib"))
     implementation(kotlin("stdlib-jdk8"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 

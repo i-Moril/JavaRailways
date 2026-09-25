@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.tool
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
+import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.basic.rail.TurnoutTopology
 import work.art1st.javarailways.basic.route.RailViewRef
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -114,7 +115,7 @@ internal fun turnoutGeometryMaintenanceError(
             occupyingTrainIds.sorted().joinToString()
         )
     }
-    val dispatcher = world.basicWorldDataOrNull?.dispatcher ?: return null
+    val dispatcher = world.simpleAtoWorldDataOrNull?.dispatcher ?: return null
     if (dispatcher.hasRouteAllocationOn(affectedIds)) return "turnout.route_locked"
     if (dispatcher.hasLiveRouteOn(affectedIds)) return "turnout.live_route"
 

@@ -45,6 +45,7 @@ import work.art1st.javarailways.basic.curve.VerticalCurveRebuilder
 import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
+import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.basic.rail.CurveSafetyMetadata
 import work.art1st.javarailways.basic.rail.ParallelRailMetadata
 import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
@@ -2276,7 +2277,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             preparedBatch,
             explicitConnections
         )
-        require(world.basicWorldDataOrNull?.dispatcher
+        require(world.simpleAtoWorldDataOrNull?.dispatcher
             ?.hasRouteAllocationOn(plan.explicitConnectionAffectedExistingRailIds) != true
         ) { "Cannot change endpoint connections with active route allocations" }
         return plan
@@ -2287,7 +2288,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         plan: RailWandTopologyEditPlan
     ) {
         plan.requireReadyToApply(world)
-        require(world.basicWorldDataOrNull?.dispatcher
+        require(world.simpleAtoWorldDataOrNull?.dispatcher
             ?.hasRouteAllocationOn(plan.explicitConnectionAffectedExistingRailIds) != true
         ) { "Cannot change endpoint connections with active route allocations" }
     }
@@ -4526,7 +4527,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return "safety.signal_present"
         }
         val basicData = coreWorld.basicWorldDataOrNull ?: return null
-        if (basicData.dispatcher.hasRouteAllocationOn(railIds)) return "safety.route_locked"
+        if (coreWorld.simpleAtoWorldDataOrNull?.dispatcher?.hasRouteAllocationOn(railIds) == true) {
+            return "safety.route_locked"
+        }
         val migratableRailObjectRefs = basicData.destinations.all().asSequence()
             .filter { it.railId in railIds }
             .mapNotNull { (it.role as? DestinationRole.StationBerthRole)?.berthRef?.railObjectRef }

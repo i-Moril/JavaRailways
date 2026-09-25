@@ -31,8 +31,9 @@ import work.art1st.javarailways.basic.persistence.SavedTimetableV1
 import work.art1st.javarailways.basic.persistence.TimetableSnapshotCodec
 import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.basic.timetable.TimetableValidator
-import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationRequest
-import work.art1st.javarailways.basic.timetable.simulation.IsolatedTimetableSimulationResult
+import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationRequest
+import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -790,7 +791,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val current = data.timetables[id]
             val currentEtag = current?.let { etag(TimetableSnapshotCodec.encode(SavedTimetableV1.capture(it))) }
             require(ifMatch == null || ifMatch == currentEtag) { "If-Match does not match current timetable" }
-            val checkpoint = data.dispatcher.saveCheckpoint()
+            val checkpoint = world.simpleAtoWorldData.dispatcher.saveCheckpoint()
             require(checkpoint.clocks.none { it.timetableId == id } && checkpoint.runs.none { it.timetableId == id }) {
                 "timetable owns an active or future dispatcher schedule: $id"
             }

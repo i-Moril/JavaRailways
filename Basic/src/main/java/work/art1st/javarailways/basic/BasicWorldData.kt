@@ -10,7 +10,6 @@ import work.art1st.javarailways.basic.api.station.StationStore
 import work.art1st.javarailways.basic.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.basic.pathFinding.RailMap
 import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableDispatcher
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
 import work.art1st.javarailways.basic.safety.TrainSpeedProfileStore
@@ -30,7 +29,6 @@ data class BasicWorldData(
     val depots: DepotStore = DepotStore(),
     val lines: LineStore = LineStore(),
     val timetables: TimetableStore = TimetableStore(),
-    val dispatcher: TimetableDispatcher = TimetableDispatcher(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),

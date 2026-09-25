@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.core.physics.createRailForTest
 
@@ -22,6 +22,7 @@ import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.depot.RollingStockState
 import work.art1st.javarailways.basic.api.depot.StablingPointRef
+import work.art1st.javarailways.basic.api.depot.DepotResetDispatchSummary
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
@@ -33,6 +34,7 @@ import work.art1st.javarailways.basic.api.station.StationBerth
 import work.art1st.javarailways.basic.api.station.StationBerthRef
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.api.timetable.*
+import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.controller.ManualController
 import work.art1st.javarailways.basic.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
@@ -62,7 +64,7 @@ class TimetableDispatcherTest {
         progress.recordStoppedTimetable("tt-a")
 
         assertEquals(
-            TimetableDepotResetSummary(
+            DepotResetDispatchSummary(
                 removedRunCount = 1,
                 releasedRouteSectionCount = 2,
                 releasedBerthCount = 1,
@@ -93,7 +95,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-maintenance-route-test", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -123,7 +124,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-line-speed-test", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -161,7 +161,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-test", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -216,7 +215,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-depot", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -294,7 +292,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-waypoint", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -344,7 +341,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-waypoint-failure", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -381,7 +377,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("physical-depot-selection", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -430,7 +425,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("leading-reverse", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -496,7 +490,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-store", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -636,7 +629,7 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-store-capacity", reportSink = {})
-        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
         val outboundRail = rail(
             world,
@@ -759,7 +752,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-next-cycle", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -908,7 +900,7 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-cycle-overlap", reportSink = {})
-        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -977,7 +969,7 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-depot-miss", reportSink = {})
-        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1028,7 +1020,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-clock", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1071,7 +1062,6 @@ class TimetableDispatcherTest {
         val lateWorld = createTestWorld().also(worlds::add)
         val lateDispatcher = dispatcher()
         val lateData = BasicWorldData(
-            dispatcher = lateDispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-late", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(lateWorld, lateData)
@@ -1099,7 +1089,7 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-controller-identity", reportSink = {})
-        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1128,7 +1118,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-manual-routed", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1199,7 +1188,7 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-manual-violation", reportSink = {})
-        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1232,7 +1221,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-full-manual", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1293,7 +1281,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-navigation-replace", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1342,7 +1329,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-transfer", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1398,7 +1384,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-transfer-route", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1437,7 +1422,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-progress", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1508,7 +1492,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-sequence", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1563,7 +1546,7 @@ class TimetableDispatcherTest {
     fun `stopped train immediately requests a turnout inside protection distance`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(dispatcher = dispatcher)
+        val data = BasicWorldData()
         TestBasicWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
         val straight = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 0.0))
@@ -1593,7 +1576,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-authority", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1667,7 +1649,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-conflict", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1731,7 +1712,7 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-stall-boundary", reportSink = {})
-        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
         val firstRail = createStraightRailFromSegments(
             world,
@@ -1776,7 +1757,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-priority", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1842,7 +1822,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-activation", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1896,7 +1875,6 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("dispatcher-extension", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)

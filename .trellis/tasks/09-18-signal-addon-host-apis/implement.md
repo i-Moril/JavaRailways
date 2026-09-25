@@ -253,6 +253,23 @@
     boundary for pending/denied extensions, and requires explicit successful lifecycle end before accepting a changed route.
     The client feeds the existing namespaced `TrainRestriction` adapter/constraint manager and knows no resource identities.
     Production composition, retry policy and removal of the legacy Dispatcher allocator remain unchecked.
+  - [ ] Preserve existing development runtime files through the packaged world-pair migration task:
+    recovery copies, dry-run, current-pair validation and recoverable replacement move the exact
+    Dispatcher checkpoint into SimpleATO. Do not retain a runtime compatibility reader, nullable
+    fallback or dual writer. The current target schemas now exist, but the one-time migrator is not
+    implemented yet; until it is, old development runtime files fail closed in the normal loader.
+  - [x] Move `TimetableDispatcher`, its checkpoint contract/tests and all live composition into one world-local
+    `SimpleATOWorldData`; remove `BasicWorldData.dispatcher` in the same batch. Keep behavior and the legacy allocator unchanged,
+    and allow only the existing transitional `SimpleATO -> Basic` dependency. The implementation, checkpoint DTO/codec,
+    isolated simulation and tests now live in SimpleATO; Bukkit captures/restores Core, Basic runtime V2 and SimpleATO runtime
+    V1 as one coherent runtime V2 document and restores them in that order. The normal loader contains no old-format fallback;
+    the separately planned packaged migration remains responsible for old development snapshots.
+  - [ ] Move the `SimpleATO` controller and ATO-owned mission/constraint runtime into the SimpleATO module without aliases or a
+    Basic forwarding facade; update Bukkit factories, isolated simulation and controller/dispatcher tests together.
+  - [ ] Wire automatic and `MANUAL_ROUTED` production runs to one observation-scoped frozen-route selection and the existing
+    admission client/restriction adapter. Preserve `FULL_MANUAL` no-request behavior and continue release of existing claims.
+  - [ ] Prove parity for priority, stop/station-call behavior, transient retry, stale-route re-selection, manual modes and tail
+    release, then delete `RouteSectionAllocator` and the final dispatcher-specific RailWand allocation guard.
 - [ ] Add topology edit guards for active external claims.
   - [x] Define the edit-coordination contract without treating track or topology nodes as runtime resources:
     `TopologyEditImpact` declares exact rail IDs, stable topology-node keys and runtime resource IDs; the registry checks each

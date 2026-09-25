@@ -1,10 +1,36 @@
-package work.art1st.javarailways.basic.persistence
+package work.art1st.javarailways.simpleato.persistence
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 
 class DispatcherSnapshotTest {
+    @Test
+    fun `SimpleATO runtime codec round trips the dispatcher checkpoint and rejects other versions`() {
+        val snapshot = SimpleATORuntimeSnapshotV1(
+            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
+            infrastructureRevision = 7L,
+            physicsEpoch = 11L,
+            dispatcher = SavedDispatcherV1(
+                formatVersion = SavedDispatcherV1.CURRENT_FORMAT_VERSION,
+                dispatcherTick = 5L,
+                missionRevision = 3L,
+                clocks = emptyList(),
+                runs = emptyList()
+            )
+        )
+
+        assertEquals(snapshot, SimpleATORuntimeSnapshotCodec.decode(
+            SimpleATORuntimeSnapshotCodec.encode(snapshot)
+        ))
+        assertThrows(IllegalArgumentException::class.java) {
+            SimpleATORuntimeSnapshotCodec.decode(
+                SimpleATORuntimeSnapshotCodec.encode(snapshot.copy(formatVersion = 2))
+            )
+        }
+    }
+
     @Test
     fun `restored active runs become recovery required checkpoints`() {
         val saved = SavedDispatcherV1(

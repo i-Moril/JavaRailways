@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.core.physics.createRailForTest
 
@@ -32,6 +32,7 @@ import work.art1st.javarailways.basic.api.station.StationCall
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -886,7 +887,6 @@ class TimetableStationCallDispatcherTest {
             SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
         }
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("station-route-wait", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -978,7 +978,6 @@ class TimetableStationCallDispatcherTest {
             SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
         }
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("station-conflict", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)
@@ -1105,7 +1104,6 @@ class TimetableStationCallDispatcherTest {
             }
         )
         val data = BasicWorldData(
-            dispatcher = dispatcher,
             atoCoordinator = AtoWorldCoordinator("station-dispatcher", reportSink = {})
         )
         TestBasicWorldDataRegistry.register(world, data)

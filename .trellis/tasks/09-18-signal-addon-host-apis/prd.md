@@ -82,4 +82,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 
 ## Blocking open questions
 
-None for Stage 1. Exact public Java names, first signal-plugin naming, JS/YAML capabilities and WebUI ownership are deliberately deferred to their own review batches.
+Existing development runtime snapshots will be preserved through the packaged world-pair migrator
+planned by `09-24-explicit-rail-endpoint-connections`; normal runtime code gains no long-lived
+compatibility reader. Exact public Java names, first signal-plugin naming, JS/YAML capabilities and
+WebUI ownership remain deliberately deferred to their own review batches.

@@ -5,8 +5,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV1
-import work.art1st.javarailways.basic.persistence.SavedDispatcherV1
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
+import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
 import work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -20,20 +21,26 @@ class WorldSnapshotExtensionDataTest {
         val basicInfrastructure = BasicInfrastructureSnapshotV1(
             1, 7L, emptyList(), emptyList(), emptyList(), 0L
         )
-        val basicRuntime = BasicRuntimeSnapshotV1(
-            formatVersion = BasicRuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
+        val basicRuntime = BasicRuntimeSnapshotV2(
+            formatVersion = BasicRuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 9L,
             timetables = emptyList(),
-            dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
             rollingStock = emptyList()
+        )
+        val simpleAtoRuntime = SimpleATORuntimeSnapshotV1(
+            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
+            infrastructureRevision = 7L,
+            physicsEpoch = 9L,
+            dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList())
         )
 
         val capture = WorldSnapshotCapture(
             infrastructure,
             basicInfrastructure,
             runtime,
-            basicRuntime
+            basicRuntime,
+            simpleAtoRuntime
         ).encode()
         val decodedInfrastructure = SplitWorldSnapshotCodec.decodeInfrastructure(
             SplitWorldSnapshotCodec.encode(capture.infrastructure)
@@ -44,12 +51,24 @@ class WorldSnapshotExtensionDataTest {
 
         assertEquals(7L, decodedInfrastructure.infrastructureRevision)
         assertEquals(9L, decodedRuntime.physicsEpoch)
+        assertEquals(7L, decodedRuntime.basic().infrastructureRevision)
+        assertEquals(9L, decodedRuntime.simpleAto().physicsEpoch)
         assertThrows(IllegalArgumentException::class.java) {
             WorldSnapshotCapture(
                 infrastructure,
                 basicInfrastructure.copy(infrastructureRevision = 8L),
                 runtime,
-                basicRuntime
+                basicRuntime,
+                simpleAtoRuntime
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            WorldSnapshotCapture(
+                infrastructure,
+                basicInfrastructure,
+                runtime,
+                basicRuntime,
+                simpleAtoRuntime.copy(physicsEpoch = 10L)
             )
         }
     }

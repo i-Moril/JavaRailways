@@ -1,14 +1,14 @@
-# Basic Dispatcher runtime 契约
+# SimpleATO Dispatcher runtime 契约
 
 ## 适用场景与用途
 
 触发：修改Timetable clock/run states、train acquisition、route/berth/depot operation、door/reverse/halt/extension、control transfer或checkpoint recovery。
 
-用途：每world main-thread Dispatcher在successful physics publication后推进确定性state；每个transition等待对应resource/ticket/publication，不因terminal state过早删runtime或释放tail-held资源。
+用途：每 world Dispatcher 在 successful physics publication 后推进确定性 state；每个 transition 等待对应 resource/ticket/publication，不因 terminal state 过早删 runtime 或释放 tail-held 资源。
 
 ## Owner、入口与state
 
-`TimetableDispatcher`拥有mission revision、clocks/runs、world-bound route/berth allocators、operation/extension tickets、storage reservation、recovery checkpoints。入口：
+`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、world-bound route/berth allocators、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。入口：
 
 ```kotlin
 fun beginTimetable(world: World, timetableId: String): TimetableEpochStartResult
@@ -17,7 +17,7 @@ fun startService(world: World, timetableId: String, serviceId: String): Timetabl
 @MainThread fun tick(world: World)
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/timetable/TimetableDispatcher.kt`。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt`。
 
 `beginTimetable`先validation、blocking-run check、atomic initial positions，再建立shared epoch；`scheduleInitialCycle`只能紧随begin，manual activation不自动启动。scheduled/conditional cycles按period recurrence；`WAIT_UNTIL_TRUE`只保留该cycle，不阻塞其他service/clock；`SKIP_CYCLE`跳过。
 
@@ -77,10 +77,11 @@ fun tick(world: World) {
 
 - `TimetableDispatcherTest.kt`：clock/At/lateness/cycles、physical acquisition、route retry/authority/tail release、sameTick Stall、reverse/halt/manual/replan/storage。
 - `TimetableStationCallDispatcherTest.kt`：door/dwell/berth/operation failure gates。
-- `TimetableExtensionRegistryTest.kt` + Dispatcher action tests：condition unavailable/error、start once/ticket。
+- `TimetableExtensionRegistryTest.kt`（Basic）+ Dispatcher action tests（SimpleATO）：condition unavailable/error、start once/ticket。
 - `DispatcherSnapshotTest.kt`：active checkpoint→recovery required/disabled。
 
 ```bash
-./gradlew :Basic:test --tests '*TimetableDispatcherTest' --tests '*TimetableStationCallDispatcherTest' \
-  --tests '*TimetableExtensionRegistryTest' --tests '*DispatcherSnapshotTest'
+./gradlew :SimpleATO:test --tests '*TimetableDispatcherTest' \
+  --tests '*TimetableStationCallDispatcherTest' --tests '*DispatcherSnapshotTest'
+./gradlew :Basic:test --tests '*TimetableExtensionRegistryTest'
 ```

@@ -114,7 +114,7 @@ object WorldPersistence {
 
     private fun noMatchingRevisionFailure(
         infrastructureCandidates: List<DecodedCandidate<InfrastructureFileV1>>,
-        runtimeCandidates: List<DecodedCandidate<RuntimeFileV1>>,
+        runtimeCandidates: List<DecodedCandidate<RuntimeFileV2>>,
         failures: List<Pair<File, Exception>>
     ): IllegalStateException {
         val infrastructureRevisions = infrastructureCandidates.map { it.value.infrastructureRevision }

@@ -7,8 +7,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
-import work.art1st.javarailways.basic.timetable.TimetableDepotResetApplyException
-import work.art1st.javarailways.basic.timetable.TimetableDepotResetSummary
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.SweptRailSpan
@@ -48,6 +46,23 @@ sealed interface DepotResetResult {
     data class PartiallyCommitted(override val report: DepotResetReport) : DepotResetResult
 }
 
+data class DepotResetDispatchSummary(
+    val removedRunCount: Int,
+    val releasedRouteSectionCount: Int,
+    val releasedBerthCount: Int,
+    val stoppedTimetableIds: Set<String>
+)
+
+interface DepotResetDispatchParticipant {
+    fun validateDepotReset(world: World, trainIds: Set<String>): String?
+    fun applyDepotReset(world: World, trainIds: Set<String>): DepotResetDispatchSummary
+}
+
+class DepotResetDispatchApplyException(
+    val summary: DepotResetDispatchSummary,
+    cause: Exception
+) : IllegalStateException("Depot reset dispatch cleanup partially applied: ${cause.message}", cause)
+
 /**
  * Administrator-only Depot Reset transaction.
  *
@@ -58,7 +73,10 @@ sealed interface DepotResetResult {
  * changed. An unexpected failure after ledger commit starts is reported as partially committed and
  * keeps the World Stall latched for another administrator reset.
  */
-class DepotResetCoordinator(private val world: World) {
+class DepotResetCoordinator(
+    private val world: World,
+    private val dispatchParticipant: DepotResetDispatchParticipant
+) {
     private data class PreparedPlacement(
         val assignment: DepotResetAssignment,
         val train: CoreTrain,
@@ -214,7 +232,7 @@ class DepotResetCoordinator(private val world: World) {
                 reason
             )
         }
-        worldData.dispatcher.validateDepotReset(
+        dispatchParticipant.validateDepotReset(
             world,
             plan.assignments.mapTo(LinkedHashSet()) { it.trainId }
         )?.let { reason ->
@@ -301,9 +319,9 @@ class DepotResetCoordinator(private val world: World) {
         }
 
         val trainIds = plan.assignments.mapTo(LinkedHashSet()) { it.trainId }
-        var dispatcherSummary: TimetableDepotResetSummary? = null
+        var dispatcherSummary: DepotResetDispatchSummary? = null
         try {
-            dispatcherSummary = worldData.dispatcher.applyDepotReset(world, trainIds)
+            dispatcherSummary = dispatchParticipant.applyDepotReset(world, trainIds)
             check(worldData.depots.applyReset(plan)) {
                 "Depot reset plan changed after successful preflight"
             }
@@ -311,7 +329,7 @@ class DepotResetCoordinator(private val world: World) {
                 if (placement.train.controller != null) placement.train.setController(null)
             }
         } catch (failure: Exception) {
-            if (failure is TimetableDepotResetApplyException) {
+            if (failure is DepotResetDispatchApplyException) {
                 dispatcherSummary = failure.summary
             }
             return partiallyCommitted(
@@ -368,7 +386,7 @@ class DepotResetCoordinator(private val world: World) {
         assignments: List<DepotResetAssignment>,
         stage: String,
         message: String,
-        summary: TimetableDepotResetSummary? = null
+        summary: DepotResetDispatchSummary? = null
     ): DepotResetResult.PartiallyCommitted = DepotResetResult.PartiallyCommitted(
         DepotResetReport(
             resetId = resetId,

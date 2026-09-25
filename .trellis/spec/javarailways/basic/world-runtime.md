@@ -18,7 +18,6 @@ data class BasicWorldData(
     val depots: DepotStore = DepotStore(),
     val lines: LineStore = LineStore(),
     val timetables: TimetableStore = TimetableStore(),
-    val dispatcher: TimetableDispatcher = TimetableDispatcher(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
@@ -29,6 +28,9 @@ data class BasicWorldData(
 ```
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。constructor要求`StationStore`与`railObjects`为同一instance。
+
+Dispatcher不再属于该container；`SimpleATOWorldData`是其唯一world-local owner。Basic中的Depot Reset仅依赖显式传入的
+`DepotResetDispatchParticipant`，不能通过`BasicWorldData`反向查找SimpleATO。
 
 通用资源运行时由Bukkit composition为每个world另建一条成对生命周期记录：同一记录持有唯一
 `InfrastructureCoordinationRegistry`和`RouteResourceAdmissionRuntime`，后者复用前者完成自动进路claim、设备准备、
@@ -70,7 +72,8 @@ byRail[registered.location.rail.id]?.remove(registered)
 
 ## 禁止实现
 
-- singleton map存world mutable state或一个Dispatcher给多个world；
+- singleton map存world mutable state；
+- 在`BasicWorldData`增加Dispatcher forwarding字段或Basic→SimpleATO accessor；
 - 为applied-plan dependency API与自动进路分别创建两个`InfrastructureCoordinationRegistry`；
 - accessor fallback到`TestBasicWorldDataRegistry`；
 - `BasicPlugin.INSTANCE`持有world data；

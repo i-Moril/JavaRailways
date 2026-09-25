@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.api.ato.mission.AtoMission
@@ -9,6 +9,9 @@ import work.art1st.javarailways.basic.api.ato.mission.AtoMissionResolver
 import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
 import work.art1st.javarailways.basic.api.depot.DepotTrainAllocation
+import work.art1st.javarailways.basic.api.depot.DepotResetDispatchApplyException
+import work.art1st.javarailways.basic.api.depot.DepotResetDispatchParticipant
+import work.art1st.javarailways.basic.api.depot.DepotResetDispatchSummary
 import work.art1st.javarailways.basic.api.depot.DepotStorageReservation
 import work.art1st.javarailways.basic.api.depot.DepotStorageReservationResult
 import work.art1st.javarailways.basic.api.depot.DepotTrainAllocationResult
@@ -48,9 +51,10 @@ import work.art1st.javarailways.basic.api.timetable.TimetableTrainContext
 import work.art1st.javarailways.basic.controller.SimpleATO
 import work.art1st.javarailways.basic.controller.SimpleAtoPublishedState
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.SavedActiveRunCheckpointV1
-import work.art1st.javarailways.basic.persistence.SavedDispatcherV1
-import work.art1st.javarailways.basic.persistence.SavedTimetableClockV1
+import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
+import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
+import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.route.MissionRouteLayout
 import work.art1st.javarailways.basic.route.MissionRouteSection
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
@@ -165,13 +169,6 @@ sealed interface TimetableServiceStartResult {
     data class Failure(val reason: String) : TimetableServiceStartResult
 }
 
-data class TimetableDepotResetSummary(
-    val removedRunCount: Int,
-    val releasedRouteSectionCount: Int,
-    val releasedBerthCount: Int,
-    val stoppedTimetableIds: Set<String>
-)
-
 internal class TimetableDepotResetProgress {
     private var removedRunCount = 0
     private var releasedRouteSectionCount = 0
@@ -194,18 +191,13 @@ internal class TimetableDepotResetProgress {
         stoppedTimetableIds += timetableId
     }
 
-    fun snapshot(): TimetableDepotResetSummary = TimetableDepotResetSummary(
+    fun snapshot(): DepotResetDispatchSummary = DepotResetDispatchSummary(
         removedRunCount,
         releasedRouteSectionCount,
         releasedBerthCount,
         stoppedTimetableIds.toSet()
     )
 }
-
-internal class TimetableDepotResetApplyException(
-    val summary: TimetableDepotResetSummary,
-    cause: Exception
-) : IllegalStateException("Dispatcher Depot Reset partially applied: ${cause.message}", cause)
 
 data class TimetableEpochSnapshot(
     val timetableId: String,
@@ -245,7 +237,7 @@ class TimetableDispatcher(
     private val operationGateway: TrainOperationGateway = RejectingTrainOperationGateway,
     private val operationTimeoutTicks: Long = DEFAULT_OPERATION_TIMEOUT_TICKS,
     private val atoFactory: TimetableAtoFactory? = null
-) {
+) : DepotResetDispatchParticipant {
     init {
         require(operationTimeoutTicks > 0L)
     }
@@ -1665,7 +1657,7 @@ class TimetableDispatcher(
 
     /** Preflight forced resource cleanup used only by an administrator-confirmed Depot Reset. */
     @MainThread
-    fun validateDepotReset(world: World, trainIds: Set<String>): String? {
+    override fun validateDepotReset(world: World, trainIds: Set<String>): String? {
         val sectionAllocator = allocator(world)
         val selectedRuns = runs.values.filter { it.train.id in trainIds }
         val confirmedKeys = sectionAllocator.confirmedWindows().map { it.key }.toSet()
@@ -1685,7 +1677,7 @@ class TimetableDispatcher(
      * The caller must keep the World Stall latched; this operation never resets ATO state.
      */
     @MainThread
-    fun applyDepotReset(world: World, trainIds: Set<String>): TimetableDepotResetSummary {
+    override fun applyDepotReset(world: World, trainIds: Set<String>): DepotResetDispatchSummary {
         check(world.basicWorldData.atoCoordinator.isStalled) {
             "Depot Reset is only legal while the World ATO is stalled"
         }
@@ -1738,7 +1730,7 @@ class TimetableDispatcher(
             }
             return progress.snapshot()
         } catch (failure: Exception) {
-            throw TimetableDepotResetApplyException(progress.snapshot(), failure)
+            throw DepotResetDispatchApplyException(progress.snapshot(), failure)
         }
     }
 
@@ -3066,8 +3058,9 @@ class TimetableDispatcher(
                                         it.point.ref.pointId in action.stablingPointIds
                                 }
                                 .filter {
-                                    it.point.usableLengthMeters == null ||
-                                        it.point.usableLengthMeters + POSITION_TOLERANCE_METERS >= trainLength
+                                    val usableLength = it.point.usableLengthMeters
+                                    usableLength == null ||
+                                        usableLength + POSITION_TOLERANCE_METERS >= trainLength
                                 }
                                 .filter { it.point.ref !in physicalStorageReservations }
                                 .filter { candidate ->
@@ -3723,18 +3716,20 @@ class TimetableDispatcher(
                 .firstOrNull { train ->
                     val locationFailure = validateAtWayPoint(world, train, wayPointId)
                     val metadata = store.rollingStock(train.id)?.record
+                    val maximumCars = take.selector.maximumCars
+                    val minimumSpeed = take.selector.minimumSpeedMetersPerSecond
                     val metadataFailure = when {
                         train.cars.size < (take.selector.minimumCars ?: 0) -> "too few cars"
-                        take.selector.maximumCars != null && train.cars.size > take.selector.maximumCars ->
+                        maximumCars != null && train.cars.size > maximumCars ->
                             "too many cars"
                         take.selector.requiredTags.isNotEmpty() &&
                             metadata?.tags?.containsAll(take.selector.requiredTags) != true -> "missing tags"
                         take.selector.requiredCapabilities.isNotEmpty() &&
                             metadata?.capabilities?.containsAll(take.selector.requiredCapabilities) != true ->
                             "missing capabilities"
-                        take.selector.minimumSpeedMetersPerSecond != null &&
+                        minimumSpeed != null &&
                             (metadata?.maximumSpeedMetersPerSecond ?: 0.0) <
-                            take.selector.minimumSpeedMetersPerSecond -> "maximum speed too low or unknown"
+                            minimumSpeed -> "maximum speed too low or unknown"
                         else -> null
                     }
                     val operationalFailure = when {

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.depot
+package work.art1st.javarailways.simpleato.depot
 
 import work.art1st.javarailways.core.physics.createRailForTest
 
@@ -15,6 +15,7 @@ import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.basic.api.depot.*
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
@@ -23,10 +24,10 @@ import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.timetable.TimetableAction
-import work.art1st.javarailways.basic.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.basic.timetable.TimetableService
-import work.art1st.javarailways.basic.timetable.TimetableServiceRunId
-import work.art1st.javarailways.basic.timetable.TimetableServiceStartResult
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
 import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -64,7 +65,7 @@ class DepotResetCoordinatorTest {
             SimpleATO(train, trainWorld, KinematicTrainActuator(10.0, profile), profile)
         }
         val coordinator = AtoWorldCoordinator("reset-world", reportSink = {})
-        val data = BasicWorldData(dispatcher = dispatcher, atoCoordinator = coordinator)
+        val data = BasicWorldData(atoCoordinator = coordinator)
         TestBasicWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -128,7 +129,7 @@ class DepotResetCoordinatorTest {
         assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
         coordinator.stall(report(coordinator.worldId, train.id))
 
-        val result = DepotResetCoordinator(world).reset(setOf(depotId))
+        val result = DepotResetCoordinator(world, dispatcher).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Succeeded, result.report.toString())
         val success = result.report
@@ -228,7 +229,9 @@ class DepotResetCoordinatorTest {
         val beforePoints = data.depots.stablingPoints(depotId)
         coordinator.stall(report(coordinator.worldId, riskyTrain.id))
 
-        val result = onMainThread { DepotResetCoordinator(world).reset(setOf(depotId)) }
+        val result = onMainThread {
+            DepotResetCoordinator(world, TimetableDispatcher()).reset(setOf(depotId))
+        }
         riskyTrain.commit()
 
         assertTrue(result is DepotResetResult.Failed)
@@ -329,7 +332,7 @@ class DepotResetCoordinatorTest {
         val beforeSecond = secondTrain.head.location
         coordinator.stall(report(coordinator.worldId, firstTrain.id))
 
-        val result = DepotResetCoordinator(world).reset(setOf(depotId))
+        val result = DepotResetCoordinator(world, TimetableDispatcher()).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_ENVELOPE", result.report.failureStage)
@@ -378,7 +381,7 @@ class DepotResetCoordinatorTest {
         val beforeStock = world.basicWorldData.depots.allRollingStock()
         val beforePoints = world.basicWorldData.depots.stablingPoints(depotId)
 
-        val result = DepotResetCoordinator(world).reset(setOf(depotId))
+        val result = DepotResetCoordinator(world, TimetableDispatcher()).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_RESOLUTION", result.report.failureStage)

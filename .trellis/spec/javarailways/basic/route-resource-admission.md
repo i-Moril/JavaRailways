@@ -62,17 +62,17 @@ The union is unique by exact resource identity and is committed once. Occupancy 
 
 当前纯合并步骤接收宿主收集并复制的contribution batch，而不是公开ATO intent中的字段。宿主先收集所有contributor结果，再从已编译的物理footprint复制资源身份与释放元数据，逐项调用world-local资源owner的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加准备覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间随物理footprint及本次contribution总量线性增长（排序释放队列除外）。
 
-当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和同revision的拓扑root。没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；已有route state时，核对申请身份与路线，只编译已提交authority至新boundary的suffix。两者共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不扩大grant；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍符合冻结路线，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次新增claim。整个前claim阶段无registry mutation；附加资源提供者异常按`INVALID_CONTRIBUTION`拒绝。Bukkit现已把这个owner绑定为world-local、认证过调用方身份的`RouteResourceAdmissionService`；生产Dispatcher/SimpleATO caller迁移仍待后续批次。
+当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和同revision的拓扑root。没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；已有route state时，核对申请身份与路线，只编译已提交authority至新boundary的suffix。普通停车点后的下一段任务可以把新traversal严格追加到已经完整授权的旧路线末端：旧segments必须逐项保持不变、route ID/topology/owner/train不变，并使用operating-route自身的更高revision；其他route变化仍拒绝。两种增长方式共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不扩大grant或切换route binding；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍符合已提交前缀，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次新增claim。附加资源提供者异常按`INVALID_CONTRIBUTION`拒绝。Bukkit现已把这个owner绑定为world-local、认证过调用方身份的`RouteResourceAdmissionService`；生产Dispatcher/SimpleATO caller迁移仍待后续批次。
 
 ### 3.3 申请、准备和释放
 
 Basic first completes route/resource/occupancy validation, then atomically claims the final footprint. Claim ownership prevents conflicting claims but does not mean a movable resource is ready. Registered resource handlers prepare only already-claimed resources and report `PREPARING`, `READY`, `ABORTED_SAFE` or `UNSAFE` according to the generic preparation contract. A grant is published only after all requirements are `READY`.
 
-The current route state owns the frozen route and one monotonic tail cursor, independently of its nullable committed grant. Basic creates this state only once the first validated request has successfully reserved resources; it is not a per-train object allocated for every idle train. The cursor is initialized from the authoritative train tail and reused when the first `READY` creates the committed release queue. If this first attempt safely aborts and no grant or reservation remains, Basic discards the unused route state. After a grant exists, the route state remains until explicit safe route end even when its resource queue becomes empty.
+The current route state owns one append-only operating route and one monotonic tail cursor, independently of its nullable committed grant. Basic creates this state only once the first validated request has successfully reserved resources; it is not a per-train object allocated for every idle train. The cursor is initialized from the authoritative train tail and reused when the first `READY` creates the committed release queue. If this first attempt safely aborts and no grant or reservation remains, Basic discards the unused route state. After a grant exists, the route state remains until explicit safe route end even when its resource queue becomes empty. A forward continuation extends the same cursor occurrence list only after preparation becomes `READY`; it never replaces the cursor or rewrites an accepted prefix.
 
 Committed resources enter one route-ordered release queue attached to that route state. Each observation advances the same monotonic frozen-route cursor from the authoritative train tail. Basic atomically removes only the eligible queue prefix, then advances a head index in the retained queue; normal releases do not copy and revalidate the entire remaining queue. A signalling plugin may supply a stricter release boundary for its added resource; it cannot release a mandatory physical resource earlier than Basic's physical clear boundary.
 
-The same request operation also grows an existing grant along that route. Basic compiles only the farther suffix, derives its physical floor, and unions contributions collected for that request. Exact identities still held by the grant are not claimed or prepared again. If a contribution asks to hold one of them longer, Basic validates that its new tail-clear boundary is no earlier than the committed one, then temporarily places that identity after ordinary eligible entries in the **same** release queue while the new delta is pending. Other old resources remain releasable by the tail. `READY` checks the latest coherent observation and suffix occupancy, commits only the new delta, then publishes the later hold boundaries and authority together; `ABORTED_SAFE` removes only the delta, restores old boundaries and immediately releases any restored entry already passed by the accepted tail. Unsafe or unprovable completion retains the safest reservation and stalls. If the old queue and registry claim are already empty, the route state keeps its cursor and acquires the suffix under the same grant identity. A changed route is a replan at a safe operational boundary, not a whole-claim replacement.
+The same request operation also grows an existing grant along that route. Basic compiles only the farther authority suffix, derives its physical floor, and unions contributions collected for that request. Exact identities still held by the grant are not claimed or prepared again. If a contribution asks to hold one of them longer, Basic validates that its new tail-clear boundary is no earlier than the committed one, then temporarily places that identity after ordinary eligible entries in the **same** release queue while the new delta is pending. Other old resources remain releasable by the tail. `READY` checks the latest coherent observation and suffix occupancy, commits only the new delta, then publishes the later hold boundaries and authority together; for an append-only continuation it also commits the longer route binding and progress path in that same serialized step while retaining grant ID, logical owner and cursor state. `ABORTED_SAFE` removes only the delta, restores old boundaries and leaves the old route binding authoritative. Unsafe or unprovable completion retains the safest reservation and stalls. If the old queue and registry claim are already empty, the route state keeps its cursor and acquires the suffix under the same grant identity. Reversal, modified prefix, disconnected append and unrelated route changes remain replans outside this operation; none uses whole-claim replacement.
 
 ## 4. 冻结的公开请求合同
 
@@ -358,7 +358,7 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 | occupancy intersects compiled physical geometry | `PHYSICALLY_OCCUPIED` | none |
 | final union conflicts with another claim | `RESOURCE_CONFLICT` | none |
 | authenticated requester or logical owner differs from the active route state | `OWNER_MISMATCH` | no new reservation |
-| train or frozen route differs from the active route state | `ROUTE_STATE_MISMATCH` | no new reservation |
+| train differs, or route changes anything except a strict forward append at the fully authorized old end | `ROUTE_STATE_MISMATCH`/`INVALID_BOUNDARY` | no new reservation |
 | the active route state already has a pending request | `REQUEST_BUSY` | no new reservation |
 | all validation passes | claim union, then prepare | one atomic claim |
 | preparation still running | `Pending` | claim/reservation retained; no grant |
@@ -369,19 +369,21 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 
 There is no Basic `PROTECTION_REQUIRED`: missing protection-region coverage is a configuration/policy error reported by the concrete signalling plugin before it asks for a permissive route. Basic still denies any request whose physical route or resource union is invalid.
 
-### 6.1 同一路线的后续请求
+### 6.1 同一 operating route 的后续请求
 
-Basic按logical owner ID找到当前route state。若不存在，`request`建立第一次申请；若存在，必须与该state的
-authenticated requester、logical owner及plan revision、stable train ID、`routeId`、`routeRevision`、topology revision
-和ordered segments完全相同。它可以使用更新的successful physics epoch，但topology revision必须不变。已提交
-grant存在时，新desired boundary必须严格晚于committed boundary且不超过route length；Basic只编译该suffix。
+Basic按logical owner ID找到当前route state。若不存在，`request`建立第一次申请；若存在，authenticated requester、
+logical owner、stable train ID、`routeId`和topology revision必须不变。通常`routeRevision`与ordered segments完全相同；
+普通停车点接续下一mission时，只有在committed boundary已经到达旧route length后，才接受更高operating-route revision，
+而且新segments必须以旧segments为逐项完全相同的前缀并至少追加一项。Basic重新投影完整候选路线以验证连接和方向，
+但物理资源、占用geometry和准备只编译旧committed boundary到新desired boundary的新增范围。它可以使用更新的successful
+physics epoch，但topology revision必须不变。新desired boundary必须严格晚于committed boundary且不超过候选route length。
 新增contribution遵循相同校验；已经由该grant持有的identity只能单调延后release boundary，不能改变已committed
 preparation descriptor。一个route state同一时刻只允许一个pending request。route/topology/plan改变必须在
-安全运营边界replan，不得用新请求覆盖现有route state或whole-claim replacement。
+安全运营边界replan；普通正向mission接续以外的改变，尤其折返，不得用append或whole-claim replacement表达。
 
-Denied或pending后续请求保持旧committed grant/authority，旧tail release继续。只有delta原子reserve、全部delta
-preparation READY、既有resource boundary单调更新、release entries追加成功后，Basic才发布更远committed
-boundary。safe abort只删除新delta；unsafe或无法证明的abort保留最安全reservation并stall world。
+Denied或pending后续请求保持旧committed grant/authority/route binding，旧tail release继续。只有delta原子reserve、全部delta
+preparation READY、既有resource boundary单调更新、cursor path与release entries追加验证全部成功后，Basic才以同一grant ID
+发布更长route revision和更远committed boundary。safe abort只删除新delta；unsafe或无法证明的abort保留最安全reservation并stall world。
 
 已持有资源的保持时间不是新的claim身份：准备期间只暂缓它自己的释放，不能因此堵住队列里其他已清除的资源。若安全中止时车尾已经经过其旧释放点，恢复旧边界后必须立即按当前已接受的车尾进度释放它；否则旧资源会无故长期占用。待处理的新增delta始终不进入可释放队列，直到设备`READY`并完成registry提交。普通车尾释放不重排队列；只在延长申请/完成/安全中止这几个低频边界重排剩余队列。
 
@@ -403,6 +405,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - **Good**：a long claim releases one resource at a time; older diagnostic snapshots remain unchanged, while the registry removes only the named live identities.
 - **Good**：the first request waits for a device with `committedGrant = null`; on `READY`, the route state installs its first grant and release queue using the already-established cursor.
 - **Good**：after all committed resources have been tail-released, another request along the same frozen route reacquires a farther suffix without inventing a second route cursor.
+- **Good**：an ordinary stop retains the last claimed interval, then appends the next forward mission under the same grant/cursor; pending or rejected preparation keeps the old route binding.
 - **Bad**：SimpleATO constructs a protection-region ID, preparation kind or signal-system-specific argument.
 - **Bad**：an initial safe abort leaves an owner permanently busy with an empty route state, or a later safe abort deletes an earlier committed grant.
 - **Bad**：each tail-clear event reconstructs an immutable footprint of every still-held resource; a long route then pays quadratic cumulative release work.
@@ -418,7 +421,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - Occupancy geometry and preparation/release metadata never become alternate claim sets.
 - Immediate and delayed preparation publish no grant before `READY`; unsafe failure retains the safest claim.
 - First pending request has one route cursor and no committed grant; safe abort after successful rollback removes the unused route state, allowing a fresh request from a fresh observation.
-- The same public `request(intent)` accepts a farther boundary on the identical frozen route, rejects a mismatched owner/train/route and a concurrent pending attempt, and keeps the same cursor and grant ID after successful growth.
+- The same public `request(intent)` accepts a farther boundary on the identical frozen route or a strict forward continuation after the old route end, rejects a mismatched owner/train/modified prefix/disconnected append/reversal and a concurrent pending attempt, and keeps the same cursor and grant ID after successful growth.
 - Delayed `READY` on a newer safe epoch rebinds the grant stamp; changed topology root, missing/moved train tail or newly occupied route publishes no grant and retains the claim under Stall.
 - Two pending attempts cannot publish a grant after either one has stalled the world; the second claim stays retained and the Stall callback fires once.
 - Tail release and same-route extension retain the existing cursor, release only a contiguous eligible prefix and never shorten plugin-specified holds.

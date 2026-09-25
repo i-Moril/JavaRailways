@@ -52,6 +52,188 @@ class RouteResourceAdmissionEngineTest {
     private var additionValidation: (ContributedRouteResource) -> RouteAdmissionFailure? = { null }
 
     @Test
+    fun `ordinary-stop continuation keeps one grant and extends its live cursor only when ready`() {
+        val continuationTicket = MutableTicket()
+        var preparationStarts = 0
+        val service = service(InfrastructurePreparationActuator {
+            InfrastructurePreparationStart.Accepted(
+                if (preparationStarts++ == 0) {
+                    MutableTicket(InfrastructurePreparationState.READY)
+                } else {
+                    continuationTicket
+                }
+            )
+        })
+        val requester = Any()
+        val committedRoute = route(
+            revision = 1L,
+            segments = listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 20.0))
+        )
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(
+                route = committedRoute,
+                authority = 20.0,
+                contributions = listOf(ContributedRouteResource(block, RouteBoundary(10.0)))
+            ))).grant
+        assertFalse(service.endGrant(requester, first.grantId))
+
+        val appendedRoute = route(
+            revision = 2L,
+            segments = committedRoute.segments +
+                RouteSegmentSnapshot(railId, ViewDirection.AB, 20.0, 40.0)
+        )
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.request(requester, intent(route = appendedRoute, authority = 40.0)))
+
+        assertSame(first, pending.committedGrant)
+        assertEquals(setOf(
+            RailIntervalResource(railId, 0.0, 20.0),
+            RailIntervalResource(railId, 20.0, 40.0),
+            block
+        ),
+            registry.claimSnapshots().single().footprint.resources.toSet())
+
+        // The old cursor and release queue remain live while the appended path is still pending.
+        observation = observation(8L, train("first", 11.0, 20.0, 8L))
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Active::class.java,
+            service.consumeObservation(observation).single())
+        assertEquals(setOf(
+            RailIntervalResource(railId, 0.0, 20.0),
+            RailIntervalResource(railId, 20.0, 40.0)
+        ),
+            registry.claimSnapshots().single().footprint.resources.toSet())
+
+        continuationTicket.state = InfrastructurePreparationState.READY
+        val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.progress(requester, pending.handle)).grant
+
+        assertSame(first.grantId, extended.grantId)
+        assertEquals(2L, extended.routeRevision)
+        assertEquals(RouteBoundary(40.0), extended.committedAuthority)
+        assertEquals(
+            setOf(
+                RailIntervalResource(railId, 0.0, 20.0),
+                RailIntervalResource(railId, 20.0, 40.0)
+            ),
+            registry.claimSnapshots().single().footprint.resources.toSet()
+        )
+
+        observation = observation(9L, train("first", 21.0, 30.0, 9L))
+        service.consumeObservation(observation)
+        assertEquals(setOf(RailIntervalResource(railId, 20.0, 40.0)),
+            registry.claimSnapshots().single().footprint.resources.toSet())
+        observation = observation(10L, train("first", 40.0, 40.0, 10L))
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            service.consumeObservation(observation).single())
+        assertTrue(service.endGrant(requester, first.grantId))
+    }
+
+    @Test
+    fun `invalid continuations reject without changing the committed route or claim`() {
+        val requester = Any()
+        val service = service()
+        val committedRoute = route(
+            revision = 1L,
+            segments = listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 20.0))
+        )
+        val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = committedRoute, authority = 20.0))).grant
+        val originalClaim = registry.claimSnapshots().single()
+
+        val modifiedPrefix = route(
+            revision = 2L,
+            segments = listOf(
+                RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 19.0),
+                RouteSegmentSnapshot(railId, ViewDirection.AB, 19.0, 40.0)
+            )
+        )
+        val disconnected = route(
+            revision = 2L,
+            segments = committedRoute.segments +
+                RouteSegmentSnapshot(UUID.randomUUID(), ViewDirection.AB, 0.0, 20.0)
+        )
+        val reversed = route(
+            revision = 2L,
+            segments = committedRoute.segments +
+                RouteSegmentSnapshot(railId, ViewDirection.BA, 80.0, 90.0)
+        )
+
+        assertEquals(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                service.request(requester, intent(route = modifiedPrefix, authority = 40.0))).failure.code)
+        assertEquals(RouteAdmissionFailureCode.INVALID_ROUTE,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                service.request(requester, intent(route = disconnected, authority = 40.0))).failure.code)
+        assertEquals(RouteAdmissionFailureCode.INVALID_ROUTE,
+            assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                service.request(requester, intent(route = reversed, authority = 30.0))).failure.code)
+        assertEquals(originalClaim, registry.claimSnapshots().single())
+
+        val legalAppend = route(
+            revision = 2L,
+            segments = committedRoute.segments +
+                RouteSegmentSnapshot(railId, ViewDirection.AB, 20.0, 30.0)
+        )
+        val stillExtended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = legalAppend, authority = 30.0))).grant
+        assertSame(grant.grantId, stillExtended.grantId)
+        assertEquals(2L, stillExtended.routeRevision)
+    }
+
+    @Test
+    fun `continuation waits until authority reaches the committed route end`() {
+        val requester = Any()
+        val service = service()
+        val committedRoute = route(1L, listOf(
+            RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 40.0)
+        ))
+        service.request(requester, intent(route = committedRoute, authority = 20.0))
+        val claimBefore = registry.claimSnapshots().single()
+        val prematureAppend = route(2L, committedRoute.segments +
+            RouteSegmentSnapshot(railId, ViewDirection.AB, 40.0, 60.0))
+
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(requester, intent(route = prematureAppend, authority = 60.0)))
+
+        assertEquals(RouteAdmissionFailureCode.INVALID_BOUNDARY, rejected.failure.code)
+        assertEquals(claimBefore, registry.claimSnapshots().single())
+    }
+
+    @Test
+    fun `rejected continuation preparation removes only its delta and keeps the old grant`() {
+        var preparationStarts = 0
+        val service = service(InfrastructurePreparationActuator {
+            when (preparationStarts++) {
+                0 -> InfrastructurePreparationStart.Accepted(
+                    MutableTicket(InfrastructurePreparationState.READY))
+                1 -> InfrastructurePreparationStart.Rejected(
+                    IllegalStateException("device unavailable"))
+                else -> InfrastructurePreparationStart.Accepted(
+                    MutableTicket(InfrastructurePreparationState.READY))
+            }
+        })
+        val requester = Any()
+        val committedRoute = route(1L, listOf(
+            RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 20.0)
+        ))
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = committedRoute, authority = 20.0))).grant
+        val claimBefore = registry.claimSnapshots().single()
+        val appended = route(2L, committedRoute.segments +
+            RouteSegmentSnapshot(railId, ViewDirection.AB, 20.0, 40.0))
+
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(requester, intent(route = appended, authority = 40.0)))
+
+        assertEquals(RouteAdmissionFailureCode.INVALID_PREPARATION, rejected.failure.code)
+        assertEquals(claimBefore, registry.claimSnapshots().single())
+        val legalRetry = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = appended, authority = 40.0))).grant
+        assertSame(first.grantId, legalRetry.grantId)
+        assertEquals(2L, legalRetry.routeRevision)
+    }
+
+    @Test
     fun `one admission claims physical rail and approved block then releases after the tail`() {
         val platformOwner = Any()
         val service = service()
@@ -786,17 +968,25 @@ class RouteResourceAdmissionEngineTest {
         contributions: List<ContributedRouteResource> = emptyList(),
         trainId: String = "first",
         routeStart: Double = 0.0,
-        authority: Double = 20.0
+        authority: Double = 20.0,
+        route: RouteSnapshot = route(
+            revision = 1L,
+            segments = listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, routeStart, 100.0))
+        )
     ): RouteResourceIntent {
         val intent = RouteResourceIntent(
             "test:request/main", InfrastructureOwner(ownerId, ownerRevision), trainId, observation.stamp,
-            RouteSnapshot("test:route/main", 1L, topology.revision,
-                listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, routeStart, 100.0))),
+            route,
             RouteBoundary(authority)
         )
         contributionsByIntent[intent] = contributions
         return intent
     }
+
+    private fun route(
+        revision: Long,
+        segments: List<RouteSegmentSnapshot>
+    ) = RouteSnapshot("test:route/main", revision, topology.revision, segments)
 
     private fun authenticatedContributions(
         intent: RouteResourceIntent

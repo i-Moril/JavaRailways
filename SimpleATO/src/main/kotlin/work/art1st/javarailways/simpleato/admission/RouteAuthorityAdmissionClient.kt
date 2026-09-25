@@ -106,7 +106,7 @@ internal class RouteAuthorityAdmissionClient(
             route = selection.route,
             desiredAuthority = desiredAuthority
         )
-        return consume(route, admissionService.request(intent))
+        return consume(route, selection, admissionService.request(intent))
     }
 
     /** Progresses the one pending Basic attempt without resubmitting its route intent. */
@@ -114,9 +114,9 @@ internal class RouteAuthorityAdmissionClient(
     fun progress(): RouteAdmissionResult {
         val route = active
             ?: return rejected(RouteAdmissionFailureCode.REQUEST_BUSY, "no active frozen route")
-        val handle = route.pending
+        val pending = route.pending
             ?: return rejected(RouteAdmissionFailureCode.REQUEST_BUSY, "no admission is pending")
-        return consume(route, admissionService.progress(handle))
+        return consume(route, pending.selection, admissionService.progress(pending.handle))
     }
 
     /**
@@ -141,12 +141,18 @@ internal class RouteAuthorityAdmissionClient(
         return true
     }
 
-    private fun consume(route: ActiveRoute, result: RouteAdmissionResult): RouteAdmissionResult {
+    private fun consume(
+        route: ActiveRoute,
+        requestedSelection: FrozenRouteSelectionResult.Selected,
+        result: RouteAdmissionResult
+    ): RouteAdmissionResult {
         return when (result) {
             is RouteAdmissionResult.Granted -> {
-                validateGrant(route, result.grant)
+                validateGrant(route, requestedSelection, result.grant)
                 route.pending = null
                 route.committedGrant = result.grant
+                route.selection = requestedSelection
+                route.restrictionRoute = TrainRestrictionRouteBinding.from(requestedSelection.route)
                 publishAuthority(
                     route,
                     result.grant.observationStamp,
@@ -156,8 +162,8 @@ internal class RouteAuthorityAdmissionClient(
             }
 
             is RouteAdmissionResult.Pending -> {
-                validatePending(route, result)
-                route.pending = result.handle
+                validatePending(route, requestedSelection, result)
+                route.pending = PendingAttempt(result.handle, requestedSelection)
                 result
             }
 
@@ -171,10 +177,17 @@ internal class RouteAuthorityAdmissionClient(
         }
     }
 
-    private fun validatePending(route: ActiveRoute, result: RouteAdmissionResult.Pending) {
+    private fun validatePending(
+        route: ActiveRoute,
+        requestedSelection: FrozenRouteSelectionResult.Selected,
+        result: RouteAdmissionResult.Pending
+    ) {
         route.pending?.let { expected ->
-            check(result.handle === expected) {
+            check(result.handle === expected.handle) {
                 "progress replaced the pending admission handle"
+            }
+            check(requestedSelection == expected.selection) {
+                "progress changed the pending frozen route"
             }
         }
         val committed = route.committedGrant
@@ -183,7 +196,7 @@ internal class RouteAuthorityAdmissionClient(
         }
         if (committed != null) {
             val returned = requireNotNull(result.committedGrant)
-            validateGrantIdentity(route, returned)
+            validateGrantIdentity(route.selection, returned)
             check(returned.grantId === committed.grantId) {
                 "pending admission replaced the committed grant identity"
             }
@@ -193,8 +206,12 @@ internal class RouteAuthorityAdmissionClient(
         }
     }
 
-    private fun validateGrant(route: ActiveRoute, grant: RouteGrantSnapshot) {
-        validateGrantIdentity(route, grant)
+    private fun validateGrant(
+        route: ActiveRoute,
+        requestedSelection: FrozenRouteSelectionResult.Selected,
+        grant: RouteGrantSnapshot
+    ) {
+        validateGrantIdentity(requestedSelection, grant)
         val previous = route.committedGrant
         if (previous != null) {
             check(grant.grantId === previous.grantId) {
@@ -206,8 +223,10 @@ internal class RouteAuthorityAdmissionClient(
         }
     }
 
-    private fun validateGrantIdentity(route: ActiveRoute, grant: RouteGrantSnapshot) {
-        val selection = route.selection
+    private fun validateGrantIdentity(
+        selection: FrozenRouteSelectionResult.Selected,
+        grant: RouteGrantSnapshot
+    ) {
         check(grant.owner == owner) { "grant owner differs from the submitted owner" }
         check(grant.trainId == trainId) { "grant belongs to another train" }
         check(grant.routeId == selection.route.routeId &&
@@ -258,20 +277,24 @@ internal class RouteAuthorityAdmissionClient(
         }
     }
 
+    private data class PendingAttempt(
+        val handle: RouteAdmissionHandle,
+        val selection: FrozenRouteSelectionResult.Selected
+    )
+
     private data class ActiveRoute(
-        val selection: FrozenRouteSelectionResult.Selected,
-        val restrictionRoute: TrainRestrictionRouteBinding =
+        var selection: FrozenRouteSelectionResult.Selected,
+        var restrictionRoute: TrainRestrictionRouteBinding =
             TrainRestrictionRouteBinding.from(selection.route),
         var committedGrant: RouteGrantSnapshot? = null,
-        var pending: RouteAdmissionHandle? = null,
+        var pending: PendingAttempt? = null,
         var unsafeFailure: Boolean = false
     ) {
         fun matches(other: FrozenRouteSelectionResult.Selected): Boolean =
             selection.trainId == other.trainId &&
                 selection.observationStamp.worldId == other.observationStamp.worldId &&
-                selection.route.routeId == other.route.routeId &&
-                selection.route.revision == other.route.revision &&
-                selection.route.topologyRevision == other.route.topologyRevision
+                selection.route.topologyRevision == other.route.topologyRevision &&
+                selection.route.routeId == other.route.routeId
     }
 
     private companion object {

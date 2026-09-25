@@ -182,7 +182,11 @@ sealed interface RouteAdmissionResult {
  * API values themselves provide no persistence or restart recovery.
  */
 interface RouteResourceAdmissionService {
-    /** Requests a farther authority boundary on one frozen route, with or without a prior grant. */
+    /**
+     * Requests a farther authority boundary on one operating route, with or without a prior grant.
+     * A host may accept a strict forward continuation after the committed route end; it retains the
+     * same grant and rejects modified prefixes or reversal.
+     */
     @MainThread
     fun request(intent: RouteResourceIntent): RouteAdmissionResult
 

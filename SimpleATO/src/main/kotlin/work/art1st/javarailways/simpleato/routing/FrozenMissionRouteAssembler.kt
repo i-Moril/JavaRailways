@@ -143,6 +143,79 @@ internal object FrozenMissionRouteAssembler {
         )
     }
 
+    /**
+     * Appends the next forward mission to an already admitted operating route.
+     *
+     * The committed segment list is copied verbatim. The complete next mission must begin at the
+     * prior route end, so Basic can retain the same grant and tail cursor without representing a
+     * train that has already passed its old authority. Direction reversal is deliberately absent.
+     */
+    fun append(
+        topology: TopologyState,
+        context: FrozenRouteSelectionContext,
+        existing: FrozenMissionRoute,
+        mission: AtoMission
+    ): FrozenMissionRouteResult {
+        val observation = context.observation
+        val committed = existing.selection
+        if (observation.stamp.worldId != committed.observationStamp.worldId ||
+            observation.stamp.topologyRevision != topology.revision ||
+            committed.route.topologyRevision != topology.revision
+        ) {
+            return rejected(
+                FrozenMissionRouteRejection.STALE_OBSERVATION,
+                "continuation observation must keep the committed world and topology ${topology.revision}"
+            )
+        }
+        val train = context.train(committed.trainId)
+            ?: return rejected(
+                FrozenMissionRouteRejection.TRAIN_NOT_FOUND,
+                "train ${committed.trainId} is absent from observation epoch ${observation.stamp.physicsEpoch}"
+            )
+        if (train.derailed) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_TRAIN,
+                "train ${committed.trainId} is derailed in observation epoch ${observation.stamp.physicsEpoch}"
+            )
+        }
+        if (committed.route.revision == Long.MAX_VALUE) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_MISSION,
+                "operating route revision overflow"
+            )
+        }
+        val missionRoute = missionRouteSnapshot(topology, mission)
+            ?: return rejected(
+                FrozenMissionRouteRejection.INVALID_MISSION,
+                "mission ${mission.id}@${mission.revision} has no valid physical traversal"
+            )
+        val continuation = missionRoute.segments
+        val committedEnd = committed.route.segments.lastOrNull()
+        if (committedEnd == null || continuation.isEmpty() ||
+            !joins(committedEnd, continuation.first(), topology)
+        ) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_MISSION,
+                "mission ${mission.id}@${mission.revision} does not continue forward from the committed route end"
+            )
+        }
+
+        val committedLength = committed.route.totalLengthMeters
+        val appended = RouteSnapshot(
+            routeId = committed.route.routeId,
+            revision = committed.route.revision + 1L,
+            topologyRevision = topology.revision,
+            segments = committed.route.segments + continuation
+        )
+        return FrozenMissionRouteResult.Frozen(
+            FrozenMissionRoute(
+                FrozenRouteSelectionResult.Selected(train.trainId, observation.stamp, appended),
+                committedLength,
+                0.0
+            )
+        )
+    }
+
     private fun missionRouteSnapshot(topology: TopologyState, mission: AtoMission): RouteSnapshot? {
         val segments = mission.legs.flatMap { leg ->
             leg.plannedRoute.expandedRoute.segments.map { segment ->

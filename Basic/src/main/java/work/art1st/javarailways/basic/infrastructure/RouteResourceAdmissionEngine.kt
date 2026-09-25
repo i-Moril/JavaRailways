@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
@@ -57,9 +58,9 @@ internal class RouteResourceAdmissionEngine(
         val requester: Any,
         val owner: InfrastructureOwner,
         val trainId: String,
-        val projection: ProjectedTopologyRoute,
+        var projection: ProjectedTopologyRoute,
         val cursor: RouteProgressCursor,
-        val routeProgressPath: CompiledRouteProgressPath,
+        var routeProgressPath: CompiledRouteProgressPath,
         var committedGrant: RouteGrantSnapshot? = null,
         var tailRelease: ProtectedRouteTailRelease? = null,
         var controlledResources: Set<StableInfrastructureResource>,
@@ -80,6 +81,8 @@ internal class RouteResourceAdmissionEngine(
         val compiled: CompiledRouteAdmission,
         val deltaEntries: List<ResolvedTailReleaseEntry>,
         val newlyControlledResources: Set<StableInfrastructureResource>,
+        val candidateProjection: ProjectedTopologyRoute,
+        val appendsRoute: Boolean,
         val topologyRoot: TopologyState,
         val reservation: ReservedDelta,
         val ticket: ResourcePreparationTicket
@@ -124,7 +127,9 @@ internal class RouteResourceAdmissionEngine(
                     check(currentTopology() === topologyRoot &&
                         latestObservation()?.stamp == observation.stamp && !worldStalled
                     ) { "world changed while checking the prepared route" }
-                    if (oldGrant != null) checkNotNull(route.tailRelease).validateExtendedSuffix(deltaEntries)
+                    if (oldGrant != null) {
+                        checkNotNull(route.tailRelease).validateExtendedSuffix(deltaEntries)
+                    }
                     check(reservation.complete()) { "resource reservation disappeared" }
                     if (oldGrant == null) {
                         route.tailRelease = ProtectedRouteTailRelease(
@@ -136,11 +141,18 @@ internal class RouteResourceAdmissionEngine(
                             ), { reason, failure -> markWorldStalled(reason, failure) }
                         )
                     } else {
+                        if (appendsRoute) {
+                            route.cursor.installExtension(compiled.routeProgressPath)
+                            route.projection = candidateProjection
+                            route.routeProgressPath = compiled.routeProgressPath
+                        }
                         checkNotNull(route.tailRelease).installExtendedSuffix(deltaEntries)
                     }
                     route.controlledResources += newlyControlledResources
                     compiled.preparations.forEach { route.preparationsByResource[it.resource] = it }
                     val grant = oldGrant?.copy(
+                        routeId = intent.route.routeId,
+                        routeRevision = intent.route.revision,
                         observationStamp = observation.stamp,
                         committedAuthority = intent.desiredAuthority
                     ) ?: RouteGrantSnapshot(
@@ -200,13 +212,21 @@ internal class RouteResourceAdmissionEngine(
             return rejected(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "request belongs to another world")
         }
         val existing = routes[intent.owner.ownerId]
+        var appendsRoute = false
         if (existing != null) {
             if (existing.requester !== requester || existing.owner != intent.owner) {
                 return rejected(RouteAdmissionFailureCode.OWNER_MISMATCH, "request owner does not match route state")
             }
-            if (existing.trainId != intent.trainId || existing.projection.route != intent.route) {
+            if (existing.trainId != intent.trainId) {
                 return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
-                    "request must keep the same train and frozen route")
+                    "request must keep the same train")
+            }
+            if (existing.projection.route != intent.route) {
+                if (!isAppendOnlyContinuation(existing.projection.route, intent.route)) {
+                    return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                        "request changed the committed route prefix or did not append a continuation")
+                }
+                appendsRoute = true
             }
             if (existing.pendingHandle != null) {
                 return rejected(RouteAdmissionFailureCode.REQUEST_BUSY, "route already has a pending request")
@@ -214,6 +234,13 @@ internal class RouteResourceAdmissionEngine(
         }
         val oldFrontier = existing?.committedGrant?.committedAuthority?.distanceFromRouteStartMeters ?: 0.0
         val newFrontier = intent.desiredAuthority.distanceFromRouteStartMeters
+        if (appendsRoute && kotlin.math.abs(
+                oldFrontier - checkNotNull(existing).projection.route.totalLengthMeters
+            ) > Curve.TOLERANCE
+        ) {
+            return rejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
+                "route continuation requires authority committed to the prior route end")
+        }
         if (newFrontier <= oldFrontier) {
             return rejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
                 "requested authority must be farther than the committed boundary")
@@ -232,7 +259,7 @@ internal class RouteResourceAdmissionEngine(
         }
         val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
             ?: return rejected(RouteAdmissionFailureCode.TRAIN_NOT_FOUND, "train is absent from observation")
-        val projection = if (existing == null) {
+        val projection = if (existing == null || appendsRoute) {
             when (val projected = TopologyRouteProjector.project(intent.route, topology)) {
                 is TopologyRouteProjectionResult.Projected -> projected.route
                 is TopologyRouteProjectionResult.Rejected -> return rejected(
@@ -248,10 +275,15 @@ internal class RouteResourceAdmissionEngine(
             ) return rejected(RouteAdmissionFailureCode.WORLD_STALLED, "train tail no longer follows frozen route")
             existing.projection
         }
+        val progressPath = when {
+            existing == null -> null
+            !appendsRoute -> existing.routeProgressPath
+            else -> CompiledRouteProgressPath.compile(projection)
+        }
         val physicalResult = physicalCompiler.compile(
             projection, PhysicalRouteRange(oldFrontier, newFrontier,
-                includeTurnoutAtStart = existing == null),
-            existing?.controlledResources ?: emptySet(), existing?.routeProgressPath
+                includeTurnoutAtStart = existing == null || appendsRoute),
+            existing?.controlledResources ?: emptySet(), progressPath
         )
         val physical = when (physicalResult) {
             is PhysicalRouteCompilation.Compiled -> physicalResult.admission
@@ -409,7 +441,7 @@ internal class RouteResourceAdmissionEngine(
         val handle = RouteAdmissionHandle()
         route.pendingHandle = handle
         pending[handle] = PendingRequest(handle, intent, route, compiled, deltaEntries,
-            physicalResult.controlledResources, topology,
+            physicalResult.controlledResources, projection, appendsRoute, topology,
             reservation, (started as InfrastructurePreparationStart.Accepted).ticket)
         return progress(requester, handle)
     }
@@ -609,6 +641,15 @@ internal class RouteResourceAdmissionEngine(
         else -> rejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
             result.detail.ifBlank { "logical claim owner is unavailable" })
     }
+
+    private fun isAppendOnlyContinuation(
+        committed: RouteSnapshot,
+        requested: RouteSnapshot
+    ): Boolean = requested.routeId == committed.routeId &&
+        requested.topologyRevision == committed.topologyRevision &&
+        requested.revision > committed.revision &&
+        requested.segments.size > committed.segments.size &&
+        requested.segments.subList(0, committed.segments.size) == committed.segments
 
     private fun stalled(intent: RouteResourceIntent, cause: Exception, detail: String): RouteAdmissionResult {
         markWorldStalled("route admission ${intent.requestId}: $detail; safest claim retained", cause)

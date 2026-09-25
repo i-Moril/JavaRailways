@@ -47,7 +47,7 @@ internal sealed interface RouteProgressCursorUpdate {
  * and never trusts a caller-owned occurrence index or progress coordinate.
  */
 internal class CompiledRouteProgressPath private constructor(
-    private val occurrences: List<RouteProgressOccurrence>
+    internal val occurrences: List<RouteProgressOccurrence>
 ) {
     val occurrenceCount: Int
         get() = occurrences.size
@@ -83,16 +83,28 @@ internal class CompiledRouteProgressPath private constructor(
 
 /** Stateful, grant-owned cursor that can only move forward through one compiled path. */
 internal class RouteProgressCursor internal constructor(
-    private val occurrences: List<RouteProgressOccurrence>,
+    occurrences: List<RouteProgressOccurrence>,
     occurrenceIndex: Int,
     routeDistanceMeters: Double
 ) {
+    private var occurrences: List<RouteProgressOccurrence> = occurrences
     private var currentOccurrenceIndex = occurrenceIndex
     private var currentRouteDistanceMeters = routeDistanceMeters
     private var latchedFailure: RouteProgressCursorUpdate? = null
 
     val state: RouteProgressCursorState
         get() = RouteProgressCursorState(currentOccurrenceIndex, currentRouteDistanceMeters)
+
+    /** Installs an append while preserving accepted cursor progress. */
+    fun installExtension(path: CompiledRouteProgressPath) {
+        require(path.occurrences.size > occurrences.size) {
+            "route progress extension must append at least one occurrence"
+        }
+        require(path.occurrences.subList(0, occurrences.size) == occurrences) {
+            "route progress extension changed the committed prefix"
+        }
+        occurrences = path.occurrences
+    }
 
     fun update(position: RailPositionSnapshot): RouteProgressCursorUpdate {
         val projected = project(position)

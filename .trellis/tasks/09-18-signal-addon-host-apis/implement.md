@@ -283,6 +283,12 @@
       the frozen route end. The assembled route records its initial mission progress so later head progress maps onto the same
       tail-started coordinate without another projection. Production requests, retry timing, stale-route replacement and mission
       transitions remain in the parent migration item.
+    - [x] Correct the ordinary-stop lifecycle before production wiring: once authority reaches the current operating-route end,
+      SimpleATO may preserve its complete segment prefix and append the next forward mission under the route's own monotonic
+      revision. Basic reprojects the candidate but compiles/occupancy-checks/reserves/prepares only the farther authority range;
+      pending or rejected preparation leaves the old binding/grant/release active, while READY keeps the same grant ID, owner and
+      tail cursor and commits the longer progress path, release suffix and boundary together. Modified prefixes, disconnected
+      appends and reversal are rejected without mutation. Dispatcher production composition remains unchecked.
   - [ ] Prove parity for priority, stop/station-call behavior, transient retry, stale-route re-selection, manual modes and tail
     release, then delete `RouteSectionAllocator` and the final dispatcher-specific RailWand allocation guard.
 - [ ] Add topology edit guards for active external claims.

@@ -27,6 +27,59 @@ import java.util.UUID
 
 class FrozenMissionRouteAssemblerTest {
     @Test
+    fun `ordinary stop appends a separately revisioned mission without changing the route prefix`() {
+        val rail = UUID(0L, 40L)
+        val topology = buildTestTopology(
+            revision = 13L,
+            rails = listOf(TestTopologyRail(rail, 100.0)),
+            continuations = emptyMap<RailEndpointRef, Set<RailEndpointRef>>()
+        )
+        val firstObservation = observation(
+            topology.revision,
+            RailPositionSnapshot(rail, ViewDirection.AB, 0.0),
+            RailPositionSnapshot(rail, ViewDirection.AB, 10.0),
+            listOf(traversal(rail, ViewDirection.AB, 0.0, 10.0))
+        )
+        val first = (FrozenMissionRouteAssembler.assemble(
+            topology,
+            FrozenRouteSelectionContext(firstObservation),
+            TRAIN_ID,
+            mission(
+                segments = listOf(RouteSegment(RailViewRef(rail, ViewDirection.AB), 10.0, 20.0)),
+                missionId = "first",
+                revision = 0L
+            ),
+            missionHeadProgressMeters = 0.0
+        ) as FrozenMissionRouteResult.Frozen).route
+        val committedPrefix = first.selection.route.segments.toList()
+        val stopObservation = observation(
+            topology.revision,
+            RailPositionSnapshot(rail, ViewDirection.AB, 10.0),
+            RailPositionSnapshot(rail, ViewDirection.AB, 20.0),
+            listOf(traversal(rail, ViewDirection.AB, 10.0, 20.0))
+        )
+
+        val appended = (FrozenMissionRouteAssembler.append(
+            topology,
+            FrozenRouteSelectionContext(stopObservation),
+            first,
+            mission(
+                segments = listOf(RouteSegment(RailViewRef(rail, ViewDirection.AB), 20.0, 40.0)),
+                missionId = "second",
+                revision = 0L
+            )
+        ) as FrozenMissionRouteResult.Frozen).route
+
+        assertEquals(first.selection.route.routeId, appended.selection.route.routeId)
+        assertEquals(first.selection.route.revision + 1L, appended.selection.route.revision)
+        assertEquals(committedPrefix,
+            appended.selection.route.segments.take(committedPrefix.size))
+        assertEquals(20.0, appended.headDistanceFromRouteStartMeters, 1.0e-12)
+        assertEquals(20.0, appended.routeProgressMeters(0.0), 1.0e-12)
+        assertEquals(35.0, appended.routeProgressMeters(15.0), 1.0e-12)
+    }
+
+    @Test
     fun `published body is prepended to the mission without another route search`() {
         val approach = UUID(0L, 1L)
         val missionBranch = UUID(0L, 2L)
@@ -195,17 +248,21 @@ class FrozenMissionRouteAssemblerTest {
         assertEquals(90.0, frozen.route.selection.route.segments.single().endArcLengthMeters, 1.0e-12)
     }
 
-    private fun mission(segments: List<RouteSegment>): AtoMission {
+    private fun mission(
+        segments: List<RouteSegment>,
+        missionId: String = "mission",
+        revision: Long = 5L
+    ): AtoMission {
         val expanded = ExpandedRoute("origin", "target", segments)
         val planned = PlannedRoute(
-            routeId = "mission/leg/0",
-            revision = 5L,
+            routeId = "$missionId/leg/0",
+            revision = revision,
             expandedRoute = expanded,
             sections = listOf(RouteSection(0, 0.0, expanded.totalLength, emptyList()))
         )
         return AtoMission(
-            id = "mission",
-            revision = 5L,
+            id = missionId,
+            revision = revision,
             origin = WayPointRef("origin"),
             legs = listOf(AtoMissionLeg(0, AtoMissionPoint.Stop(WayPointRef("target")), planned))
         )

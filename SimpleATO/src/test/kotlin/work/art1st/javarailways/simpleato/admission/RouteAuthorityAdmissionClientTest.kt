@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.admission
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -107,22 +108,67 @@ class RouteAuthorityAdmissionClientTest {
     }
 
     @Test
-    fun `denied extension retains the earlier committed authority`() {
+    fun `pending route continuation keeps old binding and ready switches the same grant`() {
+        val grantId = RouteAdmissionTestFixtures.grantId()
+        val first = grant(100.0, selectedRoute = route, id = grantId)
+        val appendedRoute = RouteSnapshot(
+            route.routeId,
+            route.revision + 1L,
+            route.topologyRevision,
+            route.segments + RouteSegmentSnapshot(
+                UUID.randomUUID(), ViewDirection.AB, 0.0, 60.0
+            )
+        )
+        val appendedSelection = selection(appendedRoute)
+        val handle = RouteAdmissionTestFixtures.handle()
+        var requests = 0
+        service.onRequest = {
+            if (requests++ == 0) RouteAdmissionResult.Granted(first)
+            else RouteAdmissionResult.Pending(handle, first)
+        }
+        service.onProgress = {
+            RouteAdmissionResult.Granted(grant(140.0, appendedRoute, grantId))
+        }
+
+        client.request(100.0)
+        val pending = client.request(appendedSelection, RouteBoundary(140.0))
+
+        assertSame(first, (pending as RouteAdmissionResult.Pending).committedGrant)
+        assertEquals(route.revision, publisher.snapshots.last().route.routeRevision)
+        assertEquals(route.totalLengthMeters, publisher.snapshots.last().route.totalLengthMeters)
+
+        val ready = assertInstanceOf(RouteAdmissionResult.Granted::class.java, client.progress()).grant
+        assertSame(grantId, ready.grantId)
+        assertEquals(appendedRoute.revision, publisher.snapshots.last().route.routeRevision)
+        assertEquals(appendedRoute.totalLengthMeters, publisher.snapshots.last().route.totalLengthMeters)
+        assertEquals(140.0, publisher.authorities().last())
+    }
+
+    @Test
+    fun `denied continuation retains the earlier authority and route binding`() {
         val grant = grant(30.0)
+        val appendedRoute = RouteSnapshot(
+            route.routeId,
+            route.revision + 1L,
+            route.topologyRevision,
+            route.segments + RouteSegmentSnapshot(UUID.randomUUID(), ViewDirection.AB, 0.0, 60.0)
+        )
         var requests = 0
         service.onRequest = {
             if (requests++ == 0) RouteAdmissionResult.Granted(grant)
-            else rejected(RouteAdmissionFailureCode.INVALID_BOUNDARY, "extension denied")
+            else rejected(RouteAdmissionFailureCode.INVALID_BOUNDARY, "continuation denied")
         }
 
         client.request(30.0)
-        val denied = client.request(60.0, stamp.copy(physicsEpoch = 11L))
+        val denied = client.request(selection(appendedRoute), RouteBoundary(60.0))
 
         assertEquals(
             RouteAdmissionFailureCode.INVALID_BOUNDARY,
             (denied as RouteAdmissionResult.Rejected).failure.code
         )
         assertEquals(listOf(0.0, 30.0), publisher.authorities())
+        assertEquals(route.revision, publisher.snapshots.last().route.routeRevision)
+        assertEquals(route.totalLengthMeters, publisher.snapshots.last().route.totalLengthMeters)
     }
 
     @Test

@@ -25,6 +25,8 @@ import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.timetable.GrantingRouteAdmissionTestContext
+import work.art1st.javarailways.simpleato.timetable.UnavailableRouteAdmissionTestContext
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
@@ -63,7 +65,7 @@ class DepotResetCoordinatorTest {
     fun `successful reset relocates trains rebuilds ledgers and keeps world stalled`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
-            routeAdmissionContextProvider = null,
+            routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             atoFactory = TimetableAtoFactory { train, trainWorld ->
                 SimpleATO(train, trainWorld, KinematicTrainActuator(10.0, profile), profile)
             }
@@ -129,8 +131,7 @@ class DepotResetCoordinatorTest {
         val ato = train.controller as SimpleATO
         AsyncTickTestSupport.run { ato.tick(50.0) }
         ato.commit()
-        dispatcher.tick(world)
-        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertFalse(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
         coordinator.stall(report(coordinator.worldId, train.id))
 
         val result = DepotResetCoordinator(world, dispatcher).reset(setOf(depotId))
@@ -139,7 +140,6 @@ class DepotResetCoordinatorTest {
         val success = result.report
         assertEquals(DepotResetStatus.SUCCEEDED, success.status)
         assertEquals(1, success.removedRunCount)
-        assertEquals(0, success.releasedRouteSectionCount)
         assertNull(dispatcher.status(TimetableServiceRunId("tt", "s1")))
         assertNull(train.controller)
         assertEquals(originArc, train.head.location.arcLength, 1.0e-6)
@@ -149,7 +149,10 @@ class DepotResetCoordinatorTest {
             data.depots.stablingPoint(StablingPointRef(depotId, "one"))?.occupantTrainId
         )
         assertTrue(coordinator.isStalled)
-        assertTrue(DepotResetReportJson.encode(success).contains("\"status\": \"SUCCEEDED\""))
+        val encoded = DepotResetReportJson.encode(success)
+        assertTrue(encoded.contains("\"schemaVersion\": 2"))
+        assertTrue(encoded.contains("\"status\": \"SUCCEEDED\""))
+        assertFalse(encoded.contains("releasedRouteSectionCount"))
     }
 
     @Test
@@ -234,7 +237,8 @@ class DepotResetCoordinatorTest {
         coordinator.stall(report(coordinator.worldId, riskyTrain.id))
 
         val result = onMainThread {
-            DepotResetCoordinator(world, TimetableDispatcher(null)).reset(setOf(depotId))
+            DepotResetCoordinator(world, TimetableDispatcher(UnavailableRouteAdmissionTestContext))
+                .reset(setOf(depotId))
         }
         riskyTrain.commit()
 
@@ -336,7 +340,10 @@ class DepotResetCoordinatorTest {
         val beforeSecond = secondTrain.head.location
         coordinator.stall(report(coordinator.worldId, firstTrain.id))
 
-        val result = DepotResetCoordinator(world, TimetableDispatcher(null)).reset(setOf(depotId))
+        val result = DepotResetCoordinator(
+            world,
+            TimetableDispatcher(UnavailableRouteAdmissionTestContext)
+        ).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_ENVELOPE", result.report.failureStage)
@@ -385,7 +392,10 @@ class DepotResetCoordinatorTest {
         val beforeStock = world.basicWorldData.depots.allRollingStock()
         val beforePoints = world.basicWorldData.depots.stablingPoints(depotId)
 
-        val result = DepotResetCoordinator(world, TimetableDispatcher(null)).reset(setOf(depotId))
+        val result = DepotResetCoordinator(
+            world,
+            TimetableDispatcher(UnavailableRouteAdmissionTestContext)
+        ).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_RESOLUTION", result.report.failureStage)

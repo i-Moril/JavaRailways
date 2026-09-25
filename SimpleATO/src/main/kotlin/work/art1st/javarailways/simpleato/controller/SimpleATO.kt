@@ -49,10 +49,8 @@ import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
-import work.art1st.javarailways.basic.route.ConfirmedRouteWindow
 import work.art1st.javarailways.basic.route.MissionRouteLayout
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
-import work.art1st.javarailways.basic.route.RouteSectionAllocationKey
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
@@ -90,7 +88,6 @@ data class SimpleAtoPublishedState(
     val preparedReverseRevision: Long,
     val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics,
     val currentMission: AtoMission?,
-    val currentConfirmedRouteWindows: List<ConfirmedRouteWindow>,
     val currentStationCall: ResolvedStationCall?
 )
 
@@ -98,7 +95,6 @@ private data class SimpleAtoControllerPublishedState(
     val preparedReverseRevision: Long,
     val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics,
     val currentMission: AtoMission?,
-    val currentConfirmedRouteWindows: List<ConfirmedRouteWindow>,
     val currentStationCall: ResolvedStationCall?
 )
 
@@ -114,8 +110,6 @@ class SimpleATO(
         data class StopAt(val key: String, val target: RailObjectRef, val offsetMeters: Double) : Command
         data class Remove(val key: String) : Command
         data class SetProvider(val providerId: String?) : Command
-        data class ConfirmRouteWindow(val window: ConfirmedRouteWindow) : Command
-        data class ReleaseRouteWindow(val key: RouteSectionAllocationKey) : Command
         data class SetMovementAuthority(val missionRevision: Long, val limitDistanceMeters: Double) : Command
         data class GrantStationDeparture(val callId: String, val missionRevision: Long) : Command
         data class PrepareReverse(
@@ -171,7 +165,6 @@ class SimpleATO(
     private var previousObserved: Map<RailObjectRef, Observed> = emptyMap()
     private var currentSegments: List<RailSegment> = emptyList()
     private var activeProvider: AtoProvider? = null
-    private val confirmedRouteWindows = LinkedHashMap<RouteSectionAllocationKey, ConfirmedRouteWindow>()
     private var routeRevision = 0L
     private var previousRouteKey: List<Pair<java.util.UUID, work.art1st.javarailways.core.api.physics.rail.ViewDirection>> = emptyList()
     private var perceptionEpoch = 0L
@@ -189,7 +182,6 @@ class SimpleATO(
         private set
 
     private var activeMission: AtoMission? = null
-    private var activeConfirmedRouteWindows: List<ConfirmedRouteWindow> = emptyList()
     private var activeCurrentStationCall: ResolvedStationCall? = null
 
     val publishedState: SimpleAtoPublishedState
@@ -203,7 +195,6 @@ class SimpleATO(
                 preparedReverseRevision = controller.preparedReverseRevision,
                 runtimeDiagnostics = controller.runtimeDiagnostics,
                 currentMission = controller.currentMission,
-                currentConfirmedRouteWindows = controller.currentConfirmedRouteWindows,
                 currentStationCall = controller.currentStationCall
             )
         }
@@ -211,8 +202,6 @@ class SimpleATO(
     val preparedReverseRevision: Long get() = publishedState.preparedReverseRevision
     val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics get() = publishedState.runtimeDiagnostics
     val currentMission: AtoMission? get() = publishedState.currentMission
-    val currentConfirmedRouteWindows: List<ConfirmedRouteWindow>
-        get() = publishedState.currentConfirmedRouteWindows
     val currentStationCall: ResolvedStationCall? get() = publishedState.currentStationCall
 
     /** Publisher used by the one resource-admission client attached to this controller. */
@@ -318,14 +307,6 @@ class SimpleATO(
     }
 
     @MainThread
-    fun confirmRouteWindow(window: ConfirmedRouteWindow): Long =
-        commands.enqueue(Command.ConfirmRouteWindow(window)).revision
-
-    @MainThread
-    fun releaseRouteWindow(key: RouteSectionAllocationKey): Long =
-        commands.enqueue(Command.ReleaseRouteWindow(key)).revision
-
-    @MainThread
     fun setMovementAuthority(missionRevision: Long, limitDistanceMeters: Double): Long {
         require(missionRevision >= 0L)
         require(limitDistanceMeters.isFinite() && limitDistanceMeters >= 0.0)
@@ -342,11 +323,18 @@ class SimpleATO(
         )
     }
 
-    fun routeAllocationTriggerDistanceMeters(
-        approachSpeedMetersPerSecond: Double,
+    /**
+     * Stable low-water mark for rolling route admission.
+     *
+     * This deliberately uses the train's maximum speed rather than its current speed. A current-
+     * speed threshold retreats while the authority constraint brakes the train, which can leave a
+     * slow or line-limited train stopped just short of the committed boundary without requesting
+     * the next window.
+     */
+    internal fun routeAllocationTriggerDistanceMeters(
         timing: RouteAllocationTiming
     ): Double = timing.triggerDistanceMeters(
-        approachSpeedMetersPerSecond,
+        actuator.maximumSpeedMetersPerSecond,
         safetyProfile.serviceDecelerationMetersPerSecondSquared
     )
 
@@ -468,20 +456,6 @@ class SimpleATO(
                     stopTargets.remove(command.key)
                 }
                 is Command.SetProvider -> switchProvider(command.providerId)
-                is Command.ConfirmRouteWindow -> {
-                    check(activeMission?.legs?.any { leg ->
-                        leg.plannedRoute.routeId == command.window.key.routeId &&
-                            leg.plannedRoute.revision == command.window.key.routeRevision
-                    } == true) {
-                        "confirmed RouteSection does not belong to the active Mission: ${command.window.key}"
-                    }
-                    confirmedRouteWindows[command.window.key] = command.window
-                    publishConfirmedRouteWindows()
-                }
-                is Command.ReleaseRouteWindow -> {
-                    confirmedRouteWindows.remove(command.key)
-                    publishConfirmedRouteWindows()
-                }
                 is Command.SetMovementAuthority -> {
                     val activeRevision = activeMission?.revision ?: -1L
                     when {
@@ -586,19 +560,6 @@ class SimpleATO(
         currentSegments.zipWithNext().forEach { (current, next) ->
             check(current.railView.activeRail === next.railView) {
                 "turnout changed while ATO was planning at rail ${current.railView.rail.id}"
-            }
-        }
-        confirmedRouteWindows.values.forEach { window ->
-            window.section.turnoutRequirements.forEach { requirement ->
-                val from = world.getRail(requirement.from.railId)?.getView(requirement.from.direction)
-                    ?: error("confirmed turnout no longer exists: ${requirement.from}")
-                val selected = world.getRail(requirement.selectedNext.railId)
-                    ?.getView(requirement.selectedNext.direction)
-                    ?: error("confirmed branch no longer exists: ${requirement.selectedNext}")
-                check(from.nextActiveRail === selected) {
-                    "confirmed turnout mismatch at ${requirement.from}: " +
-                        "expected ${requirement.selectedNext}, actual ${from.nextActiveRail?.rail?.id}"
-                }
             }
         }
     }
@@ -1049,7 +1010,6 @@ class SimpleATO(
             constraints = java.util.List.copyOf(activeRuntimeDiagnostics.constraints)
         ),
         currentMission = activeMission,
-        currentConfirmedRouteWindows = activeConfirmedRouteWindows,
         currentStationCall = activeCurrentStationCall
     )
 
@@ -1057,12 +1017,6 @@ class SimpleATO(
         if (pendingStationNotifications.isEmpty()) return
         publishedStationNotifications.addAll(pendingStationNotifications)
         pendingStationNotifications.clear()
-    }
-
-    private fun publishConfirmedRouteWindows() {
-        activeConfirmedRouteWindows = java.util.Collections.unmodifiableList(
-            ArrayList(confirmedRouteWindows.values)
-        )
     }
 
     private fun brakingDistance(speed: Double, deceleration: Double): Double =
@@ -1086,7 +1040,6 @@ class SimpleATO(
             preparedReverseRevision = 0L,
             runtimeDiagnostics = INITIAL_RUNTIME_DIAGNOSTICS,
             currentMission = null,
-            currentConfirmedRouteWindows = emptyList(),
             currentStationCall = null
         )
         val LINE_SPEED_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:line-speed")

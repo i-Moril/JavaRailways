@@ -38,9 +38,6 @@ import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.timetable.TimetableLineSpeedLimit
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
-import work.art1st.javarailways.basic.route.ConfirmedRouteWindow
-import work.art1st.javarailways.basic.route.RouteSectionAllocationKey
-import work.art1st.javarailways.basic.route.RouteSectionOwner
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.physics.rail.configureTurnoutForTest
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -157,16 +154,6 @@ class SimpleATOTest {
         val second = fixture.ato.submitMission(request(2L)) as AtoMissionSubmissionResult.Accepted
         assertTrue(fixture.ato.submitMission(request(1L)) is AtoMissionSubmissionResult.StaleRevision)
         val plannedRoute = second.mission.legs.single().plannedRoute
-        val window = ConfirmedRouteWindow(
-            RouteSectionAllocationKey(
-                RouteSectionOwner("service-1", fixture.train.id),
-                plannedRoute.routeId,
-                plannedRoute.revision,
-                sectionIndex = 0
-            ),
-            plannedRoute.sections.single()
-        )
-        fixture.ato.confirmRouteWindow(window)
         assertEquals(null, fixture.ato.currentMission)
 
         val beforePublication = fixture.ato.publishedState
@@ -179,7 +166,6 @@ class SimpleATOTest {
         fixture.ato.commit()
 
         assertEquals(2L, fixture.ato.currentMission?.revision)
-        assertEquals(listOf(window), fixture.ato.currentConfirmedRouteWindows)
         assertEquals(0.0, fixture.train.speed, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
 
@@ -193,12 +179,7 @@ class SimpleATOTest {
         assertTrue(fixture.ato.submitMission(request(3L)) is AtoMissionSubmissionResult.Accepted)
         tickAndPublish(fixture.ato, 50.0)
         assertEquals(3L, fixture.ato.currentMission?.revision)
-        assertEquals(listOf(window), fixture.ato.currentConfirmedRouteWindows)
         assertTrue(fixture.train.speed < 1.0)
-
-        fixture.ato.releaseRouteWindow(window.key)
-        tickAndPublish(fixture.ato, 50.0)
-        assertTrue(fixture.ato.currentConfirmedRouteWindows.isEmpty())
     }
 
     @Test
@@ -622,16 +603,6 @@ class SimpleATOTest {
             points = listOf(AtoMissionPoint.Stop(WayPointRef(targetId)))
         )) as AtoMissionSubmissionResult.Accepted
         val route = accepted.mission.legs.single().plannedRoute
-        val window = ConfirmedRouteWindow(
-            RouteSectionAllocationKey(
-                RouteSectionOwner("${fixture.train.id}-mission", fixture.train.id),
-                route.routeId,
-                route.revision,
-                sectionIndex = 0
-            ),
-            route.sections.single()
-        )
-        fixture.ato.confirmRouteWindow(window)
         fixture.ato.setMovementAuthority(
             accepted.mission.revision,
             fixture.ato.terminalMovementAuthorityLimitMeters(route.expandedRoute.totalLength)

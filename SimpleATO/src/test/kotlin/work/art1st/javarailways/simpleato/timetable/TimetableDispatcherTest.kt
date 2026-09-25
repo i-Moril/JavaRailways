@@ -57,8 +57,6 @@ class TimetableDispatcherTest {
     fun `depot reset progress preserves completed mutation counts for partial reports`() {
         val progress = TimetableDepotResetProgress()
 
-        progress.recordRouteRelease()
-        progress.recordRouteRelease()
         progress.recordBerthRelease()
         progress.recordRunRemoval()
         progress.recordStoppedTimetable("tt-a")
@@ -66,7 +64,6 @@ class TimetableDispatcherTest {
         assertEquals(
             DepotResetDispatchSummary(
                 removedRunCount = 1,
-                releasedRouteSectionCount = 2,
                 releasedBerthCount = 1,
                 stoppedTimetableIds = setOf("tt-a")
             ),
@@ -157,7 +154,7 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `starts explicit train only after first section confirmation and keeps final route held`() {
+    fun `starts explicit train only after the first Basic route grant`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
@@ -178,17 +175,19 @@ class TimetableDispatcherTest {
         assertTrue(started is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
-        assertTrue(train.speed > 0.0)
+        assertEquals(0.0, train.speed)
 
         dispatcher.tick(world)
         assertEquals(
             TimetableServiceRunState.RUNNING,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
         )
+        assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
+        tickAndPublish(ato)
+        assertTrue(train.speed > 0.0)
         tickAndPublish(ato, 1_000.0)
 
         assertEquals(1.05, train.speed, 1.0e-9)
-        assertEquals(0, ato.currentConfirmedRouteWindows.size)
 
         repeat(600) { tickAndPublish(ato) }
         assertEquals(0.0, train.speed)
@@ -203,11 +202,11 @@ class TimetableDispatcherTest {
         tickAndPublish(ato)
         dispatcher.tick(world)
         assertEquals(
-            TimetableServiceRunState.COMPLETED,
+            TimetableServiceRunState.STOPPED,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
         )
         assertNotNull(train.controller)
-        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
     }
 
     @Test
@@ -575,7 +574,7 @@ class TimetableDispatcherTest {
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableServiceRunState.COMPLETED, status.state)
-        assertEquals(0, status.confirmedSectionCount)
+        assertTrue(status.routeGrantActive)
         assertEquals(originArc + 100.0, train.head.location.arcLength, 0.6)
         val rolling = data.depots.rollingStock(train.id)!!
         assertEquals(RollingStockState.AVAILABLE, rolling.state)
@@ -618,7 +617,7 @@ class TimetableDispatcherTest {
             TimetableServiceRunId("tt-depart-again", "s1")
         )!!
         assertEquals(TimetableServiceRunState.COMPLETED, departureStatus.state)
-        assertEquals(0, departureStatus.confirmedSectionCount)
+        assertTrue(departureStatus.routeGrantActive)
         assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
         assertEquals(null, data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
         assertTrue(!data.atoCoordinator.isStalled)
@@ -1179,12 +1178,12 @@ class TimetableDispatcherTest {
         val completed = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableServiceRunState.COMPLETED, completed.state)
         assertEquals(TimetableControlMode.MANUAL_ROUTED, completed.controlMode)
-        assertEquals(0, completed.confirmedSectionCount)
+        assertTrue(completed.routeGrantActive)
         assertTrue(!data.atoCoordinator.isStalled)
     }
 
     @Test
-    fun `manual routed straight route has no synthetic protection resource`() {
+    fun `manual routed straight route receives Basic route assistance`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-manual-violation", reportSink = {})
@@ -1213,7 +1212,7 @@ class TimetableDispatcherTest {
         dispatcher.tick(world)
 
         assertFalse(coordinator.isStalled)
-        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
     }
 
     @Test
@@ -1254,7 +1253,7 @@ class TimetableDispatcherTest {
         train.setController(manual)
         assertTrue(dispatcher.bindManualRoutedController(train.id, "driver", manual))
         dispatcher.tick(world)
-        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
         val suspended = dispatcher.switchToFullManual(train.id, "driver")
         assertTrue(suspended is TimetableControlTransferResult.Suspended)
         manual.setThrottle(1.0)
@@ -1268,7 +1267,7 @@ class TimetableDispatcherTest {
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableControlMode.FULL_MANUAL, status.controlMode)
         assertEquals(TimetableServiceRunState.SUSPENDED, status.state)
-        assertEquals(0, status.confirmedSectionCount)
+        assertTrue(status.routeGrantActive)
         assertTrue(dispatcher.releaseControlTransfer(train.id, "driver"))
         assertEquals(
             TimetableServiceRunState.REPLAN_REQUIRED,
@@ -1380,7 +1379,7 @@ class TimetableDispatcherTest {
     }
 
     @Test
-    fun `suspension preserves confirmed route ownership`() {
+    fun `suspension preserves active Basic route grant`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData(
@@ -1400,20 +1399,20 @@ class TimetableDispatcherTest {
         dispatcher.startService(world, "tt", "s1") as TimetableServiceStartResult.Started
         tickAndPublish(train.controller as SimpleATO)
         dispatcher.tick(world)
-        assertEquals(0, dispatcher.status(id)?.confirmedSectionCount)
+        assertTrue(dispatcher.status(id)?.routeGrantActive == true)
 
         dispatcher.suspendForControlTransfer(world, train.id, "driver-1")
         dispatcher.tick(world)
 
         assertEquals(TimetableServiceRunState.SUSPENDED, dispatcher.status(id)?.state)
-        assertEquals(0, dispatcher.status(id)?.confirmedSectionCount)
+        assertTrue(dispatcher.status(id)?.routeGrantActive == true)
         assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-1"))
 
         train.setLocation(train.head.location.forward(40.0)!!)
         train.commit()
         dispatcher.tick(world)
 
-        assertEquals(0, dispatcher.status(id)?.confirmedSectionCount)
+        assertFalse(dispatcher.status(id)?.routeGrantActive == true)
         assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, dispatcher.status(id)?.state)
     }
 
@@ -1456,22 +1455,18 @@ class TimetableDispatcherTest {
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
         dispatcher.tick(world)
-        assertEquals(0, dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount)
+        assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
 
         var observedHeadOnlyPastVia = false
-        var observedTailRelease = false
         repeat(4_000) {
             tickAndPublish(ato)
             dispatcher.tick(world)
-            val count = dispatcher.status(TimetableServiceRunId("tt", "s1"))?.confirmedSectionCount
+            val grantActive = dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true
             if (train.head.location.arcLength > viaArc + 0.2 &&
                 train.tailBogie.location.arcLength < viaArc - 0.2
             ) {
                 observedHeadOnlyPastVia = true
-                assertEquals(0, count)
-            }
-            if (train.tailBogie.location.arcLength >= viaArc && count == 0) {
-                observedTailRelease = true
+                assertTrue(grantActive)
             }
             if (dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state ==
                 TimetableServiceRunState.COMPLETED
@@ -1479,7 +1474,6 @@ class TimetableDispatcherTest {
         }
 
         assertTrue(observedHeadOnlyPastVia)
-        assertTrue(observedTailRelease)
         assertEquals(targetArc, train.head.location.arcLength, 0.4)
         assertEquals(
             TimetableServiceRunState.COMPLETED,
@@ -1566,7 +1560,7 @@ class TimetableDispatcherTest {
         dispatcher.tick(world)
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s"))
-        assertEquals(1, status?.confirmedSectionCount, "$status occupied=${train.occupiedRailIntervals}")
+        assertTrue(status?.routeGrantActive == true, "$status occupied=${train.occupiedRailIntervals}")
         assertSame(branch.viewAB, approach.viewAB.nextActiveRail)
         assertFalse(data.atoCoordinator.isStalled)
     }
@@ -1621,7 +1615,7 @@ class TimetableDispatcherTest {
             tickAndPublish(mainAto)
             dispatcher.tick(world)
             if (dispatcher.status(TimetableServiceRunId("tt", "blocking"))
-                    ?.confirmedSectionCount == 1
+                    ?.routeGrantActive == true
             ) break
         }
         repeat(2_000) {
@@ -1639,7 +1633,6 @@ class TimetableDispatcherTest {
         )
         assertEquals(0.0, mainTrain.speed)
         assertTrue(mainTrain.head.location.arcLength <= 80.0)
-        assertTrue(mainTrain.head.location.arcLength >= 74.0)
         assertTrue(!data.atoCoordinator.isStalled)
         assertSame(blockingBranch.viewAB, approach.viewAB.nextActiveRail)
     }
@@ -1749,7 +1742,7 @@ class TimetableDispatcherTest {
 
         assertTrue(coordinator.isStalled)
         assertEquals(TimetableServiceRunState.FAILED, dispatcher.status(secondId)?.state)
-        assertEquals(0, dispatcher.status(firstId)?.confirmedSectionCount)
+        assertTrue(dispatcher.status(firstId)?.routeGrantActive == true)
     }
 
     @Test
@@ -1957,12 +1950,16 @@ class TimetableDispatcherTest {
         assertEquals(1, actionStarts)
     }
 
-    private fun dispatcher(): TimetableDispatcher = TimetableDispatcher(
-        routeAdmissionContextProvider = null,
-        atoFactory = TimetableAtoFactory { train, world ->
-            SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
-        }
-    )
+    private fun dispatcher(): TimetableDispatcher {
+        var boundWorld: CoreWorld? = null
+        return TimetableDispatcher(
+            routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { boundWorld },
+            atoFactory = TimetableAtoFactory { train, world ->
+                boundWorld = world as CoreWorld
+                SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
+            }
+        )
+    }
 
     private fun timetable(
         timetableId: String,

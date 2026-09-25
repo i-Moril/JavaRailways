@@ -3,7 +3,7 @@
 ## 状态与范围
 
 `work.art1st.javarailways.simpleato.controller.SimpleATO`是当前唯一具体自动驾驶controller owner。
-它连同`SimpleAtoPublishedState`、mission queue、confirmed route windows、provider选择、station-call状态、
+它连同`SimpleAtoPublishedState`、mission queue、provider选择、station-call状态、
 movement authority和owner-scoped constraint manager位于SimpleATO模块。Basic不保留同名controller、typealias、
 factory facade或转发访问器。
 
@@ -16,7 +16,7 @@ Basic暂时提供`AbstractATO`、`AtoSafetyProfile`、actuator、mission/snapsho
 一次控制周期按以下顺序运行：
 
 1. Bukkit或隔离仿真的`TimetableAtoFactory`创建一个controller并安装到目标Core train；
-2. Dispatcher在serialized owner上提交带revision的mission、route window、station call、reverse或authority命令；
+2. Dispatcher在serialized owner上提交带revision的mission、station call、reverse或authority命令；
 3. physics tick开始时controller只在边界drain已接受命令，形成一份active mission/route/provider状态；
 4. controller构造一次perception，按owner原子替换当前constraints，并取所有候选中最严格速度；
 5. Basic `AbstractATO`先执行invariant validation，再调用actuator并移动Core train；
@@ -24,7 +24,8 @@ Basic暂时提供`AbstractATO`、`AtoSafetyProfile`、actuator、mission/snapsho
 
 Mission、constraint、provider和station-call的mutable集合都只存在于该controller实例，不在
 `SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；production Dispatcher
-复用该perception horizon规划滚动授权，不增加第二次路线扫描。legacy route allocator只存在于显式隔离测试路径。
+复用该perception horizon规划滚动授权，不增加第二次路线扫描。Dispatcher不维护第二套route allocator；生产环境与
+隔离仿真都通过Basic的同一个route-admission runtime申请、准备、授权并按车尾释放资源。
 
 controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。production Dispatcher让admission client向adapter发布
 immutable restriction snapshot，并在serialized owner上用当前stamp、同一冻结route binding及route progress调用apply；

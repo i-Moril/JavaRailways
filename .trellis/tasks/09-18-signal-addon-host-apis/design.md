@@ -189,8 +189,8 @@ The first ownership batch is complete: the live dispatcher is constructed in
 `SimpleATORuntimeSnapshotV1`. `BasicWorldData` and `BasicRuntimeSnapshotV2` contain no dispatcher
 field. This keeps the frozen-route selector, admission client, restriction adapter and their future
 production caller on the same side of the module dependency. The dispatcher still consumes
-transitional Basic timetable/value types; Bukkit production now uses generic Basic admission, while
-the legacy allocator remains only in explicitly selected isolation/parity tests until deletion.
+transitional Basic timetable/value types; Bukkit production and isolated simulation now use generic
+Basic admission, and the legacy allocator has been deleted.
 
 Use the following reviewed migration sequence instead:
 
@@ -210,8 +210,9 @@ Use the following reviewed migration sequence instead:
    existing per-train admission client and apply its restriction snapshot to the one controller.
    `FULL_MANUAL` creates no new automatic request, while already-held claims continue normal tail
    release.
-4. After parity tests cover dispatcher priority, stops, station calls, retries, manual modes and tail
-   release, remove `RouteSectionAllocator` and the remaining dispatcher-specific RailWand edit guard.
+4. **Implemented.** After parity tests cover dispatcher priority, stops, station calls, retries,
+   manual modes and tail release, remove `RouteSectionAllocator`, Confirmed Route Window state and
+   the remaining dispatcher-specific RailWand allocation guard.
 
 The ownership move includes persistence rather than leaving a Basic-owned checkpoint behind. The
 target runtime files are three coherently paired documents: Core runtime, Basic runtime without

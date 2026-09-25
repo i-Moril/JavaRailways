@@ -2,55 +2,27 @@
 
 ## 适用场景与用途
 
-触发：修改turnout/route section/berth ownership、movement authority、release detector、applied-plan dependency、live claim、edit permit或manual control resource semantics。
+触发：修改route-resource admission、berth ownership、movement authority、tail release、applied-plan dependency、live claim、edit permit或manual control resource semantics。
 
-用途：一个world的allocator先预校验完整resource set再原子提交；conflict不preempt，失败不留下partial ownership，release由full physical occupancy/tail驱动而非run状态或head位置。
+用途：一个world的共享registry与admission runtime先验证完整resource set再原子提交；conflict不preempt，失败不留下partial ownership，release由authoritative tail observation驱动而非run状态或head位置。
 
-## Owner、keys与结果
+## 唯一运行时资源路径
 
-`RouteSectionAllocator(world)`是尚未迁移的Dispatcher seam，拥有旧Basic运营lock；physical `RailView.nextActiveRail`仍由Core topology持有。调用在successful current physics epoch后。它不是目标共享进路服务，新调用方不得依赖它。
+`RouteResourceAdmissionRuntime`是列车进路资源的唯一owner。`TimetableDispatcher`必须通过非空
+`TimetableRouteAdmissionContextProvider`取得同一Tick的`RailwayObservation`与认证
+`RouteResourceAdmissionService`；没有coherent observation时保持零authority，不得退回另一套allocator。
 
-```kotlin
-data class RouteSectionAllocationKey(
-    val owner: RouteSectionOwner,
-    val routeId: String,
-    val routeRevision: Long,
-    val sectionIndex: Int
-)
-```
+Basic从冻结route自行编译rail intervals、turnout与diamond物理底线，插件贡献只能增加资源。registry原子
+claim，设备准备完成后才发布grant；同一route的更远authority使用同一grant与tail cursor。`MANUAL_ROUTED`
+仍使用该服务，`FULL_MANUAL`不申请新资源但保留并推进已有grant。资源只按authoritative tail observation
+收紧；terminal、stop、failure或插件调用方消失都不能越权释放。
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/route/RouteSectionAllocator.kt`。Result：
-
-- `Confirmed(ConfirmedRouteWindow)`；
-- `Conflict(resource,heldBy)`；
-- `PhysicallyLocked(resource,occupyingTrainIds)`；
-- `Invalid(reason)`。
-
-`TurnoutRequirement`字段为canonical `from/selectedNext` refs、route distance m、protection m(default20)、locking m(default5)，要求`locking<=protection`。`lockingIntervals(world)`为三legs构造direction-independent canonical AB `RailInterval`。
-
-## Atomic allocation矩阵
-
-| 条件 | result | turnout/ownership |
-| --- | --- | --- |
-| same key再次request | same `Confirmed` | idempotent |
-| section不存在/stale view/branch disconnected | `Invalid` | 无mutation |
-| same resource在section选不同branch | `Invalid` | 无mutation |
-| resource已有owner | `Conflict` | 不preempt、不切任何turnout |
-| 要切branch且locking interval occupied | `PhysicallyLocked`含train IDs | selections不变 |
-| all prechecks通过 | 按冻结requirement顺序直接apply selections→record window | 一次确认 |
-| release(key) | 只释放ownership，幂等Boolean | 不自动reset turnout |
-
-旧allocator在第一次写入前解析全部live view/branch、拒绝重复资源的不同选择、检查现有owner并完成需要切换的全部locking interval占用查询。当前`RailView.selectNextRail`只是main-thread同步内存赋值，因此预检成功后直接按section冻结顺序写入；没有可触发的异步设备失败，也不捕获`previousSelection`或宣称能补偿恢复。若未来设备可能处于`PREPARING/UNSAFE`，只能迁入共享`InfrastructurePreparationActuator`生命周期，不能在此旧seam加入测试注入失败或另一套rollback。
-
-Dispatcher按absolute timetable priority tick + timetable/service/cycle stable order调用；allocator自身不排序。conflict/physical lock按world retry ticks，movement authority截在protection point，不Stall；identity/invariant disappearance才world Stall。
-
-Release必须由`RailIntervalReleaseDetector`观察`BEFORE→OCCUPIED→RELEASED`且runtime head超过clear progress。mission replacement保留old runtime至tail clear。Berth/Depot同原则。
-
-Manual：`MANUAL_ROUTED`仍分配/验证/release；`FULL_MANUAL`不申请new route但old resources tail-release；release control后`REPLAN_REQUIRED`，仅在无old locks/berth、stopped、explicit origin时replan。
+旧`RouteSectionAllocator`、Confirmed Route Window、Dispatcher section状态及专用RailWand allocation guard已删除。
+道岔切换由Basic preparation actuator执行；编辑阻止统一由registry live claim与common edit permit完成。
 
 ## Applied-plan dependency、live claim 与 edit guard
 
-`InfrastructureCoordinationRegistry`是world-local原子registry，现阶段与尚未迁移的`RouteSectionAllocator`并存；不得把两者并存误写成进路资源统一已经完成。它区分三类持有：
+`InfrastructureCoordinationRegistry`是world-local原子registry，也是运行时进路资源的唯一登记处。它区分三类持有：
 
 - applied-plan dependency：共享、长生命周期，分别保存persistent rail ID、`StableTopologyNodeKey`和
   `StableInfrastructureResource`三类引用；可彼此重叠，只用于阻止相关结构编辑，不参与列车资源仲裁；
@@ -123,7 +95,7 @@ footprint使用其`StableInfrastructureResource`，不得改用revision-local `T
 
 request不携带可替代Basic推导的raw `InfrastructureFootprint`或可信列车长度。SimpleATO从Core的authoritative `TopologyState`选择路径并提交有序edge traversal；Basic validator证明它在同一revision内连续、方向正确且每个continuation合法，再通过拓扑节点与绑定同一topology root的route-bound resource catalog，把rail intervals、turnouts、fixed crossings与其他shared conflicts加入物理底线。经过验证的插件addition只可增加资源。physical occupancy geometry只用于检查，不形成第二个footprint。非法或断裂traversal返回`INVALID_ROUTE`；保护区域覆盖不足由具体信号插件作为配置错误处理，不是Basic的`PROTECTION_REQUIRED`。验证前后均核对topology root，任何失败都不改变registry。
 
-`ProtectedRouteClaimService`现为host-side transitional admission seam，并未替换旧`RouteSectionAllocator`调用者。service消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/READY/ABORTED_SAFE/UNSAFE`，pending admission handle持有claim mutation，只有`READY`才完成claim，只有资源handler确认`ABORTED_SAFE`才删除本次新claim。`abort()`不规定恢复旧状态或默认状态。当前live actuator只处理turnout requirement：它在任何side effect前解析并验证完整的双向selection批次，然后即时写入并返回`READY`；当前内存选择没有虚构的运行时失败或旧selection恢复路径。执行未完成时不会返回成功claim结果，也不存在grant；任一snapshot/actuator异常或`UNSAFE`均保留当前claim reservation并Stall world。当前仍缺目标公开intent、附加资源API、grant/recovery和调用方迁移，因此不得声称自动/`MANUAL_ROUTED`流程已全面迁移。后续迁移必须删除可绕过mandatory physical footprint的automatic overload。
+`RouteResourceAdmissionRuntime`消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/READY/ABORTED_SAFE/UNSAFE`，pending admission handle持有claim mutation，只有`READY`才完成claim，只有资源handler确认`ABORTED_SAFE`才删除本次新claim。`abort()`不规定恢复旧状态或默认状态。当前live actuator处理turnout requirement：它在任何side effect前解析并验证完整的双向selection批次，然后即时写入并返回`READY`；当前内存选择没有虚构的运行时失败或旧selection恢复路径。执行未完成时不会返回成功claim结果，也不存在grant；任一snapshot/actuator异常或`UNSAFE`均保留当前claim reservation并Stall world。
 
 同一个`CompiledRouteAdmission`还携带validation同期生成的有序tail-release entries：唯一footprint中的每个resource恰好出现一次，entry只附加已经完整编译的车尾清除路线阈值，不复制occupancy geometry。释放控制器从当前队首扫描连续eligible prefix，但不先出队；必须先完成registry原子shrink，再推进队首索引。当前过渡compiler只使用最后claimed/conflict route extent，明确的clearance-margin来源仍未冻结；service已有显式observation驱动入口，但尚未自动接入publication。
 
@@ -224,17 +196,9 @@ release entries；`ABORTED_SAFE`只rollback该delta。
 
 ## 项目内正确示例
 
-Allocator先检查所有owner conflict，再apply：
-
-```kotlin
-resourceOwners[requirement.from]?.let { currentOwner ->
-    return RouteSectionAllocationResult.Conflict(requirement.from, currentOwner)
-}
-// Only after every requirement is resolved:
-resolved.forEach { it.from.selectNextRail(it.selectedNext) }
-```
-
-来源：`RouteSectionAllocator.kt`。这防止第二个turnout冲突时第一个已经被切换。
+Dispatcher只提交冻结route与目标authority；Basic编译完整物理底线、原子claim并准备设备。Dispatcher不枚举或
+切换道岔，也不维护另一份资源集合。隔离仿真同样组合`RouteResourceAdmissionRuntime`，每个物理步先向它提交
+本epoch的`RailwayObservation`，再执行Dispatcher Tick。
 
 ## 禁止实现
 
@@ -246,14 +210,14 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - topology revision只在validation前检查一次，允许检查期间的structural edit穿过；
 - release时复位branch；
 - 只看head或direction；
-- worker调用allocator；
+- worker直接修改registry或设备；
 - conflict直接Stall；
 - manual takeover立即清locks或FULL_MANUAL自动恢复ATO。
 
 ## 必需测试与验证
 
-- `RouteSectionAllocatorTest.kt`：完整batch在首个写入前检查conflict/physical lock、idempotent、release不reset；不构造同步内存selection的虚构apply failure。
-- `TimetableDispatcherTest.kt`：protection-point stop/retry、stable priority、short claim tail release、sameTick Stall停止后续allocation、manual modes。
+- `RouteResourceAdmissionEngineTest.kt`：完整batch在首个写入前检查conflict/physical lock、idempotent、tail release；不构造同步内存selection的虚构apply failure。
+- `TimetableDispatcherTest.kt`与`TimetableDispatcherSharedAdmissionTest.kt`：authority/retry、stable conflict、tail release、sameTick Stall、manual modes。
 - `TimetableStationCallDispatcherTest.kt`：berth/old mission tail release。
 - `InfrastructureCoordinationRegistryTest.kt`：重叠applied-plan dependencies、exclusive claims、held edit permit、owner revision、双重topology check、provider failure和无partial mutation。
 - `InfrastructureCoordinationRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
@@ -264,5 +228,6 @@ resolved.forEach { it.from.selectNextRail(it.selectedNext) }
 - public consumer fixture：能声明rail/node/resource三类applied-plan dependencies并申请edit permit，但不能导入raw `InfrastructureClaimRequest`。
 
 ```bash
-./gradlew :Basic:test --tests '*RouteSectionAllocatorTest' --tests '*TimetableDispatcherTest' --tests '*TimetableStationCallDispatcherTest'
+./gradlew :Basic:test --tests '*RouteResourceAdmissionEngineTest'
+./gradlew :SimpleATO:test --tests '*TimetableDispatcher*'
 ```

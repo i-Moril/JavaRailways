@@ -8,7 +8,7 @@
 
 ## Owner、入口与state
 
-`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、每run admission client、berth allocator、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。Bukkit production每Tick只取一次coherent observation/context，并使用认证的world-local `RouteResourceAdmissionService`；`RouteSectionAllocator`只保留给显式选择null provider的隔离测试/仿真过渡路径，production不得构造或调用它。入口：
+`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、每run admission client、berth allocator、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。Dispatcher构造时必须提供非空`TimetableRouteAdmissionContextProvider`；Bukkit production每Tick只取一次coherent observation/context并使用认证的world-local `RouteResourceAdmissionService`，隔离仿真组合同一个Basic runtime。无coherent observation时保持fail-closed，不存在legacy allocator fallback。入口：
 
 ```kotlin
 fun beginTimetable(world: World, timetableId: String): TimetableEpochStartResult
@@ -37,11 +37,13 @@ Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、stat
 | halt | model `power-off` SUCCEEDED | terminal gate |
 | reverse | ATO preparation revision published | main reverse；下一Tick确认 |
 | extension action | start exactly once | 后续Ticks只inspect ticket |
-| terminal replace/remove | allocations/berth/storage clear且ATO stopped | runtime才可replace |
+| terminal replace/remove | Basic grant ended、berth/storage clear且ATO stopped | runtime才可replace |
 
 Train acquisition以live stopped train location/speed/derail/controller/run/geometry为authority；RollingStock只补metadata。First mission confirmed后Depot reservation才IN_SERVICE。Storage full envelope+old resources clear才handoff。
 
 Control transfer：pending operation先cancel+confirm；`MANUAL_ROUTED`继续通过同一Basic admission申请前方资源，但人工controller不消费ATO constraint，因此Dispatcher用同一committed boundary执行既有越界保护。`FULL_MANUAL`不发new request，但已有pending handle继续progress到终态，既有claim仍由Basic按车尾释放。release后`REPLAN_REQUIRED`；stale topology或route-state mismatch也直接进入该状态，不在旧route上循环重试。
+
+滚动授权的高水位复用controller已有的前方感知距离，低水位按列车最大速度和设备准备时间保守计算，不能按当前速度逐Tick缩短。否则列车因当前授权边界减速时，续申请阈值会同时后退，最终可能停在边界前而不再申请。每次仍只扩展到一个感知窗口，不一次占用完整长路线。
 
 普通停车点不结束grant。下一条同向mission只把旧frozen route前缀追加到新route revision，ActiveRun的InfrastructureOwner、grant identity和Basic tail cursor保持不变。存车terminal可把仍tail-held的同一client/grant移交给下一forward service；折返或非前向接续仍要求后续独立设计。transient rejection等待既有retry tick，重试时用当Tick的新observation stamp重新构造selection；pending只progress handle，禁止重提intent。
 

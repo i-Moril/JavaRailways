@@ -64,7 +64,7 @@ class IsolatedTimetableSimulationTest {
     }
 
     @Test
-    fun `derives reverse time from the real dispatcher handshake`() {
+    fun `reversal fails closed until a new operating route can replace the old grant`() {
         val fixture = fixture(steps = listOf(
             TimetableStep.Check("origin"),
             TimetableStep.At(0, TimetableAction.GoTo("destination")),
@@ -77,10 +77,9 @@ class IsolatedTimetableSimulationTest {
                 delayThresholdTicks = 2
             ))
 
-            assertTrue(result is IsolatedTimetableSimulationResult.DelayExceeded) { result.toString() }
-            result as IsolatedTimetableSimulationResult.DelayExceeded
-            assertTrue(result.delayedRun.nextStepIndex >= 3)
-            assertTrue(result.observedDelayTicks >= 2)
+            assertTrue(result is IsolatedTimetableSimulationResult.Failed) { result.toString() }
+            result as IsolatedTimetableSimulationResult.Failed
+            assertTrue(result.reason.contains("tail could not advance"), result.reason)
         }
     }
 
@@ -140,10 +139,10 @@ class IsolatedTimetableSimulationTest {
             basicDataFactory = {
                 BasicWorldData()
             },
-            simpleAtoDataFactory = {
+            simpleAtoDataFactory = { _, routeAdmissionContextProvider ->
                 val profile = AtoSafetyProfile()
                 SimpleATOWorldData(TimetableDispatcher(
-                    routeAdmissionContextProvider = null,
+                    routeAdmissionContextProvider = routeAdmissionContextProvider,
                     atoFactory = TimetableAtoFactory { train, world ->
                         SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
                     }

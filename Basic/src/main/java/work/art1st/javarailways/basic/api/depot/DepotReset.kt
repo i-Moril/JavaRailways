@@ -30,7 +30,6 @@ data class DepotResetReport(
     val depotIds: Set<DepotId>,
     val assignments: List<DepotResetAssignment>,
     val removedRunCount: Int = 0,
-    val releasedRouteSectionCount: Int = 0,
     val releasedBerthCount: Int = 0,
     val stoppedTimetableIds: Set<String> = emptySet(),
     val failureStage: String? = null,
@@ -48,7 +47,6 @@ sealed interface DepotResetResult {
 
 data class DepotResetDispatchSummary(
     val removedRunCount: Int,
-    val releasedRouteSectionCount: Int,
     val releasedBerthCount: Int,
     val stoppedTimetableIds: Set<String>
 )
@@ -351,7 +349,6 @@ class DepotResetCoordinator(
                 depotIds = plan.depotIds,
                 assignments = plan.assignments,
                 removedRunCount = committedSummary.removedRunCount,
-                releasedRouteSectionCount = committedSummary.releasedRouteSectionCount,
                 releasedBerthCount = committedSummary.releasedBerthCount,
                 stoppedTimetableIds = committedSummary.stoppedTimetableIds,
                 message = "Depot Reset committed; World remains stalled"
@@ -395,7 +392,6 @@ class DepotResetCoordinator(
             depotIds = depotIds,
             assignments = assignments,
             removedRunCount = summary?.removedRunCount ?: 0,
-            releasedRouteSectionCount = summary?.releasedRouteSectionCount ?: 0,
             releasedBerthCount = summary?.releasedBerthCount ?: 0,
             stoppedTimetableIds = summary?.stoppedTimetableIds.orEmpty(),
             failureStage = stage,
@@ -429,7 +425,7 @@ object DepotResetReportJson {
         JsonObject.serializer(),
         JsonObject(
             mapOf(
-                "schemaVersion" to JsonPrimitive(1),
+                "schemaVersion" to JsonPrimitive(2),
                 "resetId" to JsonPrimitive(report.resetId),
                 "occurredAtEpochMillis" to JsonPrimitive(report.occurredAtEpochMillis),
                 "worldId" to JsonPrimitive(report.worldId),
@@ -448,7 +444,6 @@ object DepotResetReportJson {
                     )
                 }),
                 "removedRunCount" to JsonPrimitive(report.removedRunCount),
-                "releasedRouteSectionCount" to JsonPrimitive(report.releasedRouteSectionCount),
                 "releasedBerthCount" to JsonPrimitive(report.releasedBerthCount),
                 "stoppedTimetableIds" to JsonArray(
                     report.stoppedTimetableIds.sorted().map(::JsonPrimitive)

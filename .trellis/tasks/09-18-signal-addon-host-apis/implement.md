@@ -294,10 +294,14 @@
       use rolling request/progress/retry semantics, and apply Basic authority through the controller adapter. `FULL_MANUAL`
       submits no new request but progresses an existing pending handle; stale topology/route mismatch requires explicit replan.
       Ordinary-stop and same-direction stored-service continuation keep the same owner/grant/tail cursor. A complete frozen-route
-      grant publishes an empty Basic truncation while the mission Stop constraint retains terminal braking. The legacy allocator
-      remains only behind an explicit null provider for parity tests and isolated simulation; deletion stays in the next item.
-  - [ ] Prove parity for priority, stop/station-call behavior, transient retry, stale-route re-selection, manual modes and tail
-    release, then delete `RouteSectionAllocator` and the final dispatcher-specific RailWand allocation guard.
+      grant publishes an empty Basic truncation while the mission Stop constraint retains terminal braking.
+  - [x] Prove the migrated priority, stop/station-call, transient retry, stale-route re-selection, manual-mode and tail-release
+    behavior; make the admission context mandatory; run isolated simulation through a real Basic admission runtime; delete
+    `RouteSectionAllocator`, Confirmed Route Window state and the final dispatcher-specific RailWand allocation guard. Reversal
+    remains an explicit fail-closed follow-up because a monotonic forward tail cursor cannot be reused after changing direction.
+    The rolling low-water mark uses train maximum speed so braking toward an existing authority cannot make the extension trigger
+    retreat; Dispatcher also retains only mission runtimes still referenced by an active operational boundary, because Basic now
+    owns resource-tail history. Depot Reset report schema V2 removes the obsolete always-zero RouteSection release count.
 - [ ] Add topology edit guards for active external claims.
   - [x] Define the edit-coordination contract without treating track or topology nodes as runtime resources:
     `TopologyEditImpact` declares exact rail IDs, stable topology-node keys and runtime resource IDs; the registry checks each
@@ -322,9 +326,9 @@
       only the exact plan into the common permit using current-valid identities: removed diamond resources and the existing rail
       participants of prospective crossings, never target-only identities. Preparation is async; apply revalidates on the player
       owner and holds the permit through the outer Core transaction plus metadata/render/player side effects. Snapshot-plan
-      occupancy replaces the old broad duplicate check; the Dispatcher allocation guard runs once after async
-      preparation/revalidation and remains until that production caller migrates into the common registry.
-- [ ] Replace remaining dispatcher-specific RailWand edit guards with the common edit guard and cover protection-region, signal, topology migration, and administrative mutation paths.
+      occupancy replaces the old broad duplicate check; live route claims are covered by the common registry permit and frozen
+      operational routes retain only the separate `hasLiveRouteOn` replacement guard.
+- [ ] Cover remaining protection-region, signal, topology migration, and administrative mutation paths with the common edit guard.
 - [ ] Document a minimal external consumer and supported failure/lifecycle behavior.
 
 ## Validation

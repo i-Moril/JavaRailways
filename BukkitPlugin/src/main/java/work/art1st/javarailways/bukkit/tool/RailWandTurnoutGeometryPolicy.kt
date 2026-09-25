@@ -116,7 +116,6 @@ internal fun turnoutGeometryMaintenanceError(
         )
     }
     val dispatcher = world.simpleAtoWorldDataOrNull?.dispatcher ?: return null
-    if (dispatcher.hasRouteAllocationOn(affectedIds)) return "turnout.route_locked"
     if (dispatcher.hasLiveRouteOn(affectedIds)) return "turnout.live_route"
 
     return null

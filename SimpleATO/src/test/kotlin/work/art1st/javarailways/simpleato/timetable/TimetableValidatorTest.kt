@@ -277,7 +277,7 @@ class TimetableValidatorTest {
             stopToleranceMeters = 0.25
         )
         val dispatcher = TimetableDispatcher(
-            routeAdmissionContextProvider = null,
+            routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             atoFactory = TimetableAtoFactory { train, owningWorld ->
                 SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
             }

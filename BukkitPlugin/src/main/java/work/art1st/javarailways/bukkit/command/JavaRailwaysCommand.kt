@@ -704,7 +704,6 @@ class JavaRailwaysCommand {
             is DepotResetResult.Succeeded -> sender.sendMessage(
                 "Depot Reset 成功: trains=${result.report.assignments.size} " +
                     "runs=${result.report.removedRunCount} " +
-                    "routes=${result.report.releasedRouteSectionCount} " +
                     "berths=${result.report.releasedBerthCount}；World 仍保持 Stall"
             )
             is DepotResetResult.Failed -> sender.sendMessage(
@@ -1047,7 +1046,7 @@ class JavaRailwaysCommand {
                     runs.forEach { run ->
                         sender.sendMessage(
                             "${run.id}: state=${run.state} mode=${run.controlMode} train=${run.trainId} " +
-                                "revision=${run.missionRevision} confirmed=${run.confirmedSectionCount} " +
+                                "revision=${run.missionRevision} routeGrant=${run.routeGrantActive} " +
                                 "cycle=${run.cycleIndex} elapsed=${run.timetableElapsedTicks} " +
                                 "scheduled=${run.scheduledActionTick ?: "-"} late=${run.lastLatenessTicks} " +
                                 "head=${run.headProgressMeters ?: "-"} tail=${run.tailProgressMeters ?: "-"} " +

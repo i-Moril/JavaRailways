@@ -25,6 +25,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
 import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TimetableWaypointProgress
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
@@ -66,9 +67,11 @@ class ManualNavigationTest {
             safetyDistanceMeters = 2.0,
             stopToleranceMeters = 0.25
         )
+        var admissionWorld: CoreWorld? = null
         val dispatcher = TimetableDispatcher(
-            routeAdmissionContextProvider = null,
+            routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { admissionWorld },
             atoFactory = TimetableAtoFactory { train, world ->
+                admissionWorld = world as CoreWorld
                 SimpleATO(train, world, KinematicTrainActuator(8.0, profile), profile)
             }
         )

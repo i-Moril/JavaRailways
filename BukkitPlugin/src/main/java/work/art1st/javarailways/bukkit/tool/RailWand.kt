@@ -2277,9 +2277,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             preparedBatch,
             explicitConnections
         )
-        require(world.simpleAtoWorldDataOrNull?.dispatcher
-            ?.hasRouteAllocationOn(plan.explicitConnectionAffectedExistingRailIds) != true
-        ) { "Cannot change endpoint connections with active route allocations" }
         return plan
     }
 
@@ -2288,9 +2285,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         plan: RailWandTopologyEditPlan
     ) {
         plan.requireReadyToApply(world)
-        require(world.simpleAtoWorldDataOrNull?.dispatcher
-            ?.hasRouteAllocationOn(plan.explicitConnectionAffectedExistingRailIds) != true
-        ) { "Cannot change endpoint connections with active route allocations" }
     }
 
     private fun capturePreparedExplicitConnectionPlanOrNotify(
@@ -4527,9 +4521,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return "safety.signal_present"
         }
         val basicData = coreWorld.basicWorldDataOrNull ?: return null
-        if (coreWorld.simpleAtoWorldDataOrNull?.dispatcher?.hasRouteAllocationOn(railIds) == true) {
-            return "safety.route_locked"
-        }
         val migratableRailObjectRefs = basicData.destinations.all().asSequence()
             .filter { it.railId in railIds }
             .mapNotNull { (it.role as? DestinationRole.StationBerthRole)?.berthRef?.railObjectRef }

@@ -2,6 +2,18 @@ package work.art1st.javarailways.simpleato.timetable.simulation
 
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
+import work.art1st.javarailways.basic.api.ato.AtoStallReport
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
+import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
+import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent
+import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.timetable.Timetable
@@ -9,6 +21,8 @@ import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
+import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContext
+import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunSnapshot
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
@@ -68,7 +82,8 @@ sealed interface IsolatedTimetableSimulationResult {
 class IsolatedTimetableSimulationWorld private constructor(
     val world: CoreWorld,
     private val tickManager: TickManagerImpl,
-    private val physicsCoordinator: PhysicsCoordinator
+    private val physicsCoordinator: PhysicsCoordinator,
+    private val routeAdmissionHost: IsolatedRouteAdmissionHost
 ) : AutoCloseable {
     private var logicalMillis = 0L
     private var hasSimulated = false
@@ -121,6 +136,13 @@ class IsolatedTimetableSimulationWorld private constructor(
             }
             step()
             val runs = cycleZeroRuns(request.timetable.id)
+            data.atoCoordinator.lastStall?.let { stall ->
+                return IsolatedTimetableSimulationResult.Failed(
+                    tick,
+                    "${stall.errorType}: ${stall.message.orEmpty()}",
+                    runs = runs
+                )
+            }
             runs.firstOrNull { it.state == TimetableServiceRunState.FAILED }?.let { failed ->
                 return IsolatedTimetableSimulationResult.Failed(
                     tick,
@@ -155,6 +177,12 @@ class IsolatedTimetableSimulationWorld private constructor(
         logicalMillis = Math.addExact(logicalMillis, LOGICAL_TICK_MILLIS)
         tickManager.preTick(logicalMillis)
         physicsCoordinator.stepSimulation(LOGICAL_TICK_MILLIS.toDouble()).await()
+        routeAdmissionHost.publish(
+            RailwayObservation.fromCore(
+                world.basicWorldData.atoCoordinator.worldId,
+                world.latestWorldFrame()
+            )
+        )
         world.simpleAtoWorldData.dispatcher.tick(world)
         tickManager.postTick()
         tickManager.drainPendingCommits().forEach { it.commit() }
@@ -166,6 +194,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             .sortedBy { it.id.serviceId }
 
     override fun close() {
+        routeAdmissionHost.close()
         physicsCoordinator.close()
         tickManager.close()
     }
@@ -178,7 +207,10 @@ class IsolatedTimetableSimulationWorld private constructor(
             basicInfrastructure: BasicInfrastructureSnapshotV1,
             workerThreads: Int,
             basicDataFactory: (CoreWorld) -> BasicWorldData,
-            simpleAtoDataFactory: (CoreWorld) -> SimpleATOWorldData,
+            simpleAtoDataFactory: (
+                CoreWorld,
+                TimetableRouteAdmissionContextProvider
+            ) -> SimpleATOWorldData,
             seed: (CoreWorld) -> Unit
         ): IsolatedTimetableSimulationWorld {
             require(workerThreads > 0)
@@ -197,6 +229,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                 automaticFallback = false,
                 publishCollisionEvents = false
             )
+            var routeAdmissionHost: IsolatedRouteAdmissionHost? = null
             try {
                 val world = IsolatedMainThreadMarker.run {
                     CoreWorld.load(
@@ -212,22 +245,111 @@ class IsolatedTimetableSimulationWorld private constructor(
                             BasicPlugin.INSTANCE,
                             basicDataFactory(isolatedWorld)
                         )
-                        isolatedWorld.registerExtensionData(
-                            SimpleATOPlugin.INSTANCE,
-                            simpleAtoDataFactory(isolatedWorld)
-                        )
                         basicInfrastructure.restore(isolatedWorld)
                         seed(isolatedWorld)
+                        val admission = IsolatedRouteAdmissionHost(isolatedWorld)
+                        routeAdmissionHost = admission
+                        isolatedWorld.registerExtensionData(
+                            SimpleATOPlugin.INSTANCE,
+                            simpleAtoDataFactory(isolatedWorld, admission.contextProvider)
+                        )
                     }
                 }
                 physics.start()
-                return IsolatedTimetableSimulationWorld(world, tickManager, physics)
+                return IsolatedTimetableSimulationWorld(
+                    world,
+                    tickManager,
+                    physics,
+                    checkNotNull(routeAdmissionHost)
+                )
             } catch (failure: Throwable) {
+                routeAdmissionHost?.close()
                 physics.close()
                 tickManager.close()
                 throw failure
             }
         }
+    }
+}
+
+/** Basic's real admission runtime, composed without Bukkit-only providers for isolated simulation. */
+private class IsolatedRouteAdmissionHost(
+    private val world: CoreWorld
+) : AutoCloseable {
+    private val requester = Any()
+    private var latestObservation: RailwayObservation? = null
+    private var runtime: RouteResourceAdmissionRuntime? = null
+    private val registry = InfrastructureCoordinationRegistry(
+        currentTopologyRevision = world::topologyRevision,
+        resourceExists = ::resourceExists,
+        railExists = { railId -> world.getRail(railId) != null },
+        topologyNodeExists = { key ->
+            world.topologyState.structuralNodeWithPorts(key.ports) != null
+        }
+    )
+    private val service = object : RouteResourceAdmissionService {
+        override fun request(intent: RouteResourceIntent): RouteAdmissionResult =
+            checkNotNull(runtime).request(requester, intent)
+
+        override fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult =
+            checkNotNull(runtime).progress(requester, handle)
+
+        override fun endGrant(grantId: RouteGrantId): Boolean =
+            checkNotNull(runtime).endGrant(requester, grantId)
+    }
+
+    val contextProvider = TimetableRouteAdmissionContextProvider {
+        latestObservation?.let { TimetableRouteAdmissionContext(it, service) }
+    }
+
+    init {
+        runtime = RouteResourceAdmissionRuntime.create(
+            worldId = world.basicWorldData.atoCoordinator.worldId,
+            world = world,
+            registry = registry,
+            hostClaimOwner = this,
+            latestObservation = { latestObservation },
+            collectContributions = { emptyList() },
+            validateContribution = { _, _ -> null },
+            resolveContributedPreparation = { _, _ -> null },
+            stallWorld = { reason, failure -> stall(reason, failure) }
+        )
+    }
+
+    fun publish(observation: RailwayObservation) {
+        latestObservation = observation
+        checkNotNull(runtime).consumeObservation(observation)
+    }
+
+    override fun close() {
+        runtime?.close()
+        registry.close()
+    }
+
+    private fun resourceExists(resource: InfrastructureResource): Boolean = when (resource) {
+        is RailIntervalResource -> world.getRail(resource.railId)?.curve?.totalArcLength
+            ?.let { resource.endAbMeters <= it } == true
+        is StableInfrastructureResource -> runtime?.physicalResourceExists(resource) == true
+    }
+
+    private fun stall(reason: String, failure: Exception) {
+        val coordinator = world.basicWorldData.atoCoordinator
+        coordinator.stall(
+            AtoStallReport(
+                worldId = coordinator.worldId,
+                trainId = "isolated-route-admission",
+                tick = latestObservation?.stamp?.physicsEpoch ?: 0L,
+                errorType = "RouteAdmissionFailure",
+                message = reason,
+                stackTrace = failure.stackTraceToString(),
+                initialTrain = null,
+                currentTrain = null,
+                route = null,
+                perception = null,
+                activeProviderId = null,
+                constraints = emptyMap()
+            )
+        )
     }
 }
 

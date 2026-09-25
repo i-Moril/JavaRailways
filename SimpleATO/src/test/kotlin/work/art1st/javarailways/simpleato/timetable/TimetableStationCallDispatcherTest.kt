@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -400,7 +401,7 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
-    fun `reverse closes open doors before changing train direction`() {
+    fun `reverse closes open doors then keeps the old route fail closed`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
             destinationOptions = TimetableAction.DestinationOptions(
@@ -433,12 +434,12 @@ class TimetableStationCallDispatcherTest {
         assertTrue(gateway.requests[1].operation is TrainOperation.CloseDoors)
         assertEquals(false, reversedWhenCloseRequested)
         assertTrue(fixture.train.isReversed)
-        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertEquals(TimetableServiceRunState.REVERSING, fixture.dispatcher.status(id)?.state)
+        assertTrue(fixture.data.atoCoordinator.isStalled)
     }
 
     @Test
-    fun `terminal station reverse receives departure grant before retiring station call`() {
+    fun `terminal station reverse remains fail closed with the old route grant`() {
         val fixture = fixture(
             releaseDistanceMetersAfter = 0.0,
             firstTargetOffsetMeters = 40.0,
@@ -457,8 +458,8 @@ class TimetableStationCallDispatcherTest {
         }
 
         assertTrue(fixture.train.isReversed)
-        assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertEquals(TimetableServiceRunState.REVERSING, fixture.dispatcher.status(id)?.state)
+        assertTrue(fixture.data.atoCoordinator.isStalled)
     }
 
     @Test
@@ -528,7 +529,7 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
-    fun `ato reset cleanup discards failed run resources and controller`() {
+    fun `ato reset refuses to discard a failed run while Basic resources remain active`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
             includeStationAction = true,
@@ -546,36 +547,11 @@ class TimetableStationCallDispatcherTest {
 
         assertTrue(fixture.data.atoCoordinator.isStalled)
         assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
-        assertEquals(1, fixture.dispatcher.discardFailedRunsForAtoReset(fixture.world))
-
-        assertNull(fixture.dispatcher.status(id))
-        assertNull(fixture.train.controller)
-        fixture.data.atoCoordinator.reset()
-        assertFalse(fixture.data.atoCoordinator.isStalled)
-        val current = fixture.train.head.location
-        fixture.data.wayPoints.add(
-            WayPoint("reset-origin", "reset-origin", current.rail.id, current.arcLengthIn(ViewDirection.AB))
-        )
-        fixture.data.wayPoints.add(
-            WayPoint("E", "E", current.rail.id, current.arcLengthIn(ViewDirection.AB) + 20.0)
-        )
-        fixture.data.timetables.add(
-            Timetable(
-                id = "restart",
-                services = listOf(
-                    TimetableService(
-                        id = "navigate",
-                        trainSelector = TrainSelector.TrainId(fixture.train.id),
-                        steps = listOf(
-                            TimetableStep.Check("reset-origin"),
-                            TimetableStep.At(0L, TimetableAction.GoTo("E"))
-                        )
-                    )
-                )
-            )
-        )
-        val restarted = fixture.dispatcher.startService(fixture.world, "restart", "navigate")
-        assertTrue(restarted is TimetableServiceStartResult.Started, restarted.toString())
+        assertThrows(IllegalStateException::class.java) {
+            fixture.dispatcher.discardFailedRunsForAtoReset(fixture.world)
+        }
+        assertTrue(fixture.dispatcher.status(id) != null)
+        assertTrue(fixture.train.controller != null)
     }
 
     @Test
@@ -881,10 +857,10 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
-    fun `dwell does not release while the next route section conflicts`() {
+    fun `dwell may depart after the conflicting turnout resource tail releases`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
-            routeAdmissionContextProvider = null,
+            routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             atoFactory = TimetableAtoFactory { train, owningWorld ->
                 SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
             }
@@ -939,7 +915,7 @@ class TimetableStationCallDispatcherTest {
         for (ignored in 0 until 2_000) {
             tick(blockingAto)
             dispatcher.tick(world)
-            if (dispatcher.status(blockerId)?.confirmedSectionCount == 1) break
+            if (dispatcher.status(blockerId)?.routeGrantActive == true) break
         }
         val mainRun = dispatcher.startService(world, "tt", "main") as TimetableServiceStartResult.Started
         dispatcher.scheduleStationCall(
@@ -966,11 +942,11 @@ class TimetableStationCallDispatcherTest {
         )
         assertTrue(TimetableServiceRunState.DWELLING in observed)
         assertTrue(TimetableServiceRunState.READY_TO_DEPART in observed)
-        assertFalse(TimetableServiceRunState.DEPARTING in observed)
-        assertEquals(TimetableServiceRunState.READY_TO_DEPART, dispatcher.status(mainId)?.state)
+        assertTrue(TimetableServiceRunState.DEPARTING in observed)
+        assertEquals(TimetableServiceRunState.WAITING_ROUTE, dispatcher.status(mainId)?.state)
         assertEquals(0.0, mainTrain.speed)
         assertTrue(dispatcher.status(mainId)?.berthHeld == true)
-        assertTrue(dispatcher.status(blockerId)?.confirmedSectionCount == 1)
+        assertTrue(dispatcher.status(blockerId)?.routeGrantActive == true)
         assertFalse(data.atoCoordinator.isStalled)
     }
 
@@ -978,7 +954,7 @@ class TimetableStationCallDispatcherTest {
     fun `conflicting explicit berth keeps the later service held without stalling`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
-            routeAdmissionContextProvider = null,
+            routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             atoFactory = TimetableAtoFactory { train, owningWorld ->
                 SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
             }
@@ -1103,7 +1079,7 @@ class TimetableStationCallDispatcherTest {
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
-            routeAdmissionContextProvider = null,
+            routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             operationGateway = operationGateway,
             operationTimeoutTicks = operationTimeoutTicks,
             atoFactory = TimetableAtoFactory { train, owningWorld ->

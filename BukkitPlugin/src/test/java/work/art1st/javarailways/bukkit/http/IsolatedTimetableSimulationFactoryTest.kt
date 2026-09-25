@@ -130,12 +130,14 @@ class IsolatedTimetableSimulationFactoryTest {
         val fastSnapshot = capture(fastTimetable)
 
         val slowTicks = factory.create(slowSnapshot, workerThreads = 1).use { simulation ->
-            (simulation.simulate(IsolatedTimetableSimulationRequest(slowTimetable)) as
-                IsolatedTimetableSimulationResult.Completed).simulatedTicks
+            val result = simulation.simulate(IsolatedTimetableSimulationRequest(slowTimetable))
+            assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+            result.simulatedTicks
         }
         val fastTicks = factory.create(fastSnapshot, workerThreads = 1).use { simulation ->
-            (simulation.simulate(IsolatedTimetableSimulationRequest(fastTimetable)) as
-                IsolatedTimetableSimulationResult.Completed).simulatedTicks
+            val result = simulation.simulate(IsolatedTimetableSimulationRequest(fastTimetable))
+            assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+            result.simulatedTicks
         }
 
         assertTrue(slowTicks > fastTicks)

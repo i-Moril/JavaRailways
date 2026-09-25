@@ -61,7 +61,7 @@ Registry只复制显式实现simulation factory的providers；Bukkit capture can
 ## 必需测试与验证
 
 - `DetailedTrainTravelSimulatorTest.kt`：determinism、speed cap、stops/groups、deadline/interrupt/invalid。
-- `IsolatedTimetableSimulationTest.kt`：no live train、parallel deterministic、reverse handshake、delay/period/failure、single-use/close。
+- `IsolatedTimetableSimulationTest.kt`：no live train、parallel deterministic、真实Basic admission、unsupported reversal fail-closed、delay/period/failure、single-use/close。
 - `SimulationTrainOperationGatewayTest.kt`：logical duration/reject/cancel。
 - Bukkit factory tests：revision/profile/provider opt-in/canonical turnout。
 

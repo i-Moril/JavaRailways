@@ -69,14 +69,7 @@ import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
 import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.route.MissionRouteLayout
-import work.art1st.javarailways.basic.route.MissionRouteSection
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
-import work.art1st.javarailways.basic.route.RouteSectionAllocationKey
-import work.art1st.javarailways.basic.route.RouteSectionAllocationResult
-import work.art1st.javarailways.basic.route.RouteSectionAllocator
-import work.art1st.javarailways.basic.route.RouteSectionOwner
-import work.art1st.javarailways.basic.route.TurnoutRequirement
-import work.art1st.javarailways.basic.route.lockingIntervals
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.IntervalOccupancyState
@@ -105,9 +98,8 @@ data class TimetableRouteAdmissionContext(
 /**
  * Supplies the already-published world observation and one stable authenticated service binding.
  *
- * A null result means that this tick has no coherent observation yet. It never selects the legacy
- * allocator; tests and isolated simulation must opt into that transitional path explicitly by
- * passing a null provider to [TimetableDispatcher].
+ * A null result means that this tick has no coherent observation yet. The dispatcher stays
+ * fail-closed until a coherent observation and its matching admission service are available.
  */
 fun interface TimetableRouteAdmissionContextProvider {
     fun current(): TimetableRouteAdmissionContext?
@@ -171,7 +163,7 @@ data class TimetableServiceRunSnapshot(
     val trainId: String,
     val missionRevision: Long,
     val state: TimetableServiceRunState,
-    val confirmedSectionCount: Int,
+    val routeGrantActive: Boolean,
     val cycleIndex: Long = 0L,
     val timetableElapsedTicks: Long = 0L,
     val scheduledActionTick: Long? = null,
@@ -201,16 +193,11 @@ sealed interface TimetableServiceStartResult {
 
 internal class TimetableDepotResetProgress {
     private var removedRunCount = 0
-    private var releasedRouteSectionCount = 0
     private var releasedBerthCount = 0
     private val stoppedTimetableIds = LinkedHashSet<String>()
 
     fun recordRunRemoval() {
         removedRunCount++
-    }
-
-    fun recordRouteRelease() {
-        releasedRouteSectionCount++
     }
 
     fun recordBerthRelease() {
@@ -223,7 +210,6 @@ internal class TimetableDepotResetProgress {
 
     fun snapshot(): DepotResetDispatchSummary = DepotResetDispatchSummary(
         removedRunCount,
-        releasedRouteSectionCount,
         releasedBerthCount,
         stoppedTimetableIds.toSet()
     )
@@ -259,7 +245,7 @@ sealed interface TimetableReplanResult {
 
 /** Main-thread runtime for explicit-train timetable services. */
 class TimetableDispatcher(
-    private val routeAdmissionContextProvider: TimetableRouteAdmissionContextProvider?,
+    private val routeAdmissionContextProvider: TimetableRouteAdmissionContextProvider,
     private val allocationTiming: RouteAllocationTiming = RouteAllocationTiming(
         switchSetupSeconds = 0.25,
         reactionTimeSeconds = 0.25,
@@ -282,25 +268,23 @@ class TimetableDispatcher(
     private val physicalStorageReservations = LinkedHashMap<StablingPointRef, String>()
     private val berthAllocator = StationBerthAllocator()
     private var dispatcherTick = 0L
-    private var allocatorWorld: World? = null
-    private var allocator: RouteSectionAllocator? = null
-
-    private val usesSharedRouteAdmission: Boolean
-        get() = routeAdmissionContextProvider != null
-
-    /** Maintenance precondition: affected turnouts must not have live route allocations. */
-    fun hasRouteAllocationOn(railIds: Set<java.util.UUID>): Boolean =
-        allocator?.hasAllocationOn(railIds) == true
+    private var boundWorld: World? = null
 
     /** Maintenance precondition: immutable routes owned by active runs must not retain replaced Rail IDs. */
     fun hasLiveRouteOn(railIds: Set<java.util.UUID>): Boolean {
         if (railIds.isEmpty()) return false
         return runs.values.asSequence()
             .filterNot { it.state.isTerminal() }
-            .flatMap { it.runtimes.asSequence() }
-            .flatMap { it.mission.legs.asSequence() }
-            .flatMap { it.plannedRoute.expandedRoute.segments.asSequence() }
-            .any { it.railViewRef.railId in railIds }
+            .any { run ->
+                sequenceOf(run.admittedRoute, run.admissionCandidate)
+                    .filterNotNull()
+                    .flatMap { it.route.selection.route.segments.asSequence() }
+                    .any { it.railId in railIds } ||
+                    run.referencedRuntimes().asSequence()
+                        .flatMap { it.mission.legs.asSequence() }
+                        .flatMap { it.plannedRoute.expandedRoute.segments.asSequence() }
+                        .any { it.railViewRef.railId in railIds }
+            }
     }
 
     /** Capture stable logical state only; live locks, tickets, queues and controller objects are excluded. */
@@ -635,10 +619,6 @@ class TimetableDispatcher(
             depotDepartureRuntime = null,
             depotDepartureReleased = selected.depotAllocation == null || !selected.depotReservationPending
         )
-        replaceableTrainRuns.filter(ActiveRun::isStoredTerminal).forEach { previous ->
-            run.runtimes += previous.runtimes
-            run.allocations.putAll(previous.allocations)
-        }
         // The client owns the monotonic restriction stream published by this ATO. Keep it across
         // sequential services even after the old Basic grant ended; a new client would restart
         // that stream at revision zero and be rejected by the controller's retained source state.
@@ -889,7 +869,7 @@ class TimetableDispatcher(
         run.controlMode = TimetableControlMode.FULL_MANUAL
         run.manualController = null
         run.state = TimetableServiceRunState.SUSPENDED
-        run.message = "FULL_MANUAL by $transferOwner; no new RouteSection will be requested"
+        run.message = "FULL_MANUAL by $transferOwner; no new route resources will be requested"
         return TimetableControlTransferResult.Suspended(run.snapshot())
     }
 
@@ -979,12 +959,7 @@ class TimetableDispatcher(
         ) {
             return TimetableReplanResult.Failure("service is not ready for replanning: $id (${run.state})")
         }
-        if (run.allocations.isNotEmpty()) {
-            return TimetableReplanResult.Failure(
-                "old RouteSection resources are still held by the train tail"
-            )
-        }
-        if (usesSharedRouteAdmission && run.admissionClient != null && !run.admissionEnded) {
+        if (run.admissionClient != null && !run.admissionEnded) {
             return TimetableReplanResult.Failure(
                 "old Basic route resources are still held by the train tail"
             )
@@ -1024,7 +999,6 @@ class TimetableDispatcher(
         if (target.id == originWayPointId) {
             run.ato = replacementAto
             run.controllerOwned = true
-            run.runtimes.clear()
             run.pendingStationCallSpec = null
             run.train.setController(replacementAto)
             run.controlMode = TimetableControlMode.AUTOMATIC
@@ -1057,10 +1031,8 @@ class TimetableDispatcher(
         )
         run.ato = replacementAto
         run.controllerOwned = true
-        run.runtimes.clear()
         run.pendingStationCallSpec = null
         run.currentWayPointId = originWayPointId
-        run.runtimes += runtime
         run.currentRuntime = runtime
         run.missionRevision = accepted.mission.revision
         run.controlMode = TimetableControlMode.AUTOMATIC
@@ -1088,10 +1060,8 @@ class TimetableDispatcher(
             return
         }
         bindWorld(world)
-        val sectionAllocator = allocator
-        val routeAdmissionContext = routeAdmissionContextProvider?.current()
+        val routeAdmissionContext = routeAdmissionContextProvider.current()
         val routeSelectionContext = routeAdmissionContext?.observation?.let(::FrozenRouteSelectionContext)
-        val candidates = ArrayList<AllocationCandidate>()
 
         runs.values.toList().forEach { run ->
             if (coordinator.isStalled) return
@@ -1119,17 +1089,11 @@ class TimetableDispatcher(
                 if (coordinator.isStalled) return
             }
             updateTailProgress(run, snapshot)
-            if (manualRouted && !validateManualConfirmedTurnouts(world, run, snapshot)) {
-                if (coordinator.isStalled) return
-                return@forEach
-            }
             releaseDepotDeparture(world, run)
             if (run.state == TimetableServiceRunState.WAITING_EXTENSION_ACTION) {
                 pollExtensionAction(world, run)
                 return@forEach
             }
-            if (coordinator.isStalled) return
-            sectionAllocator?.let { releasePassedSections(run, it) }
             if (coordinator.isStalled) return
             releasePassedBerth(run)
             if (coordinator.isStalled) return
@@ -1173,17 +1137,13 @@ class TimetableDispatcher(
                 return@forEach
             }
             if (manualRouted) {
-                if (usesSharedRouteAdmission) {
-                    processManualRoutedWithAdmission(
-                        world,
-                        run,
-                        snapshot,
-                        routeAdmissionContext,
-                        routeSelectionContext
-                    )
-                } else {
-                    processManualRouted(world, run, snapshot, candidates)
-                }
+                processManualRoutedWithAdmission(
+                    world,
+                    run,
+                    snapshot,
+                    routeAdmissionContext,
+                    routeSelectionContext
+                )
                 return@forEach
             }
             if (run.train.controller !== run.ato) {
@@ -1392,7 +1352,6 @@ class TimetableDispatcher(
                 ?: runtime.tailProgressMeters
             reportWaypointProgress(run, runtime, snapshot)
 
-            sectionAllocator?.let { releasePassedSections(run, it) }
             val completedDestinationStop = run.destinationStop?.takeIf {
                 it.missionRuntime === runtime && destinationStopCompleted(run, runtime, snapshot, it)
             }
@@ -1405,7 +1364,7 @@ class TimetableDispatcher(
                 run.destinationStop == null
             ) {
                 if (runtime === run.storageRuntime) {
-                    if (!tryCompleteStorage(world, run, runtime, sectionAllocator)) {
+                    if (!tryCompleteStorage(world, run, runtime)) {
                         return@forEach
                     }
                 }
@@ -1414,64 +1373,16 @@ class TimetableDispatcher(
                 return@forEach
             }
 
-            if (usesSharedRouteAdmission) {
-                processSharedRouteAdmission(
-                    world,
-                    run,
-                    runtime,
-                    snapshot,
-                    routeAdmissionContext,
-                    routeSelectionContext
-                )
-                return@forEach
-            }
-
-            val speed = snapshot.speedMetersPerSecond
-            val brakingDistance = run.ato.serviceBrakingDistanceMeters(speed)
-            val firstUnconfirmed = runtime.sections.firstOrNull {
-                it.status == SectionStatus.PENDING
-            }
-            if (firstUnconfirmed != null) {
-                val requirement = firstUnconfirmed.routeSection.section.turnoutRequirements.single()
-                val turnoutDistance = firstUnconfirmed.routeSection.absoluteTurnoutDistanceMeters()
-                val distanceToTurnout = turnoutDistance - headProgress
-                val acquisitionWindowEnd = brakingDistance + requirement.protectionDistanceMeters +
-                    speed * world.basicWorldData.turnoutSafetyDefaults.decisionLeadTicks / 20.0
-                if (!firstUnconfirmed.allocationRequested &&
-                    distanceToTurnout > 0.0 && distanceToTurnout <= acquisitionWindowEnd
-                ) {
-                    firstUnconfirmed.allocationRequested = true
-                    firstUnconfirmed.nextAllocationAttemptTick = dispatcherTick
-                    publishMovementAuthority(run, runtime)
-                }
-                if (firstUnconfirmed.allocationRequested &&
-                    dispatcherTick >= firstUnconfirmed.nextAllocationAttemptTick
-                ) {
-                    candidates += AllocationCandidate(run, runtime, firstUnconfirmed)
-                }
-            }
-            if (firstUnconfirmed?.allocationRequested == true) {
-                setRouteState(run, TimetableServiceRunState.WAITING_ROUTE, run.message)
-            } else {
-                setRouteState(run, TimetableServiceRunState.RUNNING, null)
-            }
-        }
-
-        if (coordinator.isStalled) return
-        candidates.sortedWith(
-            compareBy<AllocationCandidate>(
-                { absoluteTimetableTick(it.run, it.runtime.priorityTick) },
-                { it.run.id.timetableId },
-                { it.run.id.serviceId },
-                { it.run.cycleIndex }
+            processSharedRouteAdmission(
+                world,
+                run,
+                runtime,
+                snapshot,
+                routeAdmissionContext,
+                routeSelectionContext
             )
-        ).forEach { candidate ->
-            if (coordinator.isStalled) return
-            if (candidate.run.state.isTerminal() || candidate.section.status != SectionStatus.PENDING) {
-                return@forEach
-            }
-            allocate(candidate, checkNotNull(sectionAllocator))
         }
+
         if (coordinator.isStalled) return
         startDueCycles(world)
     }
@@ -1687,8 +1598,9 @@ class TimetableDispatcher(
 
     /**
      * Destructively discard every run and clock owned by one timetable. This is the backend for an
-     * administrator-confirmed force reset: controllers, route windows, berth locks, operations and
-     * storage reservations are released immediately without waiting for train-tail progression.
+     * administrator-confirmed force reset. It refuses runs with an active Basic grant; controllers,
+     * berth locks, operations and storage reservations are removed only after route resources have
+     * already tail-released through the admission runtime.
      */
     @MainThread
     fun forceDiscardTimetable(world: World, timetableId: String): Int {
@@ -1725,17 +1637,11 @@ class TimetableDispatcher(
         check(run.admissionClient == null || run.admissionEnded) {
             "cannot discard ${run.id} while Basic route resources remain active"
         }
-        val sectionAllocator = allocator
         listOfNotNull(
             run.stationCall?.operationTicket,
             run.destinationStop?.operationTicket,
             run.haltOperation?.ticket
         ).distinct().forEach { ticket -> runCatching { ticket.cancel() } }
-        run.allocations.keys.toList().forEach { key ->
-            checkNotNull(sectionAllocator).release(key)
-            run.ato.releaseRouteWindow(key)
-            run.allocations.remove(key)?.section?.status = SectionStatus.RELEASED
-        }
         run.stationCall?.allocationKey?.let { key ->
             berthAllocator.release(key)
             run.stationCall?.allocationKey = null
@@ -1765,13 +1671,6 @@ class TimetableDispatcher(
         if (selectedRuns.any { it.admissionClient != null && !it.admissionEnded }) {
             return "Basic route resources must tail-release before Depot Reset"
         }
-        allocator?.let { sectionAllocator ->
-            val confirmedKeys = sectionAllocator.confirmedWindows().map { it.key }.toSet()
-            val missingRoute = selectedRuns.asSequence()
-                .flatMap { it.allocations.keys.asSequence() }
-                .firstOrNull { it !in confirmedKeys }
-            if (missingRoute != null) return "RouteSection allocation disappeared: $missingRoute"
-        }
         val berthKeys = berthAllocator.allocations().toSet()
         val missingBerth = selectedRuns.mapNotNull { it.stationCall?.allocationKey }
             .firstOrNull { it !in berthKeys }
@@ -1789,27 +1688,11 @@ class TimetableDispatcher(
             "Depot Reset is only legal while the World ATO is stalled"
         }
         validateDepotReset(world, trainIds)?.let { error(it) }
-        val sectionAllocator = allocator
         val selectedRuns = runs.values.filter { it.train.id in trainIds }
         val progress = TimetableDepotResetProgress()
         try {
             selectedRuns.forEach { run ->
                 cancelPendingOperation(run)?.let(::error)
-            }
-            val routeKeys = sectionAllocator?.confirmedWindows().orEmpty()
-                .map { it.key }
-                .filter { it.owner.trainId in trainIds }
-            routeKeys.forEach { key ->
-                check(checkNotNull(sectionAllocator).release(key)) {
-                    "RouteSection disappeared during reset: $key"
-                }
-                progress.recordRouteRelease()
-                selectedRuns.forEach { run ->
-                    run.allocations.remove(key)?.let { allocation ->
-                        allocation.section.status = SectionStatus.RELEASED
-                        run.ato.releaseRouteWindow(key)
-                    }
-                }
             }
             val berthKeys = berthAllocator.allocations()
                 .filter { it.owner.trainId in trainIds }
@@ -1870,7 +1753,7 @@ class TimetableDispatcher(
                         stationCall.allocationKey = null
                         val reason = "StationCall revision ${submission.submittedRevision} is stale"
                         stallRun(
-                            requireNotNull(allocatorWorld),
+                            requireNotNull(boundWorld),
                             run,
                             "ResourceIdentityViolation",
                             reason
@@ -1883,7 +1766,7 @@ class TimetableDispatcher(
                         }
                         stationCall.allocationKey = null
                         stallRun(
-                            requireNotNull(allocatorWorld),
+                            requireNotNull(boundWorld),
                             run,
                             "InfrastructureInvariantViolation",
                             submission.message
@@ -2509,7 +2392,7 @@ class TimetableDispatcher(
         reason: String
     ) {
         stationCall.stateEnteredDispatcherTick = dispatcherTick
-        val world = requireNotNull(allocatorWorld)
+        val world = requireNotNull(boundWorld)
         stallRun(
             world,
             run,
@@ -2526,7 +2409,7 @@ class TimetableDispatcher(
                 notification.missionRevision < activeRevision -> return@forEach
                 notification.missionRevision > activeRevision -> {
                     stallRun(
-                        requireNotNull(allocatorWorld),
+                        requireNotNull(boundWorld),
                         run,
                         "ResourceIdentityViolation",
                         "StationCall notification revision is newer than active call"
@@ -2536,7 +2419,7 @@ class TimetableDispatcher(
             }
             if (notification.callId != stationCall.resolved.call.callId) {
                 stallRun(
-                    requireNotNull(allocatorWorld),
+                    requireNotNull(boundWorld),
                     run,
                     "ResourceIdentityViolation",
                     "StationCall notification ID does not match active call"
@@ -2594,7 +2477,7 @@ class TimetableDispatcher(
         if (occupancyState != IntervalOccupancyState.RELEASED) return
         if (!berthAllocator.release(key)) {
             stallRun(
-                requireNotNull(allocatorWorld),
+                requireNotNull(boundWorld),
                 run,
                 "ResourceIdentityViolation",
                 "StationBerth allocation disappeared before tail release: $key"
@@ -2621,13 +2504,7 @@ class TimetableDispatcher(
         if (stationCall.missionRuntime.publishedAuthorityMeters <=
             stationCall.missionDistanceMeters + tolerance
         ) return false
-        val nextSection = stationCall.missionRuntime.sections.firstOrNull { section ->
-            section.routeSection.entryDistanceMeters >= stationCall.missionDistanceMeters - tolerance &&
-                section.routeSection.releaseDistanceMeters > stationCall.missionDistanceMeters + tolerance
-        }
-        return nextSection == null ||
-            nextSection.status == SectionStatus.CONFIRMED ||
-            nextSection.status == SectionStatus.RELEASED
+        return true
     }
 
     private fun setRouteState(
@@ -2640,104 +2517,6 @@ class TimetableDispatcher(
             run.message = message
         } else if (message != null) {
             run.message = message
-        }
-    }
-
-    private fun processManualRouted(
-        world: World,
-        run: ActiveRun,
-        snapshot: TrainSnapshot,
-        candidates: MutableList<AllocationCandidate>,
-        sectionAllocator: RouteSectionAllocator = allocator(world)
-    ) {
-        if (run.controlTransferOwner == null || run.manualController == null ||
-            run.train.controller !== run.manualController
-        ) {
-            stallManualRouted(world, run, snapshot, "MANUAL_ROUTED controller identity mismatch")
-            return
-        }
-        val runtime = run.currentRuntime
-        val headProgress = runtime.layout.project(snapshot.head, runtime.headProgressMeters)
-            ?: terminalProgressFallback(world, run, runtime)
-        if (headProgress == null) {
-            stallManualRouted(world, run, snapshot, "MANUAL_ROUTED train head left PlannedRoute")
-            return
-        }
-        runtime.headProgressMeters = headProgress
-        runtime.tailProgressMeters = runtime.layout.project(snapshot.tail, runtime.tailProgressMeters)
-            ?: runtime.tailProgressMeters
-        if (run.state == TimetableServiceRunState.WAITING_TIMETABLE_TIME) {
-            val scheduledTick = run.waitingUntilTimetableTick
-            if (scheduledTick == null) {
-                stallRun(
-                    world,
-                    run,
-                    "ResourceIdentityViolation",
-                    "MANUAL_ROUTED timetable wait has no scheduled Tick",
-                    snapshot
-                )
-                return
-            }
-            if (timetableElapsedTicks(run) < scheduledTick) {
-                enforceManualProtection(world, run, runtime, snapshot)
-                return
-            }
-            run.waitingUntilTimetableTick = null
-            run.state = TimetableServiceRunState.WAITING_MISSION
-            run.message = null
-            if (run.waitingStepPending) {
-                run.waitingStepPending = false
-                advanceService(world, run)
-                return
-            }
-            recordScheduledAction(run, scheduledTick)
-        }
-
-        releasePassedSections(run, sectionAllocator)
-        if (missionCompleted(run, runtime, snapshot) &&
-            (run.stationCall == null || run.stationCall?.cancelledForControlTransfer == true)
-        ) {
-            if (runtime === run.storageRuntime &&
-                !tryCompleteStorage(world, run, runtime, sectionAllocator)
-            ) return
-            run.currentWayPointId = runtime.targetWayPointId
-            advanceService(world, run)
-            return
-        }
-
-        val nextSection = runtime.sections.firstOrNull { it.status == SectionStatus.PENDING }
-        if (nextSection == null) {
-            setRouteState(run, TimetableServiceRunState.RUNNING, "MANUAL_ROUTED")
-            return
-        }
-        if (headProgress > nextSection.routeSection.entryDistanceMeters +
-            MANUAL_PROTECTION_TOLERANCE_METERS
-        ) {
-            stallManualRouted(
-                world,
-                run,
-                snapshot,
-                "MANUAL_ROUTED crossed unconfirmed protection point for section " +
-                    nextSection.routeSection.ordinal
-            )
-            return
-        }
-        val previousReady = runtime.sections
-            .take(nextSection.routeSection.ordinal)
-            .all { it.status == SectionStatus.CONFIRMED || it.status == SectionStatus.RELEASED }
-        if (!previousReady) {
-            setRouteState(run, TimetableServiceRunState.WAITING_ROUTE, "MANUAL_ROUTED")
-            return
-        }
-        val triggerDistance = run.ato.routeAllocationTriggerDistanceMeters(
-            snapshot.speedMetersPerSecond,
-            allocationTiming
-        )
-        if (nextSection.routeSection.entryDistanceMeters - headProgress <= triggerDistance) {
-            candidates += AllocationCandidate(run, runtime, nextSection)
-            setRouteState(run, TimetableServiceRunState.WAITING_ROUTE, "MANUAL_ROUTED")
-        } else {
-            setRouteState(run, TimetableServiceRunState.RUNNING, "MANUAL_ROUTED")
         }
     }
 
@@ -2774,7 +2553,7 @@ class TimetableDispatcher(
         if (missionCompleted(run, runtime, snapshot) &&
             (run.stationCall == null || run.stationCall?.cancelledForControlTransfer == true)
         ) {
-            if (runtime === run.storageRuntime && !tryCompleteStorage(world, run, runtime, null)) return
+            if (runtime === run.storageRuntime && !tryCompleteStorage(world, run, runtime)) return
             run.currentWayPointId = runtime.targetWayPointId
             advanceService(world, run)
             return
@@ -2797,7 +2576,7 @@ class TimetableDispatcher(
         }
     }
 
-    /** One shared-route request/progress/apply pass; it never invokes the legacy allocator. */
+    /** One shared-route request/progress/apply pass through Basic route admission. */
     private fun processSharedRouteAdmission(
         world: World,
         run: ActiveRun,
@@ -2861,10 +2640,7 @@ class TimetableDispatcher(
                 routeLengthMeters = candidate.route.selection.route.totalLengthMeters,
                 headProgressMeters = routeProgress,
                 perceptionHorizonMeters = run.ato.routePerceptionHorizonMeters(),
-                extensionTriggerMeters = run.ato.routeAllocationTriggerDistanceMeters(
-                    snapshot.speedMetersPerSecond,
-                    allocationTiming
-                ),
+                extensionTriggerMeters = run.ato.routeAllocationTriggerDistanceMeters(allocationTiming),
                 admissionState = client.state
             )
             if (desired == null) {
@@ -3061,31 +2837,6 @@ class TimetableDispatcher(
         }
     }
 
-    private fun validateManualConfirmedTurnouts(
-        world: World,
-        run: ActiveRun,
-        snapshot: TrainSnapshot
-    ): Boolean {
-        for (allocation in run.allocations.values) {
-            for (requirement in allocation.section.routeSection.section.turnoutRequirements) {
-                val from = world.getRail(requirement.from.railId)
-                    ?.getView(requirement.from.direction)
-                val selected = world.getRail(requirement.selectedNext.railId)
-                    ?.getView(requirement.selectedNext.direction)
-                if (from == null || selected == null || from.nextActiveRail !== selected) {
-                    stallManualRouted(
-                        world,
-                        run,
-                        snapshot,
-                        "MANUAL_ROUTED confirmed turnout mismatch at ${requirement.from}"
-                    )
-                    return false
-                }
-            }
-        }
-        return true
-    }
-
     private fun terminalProgressFallback(
         world: World,
         run: ActiveRun,
@@ -3096,25 +2847,6 @@ class TimetableDispatcher(
         ) return null
         return runtime.layout.totalLengthMeters.takeIf {
             validateAtWayPoint(world, run.train, runtime.targetWayPointId) == null
-        }
-    }
-
-    private fun enforceManualProtection(
-        world: World,
-        run: ActiveRun,
-        runtime: MissionRuntime,
-        snapshot: TrainSnapshot
-    ) {
-        val pending = runtime.sections.firstOrNull { it.status == SectionStatus.PENDING } ?: return
-        if (runtime.headProgressMeters > pending.routeSection.entryDistanceMeters +
-            MANUAL_PROTECTION_TOLERANCE_METERS
-        ) {
-            stallManualRouted(
-                world,
-                run,
-                snapshot,
-                "MANUAL_ROUTED moved before timetable authority became eligible"
-            )
         }
     }
 
@@ -3159,104 +2891,13 @@ class TimetableDispatcher(
         run.message = effectiveReason
     }
 
-    private fun allocate(candidate: AllocationCandidate, allocator: RouteSectionAllocator) {
-        val run = candidate.run
-        val runtime = candidate.runtime
-        val section = candidate.section
-        when (val result = allocator.allocate(
-            run.owner,
-            section.routeSection.plannedRoute,
-            section.routeSection.section.index
-        )) {
-            is RouteSectionAllocationResult.Confirmed -> {
-                val world = requireNotNull(allocatorWorld)
-                val protectedIntervals = section.routeSection.section.turnoutRequirements
-                    .flatMap { it.lockingIntervals(world) }
-                section.status = SectionStatus.CONFIRMED
-                section.allocationRequested = false
-                section.releaseDetector = RailIntervalReleaseDetector(protectedIntervals)
-                run.allocations[result.window.key] = AllocatedSection(runtime, section)
-                if (run.controlMode == TimetableControlMode.AUTOMATIC) {
-                    run.ato.confirmRouteWindow(result.window)
-                    publishMovementAuthority(run, runtime)
-                }
-                setRouteState(run, TimetableServiceRunState.RUNNING, null)
-            }
-            is RouteSectionAllocationResult.Conflict -> {
-                section.nextAllocationAttemptTick = dispatcherTick +
-                    requireNotNull(allocatorWorld).basicWorldData.turnoutSafetyDefaults.retryTicks
-                setRouteState(
-                    run,
-                    TimetableServiceRunState.WAITING_ROUTE,
-                    "route conflict at ${result.resource}, held by ${result.heldBy.owner}"
-                )
-            }
-            is RouteSectionAllocationResult.PhysicallyLocked -> {
-                section.nextAllocationAttemptTick = dispatcherTick +
-                    requireNotNull(allocatorWorld).basicWorldData.turnoutSafetyDefaults.retryTicks
-                setRouteState(
-                    run,
-                    TimetableServiceRunState.WAITING_ROUTE,
-                    "turnout ${result.resource} is physically locked by ${result.occupyingTrainIds.sorted()}"
-                )
-            }
-            is RouteSectionAllocationResult.Invalid -> {
-                if (run.controlMode == TimetableControlMode.MANUAL_ROUTED) {
-                    val world = requireNotNull(allocatorWorld)
-                    stallManualRouted(
-                        world,
-                        run,
-                        capturePublishedTrainSnapshot(run),
-                        "MANUAL_ROUTED route allocation invalid: ${result.reason}"
-                    )
-                } else {
-                    val world = requireNotNull(allocatorWorld)
-                    stallRun(
-                        world,
-                        run,
-                        "InfrastructureInvariantViolation",
-                        "route allocation invalid: ${result.reason}"
-                    )
-                }
-            }
-        }
-    }
-
-    private fun MissionRouteSection.absoluteTurnoutDistanceMeters(): Double =
-        entryDistanceMeters - section.entryProtectionDistanceMeters +
-            section.turnoutRequirements.minOf(TurnoutRequirement::routeDistanceMeters)
-
     private fun publishInitialMovementAuthority(run: ActiveRun, runtime: MissionRuntime) {
-        if (usesSharedRouteAdmission) {
-            runtime.publishedAuthorityMeters = 0.0
-            run.ato.setMovementAuthority(runtime.mission.revision, 0.0)
-        } else {
-            publishMovementAuthority(run, runtime)
-        }
-    }
-
-    private fun publishMovementAuthority(run: ActiveRun, runtime: MissionRuntime) {
-        var authority = runtime.layout.totalLengthMeters
-        var allTurnoutsConfirmed = true
-        for (section in runtime.sections) {
-            if (section.status != SectionStatus.PENDING || !section.allocationRequested) continue
-            val requirement = section.routeSection.section.turnoutRequirements.single()
-            authority = (section.routeSection.absoluteTurnoutDistanceMeters() -
-                requirement.protectionDistanceMeters).coerceAtLeast(0.0)
-            allTurnoutsConfirmed = false
-            break
-        }
-        if (allTurnoutsConfirmed) {
-            authority = run.ato.terminalMovementAuthorityLimitMeters(runtime.layout.totalLengthMeters)
-        }
-        if (authority != runtime.publishedAuthorityMeters) {
-            runtime.publishedAuthorityMeters = authority
-            run.ato.setMovementAuthority(runtime.mission.revision, authority)
-        }
+        runtime.publishedAuthorityMeters = 0.0
+        run.ato.setMovementAuthority(runtime.mission.revision, 0.0)
     }
 
     private fun updateTailProgress(run: ActiveRun, snapshot: TrainSnapshot) {
-        run.runtimes.forEach { runtime ->
+        run.referencedRuntimes().forEach { runtime ->
             val publishedOdometer = run.lastPublishedAtoState?.lifetimeTravelDistanceMeters
                 ?: run.ato.publishedState.lifetimeTravelDistanceMeters
             val odometerDelta = (publishedOdometer - runtime.lastOdometerMeters).coerceAtLeast(0.0)
@@ -3302,8 +2943,7 @@ class TimetableDispatcher(
     private fun tryCompleteStorage(
         world: World,
         run: ActiveRun,
-        runtime: MissionRuntime,
-        allocator: RouteSectionAllocator?
+        runtime: MissionRuntime
     ): Boolean {
         val reservation = run.storageReservation
         if (reservation == null) {
@@ -3340,24 +2980,6 @@ class TimetableDispatcher(
             run.message = "waiting for old StationBerth tail release before storage"
             return false
         }
-        if (run.allocations.values.any { it.runtime !== runtime }) {
-            run.state = TimetableServiceRunState.STORING
-            run.message = "waiting for old RouteSection tail release before storage"
-            return false
-        }
-        if (allocator != null) {
-            val storageKeys = run.allocations.filterValues { it.runtime === runtime }.keys
-            val confirmedKeys = allocator.confirmedWindows().map { it.key }.toSet()
-            if (!storageKeys.all { it in confirmedKeys }) {
-                stallRun(
-                    world,
-                    run,
-                    "ResourceIdentityViolation",
-                    "storage RouteSection allocation disappeared before occupancy handoff"
-                )
-                return false
-            }
-        }
         val storageCommitted = if (run.physicalStorageOnly) {
             physicalStorageReservations.remove(reservation.stablingPointRef, run.instanceId)
         } else {
@@ -3376,38 +2998,6 @@ class TimetableDispatcher(
         run.storageCompleted = true
         run.message = "stored at ${reservation.stablingPointRef}; terminal route remains tail-held"
         return true
-    }
-
-    private fun releasePassedSections(run: ActiveRun, allocator: RouteSectionAllocator) {
-        val iterator = run.allocations.entries.iterator()
-        while (iterator.hasNext()) {
-            val (key, allocation) = iterator.next()
-            val detector = allocation.section.releaseDetector ?: continue
-            if (detector.update(run.train.occupiedRailIntervals) != IntervalOccupancyState.RELEASED) {
-                continue
-            }
-            if (allocation.runtime === run.currentRuntimeOrNull) {
-                val requirement = allocation.section.routeSection.section.turnoutRequirements.single()
-                val clearProgress = allocation.section.routeSection.absoluteTurnoutDistanceMeters() +
-                    requirement.lockingDistanceMeters
-                if (allocation.runtime.headProgressMeters < clearProgress) continue
-            }
-            if (!allocator.release(key)) {
-                stallRun(
-                    requireNotNull(allocatorWorld),
-                    run,
-                    "ResourceIdentityViolation",
-                    "confirmed RouteSection allocation disappeared before tail release: $key"
-                )
-                return
-            }
-            run.ato.releaseRouteWindow(key)
-            allocation.section.status = SectionStatus.RELEASED
-            iterator.remove()
-        }
-        run.runtimes.removeIf { runtime ->
-            runtime !== run.currentRuntime && run.allocations.values.none { it.runtime === runtime }
-        }
     }
 
     private fun reportWaypointProgress(
@@ -3607,7 +3197,6 @@ class TimetableDispatcher(
                             targetWayPointId = plan.target.id,
                             lastOdometerMeters = run.ato.lifetimeTravelDistanceMeters
                         )
-                        run.runtimes += runtime
                         run.currentRuntime = runtime
                         run.missionRevision = accepted.mission.revision
                         run.nextStepIndex = plan.nextStepIndex
@@ -3771,7 +3360,6 @@ class TimetableDispatcher(
                             run.depotReservationPending = false
                             run.depotDepartureRuntime = runtime
                         }
-                        run.runtimes += runtime
                         run.currentRuntime = runtime
                         run.missionRevision = accepted.mission.revision
                         run.nextStepIndex = plan.nextStepIndex
@@ -4072,7 +3660,7 @@ class TimetableDispatcher(
     }
 
     private fun finishControllerIfReleased(run: ActiveRun, snapshot: TrainSnapshot) {
-        if (run.allocations.isNotEmpty() || run.stationCall?.allocationKey != null ||
+        if (run.stationCall?.allocationKey != null ||
             run.admissionClient != null && !run.admissionEnded ||
             !run.ato.isStopped(snapshot.speedMetersPerSecond)
         ) return
@@ -4082,22 +3670,13 @@ class TimetableDispatcher(
     }
 
     private fun bindWorld(world: World) {
-        val currentWorld = allocatorWorld
+        val currentWorld = boundWorld
         check(currentWorld == null || currentWorld === world) {
             "TimetableDispatcher cannot be shared between worlds"
         }
         if (currentWorld == null) {
-            allocatorWorld = world
-            if (!usesSharedRouteAdmission) allocator = RouteSectionAllocator(world)
+            boundWorld = world
         }
-    }
-
-    private fun allocator(world: World): RouteSectionAllocator {
-        bindWorld(world)
-        check(!usesSharedRouteAdmission) {
-            "legacy RouteSectionAllocator is disabled when shared route admission is configured"
-        }
-        return checkNotNull(allocator)
     }
 
     private fun nextMissionRevision(): Long {
@@ -4588,24 +4167,6 @@ class TimetableDispatcher(
         val failure: String?
     )
 
-    private enum class SectionStatus {
-        PENDING,
-        CONFIRMED,
-        RELEASED
-    }
-
-    private data class RuntimeSection(
-        val routeSection: MissionRouteSection,
-        var status: SectionStatus = if (routeSection.section.turnoutRequirements.isEmpty()) {
-            SectionStatus.CONFIRMED
-        } else {
-            SectionStatus.PENDING
-        },
-        var allocationRequested: Boolean = false,
-        var nextAllocationAttemptTick: Long = 0L,
-        var releaseDetector: RailIntervalReleaseDetector? = null
-    )
-
     private data class MissionRuntime(
         val mission: AtoMission,
         val layout: MissionRouteLayout,
@@ -4616,19 +4177,6 @@ class TimetableDispatcher(
         var publishedAuthorityMeters: Double = -1.0,
         var lastOdometerMeters: Double,
         var reportedPointCount: Int = 0
-    ) {
-        val sections = layout.sections.map(::RuntimeSection)
-    }
-
-    private data class AllocatedSection(
-        val runtime: MissionRuntime,
-        val section: RuntimeSection
-    )
-
-    private data class AllocationCandidate(
-        val run: ActiveRun,
-        val runtime: MissionRuntime,
-        val section: RuntimeSection
     )
 
     private data class AdmissionRoute(
@@ -4757,9 +4305,7 @@ class TimetableDispatcher(
         var storageReservation: DepotStorageReservation? = null,
         var physicalStorageOnly: Boolean = false,
         var storageRuntime: MissionRuntime? = null,
-        var storageCompleted: Boolean = false,
-        val runtimes: MutableList<MissionRuntime> = ArrayList(),
-        val allocations: MutableMap<RouteSectionAllocationKey, AllocatedSection> = LinkedHashMap()
+        var storageCompleted: Boolean = false
     ) {
         var currentRuntimeOrNull: MissionRuntime? = currentRuntime
         var currentRuntime: MissionRuntime
@@ -4767,7 +4313,6 @@ class TimetableDispatcher(
             set(value) { currentRuntimeOrNull = value }
 
         val instanceId: String = "$id@cycle-$cycleIndex/start-$cycleStartDispatcherTick"
-        val owner = RouteSectionOwner(instanceId, train.id)
         val admissionOwner = InfrastructureOwner("simpleato:dispatcher/run-$admissionOwnerSequence", 0L)
         var admissionClient: RouteAuthorityAdmissionClient? = null
         var admittedRoute: AdmissionRoute? = null
@@ -4775,8 +4320,20 @@ class TimetableDispatcher(
         var nextAdmissionAttemptTick: Long = 0L
         var admissionEnded: Boolean = false
 
+        /** Mission runtimes still referenced by an active operational boundary. */
+        fun referencedRuntimes(): List<MissionRuntime> = buildList {
+            fun addOnce(runtime: MissionRuntime?) {
+                if (runtime != null && none { it === runtime }) add(runtime)
+            }
+            addOnce(currentRuntimeOrNull)
+            addOnce(depotDepartureRuntime)
+            addOnce(storageRuntime)
+            addOnce(stationCall?.missionRuntime)
+            addOnce(destinationStop?.missionRuntime)
+        }
+
         fun canBeReplaced(): Boolean =
-            state.isTerminal() && allocations.isEmpty() &&
+            state.isTerminal() &&
                 (admissionClient == null || admissionEnded) &&
                 stationCall?.allocationKey == null && storageReservation == null &&
                 ato.isStopped(ato.publishedState.trainSnapshot.speedMetersPerSecond)
@@ -4805,7 +4362,7 @@ class TimetableDispatcher(
                 trainId = train.id,
                 missionRevision = missionRevision,
                 state = state,
-                confirmedSectionCount = allocations.size,
+                routeGrantActive = admissionClient?.state?.committedAuthority != null && !admissionEnded,
                 cycleIndex = cycleIndex,
                 timetableElapsedTicks =
                     (lastObservedDispatcherTick - cycleStartDispatcherTick).coerceAtLeast(0L),

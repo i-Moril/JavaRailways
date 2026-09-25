@@ -273,6 +273,10 @@
     immutable publication snapshot so the cross-module subclass keeps the original atomic read without exposing mutable state.
   - [ ] Wire automatic and `MANUAL_ROUTED` production runs to one observation-scoped frozen-route selection and the existing
     admission client/restriction adapter. Preserve `FULL_MANUAL` no-request behavior and continue release of existing claims.
+    - [x] Add the two behavior-neutral production prerequisites without running a second allocator: Basic rail metadata now
+      publishes one atomic immutable store snapshot plus a change-only runtime revision, and SimpleATO projects that snapshot into
+      its direction overlay. The concrete controller owns the existing restriction adapter and applies it to its sole constraint
+      manager. No request is issued yet because straight-route rolling lookahead/inspection policy remains deliberately unfrozen.
   - [ ] Prove parity for priority, stop/station-call behavior, transient retry, stale-route re-selection, manual modes and tail
     release, then delete `RouteSectionAllocator` and the final dispatcher-specific RailWand allocation guard.
 - [ ] Add topology edit guards for active external claims.

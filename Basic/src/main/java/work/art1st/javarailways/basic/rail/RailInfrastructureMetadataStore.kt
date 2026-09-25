@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -118,6 +119,7 @@ fun Rail.updateInfrastructureMetadata(
 class RailInfrastructureMetadataStore {
     private val values = ConcurrentHashMap<UUID, RailInfrastructureMetadata>()
     private val transactionLock = Any()
+    private var revision = 0L
 
     operator fun get(railId: UUID): RailInfrastructureMetadata? = synchronized(transactionLock) { values[railId] }
 
@@ -130,23 +132,58 @@ class RailInfrastructureMetadataStore {
     }
 
     fun put(railId: UUID, metadata: RailInfrastructureMetadata) = synchronized(transactionLock) {
+        if (values[railId] == metadata) return@synchronized
+        val nextRevision = Math.incrementExact(revision)
         values[railId] = metadata
+        revision = nextRevision
     }
 
-    fun remove(railId: UUID): RailInfrastructureMetadata? = synchronized(transactionLock) { values.remove(railId) }
+    fun remove(railId: UUID): RailInfrastructureMetadata? = synchronized(transactionLock) {
+        val existing = values[railId] ?: return@synchronized null
+        val nextRevision = Math.incrementExact(revision)
+        values.remove(railId)
+        revision = nextRevision
+        existing
+    }
 
     fun replace(removals: Set<UUID>, additions: Map<UUID, RailInfrastructureMetadata>) =
         synchronized(transactionLock) {
+            val changed = removals.any { railId ->
+                val replacement = additions[railId]
+                if (replacement == null) values.containsKey(railId) else values[railId] != replacement
+            } || additions.any { (railId, metadata) -> values[railId] != metadata }
+            if (!changed) return@synchronized
+            val nextRevision = Math.incrementExact(revision)
             removals.forEach(values::remove)
             values.putAll(additions)
+            revision = nextRevision
         }
 
     fun snapshot(): Map<UUID, RailInfrastructureMetadata> = synchronized(transactionLock) {
         values.toSortedMap(compareBy(UUID::toString))
     }
 
+    /** Captures metadata and its store-local revision under the same lock. */
+    fun snapshotWithRevision(): RailInfrastructureMetadataSnapshot = synchronized(transactionLock) {
+        RailInfrastructureMetadataSnapshot(
+            revision,
+            Collections.unmodifiableMap(values.toSortedMap(compareBy(UUID::toString)))
+        )
+    }
+
     fun restore(restored: Map<UUID, RailInfrastructureMetadata>) = synchronized(transactionLock) {
         require(values.isEmpty()) { "Rail infrastructure metadata store is not empty" }
         values.putAll(restored)
+    }
+}
+
+/** One immutable runtime view of the transitional Basic rail-metadata store. */
+@ConsistentCopyVisibility
+data class RailInfrastructureMetadataSnapshot internal constructor(
+    val revision: Long,
+    val values: Map<UUID, RailInfrastructureMetadata>
+) {
+    init {
+        require(revision >= 0L) { "rail metadata revision must be non-negative" }
     }
 }

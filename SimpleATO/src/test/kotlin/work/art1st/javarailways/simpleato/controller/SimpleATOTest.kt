@@ -19,6 +19,9 @@ import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
 import work.art1st.javarailways.basic.api.ato.constraint.ConstraintKey
 import work.art1st.javarailways.basic.api.ato.constraint.CurrentSpeedLimitConstraint
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.ato.provider.AtoProvider
 import work.art1st.javarailways.basic.api.ato.provider.AtoProviderBoundary
 import work.art1st.javarailways.basic.api.ato.provider.AtoProviderContext
@@ -51,6 +54,10 @@ import work.art1st.javarailways.core.physics.train.createStraightRailFromSegment
 import work.art1st.javarailways.core.physics.train.createTestWorld as createCoreTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
+import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 
 class SimpleATOTest {
     private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
@@ -76,6 +83,53 @@ class SimpleATOTest {
         assertFalse(fixture.ato.isStopped(Double.MIN_VALUE))
         assertFalse(fixture.coordinator.isStalled)
         assertEquals(fixture.train.id, fixture.coordinator.initialTrain(fixture.train.id)?.trainId)
+    }
+
+    @Test
+    fun `resource authority restrictions use the controller constraint manager`() {
+        val fixture = fixture("resource-authority")
+        authorizeMovement(fixture)
+        val head = fixture.ato.publishedState.trainSnapshot.head
+        val topologyRevision = fixture.world.topologyState.revision
+        val route = RouteSnapshot(
+            routeId = "simpleato:test/resource-authority",
+            revision = 1L,
+            topologyRevision = topologyRevision,
+            segments = listOf(
+                RouteSegmentSnapshot(
+                    railId = head.railId,
+                    facing = head.facing,
+                    startArcLengthMeters = 0.0,
+                    endArcLengthMeters = fixture.train.head.location.rail.curve.totalArcLength
+                )
+            )
+        )
+        val stamp = RailwayStateStamp(fixture.coordinator.worldId, 0L, topologyRevision)
+        val publication = fixture.ato.trainRestrictionPublisher.publish(
+            TrainRestrictionSnapshot(
+                sourceId = "simpleato:test-admission",
+                revision = 0L,
+                trainId = fixture.train.id,
+                observationStamp = stamp,
+                route = TrainRestrictionRouteBinding.from(route),
+                restrictions = listOf(MovementAuthorityRestriction("simpleato:grant", 0.0))
+            )
+        )
+
+        assertEquals(TrainRestrictionPublicationStatus.ACCEPTED, publication.status)
+        fixture.ato.applyTrainRestrictions(
+            stamp,
+            TrainRestrictionRouteBinding.from(route),
+            routeProgressMeters = 0.0
+        )
+        tickAndPublish(fixture.ato, 1_000.0)
+
+        assertEquals(0.0, fixture.train.speed, 1.0e-9)
+        assertTrue(fixture.ato.runtimeDiagnostics.constraints.any {
+            it.contains("SIGNALLING/simpleato:external-restrictions:${fixture.train.id}") &&
+                it.contains("simpleato:test-admission/simpleato:grant")
+        })
+        assertFalse(fixture.coordinator.isStalled)
     }
 
     @Test

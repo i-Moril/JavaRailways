@@ -26,6 +26,12 @@ Mission、constraint、provider和station-call的mutable集合都只存在于该
 `SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；本次模块迁移不增加
 扫描、缓存或调度阶段，也不改变legacy route allocator。
 
+controller现在同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。admission client向adapter发布
+immutable restriction snapshot；后续Dispatcher接线将在serialized owner上用当前stamp、同一冻结route binding及route
+progress调用apply，adapter把结果原子替换进controller原有`ConstraintManager`。这不是第二份约束存储或第二个
+制动器：最终仍由同一个`MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。当前提交只完成
+owner/enforcement接缝；在lookahead policy冻结并接入Dispatcher以前，生产运行尚不发布resource-admission restriction。
+
 ## Publication边界
 
 `AbstractATO`把一次publication表示为protected immutable `PublishedAtoState`，并通过一次volatile reference

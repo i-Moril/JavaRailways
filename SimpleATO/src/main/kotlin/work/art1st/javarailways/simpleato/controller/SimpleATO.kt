@@ -34,6 +34,7 @@ import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RailObservationSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.station.ResolvedStationCall
 import work.art1st.javarailways.basic.api.station.StationBerthDetector
 import work.art1st.javarailways.basic.api.station.StationCallNotification
@@ -64,6 +65,10 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailSegment
 import work.art1st.javarailways.core.physics.train.TrainEnd
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSourceEnforcement
 import java.util.concurrent.ConcurrentLinkedQueue
 
 data class SimpleAtoRuntimeDiagnostics(
@@ -156,6 +161,7 @@ class SimpleATO(
     private val publishedStationNotifications = ConcurrentLinkedQueue<StationCallNotification>()
     private val pendingStationNotifications = ArrayList<StationCallNotification>()
     private val constraintManager = ConstraintManager()
+    private val trainRestrictionAdapter = TrainRestrictionConstraintAdapter(train.id, constraintManager)
     private val speedLimits = LinkedHashMap<String, Double>()
     private val stopTargets = LinkedHashMap<String, StopTarget>()
     private var activeInfrastructureLimitMetersPerSecond: Double? = null
@@ -208,6 +214,22 @@ class SimpleATO(
     val currentConfirmedRouteWindows: List<ConfirmedRouteWindow>
         get() = publishedState.currentConfirmedRouteWindows
     val currentStationCall: ResolvedStationCall? get() = publishedState.currentStationCall
+
+    /** Publisher used by the one resource-admission client attached to this controller. */
+    internal val trainRestrictionPublisher: TrainRestrictionPublisher =
+        TrainRestrictionPublisher(trainRestrictionAdapter::publish)
+
+    /** Applies immutable restriction snapshots to this controller's sole constraint manager. */
+    @MainThread
+    internal fun applyTrainRestrictions(
+        currentStamp: RailwayStateStamp,
+        currentRoute: TrainRestrictionRouteBinding,
+        routeProgressMeters: Double
+    ): List<TrainRestrictionSourceEnforcement> = trainRestrictionAdapter.apply(
+        currentStamp,
+        currentRoute,
+        routeProgressMeters
+    )
 
     /** Resolve and queue a Mission from the main thread; activation occurs at a physics Tick boundary. */
     @MainThread

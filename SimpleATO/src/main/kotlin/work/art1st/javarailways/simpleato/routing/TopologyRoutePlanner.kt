@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.routing
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyEdgeEnd
@@ -42,13 +43,25 @@ internal class OperatingDirectionOverlay(
     fun allows(railId: UUID, direction: ViewDirection): Boolean =
         allowedDirections[railId]?.contains(direction) ?: true
 
-    private companion object {
-        fun immutableDirectionMap(source: Map<UUID, Set<ViewDirection>>): Map<UUID, Set<ViewDirection>> =
+    companion object {
+        private fun immutableDirectionMap(source: Map<UUID, Set<ViewDirection>>): Map<UUID, Set<ViewDirection>> =
             Collections.unmodifiableMap(
                 source.mapValuesTo(linkedMapOf()) { (_, directions) ->
                     Collections.unmodifiableSet(directions.toSet())
                 }
             )
+
+        /** Projects one atomic metadata snapshot without retaining the mutable Basic store. */
+        fun from(
+            topology: TopologyState,
+            metadata: RailInfrastructureMetadataSnapshot
+        ): OperatingDirectionOverlay = OperatingDirectionOverlay(
+            topologyRevision = topology.revision,
+            revision = metadata.revision,
+            allowedDirections = metadata.values.mapNotNull { (railId, value) ->
+                value.operating.allowedDirection?.let { railId to setOf(it) }
+            }.toMap()
+        )
     }
 }
 

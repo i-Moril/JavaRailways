@@ -138,7 +138,7 @@ class FrozenMissionRouteAssemblerTest {
     }
 
     @Test
-    fun `body endpoints must match the coherent train observation`() {
+    fun `mission must continue from the physical body endpoint`() {
         val rail = UUID(0L, 20L)
         val topology = buildTestTopology(
             revision = 11L,
@@ -149,18 +149,18 @@ class FrozenMissionRouteAssemblerTest {
             topology.revision,
             RailPositionSnapshot(rail, ViewDirection.AB, 2.0),
             RailPositionSnapshot(rail, ViewDirection.AB, 12.0),
-            listOf(traversal(rail, ViewDirection.AB, 3.0, 12.0))
+            listOf(traversal(rail, ViewDirection.AB, 2.0, 12.0))
         )
 
         val rejected = FrozenMissionRouteAssembler.assemble(
             topology,
             FrozenRouteSelectionContext(observation),
             TRAIN_ID,
-            mission(listOf(RouteSegment(RailViewRef(rail, ViewDirection.AB), 12.0, 80.0))),
+            mission(listOf(RouteSegment(RailViewRef(rail, ViewDirection.AB), 13.0, 80.0))),
             missionHeadProgressMeters = 0.0
         ) as FrozenMissionRouteResult.Rejected
 
-        assertEquals(FrozenMissionRouteRejection.INVALID_BODY_TRAVERSAL, rejected.reason)
+        assertEquals(FrozenMissionRouteRejection.INVALID_MISSION, rejected.reason)
     }
 
     @Test

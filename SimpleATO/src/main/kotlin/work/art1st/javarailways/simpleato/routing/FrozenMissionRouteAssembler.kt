@@ -3,7 +3,6 @@ package work.art1st.javarailways.simpleato.routing
 import work.art1st.javarailways.basic.api.ato.mission.AtoMission
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
@@ -97,13 +96,18 @@ internal object FrozenMissionRouteAssembler {
                     "train $trainId body references an ambiguous or missing rail ${segment.railId}"
                 )
         }
-        if (bodySegments.isEmpty() ||
-            !matches(bodySegments.first(), train.tail, atStart = true, topology) ||
-            !matches(bodySegments.last(), train.head, atStart = false, topology)
-        ) {
+        if (bodySegments.isEmpty()) {
             return rejected(
                 FrozenMissionRouteRejection.INVALID_BODY_TRAVERSAL,
-                "train $trainId body traversal does not run from its published tail to head"
+                "train $trainId has no published body traversal"
+            )
+        }
+
+        val remainingMission = trim(missionRoute.segments, missionHeadProgressMeters)
+        if (remainingMission.isNotEmpty() && !joins(bodySegments.last(), remainingMission.first(), topology)) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_MISSION,
+                "mission ${mission.id}@${mission.revision} does not continue from train $trainId physical body endpoint"
             )
         }
 
@@ -112,7 +116,7 @@ internal object FrozenMissionRouteAssembler {
             routeId = mission.id,
             revision = mission.revision,
             topologyRevision = topology.revision,
-            segments = mergeAdjacent(bodySegments + trim(missionRoute.segments, missionHeadProgressMeters))
+            segments = mergeAdjacent(bodySegments + remainingMission)
         )
         return FrozenMissionRouteResult.Frozen(
             FrozenMissionRoute(
@@ -166,27 +170,18 @@ internal object FrozenMissionRouteAssembler {
         )
     }
 
-    private fun matches(
-        segment: RouteSegmentSnapshot,
-        position: RailPositionSnapshot,
-        atStart: Boolean,
-        topology: TopologyState
-    ): Boolean {
-        if (segment.railId != position.railId || segment.facing != position.facing) return false
-        val expected = positionInView(topology, position) ?: return false
-        val actual = if (atStart) segment.startArcLengthMeters else segment.endArcLengthMeters
-        return abs(actual - expected) <= POSITION_TOLERANCE_METERS
-    }
-
-    private fun positionInView(
+    private fun joins(
+        bodyEnd: RouteSegmentSnapshot,
+        missionStart: RouteSegmentSnapshot,
         topology: TopologyState,
-        position: RailPositionSnapshot
-    ): Double? {
-        val length = railLength(topology, position.railId) ?: return null
-        return when (position.facing) {
-            ViewDirection.AB -> position.arcLengthInAbMeters
-            ViewDirection.BA -> length - position.arcLengthInAbMeters
+    ): Boolean {
+        if (bodyEnd.railId == missionStart.railId) {
+            return bodyEnd.facing == missionStart.facing &&
+                abs(bodyEnd.endArcLengthMeters - missionStart.startArcLengthMeters) <= POSITION_TOLERANCE_METERS
         }
+        val bodyRailLength = railLength(topology, bodyEnd.railId) ?: return false
+        return abs(bodyEnd.endArcLengthMeters - bodyRailLength) <= POSITION_TOLERANCE_METERS &&
+            missionStart.startArcLengthMeters <= POSITION_TOLERANCE_METERS
     }
 
     private fun trim(

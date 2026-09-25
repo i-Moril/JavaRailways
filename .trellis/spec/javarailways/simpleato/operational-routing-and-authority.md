@@ -62,8 +62,9 @@ observation解析具名列车。脱轨列车作为无效权威起点被拒绝；
 
 生产Dispatcher已经拥有由mission resolver选定的head-forward路线，不能在准入时再跑一次最短路。Core观察
 因此额外发布epoch末实际`bodyTraversal`，即从保守车尾到车头的有序物理路径。内部
-`FrozenMissionRouteAssembler`只验证这条body traversal的端点，然后按Dispatcher已有的单调mission progress
-裁剪预选路线并把body接在前面；它不重新投影车头occurrence、不读取运行方向、不运行Dijkstra，也不猜测道岔分支。返回值把实际body长度记录为head-based mission
+`FrozenMissionRouteAssembler`信任Core同一原子frame内的body/head/tail一致性，只检查observation与topology
+版本、mission progress范围，以及body终点能否接上裁剪后的预选路线起点；随后把body接在前面。它不重复验证完整body、
+不重新投影车头occurrence、不读取运行方向、不运行Dijkstra，也不猜测道岔分支。跨rail拼接只要求前一段到达其方向终点且后一段从方向起点开始，真实continuation合法性仍由Basic证明。返回值把实际body长度记录为head-based mission
 进度到Basic tail-started route-metre的固定偏移。最终连通性和拓扑合法性仍由Basic在线性准入验证中证明。
 
 同一次Dispatcher处理使用一个`FrozenRouteSelectionContext`为该不可变observation建立train ID索引；普通

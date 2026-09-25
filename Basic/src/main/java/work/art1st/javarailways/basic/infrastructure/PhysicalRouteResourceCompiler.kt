@@ -160,6 +160,54 @@ internal class PhysicalRouteResourceCompiler(
         return PhysicalRouteCompilation.Compiled(admission, controlledResources.toSet())
     }
 
+    /**
+     * Recalculates release positions for an existing claim after a stopped train reverses.
+     *
+     * Rail interval identities deliberately remain unchanged even when they extend beyond the new
+     * body route. An interval that still overlaps the route is retained until the new tail clears
+     * its final overlap; any retained resource with no new-route evidence becomes eligible at the
+     * route origin. Stable-resource boundaries come from the newly validated physical/plugin
+     * compilation and are therefore already expressed in the new route coordinate.
+     */
+    fun rebaseReleaseEntries(
+        projection: ProjectedTopologyRoute,
+        range: PhysicalRouteRange,
+        retainedResources: Collection<InfrastructureResource>,
+        stableBoundaries: Map<StableInfrastructureResource, Double>
+    ): List<ResolvedTailReleaseEntry> {
+        val boundaries = retainedResources.associateWithTo(LinkedHashMap()) { 0.0 }
+        val retainedRails = retainedResources.filterIsInstance<RailIntervalResource>()
+            .groupBy(RailIntervalResource::railId)
+            .mapValues { (_, resources) -> resources.sortedBy(RailIntervalResource::startAbMeters) }
+
+        projection.occurrences.forEach { occurrence ->
+            val clippedStart = max(range.startRouteMeters, occurrence.routeStartMeters)
+            val clippedEnd = min(range.endRouteMeters, occurrence.routeEndMeters)
+            if (clippedEnd <= clippedStart) return@forEach
+            val firstCanonical = occurrence.canonicalAt(clippedStart)
+            val secondCanonical = occurrence.canonicalAt(clippedEnd)
+            val occurrenceStart = min(firstCanonical, secondCanonical)
+            val occurrenceEnd = max(firstCanonical, secondCanonical)
+            val resources = retainedRails[occurrence.segment.railId].orEmpty()
+            var resourceIndex = resources.lowerBoundByEnd(occurrenceStart)
+            while (resourceIndex < resources.size) {
+                val resource = resources[resourceIndex]
+                if (resource.startAbMeters > occurrenceEnd) break
+                val overlapStart = max(occurrenceStart, resource.startAbMeters)
+                val overlapEnd = min(occurrenceEnd, resource.endAbMeters)
+                val firstRoute = occurrence.routeAtCanonical(overlapStart)
+                val secondRoute = occurrence.routeAtCanonical(overlapEnd)
+                boundaries[resource] = maxOf(boundaries.getValue(resource), firstRoute, secondRoute)
+                resourceIndex++
+            }
+        }
+        stableBoundaries.forEach { (resource, boundary) ->
+            if (resource in boundaries) boundaries[resource] = maxOf(boundaries.getValue(resource), boundary)
+        }
+        return boundaries.map { (resource, boundary) -> ResolvedTailReleaseEntry(resource, boundary) }
+            .sortedWith(TAIL_RELEASE_ENTRY_ORDER)
+    }
+
     private fun tailReleaseEntries(
         footprint: InfrastructureFootprint,
         occurrences: List<ProjectedRouteOccurrence>,

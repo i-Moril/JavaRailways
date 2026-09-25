@@ -21,6 +21,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
@@ -50,6 +51,160 @@ class RouteResourceAdmissionEngineTest {
         assertEquals(RouteBoundResourceCatalogUpdate.Published, it.publish(topology, emptyList()))
     }
     private var additionValidation: (ContributedRouteResource) -> RouteAdmissionFailure? = { null }
+
+    @Test
+    fun `stopped reversal keeps the grant and claim while rebuilding release from the new tail`() {
+        observation = observation(7L, train("first", 10.0, 20.0, 7L))
+        val service = service()
+        val requester = Any()
+        val forwardRoute = route(
+            revision = 1L,
+            segments = listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 10.0, 40.0))
+        )
+        val original = assertInstanceOf(
+            RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = forwardRoute, authority = 30.0))
+        ).grant
+        val retainedClaim = registry.claimSnapshots().single().footprint
+
+        val suspended = assertInstanceOf(
+            RouteGrantReversalResult.Accepted::class.java,
+            service.suspendReleaseForReversal(requester, original.grantId)
+        )
+        assertSame(original.grantId, suspended.grant.grantId)
+
+        observation = observation(
+            8L,
+            train("first", 20.0, 10.0, 8L, ViewDirection.BA, reversed = true)
+        )
+        assertTrue(service.consumeObservation(observation).isEmpty())
+        assertEquals(retainedClaim, registry.claimSnapshots().single().footprint)
+
+        val reversedRoute = route(
+            revision = 2L,
+            segments = listOf(RouteSegmentSnapshot(railId, ViewDirection.BA, 80.0, 100.0))
+        )
+        val rebased = assertInstanceOf(
+            RouteGrantReversalResult.Accepted::class.java,
+            service.rebaseAfterReversal(
+                requester,
+                intent(route = reversedRoute, authority = 10.0)
+            )
+        ).grant
+        assertSame(original.grantId, rebased.grantId)
+        assertEquals(RouteBoundary(10.0), rebased.committedAuthority)
+        assertEquals(retainedClaim, registry.claimSnapshots().single().footprint)
+
+        val extended = assertInstanceOf(
+            RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = reversedRoute, authority = 20.0))
+        ).grant
+        assertSame(original.grantId, extended.grantId)
+        assertEquals(
+            setOf(
+                RailIntervalResource(railId, 10.0, 40.0),
+                RailIntervalResource(railId, 0.0, 10.0)
+            ),
+            registry.claimSnapshots().single().footprint.resources.toSet()
+        )
+
+        observation = observation(
+            9L,
+            train("first", 10.0, 0.0, 9L, ViewDirection.BA, reversed = true)
+        )
+        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Active::class.java,
+            service.consumeObservation(observation).single())
+        assertEquals(
+            setOf(RailIntervalResource(railId, 0.0, 10.0)),
+            registry.claimSnapshots().single().footprint.resources.toSet()
+        )
+    }
+
+    @Test
+    fun `reversal requiring a resource outside the retained claim rejects without release`() {
+        observation = observation(7L, train("first", 10.0, 20.0, 7L))
+        val service = service()
+        val requester = Any()
+        val original = assertInstanceOf(
+            RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(
+                route = route(1L, listOf(
+                    RouteSegmentSnapshot(railId, ViewDirection.AB, 10.0, 40.0)
+                )),
+                authority = 30.0
+            ))
+        ).grant
+        val retainedClaim = registry.claimSnapshots().single().footprint
+        assertInstanceOf(
+            RouteGrantReversalResult.Accepted::class.java,
+            service.suspendReleaseForReversal(requester, original.grantId)
+        )
+
+        observation = observation(
+            8L,
+            train("first", 20.0, 10.0, 8L, ViewDirection.BA, reversed = true)
+        )
+        val rejected = assertInstanceOf(
+            RouteGrantReversalResult.Rejected::class.java,
+            service.rebaseAfterReversal(
+                requester,
+                intent(
+                    route = route(2L, listOf(
+                        RouteSegmentSnapshot(railId, ViewDirection.BA, 80.0, 100.0)
+                    )),
+                    authority = 10.0,
+                    contributions = listOf(ContributedRouteResource(block, RouteBoundary(10.0)))
+                )
+            )
+        )
+
+        assertEquals(RouteAdmissionFailureCode.INVALID_ROUTE, rejected.failure.code)
+        assertEquals(retainedClaim, registry.claimSnapshots().single().footprint)
+        assertTrue(service.consumeObservation(observation).isEmpty())
+        assertEquals(retainedClaim, registry.claimSnapshots().single().footprint)
+    }
+
+    @Test
+    fun `reversal does not infer stopping overlap beyond the retained rail interval`() {
+        observation = observation(7L, train("first", 10.0, 20.0, 7L))
+        val service = service()
+        val requester = Any()
+        val original = assertInstanceOf(
+            RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(
+                route = route(1L, listOf(
+                    RouteSegmentSnapshot(railId, ViewDirection.AB, 10.0, 40.0)
+                )),
+                authority = 30.0
+            ))
+        ).grant
+        val retainedClaim = registry.claimSnapshots().single().footprint
+        assertInstanceOf(
+            RouteGrantReversalResult.Accepted::class.java,
+            service.suspendReleaseForReversal(requester, original.grantId)
+        )
+
+        observation = observation(
+            8L,
+            train("first", 40.1, 30.0, 8L, ViewDirection.BA, reversed = true)
+        )
+        val rejected = assertInstanceOf(
+            RouteGrantReversalResult.Rejected::class.java,
+            service.rebaseAfterReversal(
+                requester,
+                intent(
+                    route = route(2L, listOf(
+                        RouteSegmentSnapshot(railId, ViewDirection.BA, 59.9, 70.0)
+                    )),
+                    authority = 10.1
+                )
+            )
+        )
+
+        assertEquals(RouteAdmissionFailureCode.INVALID_ROUTE, rejected.failure.code)
+        assertEquals(retainedClaim, registry.claimSnapshots().single().footprint)
+        assertTrue(service.consumeObservation(observation).isEmpty())
+    }
 
     @Test
     fun `ordinary-stop continuation keeps one grant and extends its live cursor only when ready`() {
@@ -997,14 +1152,21 @@ class RouteResourceAdmissionEngineTest {
         "world", RailwayWorldFrameSnapshot.create(epoch, topology.revision, trains.toList())
     )
 
-    private fun train(id: String, tail: Double, head: Double, epoch: Long) = TrainFrameSnapshot.create(
+    private fun train(
+        id: String,
+        tail: Double,
+        head: Double,
+        epoch: Long,
+        facing: ViewDirection = ViewDirection.AB,
+        reversed: Boolean = false
+    ) = TrainFrameSnapshot.create(
         trainId = id, trainName = id, revision = 1L, physicsEpoch = epoch,
-        speedMetersPerSecond = 0.0, derailed = false, reversed = false, cars = emptyList(),
-        head = RailPositionSnapshot(railId, ViewDirection.AB, head),
-        tail = RailPositionSnapshot(railId, ViewDirection.AB, tail),
-        occupiedIntervals = listOf(RailInterval(railId, tail, head)),
+        speedMetersPerSecond = 0.0, derailed = false, reversed = reversed, cars = emptyList(),
+        head = RailPositionSnapshot(railId, facing, head),
+        tail = RailPositionSnapshot(railId, facing, tail),
+        occupiedIntervals = listOf(RailInterval(railId, minOf(tail, head), maxOf(tail, head))),
         bodyTraversal = emptyList(),
-        sweptSpans = listOf(SweptRailSpanSnapshot(railId, tail, head)),
+        sweptSpans = listOf(SweptRailSpanSnapshot(railId, minOf(tail, head), maxOf(tail, head))),
         headTraversal = emptyList(),
         tailTraversal = emptyList()
     )

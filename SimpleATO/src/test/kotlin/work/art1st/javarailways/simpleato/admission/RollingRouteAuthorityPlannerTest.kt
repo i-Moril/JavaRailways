@@ -51,7 +51,25 @@ class RollingRouteAuthorityPlannerTest {
     fun `pending device preparation never starts another request`() {
         val boundary = next(
             headProgressMeters = 55.0,
-            admissionState = RouteAuthorityAdmissionState(RouteBoundary(75.0), pending = true)
+            admissionState = RouteAuthorityAdmissionState(
+                RouteBoundary(75.0),
+                pending = true,
+                reversalPending = false
+            )
+        )
+
+        assertNull(boundary)
+    }
+
+    @Test
+    fun `suspended reversal never starts a rolling extension`() {
+        val boundary = next(
+            headProgressMeters = 55.0,
+            admissionState = RouteAuthorityAdmissionState(
+                RouteBoundary(75.0),
+                pending = false,
+                reversalPending = true
+            )
         )
 
         assertNull(boundary)
@@ -82,6 +100,7 @@ class RollingRouteAuthorityPlannerTest {
 
     private fun committed(boundaryMeters: Double) = RouteAuthorityAdmissionState(
         RouteBoundary(boundaryMeters),
-        pending = false
+        pending = false,
+        reversalPending = false
     )
 }

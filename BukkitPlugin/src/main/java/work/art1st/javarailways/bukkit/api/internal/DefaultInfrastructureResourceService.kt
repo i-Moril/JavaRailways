@@ -22,6 +22,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
@@ -283,6 +284,18 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
         override fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult =
             BukkitThreadGuardBridge.runInSimulationContext {
                 admission()?.progress(requester, handle) ?: routeAdmissionUnavailable()
+            }
+
+        override fun suspendReleaseForReversal(grantId: RouteGrantId): RouteGrantReversalResult =
+            BukkitThreadGuardBridge.runInSimulationContext {
+                admission()?.suspendReleaseForReversal(requester, grantId)
+                    ?: routeReversalUnavailable()
+            }
+
+        override fun rebaseAfterReversal(intent: RouteResourceIntent): RouteGrantReversalResult =
+            BukkitThreadGuardBridge.runInSimulationContext {
+                admission()?.rebaseAfterReversal(requester, intent)
+                    ?: routeReversalUnavailable()
             }
 
         override fun endGrant(grantId: RouteGrantId): Boolean =
@@ -629,6 +642,13 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
     )
 
     private fun routeAdmissionUnavailable() = RouteAdmissionResult.Rejected(
+        RouteAdmissionFailure(
+            RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "route admission binding is unavailable"
+        )
+    )
+
+    private fun routeReversalUnavailable() = RouteGrantReversalResult.Rejected(
         RouteAdmissionFailure(
             RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
             "route admission binding is unavailable"

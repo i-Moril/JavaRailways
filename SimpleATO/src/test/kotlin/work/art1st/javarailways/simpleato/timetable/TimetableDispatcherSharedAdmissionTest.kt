@@ -28,6 +28,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteAdmissionTestFixtures
 import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
@@ -662,6 +663,12 @@ class TimetableDispatcherSharedAdmissionTest {
         val grantId: RouteGrantId = RouteAdmissionTestFixtures.grantId()
         var onRequest: (RouteResourceIntent) -> RouteAdmissionResult = { error("unexpected request") }
         var onProgress: (RouteAdmissionHandle) -> RouteAdmissionResult = { error("unexpected progress") }
+        var onSuspendReversal: (RouteGrantId) -> RouteGrantReversalResult = {
+            error("unexpected reversal suspension")
+        }
+        var onRebaseReversal: (RouteResourceIntent) -> RouteGrantReversalResult = {
+            error("unexpected reversal rebase")
+        }
         var endResult = false
         val intents = mutableListOf<RouteResourceIntent>()
         val grants = mutableListOf<RouteGrantSnapshot>()
@@ -677,6 +684,12 @@ class TimetableDispatcherSharedAdmissionTest {
             progressed += handle
             return onProgress(handle)
         }
+
+        override fun suspendReleaseForReversal(grantId: RouteGrantId): RouteGrantReversalResult =
+            onSuspendReversal(grantId)
+
+        override fun rebaseAfterReversal(intent: RouteResourceIntent): RouteGrantReversalResult =
+            onRebaseReversal(intent)
 
         override fun endGrant(grantId: RouteGrantId): Boolean {
             ended += grantId

@@ -401,13 +401,14 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
-    fun `reverse closes open doors then keeps the old route fail closed`() {
+    fun `reverse closes open doors then rebases the retained route grant`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(
             destinationOptions = TimetableAction.DestinationOptions(
                 destinationId = "C",
                 minimumDwellTicks = 3L,
-                doorSide = DoorSide.LEFT
+                doorSide = DoorSide.LEFT,
+                stoppingOffsetMetersBefore = 0.5
             ),
             reverseAfterDestination = true,
             operationGateway = gateway
@@ -434,17 +435,22 @@ class TimetableStationCallDispatcherTest {
         assertTrue(gateway.requests[1].operation is TrainOperation.CloseDoors)
         assertEquals(false, reversedWhenCloseRequested)
         assertTrue(fixture.train.isReversed)
-        assertEquals(TimetableServiceRunState.REVERSING, fixture.dispatcher.status(id)?.state)
-        assertTrue(fixture.data.atoCoordinator.isStalled)
+        val status = fixture.dispatcher.status(id)!!
+        assertEquals(TimetableServiceRunState.COMPLETED, status.state, status.toString())
+        assertFalse(
+            fixture.data.atoCoordinator.isStalled,
+            fixture.data.atoCoordinator.lastStall.toString()
+        )
     }
 
     @Test
-    fun `terminal station reverse remains fail closed with the old route grant`() {
+    fun `terminal station reverse rebases the retained route grant before completing`() {
         val fixture = fixture(
             releaseDistanceMetersAfter = 0.0,
             firstTargetOffsetMeters = 40.0,
             includeStationAction = true,
-            reverseAfterDestination = true
+            reverseAfterDestination = true,
+            berthStoppingOffsetMetersBefore = 0.5
         )
         val id = TimetableServiceRunId("tt", "service")
         fixture.dispatcher.startService(fixture.world, "tt", "service") as
@@ -458,8 +464,12 @@ class TimetableStationCallDispatcherTest {
         }
 
         assertTrue(fixture.train.isReversed)
-        assertEquals(TimetableServiceRunState.REVERSING, fixture.dispatcher.status(id)?.state)
-        assertTrue(fixture.data.atoCoordinator.isStalled)
+        val status = fixture.dispatcher.status(id)!!
+        assertEquals(TimetableServiceRunState.COMPLETED, status.state, status.toString())
+        assertFalse(
+            fixture.data.atoCoordinator.isStalled,
+            fixture.data.atoCoordinator.lastStall.toString()
+        )
     }
 
     @Test
@@ -1075,7 +1085,8 @@ class TimetableStationCallDispatcherTest {
         },
         operationTimeoutTicks: Long = 100L,
         stationMovementTick: Long = 0L,
-        nextMovementTick: Long = 1L
+        nextMovementTick: Long = 1L,
+        berthStoppingOffsetMetersBefore: Double = 0.0
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
@@ -1152,6 +1163,7 @@ class TimetableStationCallDispatcherTest {
             usableLengthMeters = 100.0,
             defaultDwellTicks = 5L,
             releaseDistanceMetersAfter = releaseDistanceMetersAfter,
+            stoppingOffsetMetersBefore = berthStoppingOffsetMetersBefore,
             doorSide = doorSide
         )
         val station = Station(stationId, "Central", listOf(berthRef))

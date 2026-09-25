@@ -8,6 +8,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -46,7 +47,8 @@ internal class RouteAuthorityAdmissionClient(
         get() = active?.let { route ->
             RouteAuthorityAdmissionState(
                 committedAuthority = route.committedGrant?.committedAuthority,
-                pending = route.pending != null
+                pending = route.pending != null,
+                reversalPending = route.reversalPending
             )
         } ?: RouteAuthorityAdmissionState.EMPTY
 
@@ -85,6 +87,12 @@ internal class RouteAuthorityAdmissionClient(
                     "the current frozen route is latched after an unsafe admission failure"
                 )
             }
+            if (current.reversalPending) {
+                return rejected(
+                    RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                    "the reversed route must be rebased before requesting authority"
+                )
+            }
             if (!current.matches(selection)) {
                 return rejected(
                     RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
@@ -121,6 +129,99 @@ internal class RouteAuthorityAdmissionClient(
         return consume(route, pending.selection, admissionService.progress(pending.handle))
     }
 
+    /** Suspends Basic tail release before the Dispatcher reverses the stopped physical train. */
+    @MainThread
+    fun suspendReleaseForReversal(): RouteGrantReversalResult {
+        val route = active
+            ?: return reversalRejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                "no active route grant can be suspended for reversal")
+        if (route.pending != null) {
+            return reversalRejected(RouteAdmissionFailureCode.REQUEST_BUSY,
+                "the current route has a pending admission")
+        }
+        if (route.unsafeFailure) {
+            return reversalRejected(RouteAdmissionFailureCode.WORLD_STALLED,
+                "the current frozen route is latched after an unsafe admission failure")
+        }
+        val grant = route.committedGrant
+            ?: return reversalRejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                "no committed route grant can be suspended for reversal")
+        return when (val result = admissionService.suspendReleaseForReversal(grant.grantId)) {
+            is RouteGrantReversalResult.Accepted -> {
+                check(result.grant.grantId === grant.grantId) {
+                    "reversal suspension replaced the committed grant identity"
+                }
+                check(result.grant == grant) {
+                    "reversal suspension changed the committed grant"
+                }
+                route.reversalPending = true
+                result
+            }
+            is RouteGrantReversalResult.Rejected -> {
+                if (result.failure.code == RouteAdmissionFailureCode.WORLD_STALLED) {
+                    route.unsafeFailure = true
+                }
+                result
+            }
+        }
+    }
+
+    /** Rebinds the retained grant to the new tail and publishes zero remaining body authority. */
+    @MainThread
+    fun rebaseAfterReversal(
+        selection: FrozenRouteSelectionResult.Selected,
+        observedHeadBoundary: RouteBoundary
+    ): RouteAdmissionResult {
+        val route = active
+            ?: return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                "no active route grant can be rebased after reversal")
+        if (!route.reversalPending) {
+            return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                "tail release was not suspended before reversal")
+        }
+        if (selection.trainId != trainId) {
+            return rejected(RouteAdmissionFailureCode.TRAIN_NOT_FOUND,
+                "selected reversed route belongs to train ${selection.trainId}, not $trainId")
+        }
+        val previous = checkNotNull(route.committedGrant)
+        val intent = RouteResourceIntent(
+            requestId = requestId,
+            owner = owner,
+            trainId = trainId,
+            observationStamp = selection.observationStamp,
+            route = selection.route,
+            desiredAuthority = observedHeadBoundary
+        )
+        return when (val result = admissionService.rebaseAfterReversal(intent)) {
+            is RouteGrantReversalResult.Accepted -> {
+                val grant = result.grant
+                validateGrantIdentity(selection, grant)
+                check(grant.grantId === previous.grantId) {
+                    "reversal rebase replaced the committed grant identity"
+                }
+                check(grant.committedAuthority == observedHeadBoundary) {
+                    "reversal rebase changed the observed-head authority boundary"
+                }
+                route.selection = selection
+                route.restrictionRoute = TrainRestrictionRouteBinding.from(selection.route)
+                route.committedGrant = grant
+                route.reversalPending = false
+                publishAuthority(
+                    route,
+                    grant.observationStamp,
+                    grant.committedAuthority.distanceFromRouteStartMeters
+                )
+                RouteAdmissionResult.Granted(grant)
+            }
+            is RouteGrantReversalResult.Rejected -> {
+                if (result.failure.code == RouteAdmissionFailureCode.WORLD_STALLED) {
+                    route.unsafeFailure = true
+                }
+                RouteAdmissionResult.Rejected(result.failure)
+            }
+        }
+    }
+
     /**
      * Ends the active route only after Basic confirms that its committed resources are clear.
      *
@@ -129,7 +230,7 @@ internal class RouteAuthorityAdmissionClient(
     @MainThread
     fun end(): Boolean {
         val route = active ?: return true
-        if (route.pending != null || route.unsafeFailure) return false
+        if (route.pending != null || route.reversalPending || route.unsafeFailure) return false
 
         val grant = route.committedGrant
         val withdrawalStamp = grant?.observationStamp ?: route.selection.observationStamp
@@ -298,6 +399,7 @@ internal class RouteAuthorityAdmissionClient(
             TrainRestrictionRouteBinding.from(selection.route),
         var committedGrant: RouteGrantSnapshot? = null,
         var pending: PendingAttempt? = null,
+        var reversalPending: Boolean = false,
         var unsafeFailure: Boolean = false
     ) {
         fun matches(other: FrozenRouteSelectionResult.Selected): Boolean =
@@ -314,14 +416,21 @@ internal class RouteAuthorityAdmissionClient(
 
         fun rejected(code: RouteAdmissionFailureCode, detail: String): RouteAdmissionResult.Rejected =
             RouteAdmissionResult.Rejected(RouteAdmissionFailure(code, detail))
+
+        fun reversalRejected(
+            code: RouteAdmissionFailureCode,
+            detail: String
+        ): RouteGrantReversalResult.Rejected =
+            RouteGrantReversalResult.Rejected(RouteAdmissionFailure(code, detail))
     }
 }
 
 internal data class RouteAuthorityAdmissionState(
     val committedAuthority: RouteBoundary?,
-    val pending: Boolean
+    val pending: Boolean,
+    val reversalPending: Boolean
 ) {
     companion object {
-        val EMPTY = RouteAuthorityAdmissionState(null, false)
+        val EMPTY = RouteAuthorityAdmissionState(null, false, false)
     }
 }

@@ -297,11 +297,15 @@
       grant publishes an empty Basic truncation while the mission Stop constraint retains terminal braking.
   - [x] Prove the migrated priority, stop/station-call, transient retry, stale-route re-selection, manual-mode and tail-release
     behavior; make the admission context mandatory; run isolated simulation through a real Basic admission runtime; delete
-    `RouteSectionAllocator`, Confirmed Route Window state and the final dispatcher-specific RailWand allocation guard. Reversal
-    remains an explicit fail-closed follow-up because a monotonic forward tail cursor cannot be reused after changing direction.
+    `RouteSectionAllocator`, Confirmed Route Window state and the final dispatcher-specific RailWand allocation guard.
     The rolling low-water mark uses train maximum speed so braking toward an existing authority cannot make the extension trigger
     retreat; Dispatcher also retains only mission runtimes still referenced by an active operational boundary, because Basic now
     owns resource-tail history. Depot Reset report schema V2 removes the obsolete always-zero RouteSection release count.
+  - [x] Support stopped reversal without replacing the grant or claim: suspend the old tail cursor before Core changes direction,
+    retain every claimed resource, immediately validate a body-only route from the new tail to the reversed head, rebuild the
+    cursor and release boundaries, then append only the untravelled suffix of the already-planned return mission. Do not invent
+    a stopping overlap: timetable/signal configuration owns the separation between stop target and authority end. Prove that an
+    invalid rebase releases nothing and that the isolated out-and-back timetable completes through the real Basic runtime.
 - [ ] Add topology edit guards for active external claims.
   - [x] Define the edit-coordination contract without treating track or topology nodes as runtime resources:
     `TopologyEditImpact` declares exact rail IDs, stable topology-node keys and runtime resource IDs; the registry checks each

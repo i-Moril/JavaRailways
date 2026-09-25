@@ -144,17 +144,90 @@ internal object FrozenMissionRouteAssembler {
     }
 
     /**
+     * Rebuilds an admitted route from the reversed train body without selecting a new mission.
+     *
+     * The operating-route identity is retained and only its revision advances. This gives Basic
+     * one tail-to-head coordinate in which it can reposition the retained grant's release cursor;
+     * a later reverse-direction mission is appended through the ordinary continuation path.
+     */
+    fun rebaseBodyAfterReversal(
+        topology: TopologyState,
+        context: FrozenRouteSelectionContext,
+        existing: FrozenMissionRoute
+    ): FrozenMissionRouteResult {
+        val observation = context.observation
+        val committed = existing.selection
+        if (observation.stamp.worldId != committed.observationStamp.worldId ||
+            observation.stamp.topologyRevision != topology.revision ||
+            committed.route.topologyRevision != topology.revision
+        ) {
+            return rejected(
+                FrozenMissionRouteRejection.STALE_OBSERVATION,
+                "reversal observation must keep the committed world and topology ${topology.revision}"
+            )
+        }
+        val train = context.train(committed.trainId)
+            ?: return rejected(
+                FrozenMissionRouteRejection.TRAIN_NOT_FOUND,
+                "train ${committed.trainId} is absent from observation epoch ${observation.stamp.physicsEpoch}"
+            )
+        if (train.derailed) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_TRAIN,
+                "train ${committed.trainId} is derailed in observation epoch ${observation.stamp.physicsEpoch}"
+            )
+        }
+        if (committed.route.revision == Long.MAX_VALUE) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_MISSION,
+                "operating route revision overflow"
+            )
+        }
+        val bodySegments = train.bodyTraversal.map { segment ->
+            toRouteSegment(topology, segment)
+                ?: return rejected(
+                    FrozenMissionRouteRejection.INVALID_BODY_TRAVERSAL,
+                    "train ${committed.trainId} body references an ambiguous or missing rail ${segment.railId}"
+                )
+        }
+        if (bodySegments.isEmpty()) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_BODY_TRAVERSAL,
+                "train ${committed.trainId} has no published body traversal"
+            )
+        }
+
+        val mergedBody = mergeAdjacent(bodySegments)
+        val bodyLength = mergedBody.sumOf(RouteSegmentSnapshot::lengthMeters)
+        val route = RouteSnapshot(
+            routeId = committed.route.routeId,
+            revision = committed.route.revision + 1L,
+            topologyRevision = topology.revision,
+            segments = mergedBody
+        )
+        return FrozenMissionRouteResult.Frozen(
+            FrozenMissionRoute(
+                FrozenRouteSelectionResult.Selected(train.trainId, observation.stamp, route),
+                bodyLength,
+                0.0
+            )
+        )
+    }
+
+    /**
      * Appends the next forward mission to an already admitted operating route.
      *
-     * The committed segment list is copied verbatim. The complete next mission must begin at the
-     * prior route end, so Basic can retain the same grant and tail cursor without representing a
-     * train that has already passed its old authority. Direction reversal is deliberately absent.
+     * The committed segment list is copied verbatim. An ordinary mission whose complete route
+     * starts at the prior route end is appended unchanged. Otherwise, the suffix at
+     * [missionHeadProgressMeters] must start there; this is the reversal case where the prefix from
+     * the operational origin to the new head is already represented by the body-only route.
      */
     fun append(
         topology: TopologyState,
         context: FrozenRouteSelectionContext,
         existing: FrozenMissionRoute,
-        mission: AtoMission
+        mission: AtoMission,
+        missionHeadProgressMeters: Double
     ): FrozenMissionRouteResult {
         val observation = context.observation
         val committed = existing.selection
@@ -189,11 +262,32 @@ internal object FrozenMissionRouteAssembler {
                 FrozenMissionRouteRejection.INVALID_MISSION,
                 "mission ${mission.id}@${mission.revision} has no valid physical traversal"
             )
-        val continuation = missionRoute.segments
-        val committedEnd = committed.route.segments.lastOrNull()
-        if (committedEnd == null || continuation.isEmpty() ||
-            !joins(committedEnd, continuation.first(), topology)
+        if (!missionHeadProgressMeters.isFinite() || missionHeadProgressMeters < 0.0 ||
+            missionHeadProgressMeters > missionRoute.totalLengthMeters + POSITION_TOLERANCE_METERS
         ) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_MISSION,
+                "train ${committed.trainId} progress $missionHeadProgressMeters is outside mission ${mission.id}@${mission.revision}"
+            )
+        }
+        val committedEnd = committed.route.segments.lastOrNull()
+        if (committedEnd == null || missionRoute.segments.isEmpty()) {
+            return rejected(
+                FrozenMissionRouteRejection.INVALID_MISSION,
+                "mission ${mission.id}@${mission.revision} does not continue forward from the committed route end"
+            )
+        }
+        val continuationStartProgress = if (joins(
+                committedEnd,
+                missionRoute.segments.first(),
+                topology
+            )) {
+            0.0
+        } else {
+            missionHeadProgressMeters
+        }
+        val continuation = trim(missionRoute.segments, continuationStartProgress)
+        if (continuation.isEmpty() || !joins(committedEnd, continuation.first(), topology)) {
             return rejected(
                 FrozenMissionRouteRejection.INVALID_MISSION,
                 "mission ${mission.id}@${mission.revision} does not continue forward from the committed route end"
@@ -211,7 +305,7 @@ internal object FrozenMissionRouteAssembler {
             FrozenMissionRoute(
                 FrozenRouteSelectionResult.Selected(train.trainId, observation.stamp, appended),
                 committedLength,
-                0.0
+                continuationStartProgress
             )
         )
     }

@@ -25,6 +25,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteAdmissionTestFixtures
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
@@ -154,6 +155,50 @@ class RouteAuthorityAdmissionClientTest {
         assertEquals(appendedRoute.revision, publisher.snapshots.last().route.routeRevision)
         assertEquals(appendedRoute.totalLengthMeters, publisher.snapshots.last().route.totalLengthMeters)
         assertEquals(140.0, publisher.authorities().last())
+    }
+
+    @Test
+    fun `reversal keeps grant identity while rebasing route and authority at the new head`() {
+        val grantId = RouteAdmissionTestFixtures.grantId()
+        val first = grant(80.0, selectedRoute = route, id = grantId)
+        service.onRequest = { RouteAdmissionResult.Granted(first) }
+        service.onSuspendReversal = { supplied ->
+            assertSame(grantId, supplied)
+            RouteGrantReversalResult.Accepted(first)
+        }
+        val reversedRoute = route("simpleato:route/reverse", revision = 3L)
+        val reversedStamp = stamp.copy(physicsEpoch = 11L)
+        val reversedSelection = FrozenRouteSelectionResult.Selected(
+            "train",
+            reversedStamp,
+            reversedRoute
+        )
+        service.onRebaseReversal = { intent ->
+            RouteGrantReversalResult.Accepted(
+                first.copy(
+                    routeId = reversedRoute.routeId,
+                    routeRevision = reversedRoute.revision,
+                    observationStamp = reversedStamp,
+                    committedAuthority = intent.desiredAuthority
+                )
+            )
+        }
+
+        client.request(80.0)
+        assertInstanceOf(RouteGrantReversalResult.Accepted::class.java,
+            client.suspendReleaseForReversal())
+        assertTrue(client.state.reversalPending)
+
+        val rebased = assertInstanceOf(
+            RouteAdmissionResult.Granted::class.java,
+            client.rebaseAfterReversal(reversedSelection, RouteBoundary(10.0))
+        ).grant
+
+        assertSame(grantId, rebased.grantId)
+        assertEquals(RouteBoundary(10.0), client.state.committedAuthority)
+        assertFalse(client.state.reversalPending)
+        assertEquals(reversedRoute.revision, publisher.snapshots.last().route.routeRevision)
+        assertEquals(listOf(0.0, 80.0, 10.0), publisher.authorities())
     }
 
     @Test
@@ -448,6 +493,12 @@ class RouteAuthorityAdmissionClientTest {
     private class FakeAdmissionService : RouteResourceAdmissionService {
         var onRequest: (RouteResourceIntent) -> RouteAdmissionResult = { error("unexpected request") }
         var onProgress: (RouteAdmissionHandle) -> RouteAdmissionResult = { error("unexpected progress") }
+        var onSuspendReversal: (RouteGrantId) -> RouteGrantReversalResult = {
+            error("unexpected reversal suspension")
+        }
+        var onRebaseReversal: (RouteResourceIntent) -> RouteGrantReversalResult = {
+            error("unexpected reversal rebase")
+        }
         var endResult: Boolean = true
         val intents = mutableListOf<RouteResourceIntent>()
         val progressed = mutableListOf<RouteAdmissionHandle>()
@@ -462,6 +513,12 @@ class RouteAuthorityAdmissionClientTest {
             progressed += handle
             return onProgress(handle)
         }
+
+        override fun suspendReleaseForReversal(grantId: RouteGrantId): RouteGrantReversalResult =
+            onSuspendReversal(grantId)
+
+        override fun rebaseAfterReversal(intent: RouteResourceIntent): RouteGrantReversalResult =
+            onRebaseReversal(intent)
 
         override fun endGrant(grantId: RouteGrantId): Boolean {
             ended += grantId

@@ -10,6 +10,7 @@ import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
@@ -293,6 +294,12 @@ private class IsolatedRouteAdmissionHost(
 
         override fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult =
             checkNotNull(runtime).progress(requester, handle)
+
+        override fun suspendReleaseForReversal(grantId: RouteGrantId): RouteGrantReversalResult =
+            checkNotNull(runtime).suspendReleaseForReversal(requester, grantId)
+
+        override fun rebaseAfterReversal(intent: RouteResourceIntent): RouteGrantReversalResult =
+            checkNotNull(runtime).rebaseAfterReversal(requester, intent)
 
         override fun endGrant(grantId: RouteGrantId): Boolean =
             checkNotNull(runtime).endGrant(requester, grantId)

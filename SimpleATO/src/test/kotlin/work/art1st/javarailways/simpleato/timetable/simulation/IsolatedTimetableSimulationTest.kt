@@ -64,22 +64,27 @@ class IsolatedTimetableSimulationTest {
     }
 
     @Test
-    fun `reversal fails closed until a new operating route can replace the old grant`() {
+    fun `reversal retains its grant and completes the return journey`() {
         val fixture = fixture(steps = listOf(
             TimetableStep.Check("origin"),
+            TimetableStep.At(0, TimetableAction.DestinationOptions(
+                destinationId = "destination",
+                stoppingOffsetMetersBefore = 0.5
+            )),
             TimetableStep.At(0, TimetableAction.GoTo("destination")),
             TimetableStep.At(1_000, TimetableAction.Reverse),
+            TimetableStep.At(1_000, TimetableAction.DestinationOptions(
+                destinationId = "origin",
+                stoppingOffsetMetersBefore = 0.5
+            )),
             TimetableStep.At(1_000, TimetableAction.GoTo("origin"))
         ))
         fixture.runtime.use { runtime ->
-            val result = runtime.simulate(IsolatedTimetableSimulationRequest(
-                fixture.timetable,
-                delayThresholdTicks = 2
-            ))
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(fixture.timetable))
 
-            assertTrue(result is IsolatedTimetableSimulationResult.Failed) { result.toString() }
-            result as IsolatedTimetableSimulationResult.Failed
-            assertTrue(result.reason.contains("tail could not advance"), result.reason)
+            assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
+            result as IsolatedTimetableSimulationResult.Completed
+            assertEquals(1, result.runs.size)
         }
     }
 

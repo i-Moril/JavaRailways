@@ -25,7 +25,7 @@ internal object RollingRouteAuthorityPlanner {
         require(headProgressMeters <= routeLengthMeters + POSITION_TOLERANCE_METERS) {
             "head progress exceeds the frozen route"
         }
-        if (admissionState.pending) return null
+        if (admissionState.pending || admissionState.reversalPending) return null
 
         val committed = admissionState.committedAuthority?.distanceFromRouteStartMeters
         if (committed != null) {

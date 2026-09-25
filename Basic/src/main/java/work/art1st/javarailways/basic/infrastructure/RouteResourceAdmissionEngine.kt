@@ -6,6 +6,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationS
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
@@ -15,6 +16,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState
@@ -59,13 +61,14 @@ internal class RouteResourceAdmissionEngine(
         val owner: InfrastructureOwner,
         val trainId: String,
         var projection: ProjectedTopologyRoute,
-        val cursor: RouteProgressCursor,
+        var cursor: RouteProgressCursor,
         var routeProgressPath: CompiledRouteProgressPath,
         var committedGrant: RouteGrantSnapshot? = null,
         var tailRelease: ProtectedRouteTailRelease? = null,
         var controlledResources: Set<StableInfrastructureResource>,
         val preparationsByResource: MutableMap<InfrastructureResource, InfrastructurePreparationRequirement>,
-        var pendingHandle: RouteAdmissionHandle? = null
+        var pendingHandle: RouteAdmissionHandle? = null,
+        var reversalFromTrainState: Boolean? = null
     )
 
     private data class ReservedDelta(
@@ -468,6 +471,259 @@ internal class RouteResourceAdmissionEngine(
         return result
     }
 
+    /** Retains the complete claim while the stopped train changes physical direction. */
+    @MainThread
+    fun suspendReleaseForReversal(
+        requester: Any,
+        grantId: RouteGrantId
+    ): RouteGrantReversalResult {
+        if (worldStalled) return reversalRejected(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled")
+        val route = routes.values.firstOrNull { it.committedGrant?.grantId === grantId }
+            ?: return reversalRejected(RouteAdmissionFailureCode.OWNER_MISMATCH, "unknown route grant")
+        if (route.requester !== requester) {
+            return reversalRejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
+                "route grant belongs to another requester")
+        }
+        if (route.pendingHandle != null) {
+            return reversalRejected(RouteAdmissionFailureCode.REQUEST_BUSY,
+                "route grant has a pending admission")
+        }
+        val grant = checkNotNull(route.committedGrant)
+        route.reversalFromTrainState?.let { return RouteGrantReversalResult.Accepted(grant) }
+        val observation = latestObservation()
+            ?: return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
+                "no published observation")
+        if (observation.stamp.worldId != worldId ||
+            observation.stamp.topologyRevision != route.projection.topology.revision ||
+            currentTopology() !== route.projection.topology
+        ) {
+            return reversalRejected(RouteAdmissionFailureCode.STALE_TOPOLOGY,
+                "route topology changed before reversal")
+        }
+        val train = observation.trains.firstOrNull { it.trainId == route.trainId }
+            ?: return reversalRejected(RouteAdmissionFailureCode.TRAIN_NOT_FOUND,
+                "train is absent from the current observation")
+        if (train.derailed || train.speedMetersPerSecond > STOPPED_SPEED_EPSILON_METERS_PER_SECOND) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_ROUTE,
+                "tail release can only be suspended for a stopped, non-derailed train")
+        }
+        route.reversalFromTrainState = train.reversed
+        return RouteGrantReversalResult.Accepted(grant)
+    }
+
+    /**
+     * Replaces only route-relative progress metadata after a stopped reversal.
+     *
+     * The registry claim is not mutated here. The new body must be completely covered by resources
+     * already present in the retained release queue; all replacement objects are built and checked
+     * before the route state is switched in one owner-thread step.
+     */
+    @MainThread
+    fun rebaseAfterReversal(
+        requester: Any,
+        intent: RouteResourceIntent
+    ): RouteGrantReversalResult {
+        if (worldStalled) return reversalRejected(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled")
+        if (intent.observationStamp.worldId != worldId) {
+            return reversalRejected(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+                "reversal belongs to another world")
+        }
+        val route = routes[intent.owner.ownerId]
+            ?: return reversalRejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                "reversal has no live route grant")
+        if (route.requester !== requester || route.owner != intent.owner) {
+            return reversalRejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
+                "reversal owner does not match route state")
+        }
+        if (route.trainId != intent.trainId) {
+            return reversalRejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                "reversal must keep the same train")
+        }
+        val reversedFrom = route.reversalFromTrainState
+            ?: return reversalRejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                "tail release was not suspended before reversal")
+        if (route.pendingHandle != null) {
+            return reversalRejected(RouteAdmissionFailureCode.REQUEST_BUSY,
+                "route grant has a pending admission")
+        }
+
+        val observation = latestObservation()
+            ?: return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
+                "no published reversal observation")
+        if (observation.stamp != intent.observationStamp) {
+            return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
+                "reversal observation stamp is no longer current")
+        }
+        val topology = currentTopology()
+        if (topology !== route.projection.topology ||
+            topology.revision != intent.route.topologyRevision ||
+            topology.revision != observation.stamp.topologyRevision
+        ) {
+            return reversalRejected(RouteAdmissionFailureCode.STALE_TOPOLOGY,
+                "frozen route topology changed during reversal")
+        }
+        val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
+            ?: return reversalRejected(RouteAdmissionFailureCode.TRAIN_NOT_FOUND,
+                "train is absent from the reversal observation")
+        if (train.derailed || train.speedMetersPerSecond > STOPPED_SPEED_EPSILON_METERS_PER_SECOND) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_ROUTE,
+                "reversal rebase requires a stopped, non-derailed train")
+        }
+        if (train.reversed == reversedFrom) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_ROUTE,
+                "train direction did not change after tail release was suspended")
+        }
+
+        val projection = when (val projected = TopologyRouteProjector.project(intent.route, topology)) {
+            is TopologyRouteProjectionResult.Projected -> projected.route
+            is TopologyRouteProjectionResult.Rejected -> return reversalRejected(
+                if (projected.reason == TopologyRouteProjectionRejection.STALE_TOPOLOGY)
+                    RouteAdmissionFailureCode.STALE_TOPOLOGY else RouteAdmissionFailureCode.INVALID_ROUTE,
+                projected.detail
+            )
+        }
+        val bodyEnd = intent.desiredAuthority.distanceFromRouteStartMeters
+        if (bodyEnd <= Curve.TOLERANCE) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
+                "reversal route must cover the complete train body")
+        }
+        val physicalResult = physicalCompiler.compile(
+            projection,
+            PhysicalRouteRange(0.0, bodyEnd),
+            previouslyCommittedControlledResources = emptySet()
+        )
+        val physical = when (physicalResult) {
+            is PhysicalRouteCompilation.Compiled -> physicalResult.admission
+            is PhysicalRouteCompilation.Rejected -> return reversalRejected(
+                if (physicalResult.reason == PhysicalRouteCompilationRejection.STALE_TOPOLOGY)
+                    RouteAdmissionFailureCode.STALE_TOPOLOGY else RouteAdmissionFailureCode.INVALID_ROUTE,
+                physicalResult.detail
+            )
+        }
+        val initialized = physical.routeProgressPath.initializeCursor(train.tail)
+        if (initialized !is RouteProgressCursorInitialization.Initialized) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_ROUTE,
+                "reversed route does not start at the new train tail")
+        }
+        val projectedHead = initialized.cursor.project(train.head)
+        if (projectedHead !is RouteProgressCursorUpdate.Resolved ||
+            kotlin.math.abs(projectedHead.state.routeDistanceMeters - bodyEnd) > Curve.TOLERANCE
+        ) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
+                "reversal authority does not identify the observed train head")
+        }
+
+        val authenticatedContributions = try {
+            collectContributions(intent)
+        } catch (failure: Exception) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                "route-resource contributor failed: ${failure.message ?: failure.javaClass.simpleName}")
+        }
+        val contributionOwnerByResource = LinkedHashMap<StableInfrastructureResource, Any>()
+        val contributions = ArrayList<ContributedRouteResource>(authenticatedContributions.size)
+        for ((contributor, contribution) in authenticatedContributions) {
+            if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > bodyEnd) {
+                return reversalRejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
+                    "contributed reversal release boundary exceeds the observed train head")
+            }
+            if (contributionOwnerByResource.putIfAbsent(contribution.resource, contributor) != null) {
+                return reversalRejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                    "duplicate contributed resource ${contribution.resource.typeId}/${contribution.resource.resourceId}")
+            }
+            contributions += contribution
+        }
+        val merged = try {
+            physical.withContributions(contributions) { contribution ->
+                validateContribution(contributionOwnerByResource.getValue(contribution.resource), contribution)
+            }
+        } catch (failure: Exception) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}")
+        }
+        val compiled = when (merged) {
+            is RouteContributionsCompilation.Compiled -> merged.admission
+            is RouteContributionsCompilation.Rejected ->
+                return RouteGrantReversalResult.Rejected(merged.failure)
+        }
+
+        val release = checkNotNull(route.tailRelease)
+        val retainedEntries = release.remainingEntries
+        if (retainedEntries.isEmpty()) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_ROUTE,
+                "reversal grant has no retained resources covering the train body")
+        }
+        val retainedResources = retainedEntries.map(ResolvedTailReleaseEntry::resource)
+        val uncovered = firstUncoveredResource(compiled.resources.resources, retainedResources)
+        if (uncovered != null) {
+            return reversalRejected(RouteAdmissionFailureCode.INVALID_ROUTE,
+                "reversed train body requires a resource absent from the retained claim: $uncovered")
+        }
+        for (preparation in compiled.preparations.filterIsInstance<ResolvedContributedResourcePreparation>()) {
+            val previous = route.preparationsByResource[preparation.resource]
+                as? ResolvedContributedResourcePreparation
+            if (previous?.descriptor != preparation.descriptor) {
+                return reversalRejected(RouteAdmissionFailureCode.INVALID_PREPARATION,
+                    "reversal cannot change retained resource preparation ${preparation.resource.resourceId}")
+            }
+        }
+        val blockers = observation.occupancy.blockingTrainIds(compiled.occupancyGeometry.intervals, intent.trainId)
+        if (blockers.isNotEmpty()) {
+            return RouteGrantReversalResult.Rejected(RouteAdmissionFailure(
+                RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED,
+                "another train occupies the reversed body route",
+                blockers.map(RouteAdmissionBlocker::OccupyingTrain)
+            ))
+        }
+        if (currentTopology() !== topology || latestObservation()?.stamp != observation.stamp) {
+            return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
+                "world changed while validating the reversed body route")
+        }
+
+        val stableBoundaries = compiled.tailReleaseEntries
+            .mapNotNull { entry ->
+                (entry.resource as? StableInfrastructureResource)?.let { it to entry.tailClearRouteMeters }
+            }
+            .toMap()
+        val rebasedEntries = physicalCompiler.rebaseReleaseEntries(
+            projection,
+            PhysicalRouteRange(0.0, bodyEnd),
+            retainedResources,
+            stableBoundaries
+        )
+        val newTailRelease = ProtectedRouteTailRelease(
+            worldId,
+            intent.route.topologyRevision,
+            intent.trainId,
+            observation.stamp.physicsEpoch,
+            initialized.cursor,
+            LiveClaimTailRelease(
+                registry,
+                hostClaimOwner,
+                intent.owner,
+                CompiledTailReleaseQueue(rebasedEntries)
+            ),
+            { reason, failure -> markWorldStalled(reason, failure) }
+        )
+        val oldGrant = checkNotNull(route.committedGrant)
+        val grant = oldGrant.copy(
+            routeId = intent.route.routeId,
+            routeRevision = intent.route.revision,
+            observationStamp = observation.stamp,
+            committedAuthority = intent.desiredAuthority
+        )
+
+        route.projection = projection
+        route.cursor = initialized.cursor
+        route.routeProgressPath = physical.routeProgressPath
+        route.tailRelease = newTailRelease
+        route.controlledResources = physicalResult.controlledResources
+        route.preparationsByResource.clear()
+        compiled.preparations.forEach { route.preparationsByResource[it.resource] = it }
+        route.committedGrant = grant
+        route.reversalFromTrainState = null
+        return RouteGrantReversalResult.Accepted(grant)
+    }
+
     /** One already-published observation drives only routes with a committed grant. */
     @MainThread
     fun consumeObservation(observation: RailwayObservation): List<ProtectedRouteTailReleaseUpdate> {
@@ -476,6 +732,7 @@ internal class RouteResourceAdmissionEngine(
         val updates = ArrayList<ProtectedRouteTailReleaseUpdate>(routes.size)
         for (route in routes.values) {
             if (route.committedGrant == null) continue
+            if (route.reversalFromTrainState != null) continue
             val update = checkNotNull(route.tailRelease).consume(observation.stamp, trains[route.trainId])
             updates += update
             if (update is ProtectedRouteTailReleaseUpdate.FailedClosed) break
@@ -651,6 +908,31 @@ internal class RouteResourceAdmissionEngine(
         requested.segments.size > committed.segments.size &&
         requested.segments.subList(0, committed.segments.size) == committed.segments
 
+    private fun firstUncoveredResource(
+        required: Collection<InfrastructureResource>,
+        retained: Collection<InfrastructureResource>
+    ): InfrastructureResource? {
+        val retainedStable = retained.filterIsInstance<StableInfrastructureResource>().toSet()
+        val retainedRails = retained.filterIsInstance<RailIntervalResource>()
+            .groupBy { it.railId }
+            .mapValues { (_, intervals) -> intervals.sortedBy { it.startAbMeters } }
+        return required.firstOrNull { resource ->
+            when (resource) {
+                is StableInfrastructureResource -> resource !in retainedStable
+                is RailIntervalResource -> {
+                    var coveredUntil = resource.startAbMeters
+                    for (held in retainedRails[resource.railId].orEmpty()) {
+                        if (held.endAbMeters < coveredUntil - Curve.TOLERANCE) continue
+                        if (held.startAbMeters > coveredUntil + Curve.TOLERANCE) break
+                        coveredUntil = maxOf(coveredUntil, held.endAbMeters)
+                        if (coveredUntil >= resource.endAbMeters - Curve.TOLERANCE) break
+                    }
+                    coveredUntil < resource.endAbMeters - Curve.TOLERANCE
+                }
+            }
+        }
+    }
+
     private fun stalled(intent: RouteResourceIntent, cause: Exception, detail: String): RouteAdmissionResult {
         markWorldStalled("route admission ${intent.requestId}: $detail; safest claim retained", cause)
         return rejected(RouteAdmissionFailureCode.WORLD_STALLED, detail)
@@ -664,6 +946,13 @@ internal class RouteResourceAdmissionEngine(
 
     private fun rejected(code: RouteAdmissionFailureCode, detail: String) =
         RouteAdmissionResult.Rejected(RouteAdmissionFailure(code, detail))
+
+    private fun reversalRejected(code: RouteAdmissionFailureCode, detail: String) =
+        RouteGrantReversalResult.Rejected(RouteAdmissionFailure(code, detail))
+
+    private companion object {
+        const val STOPPED_SPEED_EPSILON_METERS_PER_SECOND = 1.0e-6
+    }
 }
 
 /** Internal composition diagnostic for one requester's resource-bearing route state. */

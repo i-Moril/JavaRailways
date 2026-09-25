@@ -71,7 +71,7 @@ observation解析具名列车。脱轨列车作为无效权威起点被拒绝；
 原样保留，只允许从进度0开始把完整的新mission追加到旧末端；route ID保持不变，operating-route revision由旧revision加一，
 不复用各mission彼此独立的revision序列。新mission的route-progress偏移是旧route总长。Long revision溢出、修改旧前缀、
 无法连接或反向接续均返回typed rejection；最终物理continuation仍由Basic验证。这个append只产生候选value，pending期间
-client和controller继续使用旧route binding，Basic `READY`后才一起切换到新长度与revision。折返不使用该操作。
+client和controller继续使用旧route binding，Basic `READY`后才一起切换到新长度与revision。折返本身不使用append：Dispatcher先暂停同一grant的tail release，物理折返发布后立即从新tail到新head构造body-only route，并以observed head作为初始authority调用Basic rebase。之后的反向mission仍使用既有规划结果，只按新head已有mission progress裁去与车身重复的路线前缀，再走普通append。
 
 同一次Dispatcher处理使用一个`FrozenRouteSelectionContext`为该不可变observation建立train ID索引；普通
 选择器和mission一致性接缝都从该索引解析列车，不能各自再次线性扫描train列表。context不跨observation
@@ -97,7 +97,7 @@ extension不改变当前authority constraint；原grant的车尾释放不因准�
 
 普通authority extension不会改写路线。到达已完整授权的路线末端后，下一项正向mission可以形成上述严格append候选，并在
 同一grant下申请更远boundary；旧前缀、owner、train、world与topology均不变。topology、旧前缀、route ID或运营plan发生其他
-变化时仍是replan；折返必须等待单独评审的安全边界，不能伪装为append、caller footprint或whole-claim replace。同一grant已有
+变化时仍是replan；折返只允许走已评审的stopped-rebase边界，不能伪装为append、caller footprint或whole-claim replace。同一grant已有
 pending request时，SimpleATO轮询该handle而不是并行提交另一个请求；这是同进程生命周期约束，不需要保存request历史或模拟
 网络重试。Basic的typed stale/conflict/preparation结果由既有dispatcher策略消费。
 
@@ -110,6 +110,7 @@ pending request时，SimpleATO轮询该handle而不是并行提交另一个请�
 client以route ID/topology binding、train和world做常量时间预筛；完整有序traversal、revision和append-only关系仍由
 Basic的现有route state权威核对。新的observation epoch可以用于同路线延长或正向mission append。pending continuation保存
 候选selection与handle，但继续发布旧grant的route binding；只有`Granted`才原子替换本地selection/binding并发布新authority。
+折返时client先要求Basic暂停旧cursor；新方向发布后提交body-only的new-tail-started selection与body-length boundary。Basic成功rebase后，client保留grant ID、切换restriction route binding，并把authority收紧到新head；后续rolling request把已规划反向mission从当前head progress开始的后缀追加到该body boundary。stop target与authority end是调用方配置的两个边界，SimpleATO不从stop tolerance自动推导资源余量。
 route ID、train、world或topology变化返回`ROUTE_STATE_MISMATCH`或`TRAIN_NOT_FOUND`并要求调用方走安全replan。结束时，
 有grant的路线必须先由Basic `endGrant`确认资源和pending均已清空，然后client才发布该来源的更高revision空snapshot；若该空
 snapshot发布失败，后续显式结束只重试restriction撤销，不会对已经结束的Basic grant重复调用`endGrant`。首次安全
@@ -166,7 +167,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 ## 5. 不变量、生命周期、线程与版本
 
 - 同一次选路只能组合一个 topology root、一个 coherent physics observation 和一个已应用运营 plan/overlay revision；不得拼接“最新”组件。
-- 普通正向mission接续只追加到已完整授权的旧route末端并递增operating-route revision；topology、旧前缀、route ID、overlay或折返改变走安全replan。
+- 普通正向mission接续只追加到已完整授权的旧route末端并递增operating-route revision；折返先暂停释放并在新tail重建route binding/cursor；其他topology、旧前缀、route ID或overlay改变走安全replan。
 - Basic denial 不扩大 authority。现有安全 authority 保持或收紧，直到新 grant 成功。
 - 每列车准入client在首个committed grant前保持0 m authority；只有Basic `Granted`可扩大该来源，pending/denied保持上一已发布边界。
 - 同一路线extension pending、conflict或安全preparation failure时保持旧authority；只有Basic在delta preparation ready后
@@ -222,7 +223,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - admission client：请求没有可替代Basic物理底线的第二份资源清单；合法addition、conflict、pending和grant分支均保持规定lifecycle；直线路段仍由Basic推导rail interval claim，不使用旧`NOT_REQUIRED`捷径。
 - admission client lifecycle：首次immediate grant、首次pending的0 m hold、pending→ready、extension/continuation pending或denied保留旧boundary与route binding、continuation READY保留grant ID后切换binding、首次safe abort、显式end以及unrelated route必须先end均有独立断言；输入stamp/train与Basic typed失败不被重写。
 - rolling extension：只沿同一frozen route或经Basic验证的严格正向append发出更远boundary；同一grant最多一个pending handle，期间旧资源继续释放且
-  pending/denied不扩大authority，修改旧前缀/topology/plan或折返走replan。client lookahead policy用独立策略测试，
+  pending/denied不扩大authority，修改旧前缀/topology/plan走replan。折返独立证明暂停释放、同grant rebase和新head零剩余authority。client lookahead policy用独立策略测试，
   复用controller既有perception horizon，并在剩余authority到达既有route-allocation trigger时申请下一段；不另设扫描距离。
 - signal-plugin integration：固定闭塞、保护区域和移动闭塞插件结果都只能收紧限制；附加资源只增加Basic最终union，不能删除物理底线。
 - inspection scheduling：静态/低频检查距离按revision缓存，动态制动距离每tick由host计算；无依赖变化时插件`update(train)`保持IDLE。

@@ -172,6 +172,15 @@ sealed interface RouteAdmissionResult {
     data class Rejected(val failure: RouteAdmissionFailure) : RouteAdmissionResult
 }
 
+/** Immediate result of suspending or rebasing one stopped train's live grant for reversal. */
+sealed interface RouteGrantReversalResult {
+    /** The same grant remains live; no resource was released or reacquired. */
+    data class Accepted(val grant: RouteGrantSnapshot) : RouteGrantReversalResult
+
+    /** The grant and complete retained claim remain unchanged. */
+    data class Rejected(val failure: RouteAdmissionFailure) : RouteGrantReversalResult
+}
+
 /**
  * World-local owner-thread entry point for generic route-resource admission.
  *
@@ -193,6 +202,26 @@ interface RouteResourceAdmissionService {
     /** Reads current or terminal state for a handle created by this same world-local service. */
     @MainThread
     fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult
+
+    /**
+     * Suspends tail release for a stopped train before its physical direction is reversed.
+     *
+     * The existing grant and complete registry claim remain live. A successful suspension must be
+     * followed by [rebaseAfterReversal] before ordinary admission can continue.
+     */
+    @MainThread
+    fun suspendReleaseForReversal(grantId: RouteGrantId): RouteGrantReversalResult
+
+    /**
+     * Rebinds a suspended grant to a route beginning at the reversed train's new tail.
+     *
+     * [RouteResourceIntent.desiredAuthority] must identify the observed head on that route. The
+     * retained claim must already cover the complete body; this operation never acquires a missing
+     * resource. Success preserves the grant identity and recalculates release boundaries for every
+     * retained resource in the new route coordinate.
+     */
+    @MainThread
+    fun rebaseAfterReversal(intent: RouteResourceIntent): RouteGrantReversalResult
 
     /**
      * Ends host-owned route state after the train tail has released every committed resource.

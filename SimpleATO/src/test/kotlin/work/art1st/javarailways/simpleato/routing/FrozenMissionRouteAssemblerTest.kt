@@ -6,6 +6,8 @@ import work.art1st.javarailways.basic.api.ato.mission.AtoMission
 import work.art1st.javarailways.basic.api.ato.mission.AtoMissionLeg
 import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
@@ -67,16 +69,86 @@ class FrozenMissionRouteAssemblerTest {
                 segments = listOf(RouteSegment(RailViewRef(rail, ViewDirection.AB), 20.0, 40.0)),
                 missionId = "second",
                 revision = 0L
-            )
+            ),
+            missionHeadProgressMeters = 0.25
         ) as FrozenMissionRouteResult.Frozen).route
 
         assertEquals(first.selection.route.routeId, appended.selection.route.routeId)
         assertEquals(first.selection.route.revision + 1L, appended.selection.route.revision)
         assertEquals(committedPrefix,
             appended.selection.route.segments.take(committedPrefix.size))
+        assertEquals(0.0, appended.missionHeadProgressAtSelectionMeters, 1.0e-12)
+        assertEquals(20.0, appended.selection.route.segments.last().startArcLengthMeters, 1.0e-12)
         assertEquals(20.0, appended.headDistanceFromRouteStartMeters, 1.0e-12)
         assertEquals(20.0, appended.routeProgressMeters(0.0), 1.0e-12)
         assertEquals(35.0, appended.routeProgressMeters(15.0), 1.0e-12)
+    }
+
+    @Test
+    fun `reversed continuation removes the mission prefix already covered by the train body`() {
+        val rail = UUID(0L, 41L)
+        val topology = buildTestTopology(
+            revision = 14L,
+            rails = listOf(TestTopologyRail(rail, 100.0)),
+            continuations = emptyMap<RailEndpointRef, Set<RailEndpointRef>>()
+        )
+        val previousObservation = observation(
+            topology.revision,
+            RailPositionSnapshot(rail, ViewDirection.AB, 0.0),
+            RailPositionSnapshot(rail, ViewDirection.AB, 10.0),
+            listOf(traversal(rail, ViewDirection.AB, 0.0, 10.0))
+        )
+        val previous = FrozenMissionRoute(
+            FrozenRouteSelectionResult.Selected(
+                TRAIN_ID,
+                previousObservation.stamp,
+                RouteSnapshot(
+                    "operating-route",
+                    5L,
+                    topology.revision,
+                    listOf(RouteSegmentSnapshot(rail, ViewDirection.AB, 0.0, 60.0))
+                )
+            ),
+            headDistanceFromRouteStartMeters = 10.0,
+            missionHeadProgressAtSelectionMeters = 0.0
+        )
+        val reversedObservation = observation(
+            topology.revision,
+            RailPositionSnapshot(rail, ViewDirection.BA, 60.0),
+            RailPositionSnapshot(rail, ViewDirection.BA, 50.0),
+            listOf(traversal(rail, ViewDirection.BA, 60.0, 50.0))
+        )
+        val body = (FrozenMissionRouteAssembler.rebaseBodyAfterReversal(
+            topology,
+            FrozenRouteSelectionContext(reversedObservation),
+            previous
+        ) as FrozenMissionRouteResult.Frozen).route
+
+        val appended = (FrozenMissionRouteAssembler.append(
+            topology,
+            FrozenRouteSelectionContext(reversedObservation),
+            body,
+            mission(
+                segments = listOf(RouteSegment(RailViewRef(rail, ViewDirection.BA), 40.0, 80.0)),
+                missionId = "return",
+                revision = 0L
+            ),
+            missionHeadProgressMeters = 10.0
+        ) as FrozenMissionRouteResult.Frozen).route
+
+        assertEquals("operating-route", appended.selection.route.routeId)
+        assertEquals(7L, appended.selection.route.revision)
+        assertEquals(
+            listOf(
+                RouteSegmentSnapshot(rail, ViewDirection.BA, 40.0, 50.0),
+                RouteSegmentSnapshot(rail, ViewDirection.BA, 50.0, 80.0)
+            ),
+            appended.selection.route.segments
+        )
+        assertEquals(10.0, appended.headDistanceFromRouteStartMeters, 1.0e-12)
+        assertEquals(10.0, appended.missionHeadProgressAtSelectionMeters, 1.0e-12)
+        assertEquals(10.0, appended.routeProgressMeters(10.0), 1.0e-12)
+        assertEquals(20.0, appended.routeProgressMeters(20.0), 1.0e-12)
     }
 
     @Test

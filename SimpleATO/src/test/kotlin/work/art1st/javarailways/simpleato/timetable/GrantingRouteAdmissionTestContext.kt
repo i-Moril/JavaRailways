@@ -9,6 +9,7 @@ import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
@@ -33,6 +34,12 @@ internal class GrantingRouteAdmissionTestContext(
 
         override fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult =
             checkNotNull(runtime).progress(requester, handle)
+
+        override fun suspendReleaseForReversal(grantId: RouteGrantId): RouteGrantReversalResult =
+            checkNotNull(runtime).suspendReleaseForReversal(requester, grantId)
+
+        override fun rebaseAfterReversal(intent: RouteResourceIntent): RouteGrantReversalResult =
+            checkNotNull(runtime).rebaseAfterReversal(requester, intent)
 
         override fun endGrant(grantId: RouteGrantId): Boolean =
             checkNotNull(runtime).endGrant(requester, grantId)

@@ -13,6 +13,8 @@ import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
+import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.depot.DepotTrainAllocation
 import work.art1st.javarailways.basic.api.depot.DepotResetDispatchApplyException
@@ -62,6 +64,7 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteB
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteAssembler
+import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteRejection
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteResult
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionContext
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
@@ -1223,7 +1226,7 @@ class TimetableDispatcher(
                 return@forEach
             }
             if (run.state == TimetableServiceRunState.REVERSING) {
-                processReverse(world, run)
+                processReverse(world, run, routeSelectionContext)
                 return@forEach
             }
             if (run.state == TimetableServiceRunState.MANUAL_INTERVENTION) return@forEach
@@ -2222,6 +2225,22 @@ class TimetableDispatcher(
             stallRun(world, run, "InfrastructureInvariantViolation", "reverse requires a stopped train")
             return
         }
+        val admissionClient = run.admissionClient
+        if (admissionClient?.state?.committedAuthority != null) {
+            when (val result = admissionClient.suspendReleaseForReversal()) {
+                is RouteGrantReversalResult.Accepted -> Unit
+                is RouteGrantReversalResult.Rejected -> {
+                    stallRun(
+                        world,
+                        run,
+                        "RouteAdmissionFailure",
+                        "route grant could not suspend release for reversal: " +
+                            "${result.failure.code}: ${result.failure.detail}"
+                    )
+                    return
+                }
+            }
+        }
         val stationCall = run.stationCall?.takeIf { it.berthed && !it.departed }
         val preparationRevision = run.ato.prepareForReverse(
             callId = stationCall?.resolved?.call?.callId,
@@ -2234,7 +2253,11 @@ class TimetableDispatcher(
         run.message = "waiting for atomic ATO reverse preparation"
     }
 
-    private fun processReverse(world: World, run: ActiveRun) {
+    private fun processReverse(
+        world: World,
+        run: ActiveRun,
+        selectionContext: FrozenRouteSelectionContext?
+    ) {
         val reverse = run.reverseOperation
         if (reverse == null) {
             stallRun(world, run, "InfrastructureInvariantViolation", "REVERSING run has no reverse state")
@@ -2269,6 +2292,72 @@ class TimetableDispatcher(
             stallRun(world, run, "InfrastructureInvariantViolation", "reversed train state changed unexpectedly")
             return
         }
+        val client = run.admissionClient
+        if (client?.state?.reversalPending == true) {
+            val committed = run.admittedRoute
+            if (committed == null) {
+                stallRun(
+                    world,
+                    run,
+                    "InfrastructureInvariantViolation",
+                    "suspended reversal grant has no admitted operating route"
+                )
+                return
+            }
+            if (selectionContext == null) {
+                run.message = "waiting for a coherent reversed-train observation"
+                return
+            }
+            when (val body = FrozenMissionRouteAssembler.rebaseBodyAfterReversal(
+                world.topologyState,
+                selectionContext,
+                committed.route
+            )) {
+                is FrozenMissionRouteResult.Frozen -> {
+                    when (val result = client.rebaseAfterReversal(
+                        body.route.selection,
+                        RouteBoundary(body.route.headDistanceFromRouteStartMeters)
+                    )) {
+                        is RouteAdmissionResult.Granted -> {
+                            run.admittedRoute = AdmissionRoute(body.route, committed.missionRevision)
+                        }
+                        is RouteAdmissionResult.Pending -> error(
+                            "reversal rebase cannot enter asynchronous preparation"
+                        )
+                        is RouteAdmissionResult.Rejected -> {
+                            if (result.failure.code == RouteAdmissionFailureCode.STALE_OBSERVATION) {
+                                run.message = "waiting to rebase the retained grant on a current observation"
+                                return
+                            }
+                            stallRun(
+                                world,
+                                run,
+                                "RouteAdmissionFailure",
+                                "retained route grant could not rebase after reversal: " +
+                                    "${result.failure.code}: ${result.failure.detail}"
+                            )
+                            return
+                        }
+                    }
+                }
+                is FrozenMissionRouteResult.Rejected -> {
+                    if (body.reason == FrozenMissionRouteRejection.STALE_OBSERVATION) {
+                        run.message = "waiting to assemble the reversed train body from a current observation"
+                        return
+                    }
+                    stallRun(
+                        world,
+                        run,
+                        "InfrastructureInvariantViolation",
+                        "reversed train body could not rebase the retained grant: " +
+                            "${body.reason}: ${body.detail}"
+                    )
+                    return
+                }
+            }
+        }
+        run.admissionCandidate = null
+        run.nextAdmissionAttemptTick = 0L
         run.reverseOperation = null
         run.state = TimetableServiceRunState.WAITING_MISSION
         run.message = null
@@ -2635,6 +2724,8 @@ class TimetableDispatcher(
             ).also {
                 run.admissionClient = it
             }
+            run.admissionCandidate = candidate
+            run.admissionEnded = false
             val routeProgress = candidate.progressFor(runtime)
             val desired = RollingRouteAuthorityPlanner.nextBoundary(
                 routeLengthMeters = candidate.route.selection.route.totalLengthMeters,
@@ -2648,8 +2739,6 @@ class TimetableDispatcher(
                 setRouteState(run, TimetableServiceRunState.RUNNING, null)
                 return
             }
-            run.admissionCandidate = candidate
-            run.admissionEnded = false
             result = client.request(candidate.route.selection, desired)
         }
 
@@ -2723,7 +2812,8 @@ class TimetableDispatcher(
                 world.topologyState,
                 context,
                 checkNotNull(run.admittedRoute).route,
-                runtime.mission
+                runtime.mission,
+                runtime.headProgressMeters
             )
         }
         return when (result) {

@@ -7,6 +7,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
@@ -55,6 +56,20 @@ class RouteResourceAdmissionRuntime private constructor(
     @MainThread
     fun progress(requester: Any, handle: RouteAdmissionHandle): RouteAdmissionResult =
         if (closed) unavailable() else engine.progress(requester, handle)
+
+    @MainThread
+    fun suspendReleaseForReversal(
+        requester: Any,
+        grantId: RouteGrantId
+    ): RouteGrantReversalResult =
+        if (closed) reversalUnavailable() else engine.suspendReleaseForReversal(requester, grantId)
+
+    @MainThread
+    fun rebaseAfterReversal(
+        requester: Any,
+        intent: RouteResourceIntent
+    ): RouteGrantReversalResult =
+        if (closed) reversalUnavailable() else engine.rebaseAfterReversal(requester, intent)
 
     /** Advances every committed route from one already-published coherent world observation. */
     @MainThread
@@ -133,6 +148,10 @@ class RouteResourceAdmissionRuntime private constructor(
     }
 
     private fun unavailable() = RouteAdmissionResult.Rejected(
+        RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "route admission runtime is closed")
+    )
+
+    private fun reversalUnavailable() = RouteGrantReversalResult.Rejected(
         RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "route admission runtime is closed")
     )
 

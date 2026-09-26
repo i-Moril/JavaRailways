@@ -8,7 +8,7 @@
 
 ## Owner、入口与state
 
-`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、每run admission client、berth allocator、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。Dispatcher构造时必须提供非空`TimetableRouteAdmissionContextProvider`和world-local `TrainRestrictionSnapshotProvider`；Bukkit production每Tick只取一次coherent observation/context并使用认证的world-local `RouteResourceAdmissionService`，隔离仿真组合同一个Basic runtime。每次应用route restriction时，Dispatcher先将该active train的最新signal snapshots同步到controller唯一的adapter，再一次执行route-binding校验与constraint replacement。无coherent observation时保持fail-closed，不存在legacy allocator fallback。入口：
+`SimpleATOWorldData.dispatcher` 是每个 world 的唯一可写 owner。`TimetableDispatcher` 拥有 mission revision、clocks/runs、每run admission client、berth allocator、operation/extension tickets、storage reservation、recovery checkpoints。Basic 不保留 dispatcher 字段或转发 accessor。Dispatcher构造时必须提供非空`TimetableRouteAdmissionContextProvider`和world-local `TrainRestrictionSnapshotProvider`；Bukkit production每Tick只取一次coherent observation/context并使用认证的world-local `RouteResourceAdmissionService`，隔离仿真组合同一个Basic runtime。每次建立或延长admission route时，Dispatcher把冻结route与Mission progress的坐标映射绑定给controller，并用同一route/progress驱动inspection；逐physics epoch的snapshot同步、route-binding校验和constraint replacement由controller在规划运动前完成，不等待下一次Dispatcher tick。无coherent observation时保持fail-closed，不存在legacy allocator fallback。入口：
 
 ```kotlin
 fun beginTimetable(world: World, timetableId: String): TimetableEpochStartResult

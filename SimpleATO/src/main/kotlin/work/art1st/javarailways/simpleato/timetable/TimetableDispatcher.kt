@@ -3005,8 +3005,13 @@ class TimetableDispatcher(
         val activeRoute = routeOverride ?: run.admittedRoute ?: run.admissionCandidate ?: return true
         try {
             val route = activeRoute.route.selection.route
-            val routeBinding = FrozenRouteBinding.from(route)
             val routeProgress = activeRoute.progressFor(runtime)
+            run.ato.bindTrainRestrictionRoute(
+                observation.stamp,
+                activeRoute.route,
+                activeRoute.missionRevision,
+                signalRestrictionSnapshots
+            )
             val maximumInspectionDistance = inspectionRuntime.synchronizeRoute(
                 observation.stamp,
                 run.train.id,
@@ -3022,7 +3027,7 @@ class TimetableDispatcher(
                 ) return false
                 inspectionRuntime.update(
                     observationStamp = observation.stamp,
-                    currentRoute = routeBinding,
+                    currentRoute = FrozenRouteBinding.from(route),
                     routeProgressMeters = routeProgress,
                     dynamicLookaheadMeters = run.ato.inspectionDynamicLookaheadMeters(
                         snapshot.speedMetersPerSecond
@@ -3030,14 +3035,6 @@ class TimetableDispatcher(
                     perception = perception
                 )
             }
-            run.ato.synchronizeSignalRestrictions(
-                signalRestrictionSnapshots.snapshotsFor(run.train.id)
-            )
-            run.ato.applyTrainRestrictions(
-                currentStamp = observation.stamp,
-                currentRoute = routeBinding,
-                routeProgressMeters = routeProgress
-            )
             return true
         } catch (failure: Exception) {
             stallRun(

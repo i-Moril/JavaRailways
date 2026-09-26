@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.restriction
 
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
@@ -10,6 +11,9 @@ import java.util.concurrent.ConcurrentHashMap
 /** Read-only world-local view of the latest signal restriction snapshots for one train. */
 fun interface TrainRestrictionSnapshotProvider {
     fun snapshotsFor(trainId: String): List<TrainRestrictionSnapshot>
+
+    /** Latest successfully completed signal observation, when this provider is epoch-backed. */
+    fun completedObservationStamp(): RailwayStateStamp? = null
 }
 
 /**
@@ -23,6 +27,9 @@ class TrainRestrictionSnapshotStore(
     private val worldId: String
 ) : TrainRestrictionPublisher, TrainRestrictionSnapshotProvider {
     private val snapshotsByTrain = ConcurrentHashMap<String, List<TrainRestrictionSnapshot>>()
+
+    @Volatile
+    private var completedObservationStamp: RailwayStateStamp? = null
 
     init {
         require(worldId.isNotBlank()) { "worldId must not be blank" }
@@ -61,6 +68,9 @@ class TrainRestrictionSnapshotStore(
         return snapshotsByTrain[trainId].orEmpty()
     }
 
+    /** Latest observation whose signal publication completed successfully. */
+    override fun completedObservationStamp(): RailwayStateStamp? = completedObservationStamp
+
     /**
      * Returns stable diagnostics for non-empty streams that must be withdrawn before their source
      * can be removed from a live world. This is a low-frequency lifecycle query, not a tick path.
@@ -77,8 +87,12 @@ class TrainRestrictionSnapshotStore(
             .sorted()
     }
 
-    /** Removes values for trains absent from a successfully completed signal epoch. */
-    fun retainLiveTrains(trainIds: Set<String>) {
+    /** Commits the observation boundary after every publication in that signal epoch succeeded. */
+    fun completeEpoch(stamp: RailwayStateStamp, trainIds: Set<String>) {
+        require(stamp.worldId == worldId) {
+            "signal epoch belongs to ${stamp.worldId}, expected $worldId"
+        }
         snapshotsByTrain.keys.removeIf { it !in trainIds }
+        completedObservationStamp = stamp
     }
 }

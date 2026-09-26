@@ -394,7 +394,7 @@ class SignalEpochRuntimeTest {
         val runtime = SignalEpochRuntime(
             "world",
             TrainRestrictionPublisher(::accepted),
-            retained::add
+            { _, liveTrainIds -> retained += liveTrainIds }
         )
         runtime.replaceSources(listOf(source("test:first", area(firstAreaId, 10.0, 20.0)) {
             SignalEpochResult.empty()
@@ -409,6 +409,23 @@ class SignalEpochRuntimeTest {
         }
 
         assertEquals(listOf(setOf("train")), retained)
+    }
+
+    @Test
+    fun `empty source state still completes the observation boundary`() {
+        val completed = mutableListOf<Pair<RailwayStateStamp, Set<String>>>()
+        val runtime = SignalEpochRuntime(
+            "world",
+            TrainRestrictionPublisher(::accepted),
+            { stamp, liveTrainIds -> completed += stamp to liveTrainIds }
+        )
+
+        runtime.process(frame(3L, occupied = emptyList()))
+
+        assertEquals(
+            listOf(RailwayStateStamp("world", 3L, 7L) to setOf("train")),
+            completed
+        )
     }
 
     private fun runtime(sources: Collection<SignalEpochSource> = emptyList()): SignalEpochRuntime = SignalEpochRuntime(

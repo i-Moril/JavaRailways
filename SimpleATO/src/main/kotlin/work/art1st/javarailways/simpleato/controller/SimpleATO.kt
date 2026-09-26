@@ -64,11 +64,10 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailSegment
 import work.art1st.javarailways.core.physics.train.TrainEnd
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
-import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSourceEnforcement
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
+import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import java.util.concurrent.ConcurrentLinkedQueue
 
 data class SimpleAtoRuntimeDiagnostics(
@@ -138,6 +137,15 @@ class SimpleATO(
 
     private data class StopTarget(val ref: RailObjectRef, val offsetMeters: Double)
 
+    private data class RestrictionRoute(
+        val observationStamp: RailwayStateStamp,
+        val binding: FrozenRouteBinding,
+        val missionRevision: Long,
+        val headDistanceFromRouteStartMeters: Double,
+        val missionHeadProgressAtSelectionMeters: Double,
+        val signalSnapshots: TrainRestrictionSnapshotProvider
+    )
+
     private data class Observed(
         val railObject: RailObject,
         val snapshot: RailObjectSnapshot,
@@ -193,6 +201,9 @@ class SimpleATO(
     private var activeMission: AtoMission? = null
     private var activeCurrentStationCall: ResolvedStationCall? = null
 
+    @Volatile
+    private var restrictionRoute: RestrictionRoute? = null
+
     val publishedState: SimpleAtoPublishedState
         get() {
             val state = publishedAtoState()
@@ -219,36 +230,23 @@ class SimpleATO(
     internal val trainRestrictionPublisher: TrainRestrictionPublisher =
         TrainRestrictionPublisher(trainRestrictionAdapter::publish)
 
-    /**
-     * Copies the world store's latest signal values into this controller's existing adapter.
-     * Re-reading an already copied revision is idempotent; any other rejection is an invariant
-     * failure because the Dispatcher is synchronizing the same train and world.
-     */
+    /** Installs the Dispatcher-owned mapping from Mission progress to one frozen admission route. */
     @MainThread
-    internal fun synchronizeSignalRestrictions(snapshots: List<TrainRestrictionSnapshot>) {
-        snapshots.forEach { snapshot ->
-            val result = trainRestrictionAdapter.publish(snapshot)
-            check(result.status == TrainRestrictionPublicationStatus.ACCEPTED ||
-                result.status == TrainRestrictionPublicationStatus.STALE_REVISION &&
-                result.acceptedRevision == snapshot.revision
-            ) {
-                "signal restriction ${snapshot.sourceId}/${snapshot.revision} for " +
-                    "${snapshot.trainId} was ${result.status}"
-            }
-        }
+    internal fun bindTrainRestrictionRoute(
+        observationStamp: RailwayStateStamp,
+        route: FrozenMissionRoute,
+        missionRevision: Long,
+        signalSnapshots: TrainRestrictionSnapshotProvider
+    ) {
+        restrictionRoute = RestrictionRoute(
+            observationStamp = observationStamp,
+            binding = FrozenRouteBinding.from(route.selection.route),
+            missionRevision = missionRevision,
+            headDistanceFromRouteStartMeters = route.headDistanceFromRouteStartMeters,
+            missionHeadProgressAtSelectionMeters = route.missionHeadProgressAtSelectionMeters,
+            signalSnapshots = signalSnapshots
+        )
     }
-
-    /** Applies immutable restriction snapshots to this controller's sole constraint manager. */
-    @MainThread
-    internal fun applyTrainRestrictions(
-        currentStamp: RailwayStateStamp,
-        currentRoute: FrozenRouteBinding,
-        routeProgressMeters: Double
-    ): List<TrainRestrictionSourceEnforcement> = trainRestrictionAdapter.apply(
-        currentStamp,
-        currentRoute,
-        routeProgressMeters
-    )
 
     /** Resolve and queue a Mission from the main thread; activation occurs at a physics Tick boundary. */
     @MainThread
@@ -580,6 +578,7 @@ class SimpleATO(
         activePerceptionHorizonMeters = scan.perceptionHorizonMeters
         currentSegments = scan.segments
 
+        updateTrainRestrictions()
         synchronizeInfrastructureLimitWithHead()
         processSpeedLimitTransitions(scan)
         processProviderBoundaries(scan)
@@ -601,6 +600,35 @@ class SimpleATO(
                 constraints = constraintManager
             )
         )
+    }
+
+    /**
+     * Pulls signal values and recompiles every external restriction before this Tick plans motion.
+     * The previous completed signal epoch is therefore consumed without waiting for Bukkit.
+     */
+    private fun updateTrainRestrictions() {
+        val route = restrictionRoute ?: return
+        val currentStamp = route.signalSnapshots.completedObservationStamp()
+            ?.takeIf { it.physicsEpoch >= route.observationStamp.physicsEpoch }
+            ?: route.observationStamp
+        route.signalSnapshots.snapshotsFor(train.id).forEach { snapshot ->
+            val result = trainRestrictionAdapter.publish(snapshot)
+            check(result.acceptedRevision == snapshot.revision) {
+                "signal restriction ${snapshot.sourceId}/${snapshot.revision} for " +
+                    "${snapshot.trainId} was ${result.status}"
+            }
+        }
+        val routeProgress = if (activeMission?.revision == route.missionRevision) {
+            val missionProgress = requireNotNull(missionProjectedProgressMeters) {
+                "active Mission has no projected progress for its frozen restriction route"
+            }
+            (route.headDistanceFromRouteStartMeters + missionProgress -
+                route.missionHeadProgressAtSelectionMeters)
+                .coerceIn(0.0, route.binding.totalLengthMeters)
+        } else {
+            route.binding.totalLengthMeters
+        }
+        trainRestrictionAdapter.apply(currentStamp, route.binding, routeProgress)
     }
 
     override fun validateBeforeMovement() {

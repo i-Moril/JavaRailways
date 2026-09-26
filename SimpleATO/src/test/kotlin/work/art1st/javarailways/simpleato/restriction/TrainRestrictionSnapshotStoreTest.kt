@@ -79,10 +79,12 @@ class TrainRestrictionSnapshotStoreTest {
         val store = TrainRestrictionSnapshotStore("world")
         store.publish(snapshot("test:signal", 0L))
 
-        store.retainLiveTrains(emptySet())
+        val stamp = RailwayStateStamp("world", 2L, 2L)
+        store.completeEpoch(stamp, emptySet())
 
         assertEquals(emptyList<TrainRestrictionSnapshot>(), store.snapshotsFor("train"))
         assertEquals(emptyList<String>(), store.activeRestrictionStreams(setOf("test:signal")))
+        assertEquals(stamp, store.completedObservationStamp())
     }
 
     private fun snapshot(

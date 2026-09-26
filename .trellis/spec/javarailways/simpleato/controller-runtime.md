@@ -18,7 +18,7 @@ Basic暂时提供`AbstractATO`、`AtoSafetyProfile`、actuator、mission/snapsho
 1. Bukkit或隔离仿真的`TimetableAtoFactory`创建一个controller并安装到目标Core train；
 2. Dispatcher在serialized owner上提交带revision的mission、station call、reverse或authority命令；
 3. physics tick开始时controller只在边界drain已接受命令，形成一份active mission/route/provider状态；
-4. controller构造一次perception，按owner原子替换当前constraints，并取所有候选中最严格速度；
+4. controller构造一次perception，读取上一成功signal epoch的immutable snapshots，用当前Mission投影更新外部限制，再按owner原子替换其他constraints并取所有候选中最严格速度；
 5. Basic `AbstractATO`先执行invariant validation，再调用actuator并移动Core train；
 6. 成功epoch结束时`AbstractATO`原子发布train snapshot、累计距离和controller value state，Dispatcher只读取这份publication。
 
@@ -29,15 +29,16 @@ inspection runtime读取一个thread-safe immutable per-train最大声明距离�
 复用该perception规划滚动授权与inspection update，不增加第二次路线扫描。Dispatcher不维护第二套route allocator；生产环境与
 隔离仿真都通过Basic的同一个route-admission runtime申请、准备、授权并按车尾释放资源。
 
-controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。production Dispatcher让admission client向adapter发布
-immutable restriction snapshot，并在serialized owner上用当前stamp、同一冻结route binding及route progress调用apply；
-adapter把结果原子替换进controller原有`ConstraintManager`。这不是第二份约束存储或第二个制动器：最终仍由同一个
+controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。admission client直接向adapter发布immutable
+restriction snapshot；Dispatcher仅在route建立/延长时绑定冻结route、Mission revision及二者的坐标映射。每个physics tick
+由controller用当前Mission投影和上一成功signal observation stamp调用apply，adapter把结果原子替换进controller原有
+`ConstraintManager`。这不是第二份约束存储或第二个制动器：最终仍由同一个
 `MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。部分Basic授权保留外部MA；当grant覆盖完整
 frozen mission route时，该来源发布更高revision空restriction，终点仍由mission Stop constraint精确停车。
 
-signal epoch不直接持有controller。它先写world-local immutable snapshot store；Dispatcher在同一次
-`apply`前把active train的最新source snapshots同步到上述唯一adapter。已同步的同revision可重复读取，
-但wrong train、source unavailable或controller比world store更新都是invariant failure，由Dispatcher使world fail closed。
+signal epoch不直接持有controller。它先写world-local immutable snapshot store，并只在全部publication成功后推进completed
+observation stamp。下一次physics tick中controller从route绑定携带的world-local provider读取最新source snapshots；同revision
+重复读取是幂等的，wrong train、source unavailable或store/controller revision矛盾会在controller tick内使world fail closed。
 
 ## Publication边界
 

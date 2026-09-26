@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.signal
 
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
@@ -21,7 +22,7 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 class SignalEpochRuntime(
     private val worldId: String,
     private val publisher: TrainRestrictionPublisher,
-    private val retainLiveTrains: (Set<String>) -> Unit = {}
+    private val completeEpoch: (RailwayStateStamp, Set<String>) -> Unit = { _, _ -> }
 ) : RailwayEpochProcessor {
     @Volatile
     private var state = SourceState.create(emptyList())
@@ -41,15 +42,20 @@ class SignalEpochRuntime(
 
     override fun process(frame: RailwayWorldFrameSnapshot) {
         val current = state
-        if (current.sources.isEmpty()) return
+        val stamp = RailwayStateStamp(worldId, frame.physicsEpoch, frame.topologyRevision)
+        val liveTrainIds = frame.trains.mapTo(hashSetOf()) { it.trainId }
+        if (current.sources.isEmpty()) {
+            completeEpoch(stamp, java.util.Set.copyOf(liveTrainIds))
+            return
+        }
+
         val observation = RailwayObservation.fromCore(worldId, frame)
+        val validated = ArrayList<TrainRestrictionSnapshot>()
+
         val areaBatch = current.occupancyEngine.consume(observation)
         val updatesBySource = areaBatch.updates.groupBy { update ->
             current.ownerByArea.getValue(update.areaId)
         }
-        val liveTrainIds = observation.trains.mapTo(hashSetOf()) { it.trainId }
-        val validated = ArrayList<TrainRestrictionSnapshot>()
-
         current.sources.forEach { source ->
             val updates = updatesBySource[source.sourceId].orEmpty()
             if (updates.isEmpty()) return@forEach
@@ -65,7 +71,7 @@ class SignalEpochRuntime(
                     "restriction publication for ${snapshot.sourceId}/${snapshot.trainId} was ${result.status}"
                 }
             }
-        retainLiveTrains(java.util.Set.copyOf(liveTrainIds))
+        completeEpoch(stamp, java.util.Set.copyOf(liveTrainIds))
     }
 
     private fun validateResult(

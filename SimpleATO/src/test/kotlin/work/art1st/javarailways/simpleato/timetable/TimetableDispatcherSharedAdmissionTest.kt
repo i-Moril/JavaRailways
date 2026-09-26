@@ -159,7 +159,7 @@ class TimetableDispatcherSharedAdmissionTest {
     }
 
     @Test
-    fun `dispatcher applies latest signal epoch snapshot before the next controller tick`() {
+    fun `controller consumes latest signal snapshot without another dispatcher tick`() {
         val fixture = fixture()
         fixture.service.onRequest = fixture.service::grant
         fixture.start()
@@ -175,8 +175,11 @@ class TimetableDispatcherSharedAdmissionTest {
                 restrictions = listOf(CurrentSpeedRestriction("test:stop", 0.0))
             )
         )
+        fixture.signalRestrictions.completeEpoch(
+            admitted.observationStamp,
+            setOf(fixture.train.id)
+        )
 
-        fixture.dispatch()
         fixture.tickAto()
 
         assertEquals(0.0, fixture.ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1.0e-9)

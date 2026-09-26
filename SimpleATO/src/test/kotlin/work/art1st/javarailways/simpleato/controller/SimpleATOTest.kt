@@ -55,6 +55,9 @@ import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestr
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
+import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
+import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 
 class SimpleATOTest {
     private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
@@ -147,10 +150,15 @@ class SimpleATOTest {
         )
 
         assertEquals(TrainRestrictionPublicationStatus.ACCEPTED, publication.status)
-        fixture.ato.applyTrainRestrictions(
-            stamp,
-            FrozenRouteBinding.from(route),
-            routeProgressMeters = 0.0
+        fixture.ato.bindTrainRestrictionRoute(
+            observationStamp = stamp,
+            route = FrozenMissionRoute(
+                FrozenRouteSelectionResult.Selected(fixture.train.id, stamp, route),
+                headDistanceFromRouteStartMeters = 0.0,
+                missionHeadProgressAtSelectionMeters = 0.0
+            ),
+            missionRevision = checkNotNull(fixture.ato.currentMission).revision,
+            signalSnapshots = TrainRestrictionSnapshotProvider { emptyList() }
         )
         tickAndPublish(fixture.ato, 1_000.0)
 

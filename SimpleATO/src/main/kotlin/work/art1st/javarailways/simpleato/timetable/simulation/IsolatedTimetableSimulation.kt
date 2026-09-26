@@ -266,7 +266,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                         val signalEpochRuntime = SignalEpochRuntime(
                             worldId,
                             signalRestrictions,
-                            signalRestrictions::retainLiveTrains
+                            signalRestrictions::completeEpoch
                         )
                         val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
                         physics.registerRailwayEpochProcessor(signalEpochRuntime)

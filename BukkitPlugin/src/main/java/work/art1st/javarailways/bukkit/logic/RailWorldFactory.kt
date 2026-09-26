@@ -156,7 +156,7 @@ object RailWorldFactory {
         val signalEpochRuntime = SignalEpochRuntime(
             bukkitWorld.uid.toString(),
             signalRestrictions,
-            signalRestrictions::retainLiveTrains
+            signalRestrictions::completeEpoch
         )
         physicsCoordinator.registerRailwayEpochProcessor(signalEpochRuntime)
         coreWorld.registerExtensionData(

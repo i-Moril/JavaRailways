@@ -155,16 +155,17 @@ area-driven dirty source；本节另行冻结资源何时进入列车检查范�
 信号插件在冻结路线首次绑定、插件定义变化或列车低频能力变化时计算该语义，并提交一份完整不可变的route-local声明集。
 `train`只表示不可变列车身份和低频能力视图，例如长度、车型或制动等级；当前速度不进入插件缓存键。
 
-每个已编译声明至少具有以下语义字段；具体Java类型名仍由实现批次决定：
+当前第一批公开值类型为`simpleato.api.route.FrozenRouteBinding`、
+`simpleato.api.inspection.InspectionDeclaration`和`InspectionDeclarationBinding`。每个声明具有：
 
 - namespaced稳定来源ID和资源/信号ID；
 - 当前冻结路线binding及该资源在路线中的occurrence-specific绝对触发米数；
 - 有限、非负的提前检查距离，单位为米；
 - 插件定义revision和列车低频能力revision。
 
-同一rail在环线或折返路线中可以重复出现，因此匹配必须保留route occurrence，不能只用rail UUID去重。一次binding将声明按
-`(rail UUID, AB/BA方向)`建立只读候选索引，并在编译时保存声明距离的最大值；空声明集的最大值为0。插件原子替换完整binding，
-SimpleATO不逐项拼接来自不同route/profile revision的声明。
+同一rail在环线或折返路线中可以重复出现，因此匹配必须保留route occurrence，不能只用rail UUID去重。编译器先用路线累计
+距离二分定位声明的segment occurrence，再按`(rail UUID, AB/BA方向, segment occurrence)`建立只读候选索引，并保存声明距离的
+最大值；空声明集的最大值为0。插件原子替换完整binding，SimpleATO不逐项拼接来自不同route/profile revision的声明。
 
 职责固定为：
 
@@ -260,8 +261,9 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - production mission route不调用上述Dijkstra。设Core车体跨越`B`个rail occurrence、预选mission含`M`个segment，`FrozenMissionRouteAssembler`在route session建立时做一次`O(B + M)`转换、裁剪和相邻合并；普通下一mission append复制既有`R`个segment并追加`M`项，成本`O(R + M)`且不重新寻路。authority extension复用结果，不重新装配。
 - 当前准入client在首次绑定或成功append后以`O(R)`从segments计算一次restriction route length；pending/denied及普通progress/end的本地状态处理为`O(1)`。完整traversal一致性、资源编译、占用和claim复杂度仍唯一属于Basic。pending期间不轮询路线、不复制资源集合，也不重新发布未变化的旧authority。
 - 一旦路线冻结，前方 perception 对实际扫描长度为线性；一个 controlled train、一个 physics epoch 只做一次，constraint 归约对候选数线性。
-- 资源声明binding编译一次处理`D`个声明，建立索引和最大距离的时间、空间均为`O(D)`。每tick令共享扫描经过`S`个route segment、
-  索引返回`A`个候选声明，则inspection额外时间为`O(S + A)`、动态制动计算为`O(1)`；成本不包含世界总资源数。
+- 令冻结路线有`S_r`个segment、binding有`D`个声明。编译先以`O(S_r)`建立累计距离，再为每个声明以二分定位occurrence，
+  总时间为`O(S_r + D log S_r)`、空间为`O(S_r + D)`。每tick令共享扫描经过`S`个route segment、索引返回`A`个候选声明，
+  则inspection额外时间为`O(S + A)`、动态制动计算为`O(1)`；成本不包含世界总资源数。
 - 外部restriction adapter每次应用只线性转换当前列车的来源与限制`O(S + R)`；不得重新扫描冻结路线、排序来源或调用插件代码。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
 - unchanged stable denial 使用缓存的 typed result 与 revision key；相关 revision 不变时不重复昂贵解析。
@@ -300,8 +302,8 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 迁移顺序是：先稳定 Core `TopologyState` 与 Basic route-validation seam，再把当前 Basic 中的运营 route producer、mission/constraint owner 和 Dispatcher client 整体迁入 SimpleATO，最后迁移 Destination、Station、Depot、Line、Timetable 及其持久化/composition。每批只允许一个可写 owner。
 
 准入request/result、单位、preparation descriptor与rolling extension关系已由Basic owner spec冻结；inspection-distance的
-声明、单次扫描、失效和owner语义由本页冻结。尚未冻结：路线 cost policy、overlay持久化边界、这些语义的具体public Java名称、
-具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些问题必须在对应实现批次单独审查；signal epoch
+声明、单次扫描、失效和owner语义由本页冻结；第一批route/declaration public value名称已经实现。尚未冻结：路线 cost policy、
+overlay持久化边界、inspection publication/service名称、具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些问题必须在对应实现批次单独审查；signal epoch
 source/result已经由[响应式信号epoch](./reactive-signal-epochs.md)冻结，JS能力和WebUI仍不由本页选择兼容格式。
 
 ```text

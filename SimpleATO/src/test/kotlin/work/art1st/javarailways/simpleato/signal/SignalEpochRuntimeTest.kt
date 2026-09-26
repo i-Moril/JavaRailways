@@ -18,7 +18,7 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
@@ -496,7 +496,7 @@ class SignalEpochRuntimeTest {
             revision = revision,
             trainId = trainId,
             observationStamp = observationStamp,
-            route = TrainRestrictionRouteBinding("route", 1L, frame.topologyRevision, 100.0),
+            route = FrozenRouteBinding("route", 1L, frame.topologyRevision, 100.0),
             restrictions = emptyList()
         )
 

@@ -260,6 +260,13 @@
     bindings; extend the existing single perception horizon by the cached maximum; activate occurrence-matched declarations by the
     larger of declared lead and current host braking lookahead; invoke plugin updates only for newly active or explicitly dirtied
     declarations; fail closed while an expected source binding/result is invalid or stale.
+    - [x] Add the public immutable `FrozenRouteBinding`, `InspectionDeclaration` and complete
+      `InspectionDeclarationBinding`; remove the restriction-specific route-binding name instead of duplicating it. Add a pure
+      compiler that validates exact route occurrence by cumulative-distance binary search, caches the maximum declared lead and
+      indexes by rail/direction/occurrence. Add the stateful pure activation filter with explicit dirty input and IDLE behavior,
+      plus focused tests. No Bukkit publication service or plugin callback is wired in this foundation batch.
+    - [ ] Bind complete declaration replacement to world/train/source lifecycle, feed occurrences from the existing controller
+      perception, dispatch actual plugin updates and mark the associated restriction source unavailable on stale/failure paths.
 - [x] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup. Observation,
   infrastructure and signal-source services are discoverable through `ServicesManager`; exact world bindings are removed
   on unload. `InfrastructureResourceService.unregisterOwner` is the single planned-disable entry: it checks infrastructure

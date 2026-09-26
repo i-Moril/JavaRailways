@@ -34,6 +34,7 @@ import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestr
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 import java.util.UUID
@@ -406,8 +407,7 @@ class RouteAuthorityAdmissionClientTest {
         service.onRequest = { RouteAdmissionResult.Granted(grant(60.0)) }
 
         integrated.request(60.0)
-        adapter.apply(stamp, work.art1st.javarailways.simpleato.api.restriction
-            .TrainRestrictionRouteBinding.from(route), 20.0)
+        adapter.apply(stamp, FrozenRouteBinding.from(route), 20.0)
         manager.replace(
             ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "test:following"),
             listOf(FollowConstraint(ConstraintKey("test", "following"), 0.0, 0.0))

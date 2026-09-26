@@ -65,7 +65,7 @@ import work.art1st.javarailways.core.physics.rail.RailSegment
 import work.art1st.javarailways.core.physics.train.TrainEnd
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSourceEnforcement
@@ -233,7 +233,7 @@ class SimpleATO(
     @MainThread
     internal fun applyTrainRestrictions(
         currentStamp: RailwayStateStamp,
-        currentRoute: TrainRestrictionRouteBinding,
+        currentRoute: FrozenRouteBinding,
         routeProgressMeters: Double
     ): List<TrainRestrictionSourceEnforcement> = trainRestrictionAdapter.apply(
         currentStamp,
@@ -365,11 +365,19 @@ class SimpleATO(
      * Dispatcher resource admission reuses this value so it never performs or configures a
      * second route look-ahead independently from the ATO scan.
      */
-    internal fun routePerceptionHorizonMeters(): Double = brakingDistance(
-        actuator.maximumSpeedMetersPerSecond,
-        safetyProfile.serviceDecelerationMetersPerSecondSquared
-    ) + actuator.maximumSpeedMetersPerSecond * safetyProfile.reactionTimeSeconds +
-        safetyProfile.safetyDistanceMeters + ROUTE_PERCEPTION_MARGIN_METERS
+    internal fun routePerceptionHorizonMeters(
+        maximumDeclaredInspectionDistanceMeters: Double = 0.0
+    ): Double {
+        require(maximumDeclaredInspectionDistanceMeters.isFinite() &&
+            maximumDeclaredInspectionDistanceMeters >= 0.0
+        ) { "maximumDeclaredInspectionDistanceMeters must be finite and non-negative" }
+        val controllerHorizon = brakingDistance(
+            actuator.maximumSpeedMetersPerSecond,
+            safetyProfile.serviceDecelerationMetersPerSecondSquared
+        ) + actuator.maximumSpeedMetersPerSecond * safetyProfile.reactionTimeSeconds +
+            safetyProfile.safetyDistanceMeters + ROUTE_PERCEPTION_MARGIN_METERS
+        return maxOf(controllerHorizon, maximumDeclaredInspectionDistanceMeters)
+    }
 
     fun isStopped(speedMetersPerSecond: Double): Boolean {
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)

@@ -3,7 +3,7 @@ package work.art1st.javarailways.simpleato.api.signal
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyUpdate
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
-import work.art1st.javarailways.simpleato.api.restriction.NAMESPACED_RESTRICTION_ID
+import work.art1st.javarailways.simpleato.api.NAMESPACED_SIMPLE_ATO_ID
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import java.util.Collections
 
@@ -95,7 +95,7 @@ data class SignalEpochSource private constructor(
     ) : this(sourceId, Collections.unmodifiableList(ArrayList(areas)), handler)
 
     init {
-        require(NAMESPACED_RESTRICTION_ID.matches(sourceId)) { "sourceId must be namespaced" }
+        require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }
         require(areas.isNotEmpty()) { "signal epoch source must own at least one monitored area" }
         require(areas.map(RailwayOccupancyAreaDefinition::areaId).distinct().size == areas.size) {
             "signal epoch source must not contain duplicate area IDs"

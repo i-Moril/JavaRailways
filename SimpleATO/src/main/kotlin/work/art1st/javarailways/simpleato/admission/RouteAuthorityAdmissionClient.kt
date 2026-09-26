@@ -15,7 +15,7 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 
@@ -203,7 +203,7 @@ internal class RouteAuthorityAdmissionClient(
                     "reversal rebase changed the observed-head authority boundary"
                 }
                 route.selection = selection
-                route.restrictionRoute = TrainRestrictionRouteBinding.from(selection.route)
+                route.restrictionRoute = FrozenRouteBinding.from(selection.route)
                 route.committedGrant = grant
                 route.reversalPending = false
                 publishAuthority(
@@ -255,7 +255,7 @@ internal class RouteAuthorityAdmissionClient(
                 route.pending = null
                 route.committedGrant = result.grant
                 route.selection = requestedSelection
-                route.restrictionRoute = TrainRestrictionRouteBinding.from(requestedSelection.route)
+                route.restrictionRoute = FrozenRouteBinding.from(requestedSelection.route)
                 publishAuthority(
                     route,
                     result.grant.observationStamp,
@@ -395,8 +395,8 @@ internal class RouteAuthorityAdmissionClient(
 
     private data class ActiveRoute(
         var selection: FrozenRouteSelectionResult.Selected,
-        var restrictionRoute: TrainRestrictionRouteBinding =
-            TrainRestrictionRouteBinding.from(selection.route),
+        var restrictionRoute: FrozenRouteBinding =
+            FrozenRouteBinding.from(selection.route),
         var committedGrant: RouteGrantSnapshot? = null,
         var pending: PendingAttempt? = null,
         var reversalPending: Boolean = false,

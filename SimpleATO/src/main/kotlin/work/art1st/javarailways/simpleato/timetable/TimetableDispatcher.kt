@@ -60,7 +60,7 @@ import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.controller.SimpleAtoPublishedState
 import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
 import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClient
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteAssembler
@@ -2881,7 +2881,7 @@ class TimetableDispatcher(
             )
             run.ato.applyTrainRestrictions(
                 currentStamp = observation.stamp,
-                currentRoute = TrainRestrictionRouteBinding.from(activeRoute.route.selection.route),
+                currentRoute = FrozenRouteBinding.from(activeRoute.route.selection.route),
                 routeProgressMeters = activeRoute.progressFor(runtime)
             )
         } catch (failure: Exception) {

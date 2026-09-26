@@ -29,6 +29,12 @@ when a required service is absent. The fixture currently proves these services:
 The returned services are host-owned. Do not retain a world-bound admission service across world
 unload/reload and do not assume that a reused world UUID revives an old binding.
 
+The compile fixture also constructs SimpleATO's platform-neutral `FrozenRouteBinding`,
+`InspectionDeclaration` and complete `InspectionDeclarationBinding`. These are immutable values,
+not Bukkit services or per-tick callbacks: the signal add-on computes them when its definition,
+frozen route or low-frequency train profile changes. Runtime publication and update dispatch remain
+host-owned capabilities that are not exposed by the current Stage 1 service slice.
+
 ## Runtime flow
 
 1. Read one `RailwayObservation` and retain its complete `RailwayStateStamp`; do not combine a train

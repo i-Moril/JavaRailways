@@ -18,7 +18,7 @@ import work.art1st.javarailways.simpleato.api.restriction.StopTrainRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import java.util.TreeMap
 
@@ -90,7 +90,7 @@ class TrainRestrictionConstraintAdapter(
      */
     internal fun apply(
         currentStamp: RailwayStateStamp,
-        currentRoute: TrainRestrictionRouteBinding,
+        currentRoute: FrozenRouteBinding,
         routeProgressMeters: Double
     ): List<TrainRestrictionSourceEnforcement> {
         require(routeProgressMeters.isFinite() && routeProgressMeters >= 0.0) {
@@ -122,7 +122,7 @@ class TrainRestrictionConstraintAdapter(
         snapshot: TrainRestrictionSnapshot,
         unavailable: Boolean,
         currentStamp: RailwayStateStamp,
-        currentRoute: TrainRestrictionRouteBinding,
+        currentRoute: FrozenRouteBinding,
         routeProgressMeters: Double
     ): CompiledSource {
         val invalid = when {

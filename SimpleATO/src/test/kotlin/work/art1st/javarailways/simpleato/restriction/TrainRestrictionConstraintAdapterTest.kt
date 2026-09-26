@@ -21,7 +21,7 @@ import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestr
 import work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.StopTrainRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import java.util.UUID
 
@@ -33,7 +33,7 @@ class TrainRestrictionConstraintAdapterTest {
         4L,
         listOf(RouteSegmentSnapshot(UUID.randomUUID(), ViewDirection.AB, 0.0, 100.0))
     )
-    private val routeBinding = TrainRestrictionRouteBinding.from(route)
+    private val routeBinding = FrozenRouteBinding.from(route)
     private val manager = ConstraintManager()
     private val adapter = TrainRestrictionConstraintAdapter("train", manager)
 

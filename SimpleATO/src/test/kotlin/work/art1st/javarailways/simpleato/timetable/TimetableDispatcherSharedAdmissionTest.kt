@@ -57,7 +57,7 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestriction
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 
@@ -167,7 +167,7 @@ class TimetableDispatcherSharedAdmissionTest {
                 revision = 0L,
                 trainId = fixture.train.id,
                 observationStamp = admitted.observationStamp,
-                route = TrainRestrictionRouteBinding.from(admitted.route),
+                route = FrozenRouteBinding.from(admitted.route),
                 restrictions = listOf(CurrentSpeedRestriction("test:stop", 0.0))
             )
         )

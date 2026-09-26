@@ -1,46 +1,9 @@
 package work.art1st.javarailways.simpleato.api.restriction
 
-import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.simpleato.api.NAMESPACED_SIMPLE_ATO_ID
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.Collections
-
-internal val NAMESPACED_RESTRICTION_ID = Regex("[a-z0-9_.-]+:[A-Za-z0-9_./-]+")
-
-/**
- * Constant-time identity and range binding for one already frozen route.
- *
- * @property routeId stable route identity chosen by SimpleATO
- * @property routeRevision revision of that route identity, independent of topology revision
- * @property topologyRevision Core topology revision used to freeze the route
- * @property totalLengthMeters full frozen-route length in metres
- */
-data class TrainRestrictionRouteBinding(
-    val routeId: String,
-    val routeRevision: Long,
-    val topologyRevision: Long,
-    val totalLengthMeters: Double
-) {
-    init {
-        require(routeId.isNotBlank()) { "routeId must not be blank" }
-        require(routeRevision >= 0L) { "routeRevision must be non-negative" }
-        require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
-        require(totalLengthMeters.isFinite() && totalLengthMeters >= 0.0) {
-            "totalLengthMeters must be finite and non-negative"
-        }
-    }
-
-    /** Conversion helpers for host-provided frozen routes. */
-    companion object {
-        /** Captures the constant-size identity and range fields from [route]. */
-        @JvmStatic
-        fun from(route: RouteSnapshot): TrainRestrictionRouteBinding = TrainRestrictionRouteBinding(
-            route.routeId,
-            route.revision,
-            route.topologyRevision,
-            route.totalLengthMeters
-        )
-    }
-}
 
 /** A signalling-owned restriction that can only tighten one train's permitted movement. */
 sealed interface TrainRestriction {
@@ -141,7 +104,7 @@ data class TrainRestrictionSnapshot private constructor(
     val revision: Long,
     val trainId: String,
     val observationStamp: RailwayStateStamp,
-    val route: TrainRestrictionRouteBinding,
+    val route: FrozenRouteBinding,
     val restrictions: List<TrainRestriction>
 ) {
     constructor(
@@ -149,7 +112,7 @@ data class TrainRestrictionSnapshot private constructor(
         revision: Long,
         trainId: String,
         observationStamp: RailwayStateStamp,
-        route: TrainRestrictionRouteBinding,
+        route: FrozenRouteBinding,
         restrictions: Collection<TrainRestriction>
     ) : this(
         sourceId,
@@ -161,7 +124,7 @@ data class TrainRestrictionSnapshot private constructor(
     )
 
     init {
-        require(NAMESPACED_RESTRICTION_ID.matches(sourceId)) { "sourceId must be namespaced" }
+        require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }
         require(revision >= 0L) { "revision must be non-negative" }
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(observationStamp.topologyRevision == route.topologyRevision) {
@@ -221,7 +184,7 @@ fun interface TrainRestrictionPublisher {
 }
 
 private fun requireNamespacedRestrictionId(value: String) {
-    require(NAMESPACED_RESTRICTION_ID.matches(value)) { "restrictionId must be namespaced" }
+    require(NAMESPACED_SIMPLE_ATO_ID.matches(value)) { "restrictionId must be namespaced" }
 }
 
 private fun requireRouteDistance(value: Double) {

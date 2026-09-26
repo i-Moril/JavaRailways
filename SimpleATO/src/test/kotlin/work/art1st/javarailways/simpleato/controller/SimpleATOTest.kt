@@ -53,7 +53,7 @@ import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 
 class SimpleATOTest {
@@ -72,6 +72,8 @@ class SimpleATOTest {
         val fixture = fixture("perception-horizon")
 
         assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(), 1.0e-12)
+        assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(50.0), 1.0e-12)
+        assertEquals(150.0, fixture.ato.routePerceptionHorizonMeters(150.0), 1.0e-12)
     }
 
     @Test
@@ -115,7 +117,7 @@ class SimpleATOTest {
                 revision = 0L,
                 trainId = fixture.train.id,
                 observationStamp = stamp,
-                route = TrainRestrictionRouteBinding.from(route),
+                route = FrozenRouteBinding.from(route),
                 restrictions = listOf(MovementAuthorityRestriction("simpleato:grant", 0.0))
             )
         )
@@ -123,7 +125,7 @@ class SimpleATOTest {
         assertEquals(TrainRestrictionPublicationStatus.ACCEPTED, publication.status)
         fixture.ato.applyTrainRestrictions(
             stamp,
-            TrainRestrictionRouteBinding.from(route),
+            FrozenRouteBinding.from(route),
             routeProgressMeters = 0.0
         )
         tickAndPublish(fixture.ato, 1_000.0)

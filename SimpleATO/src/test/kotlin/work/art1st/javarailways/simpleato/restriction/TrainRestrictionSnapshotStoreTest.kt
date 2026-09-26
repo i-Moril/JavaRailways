@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
-import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 
 class TrainRestrictionSnapshotStoreTest {
@@ -66,7 +66,7 @@ class TrainRestrictionSnapshotStoreTest {
                 revision = 1L,
                 trainId = "train",
                 observationStamp = RailwayStateStamp("world", 2L, 2L),
-                route = TrainRestrictionRouteBinding("route", 3L, 2L, 100.0),
+                route = FrozenRouteBinding("route", 3L, 2L, 100.0),
                 restrictions = emptyList()
             )
         )
@@ -94,7 +94,7 @@ class TrainRestrictionSnapshotStoreTest {
         revision = revision,
         trainId = "train",
         observationStamp = RailwayStateStamp(worldId, 1L, 2L),
-        route = TrainRestrictionRouteBinding("route", 3L, 2L, 100.0),
+        route = FrozenRouteBinding("route", 3L, 2L, 100.0),
         restrictions = listOf(CurrentSpeedRestriction("test:speed", 5.0))
     )
 }

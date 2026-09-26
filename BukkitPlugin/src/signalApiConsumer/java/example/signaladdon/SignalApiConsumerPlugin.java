@@ -40,9 +40,12 @@ import work.art1st.javarailways.core.api.physics.rail.RailInterval;
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef;
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher;
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
 
@@ -157,10 +160,12 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             // fixture builds a request but does not submit its synthetic random route at runtime.
             var routeAdmission = services.infrastructure().routeAdmission(this, worldId);
             var routeIntent = routeIntentExample(observation.getStamp());
+            var inspectionDeclarations = inspectionDeclarationsExample(routeIntent.getRoute());
             Function<RouteResourceIntent, RouteAdmissionResult> requestRoute = routeAdmission::request;
             Function<ManualTurnoutSelectionRequest, ManualTurnoutSelectionResult> selectTurnout =
                 selection -> services.infrastructure().selectTurnout(this, worldId, selection);
             getLogger().fine("Route-resource request: " + routeIntent.getRequestId());
+            getLogger().fine("Inspection declarations: " + inspectionDeclarations.getDeclarations().size());
             getLogger().finest("Route-resource submitter: " + requestRoute);
             getLogger().finest("Manual turnout selector: " + selectTurnout);
         });
@@ -202,6 +207,26 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             observationStamp,
             route,
             new RouteBoundary(100.0)
+        );
+    }
+
+    /** Compile-only proof that a Java signal add-on can precompile immutable inspection values. */
+    private static InspectionDeclarationBinding inspectionDeclarationsExample(RouteSnapshot route) {
+        var segment = route.getSegments().getFirst();
+        var declaration = new InspectionDeclaration(
+            "example.signaladdon:home-entry",
+            segment.getRailId(),
+            segment.getFacing(),
+            80.0,
+            150.0
+        );
+        return new InspectionDeclarationBinding(
+            "example.signaladdon:main",
+            "example-train",
+            FrozenRouteBinding.from(route),
+            1L,
+            1L,
+            List.of(declaration)
         );
     }
 

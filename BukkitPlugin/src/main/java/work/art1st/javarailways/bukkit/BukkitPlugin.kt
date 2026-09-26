@@ -1,7 +1,6 @@
 package work.art1st.javarailways.bukkit
 
 import org.bukkit.plugin.java.JavaPlugin
-import org.bukkit.plugin.ServicePriority
 import work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetService
 import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationService
 import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListener
@@ -11,6 +10,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.InfrastructureOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.internal.registerJavaRailwaysServices
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
@@ -180,36 +180,14 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             signalEpochSourceService = signalEpochSourceServiceImpl
         )
         server.pluginManager.registerEvents(worldManager, this)
-        server.servicesManager.register(RailTargetService::class.java, railTargetService, this, ServicePriority.Normal)
-        server.servicesManager.register(
-            PlayerOperationService::class.java,
-            playerOperationService,
-            this,
-            ServicePriority.Normal
-        )
-        server.servicesManager.register(
-            RailwayObservationService::class.java,
-            railwayObservationService,
-            this,
-            ServicePriority.Normal
-        )
-        server.servicesManager.register(
-            InfrastructureResourceService::class.java,
-            infrastructureResourceService,
-            this,
-            ServicePriority.Normal
-        )
-        server.servicesManager.register(
-            SignalEpochSourceService::class.java,
-            signalEpochSourceService,
-            this,
-            ServicePriority.Normal
-        )
-        server.servicesManager.register(
-            InspectionSourceService::class.java,
-            inspectionSourceService,
-            this,
-            ServicePriority.Normal
+        server.servicesManager.registerJavaRailwaysServices(
+            owner = this,
+            railTargets = railTargetService,
+            playerOperations = playerOperationService,
+            observations = railwayObservationService,
+            infrastructure = infrastructureResourceService,
+            signalSources = signalEpochSourceService,
+            inspectionSources = inspectionSourceService
         )
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)

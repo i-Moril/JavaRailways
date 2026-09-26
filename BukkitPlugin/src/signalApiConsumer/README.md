@@ -54,6 +54,10 @@ one complete snapshot bound to the new route, even when that snapshot contains n
 6. Publish timetable or other applied-plan dependencies only to protect their referenced rail,
    topology-node and runtime-resource identities from conflicting edits. These declarations are
    not train claims and do not prevent trains from acquiring the resources.
+7. Before changing any declared rail, topology node or runtime resource, acquire one edit permit
+   for the exact impact and keep it open through the complete mutation and persistence transaction.
+   A denied result has no permit; inspect its field-wise blockers instead of performing any part of
+   the edit. Closing a granted permit is idempotent.
 
 `SignalEpochSource` callbacks run inside the serialized railway epoch. They must not call Bukkit,
 perform blocking I/O, defer safety work asynchronously or mutate live Core/Basic objects. An empty

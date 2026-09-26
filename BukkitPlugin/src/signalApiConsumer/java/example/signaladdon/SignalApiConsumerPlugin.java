@@ -20,6 +20,10 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult;
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource;
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind;
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact;
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest;
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource;
@@ -172,17 +176,44 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                     }
                 ))
             );
+            var signalResource = new StableInfrastructureResource("example.signaladdon:signal", "home");
+            var editImpact = new TopologyEditImpact(List.of(), List.of(), List.of(signalResource));
+            var editRequest = new TopologyEditRequest(
+                observation.getStamp().getTopologyRevision(),
+                new InfrastructureOwner("example.signaladdon:editor/main", 1L),
+                editImpact
+            );
+            var editable = services.infrastructure().acquireEditPermit(this, worldId, editRequest);
+            if (editable.decision().getStatus() != TopologyEditStatus.GRANTED) {
+                throw new IllegalStateException("Expected an edit permit for an unprotected resource");
+            }
+            try (var permit = editable.permit().orElseThrow()) {
+                Objects.requireNonNull(permit.owner());
+                // Apply and persist the exact resource edit while this permit remains open.
+            }
+
             appliedPlanOwner = new InfrastructureOwner("example.signaladdon:plan/main", 1L);
             var request = new AppliedPlanDependencyRequest(
                 observation.getStamp().getTopologyRevision(),
                 appliedPlanOwner,
                 new AppliedPlanDependencies(List.of(), List.of(), List.of(
-                    new StableInfrastructureResource("example.signaladdon:signal", "home")
+                    signalResource
                 ))
             );
             var result = services.infrastructure().setAppliedPlanDependencies(this, worldId, request);
             appliedPlanDependenciesInstalled = result.getSuccessful();
             getLogger().fine("Applied-plan dependency result: " + result.getStatus());
+            if (appliedPlanDependenciesInstalled) {
+                var denied = services.infrastructure().acquireEditPermit(this, worldId, editRequest);
+                var reportsAppliedPlan = denied.decision().getBlockers().stream().anyMatch(blocker ->
+                    blocker.getKind() == TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY &&
+                        blocker.getOverlap().getResourceIds().contains(signalResource)
+                );
+                if (denied.decision().getStatus() != TopologyEditStatus.CONFLICT ||
+                    denied.permit().isPresent() || !reportsAppliedPlan) {
+                    throw new IllegalStateException("Applied-plan edit conflict did not return exact diagnostics");
+                }
+            }
 
             // Independent add-ons receive an authenticated, world-bound admission service. The
             // fixture builds a request but does not submit its synthetic random route at runtime.

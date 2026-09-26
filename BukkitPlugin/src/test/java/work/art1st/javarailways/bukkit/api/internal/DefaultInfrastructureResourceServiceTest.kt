@@ -21,6 +21,7 @@ import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionS
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -67,6 +68,87 @@ import java.lang.reflect.Proxy
 import java.util.UUID
 
 class DefaultInfrastructureResourceServiceTest {
+    @Test
+    fun `applied dependency denial returns exact diagnostics without installing an edit permit`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val planPlugin = plugin("signal")
+        val editorPlugin = plugin("editor")
+        val resource = StableInfrastructureResource("example.signal:signal", "home")
+        val planOwner = InfrastructureOwner("example.signal:plan/main", 1L)
+        val editorOwner = InfrastructureOwner("example.editor:mutation/main", 1L)
+        service.registerResourceProvider(
+            planPlugin,
+            resource.typeId,
+            rejectingRouteProvider { _, id -> id == resource.resourceId },
+            emptyList()
+        )
+        registerWorld(service, worldId)
+        assertEquals(
+            AppliedPlanDependencyMutationStatus.APPLIED,
+            service.setAppliedPlanDependencies(
+                planPlugin,
+                worldId,
+                AppliedPlanDependencyRequest(
+                    7L,
+                    planOwner,
+                    AppliedPlanDependencies(emptySet(), emptySet(), setOf(resource))
+                )
+            ).status
+        )
+
+        val denied = service.acquireEditPermit(
+            editorPlugin,
+            worldId,
+            TopologyEditRequest(
+                7L,
+                editorOwner,
+                TopologyEditImpact(emptySet(), emptySet(), setOf(resource))
+            )
+        )
+
+        assertEquals(TopologyEditStatus.CONFLICT, denied.decision().status)
+        assertTrue(denied.permit().isEmpty)
+        val blocker = denied.decision().blockers.single()
+        assertEquals(TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY, blocker.kind)
+        assertEquals(planOwner, blocker.owner)
+        assertTrue(blocker.overlap.railIds.isEmpty())
+        assertTrue(blocker.overlap.topologyNodeKeys.isEmpty())
+        assertEquals(setOf(resource), blocker.overlap.resourceIds)
+        assertEquals(listOf(planOwner), service.appliedPlanDependencies(worldId).map { it.owner })
+
+        assertEquals(
+            AppliedPlanDependencyMutationStatus.REMOVED,
+            service.removeAppliedPlanDependencies(planPlugin, worldId, planOwner).status
+        )
+        val granted = service.acquireEditPermit(
+            editorPlugin,
+            worldId,
+            TopologyEditRequest(
+                7L,
+                editorOwner,
+                TopologyEditImpact(emptySet(), emptySet(), setOf(resource))
+            )
+        )
+        val permit = granted.permit().orElseThrow()
+        assertEquals(editorOwner, permit.owner())
+        permit.close()
+        permit.close()
+
+        val reacquired = service.acquireEditPermit(
+            editorPlugin,
+            worldId,
+            TopologyEditRequest(
+                7L,
+                InfrastructureOwner("example.editor:mutation/next", 1L),
+                TopologyEditImpact(emptySet(), emptySet(), setOf(resource))
+            )
+        )
+        assertEquals(TopologyEditStatus.GRANTED, reacquired.decision().status)
+        reacquired.permit().orElseThrow().close()
+        service.close()
+    }
+
     @Test
     fun `public service performs guarded manual turnout selection without retaining a claim`() {
         val service = DefaultInfrastructureResourceService()

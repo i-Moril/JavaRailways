@@ -74,9 +74,9 @@ data class SignalEpochResult private constructor(
  *
  * [sourceId] uses the same stable namespaced identity as every restriction snapshot produced by
  * [handler]. [areas] are plugin-owned physical monitoring definitions; the host routes only their
- * changed/baseline updates to this source and does not interpret their signal meaning. Sources are
- * installed as one static set during world composition; production lifecycle wiring must remove
- * them only after the owning coordinator has stopped or stalled.
+ * changed/baseline updates to this source and does not interpret their signal meaning. A running
+ * world may replace its complete installed source set between epochs. One epoch always sees one
+ * immutable source snapshot; newly installed definitions establish a fresh baseline.
  *
  * @property sourceId stable namespaced identity also used by every returned restriction snapshot
  * @property areas immutable nonempty monitored-area definitions owned by this source

@@ -4,7 +4,7 @@
 
 状态：`CURRENT`的平台无关第一批运行时接缝。触发：修改`SignalEpochSource`、`SignalEpochRuntime`、监测区变化到restriction publication的数据流，或Core railway epoch composition。
 
-SimpleATO拥有一次完整physics epoch内的source路由、返回值校验和restriction发布顺序。具体信号插件拥有固定闭塞、保护区域、联锁、下游依赖传播和aspect规则；Basic只派生监测区物理变化；Core只提供同步epoch边界。本契约不包含Bukkit注册/显示、动态source增删、inspection-distance缓存、通用依赖图或production controller应用。
+SimpleATO拥有一次完整physics epoch内的source路由、返回值校验和restriction发布顺序。具体信号插件拥有固定闭塞、保护区域、联锁、下游依赖传播和aspect规则；Basic只派生监测区物理变化；Core只提供同步epoch边界。本契约包含运行期完整source集合的原子替换语义，但不包含Bukkit注册/显示、插件禁用策略、inspection-distance缓存、通用依赖图或production controller应用。
 
 ## 正常主流程
 
@@ -24,7 +24,7 @@ Core捕获一个尚未公开的RailwayWorldFrameSnapshot
 
 ## 公共值与callback
 
-- `SignalEpochSource(sourceId, areas, handler)`：静态binding；`sourceId`使用与restriction相同的namespaced语法，source至少拥有一个area，area ID在整个runtime唯一。
+- `SignalEpochSource(sourceId, areas, handler)`：一个已安装source snapshot中的immutable binding；`sourceId`使用与restriction相同的namespaced语法，source至少拥有一个area，area ID在整个snapshot唯一。
 - `SignalEpochInput(observation, areaUpdates)`：immutable value；updates只包含该source拥有且本epoch baseline/changed的area。
 - `SignalEpochResult(publications)`：完整immutable snapshot publications集合；空result表示本epoch没有restriction变化，不表示撤销旧限制。
 - `TrainRestrictionPublisher.publish(snapshot)`：平台无关publication seam；只有`ACCEPTED`允许epoch继续。
@@ -44,9 +44,11 @@ runtime在任何publisher调用前先收集并校验本epoch全部handler结果�
 
 ## 表示、复杂度与线程
 
-runtime构造时按source ID排序，并建立`areaId → sourceId`不可变map，同时把所有area交给一个Basic engine编译rail-local索引。每epoch将Core frame投影一次并为`T`列车建立一次live-ID集合，只对Basic返回的`U`个更新做owner分组；host线性查看已安装的`S`个source以保持稳定调用顺序，但只有其中`D`个dirty source执行callback。若返回`R`个snapshot，host额外成本为`O(T + U + S + R log R)`，不扫描所有列车×所有area，也不重跑路线perception。area几何查询复杂度归Basic监测区契约。
+runtime以空source state启动。`replaceSources`先完整复制、排序、验证source/area唯一性并建立新的`areaId → sourceId` map和Basic rail-local occupancy index；全部成功后才用一次volatile写替换state，失败保留旧state。每个`process`开头只捕获一次state，因此并发替换不会把两个集合混入同一epoch；新state第一次消费的frame建立自己的baseline。空state直接返回，不投影observation或扫描列车。
 
-`process`只由Core serialized physics coordinator调用，不并发重入；handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
+每个非空epoch将Core frame投影一次并为`T`列车建立一次live-ID集合，只对Basic返回的`U`个更新做owner分组；host线性查看该epoch捕获的`S`个source以保持稳定调用顺序，但只有其中`D`个dirty source执行callback。若返回`R`个snapshot，host额外成本为`O(T + U + S + R log R)`，不扫描所有列车×所有area，也不重跑路线perception。area几何查询复杂度归Basic监测区契约。source替换的编译成本只发生在配置变化时，不进入每tick热路径。
+
+`process`只由Core serialized physics coordinator调用，不并发重入；handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。source替换可来自另一线程，但生产adapter仍须先等待当前physics epoch结束再允许插件卸载或废弃callback owner；volatile snapshot只保证epoch内一致性，不替代插件lifecycle barrier。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
 
 ## Good / Base / Bad
 

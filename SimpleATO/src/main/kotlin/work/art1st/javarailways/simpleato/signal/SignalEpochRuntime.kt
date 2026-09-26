@@ -12,7 +12,7 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 
 /**
- * Platform-neutral serialized host for static signal sources in one Core world.
+ * Platform-neutral serialized host for runtime-replaceable signal sources in one Core world.
  *
  * It derives monitored-area changes once, invokes only their owning source, validates every source
  * result before the first publication, and then publishes in stable source/train order. Any
@@ -20,39 +20,36 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
  */
 class SignalEpochRuntime(
     private val worldId: String,
-    sources: Collection<SignalEpochSource>,
     private val publisher: TrainRestrictionPublisher
 ) : RailwayEpochProcessor {
-    private val sources: List<SignalEpochSource>
-    private val ownerByArea: Map<RailObjectRef, String>
-    private val occupancyEngine: RailwayAreaOccupancyEngine
+    @Volatile
+    private var state = SourceState.create(emptyList())
 
     init {
         require(worldId.isNotBlank()) { "worldId must not be blank" }
-        this.sources = java.util.List.copyOf(sources.sortedBy(SignalEpochSource::sourceId))
-        require(this.sources.map(SignalEpochSource::sourceId).distinct().size == this.sources.size) {
-            "signal source IDs must be unique"
-        }
-        val areaOwners = linkedMapOf<RailObjectRef, String>()
-        this.sources.forEach { source ->
-            source.areas.forEach { area ->
-                require(areaOwners.putIfAbsent(area.areaId, source.sourceId) == null) {
-                    "monitored area ${area.areaId} belongs to more than one signal source"
-                }
-            }
-        }
-        ownerByArea = java.util.Map.copyOf(areaOwners)
-        occupancyEngine = RailwayAreaOccupancyEngine.create(this.sources.flatMap(SignalEpochSource::areas))
+    }
+
+    /**
+     * Replaces the complete installed source set after validating and compiling it off the live
+     * epoch path. An in-progress [process] keeps its captured old state; the next epoch observes the
+     * new state and establishes a fresh monitored-area baseline.
+     */
+    fun replaceSources(sources: Collection<SignalEpochSource>) {
+        state = SourceState.create(sources)
     }
 
     override fun process(frame: RailwayWorldFrameSnapshot) {
+        val current = state
+        if (current.sources.isEmpty()) return
         val observation = RailwayObservation.fromCore(worldId, frame)
-        val areaBatch = occupancyEngine.consume(observation)
-        val updatesBySource = areaBatch.updates.groupBy { update -> ownerByArea.getValue(update.areaId) }
+        val areaBatch = current.occupancyEngine.consume(observation)
+        val updatesBySource = areaBatch.updates.groupBy { update ->
+            current.ownerByArea.getValue(update.areaId)
+        }
         val liveTrainIds = observation.trains.mapTo(hashSetOf()) { it.trainId }
         val validated = ArrayList<TrainRestrictionSnapshot>()
 
-        sources.forEach { source ->
+        current.sources.forEach { source ->
             val updates = updatesBySource[source.sourceId].orEmpty()
             if (updates.isEmpty()) return@forEach
             val result = source.handler.update(SignalEpochInput.create(observation, updates))
@@ -87,6 +84,34 @@ class SignalEpochRuntime(
             }
             require(snapshot.trainId in liveTrainIds) {
                 "signal source ${source.sourceId} returned snapshot for missing train ${snapshot.trainId}"
+            }
+        }
+    }
+
+    private class SourceState(
+        val sources: List<SignalEpochSource>,
+        val ownerByArea: Map<RailObjectRef, String>,
+        val occupancyEngine: RailwayAreaOccupancyEngine
+    ) {
+        companion object {
+            fun create(sources: Collection<SignalEpochSource>): SourceState {
+                val ordered = java.util.List.copyOf(sources.sortedBy(SignalEpochSource::sourceId))
+                require(ordered.map(SignalEpochSource::sourceId).distinct().size == ordered.size) {
+                    "signal source IDs must be unique"
+                }
+                val areaOwners = linkedMapOf<RailObjectRef, String>()
+                ordered.forEach { source ->
+                    source.areas.forEach { area ->
+                        require(areaOwners.putIfAbsent(area.areaId, source.sourceId) == null) {
+                            "monitored area ${area.areaId} belongs to more than one signal source"
+                        }
+                    }
+                }
+                return SourceState(
+                    ordered,
+                    java.util.Map.copyOf(areaOwners),
+                    RailwayAreaOccupancyEngine.create(ordered.flatMap(SignalEpochSource::areas))
+                )
             }
         }
     }

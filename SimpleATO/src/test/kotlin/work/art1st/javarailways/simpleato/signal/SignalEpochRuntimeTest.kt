@@ -22,13 +22,103 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteB
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
+import java.util.Collections
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 
 class SignalEpochRuntimeTest {
     private val railId = UUID.nameUUIDFromBytes("signal-epoch-rail".toByteArray())
     private val firstAreaId = RailObjectRef("test", "first-area")
     private val secondAreaId = RailObjectRef("test", "second-area")
+
+    @Test
+    fun `empty runtime stays idle until sources are installed`() {
+        val invocations = AtomicInteger()
+        val runtime = runtime()
+
+        runtime.process(frame(1L, occupied = emptyList()))
+        runtime.replaceSources(listOf(source("test:first", area(firstAreaId, 10.0, 20.0)) {
+            invocations.incrementAndGet()
+            SignalEpochResult.empty()
+        }))
+        runtime.process(frame(2L, occupied = emptyList()))
+
+        assertEquals(1, invocations.get())
+    }
+
+    @Test
+    fun `replacement resets occupancy baseline for the next epoch`() {
+        val received = mutableListOf<Pair<String, List<String>>>()
+        val runtime = runtime(
+            listOf(source("test:first", area(firstAreaId, 10.0, 20.0)) { input ->
+                received += "first" to input.areaUpdates.single().occupants.toList()
+                SignalEpochResult.empty()
+            })
+        )
+        runtime.process(frame(1L, occupied = emptyList()))
+        received.clear()
+
+        runtime.replaceSources(
+            listOf(source("test:second", area(secondAreaId, 50.0, 60.0)) { input ->
+                received += "second" to input.areaUpdates.single().occupants.toList()
+                SignalEpochResult.empty()
+            })
+        )
+        runtime.process(frame(2L, occupied = listOf(RailInterval(railId, 55.0, 56.0))))
+
+        assertEquals(listOf("second" to listOf("train")), received)
+    }
+
+    @Test
+    fun `in progress epoch keeps one source snapshot while replacement affects the next epoch`() {
+        val enteredOldHandler = CountDownLatch(1)
+        val releaseOldHandler = CountDownLatch(1)
+        val calls = Collections.synchronizedList(mutableListOf<String>())
+        val runtime = runtime(
+            listOf(source("test:first", area(firstAreaId, 10.0, 20.0)) {
+                calls += "old"
+                enteredOldHandler.countDown()
+                releaseOldHandler.await()
+                SignalEpochResult.empty()
+            })
+        )
+        val processing = thread(start = true) {
+            runtime.process(frame(1L, occupied = emptyList()))
+        }
+        enteredOldHandler.await()
+
+        runtime.replaceSources(
+            listOf(source("test:second", area(secondAreaId, 50.0, 60.0)) {
+                calls += "new"
+                SignalEpochResult.empty()
+            })
+        )
+        releaseOldHandler.countDown()
+        processing.join()
+        runtime.process(frame(2L, occupied = emptyList()))
+
+        assertEquals(listOf("old", "new"), calls)
+    }
+
+    @Test
+    fun `invalid replacement leaves the installed source state unchanged`() {
+        val calls = AtomicInteger()
+        val existing = source("test:first", area(firstAreaId, 10.0, 20.0)) {
+            calls.incrementAndGet()
+            SignalEpochResult.empty()
+        }
+        val runtime = runtime(listOf(existing))
+        runtime.process(frame(1L, occupied = emptyList()))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.replaceSources(listOf(existing, existing))
+        }
+        runtime.process(frame(2L, occupied = listOf(RailInterval(railId, 12.0, 13.0))))
+
+        assertEquals(2, calls.get())
+    }
 
     @Test
     fun `baseline invokes source once and unchanged area leaves handler idle`() {
@@ -114,19 +204,20 @@ class SignalEpochRuntimeTest {
         lateinit var currentFrame: RailwayWorldFrameSnapshot
         val runtime = SignalEpochRuntime(
             worldId = "world",
-            sources = listOf(
+            publisher = TrainRestrictionPublisher { snapshot ->
+                published += snapshot
+                accepted(snapshot)
+            }
+        ).also { runtime ->
+            runtime.replaceSources(listOf(
                 source("test:first", area(firstAreaId, 10.0, 20.0)) {
                     SignalEpochResult(listOf(restriction("test:first", currentFrame)))
                 },
                 source("test:second", area(secondAreaId, 50.0, 60.0)) {
                     SignalEpochResult(listOf(restriction("test:wrong", currentFrame)))
                 }
-            ),
-            publisher = TrainRestrictionPublisher { snapshot ->
-                published += snapshot
-                accepted(snapshot)
-            }
-        )
+            ))
+        }
         currentFrame = frame(1L, occupied = listOf(RailInterval(railId, 0.0, 5.0)))
 
         assertThrows(IllegalArgumentException::class.java) { runtime.process(currentFrame) }
@@ -149,16 +240,17 @@ class SignalEpochRuntimeTest {
             val published = mutableListOf<TrainRestrictionSnapshot>()
             val runtime = SignalEpochRuntime(
                 worldId = "world",
-                sources = listOf(
-                    source("test:first", area(firstAreaId, 10.0, 20.0)) {
-                        SignalEpochResult(listOf(invalidSnapshot))
-                    }
-                ),
                 publisher = TrainRestrictionPublisher { snapshot ->
                     published += snapshot
                     accepted(snapshot)
                 }
-            )
+            ).also { runtime ->
+                runtime.replaceSources(listOf(
+                    source("test:first", area(firstAreaId, 10.0, 20.0)) {
+                        SignalEpochResult(listOf(invalidSnapshot))
+                    }
+                ))
+            }
 
             assertThrows(IllegalArgumentException::class.java) { runtime.process(currentFrame) }
             assertEquals(emptyList<TrainRestrictionSnapshot>(), published)
@@ -171,7 +263,12 @@ class SignalEpochRuntimeTest {
         val published = mutableListOf<TrainRestrictionSnapshot>()
         val runtime = SignalEpochRuntime(
             worldId = "world",
-            sources = listOf(
+            publisher = TrainRestrictionPublisher { snapshot ->
+                published += snapshot
+                accepted(snapshot)
+            }
+        ).also { runtime ->
+            runtime.replaceSources(listOf(
                 source("test:first", area(firstAreaId, 10.0, 20.0)) {
                     SignalEpochResult(
                         listOf(
@@ -180,12 +277,8 @@ class SignalEpochRuntimeTest {
                         )
                     )
                 }
-            ),
-            publisher = TrainRestrictionPublisher { snapshot ->
-                published += snapshot
-                accepted(snapshot)
-            }
-        )
+            ))
+        }
 
         assertThrows(IllegalArgumentException::class.java) { runtime.process(currentFrame) }
         assertEquals(emptyList<TrainRestrictionSnapshot>(), published)
@@ -197,19 +290,20 @@ class SignalEpochRuntimeTest {
         val published = mutableListOf<String>()
         val runtime = SignalEpochRuntime(
             worldId = "world",
-            sources = listOf(
+            publisher = TrainRestrictionPublisher { snapshot ->
+                published += snapshot.sourceId
+                accepted(snapshot)
+            }
+        ).also { runtime ->
+            runtime.replaceSources(listOf(
                 source("test:second", area(secondAreaId, 50.0, 60.0)) {
                     SignalEpochResult(listOf(restriction("test:second", currentFrame)))
                 },
                 source("test:first", area(firstAreaId, 10.0, 20.0)) {
                     SignalEpochResult(listOf(restriction("test:first", currentFrame)))
                 }
-            ),
-            publisher = TrainRestrictionPublisher { snapshot ->
-                published += snapshot.sourceId
-                accepted(snapshot)
-            }
-        )
+            ))
+        }
         currentFrame = frame(1L, occupied = listOf(RailInterval(railId, 0.0, 5.0)))
 
         runtime.process(currentFrame)
@@ -222,15 +316,16 @@ class SignalEpochRuntimeTest {
         lateinit var currentFrame: RailwayWorldFrameSnapshot
         val runtime = SignalEpochRuntime(
             worldId = "world",
-            sources = listOf(
-                source("test:first", area(firstAreaId, 10.0, 20.0)) {
-                    SignalEpochResult(listOf(restriction("test:first", currentFrame)))
-                }
-            ),
             publisher = TrainRestrictionPublisher {
                 TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.STALE_REVISION, 9L)
             }
-        )
+        ).also { runtime ->
+            runtime.replaceSources(listOf(
+                source("test:first", area(firstAreaId, 10.0, 20.0)) {
+                    SignalEpochResult(listOf(restriction("test:first", currentFrame)))
+                }
+            ))
+        }
         currentFrame = frame(1L, occupied = listOf(RailInterval(railId, 0.0, 5.0)))
 
         assertThrows(IllegalStateException::class.java) { runtime.process(currentFrame) }
@@ -241,13 +336,14 @@ class SignalEpochRuntimeTest {
         lateinit var currentFrame: RailwayWorldFrameSnapshot
         val runtime = SignalEpochRuntime(
             worldId = "world",
-            sources = listOf(
+            publisher = TrainRestrictionPublisher { error("publisher failed") }
+        ).also { runtime ->
+            runtime.replaceSources(listOf(
                 source("test:first", area(firstAreaId, 10.0, 20.0)) {
                     SignalEpochResult(listOf(restriction("test:first", currentFrame)))
                 }
-            ),
-            publisher = TrainRestrictionPublisher { error("publisher failed") }
-        )
+            ))
+        }
         currentFrame = frame(1L, occupied = listOf(RailInterval(railId, 0.0, 5.0)))
 
         val failure = assertThrows(IllegalStateException::class.java) { runtime.process(currentFrame) }
@@ -292,11 +388,10 @@ class SignalEpochRuntimeTest {
         assertEquals(true, callbackListWasImmutable)
     }
 
-    private fun runtime(sources: Collection<SignalEpochSource>): SignalEpochRuntime = SignalEpochRuntime(
+    private fun runtime(sources: Collection<SignalEpochSource> = emptyList()): SignalEpochRuntime = SignalEpochRuntime(
         "world",
-        sources,
         TrainRestrictionPublisher(::accepted)
-    )
+    ).also { it.replaceSources(sources) }
 
     private fun source(
         sourceId: String,

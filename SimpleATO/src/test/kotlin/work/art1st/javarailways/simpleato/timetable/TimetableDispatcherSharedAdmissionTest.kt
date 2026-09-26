@@ -660,6 +660,7 @@ class TimetableDispatcherSharedAdmissionTest {
             routeAdmissionContextProvider = contextProvider,
             signalRestrictionSnapshots = signalRestrictions,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = acceptingTimetableAppliedPlanService(),
             atoFactory = TimetableAtoFactory { selectedTrain, selectedWorld ->
                 SimpleATO(
                     selectedTrain,

@@ -2,11 +2,25 @@ package work.art1st.javarailways.simpleato.persistence
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.UnavailableRouteAdmissionTestContext
+import work.art1st.javarailways.simpleato.timetable.RecordingTimetableAppliedPlanService
+import work.art1st.javarailways.simpleato.timetable.TimetableCheckpointRestoreResult
 import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
+import work.art1st.javarailways.basic.BasicWorldData
+import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.timetable.Timetable
+import work.art1st.javarailways.basic.timetable.TimetableAction
+import work.art1st.javarailways.basic.timetable.TimetableService
+import work.art1st.javarailways.basic.timetable.TimetableStep
+import work.art1st.javarailways.basic.timetable.TrainSelector
+import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
+import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class DispatcherSnapshotTest {
     @Test
@@ -36,6 +50,26 @@ class DispatcherSnapshotTest {
 
     @Test
     fun `restored active runs become recovery required checkpoints`() {
+        val world = createTestWorld()
+        val data = BasicWorldData()
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(20.0, segmentCount = 1)
+        )
+        data.wayPoints.add(WayPoint("central@one", "Central", rail.id, 0.0))
+        data.wayPoints.add(WayPoint("terminal@one", "Terminal", rail.id, 10.0))
+        data.timetables.add(Timetable(
+            "weekday",
+            services = listOf(TimetableService(
+                "S1",
+                TrainSelector.TrainId("T1"),
+                listOf(
+                    TimetableStep.Check("central@one"),
+                    TimetableStep.At(0L, TimetableAction.GoTo("terminal@one"))
+                )
+            ))
+        ))
         val saved = SavedDispatcherV1(
             formatVersion = SavedDispatcherV1.CURRENT_FORMAT_VERSION,
             dispatcherTick = 500L,
@@ -61,10 +95,14 @@ class DispatcherSnapshotTest {
         val dispatcher = TimetableDispatcher(
             UnavailableRouteAdmissionTestContext,
             emptyTrainRestrictionSnapshots,
-            emptyInspectionRuntime()
+            emptyInspectionRuntime(),
+            RecordingTimetableAppliedPlanService()
         )
 
-        dispatcher.restoreCheckpoint(saved)
+        assertEquals(
+            TimetableCheckpointRestoreResult.Restored,
+            dispatcher.restoreCheckpoint(world, saved)
+        )
 
         assertEquals(
             setOf("S1", "S2"),
@@ -76,5 +114,33 @@ class DispatcherSnapshotTest {
         val recovery = dispatcher.recoveryRequiredRuns().single()
         assertEquals("T1", recovery.trainId)
         assertEquals("RUNNING", recovery.originalState)
+    }
+
+    @Test
+    fun `restore publishes no clocks when an applied timetable cannot be reinstalled`() {
+        val world = createTestWorld()
+        TestBasicWorldDataRegistry.register(world, BasicWorldData())
+        val plans = RecordingTimetableAppliedPlanService()
+        val dispatcher = TimetableDispatcher(
+            UnavailableRouteAdmissionTestContext,
+            emptyTrainRestrictionSnapshots,
+            emptyInspectionRuntime(),
+            plans
+        )
+        val saved = SavedDispatcherV1(
+            formatVersion = SavedDispatcherV1.CURRENT_FORMAT_VERSION,
+            dispatcherTick = 5L,
+            missionRevision = 2L,
+            clocks = listOf(SavedTimetableClockV1(
+                "missing", 0L, 24_000L, 1L, emptySet(), emptyMap()
+            )),
+            runs = emptyList()
+        )
+
+        val result = dispatcher.restoreCheckpoint(world, saved)
+
+        assertTrue(result is TimetableCheckpointRestoreResult.Rejected)
+        assertTrue(dispatcher.saveCheckpoint().clocks.isEmpty())
+        assertTrue(plans.applied.isEmpty())
     }
 }

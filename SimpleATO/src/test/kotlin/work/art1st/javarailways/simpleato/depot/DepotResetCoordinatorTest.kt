@@ -33,6 +33,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
+import work.art1st.javarailways.simpleato.timetable.acceptingTimetableAppliedPlanService
 import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -71,6 +72,7 @@ class DepotResetCoordinatorTest {
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = acceptingTimetableAppliedPlanService(),
             atoFactory = TimetableAtoFactory { train, trainWorld ->
                 SimpleATO(
                     train,
@@ -251,7 +253,8 @@ class DepotResetCoordinatorTest {
             DepotResetCoordinator(world, TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
                 emptyTrainRestrictionSnapshots,
-                emptyInspectionRuntime()
+                emptyInspectionRuntime(),
+                acceptingTimetableAppliedPlanService()
             ))
                 .reset(setOf(depotId))
         }
@@ -360,7 +363,8 @@ class DepotResetCoordinatorTest {
             TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
                 emptyTrainRestrictionSnapshots,
-                emptyInspectionRuntime()
+                emptyInspectionRuntime(),
+                acceptingTimetableAppliedPlanService()
             )
         ).reset(setOf(depotId))
 
@@ -416,7 +420,8 @@ class DepotResetCoordinatorTest {
             TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
                 emptyTrainRestrictionSnapshots,
-                emptyInspectionRuntime()
+                emptyInspectionRuntime(),
+                acceptingTimetableAppliedPlanService()
             )
         ).reset(setOf(depotId))
 

@@ -876,6 +876,7 @@ class TimetableStationCallDispatcherTest {
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = acceptingTimetableAppliedPlanService(),
             atoFactory = TimetableAtoFactory { train, owningWorld ->
                 SimpleATO(
                     train,
@@ -979,6 +980,7 @@ class TimetableStationCallDispatcherTest {
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = acceptingTimetableAppliedPlanService(),
             atoFactory = TimetableAtoFactory { train, owningWorld ->
                 SimpleATO(
                     train,
@@ -1114,6 +1116,7 @@ class TimetableStationCallDispatcherTest {
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = acceptingTimetableAppliedPlanService(),
             operationGateway = operationGateway,
             operationTimeoutTicks = operationTimeoutTicks,
             atoFactory = TimetableAtoFactory { train, owningWorld ->

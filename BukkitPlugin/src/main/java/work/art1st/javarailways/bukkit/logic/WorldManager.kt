@@ -151,8 +151,7 @@ class WorldManager internal constructor(
             infrastructure = splitInfrastructure?.core(),
             runtime = splitRuntime?.core(),
             basicInfrastructure = splitInfrastructure?.basic(),
-            basicRuntime = splitRuntime?.basic(),
-            simpleAtoRuntime = splitRuntime?.simpleAto()
+            basicRuntime = splitRuntime?.basic()
         )
         try {
             if (railWorld is CoreWorld) {
@@ -183,6 +182,7 @@ class WorldManager internal constructor(
                         stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
                     }
                 )
+                splitRuntime?.simpleAto()?.restore(railWorld)
                 val simpleAtoData = railWorld.simpleAtoWorldData
                 signalEpochSourceService?.registerWorld(
                     worldId = bukkitWorld.uid,

@@ -19,7 +19,19 @@ fun startService(world: World, timetableId: String, serviceId: String): Timetabl
 
 来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt`。
 
-`beginTimetable`先validation、blocking-run check、atomic initial positions，再建立shared epoch；`scheduleInitialCycle`只能紧随begin，manual activation不自动启动。scheduled/conditional cycles按period recurrence；`WAIT_UNTIL_TRUE`只保留该cycle，不阻塞其他service/clock；`SKIP_CYCLE`跳过。
+`beginTimetable`先validation和blocking-run check，然后把validation已经得到的全部物理route交给Basic编译，并通过
+world-local `TimetableAppliedPlanService`原子安装完整rail/node/resource dependency；只有安装成功后才执行atomic initial
+positions并发布shared epoch。dependency失败不发布clock；initial-position失败则删除新声明，replacement场景以更高的
+runtime owner revision恢复旧声明。这个步骤不再次寻路。`scheduleInitialCycle`只能紧随begin，manual activation不自动启动。
+scheduled/conditional cycles按period recurrence；`WAIT_UNTIL_TRUE`只保留该cycle，不阻塞其他service/clock；`SKIP_CYCLE`跳过。
+
+每个timetable使用由其ID确定性生成的稳定owner ID；revision只是在当前world runtime内单调递增的mutation序号，不是
+schema version，也不写入checkpoint。clock仍存在、checkpoint recovery run仍待管理员处理，或任一run尚未满足
+`canBeReplaced`（包括Basic grant/berth/storage/停止条件）时，dependency必须保留。停止future cycles后只在上述状态全部
+drain时删除。checkpoint restore先从当前timetable定义重新validation、编译并安装clock/run涉及的全部dependency，全部成功
+后才发布恢复的clock与`recoveryRequiredRuns`；任一失败回滚本次已装声明并拒绝restore，不静默恢复成可运行状态。Bukkit
+必须在Basic world registry attach后调用SimpleATO restore；隔离仿真使用同一registry语义。直接的ad-hoc/manual
+`startService`不等同于“应用完整时刻表”，不在这条静态dependency生命周期内。
 
 Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、station door+dwell states、STORING/HALTING/REVERSING/WAITING_EXTENSION_ACTION、manual states、STOPPED/COMPLETED/FAILED。Private实现可重构，以下gates不可移除。
 
@@ -49,7 +61,9 @@ Control transfer：pending operation先cancel+confirm；`MANUAL_ROUTED`继续通
 
 admission client还拥有该ATO中`simpleato:resource-admission`来源的单调restriction revision，因此外部持有的同一ATO连续执行多个service时，即使上一grant已经结束，也必须把已清空route state的client交给下一run复用；不得新建client并从revision 0重新发布。Dispatcher自己创建且随run释放的ATO不需要跨controller继承。
 
-Checkpoint只保存logical clock/diagnostics；restore active runs→`recoveryRequiredRuns`且disable service，不重建locks/queues/tickets/controller。
+Checkpoint只保存logical clock/diagnostics；restore active runs→`recoveryRequiredRuns`且disable service，不重建live
+claims/queues/tickets/controller。Applied dependency不是新增持久化状态：restore从持久化的timetable ID和当前已锁定定义重编译，
+在其成功前不发布clock/recovery state。
 
 ## 项目内正确示例
 
@@ -84,7 +98,7 @@ fun tick(world: World) {
 - `TimetableDispatcherTest.kt`：clock/At/lateness/cycles、physical acquisition、route retry/authority/tail release、sameTick Stall、reverse/halt/manual/replan/storage。
 - `TimetableStationCallDispatcherTest.kt`：door/dwell/berth/operation failure gates。
 - `TimetableExtensionRegistryTest.kt`（Basic）+ Dispatcher action tests（SimpleATO）：condition unavailable/error、start once/ticket。
-- `DispatcherSnapshotTest.kt`：active checkpoint→recovery required/disabled。
+- `DispatcherSnapshotTest.kt`：dependency先恢复、active checkpoint→recovery required/disabled，以及失败时无partial clock。
 - `TimetableDispatcherSharedAdmissionTest.kt`：production automatic/manual mode、pending、跨epoch retry/extension、ordinary-stop append、stored-run transfer和stale topology。
 
 ```bash

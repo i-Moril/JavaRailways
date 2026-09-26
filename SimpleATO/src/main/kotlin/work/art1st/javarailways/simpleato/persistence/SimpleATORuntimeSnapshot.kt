@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.timetable.TimetableCheckpointRestoreResult
 
 @Serializable
 data class SimpleATORuntimeSnapshotV1(
@@ -16,7 +17,11 @@ data class SimpleATORuntimeSnapshotV1(
         require(formatVersion == CURRENT_FORMAT_VERSION) {
             "Unsupported SimpleATO runtime snapshot version: $formatVersion"
         }
-        world.simpleAtoWorldData.dispatcher.restoreCheckpoint(dispatcher)
+        when (val restored = world.simpleAtoWorldData.dispatcher.restoreCheckpoint(world, dispatcher)) {
+            TimetableCheckpointRestoreResult.Restored -> Unit
+            is TimetableCheckpointRestoreResult.Rejected ->
+                error("SimpleATO dispatcher restore rejected: ${restored.reason}")
+        }
     }
 
     companion object {

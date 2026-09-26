@@ -47,6 +47,14 @@ Plan dependency mutation与edit decision使用独立typed result。Claim的`Infr
 各自的交集。设当前计划数为`P`、live claim数为`C`、permit数为`E`，编辑检查为`O(P+C+E)`次持有者扫描，集合相交
 为hash lookup；该低频路径不进入physics tick。未来若规模证明需要索引，再按三类identity建立倒排索引。
 
+`PhysicalRouteAppliedPlanCompiler`只编译调用方已经验证、已经选定的`RouteSnapshot`，不寻路也不选择替代支路。
+它复用同一`TopologyRouteProjector`验证每段连续性，从投影直接收集persistent rail ID、实际跨越的structural node key
+和turnout identity；diamond通过`TopologyState.atGradeCrossingsOn(railId)`反向索引按route实际覆盖的canonical AB范围命中。
+因此apply-time工作量与已知route occurrence/transition以及这些rail上的crossing数量有关，不扫描世界空间、全图resource
+或第二份registry。没有已知route的合法计划编译为“无物理依赖”，不伪造空dependency owner，也不因此拒绝应用。
+这个编译结果只表达Basic拥有的物理依赖；具体signal plugin的静态配置依赖仍由其自身后续声明，不能
+伪装成Basic物理依赖。
+
 编辑器必须在mutation前生成精确`TopologyEditImpact`。不得从空间broad-phase候选、整图incident扫描或完整rail
 interval猜测影响范围。Rail replacement/removal调用方只提交实际被替换的source rail ID；Basic通过同一
 `TopologyState`root的endpoint/node、ordinary continuation及rail/crossing反向索引，加入这些source rail实际连接处

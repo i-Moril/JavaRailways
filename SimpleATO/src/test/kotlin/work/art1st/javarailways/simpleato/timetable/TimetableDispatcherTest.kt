@@ -34,6 +34,8 @@ import work.art1st.javarailways.basic.api.station.StationBerth
 import work.art1st.javarailways.basic.api.station.StationBerthRef
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.api.timetable.*
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
 import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.controller.ManualController
 import work.art1st.javarailways.simpleato.controller.SimpleATO
@@ -55,6 +57,99 @@ import work.art1st.javarailways.core.util.ThreadGuard
 import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
 
 class TimetableDispatcherTest {
+    @Test
+    fun `timetable without known routes applies without creating an empty dependency`() {
+        val world = createTestWorld().also(worlds::add)
+        val data = BasicWorldData()
+        TestBasicWorldDataRegistry.register(world, data)
+        data.timetables.add(Timetable("empty"))
+        val plans = RecordingTimetableAppliedPlanService()
+        val dispatcher = dispatcher(plans)
+
+        assertTrue(dispatcher.beginTimetable(world, "empty") is TimetableEpochStartResult.Started)
+        assertTrue(dispatcher.scheduleInitialCycle("empty"))
+        assertTrue(plans.applied.isEmpty())
+    }
+
+    @Test
+    fun `timetable apply installs exact physical dependencies and releases them after drain`() {
+        val world = createTestWorld().also(worlds::add)
+        val data = BasicWorldData()
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val origin = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
+        data.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
+        val plans = RecordingTimetableAppliedPlanService()
+        val dispatcher = dispatcher(plans)
+
+        assertTrue(dispatcher.beginTimetable(world, "tt-plan") is TimetableEpochStartResult.Started)
+        assertEquals(setOf(rail.id), plans.applied.values.single().dependencies.railIds)
+
+        assertTrue(dispatcher.stopFutureCycles("tt-plan"))
+        assertTrue(plans.applied.isEmpty())
+    }
+
+    @Test
+    fun `timetable apply publishes no clock when dependency installation fails`() {
+        val world = createTestWorld().also(worlds::add)
+        val data = BasicWorldData()
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val origin = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
+        data.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
+        val plans = RecordingTimetableAppliedPlanService().apply {
+            setFailure = AppliedPlanDependencyMutationResult(
+                AppliedPlanDependencyMutationStatus.EDIT_IN_PROGRESS,
+                "test edit"
+            )
+        }
+        val dispatcher = dispatcher(plans)
+
+        val result = dispatcher.beginTimetable(world, "tt-plan")
+
+        assertTrue(result is TimetableEpochStartResult.Failure)
+        assertFalse(dispatcher.scheduleInitialCycle("tt-plan"))
+        assertTrue(plans.applied.isEmpty())
+    }
+
+    @Test
+    fun `stopping recurrence retains dependencies while a run is active`() {
+        val world = createTestWorld().also(worlds::add)
+        val data = BasicWorldData()
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
+        )
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val origin = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
+        data.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
+        val plans = RecordingTimetableAppliedPlanService()
+        val dispatcher = dispatcher(plans)
+
+        assertTrue(dispatcher.beginTimetable(world, "tt-plan") is TimetableEpochStartResult.Started)
+        assertTrue(dispatcher.scheduleInitialCycle("tt-plan"))
+        dispatcher.tick(world)
+        assertNotNull(dispatcher.status(TimetableServiceRunId("tt-plan", "s1")))
+
+        assertTrue(dispatcher.stopFutureCycles("tt-plan"))
+        assertTrue(plans.applied.isNotEmpty())
+    }
+
     @Test
     fun `depot reset progress preserves completed mutation counts for partial reports`() {
         val progress = TimetableDepotResetProgress()
@@ -1952,13 +2047,16 @@ class TimetableDispatcherTest {
         assertEquals(1, actionStarts)
     }
 
-    private fun dispatcher(): TimetableDispatcher {
+    private fun dispatcher(
+        appliedPlanService: TimetableAppliedPlanService = acceptingTimetableAppliedPlanService()
+    ): TimetableDispatcher {
         var boundWorld: CoreWorld? = null
         val inspectionRuntime = emptyInspectionRuntime()
         return TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { boundWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = appliedPlanService,
             atoFactory = TimetableAtoFactory { train, world ->
                 boundWorld = world as CoreWorld
                 SimpleATO(

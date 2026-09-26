@@ -75,6 +75,7 @@ class ManualNavigationTest {
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { admissionWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = acceptingTimetableAppliedPlanService(),
             atoFactory = TimetableAtoFactory { train, world ->
                 admissionWorld = world as CoreWorld
                 SimpleATO(

@@ -283,6 +283,7 @@ class TimetableValidatorTest {
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = acceptingTimetableAppliedPlanService(),
             atoFactory = TimetableAtoFactory { train, owningWorld ->
                 SimpleATO(
                     train,

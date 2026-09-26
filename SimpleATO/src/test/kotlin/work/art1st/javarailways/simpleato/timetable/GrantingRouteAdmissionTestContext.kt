@@ -8,6 +8,10 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
@@ -154,3 +158,34 @@ internal class GrantingRouteAdmissionTestContext(
 
 internal val UnavailableRouteAdmissionTestContext =
     TimetableRouteAdmissionContextProvider { null }
+
+internal class RecordingTimetableAppliedPlanService : TimetableAppliedPlanService {
+    val applied = LinkedHashMap<String, AppliedPlanDependencyRequest>()
+    var setFailure: AppliedPlanDependencyMutationResult? = null
+
+    override fun set(request: AppliedPlanDependencyRequest): AppliedPlanDependencyMutationResult {
+        setFailure?.let { return it }
+        val previous = applied.put(request.owner.ownerId, request)
+        return AppliedPlanDependencyMutationResult(
+            if (previous == null) AppliedPlanDependencyMutationStatus.APPLIED
+            else AppliedPlanDependencyMutationStatus.REPLACED
+        )
+    }
+
+    override fun remove(owner: InfrastructureOwner): AppliedPlanDependencyMutationResult {
+        val existing = applied[owner.ownerId]
+            ?: return AppliedPlanDependencyMutationResult(
+                AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT
+            )
+        if (existing.owner != owner) {
+            return AppliedPlanDependencyMutationResult(
+                AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT
+            )
+        }
+        applied.remove(owner.ownerId)
+        return AppliedPlanDependencyMutationResult(AppliedPlanDependencyMutationStatus.REMOVED)
+    }
+}
+
+internal fun acceptingTimetableAppliedPlanService(): TimetableAppliedPlanService =
+    RecordingTimetableAppliedPlanService()

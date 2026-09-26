@@ -9,6 +9,8 @@ import work.art1st.javarailways.basic.api.ato.mission.AtoMissionResolver
 import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
+import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -62,6 +64,9 @@ import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
 import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClient
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.infrastructure.PhysicalRouteAppliedPlanCompilation
+import work.art1st.javarailways.basic.infrastructure.PhysicalRouteAppliedPlanCompiler
+import work.art1st.javarailways.basic.route.toSnapshot
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteAssembler
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteRejection
@@ -75,6 +80,7 @@ import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotPr
 import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.route.MissionRouteLayout
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
+import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.IntervalOccupancyState
@@ -87,6 +93,8 @@ import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import java.util.ArrayDeque
+import java.nio.charset.StandardCharsets
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
@@ -231,6 +239,11 @@ sealed interface TimetableEpochStartResult {
     data class Failure(val reason: String) : TimetableEpochStartResult
 }
 
+sealed interface TimetableCheckpointRestoreResult {
+    data object Restored : TimetableCheckpointRestoreResult
+    data class Rejected(val reason: String) : TimetableCheckpointRestoreResult
+}
+
 sealed interface TimetableStationCallScheduleResult {
     data class Scheduled(val run: TimetableServiceRunSnapshot) : TimetableStationCallScheduleResult
     data class Failure(val reason: String) : TimetableStationCallScheduleResult
@@ -253,6 +266,7 @@ class TimetableDispatcher(
     private val routeAdmissionContextProvider: TimetableRouteAdmissionContextProvider,
     private val signalRestrictionSnapshots: TrainRestrictionSnapshotProvider,
     private val inspectionRuntime: InspectionRuntime,
+    private val appliedPlanService: TimetableAppliedPlanService,
     private val allocationTiming: RouteAllocationTiming = RouteAllocationTiming(
         switchSetupSeconds = 0.25,
         reactionTimeSeconds = 0.25,
@@ -267,11 +281,13 @@ class TimetableDispatcher(
     }
     private val missionRevision = AtomicLong(0L)
     private val admissionOwnerSequence = AtomicLong(0L)
+    private val appliedPlanRevision = AtomicLong(0L)
     private val runs = LinkedHashMap<TimetableServiceRunKey, ActiveRun>()
     private val timetableClocks = LinkedHashMap<String, TimetableClock>()
     private val waypointProgressListeners =
         LinkedHashMap<WaypointProgressKey, MutableList<TimetableWaypointProgressListener>>()
     private val recoveryRequiredRuns = ArrayList<SavedActiveRunCheckpointV1>()
+    private val appliedTimetablePlans = LinkedHashMap<String, AppliedTimetablePlan>()
     private val physicalStorageReservations = LinkedHashMap<StablingPointRef, String>()
     private val berthAllocator = StationBerthAllocator()
     private var dispatcherTick = 0L
@@ -349,13 +365,39 @@ class TimetableDispatcher(
         }
     )
 
-    /** Restore clocks and retain former active runs as explicit RECOVERY_REQUIRED checkpoints. */
-    fun restoreCheckpoint(saved: SavedDispatcherV1) {
+    /** Restore dependencies before clocks and former runs become visible to the runtime. */
+    fun restoreCheckpoint(world: World, saved: SavedDispatcherV1): TimetableCheckpointRestoreResult {
         require(saved.formatVersion == SavedDispatcherV1.CURRENT_FORMAT_VERSION) {
             "Unsupported dispatcher snapshot version: ${saved.formatVersion}"
         }
-        check(runs.isEmpty() && timetableClocks.isEmpty()) { "Dispatcher must be empty before restore" }
+        check(runs.isEmpty() && timetableClocks.isEmpty() && appliedTimetablePlans.isEmpty()) {
+            "Dispatcher must be empty before restore"
+        }
         require(saved.dispatcherTick >= 0L && saved.missionRevision >= 0L)
+        bindWorld(world)
+        val installed = ArrayList<Pair<String, AppliedTimetablePlan>>()
+        val timetableIds = (saved.clocks.map { it.timetableId } + saved.runs.map { it.timetableId })
+            .distinct()
+            .sorted()
+        for (timetableId in timetableIds) {
+            val plan = when (val result = compileAndInstallAppliedPlan(world, timetableId, null)) {
+                is AppliedPlanInstallResult.Installed -> result.plan
+                is AppliedPlanInstallResult.Rejected -> {
+                    val rollbackFailures = installed.asReversed().mapNotNull { (_, applied) ->
+                        appliedPlanService.remove(applied.owner).takeUnless { it.successful }?.let {
+                            "${applied.owner.ownerId}: ${it.status}${it.detail.takeIf(String::isNotBlank)?.let { detail -> ": $detail" }.orEmpty()}"
+                        }
+                    }
+                    return TimetableCheckpointRestoreResult.Rejected(buildString {
+                        append("could not restore applied timetable '$timetableId': ${result.reason}")
+                        if (rollbackFailures.isNotEmpty()) {
+                            append("; dependency rollback failed: ${rollbackFailures.joinToString()} ")
+                        }
+                    }.trim())
+                }
+            }
+            if (plan != null) installed += timetableId to plan
+        }
         dispatcherTick = saved.dispatcherTick
         missionRevision.set(saved.missionRevision)
         saved.clocks.forEach { clock ->
@@ -372,6 +414,8 @@ class TimetableDispatcher(
         saved.runs.forEach { run ->
             timetableClocks[run.timetableId]?.disabledServiceIds?.add(run.serviceId)
         }
+        appliedTimetablePlans.putAll(installed)
+        return TimetableCheckpointRestoreResult.Restored
     }
 
     fun recoveryRequiredRuns(): List<SavedActiveRunCheckpointV1> = recoveryRequiredRuns.toList()
@@ -418,14 +462,40 @@ class TimetableDispatcher(
                 "timetable still has an active or resource-holding run: ${blocking.id}"
             )
         }
+        val previousPlan = appliedTimetablePlans[timetableId]
+        val installedPlan = when (
+            val installed = compileAndInstallAppliedPlan(world, timetableId, previousPlan, validation.routes)
+        ) {
+            is AppliedPlanInstallResult.Installed -> installed.plan
+            is AppliedPlanInstallResult.Rejected ->
+                return TimetableEpochStartResult.Failure(installed.reason)
+        }
         runs.entries.removeIf { (key, run) ->
             key.id.timetableId == timetableId && run.canBeReplaced()
         }
         when (val initialPositions = TimetableInitialPositioner(world).apply(timetable, dispatcherTick)) {
             is TimetableInitialPositionResult.Applied -> Unit
-            is TimetableInitialPositionResult.Failure -> return TimetableEpochStartResult.Failure(
-                "initial position reset failed: ${initialPositions.reason}"
-            )
+            is TimetableInitialPositionResult.Failure -> {
+                val rollbackFailure = rollbackAppliedPlan(timetableId, installedPlan, previousPlan)
+                if (rollbackFailure != null) {
+                    if (installedPlan == null) {
+                        appliedTimetablePlans.remove(timetableId)
+                    } else {
+                        appliedTimetablePlans[timetableId] = installedPlan
+                    }
+                    stallTimetableRuntime(
+                        world,
+                        TimetableServiceRunId(timetableId, "<applied-plan>"),
+                        "AppliedPlanDependencyFailure",
+                        "initial-position failure could not restore the previous applied dependency: " +
+                            rollbackFailure
+                    )
+                }
+                return TimetableEpochStartResult.Failure(buildString {
+                    append("initial position reset failed: ${initialPositions.reason}")
+                    rollbackFailure?.let { append("; applied dependency rollback failed: $it") }
+                })
+            }
         }
         val clock = TimetableClock(
             epochDispatcherTick = dispatcherTick,
@@ -433,6 +503,11 @@ class TimetableDispatcher(
             nextCycleIndex = 1L
         )
         timetableClocks[timetableId] = clock
+        if (installedPlan == null) {
+            appliedTimetablePlans.remove(timetableId)
+        } else {
+            appliedTimetablePlans[timetableId] = installedPlan
+        }
         return TimetableEpochStartResult.Started(
             TimetableEpochSnapshot(timetableId, clock.epochDispatcherTick, clock.periodTicks)
         )
@@ -463,11 +538,13 @@ class TimetableDispatcher(
     @MainThread
     fun stopFutureCycles(timetableId: String, serviceId: String? = null): Boolean {
         val clock = timetableClocks[timetableId] ?: return false
-        return if (serviceId == null) {
+        val changed = if (serviceId == null) {
             timetableClocks.remove(timetableId) != null
         } else {
             clock.disabledServiceIds.add(serviceId)
         }
+        if (changed && serviceId == null) releaseDrainedAppliedPlans()
+        return changed
     }
 
     private fun startServiceForCycle(
@@ -1397,6 +1474,8 @@ class TimetableDispatcher(
                 .map { it.train.id }
                 .toSet()
         )
+        releaseDrainedAppliedPlans()
+        if (coordinator.isStalled) return
         startDueCycles(world)
     }
 
@@ -1624,6 +1703,7 @@ class TimetableDispatcher(
         val recovered = recoveryRequiredRuns.count { it.timetableId == timetableId }
         recoveryRequiredRuns.removeIf { it.timetableId == timetableId }
         timetableClocks.remove(timetableId)
+        releaseDrainedAppliedPlans()
         return selected.size + recovered
     }
 
@@ -1733,6 +1813,7 @@ class TimetableDispatcher(
                     if (removed) progress.recordRunRemoval()
                 }
             }
+            releaseDrainedAppliedPlans()
             return progress.snapshot()
         } catch (failure: Exception) {
             throw DepotResetDispatchApplyException(progress.snapshot(), failure)
@@ -3849,6 +3930,137 @@ class TimetableDispatcher(
         }
     }
 
+    private fun compileAndInstallAppliedPlan(
+        world: World,
+        timetableId: String,
+        previous: AppliedTimetablePlan?,
+        validatedRoutes: List<ExpandedRoute>? = null
+    ): AppliedPlanInstallResult {
+        val timetable = world.basicWorldData.timetables[timetableId]
+            ?: return AppliedPlanInstallResult.Rejected("timetable not found: $timetableId")
+        val routes = validatedRoutes ?: TimetableValidator(world).validate(timetable).let { validation ->
+            if (!validation.isSuccess) {
+                return AppliedPlanInstallResult.Rejected(validation.errors.joinToString("; "))
+            }
+            validation.routes
+        }
+        val topology = world.topologyState
+        val snapshots = routes.mapIndexed { index, route ->
+            route.toSnapshot(
+                routeId = "simpleato:applied/${timetableOwnerToken(timetableId)}/$index",
+                revision = 0L,
+                topologyRevision = topology.revision
+            )
+        }
+        val dependencies = when (
+            val compiled = PhysicalRouteAppliedPlanCompiler.compile(topology, snapshots)
+        ) {
+            is PhysicalRouteAppliedPlanCompilation.Compiled -> compiled.dependencies
+            PhysicalRouteAppliedPlanCompilation.NoDependencies -> {
+                if (previous == null) return AppliedPlanInstallResult.Installed(null)
+                val removed = appliedPlanService.remove(previous.owner)
+                return if (removed.successful) {
+                    AppliedPlanInstallResult.Installed(null)
+                } else {
+                    AppliedPlanInstallResult.Rejected(buildString {
+                        append("could not clear applied timetable '$timetableId': ${removed.status}")
+                        if (removed.detail.isNotBlank()) append(": ${removed.detail}")
+                    })
+                }
+            }
+            is PhysicalRouteAppliedPlanCompilation.Rejected ->
+                return AppliedPlanInstallResult.Rejected(
+                    "could not compile applied timetable '$timetableId': ${compiled.detail}"
+                )
+        }
+        if (world.topologyState !== topology) {
+            return AppliedPlanInstallResult.Rejected(
+                "topology changed while compiling applied timetable '$timetableId'"
+            )
+        }
+        val owner = InfrastructureOwner(
+            "simpleato:timetable/${timetableOwnerToken(timetableId)}",
+            nextAppliedPlanRevision(previous?.owner?.revision)
+        )
+        val result = appliedPlanService.set(
+            AppliedPlanDependencyRequest(topology.revision, owner, dependencies)
+        )
+        return if (result.successful) {
+            AppliedPlanInstallResult.Installed(AppliedTimetablePlan(owner, dependencies))
+        } else {
+            AppliedPlanInstallResult.Rejected(buildString {
+                append("could not install applied timetable '$timetableId': ${result.status}")
+                if (result.detail.isNotBlank()) append(": ${result.detail}")
+            })
+        }
+    }
+
+    private fun rollbackAppliedPlan(
+        timetableId: String,
+        installed: AppliedTimetablePlan?,
+        previous: AppliedTimetablePlan?
+    ): String? {
+        if (previous == null) {
+            if (installed == null) return null
+            val removed = appliedPlanService.remove(installed.owner)
+            return removed.takeUnless { it.successful }?.let {
+                "${it.status}${it.detail.takeIf(String::isNotBlank)?.let { detail -> ": $detail" }.orEmpty()}"
+            }
+        }
+        val restoredOwner = InfrastructureOwner(
+            previous.owner.ownerId,
+            nextAppliedPlanRevision(installed?.owner?.revision ?: previous.owner.revision)
+        )
+        val restored = appliedPlanService.set(
+            AppliedPlanDependencyRequest(
+                checkNotNull(boundWorld).topologyState.revision,
+                restoredOwner,
+                previous.dependencies
+            )
+        )
+        if (!restored.successful) {
+            return "${restored.status}${restored.detail.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()}"
+        }
+        appliedTimetablePlans[timetableId] = AppliedTimetablePlan(restoredOwner, previous.dependencies)
+        return null
+    }
+
+    private fun releaseDrainedAppliedPlans() {
+        val world = boundWorld ?: return
+        val releasable = appliedTimetablePlans.filter { (timetableId, _) ->
+            timetableId !in timetableClocks &&
+                recoveryRequiredRuns.none { it.timetableId == timetableId } &&
+                runs.values.filter { it.id.timetableId == timetableId }.all(ActiveRun::canBeReplaced)
+        }
+        for ((timetableId, plan) in releasable) {
+            val result = appliedPlanService.remove(plan.owner)
+            if (!result.successful) {
+                stallTimetableRuntime(
+                    world,
+                    TimetableServiceRunId(timetableId, "<applied-plan>"),
+                    "AppliedPlanDependencyFailure",
+                    "could not remove drained applied timetable: ${result.status}: ${result.detail}"
+                )
+                return
+            }
+            appliedTimetablePlans.remove(timetableId)
+        }
+    }
+
+    private fun nextAppliedPlanRevision(minimumExclusive: Long?): Long {
+        while (true) {
+            val current = appliedPlanRevision.get()
+            val floor = minimumExclusive ?: -1L
+            val next = maxOf(current, floor) + 1L
+            check(next > current && next > floor) { "applied plan revision overflow" }
+            if (appliedPlanRevision.compareAndSet(current, next)) return next
+        }
+    }
+
+    private fun timetableOwnerToken(timetableId: String): String = UUID.nameUUIDFromBytes(
+        timetableId.toByteArray(StandardCharsets.UTF_8)
+    ).toString()
+
     private fun nextMissionRevision(): Long {
         val revision = missionRevision.incrementAndGet()
         check(revision > 0L) { "mission revision overflow" }
@@ -4301,6 +4513,16 @@ class TimetableDispatcher(
         val disabledServiceIds: MutableSet<String> = LinkedHashSet(),
         val pendingActivationCycles: MutableMap<String, Long> = LinkedHashMap()
     )
+
+    private data class AppliedTimetablePlan(
+        val owner: InfrastructureOwner,
+        val dependencies: AppliedPlanDependencies
+    )
+
+    private sealed interface AppliedPlanInstallResult {
+        data class Installed(val plan: AppliedTimetablePlan?) : AppliedPlanInstallResult
+        data class Rejected(val reason: String) : AppliedPlanInstallResult
+    }
 
     private data class StationCallSpec(
         val action: TimetableAction.CallStation,

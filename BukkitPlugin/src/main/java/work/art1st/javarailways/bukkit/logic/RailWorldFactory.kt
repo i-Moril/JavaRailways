@@ -18,13 +18,13 @@ import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
+import work.art1st.javarailways.simpleato.timetable.TimetableAppliedPlanService
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContext
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
-import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
@@ -52,8 +52,7 @@ object RailWorldFactory {
         infrastructure: CoreWorld.SavedInfrastructureV2? = null,
         runtime: CoreWorld.SavedRuntimeV1? = null,
         basicInfrastructure: BasicInfrastructureSnapshotV1? = null,
-        basicRuntime: BasicRuntimeSnapshotV2? = null,
-        simpleAtoRuntime: SimpleATORuntimeSnapshotV1? = null
+        basicRuntime: BasicRuntimeSnapshotV2? = null
     ): World {
         ThreadGuard.ensureMainThread("RailWorldFactory.createForBukkit")
         val tickManager = TickManagerImpl(
@@ -117,10 +116,26 @@ object RailWorldFactory {
         // Dispatcher owns rich train/route failure reporting for synchronous update failures.
         // Bukkit service-time source changes use DefaultSignalEpochSourceService.stallWorld.
         val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
+        val appliedPlanService = object : TimetableAppliedPlanService {
+            override fun set(request: work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest) =
+                plugin.infrastructureResourceService.setAppliedPlanDependencies(
+                    plugin,
+                    bukkitWorld.uid,
+                    request
+                )
+
+            override fun remove(owner: work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner) =
+                plugin.infrastructureResourceService.removeAppliedPlanDependencies(
+                    plugin,
+                    bukkitWorld.uid,
+                    owner
+                )
+        }
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = routeAdmissionProvider,
             signalRestrictionSnapshots = signalRestrictions,
             inspectionRuntime = inspectionRuntime,
+            appliedPlanService = appliedPlanService,
             operationGateway = BukkitTrainOperationGateway(
                 coreWorld,
                 operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
@@ -150,7 +165,6 @@ object RailWorldFactory {
         )
         basicInfrastructure?.restore(coreWorld)
         basicRuntime?.restore(coreWorld)
-        simpleAtoRuntime?.restore(coreWorld)
         OperationalSpeedLimitSignalMaterializer.materialize(coreWorld)
         val persisted = RailRenderMetaStore.load(bukkitWorld)
         val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }

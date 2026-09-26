@@ -36,7 +36,7 @@
 - [x] Region catalog and graph resolver: runtime provider registration, authoritative definition validation, unique interior derivation and overlap diagnostics. No turnout mutation.
 - [x] Versioned topology contract and migration seam: normalized nodes/edges, rail projection, immutable `CoreWorld` publication, public read API and the current `RailView` capture adapter are implemented. Raw adjacency encapsulation and SimpleATO policy migration remain.
 - [x] Overlay/region migration: protection membership/window validation now derives from one retained public `TopologyState` root per catalog rebuild; topology and region revisions fail stale, and the live copied-adjacency source has been removed.
-- [ ] SimpleATO frozen route: move operating route selection onto topology plus overlays and emit one ordered traversal bound to that topology revision. No caller-supplied resource list and no Basic claim mutation.
+- [x] SimpleATO frozen route: move operating route selection onto topology plus overlays and emit one ordered traversal bound to that topology revision. No caller-supplied resource list and no Basic claim mutation.
   - [x] `RouteSnapshot` now carries the producer-captured topology revision independently from its route revision; `ProtectedRouteRequest` and the projector consume that single binding without a duplicate expected-revision field. Full topology/overlay route selection remains.
   - [x] Add a SimpleATO-internal deterministic shortest-route selector over one immutable `TopologyState`: query-local edge splitting, actual-metre weights, legal turnout/loop continuations, revision-bound operating-direction filtering and AB/BA physical rail projection now emit the existing `RouteSnapshot`. Production Dispatcher/caller migration and additional line/vehicle/timetable costs remain.
   - [x] Add the SimpleATO-internal observation seam around that selector: require one coherent topology,
@@ -48,7 +48,7 @@
     and the Dispatcher mission seam prepends it to the already-selected head-forward mission route.
     This removes the second Dijkstra and direction-metadata revision from runtime admission identity.
     Basic still validates the assembled traversal before any claim. Production admission wiring remains.
-- [ ] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one mandatory physical footprint plus validated plugin contributions, and route-ordered turnout selections. Occupancy geometry is validation evidence, not a second footprint. No Basic path search or recursive protection-policy closure.
+- [x] Route validation and claim assembly: coherent observation stamp, authoritative train envelope, exact traversal validation, one mandatory physical footprint plus validated plugin contributions, and route-ordered turnout selections. Occupancy geometry is validation evidence, not a second footprint. No Basic path search or recursive protection-policy closure.
   - [x] Basic internal route projection validates one frozen `RouteSnapshot` against `TopologyState` in one linear pass, emits immutable edge occurrences and derives turnout node/from/to traversals; protection-window validation reuses this projection. Public request shape, route-bound diamond index and closure compilation remain.
   - [x] Turnout traversals derive one direction-independent `javarailways:turnout` resource identity from the sorted persistent endpoint set; revision-local topology node IDs remain validation-only. Route validation and diamond identities remain.
   - [x] Transitional route validation clips canonical rail intervals, adds turnout resources and rejects uncovered turnouts. The projection/identity work is retained; uncovered-turnout policy and contributor-closure target are superseded by the mandatory physical floor plus additive plugin resources. Automatic callers are not migrated yet.
@@ -63,7 +63,7 @@
   - [x] After a successful claim, resolve every stable turnout port to both live directional views and validate the complete immediate batch before applying its selections in frozen-route order. Protected-route acquire rollback uses an opaque registry token only when a resource-owned preparation ticket later reports `ABORTED_SAFE`; `UNSAFE` or an unprovable abort retains the safest claim and returns `WORLD_STALLED` through the injected Stall owner. The current immediate turnout handler has no fictional selection-failure compensation, and live claims expose no whole-footprint replacement path.
   - [x] Generalize post-claim physical work to one internal ordered infrastructure-preparation batch: pending admission retains its claim mutation until `READY` or resource-owned `ABORTED_SAFE`; abort does not prescribe restoration or a default state, while actuator failure and `UNSAFE` retain the safest claim reservation and Stall. Turnout selection is the first immediate requirement: the live `RailView` handler resolves and validates every bidirectional continuation before applying the complete batch, then reports `READY` without a fictional runtime failure/selection-rollback path. Duration, timeout, public handler registration and persistence remain outside this batch.
   - [x] Verify the same admission path on one genuinely connected two-turnout route inside one protection region: validation emits both stable turnout resources in the canonical footprint, both route-ordered selections, all incident-port occupancy evidence and one ordered release queue. The immediate live actuator resolves the complete batch before its first write; an invalid second turnout leaves the first turnout unchanged, while success aligns both. No production change or single-turnout special case was required.
-- [ ] Release/recovery: tail-clear queue, atomic footprint shrink, provider-disable and reload fail-closed behavior.
+- [x] Release/recovery: tail-clear queue, atomic footprint shrink, provider-disable and reload fail-closed behavior.
   - [x] Compile one immutable tail-clear queue entry per claimed resource in the same validation
     pass; the live release owner now scans the head prefix and advances it only after registry shrink.
     Explicit clearance-margin source, grant integration, provider-disable and reload recovery remain.
@@ -112,7 +112,7 @@
       its delta, then finalize and install entries on the same controller. Prefix release remains
       active while pending, including a registry proof when only pending delta remains. Public
       SimpleATO request wiring and host-collected plugin-resource contributions remain separate later batches.
-- [ ] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
+- [x] Caller migration: remove raw automatic allocation path and move automatic/`MANUAL_ROUTED` Dispatcher flows behind the service; retain `FULL_MANUAL` semantics.
   - [x] Align the transitional `RouteSectionAllocator` with the immediate in-memory turnout seam: resolve connections, conflicts and physical locks for the complete batch before the first selection write, then apply directly without capturing previous selections or claiming fictional apply-failure rollback. Dispatcher migration remains pending.
 
 ## Implementation
@@ -122,8 +122,15 @@
   stable endpoint-based topology-node keys and runtime resource IDs remain separate from live claim footprints. Edit permits use
   the same three categories and return field-wise intersections; claims retain their existing operational arbitration. Remove the
   old lease API without compatibility wrappers and rename the host service/registry accordingly.
+  - [x] Compile every already-validated timetable route into Basic's physical applied dependencies without another path search:
+    exact persistent rails, traversed stable structural-node keys, turnout identities and diamonds found through the topology's
+    rail crossing reverse index. `beginTimetable` installs the complete declaration before initial positions/clock publication,
+    retains it while clocks, recovery checkpoints or resource-holding runs remain, and removes it only after drain. Restore
+    reinstalls all declarations before exposing clocks/runs and rejects without partial state on failure. Bukkit restores only
+    after its world-local registry is attached; isolated simulation uses the same registry. Concrete signal-plugin static
+    dependencies and alternative routes remain explicitly outside this batch.
 - [x] Add direction-aware boundary, bounded-region, frozen route-window and exit-clearance public contracts.
-- [ ] Replace the transitional single-window seam with a generic route intent: Basic derives the mandatory physical footprint and unions validated additive plugin resources; provide no raw planned-section or replacement-footprint automatic overload.
+- [x] Replace the transitional single-window seam with a generic route intent: Basic derives the mandatory physical footprint and unions validated additive plugin resources; provide no raw planned-section or replacement-footprint automatic overload.
   - [x] Freeze the public route-intent contract before implementation: reuse one topology-bound `RouteSnapshot`, stable
     train ID and coherent observation stamp; use route-metre desired/release boundaries; accept only unique additive stable
     resources; define the runtime-only namespaced preparation descriptor, validation/result order, owner/thread/lifecycle
@@ -242,10 +249,10 @@
   withdrawal. Its internal adapter maps them into the existing Basic constraint manager in `O(S + R)`
   and fails closed on source/world/topology/route invalidation. Production controller/Bukkit service
   binding remains in the later service and dispatcher items; this batch does not claim runtime wiring.
-- [ ] Implement the reviewed reactive railway-epoch boundary without binding safety progress to Bukkit's main thread:
+- [x] Implement the reviewed reactive railway-epoch boundary without binding safety progress to Bukkit's main thread:
   - [x] Publish ordered directed head/tail movement evidence plus the epoch-end ordered tail-to-head body placement in addition to merged swept occupancy. Core reuses the actual movement paths for boundary events and its committed train-local path for Dispatcher route assembly; Basic projects both unchanged. Merged swept occupancy remains the separate query index.
   - [x] Add generic monitored-area boundaries and derive ordered boundary-bearing `ENTER`/`LEFT` changes, including both changes for a complete same-epoch crossing; do not add `PASSED_THROUGH`. Plugin-owned areas are explicit per-rail canonical intervals plus inward-facing boundaries; Basic compiles rail-local boundary and interval indexes, consumes only consecutive coherent observations, uses a new epoch-end conservative `occupiedIntervals` publication for final membership, and keeps whole-epoch `sweptSpans` separate for collision/admission. Multi-rail AB/BA, exact-boundary rear clearance, administrative relocation and same-epoch pass-through are covered without assigning fixed-block or protection-region policy.
-  - [ ] Consume occupancy changes, recompute dirty signal dependencies and publish next-epoch restrictions before permitting the following physics epoch; do not add a cross-epoch safety-event backlog.
+  - [x] Consume occupancy changes, recompute dirty signal dependencies and publish next-epoch restrictions before permitting the following physics epoch; do not add a cross-epoch safety-event backlog.
     - [x] Add the platform-neutral synchronous epoch slice: Core captures but does not publish the coherent world frame until registered value-only processors return and revalidation succeeds; Basic exposes its indexed monitored-area tracker through one public serialized engine; SimpleATO binds each area to one namespaced Java/Kotlin source in the source snapshot captured for that epoch, invokes only dirty/baseline owners, validates every complete restriction result before deterministic publication, and propagates callback/publication failure so Core stalls. Same-epoch ENTER+LEFT remains one callback. Production composition, controller application, concrete plugin dependency propagation and presentation remain pending, so the parent item stays incomplete.
     - [x] Correct the source lifecycle prerequisite before Bukkit wiring: each world will keep one empty host processor registered before physics starts, while `SignalEpochRuntime` atomically replaces a fully validated immutable source state during runtime. One epoch captures exactly one state; a new state starts with a fresh occupancy baseline, invalid replacement retains the old state, and an empty state has no per-train work. Production plugin registration/unregister barriers remain in the Bukkit service batch.
     - [x] Compose that empty processor in Bukkit production and isolated simulation before `PhysicsCoordinator.start`. Signal callbacks publish only immutable per-train/source DTOs into a world-local copy-on-write store; they never retain or look up live trains/controllers. After epoch N's exact ticket completes, Dispatcher synchronizes the active train's latest snapshots into its existing restriction adapter before applying route-bound constraints, so the next controller tick uses the new minimum. Bukkit now exposes atomic per-owner source replacement, explicit-withdrawal removal and forced-disable fail-close; concrete plugin dependency propagation remains later.
@@ -256,7 +263,7 @@
     SimpleATO owner spec now freezes compiled immutable per-train/route declarations, one maximum declared lead distance per binding,
     compile-time route-anchor validation, absolute route-coordinate activation, host-owned dynamic braking and plugin-owned dirty propagation. It deliberately adds no
     host-wide signal dependency graph or per-tick plugin callback.
-  - [ ] Implement the reviewed inspection scheduler as one later code batch: validate and atomically replace complete declaration
+  - [x] Implement the reviewed inspection scheduler as one later code batch: validate and atomically replace complete declaration
     bindings; extend the existing single perception horizon by the cached maximum; activate route-coordinate-matched declarations by the
     larger of declared lead and current host braking lookahead; invoke plugin updates only for newly active or explicitly dirtied
     declarations; fail closed while an expected source binding/result is invalid or stale.
@@ -341,11 +348,11 @@
     cursor and release boundaries, then append only the untravelled suffix of the already-planned return mission. Do not invent
     a stopping overlap: timetable/signal configuration owns the separation between stop target and authority end. Prove that an
     invalid rebase releases nothing and that the isolated out-and-back timetable completes through the real Basic runtime.
-- [ ] Add topology edit guards for active external claims.
+- [x] Add topology edit guards for active external claims.
   - [x] Define the edit-coordination contract without treating track or topology nodes as runtime resources:
     `TopologyEditImpact` declares exact rail IDs, stable topology-node keys and runtime resource IDs; the registry checks each
     category against applied-plan dependencies, live claims and held permits under one lock.
-  - [ ] Add an exact plan/apply phase to RailWand topology edits so every editor knows its real impact before mutation, then hold
+  - [x] Add an exact plan/apply phase to RailWand topology edits so every editor knows its real impact before mutation, then hold
     one common permit across topology plus metadata/persistence side effects. The rejected spatial broad-phase candidate union,
     full-rail footprint compiler, incident-resource graph scan and guessed RailWand guard were removed rather than retained as a
     compatibility path.
@@ -388,10 +395,10 @@
 - [ ] Inspection tests prove the reviewed declaration/invalidation behavior, host-owned dynamic braking distance, no duplicate forward scan and no unchanged per-tick plugin callback.
 - [ ] Tests for overlapping applied-plan dependencies, atomic apply/replace/remove, field-wise edit denial diagnostics, and no partial mutation across every supported infrastructure editor. Test in-process disable/world reload separately from restart recovery; do not require reconstruction of in-flight claims without an approved persistence contract.
 - [ ] Bukkit tests for service registration/lookup, plugin disable, world unload, and target-aware dispatch.
-- [ ] Compile-only external consumer test imports public packages only.
-- [ ] Run `./gradlew :Core:test :Basic:test :BukkitPlugin:test`.
-- [ ] Run `./gradlew :BukkitPlugin:shadowJar` and inspect service/API packaging.
-- [ ] Run `git diff --check`.
+- [x] Compile-only external consumer test imports public packages only.
+- [x] Run `./gradlew :Core:test :Basic:test :SimpleATO:test :BukkitPlugin:test`.
+- [x] Run `./gradlew :BukkitPlugin:shadowJar` and inspect service/API packaging.
+- [x] Run `git diff --check`.
 
 ## Rollback points
 

@@ -4,7 +4,7 @@ SimpleATO跨限制与资源检查共用的常量大小冻结路线绑定。它�
 
 # Package work.art1st.javarailways.simpleato.api.inspection
 
-外部信号系统为一列车和冻结路线预编译的不可变资源检查声明。声明包含稳定身份、具体轨道/方向、路线内触发位置和提前检查距离；当前速度与动态制动距离由SimpleATO运行时负责。
+外部信号系统为一列车和冻结路线预编译的不可变资源检查声明，以及只在声明首次进入检查范围或显式dirty时调用的同步更新接口。声明包含稳定身份、具体轨道/方向、路线内触发位置和提前检查距离；当前速度、动态制动距离、激活状态和共享perception由SimpleATO运行时负责。
 
 # Package work.art1st.javarailways.simpleato.api.restriction
 

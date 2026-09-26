@@ -42,6 +42,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionUpdateHandler;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher;
@@ -161,11 +162,19 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             var routeAdmission = services.infrastructure().routeAdmission(this, worldId);
             var routeIntent = routeIntentExample(observation.getStamp());
             var inspectionDeclarations = inspectionDeclarationsExample(routeIntent.getRoute());
+            InspectionUpdateHandler inspectionHandler = input -> {
+                Objects.requireNonNull(input.getObservationStamp());
+                Objects.requireNonNull(input.getRoute());
+                Objects.requireNonNull(input.getPerception());
+                Objects.requireNonNull(input.getDeclarations());
+                return List.of();
+            };
             Function<RouteResourceIntent, RouteAdmissionResult> requestRoute = routeAdmission::request;
             Function<ManualTurnoutSelectionRequest, ManualTurnoutSelectionResult> selectTurnout =
                 selection -> services.infrastructure().selectTurnout(this, worldId, selection);
             getLogger().fine("Route-resource request: " + routeIntent.getRequestId());
             getLogger().fine("Inspection declarations: " + inspectionDeclarations.getDeclarations().size());
+            getLogger().finest("Inspection update handler: " + inspectionHandler);
             getLogger().finest("Route-resource submitter: " + requestRoute);
             getLogger().finest("Manual turnout selector: " + selectTurnout);
         });

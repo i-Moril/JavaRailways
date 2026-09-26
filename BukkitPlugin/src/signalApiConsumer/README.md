@@ -30,10 +30,11 @@ The returned services are host-owned. Do not retain a world-bound admission serv
 unload/reload and do not assume that a reused world UUID revives an old binding.
 
 The compile fixture also constructs SimpleATO's platform-neutral `FrozenRouteBinding`,
-`InspectionDeclaration` and complete `InspectionDeclarationBinding`. These are immutable values,
-not Bukkit services or per-tick callbacks: the signal add-on computes them when its definition,
-frozen route or low-frequency train profile changes. Runtime publication and update dispatch remain
-host-owned capabilities that are not exposed by the current Stage 1 service slice.
+`InspectionDeclaration`, complete `InspectionDeclarationBinding`, and `InspectionUpdateHandler`.
+Declarations are immutable low-frequency values: the signal add-on computes them when its
+definition, frozen route or low-frequency train profile changes. SimpleATO owns activation and
+invokes the handler only for newly active or explicitly dirty declarations. Bukkit registration
+and production dispatch remain host-owned capabilities not exposed by this service slice.
 
 ## Runtime flow
 

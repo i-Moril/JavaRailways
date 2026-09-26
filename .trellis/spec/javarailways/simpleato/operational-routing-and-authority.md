@@ -156,7 +156,8 @@ area-driven dirty source；本节另行冻结资源何时进入列车检查范�
 `train`只表示不可变列车身份和低频能力视图，例如长度、车型或制动等级；当前速度不进入插件缓存键。
 
 当前第一批公开值类型为`simpleato.api.route.FrozenRouteBinding`、
-`simpleato.api.inspection.InspectionDeclaration`和`InspectionDeclarationBinding`。每个声明具有：
+`simpleato.api.inspection.InspectionDeclaration`、`InspectionDeclarationBinding`、`InspectionUpdateInput`和
+`InspectionUpdateHandler`。每个声明具有：
 
 - namespaced稳定来源ID和资源/信号ID；
 - 当前冻结路线binding及该资源在路线中的occurrence-specific绝对触发米数；
@@ -216,6 +217,17 @@ for each declaration in candidates:
 具体信号插件可以在Java/Kotlin中实现完整规则，并自行选择JS、YAML或其他配置层。SimpleATO只提供检查调度与最严格限制归约，
 不规定所有插件必须共用一个JS运行时。
 
+当前平台无关`InspectionRuntime`为每个`(sourceId, trainId)`保留一份编译binding、激活/dirty状态和同步handler。
+完整binding替换先离线编译，成功后才替换旧session；非法替换不改变旧session。一次update按source ID稳定顺序查询scheduler，
+把同一source本次新激活或dirty的声明合并为一个`InspectionUpdateInput`，并复用controller已经完成的`PerceptionSnapshot`。
+handler直接返回零或一个该source/列车的完整`TrainRestrictionSnapshot`集合，不增加第二种restriction结果模型；空集合表示没有
+publication变化，清除旧限制仍必须返回更高revision的空restriction snapshot。
+
+runtime在首次publisher side effect前验证本批全部callback输出的source、train、observation stamp和frozen route。回调异常、
+过期binding、非法输出或publisher拒绝都会先通知注入的fail-closed owner，再向serialized caller抛出；尚未成功发布的声明重新
+变为dirty，不会因失败丢失更新。source/train删除只丢弃对应session，不释放Basic claim，也不隐式撤销restriction。该runtime
+不创建线程、重试器、Bukkit registry或持久化状态；生产Bukkit/source生命周期和Dispatcher/controller接线尚未完成。
+
 ## 4. 接口与数据合同
 
 SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`；需要信号插件策略时，它把同一冻结路线与
@@ -267,6 +279,10 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
   声明按触发位置排序，总时间为`O(S_r + D log S_r + D log D)`、空间为`O(S_r + D)`。每tick在声明数组中以两次二分取得前方
   候选窗口，再按每项阈值过滤；令窗口内有`A`个候选，则inspection额外时间为`O(log D + A)`，共享perception本身仍按实际扫描
   长度线性、动态制动计算为`O(1)`；成本不包含世界总资源数，也不再构造route occurrence索引。
+- 若一列车当前绑定`S_i`个inspection source，本次共有`U`个需要更新的声明和`R`个publication，则平台无关runtime额外成本为
+  `O(S_i + U + R)`；source在低频binding替换时写入有序map，tick不再排序。当前每source/列车最多返回一个完整snapshot，
+  因此`R <= S_i`。IDLE source不调用插件代码，
+  runtime不扫描世界内其他列车、资源或完整路线。
 - 外部restriction adapter每次应用只线性转换当前列车的来源与限制`O(S + R)`；不得重新扫描冻结路线、排序来源或调用插件代码。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
 - unchanged stable denial 使用缓存的 typed result 与 revision key；相关 revision 不变时不重复昂贵解析。
@@ -295,6 +311,8 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - signal-plugin integration：固定闭塞、保护区域和移动闭塞插件结果都只能收紧限制；附加资源只增加Basic最终union，不能删除物理底线。
 - inspection scheduling：插件只在route/profile/definition变化时编译完整不可变声明；最大声明距离扩展现有单次perception，
   动态制动距离每tick由host计算；编译期occurrence验证、绝对路线坐标激活、首次激活、显式dirty、IDLE和stale fail-close均有独立断言。
+- inspection runtime：完整binding替换失败保留旧session；多个source的callback结果在首次publication前完成校验；callback、
+  validation或publisher失败通知fail-closed owner且未发布工作保持dirty；source/train移除不触碰Basic claim或伪造restriction撤销。
 - control pipeline：车辆、停车、信号和 grant candidates 只做一次 perception，并归约到最严格 speed/authority。
 - external restrictions：严格递增revision、不同来源取最严格结果、绝对route metre到剩余距离转换、空新revision撤销、输入集合防御性复制，以及world/topology/route/source failure的零速fail-close。
 - retry：稳定配置错误 revision 不变时不逐 tick 重算；占用释放事件允许重新准入。
@@ -306,7 +324,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 
 准入request/result、单位、preparation descriptor与rolling extension关系已由Basic owner spec冻结；inspection-distance的
 声明、单次扫描、失效和owner语义由本页冻结；第一批route/declaration public value名称已经实现。尚未冻结：路线 cost policy、
-overlay持久化边界、inspection publication/service名称、具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些问题必须在对应实现批次单独审查；signal epoch
+overlay持久化边界、inspection Bukkit service名称、具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些问题必须在对应实现批次单独审查；signal epoch
 source/result已经由[响应式信号epoch](./reactive-signal-epochs.md)冻结，JS能力和WebUI仍不由本页选择兼容格式。
 
 ```text

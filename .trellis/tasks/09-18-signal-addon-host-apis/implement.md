@@ -267,8 +267,12 @@
       binary candidate lookup, explicit dirty input and IDLE behavior, plus focused tests. No Bukkit publication service or plugin
       callback is wired in this foundation batch. The initial runtime occurrence index was removed after review because the
       validated absolute route coordinate already distinguishes repeated rail occurrences.
-    - [ ] Bind complete declaration replacement to world/train/source lifecycle, feed current route progress plus the existing
-      controller perception to plugin updates and mark the associated restriction source unavailable on stale/failure paths.
+    - [x] Add the platform-neutral update runtime and public synchronous callback input. It owns one compiled scheduler per
+      source/train, atomically replaces complete bindings, batches newly active/dirty declarations per source, reuses the supplied
+      controller perception, validates all callback results before publication and notifies a fail-closed owner on stale/failure
+      paths. Failed unpublished work remains dirty; source/train removal adds no recovery state machine or implicit withdrawal.
+    - [ ] Bind that runtime to the actual world/train/source lifecycle, extend the controller's sole perception horizon by the
+      cached maximum, dispatch from current frozen-route progress and wire failure into the existing restriction fail-closed path.
 - [x] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup. Observation,
   infrastructure and signal-source services are discoverable through `ServicesManager`; exact world bindings are removed
   on unload. `InfrastructureResourceService.unregisterOwner` is the single planned-disable entry: it checks infrastructure

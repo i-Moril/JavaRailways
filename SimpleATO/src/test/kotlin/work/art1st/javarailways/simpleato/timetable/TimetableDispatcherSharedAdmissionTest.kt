@@ -56,6 +56,10 @@ import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestriction
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 
 class TimetableDispatcherSharedAdmissionTest {
     private val worlds = mutableListOf<CoreWorld>()
@@ -148,6 +152,31 @@ class TimetableDispatcherSharedAdmissionTest {
         assertEquals(1, fixture.service.intents.size)
         assertEquals(2, fixture.service.progressed.size)
         assertEquals(TimetableServiceRunState.RUNNING, fixture.status().state)
+    }
+
+    @Test
+    fun `dispatcher applies latest signal epoch snapshot before the next controller tick`() {
+        val fixture = fixture()
+        fixture.service.onRequest = fixture.service::grant
+        fixture.start()
+        fixture.dispatch()
+        val admitted = fixture.service.intents.single()
+        fixture.signalRestrictions.publish(
+            TrainRestrictionSnapshot(
+                sourceId = "test:signal",
+                revision = 0L,
+                trainId = fixture.train.id,
+                observationStamp = admitted.observationStamp,
+                route = TrainRestrictionRouteBinding.from(admitted.route),
+                restrictions = listOf(CurrentSpeedRestriction("test:stop", 0.0))
+            )
+        )
+
+        fixture.dispatch()
+        fixture.tickAto()
+
+        assertEquals(0.0, fixture.ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1.0e-9)
+        assertTrue(fixture.ato.runtimeDiagnostics.constraints.any { "test:signal/test:stop" in it })
     }
 
     @Test
@@ -377,12 +406,16 @@ class TimetableDispatcherSharedAdmissionTest {
             ))
         ))
         val service = FakeAdmissionService().also { it.onRequest = it::grant }
+        val signalRestrictions = TrainRestrictionSnapshotStore(WORLD_ID)
         lateinit var fixture: Fixture
-        val dispatcher = sharedDispatcher {
-            fixture.providerCalls++
-            TimetableRouteAdmissionContext(fixture.observation(), service)
-        }
-        fixture = Fixture(world, data, rail, train, dispatcher, service)
+        val dispatcher = sharedDispatcher(
+            TimetableRouteAdmissionContextProvider {
+                fixture.providerCalls++
+                TimetableRouteAdmissionContext(fixture.observation(), service)
+            },
+            signalRestrictions
+        )
+        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions)
 
         val storageStart = dispatcher.startService(world, "store", "first")
         assertTrue(storageStart is TimetableServiceStartResult.Started, storageStart.toString())
@@ -468,12 +501,16 @@ class TimetableDispatcherSharedAdmissionTest {
             it.onRequest = it::grant
             it.endResult = true
         }
+        val signalRestrictions = TrainRestrictionSnapshotStore(WORLD_ID)
         lateinit var fixture: Fixture
-        val dispatcher = sharedDispatcher {
-            fixture.providerCalls++
-            TimetableRouteAdmissionContext(fixture.observation(), service)
-        }
-        fixture = Fixture(world, data, rail, train, dispatcher, service)
+        val dispatcher = sharedDispatcher(
+            TimetableRouteAdmissionContextProvider {
+                fixture.providerCalls++
+                TimetableRouteAdmissionContext(fixture.observation(), service)
+            },
+            signalRestrictions
+        )
+        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions)
 
         assertTrue(
             dispatcher.startService(world, "first", "run") is TimetableServiceStartResult.Started
@@ -537,21 +574,25 @@ class TimetableDispatcherSharedAdmissionTest {
             ))
         ))
         val service = FakeAdmissionService()
+        val signalRestrictions = TrainRestrictionSnapshotStore(WORLD_ID)
         lateinit var fixture: Fixture
         val dispatcher = sharedDispatcher(
             TimetableRouteAdmissionContextProvider {
                 fixture.providerCalls++
                 TimetableRouteAdmissionContext(fixture.observation(), service)
-            }
+            },
+            signalRestrictions
         )
-        fixture = Fixture(world, data, rail, train, dispatcher, service)
+        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions)
         return fixture
     }
 
     private fun sharedDispatcher(
-        contextProvider: TimetableRouteAdmissionContextProvider
+        contextProvider: TimetableRouteAdmissionContextProvider,
+        signalRestrictions: TrainRestrictionSnapshotStore
     ): TimetableDispatcher = TimetableDispatcher(
         routeAdmissionContextProvider = contextProvider,
+        signalRestrictionSnapshots = signalRestrictions,
         atoFactory = TimetableAtoFactory { selectedTrain, selectedWorld ->
             SimpleATO(
                 selectedTrain,
@@ -578,7 +619,8 @@ class TimetableDispatcherSharedAdmissionTest {
         val rail: CoreRail,
         val train: CoreTrain,
         val dispatcher: TimetableDispatcher,
-        val service: FakeAdmissionService
+        val service: FakeAdmissionService,
+        val signalRestrictions: TrainRestrictionSnapshotStore
     ) {
         var epoch = 0L
         var providerCalls = 0

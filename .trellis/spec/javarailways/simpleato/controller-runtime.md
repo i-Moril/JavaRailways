@@ -33,6 +33,10 @@ adapter把结果原子替换进controller原有`ConstraintManager`。这不是�
 `MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。部分Basic授权保留外部MA；当grant覆盖完整
 frozen mission route时，该来源发布更高revision空restriction，终点仍由mission Stop constraint精确停车。
 
+signal epoch不直接持有controller。它先写world-local immutable snapshot store；Dispatcher在同一次
+`apply`前把active train的最新source snapshots同步到上述唯一adapter。已同步的同revision可重复读取，
+但wrong train、source unavailable或controller比world store更新都是invariant failure，由Dispatcher使world fail closed。
+
 ## Publication边界
 
 `AbstractATO`把一次publication表示为protected immutable `PublishedAtoState`，并通过一次volatile reference

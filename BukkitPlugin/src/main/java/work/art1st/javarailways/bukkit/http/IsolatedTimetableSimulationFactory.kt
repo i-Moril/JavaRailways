@@ -18,7 +18,6 @@ import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
-import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.basic.timetable.TrainSelector
@@ -125,24 +124,23 @@ internal class IsolatedTimetableSimulationFactory(
                     timetableExtensions = snapshot.timetableExtensions
                 )
             },
-            simpleAtoDataFactory = { _, routeAdmissionContextProvider ->
-                SimpleATOWorldData(
-                    dispatcher = TimetableDispatcher(
-                        routeAdmissionContextProvider = routeAdmissionContextProvider,
-                        operationGateway = operationGateway,
-                        atoFactory = TimetableAtoFactory { train, owningWorld ->
-                            val profile = requireNotNull(profilesByTrainId[train.id]) {
-                                "simulation profile missing for train ${train.id}"
-                            }
-                            val safety = AtoSafetyProfile()
-                            SimpleATO(
-                                train,
-                                owningWorld,
-                                KinematicTrainActuator(profile.trainControl.maxSpeed, safety),
-                                safety
-                            )
+            dispatcherFactory = { _, routeAdmissionContextProvider, signalRestrictions ->
+                TimetableDispatcher(
+                    routeAdmissionContextProvider = routeAdmissionContextProvider,
+                    signalRestrictionSnapshots = signalRestrictions,
+                    operationGateway = operationGateway,
+                    atoFactory = TimetableAtoFactory { train, owningWorld ->
+                        val profile = requireNotNull(profilesByTrainId[train.id]) {
+                            "simulation profile missing for train ${train.id}"
                         }
-                    )
+                        val safety = AtoSafetyProfile()
+                        SimpleATO(
+                            train,
+                            owningWorld,
+                            KinematicTrainActuator(profile.trainControl.maxSpeed, safety),
+                            safety
+                        )
+                    }
                 )
             },
             seed = { world -> seedTimetableTrains(world, snapshot, profilesByTrainId) }

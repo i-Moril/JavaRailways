@@ -2,11 +2,15 @@ package work.art1st.javarailways.simpleato
 
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
+import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 
 /** Mutable operational runtime owned by SimpleATO for one Core world. */
 data class SimpleATOWorldData(
-    val dispatcher: TimetableDispatcher
+    val dispatcher: TimetableDispatcher,
+    val signalEpochRuntime: SignalEpochRuntime,
+    val signalRestrictions: TrainRestrictionSnapshotStore
 )
 
 @OptIn(ExtensionData::class)

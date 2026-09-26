@@ -20,7 +20,11 @@ import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
+import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContext
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
@@ -208,10 +212,11 @@ class IsolatedTimetableSimulationWorld private constructor(
             basicInfrastructure: BasicInfrastructureSnapshotV1,
             workerThreads: Int,
             basicDataFactory: (CoreWorld) -> BasicWorldData,
-            simpleAtoDataFactory: (
+            dispatcherFactory: (
                 CoreWorld,
-                TimetableRouteAdmissionContextProvider
-            ) -> SimpleATOWorldData,
+                TimetableRouteAdmissionContextProvider,
+                TrainRestrictionSnapshotProvider
+            ) -> TimetableDispatcher,
             seed: (CoreWorld) -> Unit
         ): IsolatedTimetableSimulationWorld {
             require(workerThreads > 0)
@@ -250,9 +255,21 @@ class IsolatedTimetableSimulationWorld private constructor(
                         seed(isolatedWorld)
                         val admission = IsolatedRouteAdmissionHost(isolatedWorld)
                         routeAdmissionHost = admission
+                        val worldId = isolatedWorld.basicWorldData.atoCoordinator.worldId
+                        val signalRestrictions = TrainRestrictionSnapshotStore(worldId)
+                        val signalEpochRuntime = SignalEpochRuntime(worldId, signalRestrictions)
+                        physics.registerRailwayEpochProcessor(signalEpochRuntime)
                         isolatedWorld.registerExtensionData(
                             SimpleATOPlugin.INSTANCE,
-                            simpleAtoDataFactory(isolatedWorld, admission.contextProvider)
+                            SimpleATOWorldData(
+                                dispatcherFactory(
+                                    isolatedWorld,
+                                    admission.contextProvider,
+                                    signalRestrictions
+                                ),
+                                signalEpochRuntime,
+                                signalRestrictions
+                            )
                         )
                     }
                 }

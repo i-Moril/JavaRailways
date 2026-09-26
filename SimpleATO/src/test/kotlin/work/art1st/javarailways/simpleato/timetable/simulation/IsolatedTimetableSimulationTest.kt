@@ -9,6 +9,8 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
+import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
@@ -17,11 +19,17 @@ import work.art1st.javarailways.basic.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
-import work.art1st.javarailways.simpleato.SimpleATOWorldData
+import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
+import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.basic.timetable.TimetableService
 import work.art1st.javarailways.basic.timetable.TimetableStep
 import work.art1st.javarailways.basic.timetable.TrainSelector
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
+import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
@@ -61,6 +69,38 @@ class IsolatedTimetableSimulationTest {
             firstResult.runs.map { it.copy(trainHeadRailId = null) },
             secondResult.runs.map { it.copy(trainHeadRailId = null) }
         )
+    }
+
+    @Test
+    fun `isolated world installs its replaceable signal processor before physics starts`() {
+        val fixture = fixture()
+        fixture.runtime.use { runtime ->
+            val rail = runtime.world.allRails.single()
+            var callbacks = 0
+            runtime.world.simpleAtoWorldData.signalEpochRuntime.replaceSources(listOf(
+                SignalEpochSource(
+                    sourceId = "test:isolated",
+                    areas = listOf(RailwayOccupancyAreaDefinition.create(
+                        areaId = RailObjectRef("test", "isolated-area"),
+                        definitionRevision = 0L,
+                        topologyRevision = runtime.world.topologyState.revision,
+                        intervals = listOf(RailInterval(rail.id, 0.0, rail.curve.totalArcLength)),
+                        boundaries = listOf(RailwayOccupancyBoundary(
+                            RailObjectRef("test", "isolated-entry"),
+                            RailPositionSnapshot(rail.id, ViewDirection.AB, 0.0)
+                        ))
+                    ))
+                ) {
+                    callbacks++
+                    SignalEpochResult.empty()
+                }
+            ))
+
+            val result = runtime.simulate(IsolatedTimetableSimulationRequest(fixture.timetable))
+
+            assertTrue(result is IsolatedTimetableSimulationResult.Completed) { result.toString() }
+            assertTrue(callbacks > 0)
+        }
     }
 
     @Test
@@ -144,14 +184,15 @@ class IsolatedTimetableSimulationTest {
             basicDataFactory = {
                 BasicWorldData()
             },
-            simpleAtoDataFactory = { _, routeAdmissionContextProvider ->
+            dispatcherFactory = { _, routeAdmissionContextProvider, signalRestrictions ->
                 val profile = AtoSafetyProfile()
-                SimpleATOWorldData(TimetableDispatcher(
+                TimetableDispatcher(
                     routeAdmissionContextProvider = routeAdmissionContextProvider,
+                    signalRestrictionSnapshots = signalRestrictions,
                     atoFactory = TimetableAtoFactory { train, world ->
                         SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
                     }
-                ))
+                )
             },
             seed = { clone ->
                 val cloneRail = requireNotNull(clone.getRail(rail.id))

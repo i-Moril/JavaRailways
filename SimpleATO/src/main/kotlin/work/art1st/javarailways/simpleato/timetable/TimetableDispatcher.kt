@@ -70,6 +70,7 @@ import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionContext
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.route.MissionRouteLayout
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
@@ -249,6 +250,7 @@ sealed interface TimetableReplanResult {
 /** Main-thread runtime for explicit-train timetable services. */
 class TimetableDispatcher(
     private val routeAdmissionContextProvider: TimetableRouteAdmissionContextProvider,
+    private val signalRestrictionSnapshots: TrainRestrictionSnapshotProvider,
     private val allocationTiming: RouteAllocationTiming = RouteAllocationTiming(
         switchSetupSeconds = 0.25,
         reactionTimeSeconds = 0.25,
@@ -2874,6 +2876,9 @@ class TimetableDispatcher(
     ) {
         val activeRoute = run.admittedRoute ?: run.admissionCandidate ?: return
         try {
+            run.ato.synchronizeSignalRestrictions(
+                signalRestrictionSnapshots.snapshotsFor(run.train.id)
+            )
             run.ato.applyTrainRestrictions(
                 currentStamp = observation.stamp,
                 currentRoute = TrainRestrictionRouteBinding.from(activeRoute.route.selection.route),

@@ -25,6 +25,8 @@ import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
+import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
@@ -85,8 +87,10 @@ object RailWorldFactory {
                     .also { boundRouteAdmission = it }
             TimetableRouteAdmissionContext(observation, admission)
         }
+        val signalRestrictions = TrainRestrictionSnapshotStore(bukkitWorld.uid.toString())
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = routeAdmissionProvider,
+            signalRestrictionSnapshots = signalRestrictions,
             operationGateway = BukkitTrainOperationGateway(
                 coreWorld,
                 operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
@@ -103,6 +107,11 @@ object RailWorldFactory {
                 )
             }
         )
+        val signalEpochRuntime = SignalEpochRuntime(
+            bukkitWorld.uid.toString(),
+            signalRestrictions
+        )
+        physicsCoordinator.registerRailwayEpochProcessor(signalEpochRuntime)
         val basicData = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
                 atoLogger.severe(report.format())
@@ -130,7 +139,7 @@ object RailWorldFactory {
         coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
         coreWorld.registerExtensionData(
             SimpleATOPlugin.INSTANCE,
-            SimpleATOWorldData(dispatcher)
+            SimpleATOWorldData(dispatcher, signalEpochRuntime, signalRestrictions)
         )
         basicInfrastructure?.restore(coreWorld)
         basicRuntime?.restore(coreWorld)

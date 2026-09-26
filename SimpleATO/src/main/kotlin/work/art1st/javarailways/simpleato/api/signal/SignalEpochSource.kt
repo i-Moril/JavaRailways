@@ -70,7 +70,7 @@ data class SignalEpochResult private constructor(
 }
 
 /**
- * Static binding for one independently implemented signal-system source.
+ * Immutable binding for one independently implemented signal-system source.
  *
  * [sourceId] uses the same stable namespaced identity as every restriction snapshot produced by
  * [handler]. [areas] are plugin-owned physical monitoring definitions; the host routes only their

@@ -64,7 +64,9 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailSegment
 import work.art1st.javarailways.core.physics.train.TrainEnd
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionRouteBinding
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSourceEnforcement
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -207,6 +209,25 @@ class SimpleATO(
     /** Publisher used by the one resource-admission client attached to this controller. */
     internal val trainRestrictionPublisher: TrainRestrictionPublisher =
         TrainRestrictionPublisher(trainRestrictionAdapter::publish)
+
+    /**
+     * Copies the world store's latest signal values into this controller's existing adapter.
+     * Re-reading an already copied revision is idempotent; any other rejection is an invariant
+     * failure because the Dispatcher is synchronizing the same train and world.
+     */
+    @MainThread
+    internal fun synchronizeSignalRestrictions(snapshots: List<TrainRestrictionSnapshot>) {
+        snapshots.forEach { snapshot ->
+            val result = trainRestrictionAdapter.publish(snapshot)
+            check(result.status == TrainRestrictionPublicationStatus.ACCEPTED ||
+                result.status == TrainRestrictionPublicationStatus.STALE_REVISION &&
+                result.acceptedRevision == snapshot.revision
+            ) {
+                "signal restriction ${snapshot.sourceId}/${snapshot.revision} for " +
+                    "${snapshot.trainId} was ${result.status}"
+            }
+        }
+    }
 
     /** Applies immutable restriction snapshots to this controller's sole constraint manager. */
     @MainThread

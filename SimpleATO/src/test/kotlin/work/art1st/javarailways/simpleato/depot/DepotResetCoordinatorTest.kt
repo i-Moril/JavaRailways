@@ -20,6 +20,7 @@ import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
 import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.timetable.Timetable
@@ -66,6 +67,7 @@ class DepotResetCoordinatorTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
+            signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             atoFactory = TimetableAtoFactory { train, trainWorld ->
                 SimpleATO(train, trainWorld, KinematicTrainActuator(10.0, profile), profile)
             }
@@ -237,7 +239,10 @@ class DepotResetCoordinatorTest {
         coordinator.stall(report(coordinator.worldId, riskyTrain.id))
 
         val result = onMainThread {
-            DepotResetCoordinator(world, TimetableDispatcher(UnavailableRouteAdmissionTestContext))
+            DepotResetCoordinator(world, TimetableDispatcher(
+                UnavailableRouteAdmissionTestContext,
+                emptyTrainRestrictionSnapshots
+            ))
                 .reset(setOf(depotId))
         }
         riskyTrain.commit()
@@ -342,7 +347,10 @@ class DepotResetCoordinatorTest {
 
         val result = DepotResetCoordinator(
             world,
-            TimetableDispatcher(UnavailableRouteAdmissionTestContext)
+            TimetableDispatcher(
+                UnavailableRouteAdmissionTestContext,
+                emptyTrainRestrictionSnapshots
+            )
         ).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Failed)
@@ -394,7 +402,10 @@ class DepotResetCoordinatorTest {
 
         val result = DepotResetCoordinator(
             world,
-            TimetableDispatcher(UnavailableRouteAdmissionTestContext)
+            TimetableDispatcher(
+                UnavailableRouteAdmissionTestContext,
+                emptyTrainRestrictionSnapshots
+            )
         ).reset(setOf(depotId))
 
         assertTrue(result is DepotResetResult.Failed)

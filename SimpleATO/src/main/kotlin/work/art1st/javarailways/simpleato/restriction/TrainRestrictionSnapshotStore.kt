@@ -60,4 +60,25 @@ class TrainRestrictionSnapshotStore(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         return snapshotsByTrain[trainId].orEmpty()
     }
+
+    /**
+     * Returns stable diagnostics for non-empty streams that must be withdrawn before their source
+     * can be removed from a live world. This is a low-frequency lifecycle query, not a tick path.
+     */
+    fun activeRestrictionStreams(sourceIds: Set<String>): List<String> {
+        if (sourceIds.isEmpty()) return emptyList()
+        return snapshotsByTrain.entries
+            .flatMap { (trainId, snapshots) ->
+                snapshots.asSequence()
+                    .filter { it.sourceId in sourceIds && it.restrictions.isNotEmpty() }
+                    .map { "$trainId/${it.sourceId}@${it.revision}" }
+                    .toList()
+            }
+            .sorted()
+    }
+
+    /** Removes values for trains absent from a successfully completed signal epoch. */
+    fun retainLiveTrains(trainIds: Set<String>) {
+        snapshotsByTrain.keys.removeIf { it !in trainIds }
+    }
 }

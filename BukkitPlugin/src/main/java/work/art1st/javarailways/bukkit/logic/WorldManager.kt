@@ -16,6 +16,7 @@ import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
+import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceService
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
@@ -57,7 +58,8 @@ data class CarFrameDispatchMetrics(
 class WorldManager internal constructor(
     val railWorlds: MutableMap<BukkitWorld, World> = ConcurrentHashMap(),
     private val observationService: DefaultRailwayObservationService? = null,
-    private val infrastructureResourceService: DefaultInfrastructureResourceService? = null
+    private val infrastructureResourceService: DefaultInfrastructureResourceService? = null,
+    private val signalEpochSourceService: DefaultSignalEpochSourceService? = null
 ) : Listener {
     private var serverTickIndex: Long = 0L
     private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()
@@ -178,7 +180,16 @@ class WorldManager internal constructor(
                     turnoutLockingDistanceMeters = railWorld.basicWorldData
                         .turnoutSafetyDefaults.lockingDistanceMeters,
                     stallWorld = { reason, failure ->
-                        stallInfrastructureRuntime(bukkitWorld, railWorld, reason, failure)
+                        stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
+                    }
+                )
+                val simpleAtoData = railWorld.simpleAtoWorldData
+                signalEpochSourceService?.registerWorld(
+                    worldId = bukkitWorld.uid,
+                    runtime = simpleAtoData.signalEpochRuntime,
+                    activeRestrictionStreams = simpleAtoData.signalRestrictions::activeRestrictionStreams,
+                    stallWorld = { reason, failure ->
+                        stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
                     }
                 )
                 val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
@@ -202,6 +213,7 @@ class WorldManager internal constructor(
             (railWorld as? CoreWorld)?.physicsCoordinator?.start()
             railWorlds[bukkitWorld] = railWorld
         } catch (failure: Exception) {
+            signalEpochSourceService?.removeWorld(bukkitWorld.uid)
             infrastructureResourceService?.removeWorld(bukkitWorld.uid)
             observationService?.removeWorld(bukkitWorld.uid)
             (railWorld as? CoreWorld)?.let { coreWorld ->
@@ -215,7 +227,7 @@ class WorldManager internal constructor(
         }
     }
 
-    private fun stallInfrastructureRuntime(
+    private fun stallWorldRuntime(
         bukkitWorld: BukkitWorld,
         coreWorld: CoreWorld,
         reason: String,
@@ -312,6 +324,7 @@ class WorldManager internal constructor(
                     speedSafetyMonitors.remove(world)?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor)
                 }
                 infrastructureResourceService?.removeWorld(bukkitWorld.uid)
+                signalEpochSourceService?.removeWorld(bukkitWorld.uid)
                 observationService?.removeWorld(bukkitWorld.uid)
                 coreWorld?.physicsCoordinator?.close()
                 try {

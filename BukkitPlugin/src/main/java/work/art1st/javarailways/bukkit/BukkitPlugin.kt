@@ -10,9 +10,12 @@ import work.art1st.javarailways.bukkit.api.internal.ObservationOwnerLifecycleLis
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.InfrastructureOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.internal.SignalOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.behavior.TrainReverseBehaviorListener
 import work.art1st.javarailways.bukkit.command.CloudCommandRegistrar
 import work.art1st.javarailways.bukkit.config.DisplayRendererBackend
@@ -79,6 +82,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var infrastructureResourceService: InfrastructureResourceService
         private set
     private lateinit var infrastructureResourceServiceImpl: DefaultInfrastructureResourceService
+    lateinit var signalEpochSourceService: SignalEpochSourceService
+        private set
+    private lateinit var signalEpochSourceServiceImpl: DefaultSignalEpochSourceService
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
@@ -163,9 +169,12 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         railwayObservationService = railwayObservationServiceImpl
         infrastructureResourceServiceImpl = DefaultInfrastructureResourceService()
         infrastructureResourceService = infrastructureResourceServiceImpl
+        signalEpochSourceServiceImpl = DefaultSignalEpochSourceService()
+        signalEpochSourceService = signalEpochSourceServiceImpl
         worldManager = WorldManager(
             observationService = railwayObservationServiceImpl,
-            infrastructureResourceService = infrastructureResourceServiceImpl
+            infrastructureResourceService = infrastructureResourceServiceImpl,
+            signalEpochSourceService = signalEpochSourceServiceImpl
         )
         server.pluginManager.registerEvents(worldManager, this)
         server.servicesManager.register(RailTargetService::class.java, railTargetService, this, ServicePriority.Normal)
@@ -187,10 +196,20 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             this,
             ServicePriority.Normal
         )
+        server.servicesManager.register(
+            SignalEpochSourceService::class.java,
+            signalEpochSourceService,
+            this,
+            ServicePriority.Normal
+        )
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
         server.pluginManager.registerEvents(
             InfrastructureOwnerLifecycleListener(infrastructureResourceServiceImpl, this),
+            this
+        )
+        server.pluginManager.registerEvents(
+            SignalOwnerLifecycleListener(signalEpochSourceServiceImpl, this),
             this
         )
         trainControlManager = TrainControlManager(this)
@@ -291,6 +310,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         }
         if (::infrastructureResourceServiceImpl.isInitialized) {
             runShutdownStep("infrastructure resource service") { infrastructureResourceServiceImpl.close() }
+        }
+        if (::signalEpochSourceServiceImpl.isInitialized) {
+            runShutdownStep("signal epoch source service") { signalEpochSourceServiceImpl.close() }
         }
         if (::trainHandleInputListener.isInitialized) {
             runShutdownStep("train handle input listener") { trainHandleInputListener.stop() }

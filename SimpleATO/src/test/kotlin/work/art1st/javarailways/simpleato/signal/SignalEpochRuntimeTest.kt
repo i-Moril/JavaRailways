@@ -388,6 +388,29 @@ class SignalEpochRuntimeTest {
         assertEquals(true, callbackListWasImmutable)
     }
 
+    @Test
+    fun `live train retention runs only after a successful epoch`() {
+        val retained = mutableListOf<Set<String>>()
+        val runtime = SignalEpochRuntime(
+            "world",
+            TrainRestrictionPublisher(::accepted),
+            retained::add
+        )
+        runtime.replaceSources(listOf(source("test:first", area(firstAreaId, 10.0, 20.0)) {
+            SignalEpochResult.empty()
+        }))
+        runtime.process(frame(1L, occupied = emptyList()))
+        runtime.replaceSources(listOf(source("test:first", area(firstAreaId, 10.0, 20.0)) {
+            error("signal failure")
+        }))
+
+        assertThrows(IllegalStateException::class.java) {
+            runtime.process(frame(2L, occupied = emptyList()))
+        }
+
+        assertEquals(listOf(setOf("train")), retained)
+    }
+
     private fun runtime(sources: Collection<SignalEpochSource> = emptyList()): SignalEpochRuntime = SignalEpochRuntime(
         "world",
         TrainRestrictionPublisher(::accepted)

@@ -2,9 +2,9 @@
 
 ## 状态、范围与归属
 
-状态：`CURRENT`的平台无关第一批运行时接缝。触发：修改`SignalEpochSource`、`SignalEpochRuntime`、监测区变化到restriction publication的数据流，或Core railway epoch composition。
+状态：`CURRENT`的平台无关运行时及Bukkit source注册接缝。触发：修改`SignalEpochSource`、`SignalEpochRuntime`、监测区变化到restriction publication的数据流，或Core railway epoch composition。
 
-SimpleATO拥有一次完整physics epoch内的source路由、返回值校验、restriction发布及到controller的production传递。具体信号插件拥有固定闭塞、保护区域、联锁、下游依赖传播和aspect规则；Basic只派生监测区物理变化；Core只提供同步epoch边界。本契约包含运行期完整source集合的原子替换语义，但不包含Bukkit对外source注册/显示、插件禁用策略、inspection-distance缓存或通用依赖图。
+SimpleATO拥有一次完整physics epoch内的source路由、返回值校验、restriction发布及到controller的production传递。具体信号插件拥有固定闭塞、保护区域、联锁、下游依赖传播和aspect规则；Basic只派生监测区物理变化；Core只提供同步epoch边界。本契约包含运行期完整source集合的原子替换以及Bukkit对外注册/禁用生命周期，但不包含显示、inspection-distance缓存或通用依赖图。
 
 ## 正常主流程
 
@@ -54,6 +54,8 @@ runtime以空source state启动。`replaceSources`先完整复制、排序、验
 
 `process`只由Core serialized physics coordinator调用，不并发重入；handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。Bukkit production每tick在等待exact ticket后运行Dispatcher，隔离仿真则在两次`stepSimulation`之间运行Dispatcher；因此epoch N写入的snapshot在下一次controller tick前已进入原有constraint manager。source替换可来自另一线程，但生产adapter仍须先等待当前physics epoch结束再允许插件卸载或废弃callback owner；volatile snapshot只保证epoch内一致性，不替代插件lifecycle barrier。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
 
+Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完整source集合。一次替换先把所有owner的候选集合交给同一个runtime完整编译，成功后才更新service记录；source/area冲突不会部分生效。空集合和`unregisterOwner`删除source ID前，会低频检查该source保留的所有列车流是否已经显式发布更高revision且`restrictions=[]`，不能把“以后不再callback”误当成撤销旧限制。每个成功epoch复用已经构造的live train ID集合清理已离开世界的列车流；失败epoch在Stall前不执行这项清理。强制插件禁用无法继续调用其代码，因此host先从下一epoch快照删除失效callback，再通过world既有Stall owner fail-close；世界卸载和JavaRailways自身关闭属于正常销毁，不触发故障恢复协议。world reload是新的runtime binding，旧UUID不会自动复活旧source集合。
+
 ## Good / Base / Bad
 
 - Good：B保护区同epoch产生ENTER+LEFT；拥有B的source被调用一次，在内部同步更新B及受其影响的A，然后返回完整restriction snapshot。
@@ -71,4 +73,4 @@ runtime以空source state启动。`replaceSources`先完整复制、排序、验
 - publisher非ACCEPTED与handler exception向Core传播；
 - source/input/result collection defensive copy。
 
-尚未完成：Bukkit对外source注册/禁用生命周期、具体插件依赖传播以及immutable revisioned presentation bridge。完成这些前不得声称响应式信号系统已经生产可用。
+尚未完成：具体插件依赖传播、inspection-distance缓存以及immutable revisioned presentation bridge。完成这些前不得声称响应式信号系统已经生产可用。

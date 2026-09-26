@@ -24,6 +24,11 @@ fail-close该world，不能让后续suffix申请少执行一套信号策略。
 `Bukkit.isStopping()`时走正常world/service close，不把服务器shutdown误报为附属插件故障。不使用永久owner tombstone、
 启用周期token、自动drain、跨插件实例继承或恢复状态机。
 
+`SignalEpochSourceService`同样绑定plugin instance和exact world runtime。正常source删除前，插件必须先对每个已有
+`(sourceId, trainId)`流发布更高revision的空restriction snapshot；service只在低频删除边界检查是否仍有非空流。
+source全集在simulation context内一次替换，不与physics epoch交错。若附属插件在source仍安装时被强制禁用，host删除
+失效callback并通过该world既有Stall owner fail-close；world unload与JavaRailways shutdown只清理binding，不误报故障。
+
 ## Simulation 与 physics
 
 `WorldManager` 用 global scheduler 每 tick 驱动串行 simulation context：

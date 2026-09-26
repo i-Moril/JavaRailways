@@ -109,7 +109,8 @@ object RailWorldFactory {
         )
         val signalEpochRuntime = SignalEpochRuntime(
             bukkitWorld.uid.toString(),
-            signalRestrictions
+            signalRestrictions,
+            signalRestrictions::retainLiveTrains
         )
         physicsCoordinator.registerRailwayEpochProcessor(signalEpochRuntime)
         val basicData = BasicWorldData(

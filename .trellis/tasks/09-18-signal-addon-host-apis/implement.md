@@ -8,7 +8,9 @@
   - [x] Inventory the three Dispatcher `turnoutRequirements.single()` authority/release paths; removal belongs to the atomic caller-migration batch, not a mechanical `first()`/loop rewrite.
 - [x] Inventory every `RailView.selectNextRail` caller and route turnout mutation through either protected automatic allocation or the separately guarded manual operation. Basic production now has one bidirectional live-selection primitive: claimed automatic preparation and the temporary-claim manual service both use it; remaining direct calls are Core structural maintenance or test setup.
   - [x] Inventory the two production writers: protected `ImmediateTurnoutPreparationActuator` and transitional `RouteSectionAllocator`. Writer migration remains.
-- [ ] Write contract tests for an external compile-only consumer before moving implementations.
+- [x] Write contract tests for an external compile-only consumer before moving implementations. The consumer now
+  discovers the observation, infrastructure and signal-source services through Bukkit, installs a real
+  `SignalEpochSource`, and compiles without implementation-package imports.
 
 ## Pre-implementation design gate
 
@@ -246,10 +248,13 @@
   - [ ] Consume occupancy changes, recompute dirty signal dependencies and publish next-epoch restrictions before permitting the following physics epoch; do not add a cross-epoch safety-event backlog.
     - [x] Add the platform-neutral synchronous epoch slice: Core captures but does not publish the coherent world frame until registered value-only processors return and revalidation succeeds; Basic exposes its indexed monitored-area tracker through one public serialized engine; SimpleATO binds each area to one namespaced Java/Kotlin source in the source snapshot captured for that epoch, invokes only dirty/baseline owners, validates every complete restriction result before deterministic publication, and propagates callback/publication failure so Core stalls. Same-epoch ENTER+LEFT remains one callback. Production composition, controller application, concrete plugin dependency propagation and presentation remain pending, so the parent item stays incomplete.
     - [x] Correct the source lifecycle prerequisite before Bukkit wiring: each world will keep one empty host processor registered before physics starts, while `SignalEpochRuntime` atomically replaces a fully validated immutable source state during runtime. One epoch captures exactly one state; a new state starts with a fresh occupancy baseline, invalid replacement retains the old state, and an empty state has no per-train work. Production plugin registration/unregister barriers remain in the Bukkit service batch.
-    - [x] Compose that empty processor in Bukkit production and isolated simulation before `PhysicsCoordinator.start`. Signal callbacks publish only immutable per-train/source DTOs into a world-local copy-on-write store; they never retain or look up live trains/controllers. After epoch N's exact ticket completes, Dispatcher synchronizes the active train's latest snapshots into its existing restriction adapter before applying route-bound constraints, so the next controller tick uses the new minimum. Public source registration/disable and plugin dependency propagation remain later batches.
+    - [x] Compose that empty processor in Bukkit production and isolated simulation before `PhysicsCoordinator.start`. Signal callbacks publish only immutable per-train/source DTOs into a world-local copy-on-write store; they never retain or look up live trains/controllers. After epoch N's exact ticket completes, Dispatcher synchronizes the active train's latest snapshots into its existing restriction adapter before applying route-bound constraints, so the next controller tick uses the new minimum. Bukkit now exposes atomic per-owner source replacement, explicit-withdrawal removal and forced-disable fail-close; concrete plugin dependency propagation remains later.
   - [ ] Bridge only immutable revisioned presentation state to Bukkit/Folia and coalesce each object's pending visual update to its newest revision.
   - [ ] Complete the remaining inspection cache-key and fail-closed invalidation review before coding resource inspection; keep dynamic braking distance in the SimpleATO tick and avoid duplicate forward scans or unchanged per-tick plugin callbacks.
-- [ ] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup.
+- [x] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup. Observation,
+  infrastructure and signal-source services are discoverable through `ServicesManager`; exact world bindings are removed
+  on unload, normal signal-source removal requires explicit empty restriction snapshots, and forced owner loss removes
+  dead callbacks before stalling every affected world.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
   - [x] Add the platform-neutral per-train SimpleATO admission client without changing production Dispatcher. It submits the
     exact frozen selection through Basic's single request operation, owns at most one pending handle, publishes a 0 m

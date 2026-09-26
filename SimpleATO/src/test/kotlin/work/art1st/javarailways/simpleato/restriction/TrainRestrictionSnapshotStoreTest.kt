@@ -50,6 +50,41 @@ class TrainRestrictionSnapshotStoreTest {
         assertEquals(emptyList<TrainRestrictionSnapshot>(), store.snapshotsFor("train"))
     }
 
+    @Test
+    fun `only explicit empty replacement makes a source removable`() {
+        val store = TrainRestrictionSnapshotStore("world")
+        store.publish(snapshot("test:signal", 0L))
+
+        assertEquals(
+            listOf("train/test:signal@0"),
+            store.activeRestrictionStreams(setOf("test:signal"))
+        )
+
+        store.publish(
+            TrainRestrictionSnapshot(
+                sourceId = "test:signal",
+                revision = 1L,
+                trainId = "train",
+                observationStamp = RailwayStateStamp("world", 2L, 2L),
+                route = TrainRestrictionRouteBinding("route", 3L, 2L, 100.0),
+                restrictions = emptyList()
+            )
+        )
+
+        assertEquals(emptyList<String>(), store.activeRestrictionStreams(setOf("test:signal")))
+    }
+
+    @Test
+    fun `successful epoch train retention removes departed train streams`() {
+        val store = TrainRestrictionSnapshotStore("world")
+        store.publish(snapshot("test:signal", 0L))
+
+        store.retainLiveTrains(emptySet())
+
+        assertEquals(emptyList<TrainRestrictionSnapshot>(), store.snapshotsFor("train"))
+        assertEquals(emptyList<String>(), store.activeRestrictionStreams(setOf("test:signal")))
+    }
+
     private fun snapshot(
         sourceId: String,
         revision: Long,

@@ -20,7 +20,8 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
  */
 class SignalEpochRuntime(
     private val worldId: String,
-    private val publisher: TrainRestrictionPublisher
+    private val publisher: TrainRestrictionPublisher,
+    private val retainLiveTrains: (Set<String>) -> Unit = {}
 ) : RailwayEpochProcessor {
     @Volatile
     private var state = SourceState.create(emptyList())
@@ -64,6 +65,7 @@ class SignalEpochRuntime(
                     "restriction publication for ${snapshot.sourceId}/${snapshot.trainId} was ${result.status}"
                 }
             }
+        retainLiveTrains(java.util.Set.copyOf(liveTrainIds))
     }
 
     private fun validateResult(

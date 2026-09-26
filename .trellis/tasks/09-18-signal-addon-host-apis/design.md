@@ -151,6 +151,7 @@ and the remaining public surfaces still arrive in separate reviewable batches:
 - one topology-bound route-resource request for both first authority and farther same-route authority, plus pending-attempt progress;
 - generic infrastructure preparation handler registration;
 - namespaced train restrictions and dependency-change publication;
+- atomic per-plugin/per-world signal-source replacement with explicit-withdrawal removal and forced-disable fail-close;
 - non-exclusive applied-plan rail/node/resource dependencies and edit permits.
 
 Raw claim mutation, mutable Core trains/rails, Basic internal cursors and complete registry implementations are not public add-on APIs. Bukkit `ServicesManager` performs platform discovery; platform-neutral DTOs live in documented Core/Basic/SimpleATO API packages.

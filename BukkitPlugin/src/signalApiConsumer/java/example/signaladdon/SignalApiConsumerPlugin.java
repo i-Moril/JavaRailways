@@ -12,6 +12,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourcePreparationHandler;
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration;
+import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies;
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
@@ -134,6 +135,11 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 : List.of()
         );
         services.observations().latest(worldId).ifPresent(observation -> {
+            services.signalSources().replaceSources(
+                this,
+                worldId,
+                List.of(compileReactiveSignalApi(observation))
+            );
             appliedPlanOwner = new InfrastructureOwner("example.signaladdon:plan/main", 1L);
             var request = new AppliedPlanDependencyRequest(
                 observation.getStamp().getTopologyRevision(),
@@ -178,6 +184,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             resourceProviderRegistration = null;
         }
         if (services != null) {
+            services.signalSources().unregisterOwner(this);
             services.infrastructure().unregisterOwner(this);
         }
     }
@@ -270,6 +277,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             Objects.requireNonNull(
                 serviceManager.load(InfrastructureResourceService.class),
                 "JavaRailways did not register InfrastructureResourceService"
+            ),
+            Objects.requireNonNull(
+                serviceManager.load(SignalEpochSourceService.class),
+                "JavaRailways did not register SignalEpochSourceService"
             )
         );
     }
@@ -278,13 +289,15 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         RailTargetService railTargets,
         PlayerOperationService playerOperations,
         RailwayObservationService observations,
-        InfrastructureResourceService infrastructure
+        InfrastructureResourceService infrastructure,
+        SignalEpochSourceService signalSources
     ) {
         Services {
             Objects.requireNonNull(railTargets, "railTargets");
             Objects.requireNonNull(playerOperations, "playerOperations");
             Objects.requireNonNull(observations, "observations");
             Objects.requireNonNull(infrastructure, "infrastructure");
+            Objects.requireNonNull(signalSources, "signalSources");
         }
     }
 }

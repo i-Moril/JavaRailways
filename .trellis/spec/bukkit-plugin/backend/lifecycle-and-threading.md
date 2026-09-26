@@ -10,11 +10,15 @@
 
 新增 component 必须回答：谁创建、何时可用、谁注册、如何停止、world unload 与 plugin disable 是否都释放。不要依赖 JVM 退出回收 executor/task/registration。
 
-独立信号/ATO附属插件的正常停用必须先显式unapply其计划依赖，再调用`InfrastructureResourceService.unregisterOwner`。
+独立信号/ATO附属插件的正常停用必须先显式unapply其计划依赖，再调用唯一的
+`InfrastructureResourceService.unregisterOwner`。该调用同时负责插件的基础资源注册和信号source全集；
+`SignalEpochSourceService`不提供第二个owner删除入口，空source replacement也不能绕过统一检查。
 该调用只是可检查的pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有applied-plan dependency、pending
-route reservation或非空host-owned claim时抛出诊断并保持全部状态。`PluginDisableEvent`本身不可取消，事件路径因此
-只处理“已经被强制禁用”：保留applied-plan dependency，移除普通provider/platform ownership，但不释放
-route-admission claim/reservation，并通过每world既有Stall回调fail-close。
+route reservation、非空host-owned claim或该插件source发布的非空restriction流时抛出诊断，并且在删除任何一侧注册前
+完成全部只读检查。无关列车、仅已安装但restriction流均为空的source不阻止停用。`PluginDisableEvent`本身不可取消，
+事件路径因此只处理“已经被强制禁用”：保留applied-plan dependency，移除普通provider/platform ownership和失效
+signal callback，但不释放route-admission claim/reservation；只对该插件仍有实际基础资源使用或非空restriction的world
+通过既有Stall回调fail-close。
 检查同时覆盖插件作为requester持有的路线，以及它作为provider注册、但由其他requester持有的stable resource类型；
 provider ownership不另建长期索引，而是只在低频停用边界读取applied-plan dependencies、现有claim、release queue和pending compiled request。
 单个`InfrastructureResourceProviderRegistration.close()`执行同一检查，不能绕过owner unregister删除仍被使用的type。
@@ -24,10 +28,11 @@ fail-close该world，不能让后续suffix申请少执行一套信号策略。
 `Bukkit.isStopping()`时走正常world/service close，不把服务器shutdown误报为附属插件故障。不使用永久owner tombstone、
 启用周期token、自动drain、跨插件实例继承或恢复状态机。
 
-`SignalEpochSourceService`同样绑定plugin instance和exact world runtime。正常source删除前，插件必须先对每个已有
-`(sourceId, trainId)`流发布更高revision的空restriction snapshot；service只在低频删除边界检查是否仍有非空流。
-source全集在simulation context内一次替换，不与physics epoch交错。若附属插件在source仍安装时被强制禁用，host删除
-失效callback并通过该world既有Stall owner fail-close；world unload与JavaRailways shutdown只清理binding，不误报故障。
+`SignalEpochSourceService`同样绑定plugin instance和exact world runtime。非空全集replacement可删除其中部分source ID，
+但删除前插件必须先对每个对应`(sourceId, trainId)`流发布更高revision的空restriction snapshot；完整owner删除只由上述
+统一pre-disable入口执行。source全集在simulation context内一次替换，不与physics epoch交错。若附属插件被强制禁用，
+host总是删除失效callback，但只在仍有非空owner restriction时Stall该world；world unload与JavaRailways shutdown只清理
+binding，不误报故障。基础资源和signal的强制清理由同一个listener触发，不维护两套disable顺序。
 
 ## Simulation 与 physics
 

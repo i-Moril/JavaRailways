@@ -175,17 +175,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             observationSubscription.close();
             observationSubscription = null;
         }
-        if (routeContributorRegistration != null) {
-            routeContributorRegistration.close();
-            routeContributorRegistration = null;
-        }
-        if (resourceProviderRegistration != null) {
-            resourceProviderRegistration.close();
-            resourceProviderRegistration = null;
-        }
         if (services != null) {
-            services.signalSources().unregisterOwner(this);
             services.infrastructure().unregisterOwner(this);
+            routeContributorRegistration = null;
+            resourceProviderRegistration = null;
         }
     }
 

@@ -124,18 +124,23 @@ public interface InfrastructureResourceService {
     List<InfrastructureClaimSnapshot> liveClaims(UUID worldId);
 
     /**
-     * Prepares this plugin instance for a planned disable by removing providers, edit permits, and
-     * empty route-admission state. Every applied plan dependency must be explicitly removed first.
+     * Prepares this plugin instance for a planned disable by removing its infrastructure
+     * registrations, edit permits, empty route-admission state, and installed signal-source sets.
+     * Every applied plan dependency must be explicitly removed first.
      *
      * <p>The operation refuses to unregister while any route request is pending, its host-owned
      * claim still contains resources, an applied plan remains installed, or a stable resource type
-     * registered by this plugin is still used by another requester's route. The plugin must remain
-     * enabled and continue its normal lifecycle until a later call succeeds. This method does not
-     * disable the Bukkit plugin and is not called as a substitute for handling the non-cancellable
-     * disable event.</p>
+     * registered by this plugin is still used by another requester's route, or one of its signal
+     * sources still contributes a non-empty retained train restriction. Unrelated trains and
+     * installed sources whose retained streams are all empty do not block removal. All checks finish
+     * before either infrastructure registrations or signal callbacks are removed. The plugin must
+     * remain enabled and continue its normal lifecycle until a later call succeeds. This method does
+     * not disable the Bukkit plugin and is not called as a substitute for handling the
+     * non-cancellable disable event.</p>
      *
      * @throws IllegalStateException if the service is closed or this plugin still has active route
-     *                               resources in any registered railway world
+     *                               resources or non-empty signal restrictions in any registered
+     *                               railway world
      */
     void unregisterOwner(Plugin pluginOwner);
 }

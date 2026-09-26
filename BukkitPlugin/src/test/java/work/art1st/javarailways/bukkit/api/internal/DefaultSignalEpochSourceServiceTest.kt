@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
+import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
@@ -58,52 +59,78 @@ class DefaultSignalEpochSourceServiceTest {
     }
 
     @Test
-    fun `planned removal requires explicit empty restriction streams`() {
-        val service = DefaultSignalEpochSourceService()
+    fun `unified planned removal requires empty owner restrictions and empty replacement cannot bypass it`() {
+        val signalService = DefaultSignalEpochSourceService()
+        val infrastructureService = DefaultInfrastructureResourceService(signalService)
         val worldId = UUID.randomUUID()
         val owner = plugin("signal")
         var active = listOf("train/test:main@4")
+        var calls = 0
+        val contributor = RouteResourceContributor { _, _ -> emptyList() }
         val runtime = runtime()
-        service.registerWorld(worldId, runtime, { sourceIds ->
+        signalService.registerWorld(worldId, runtime, { sourceIds ->
             if ("test:main" in sourceIds) active else emptyList()
         }) { _, _ -> }
-        service.replaceSources(owner, worldId, listOf(source("test:main", 0.0) {}))
+        signalService.replaceSources(owner, worldId, listOf(source("test:main", 0.0) { calls++ }))
+        infrastructureService.registerRouteResourceContributor(owner, contributor)
 
+        assertThrows(IllegalArgumentException::class.java) {
+            signalService.replaceSources(owner, worldId, emptyList())
+        }
         val failure = assertThrows(IllegalStateException::class.java) {
-            service.replaceSources(owner, worldId, emptyList())
+            infrastructureService.unregisterOwner(owner)
         }
         assertEquals(true, failure.message.orEmpty().contains("train/test:main@4"))
+        assertThrows(IllegalStateException::class.java) {
+            infrastructureService.registerRouteResourceContributor(owner, contributor)
+        }
+        runtime.process(frame(1L))
+        assertEquals(1, calls)
 
         active = emptyList()
-        service.unregisterOwner(owner)
-        service.unregisterOwner(owner)
-        runtime.process(frame(1L))
+        infrastructureService.unregisterOwner(owner)
+        infrastructureService.unregisterOwner(owner)
+        infrastructureService.registerRouteResourceContributor(owner, contributor).close()
+        runtime.process(frame(2L))
+        assertEquals(1, calls)
     }
 
     @Test
-    fun `forced disable removes callbacks and stalls every affected world`() {
-        val service = DefaultSignalEpochSourceService()
-        val worldId = UUID.randomUUID()
+    fun `forced disable removes callbacks and stalls only worlds with active owner restrictions`() {
+        val signalService = DefaultSignalEpochSourceService()
+        val infrastructureService = DefaultInfrastructureResourceService(signalService)
+        val idleWorldId = UUID.randomUUID()
+        val activeWorldId = UUID.randomUUID()
         var enabled = true
         val disabledOwner = plugin("disabled") { enabled }
         val survivingOwner = plugin("surviving")
         val calls = mutableListOf<String>()
         val stalls = mutableListOf<String>()
-        val runtime = runtime()
-        service.registerWorld(worldId, runtime, { emptyList() }) { reason, _ -> stalls += reason }
-        service.replaceSources(disabledOwner, worldId, listOf(source("test:disabled", 0.0) {
-            calls += "disabled"
+        val idleRuntime = runtime()
+        val activeRuntime = runtime()
+        signalService.registerWorld(idleWorldId, idleRuntime, { emptyList() }) { reason, _ -> stalls += reason }
+        signalService.registerWorld(activeWorldId, activeRuntime, { sourceIds ->
+            if ("test:active" in sourceIds) listOf("train/test:active@7") else emptyList()
+        }) { reason, _ -> stalls += reason }
+        signalService.replaceSources(disabledOwner, idleWorldId, listOf(source("test:idle", 0.0) {
+            calls += "disabled-idle"
         }))
-        service.replaceSources(survivingOwner, worldId, listOf(source("test:surviving", 20.0) {
+        signalService.replaceSources(disabledOwner, activeWorldId, listOf(source("test:active", 0.0) {
+            calls += "disabled-active"
+        }))
+        signalService.replaceSources(survivingOwner, activeWorldId, listOf(source("test:surviving", 20.0) {
             calls += "surviving"
         }))
 
         enabled = false
-        service.forcedDisableOwner(disabledOwner)
-        runtime.process(frame(1L))
+        infrastructureService.forcedDisableOwner(disabledOwner)
+        idleRuntime.process(frame(1L))
+        activeRuntime.process(frame(1L))
 
         assertEquals(1, stalls.size)
         assertEquals(true, stalls.single().contains("disabled"))
+        assertEquals(true, stalls.single().contains(activeWorldId.toString()))
+        assertEquals(true, stalls.single().contains("train/test:active@7"))
         assertEquals(listOf("surviving"), calls)
     }
 

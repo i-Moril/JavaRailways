@@ -253,8 +253,10 @@
   - [ ] Complete the remaining inspection cache-key and fail-closed invalidation review before coding resource inspection; keep dynamic braking distance in the SimpleATO tick and avoid duplicate forward scans or unchanged per-tick plugin callbacks.
 - [x] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup. Observation,
   infrastructure and signal-source services are discoverable through `ServicesManager`; exact world bindings are removed
-  on unload, normal signal-source removal requires explicit empty restriction snapshots, and forced owner loss removes
-  dead callbacks before stalling every affected world.
+  on unload. `InfrastructureResourceService.unregisterOwner` is the single planned-disable entry: it checks infrastructure
+  activity plus non-empty restrictions from that plugin before removing either side, while non-empty signal-source replacement
+  remains available for ordinary configuration edits. Forced owner loss removes dead callbacks and stalls only worlds where
+  that owner still has active infrastructure state or non-empty restrictions; unrelated trains and idle sources do not block.
 - [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
   - [x] Add the platform-neutral per-train SimpleATO admission client without changing production Dispatcher. It submits the
     exact frozen selection through Basic's single request operation, owns at most one pending handle, publishes a 0 m

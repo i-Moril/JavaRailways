@@ -11,7 +11,6 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.InfrastructureOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceService
-import work.art1st.javarailways.bukkit.api.internal.SignalOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
@@ -167,10 +166,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         playerOperationService = playerOperationServiceImpl
         railwayObservationServiceImpl = DefaultRailwayObservationService(logger)
         railwayObservationService = railwayObservationServiceImpl
-        infrastructureResourceServiceImpl = DefaultInfrastructureResourceService()
-        infrastructureResourceService = infrastructureResourceServiceImpl
         signalEpochSourceServiceImpl = DefaultSignalEpochSourceService()
         signalEpochSourceService = signalEpochSourceServiceImpl
+        infrastructureResourceServiceImpl = DefaultInfrastructureResourceService(signalEpochSourceServiceImpl)
+        infrastructureResourceService = infrastructureResourceServiceImpl
         worldManager = WorldManager(
             observationService = railwayObservationServiceImpl,
             infrastructureResourceService = infrastructureResourceServiceImpl,
@@ -206,10 +205,6 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
         server.pluginManager.registerEvents(
             InfrastructureOwnerLifecycleListener(infrastructureResourceServiceImpl, this),
-            this
-        )
-        server.pluginManager.registerEvents(
-            SignalOwnerLifecycleListener(signalEpochSourceServiceImpl, this),
             this
         )
         trainControlManager = TrainControlManager(this)

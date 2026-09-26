@@ -94,9 +94,12 @@ window; forced contributor loss stalls every affected world while retaining host
 takeover or recovery state machine.
 
 A planned add-on disable must first unregister its infrastructure owner. The host refuses that step while the requester has
-a pending route reservation or any resource left in its route claim; an otherwise empty route state does not block disable.
+a pending route reservation, any resource left in its route claim, or one of its signal sources still contributes a non-empty
+retained train restriction; unrelated trains, empty restriction streams and an otherwise empty route state do not block disable.
+The infrastructure service is the single public owner-unregister entry and completes both subsystem checks before removing either
+the infrastructure registrations or signal callbacks; signal-source replacement cannot use an empty set as a second unload path.
 Bukkit cannot cancel an already-fired disable event, so forced disable retains those host-owned resources and stalls each
-affected world through the existing coordinator. This lifecycle deliberately adds no drain, takeover, session token or
+actually affected world through the existing coordinator while idle signal registrations are simply removed. This lifecycle deliberately adds no drain, takeover, session token or
 cross-instance recovery protocol. The same rule applies when the disappearing plugin owns a registered resource type used
 by another requester's active or pending route; provider ownership cannot bypass the disable guard.
 
@@ -151,7 +154,8 @@ and the remaining public surfaces still arrive in separate reviewable batches:
 - one topology-bound route-resource request for both first authority and farther same-route authority, plus pending-attempt progress;
 - generic infrastructure preparation handler registration;
 - namespaced train restrictions and dependency-change publication;
-- atomic per-plugin/per-world signal-source replacement with explicit-withdrawal removal and forced-disable fail-close;
+- atomic per-plugin/per-world non-empty signal-source replacement, with complete owner removal folded into the unified
+  infrastructure lifecycle check and forced-disable fail-close only for actual use;
 - non-exclusive applied-plan rail/node/resource dependencies and edit permits.
 
 Raw claim mutation, mutable Core trains/rails, Basic internal cursors and complete registry implementations are not public add-on APIs. Bukkit `ServicesManager` performs platform discovery; platform-neutral DTOs live in documented Core/Basic/SimpleATO API packages.

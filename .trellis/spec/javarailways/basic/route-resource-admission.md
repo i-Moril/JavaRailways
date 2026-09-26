@@ -335,7 +335,9 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 - Validation/preparation failure never publishes a wider grant. Unsafe or unprovable device state retains the safest claim and stalls that world rather than releasing protection.
 - Planned signal-plugin disable first calls the Bukkit owner-unregister check. Basic classifies a requester as active only
   when its route has a pending reservation or its registry claim still contains resources; an empty committed `RouteState`
-  awaiting `endGrant` is safe to discard during unregister. Active state rejects planned unregister. Because Bukkit's
+  awaiting `endGrant` is safe to discard during unregister. The same Bukkit call also checks the plugin's signal sources;
+  every infrastructure and non-empty signal-restriction check completes before either registration set is removed. Unrelated
+  trains and installed sources with only empty retained streams do not block unregister. Active state rejects planned unregister. Because Bukkit's
   `PluginDisableEvent` is already non-cancellable, forced requester loss retains every host-owned claim/reservation and
   latches the affected world through the existing Stall owner with world, plugin, route owner, train, pending and held-count
   diagnostics. The same check follows provider ownership: a plugin cannot unregister while one of its registered stable

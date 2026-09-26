@@ -47,7 +47,9 @@ import work.art1st.javarailways.core.api.physics.World
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal class DefaultInfrastructureResourceService : InfrastructureResourceService, AutoCloseable {
+internal class DefaultInfrastructureResourceService(
+    private val signalSources: DefaultSignalEpochSourceService? = null
+) : InfrastructureResourceService, AutoCloseable {
     private val lock = Any()
     private data class WorldRuntime(
         val registry: InfrastructureCoordinationRegistry,
@@ -532,6 +534,9 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
 
     override fun unregisterOwner(pluginOwner: Plugin) {
         BukkitThreadGuardBridge.runInSimulationContext {
+            check(pluginOwner.isEnabled) {
+                "Cannot unregister infrastructure owner for disabled plugin ${pluginOwner.name}"
+            }
             val (snapshot, providedTypeIds, ownsContributor) = synchronized(lock) {
                 check(!closed) { "InfrastructureResourceService is closed" }
                 Triple(
@@ -575,11 +580,14 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
             }) {
                 "Cannot unregister route-resource contributor ${pluginOwner.name} while route states remain active"
             }
+            // Signal and infrastructure checks must both succeed before either registration set is changed.
+            signalSources?.requireOwnerUnused(pluginOwner)
             snapshot.forEach { (_, runtime) ->
                 check(runtime.routeAdmission?.discardInactiveRequester(pluginOwner) != false) {
                     "Route resources changed while unregistering ${pluginOwner.name}"
                 }
             }
+            signalSources?.removeUnusedOwner(pluginOwner)
             synchronized(lock) {
                 resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
                 routeContributors.removeIf { it.pluginOwner === pluginOwner }
@@ -632,6 +640,7 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
                 }
                 runtime.registry.releasePlatformOwner(pluginOwner)
             }
+            signalSources?.forcedDisableOwner(pluginOwner)
         }
     }
 

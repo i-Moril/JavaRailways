@@ -17,6 +17,47 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class RailWandTopologyEditPlanTest {
     @Test
+    fun `rail scoped mutation contains only explicitly edited rails`() {
+        val world = createTestWorld()
+        try {
+            val target = world.createRailForTest(straightCurve(0.0, 10.0))
+            val connectedPeer = world.createRailForTest(straightCurve(10.0, 20.0))
+            CoreRail.connect(target, connectedPeer)
+            val crossing = world.createRailForTest(
+                lineCurve(Vector3d(5.0, 0.0, -5.0), Vector3d(5.0, 0.0, 5.0))
+            )
+
+            val plan = RailWandTopologyEditPlan.captureRailScopedMutation(world, setOf(target.id))
+
+            assertEquals(setOf(target.id), requireNotNull(plan.impact).railIds)
+            assertTrue(requireNotNull(plan.impact).topologyNodeKeys.isEmpty())
+            assertTrue(requireNotNull(plan.impact).resourceIds.isEmpty())
+            assertFalse(connectedPeer.id in requireNotNull(plan.impact).railIds)
+            assertFalse(crossing.id in requireNotNull(plan.impact).railIds)
+            assertTrue(plan.isCurrent(world))
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `rail scoped mutation becomes stale when topology root changes`() {
+        val world = createTestWorld()
+        try {
+            val target = world.createRailForTest(straightCurve(0.0, 10.0))
+            val plan = RailWandTopologyEditPlan.captureRailScopedMutation(world, setOf(target.id))
+
+            world.createRailForTest(straightCurve(20.0, 30.0))
+
+            assertFalse(plan.isCurrent(world))
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
     fun `snapshot plan derives replacement UUID and wrapper excludes unrelated rail`() {
         val world = createTestWorld()
         try {

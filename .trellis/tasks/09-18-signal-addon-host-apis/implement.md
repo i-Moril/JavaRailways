@@ -368,6 +368,13 @@
       occupancy replaces the old broad duplicate check; live route claims are covered by the common registry permit and frozen
       operational routes retain only the separate `hasLiveRouteOn` replacement guard.
 - [ ] Cover remaining protection-region, signal, topology migration, and administrative mutation paths with the common edit guard.
+  - [x] Guard the current rail-scoped administrative/runtime writers without broadening their impact: RailWand speed metadata and
+    undo, RailObjectWand operating direction and destination create/edit/delete, `/jr waypoint remove`, and the BukkitPluginDev
+    `/phys` structural playground now acquire the same world-local permit. Property/object edits contain only their exact existing
+    rail IDs; `/phys` creation uses Core's prepared endpoint/crossing plan and cleanup uses the exact replacement/removal resolver.
+    The offline metadata migrator remains outside the live world and the separately packaged world-format migrator remains deferred.
+  - [ ] Guard concrete protection-region/signal authoring entrypoints when Stage 2 supplies them; the transitional Basic catalog has
+    no production mutation caller and is not promoted into a host-owned editor for this task.
 - [x] Document the compile-only external consumer and supported failure/lifecycle behavior beside its compiled fixture.
   The guide covers service discovery, synchronous signal callbacks, resource/contributor admission, applied-plan edit
   dependencies, explicit restriction withdrawal, the single owner-unregister gate and forced-disable fail-close behavior.

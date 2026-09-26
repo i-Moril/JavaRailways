@@ -85,6 +85,33 @@ internal class RailWandTopologyEditPlan private constructor(
     )
 
     companion object {
+        /**
+         * Captures an exact edit which changes only properties or operational objects attached to
+         * existing rails. Unlike a structural replacement, this deliberately does not include
+         * connection peers, topology nodes, turnouts, or diamonds because none of those identities
+         * can change during the edit.
+         */
+        fun captureRailScopedMutation(
+            world: CoreWorld,
+            railIds: Collection<UUID>
+        ): RailWandTopologyEditPlan {
+            val exactRailIds = LinkedHashSet(railIds)
+            require(exactRailIds.isNotEmpty()) { "Rail-scoped edit must reference at least one existing rail" }
+            val topology = world.topologyState
+            require(exactRailIds.all(topology.railProjection::containsKey)) {
+                "Rail-scoped edit references a rail outside the captured topology"
+            }
+            val rails = exactRailIds.associateWith { railId ->
+                requireNotNull(world.getRail(railId)) { "Rail-scoped edit references missing rail $railId" }
+            }
+            return RailWandTopologyEditPlan(
+                world = world,
+                topologyRoot = topology,
+                affectedRails = rails,
+                impact = TopologyEditImpact(exactRailIds, emptySet(), emptySet())
+            ).also { it.requireCurrent(world) }
+        }
+
         fun captureReplacementOrRemoval(
             world: CoreWorld,
             replacedOrRemovedRailIds: Collection<UUID>

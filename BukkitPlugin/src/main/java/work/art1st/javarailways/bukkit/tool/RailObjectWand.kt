@@ -43,6 +43,7 @@ import work.art1st.javarailways.bukkit.util.HeavyRailQueries
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.PlayerOperationGate
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -571,10 +572,15 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         }
 
         if (state.pendingDeleteWayPoint == wayPoint.id) {
-            if (coreWorld.basicWorldData.destinations[wayPoint.id] != null) {
-                OperationalDestinationService(coreWorld).remove(wayPoint.id)
-            } else {
-                coreWorld.basicWorldData.wayPoints.remove(wayPoint.id)
+            if (!mutateRailScoped(player, coreWorld, setOf(wayPoint.railId)) {
+                    if (coreWorld.basicWorldData.destinations[wayPoint.id] != null) {
+                        OperationalDestinationService(coreWorld).remove(wayPoint.id)
+                    } else {
+                        coreWorld.basicWorldData.wayPoints.remove(wayPoint.id)
+                    }
+                }
+            ) {
+                return
             }
             removeMarker(player.world.uid, wayPoint.id)
             state.pendingDeleteWayPoint = null
@@ -641,8 +647,15 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     if (rail.metadata.allowedDirection == null) {
                         livePlayer.sendActionBar(Component.text("该轨道没有方向限制", NamedTextColor.GRAY))
                     } else {
-                        rail.metadata = rail.metadata.copy(allowedDirection = null)
-                        livePlayer.sendMessage(Component.text("已删除轨道 ${rail.id} 的方向限制", NamedTextColor.GREEN))
+                        if (mutateRailScoped(livePlayer, liveWorld, setOf(rail.id)) {
+                                rail.metadata = rail.metadata.copy(allowedDirection = null)
+                            }
+                        ) {
+                            livePlayer.sendMessage(Component.text(
+                                "已删除轨道 ${rail.id} 的方向限制",
+                                NamedTextColor.GREEN
+                            ))
+                        }
                     }
                     return@supply
                 }
@@ -655,11 +668,15 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     livePlayer.sendActionBar(Component.text("玩家位置与点击位置太近，无法确定方向", NamedTextColor.RED))
                     return@supply
                 }
-                rail.metadata = rail.metadata.copy(allowedDirection = allowedDirection)
-                livePlayer.sendMessage(Component.text(
-                    "已限制轨道 ${rail.id} 只允许 ${allowedDirection.name} 方向行驶",
-                    NamedTextColor.GREEN
-                ))
+                if (mutateRailScoped(livePlayer, liveWorld, setOf(rail.id)) {
+                        rail.metadata = rail.metadata.copy(allowedDirection = allowedDirection)
+                    }
+                ) {
+                    livePlayer.sendMessage(Component.text(
+                        "已限制轨道 ${rail.id} 只允许 ${allowedDirection.name} 方向行驶",
+                        NamedTextColor.GREEN
+                    ))
+                }
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
@@ -852,7 +869,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val coreWorld = getCoreWorld(player) ?: return
         val session = configUI.getPlayerSession(player.uniqueId)
         val rawName = session.getValue(editKeys.name) ?: oldId
-        val pending = pendingWayPoints.remove(player.uniqueId)?.takeIf { it.id == oldId }
+        val pending = pendingWayPoints[player.uniqueId]?.takeIf { it.id == oldId }
         val wayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: pending ?: return
         val original = coreWorld.basicWorldData.destinations[oldId]
         val updated = try {
@@ -886,19 +903,25 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             return
         }
         try {
-            val destinationService = OperationalDestinationService(coreWorld)
-            if (original != null) {
-                destinationService.replace(oldId, updated)
-            } else if (pending != null) {
-                destinationService.register(updated)
-            } else {
-                coreWorld.basicWorldData.wayPoints.remove(oldId)
-                try {
-                    destinationService.register(updated)
-                } catch (failure: Exception) {
-                    coreWorld.basicWorldData.wayPoints.add(wayPoint)
-                    throw failure
+            if (!mutateRailScoped(player, coreWorld, setOf(wayPoint.railId)) {
+                    if (pending != null) pendingWayPoints.remove(player.uniqueId)
+                    val destinationService = OperationalDestinationService(coreWorld)
+                    if (original != null) {
+                        destinationService.replace(oldId, updated)
+                    } else if (pending != null) {
+                        destinationService.register(updated)
+                    } else {
+                        coreWorld.basicWorldData.wayPoints.remove(oldId)
+                        try {
+                            destinationService.register(updated)
+                        } catch (failure: Exception) {
+                            coreWorld.basicWorldData.wayPoints.add(wayPoint)
+                            throw failure
+                        }
+                    }
                 }
+            ) {
+                return
             }
         } catch (failure: Exception) {
             player.sendActionBar(
@@ -921,6 +944,31 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                 RailObjectWandI18n.component(player, "waypoint.direction_hint")
                     .color(NamedTextColor.GREEN)
             )
+        }
+    }
+
+    private fun mutateRailScoped(
+        player: Player,
+        world: CoreWorld,
+        railIds: Collection<UUID>,
+        mutation: () -> Unit
+    ): Boolean {
+        val plan = RailWandTopologyEditPlan.captureRailScopedMutation(world, railIds)
+        return when (val acquired = plan.acquire(plugin, player.world.uid)) {
+            is RailWandEditPermitAcquisition.Denied -> {
+                player.sendMessage(Component.text(
+                    "基础设施编辑被拒绝: ${acquired.decision.status.name} ${acquired.decision.detail}",
+                    NamedTextColor.RED
+                ))
+                false
+            }
+            is RailWandEditPermitAcquisition.Granted -> {
+                acquired.use {
+                    plan.requireCurrent(world)
+                    mutation()
+                }
+                true
+            }
         }
     }
 

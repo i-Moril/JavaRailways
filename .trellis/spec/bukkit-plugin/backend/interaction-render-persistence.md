@@ -15,11 +15,15 @@
   批内相邻段；rebuild用旧到新endpoint映射保留已有连接。任何路径都不得按距离搜索附近endpoint或推断turnout stem/branch。
   Basic仅转换计划公布的exact existing endpoint/crossing identity，禁止用附近rail候选或整图扫描扩大impact。whole-world
   snapshot undo由Bukkit捕获current/target rail snapshot，在async worker交给Core完成唯一一次diff及stable-identity
-  prospective plan；回到player owner后重新验证world instance、完整current snapshot与topology root。旧Dispatcher
-  route-allocation guard只在这些验证之后、取得共同permit之前执行一次，避免异步准备窗口中的过期结论；permit持有到
+  prospective plan；回到player owner后重新验证world instance、完整current snapshot与topology root。permit持有到
   outer Core transaction、metadata/render、player state persistence与显示刷新全部完成。MultiAction以CompletionStage逆序串行，
-  不在Bukkit owner线程阻塞等待。snapshot plan统一执行准确occupancy验证；在production Dispatcher尚未迁入common registry期间，
-  undo仍保留其route-allocation guard，迁移完成后随旧allocator一起删除。
+  不在Bukkit owner线程阻塞等待。snapshot plan统一执行准确occupancy验证；Dispatcher已经只使用common registry中的
+  route claim，因此编辑器不再读取一份私有route-allocation状态。
+- 只修改既有rail上的运营属性或对象时，使用同一个permit服务但impact只包含确切rail ID，不扩张到连接邻居、node、
+  turnout或diamond。RailWand限速metadata及其undo、RailObjectWand运行方向与destination、`/jr waypoint remove`都在
+  mutation前重新绑定当前topology root和rail实例，并把permit保持到Basic metadata/运营对象与相关玩家side effect完成。
+  `BukkitPluginDev /phys`创建轨道时从Core prepared connection plan取得确切既有交叉参与rail，删除时使用现有replacement/
+  removal resolver；纯新增且不接触既有identity的batch无需制造空permit。离线文件迁移不修改已加载world，不经过runtime permit。
 
 证据：`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/AbstractWand.kt`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/ui/dialog/DialogRenderer.kt`、`BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/tool/`、`BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/ui/dialog/`。
 

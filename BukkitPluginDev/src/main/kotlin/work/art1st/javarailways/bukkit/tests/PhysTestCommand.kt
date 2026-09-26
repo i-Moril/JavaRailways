@@ -4,9 +4,15 @@ import io.papermc.paper.command.brigadier.BasicCommand
 import io.papermc.paper.command.brigadier.CommandSourceStack
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
+import org.bukkit.plugin.Plugin
 import org.joml.Vector3d
 import org.joml.Vector3dc
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
 import work.art1st.javarailways.basic.controller.ManualController
+import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyExplicitConnectionImpactResolver
+import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyReplacementOrRemovalImpactResolver
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.tests.physics.CurveEndpointTest
 import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
@@ -14,10 +20,14 @@ import work.art1st.javarailways.bukkit.persistence.RailRenderMetaStore
 import work.art1st.javarailways.bukkit.util.BukkitAsyncTasks
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
+import work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlan
+import work.art1st.javarailways.core.physics.rail.PreparedRailEndpointConnection
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectedException
 import work.art1st.javarailways.core.physics.train.CoreBogie
 import work.art1st.javarailways.core.physics.train.CoreCar
@@ -28,11 +38,15 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-class PhysTestCommand : BasicCommand {
+class PhysTestCommand(
+    private val ownerPlugin: Plugin
+) : BasicCommand {
 
     private data class PreparedPlayground(
         val curves: List<PrimeCurve>,
-        val rails: PreparedRailCreationBatch
+        val rails: PreparedRailCreationBatch,
+        val connections: PreparedRailConnectionPlan,
+        val impact: TopologyEditImpact?
     )
 
     private val rails = mutableListOf<CoreRail>()
@@ -66,7 +80,7 @@ class PhysTestCommand : BasicCommand {
     }
 
     private fun createPlayground(sender: Player, world: CoreWorld) {
-        cleanAll(sender, world)
+        if (!cleanAll(sender, world)) return
         val o = Vector3d(sender.location.x, sender.location.y, sender.location.z)
         val normal = Vector3d(0.0, 1.0, 0.0)
         val straightLen = 200.0
@@ -90,27 +104,54 @@ class PhysTestCommand : BasicCommand {
                 )
                 val a2 = makeArcRightTurn(Vector3d(s2.lastPoint().position), radius, false, normal, step)
                 val curves = listOf(s1, a1, s2, a2)
-                PreparedPlayground(curves, world.prepareRailCreationBatch(curves))
+                val preparedRails = world.prepareRailCreationBatch(curves)
+                val railIds = preparedRails.creations.map { it.railId }
+                val endpointStates = railIds.flatMapIndexed { index, railId ->
+                    val previous = railIds[(index + railIds.size - 1) % railIds.size]
+                    val next = railIds[(index + 1) % railIds.size]
+                    listOf(
+                        PreparedRailEndpointConnection(
+                            RailEndpointRef(railId, RailEndpoint.A),
+                            listOf(RailEndpointRef(previous, RailEndpoint.B))
+                        ),
+                        PreparedRailEndpointConnection(
+                            RailEndpointRef(railId, RailEndpoint.B),
+                            listOf(RailEndpointRef(next, RailEndpoint.A))
+                        )
+                    )
+                }
+                val connections = PreparedRailConnectionPlan.capture(world, preparedRails, endpointStates)
+                val impact = PhysicalTopologyExplicitConnectionImpactResolver.resolve(
+                    connections.topologyRoot,
+                    connections.affectedExistingEndpoints,
+                    connections.prospectiveCrossingExistingRailIds
+                )
+                PreparedPlayground(curves, preparedRails, connections, impact)
             },
             onSuccess = { prepared ->
                 if (!sender.isValid || world(sender) !== world) return@supply
-                val created = try {
-                    world.railTopologyTransaction {
-                        val installed = world.installPreparedRails(prepared.rails)
-                        CoreRail.connect(installed[0], installed[1])
-                        CoreRail.connect(installed[1], installed[2])
-                        CoreRail.connect(installed[2], installed[3])
-                        CoreRail.connect(installed[3], installed[0])
-                        installed
+                val editPermit = acquireEditPermit(sender, world, prepared.rails.topologyRevision, prepared.impact)
+                    ?: return@supply
+                try {
+                    editPermit.use {
+                        prepared.connections.requireReadyToApply(world)
+                        world.railTopologyTransaction {
+                            world.installPreparedRails(prepared.rails).also { rails ->
+                                prepared.connections.apply(world, rails)
+                                rails.forEach { rail ->
+                                    val meta = RailVisualBootstrap.registerRail(rail)
+                                    RailRenderMetaStore.upsertRail(sender.world, meta)
+                                    this@PhysTestCommand.rails += rail
+                                }
+                            }
+                        }
                     }
                 } catch (_: PreparedRailCreationRejectedException) {
                     sender.sendMessage("Rail topology changed while preparing the oval; run /phys create again")
                     return@supply
-                }
-                created.forEach { rail ->
-                    val meta = RailVisualBootstrap.registerRail(rail)
-                    RailRenderMetaStore.upsertRail(sender.world, meta)
-                    rails += rail
+                } catch (failure: Exception) {
+                    sender.sendMessage("Oval creation failed: ${failure.message ?: failure::class.simpleName}")
+                    return@supply
                 }
                 sender.sendMessage("Oval: 4 rails  L=%.1fm".format(prepared.curves.sumOf { it.totalArcLength }))
             },
@@ -204,14 +245,68 @@ class PhysTestCommand : BasicCommand {
         sender.sendMessage("Tests: ${passed + failed} run, $passed passed, $failed failed")
     }
 
-    private fun cleanAll(sender: Player, world: CoreWorld) {
+    private fun cleanAll(sender: Player, world: CoreWorld): Boolean {
         (controller?.controlledTrain as? CoreTrain)?.setController(null)
         controller = null
         train?.destroy()
         train = null
-        rails.forEach { world.removeRail(it); it.destroy() }
+        val liveRails = rails.mapNotNull { rail -> world.getRail(rail.id)?.takeIf { it === rail } }
+        if (liveRails.isNotEmpty()) {
+            val topology = world.topologyState
+            val impact = PhysicalTopologyReplacementOrRemovalImpactResolver.resolve(
+                topology,
+                liveRails.map(CoreRail::id)
+            )
+            val editPermit = acquireEditPermit(sender, world, topology.revision, impact) ?: return false
+            editPermit.use {
+                check(world.topologyState === topology) { "Rail topology changed before playground cleanup" }
+                world.railTopologyTransaction {
+                    liveRails.forEach { rail ->
+                        RailVisualBootstrap.unregisterRail(rail.id)
+                        rail.destroy()
+                        world.removeRail(rail)
+                        RailRenderMetaStore.removeRail(sender.world, rail.id)
+                    }
+                }
+            }
+        }
         rails.clear()
         sender.sendMessage("Cleaned up")
+        return true
+    }
+
+    private fun acquireEditPermit(
+        sender: Player,
+        world: CoreWorld,
+        topologyRevision: Long,
+        impact: TopologyEditImpact?
+    ): AutoCloseable? {
+        if (impact == null) return NO_OP_EDIT_PERMIT
+        val result = BukkitPlugin.INSTANCE.infrastructureResourceService.acquireEditPermit(
+            ownerPlugin,
+            sender.world.uid,
+            TopologyEditRequest(
+                topologyRevision,
+                InfrastructureOwner("javarailways-dev:phys/${UUID.randomUUID()}", topologyRevision),
+                impact
+            )
+        )
+        return result.permit().orElse(null).also { permit ->
+            if (permit == null) {
+                sender.sendMessage(
+                    "Infrastructure edit denied: ${result.decision().status} ${result.decision().detail}"
+                )
+            } else if (world.topologyRevision != topologyRevision) {
+                permit.close()
+                sender.sendMessage("Rail topology changed while acquiring the edit permit; retry")
+            }
+        }?.takeIf { world.topologyRevision == topologyRevision }
+    }
+
+    private companion object {
+        val NO_OP_EDIT_PERMIT = object : AutoCloseable {
+            override fun close() = Unit
+        }
     }
 
     // ---- curve generators ----

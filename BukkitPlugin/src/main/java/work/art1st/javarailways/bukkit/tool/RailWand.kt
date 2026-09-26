@@ -3312,25 +3312,33 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     }
                     live
                 }
-                try {
-                    liveRails.forEach { rail -> rail.metadata = updates.getValue(rail.id) }
-                    refreshAnchorsForAllViewers()
-                    pushUndo(livePlayer, WandAction.RestoreRailMetadata(
-                        livePlayer.world.uid,
-                        before,
-                        updates
-                    ))
-                    livePlayer.sendActionBar(RailWandI18n.component(
-                        livePlayer,
-                        "message.speed_updated"
-                    ).color(NamedTextColor.GREEN))
-                } catch (failure: Exception) {
-                    liveRails.forEach { rail -> before[rail.id]?.let { rail.metadata = it } }
-                    livePlayer.sendMessage(RailWandI18n.component(
-                        livePlayer,
-                        "message.speed_update_rollback",
-                        railWandFailureReason(failure)
-                    ).color(NamedTextColor.RED))
+                val editPlan = RailWandTopologyEditPlan.captureRailScopedMutation(
+                    liveWorld,
+                    liveRails.map(CoreRail::id)
+                )
+                val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
+                editPermit.use {
+                    try {
+                        editPlan.requireCurrent(liveWorld)
+                        liveRails.forEach { rail -> rail.metadata = updates.getValue(rail.id) }
+                        refreshAnchorsForAllViewers()
+                        pushUndo(livePlayer, WandAction.RestoreRailMetadata(
+                            livePlayer.world.uid,
+                            before,
+                            updates
+                        ))
+                        livePlayer.sendActionBar(RailWandI18n.component(
+                            livePlayer,
+                            "message.speed_updated"
+                        ).color(NamedTextColor.GREEN))
+                    } catch (failure: Exception) {
+                        liveRails.forEach { rail -> before[rail.id]?.let { rail.metadata = it } }
+                        livePlayer.sendMessage(RailWandI18n.component(
+                            livePlayer,
+                            "message.speed_update_rollback",
+                            railWandFailureReason(failure)
+                        ).color(NamedTextColor.RED))
+                    }
                 }
             },
             onFailure = { failure ->
@@ -5514,9 +5522,17 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             if (rail.metadata != action.expectedAfter[railId]) return false
             rail to metadata
         }
-        rails.forEach { (rail, metadata) -> rail.metadata = metadata }
-        refreshAnchorsForAllViewers()
-        return true
+        val editPlan = RailWandTopologyEditPlan.captureRailScopedMutation(
+            coreWorld,
+            rails.map { (rail) -> rail.id }
+        )
+        val editPermit = acquireTopologyEditPermit(player, editPlan) ?: return false
+        editPermit.use {
+            editPlan.requireCurrent(coreWorld)
+            rails.forEach { (rail, metadata) -> rail.metadata = metadata }
+            refreshAnchorsForAllViewers()
+            return true
+        }
     }
 
     private fun undoDecorations(player: Player, action: WandAction.RestoreDecorations): Boolean {

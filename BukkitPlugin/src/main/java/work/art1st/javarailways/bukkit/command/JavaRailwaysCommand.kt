@@ -43,6 +43,8 @@ import work.art1st.javarailways.bukkit.render.backend.PacketPlatformDiagnostics
 import work.art1st.javarailways.bukkit.persistence.RailInfrastructureMetadataMigrationFiles
 import work.art1st.javarailways.bukkit.persistence.WorldPersistence
 import work.art1st.javarailways.bukkit.render.model.SeatModel
+import work.art1st.javarailways.bukkit.tool.RailWandEditPermitAcquisition
+import work.art1st.javarailways.bukkit.tool.RailWandTopologyEditPlan
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World as RailWorld
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -265,7 +267,7 @@ class JavaRailwaysCommand {
 
     private fun handleWayPoint(sender: CommandSender, args: List<String>): Boolean {
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
-        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] ?: run {
+        val world = BukkitPlugin.INSTANCE.worldManager.railWorlds[sender.world] as? CoreWorld ?: run {
             sender.sendMessage("错误: 无法获取 JavaRailways 世界")
             return true
         }
@@ -312,16 +314,31 @@ class JavaRailwaysCommand {
                 if (id == null) {
                     sender.sendMessage("用法: /jr waypoint remove <id>")
                 } else {
-                    val removed = if (world.basicWorldData.destinations[id] != null) {
-                        OperationalDestinationService(world).remove(id)?.toWayPoint()
-                    } else {
-                        store.remove(id)
-                    }
-                    if (removed == null) {
+                    val target = store[id]
+                    if (target == null) {
                         sender.sendMessage("路径点不存在: $id")
                     } else {
-                        BukkitPlugin.INSTANCE.railObjectWand.removeMarker(sender.world.uid, id)
-                        sender.sendMessage("已删除路径点: $id")
+                        val plugin = BukkitPlugin.INSTANCE
+                        val plan = RailWandTopologyEditPlan.captureRailScopedMutation(
+                            world,
+                            setOf(target.railId)
+                        )
+                        when (val acquired = plan.acquire(plugin, sender.world.uid)) {
+                            is RailWandEditPermitAcquisition.Denied -> sender.sendMessage(
+                                "基础设施编辑被拒绝: ${acquired.decision.status.name} ${acquired.decision.detail}"
+                            )
+                            is RailWandEditPermitAcquisition.Granted -> acquired.use {
+                                plan.requireCurrent(world)
+                                val removed = if (world.basicWorldData.destinations[id] != null) {
+                                    OperationalDestinationService(world).remove(id)?.toWayPoint()
+                                } else {
+                                    store.remove(id)
+                                }
+                                checkNotNull(removed) { "waypoint changed during guarded removal: $id" }
+                                plugin.railObjectWand.removeMarker(sender.world.uid, id)
+                                sender.sendMessage("已删除路径点: $id")
+                            }
+                        }
                     }
                 }
             }

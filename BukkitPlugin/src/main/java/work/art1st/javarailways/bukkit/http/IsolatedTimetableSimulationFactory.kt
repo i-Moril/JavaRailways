@@ -124,10 +124,11 @@ internal class IsolatedTimetableSimulationFactory(
                     timetableExtensions = snapshot.timetableExtensions
                 )
             },
-            dispatcherFactory = { _, routeAdmissionContextProvider, signalRestrictions ->
+            dispatcherFactory = { _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime ->
                 TimetableDispatcher(
                     routeAdmissionContextProvider = routeAdmissionContextProvider,
                     signalRestrictionSnapshots = signalRestrictions,
+                    inspectionRuntime = inspectionRuntime,
                     operationGateway = operationGateway,
                     atoFactory = TimetableAtoFactory { train, owningWorld ->
                         val profile = requireNotNull(profilesByTrainId[train.id]) {
@@ -138,7 +139,8 @@ internal class IsolatedTimetableSimulationFactory(
                             train,
                             owningWorld,
                             KinematicTrainActuator(profile.trainControl.maxSpeed, safety),
-                            safety
+                            safety,
+                            inspectionRuntime::maximumDeclaredDistanceMeters
                         )
                     }
                 )

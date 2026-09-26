@@ -24,17 +24,20 @@ when a required service is absent. The fixture currently proves these services:
 - `InfrastructureResourceService`: custom resources, route contributions, preparation, route
   admission, applied-plan edit dependencies and the unified owner lifecycle;
 - `SignalEpochSourceService`: complete nonempty signal-source sets installed per plugin and world;
+- `InspectionSourceService`: host-route-bound inspection providers plus authenticated dirty
+  declaration publication;
 - `RailTargetService` and `PlayerOperationService`: lower-level Bukkit interaction capabilities.
 
 The returned services are host-owned. Do not retain a world-bound admission service across world
 unload/reload and do not assume that a reused world UUID revives an old binding.
 
-The compile fixture also constructs SimpleATO's platform-neutral `FrozenRouteBinding`,
-`InspectionDeclaration`, complete `InspectionDeclarationBinding`, and `InspectionUpdateHandler`.
-Declarations are immutable low-frequency values: the signal add-on computes them when its
-definition, frozen route or low-frequency train profile changes. SimpleATO owns activation and
-invokes the handler only for newly active or explicitly dirty declarations. Bukkit registration
-and production dispatch remain host-owned capabilities not exposed by this service slice.
+The fixture installs SimpleATO's platform-neutral `InspectionSource`. Its binding provider receives
+the exact host-selected train and `RouteSnapshot`; add-ons must not reconstruct that route from a
+separate observation. The provider returns one complete immutable `InspectionDeclarationBinding`.
+SimpleATO owns activation and invokes the handler only for newly active or explicitly dirty
+declarations, using its existing perception scan and dynamic braking lookahead. A newly compiled
+binding also receives one baseline callback, possibly with an empty declaration list; it must publish
+one complete snapshot bound to the new route, even when that snapshot contains no restrictions.
 
 ## Runtime flow
 
@@ -46,7 +49,9 @@ and production dispatch remain host-owned capabilities not exposed by this servi
    Basic independently restores the mandatory rail, turnout and diamond footprint.
 4. Install a nonempty complete `SignalEpochSource` set for each world. Its callback receives only
    baseline/changed monitored areas and returns complete restriction snapshots synchronously.
-5. Publish timetable or other applied-plan dependencies only to protect their referenced rail,
+5. Install a complete `InspectionSource` set. The host invokes each provider only after selecting an
+   exact production route; publish dependency changes through `markInspectionDeclarationsDirty`.
+6. Publish timetable or other applied-plan dependencies only to protect their referenced rail,
    topology-node and runtime-resource identities from conflicting edits. These declarations are
    not train claims and do not prevent trains from acquiring the resources.
 
@@ -54,6 +59,11 @@ and production dispatch remain host-owned capabilities not exposed by this servi
 perform blocking I/O, defer safety work asynchronously or mutate live Core/Basic objects. An empty
 `SignalEpochResult` means "no restriction changed"; withdrawing an existing restriction requires a
 higher-revision snapshot whose restriction list is empty.
+
+Inspection binding and update callbacks follow the same serialized, non-blocking rule. A new or
+changed inspection source cannot be installed permissively while a train already owns a live route:
+if the host cannot refresh it before another physics epoch, the existing world fail-closed boundary
+stalls instead of reusing an undersized perception window.
 
 Route admission receives a topology-bound frozen route, train ID, coherent observation stamp and
 desired route-metre authority boundary. `Pending` is progressed through its opaque handle. A grant

@@ -20,6 +20,7 @@ import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
 import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
@@ -65,11 +66,19 @@ class DepotResetCoordinatorTest {
     @Test
     fun `successful reset relocates trains rebuilds ledgers and keeps world stalled`() {
         val world = createTestWorld().also(worlds::add)
+        val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
+            inspectionRuntime = inspectionRuntime,
             atoFactory = TimetableAtoFactory { train, trainWorld ->
-                SimpleATO(train, trainWorld, KinematicTrainActuator(10.0, profile), profile)
+                SimpleATO(
+                    train,
+                    trainWorld,
+                    KinematicTrainActuator(10.0, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
             }
         )
         val coordinator = AtoWorldCoordinator("reset-world", reportSink = {})
@@ -241,7 +250,8 @@ class DepotResetCoordinatorTest {
         val result = onMainThread {
             DepotResetCoordinator(world, TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
-                emptyTrainRestrictionSnapshots
+                emptyTrainRestrictionSnapshots,
+                emptyInspectionRuntime()
             ))
                 .reset(setOf(depotId))
         }
@@ -349,7 +359,8 @@ class DepotResetCoordinatorTest {
             world,
             TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
-                emptyTrainRestrictionSnapshots
+                emptyTrainRestrictionSnapshots,
+                emptyInspectionRuntime()
             )
         ).reset(setOf(depotId))
 
@@ -404,7 +415,8 @@ class DepotResetCoordinatorTest {
             world,
             TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
-                emptyTrainRestrictionSnapshots
+                emptyTrainRestrictionSnapshots,
+                emptyInspectionRuntime()
             )
         ).reset(setOf(depotId))
 

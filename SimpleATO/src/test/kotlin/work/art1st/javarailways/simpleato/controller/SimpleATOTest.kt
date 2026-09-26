@@ -71,9 +71,33 @@ class SimpleATOTest {
     fun `resource admission reuses the controller forward perception horizon`() {
         val fixture = fixture("perception-horizon")
 
+        assertEquals(52.0, fixture.ato.inspectionDynamicLookaheadMeters(10.0), 1.0e-12)
         assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(), 1.0e-12)
         assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(50.0), 1.0e-12)
         assertEquals(150.0, fixture.ato.routePerceptionHorizonMeters(150.0), 1.0e-12)
+    }
+
+    @Test
+    fun `physics scan reads the published inspection maximum`() {
+        var inspectionMaximum = 150.0
+        val fixture = fixture("inspection-perception-horizon") { inspectionMaximum }
+
+        tickAndPublish(fixture.ato, 50.0)
+        assertEquals(150.0, fixture.ato.publishedState.perceptionHorizonMeters, 1.0e-12)
+        assertEquals(
+            150.0,
+            requireNotNull(fixture.ato.publishedState.perception).route.totalLengthMeters,
+            1.0e-12
+        )
+
+        inspectionMaximum = 200.0
+        tickAndPublish(fixture.ato, 50.0)
+        assertEquals(200.0, fixture.ato.publishedState.perceptionHorizonMeters, 1.0e-12)
+        assertEquals(
+            200.0,
+            requireNotNull(fixture.ato.publishedState.perception).route.totalLengthMeters,
+            1.0e-12
+        )
     }
 
     @Test
@@ -426,7 +450,7 @@ class SimpleATOTest {
             override val lifecycleState = RailObjectLifecycleState.ACTIVE
             override val location = RailLocationWithFacing(branch.viewAB, 1.0)
         })
-        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
+        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile) { 0.0 }
         train.setController(ato)
 
         tickAndPublish(ato, 50.0)
@@ -469,7 +493,8 @@ class SimpleATOTest {
             secondTrain,
             fixture.world,
             KinematicTrainActuator(10.0, profile),
-            profile
+            profile,
+            { 0.0 }
         )
         secondTrain.setController(secondAto)
         tickAndPublish(secondAto, 1_000.0)
@@ -544,7 +569,7 @@ class SimpleATOTest {
                 }
             }
         }
-        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
+        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile) { 0.0 }
         train.setController(ato)
         ato.setProvider("switch-during-plan")
 
@@ -612,7 +637,11 @@ class SimpleATOTest {
         tickAndPublish(fixture.ato, 0.0)
     }
 
-    private fun fixture(id: String, railLengthMeters: Double = 500.0): Fixture {
+    private fun fixture(
+        id: String,
+        railLengthMeters: Double = 500.0,
+        inspectionMaximumDistanceMeters: (String) -> Double = { 0.0 }
+    ): Fixture {
         val world = createTestWorld()
         val rail = createStraightRailFromSegments(
             world,
@@ -626,7 +655,8 @@ class SimpleATOTest {
             train = train,
             world = world,
             actuator = KinematicTrainActuator(10.0, profile),
-            safetyProfile = profile
+            safetyProfile = profile,
+            inspectionMaximumDistanceMeters = inspectionMaximumDistanceMeters
         )
         train.setController(ato)
         return Fixture(world, train, ato, coordinator, data)

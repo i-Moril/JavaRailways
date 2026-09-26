@@ -12,6 +12,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourcePreparationHandler;
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration;
+import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies;
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest;
@@ -42,10 +43,12 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionUpdateHandler;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher;
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot;
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
@@ -53,6 +56,7 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /**
@@ -70,6 +74,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     private UUID worldId;
     private InfrastructureOwner appliedPlanOwner;
     private boolean appliedPlanDependenciesInstalled;
+    private final AtomicLong inspectionRevision = new AtomicLong();
 
     @Override
     public void onEnable() {
@@ -145,6 +150,28 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 worldId,
                 List.of(compileReactiveSignalApi(observation))
             );
+            services.inspectionSources().replaceInspectionSources(
+                this,
+                worldId,
+                List.of(new InspectionSource(
+                    "example.signaladdon:main",
+                    input -> inspectionDeclarationsExample(input.getTrainId(), input.getRoute()),
+                    input -> {
+                        Objects.requireNonNull(input.getObservationStamp());
+                        Objects.requireNonNull(input.getRoute());
+                        Objects.requireNonNull(input.getPerception());
+                        Objects.requireNonNull(input.getDeclarations());
+                        return List.of(new TrainRestrictionSnapshot(
+                            "example.signaladdon:main",
+                            inspectionRevision.incrementAndGet(),
+                            input.getPerception().getTrain().getTrainId(),
+                            input.getObservationStamp(),
+                            input.getRoute(),
+                            List.of()
+                        ));
+                    }
+                ))
+            );
             appliedPlanOwner = new InfrastructureOwner("example.signaladdon:plan/main", 1L);
             var request = new AppliedPlanDependencyRequest(
                 observation.getStamp().getTopologyRevision(),
@@ -161,13 +188,21 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             // fixture builds a request but does not submit its synthetic random route at runtime.
             var routeAdmission = services.infrastructure().routeAdmission(this, worldId);
             var routeIntent = routeIntentExample(observation.getStamp());
-            var inspectionDeclarations = inspectionDeclarationsExample(routeIntent.getRoute());
+            var inspectionDeclarations = inspectionDeclarationsExample("example-train", routeIntent.getRoute());
+            var exampleInspectionRevision = new AtomicLong();
             InspectionUpdateHandler inspectionHandler = input -> {
                 Objects.requireNonNull(input.getObservationStamp());
                 Objects.requireNonNull(input.getRoute());
                 Objects.requireNonNull(input.getPerception());
                 Objects.requireNonNull(input.getDeclarations());
-                return List.of();
+                return List.of(new TrainRestrictionSnapshot(
+                    "example.signaladdon:main",
+                    exampleInspectionRevision.incrementAndGet(),
+                    input.getPerception().getTrain().getTrainId(),
+                    input.getObservationStamp(),
+                    input.getRoute(),
+                    List.of()
+                ));
             };
             Function<RouteResourceIntent, RouteAdmissionResult> requestRoute = routeAdmission::request;
             Function<ManualTurnoutSelectionRequest, ManualTurnoutSelectionResult> selectTurnout =
@@ -220,7 +255,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     }
 
     /** Compile-only proof that a Java signal add-on can precompile immutable inspection values. */
-    private static InspectionDeclarationBinding inspectionDeclarationsExample(RouteSnapshot route) {
+    private static InspectionDeclarationBinding inspectionDeclarationsExample(String trainId, RouteSnapshot route) {
         var segment = route.getSegments().getFirst();
         var declaration = new InspectionDeclaration(
             "example.signaladdon:home-entry",
@@ -231,7 +266,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         );
         return new InspectionDeclarationBinding(
             "example.signaladdon:main",
-            "example-train",
+            trainId,
             FrozenRouteBinding.from(route),
             1L,
             1L,
@@ -309,6 +344,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             Objects.requireNonNull(
                 serviceManager.load(SignalEpochSourceService.class),
                 "JavaRailways did not register SignalEpochSourceService"
+            ),
+            Objects.requireNonNull(
+                serviceManager.load(InspectionSourceService.class),
+                "JavaRailways did not register InspectionSourceService"
             )
         );
     }
@@ -318,7 +357,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         PlayerOperationService playerOperations,
         RailwayObservationService observations,
         InfrastructureResourceService infrastructure,
-        SignalEpochSourceService signalSources
+        SignalEpochSourceService signalSources,
+        InspectionSourceService inspectionSources
     ) {
         Services {
             Objects.requireNonNull(railTargets, "railTargets");
@@ -326,6 +366,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             Objects.requireNonNull(observations, "observations");
             Objects.requireNonNull(infrastructure, "infrastructure");
             Objects.requireNonNull(signalSources, "signalSources");
+            Objects.requireNonNull(inspectionSources, "inspectionSources");
         }
     }
 }

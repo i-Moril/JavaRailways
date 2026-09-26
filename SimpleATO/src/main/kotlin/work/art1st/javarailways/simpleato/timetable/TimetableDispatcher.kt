@@ -70,6 +70,7 @@ import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionContext
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.route.MissionRouteLayout
@@ -251,6 +252,7 @@ sealed interface TimetableReplanResult {
 class TimetableDispatcher(
     private val routeAdmissionContextProvider: TimetableRouteAdmissionContextProvider,
     private val signalRestrictionSnapshots: TrainRestrictionSnapshotProvider,
+    private val inspectionRuntime: InspectionRuntime,
     private val allocationTiming: RouteAllocationTiming = RouteAllocationTiming(
         switchSetupSeconds = 0.25,
         reactionTimeSeconds = 0.25,
@@ -1389,6 +1391,12 @@ class TimetableDispatcher(
         }
 
         if (coordinator.isStalled) return
+        inspectionRuntime.retainTrains(
+            runs.values.asSequence()
+                .filter { !it.admissionEnded && (it.admittedRoute != null || it.admissionCandidate != null) }
+                .map { it.train.id }
+                .toSet()
+        )
         startDueCycles(world)
     }
 
@@ -2701,6 +2709,24 @@ class TimetableDispatcher(
             candidate = checkNotNull(run.admissionCandidate) {
                 "pending route admission has no frozen candidate"
             }
+            if (!applyCommittedAdmissionRestriction(
+                    world,
+                    run,
+                    runtime,
+                    context.observation,
+                    snapshot,
+                    candidate
+                )
+            ) {
+                if (!world.basicWorldData.atoCoordinator.isStalled) {
+                    setRouteState(
+                        run,
+                        TimetableServiceRunState.WAITING_ROUTE,
+                        "waiting for the controller inspection horizon"
+                    )
+                }
+                return
+            }
             result = client.progress()
         } else {
             if (dispatcherTick < run.nextAdmissionAttemptTick) {
@@ -2728,11 +2754,31 @@ class TimetableDispatcher(
             }
             run.admissionCandidate = candidate
             run.admissionEnded = false
+            if (!applyCommittedAdmissionRestriction(
+                    world,
+                    run,
+                    runtime,
+                    context.observation,
+                    snapshot,
+                    candidate
+                )
+            ) {
+                if (!world.basicWorldData.atoCoordinator.isStalled) {
+                    setRouteState(
+                        run,
+                        TimetableServiceRunState.WAITING_ROUTE,
+                        "waiting for the controller inspection horizon"
+                    )
+                }
+                return
+            }
             val routeProgress = candidate.progressFor(runtime)
             val desired = RollingRouteAuthorityPlanner.nextBoundary(
                 routeLengthMeters = candidate.route.selection.route.totalLengthMeters,
                 headProgressMeters = routeProgress,
-                perceptionHorizonMeters = run.ato.routePerceptionHorizonMeters(),
+                perceptionHorizonMeters = run.ato.routePerceptionHorizonMeters(
+                    inspectionRuntime.maximumDeclaredDistanceMeters(run.train.id)
+                ),
                 extensionTriggerMeters = run.ato.routeAllocationTriggerDistanceMeters(allocationTiming),
                 admissionState = client.state
             )
@@ -2872,18 +2918,46 @@ class TimetableDispatcher(
         run: ActiveRun,
         runtime: MissionRuntime,
         observation: RailwayObservation,
-        snapshot: TrainSnapshot
-    ) {
-        val activeRoute = run.admittedRoute ?: run.admissionCandidate ?: return
+        snapshot: TrainSnapshot,
+        routeOverride: AdmissionRoute? = null
+    ): Boolean {
+        val activeRoute = routeOverride ?: run.admittedRoute ?: run.admissionCandidate ?: return true
         try {
+            val route = activeRoute.route.selection.route
+            val routeBinding = FrozenRouteBinding.from(route)
+            val routeProgress = activeRoute.progressFor(runtime)
+            val maximumInspectionDistance = inspectionRuntime.synchronizeRoute(
+                observation.stamp,
+                run.train.id,
+                route
+            )
+            if (inspectionRuntime.hasBindings(run.train.id)) {
+                val published = checkNotNull(run.lastPublishedAtoState) {
+                    "inspection update requires the dispatcher-captured physics publication"
+                }
+                val perception = published.perception ?: return false
+                if (published.perceptionHorizonMeters + POSITION_TOLERANCE_METERS <
+                    maximumInspectionDistance
+                ) return false
+                inspectionRuntime.update(
+                    observationStamp = observation.stamp,
+                    currentRoute = routeBinding,
+                    routeProgressMeters = routeProgress,
+                    dynamicLookaheadMeters = run.ato.inspectionDynamicLookaheadMeters(
+                        snapshot.speedMetersPerSecond
+                    ),
+                    perception = perception
+                )
+            }
             run.ato.synchronizeSignalRestrictions(
                 signalRestrictionSnapshots.snapshotsFor(run.train.id)
             )
             run.ato.applyTrainRestrictions(
                 currentStamp = observation.stamp,
-                currentRoute = FrozenRouteBinding.from(activeRoute.route.selection.route),
-                routeProgressMeters = activeRoute.progressFor(runtime)
+                currentRoute = routeBinding,
+                routeProgressMeters = routeProgress
             )
+            return true
         } catch (failure: Exception) {
             stallRun(
                 world,
@@ -2892,6 +2966,7 @@ class TimetableDispatcher(
                 failure.message ?: failure::class.java.simpleName,
                 snapshot
             )
+            return false
         }
     }
 

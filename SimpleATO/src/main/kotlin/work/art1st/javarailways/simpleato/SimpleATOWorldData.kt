@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato
 
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
@@ -10,7 +11,8 @@ import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 data class SimpleATOWorldData(
     val dispatcher: TimetableDispatcher,
     val signalEpochRuntime: SignalEpochRuntime,
-    val signalRestrictions: TrainRestrictionSnapshotStore
+    val signalRestrictions: TrainRestrictionSnapshotStore,
+    val inspectionRuntime: InspectionRuntime
 )
 
 @OptIn(ExtensionData::class)

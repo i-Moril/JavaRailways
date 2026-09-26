@@ -16,6 +16,7 @@ import work.art1st.javarailways.basic.api.destination.OperationalDestinationServ
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
@@ -69,12 +70,20 @@ class ManualNavigationTest {
             stopToleranceMeters = 0.25
         )
         var admissionWorld: CoreWorld? = null
+        val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { admissionWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
+            inspectionRuntime = inspectionRuntime,
             atoFactory = TimetableAtoFactory { train, world ->
                 admissionWorld = world as CoreWorld
-                SimpleATO(train, world, KinematicTrainActuator(8.0, profile), profile)
+                SimpleATO(
+                    train,
+                    world,
+                    KinematicTrainActuator(8.0, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
             }
         )
         val world = createTestWorld()

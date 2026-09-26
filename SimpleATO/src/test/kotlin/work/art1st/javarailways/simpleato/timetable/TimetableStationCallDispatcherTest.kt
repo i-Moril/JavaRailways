@@ -33,6 +33,7 @@ import work.art1st.javarailways.basic.api.station.StationCall
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
+import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -870,11 +871,19 @@ class TimetableStationCallDispatcherTest {
     @Test
     fun `dwell may depart after the conflicting turnout resource tail releases`() {
         val world = createTestWorld().also(worlds::add)
+        val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
+            inspectionRuntime = inspectionRuntime,
             atoFactory = TimetableAtoFactory { train, owningWorld ->
-                SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
+                SimpleATO(
+                    train,
+                    owningWorld,
+                    KinematicTrainActuator(8.0, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
             }
         )
         val data = BasicWorldData(
@@ -965,11 +974,19 @@ class TimetableStationCallDispatcherTest {
     @Test
     fun `conflicting explicit berth keeps the later service held without stalling`() {
         val world = createTestWorld().also(worlds::add)
+        val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
+            inspectionRuntime = inspectionRuntime,
             atoFactory = TimetableAtoFactory { train, owningWorld ->
-                SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
+                SimpleATO(
+                    train,
+                    owningWorld,
+                    KinematicTrainActuator(8.0, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
             }
         )
         val data = BasicWorldData(
@@ -1092,13 +1109,21 @@ class TimetableStationCallDispatcherTest {
         berthStoppingOffsetMetersBefore: Double = 0.0
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
+        val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
+            inspectionRuntime = inspectionRuntime,
             operationGateway = operationGateway,
             operationTimeoutTicks = operationTimeoutTicks,
             atoFactory = TimetableAtoFactory { train, owningWorld ->
-                SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
+                SimpleATO(
+                    train,
+                    owningWorld,
+                    KinematicTrainActuator(8.0, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
             }
         )
         val data = BasicWorldData(

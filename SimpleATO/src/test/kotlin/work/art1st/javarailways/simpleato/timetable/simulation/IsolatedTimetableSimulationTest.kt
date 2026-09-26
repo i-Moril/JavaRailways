@@ -184,13 +184,20 @@ class IsolatedTimetableSimulationTest {
             basicDataFactory = {
                 BasicWorldData()
             },
-            dispatcherFactory = { _, routeAdmissionContextProvider, signalRestrictions ->
+            dispatcherFactory = { _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime ->
                 val profile = AtoSafetyProfile()
                 TimetableDispatcher(
                     routeAdmissionContextProvider = routeAdmissionContextProvider,
                     signalRestrictionSnapshots = signalRestrictions,
+                    inspectionRuntime = inspectionRuntime,
                     atoFactory = TimetableAtoFactory { train, world ->
-                        SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
+                        SimpleATO(
+                            train,
+                            world,
+                            KinematicTrainActuator(10.0, profile),
+                            profile,
+                            inspectionRuntime::maximumDeclaredDistanceMeters
+                        )
                     }
                 )
             },

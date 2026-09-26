@@ -22,6 +22,7 @@ import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
@@ -215,7 +216,8 @@ class IsolatedTimetableSimulationWorld private constructor(
             dispatcherFactory: (
                 CoreWorld,
                 TimetableRouteAdmissionContextProvider,
-                TrainRestrictionSnapshotProvider
+                TrainRestrictionSnapshotProvider,
+                InspectionRuntime
             ) -> TimetableDispatcher,
             seed: (CoreWorld) -> Unit
         ): IsolatedTimetableSimulationWorld {
@@ -262,6 +264,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                             signalRestrictions,
                             signalRestrictions::retainLiveTrains
                         )
+                        val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
                         physics.registerRailwayEpochProcessor(signalEpochRuntime)
                         isolatedWorld.registerExtensionData(
                             SimpleATOPlugin.INSTANCE,
@@ -269,10 +272,12 @@ class IsolatedTimetableSimulationWorld private constructor(
                                 dispatcherFactory(
                                     isolatedWorld,
                                     admission.contextProvider,
-                                    signalRestrictions
+                                    signalRestrictions,
+                                    inspectionRuntime
                                 ),
                                 signalEpochRuntime,
-                                signalRestrictions
+                                signalRestrictions,
+                                inspectionRuntime
                             )
                         )
                     }

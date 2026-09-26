@@ -12,11 +12,16 @@ import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
+import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import java.lang.reflect.Proxy
 import java.util.UUID
@@ -32,7 +37,7 @@ class DefaultSignalEpochSourceServiceTest {
         val secondOwner = plugin("second")
         val calls = mutableListOf<String>()
         val runtime = runtime()
-        service.registerWorld(worldId, runtime, { emptyList() }) { reason, failure ->
+        service.registerWorld(worldId, runtime, inspectionRuntime(), { emptyList() }) { reason, failure ->
             throw IllegalStateException(reason, failure)
         }
         service.replaceSources(firstOwner, worldId, listOf(source("test:first", 0.0) {
@@ -68,7 +73,7 @@ class DefaultSignalEpochSourceServiceTest {
         var calls = 0
         val contributor = RouteResourceContributor { _, _ -> emptyList() }
         val runtime = runtime()
-        signalService.registerWorld(worldId, runtime, { sourceIds ->
+        signalService.registerWorld(worldId, runtime, inspectionRuntime(), { sourceIds ->
             if ("test:main" in sourceIds) active else emptyList()
         }) { _, _ -> }
         signalService.replaceSources(owner, worldId, listOf(source("test:main", 0.0) { calls++ }))
@@ -108,8 +113,13 @@ class DefaultSignalEpochSourceServiceTest {
         val stalls = mutableListOf<String>()
         val idleRuntime = runtime()
         val activeRuntime = runtime()
-        signalService.registerWorld(idleWorldId, idleRuntime, { emptyList() }) { reason, _ -> stalls += reason }
-        signalService.registerWorld(activeWorldId, activeRuntime, { sourceIds ->
+        signalService.registerWorld(
+            idleWorldId,
+            idleRuntime,
+            inspectionRuntime(),
+            { emptyList() }
+        ) { reason, _ -> stalls += reason }
+        signalService.registerWorld(activeWorldId, activeRuntime, inspectionRuntime(), { sourceIds ->
             if ("test:active" in sourceIds) listOf("train/test:active@7") else emptyList()
         }) { reason, _ -> stalls += reason }
         signalService.replaceSources(disabledOwner, idleWorldId, listOf(source("test:idle", 0.0) {
@@ -140,14 +150,22 @@ class DefaultSignalEpochSourceServiceTest {
         val worldId = UUID.randomUUID()
         val owner = plugin("signal")
         val runtime = runtime()
-        service.registerWorld(worldId, runtime, { emptyList() }) { reason, failure ->
+        val inspectionRuntime = inspectionRuntime()
+        service.registerWorld(worldId, runtime, inspectionRuntime, { emptyList() }) { reason, failure ->
             throw IllegalStateException(reason, failure)
         }
         service.replaceSources(owner, worldId, listOf(source("test:main", 0.0) {}))
+        service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
+        inspectionRuntime.synchronizeRoute(
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
+            "train",
+            inspectionRoute()
+        )
 
         service.removeWorld(worldId)
         service.removeWorld(worldId)
 
+        assertEquals(0.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
         assertThrows(IllegalStateException::class.java) {
             service.replaceSources(owner, worldId, listOf(source("test:main", 0.0) {}))
         }
@@ -155,11 +173,222 @@ class DefaultSignalEpochSourceServiceTest {
         service.close()
     }
 
+    @Test
+    fun `inspection service binds the host route and authenticates dirty declarations`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("inspection")
+        val otherOwner = plugin("other")
+        val unavailable = mutableListOf<String>()
+        val stalls = mutableListOf<String>()
+        val inspectionRuntime = inspectionRuntime { sourceId, trainId, failure ->
+            unavailable += "$sourceId/$trainId: ${failure.message}"
+        }
+        service.registerWorld(worldId, runtime(), inspectionRuntime, { emptyList() }) { reason, _ ->
+            stalls += reason
+        }
+        val route = work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot(
+            "test:route",
+            1L,
+            7L,
+            listOf(
+                work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot(
+                    railId,
+                    ViewDirection.AB,
+                    0.0,
+                    200.0
+                )
+            )
+        )
+        var boundRoute: FrozenRouteBinding? = null
+        service.replaceInspectionSources(owner, worldId, listOf(
+            InspectionSource(
+                "test:inspection",
+                { input ->
+                    boundRoute = FrozenRouteBinding.from(input.route)
+                    InspectionDeclarationBinding(
+                        "test:inspection",
+                        input.trainId,
+                        FrozenRouteBinding.from(input.route),
+                        1L,
+                        1L,
+                        listOf(
+                            InspectionDeclaration(
+                                "test:signal",
+                                railId,
+                                ViewDirection.AB,
+                                100.0,
+                                80.0
+                            )
+                        )
+                    )
+                },
+                { emptyList() }
+            )
+        ))
+
+        inspectionRuntime.synchronizeRoute(
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
+            "train",
+            route
+        )
+        service.markInspectionDeclarationsDirty(
+            owner,
+            worldId,
+            "test:inspection",
+            "train",
+            listOf("test:signal")
+        )
+
+        assertEquals(FrozenRouteBinding.from(route), boundRoute)
+        assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertThrows(IllegalStateException::class.java) {
+            service.markInspectionDeclarationsDirty(
+                otherOwner,
+                worldId,
+                "test:inspection",
+                "train",
+                listOf("test:signal")
+            )
+        }
+        assertEquals(emptyList<String>(), unavailable)
+
+        assertThrows(IllegalStateException::class.java) {
+            service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
+        }
+        assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(1, unavailable.size)
+        assertEquals(1, stalls.size)
+    }
+
+    @Test
+    fun `invalid idle inspection replacement is rejected without stalling the world`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("inspection")
+        val stalls = mutableListOf<String>()
+        service.registerWorld(worldId, runtime(), inspectionRuntime(), { emptyList() }) { reason, _ ->
+            stalls += reason
+        }
+        val duplicate = inspectionSource()
+
+        assertThrows(IllegalArgumentException::class.java) {
+            service.replaceInspectionSources(owner, worldId, listOf(duplicate, duplicate))
+        }
+
+        assertEquals(emptyList<String>(), stalls)
+    }
+
+    @Test
+    fun `forced disable removes active inspection callbacks and stalls the world`() {
+        val service = DefaultSignalEpochSourceService()
+        val infrastructure = DefaultInfrastructureResourceService(service)
+        val worldId = UUID.randomUUID()
+        var enabled = true
+        val owner = plugin("inspection") { enabled }
+        val stalls = mutableListOf<String>()
+        val inspectionRuntime = inspectionRuntime()
+        service.registerWorld(worldId, runtime(), inspectionRuntime, { emptyList() }) { reason, _ ->
+            stalls += reason
+        }
+        val route = inspectionRoute()
+        service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
+        inspectionRuntime.synchronizeRoute(
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
+            "train",
+            route
+        )
+
+        enabled = false
+        infrastructure.forcedDisableOwner(owner)
+
+        assertEquals(1, stalls.size)
+        assertEquals(true, stalls.single().contains("active inspection binding"))
+        assertEquals(0.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+    }
+
+    @Test
+    fun `planned owner removal preflights active inspection bindings before any source mutation`() {
+        val service = DefaultSignalEpochSourceService()
+        val infrastructure = DefaultInfrastructureResourceService(service)
+        val worldId = UUID.randomUUID()
+        val owner = plugin("inspection")
+        val stalls = mutableListOf<String>()
+        var epochCallbacks = 0
+        val epochRuntime = runtime()
+        val inspectionRuntime = inspectionRuntime()
+        service.registerWorld(worldId, epochRuntime, inspectionRuntime, { emptyList() }) { reason, _ ->
+            stalls += reason
+        }
+        service.replaceSources(owner, worldId, listOf(source("test:epoch", 0.0) { epochCallbacks++ }))
+        service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
+        inspectionRuntime.synchronizeRoute(
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
+            "train",
+            inspectionRoute()
+        )
+
+        assertThrows(IllegalStateException::class.java) {
+            infrastructure.unregisterOwner(owner)
+        }
+        epochRuntime.process(frame(2L))
+
+        assertEquals(1, epochCallbacks)
+        assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(emptyList<String>(), stalls)
+    }
+
     private fun runtime() = SignalEpochRuntime(
         "world",
         TrainRestrictionPublisher { snapshot ->
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, snapshot.revision)
         }
+    )
+
+    private fun inspectionRuntime(
+        unavailable: (String, String, Exception) -> Unit = { _, _, _ -> }
+    ) = InspectionRuntime(
+        TrainRestrictionPublisher { snapshot ->
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, snapshot.revision)
+        },
+        unavailable
+    )
+
+    private fun inspectionRoute() = work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot(
+        "test:route",
+        1L,
+        7L,
+        listOf(
+            work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot(
+                railId,
+                ViewDirection.AB,
+                0.0,
+                200.0
+            )
+        )
+    )
+
+    private fun inspectionSource() = InspectionSource(
+        "test:inspection",
+        { input ->
+            InspectionDeclarationBinding(
+                "test:inspection",
+                input.trainId,
+                FrozenRouteBinding.from(input.route),
+                1L,
+                1L,
+                listOf(
+                    InspectionDeclaration(
+                        "test:signal",
+                        railId,
+                        ViewDirection.AB,
+                        100.0,
+                        80.0
+                    )
+                )
+            )
+        },
+        { emptyList() }
     )
 
     private fun source(sourceId: String, start: Double, callback: () -> Unit): SignalEpochSource {

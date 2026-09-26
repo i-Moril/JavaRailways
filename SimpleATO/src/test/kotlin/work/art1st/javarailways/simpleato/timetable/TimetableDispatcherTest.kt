@@ -38,6 +38,7 @@ import work.art1st.javarailways.basic.timetable.*
 import work.art1st.javarailways.basic.controller.ManualController
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
+import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -1953,12 +1954,20 @@ class TimetableDispatcherTest {
 
     private fun dispatcher(): TimetableDispatcher {
         var boundWorld: CoreWorld? = null
+        val inspectionRuntime = emptyInspectionRuntime()
         return TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { boundWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
+            inspectionRuntime = inspectionRuntime,
             atoFactory = TimetableAtoFactory { train, world ->
                 boundWorld = world as CoreWorld
-                SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile)
+                SimpleATO(
+                    train,
+                    world,
+                    KinematicTrainActuator(10.0, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
             }
         )
     }

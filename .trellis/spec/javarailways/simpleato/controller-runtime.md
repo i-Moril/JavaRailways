@@ -23,8 +23,10 @@ Basic暂时提供`AbstractATO`、`AtoSafetyProfile`、actuator、mission/snapsho
 6. 成功epoch结束时`AbstractATO`原子发布train snapshot、累计距离和controller value state，Dispatcher只读取这份publication。
 
 Mission、constraint、provider和station-call的mutable集合都只存在于该controller实例，不在
-`SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；production Dispatcher
-复用该perception horizon规划滚动授权，不增加第二次路线扫描。Dispatcher不维护第二套route allocator；生产环境与
+`SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；controller只从world-local
+inspection runtime读取一个thread-safe immutable per-train最大声明距离，并把它并入原有horizon，不持有第二份冻结路线状态。
+成功publication把本次`PerceptionSnapshot`和实际horizon与train/controller state一起原子发布。production Dispatcher
+复用该perception规划滚动授权与inspection update，不增加第二次路线扫描。Dispatcher不维护第二套route allocator；生产环境与
 隔离仿真都通过Basic的同一个route-admission runtime申请、准备、授权并按车尾释放资源。
 
 controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。production Dispatcher让admission client向adapter发布
@@ -46,6 +48,8 @@ active字段，也不能改写Basic内部publication reference。
 
 `SimpleAtoPublishedState`把这三个值和immutable controller state组合成Dispatcher可读取的快照。tick完成但
 Core尚未调用commit/publication时，旧快照必须保持不变；publication成功后所有字段一起前进。
+新inspection binding若需要更大horizon，Dispatcher必须等下一次包含该horizon的完整publication，先执行inspection update，
+再request/progress Basic authority；不得用上一个较短perception放宽准入。
 
 ## Failure与禁止实现
 

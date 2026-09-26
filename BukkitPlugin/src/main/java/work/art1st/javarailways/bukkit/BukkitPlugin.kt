@@ -14,6 +14,7 @@ import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceServ
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.behavior.TrainReverseBehaviorListener
 import work.art1st.javarailways.bukkit.command.CloudCommandRegistrar
@@ -82,6 +83,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         private set
     private lateinit var infrastructureResourceServiceImpl: DefaultInfrastructureResourceService
     lateinit var signalEpochSourceService: SignalEpochSourceService
+        private set
+    lateinit var inspectionSourceService: InspectionSourceService
         private set
     private lateinit var signalEpochSourceServiceImpl: DefaultSignalEpochSourceService
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
@@ -168,6 +171,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         railwayObservationService = railwayObservationServiceImpl
         signalEpochSourceServiceImpl = DefaultSignalEpochSourceService()
         signalEpochSourceService = signalEpochSourceServiceImpl
+        inspectionSourceService = signalEpochSourceServiceImpl
         infrastructureResourceServiceImpl = DefaultInfrastructureResourceService(signalEpochSourceServiceImpl)
         infrastructureResourceService = infrastructureResourceServiceImpl
         worldManager = WorldManager(
@@ -198,6 +202,12 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         server.servicesManager.register(
             SignalEpochSourceService::class.java,
             signalEpochSourceService,
+            this,
+            ServicePriority.Normal
+        )
+        server.servicesManager.register(
+            InspectionSourceService::class.java,
+            inspectionSourceService,
             this,
             ServicePriority.Normal
         )

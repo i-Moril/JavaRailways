@@ -87,6 +87,8 @@ data class SimpleAtoRuntimeDiagnostics(
 data class SimpleAtoPublishedState(
     val trainSnapshot: TrainSnapshot,
     val lifetimeTravelDistanceMeters: Double,
+    val perception: PerceptionSnapshot?,
+    val perceptionHorizonMeters: Double,
     val preparedReverseRevision: Long,
     val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics,
     val currentMission: AtoMission?,
@@ -94,6 +96,8 @@ data class SimpleAtoPublishedState(
 )
 
 private data class SimpleAtoControllerPublishedState(
+    val perception: PerceptionSnapshot?,
+    val perceptionHorizonMeters: Double,
     val preparedReverseRevision: Long,
     val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics,
     val currentMission: AtoMission?,
@@ -105,7 +109,8 @@ class SimpleATO(
     train: Train,
     world: World,
     actuator: TrainActuator,
-    safetyProfile: AtoSafetyProfile = AtoSafetyProfile()
+    safetyProfile: AtoSafetyProfile = AtoSafetyProfile(),
+    private val inspectionMaximumDistanceMeters: (String) -> Double
 ) : AbstractATO(train, world, actuator, safetyProfile, world.basicWorldData.atoCoordinator) {
     private sealed interface Command {
         data class SetSpeedLimit(val key: String, val speed: Double) : Command
@@ -144,6 +149,7 @@ class SimpleATO(
         val route: RouteSnapshot,
         val segments: List<RailSegment>,
         val perception: PerceptionSnapshot,
+        val perceptionHorizonMeters: Double,
         val currentObservedByRef: Map<RailObjectRef, Observed>,
         val eventObjectsByRef: Map<RailObjectRef, Observed>
     )
@@ -170,6 +176,7 @@ class SimpleATO(
     private var routeRevision = 0L
     private var previousRouteKey: List<Pair<java.util.UUID, work.art1st.javarailways.core.api.physics.rail.ViewDirection>> = emptyList()
     private var perceptionEpoch = 0L
+    private var activePerceptionHorizonMeters = 0.0
     private var missionProgressMeters = 0.0
     private var missionRouteLayout: MissionRouteLayout? = null
     private var missionProjectedProgressMeters: Double? = null
@@ -194,6 +201,8 @@ class SimpleATO(
             return SimpleAtoPublishedState(
                 trainSnapshot = state.trainSnapshot,
                 lifetimeTravelDistanceMeters = state.lifetimeTravelDistanceMeters,
+                perception = controller.perception,
+                perceptionHorizonMeters = controller.perceptionHorizonMeters,
                 preparedReverseRevision = controller.preparedReverseRevision,
                 runtimeDiagnostics = controller.runtimeDiagnostics,
                 currentMission = controller.currentMission,
@@ -344,6 +353,14 @@ class SimpleATO(
         )
     }
 
+    /** Host-owned current-speed stopping lookahead used by inspection activation. */
+    internal fun inspectionDynamicLookaheadMeters(speedMetersPerSecond: Double): Double {
+        require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)
+        return serviceBrakingDistanceMeters(speedMetersPerSecond) +
+            speedMetersPerSecond * safetyProfile.reactionTimeSeconds +
+            safetyProfile.safetyDistanceMeters
+    }
+
     /**
      * Stable low-water mark for rolling route admission.
      *
@@ -366,7 +383,7 @@ class SimpleATO(
      * second route look-ahead independently from the ATO scan.
      */
     internal fun routePerceptionHorizonMeters(
-        maximumDeclaredInspectionDistanceMeters: Double = 0.0
+        maximumDeclaredInspectionDistanceMeters: Double = inspectionMaximumDistanceMeters(train.id)
     ): Double {
         require(maximumDeclaredInspectionDistanceMeters.isFinite() &&
             maximumDeclaredInspectionDistanceMeters >= 0.0
@@ -560,6 +577,7 @@ class SimpleATO(
         }
         latestRouteSnapshot = scan.route
         latestPerceptionSnapshot = scan.perception
+        activePerceptionHorizonMeters = scan.perceptionHorizonMeters
         currentSegments = scan.segments
 
         synchronizeInfrastructureLimitWithHead()
@@ -987,7 +1005,7 @@ class SimpleATO(
         val perception = PerceptionSnapshot(perceptionEpoch, trainSnapshot, route, observations)
         val allObserved = previousObserved + current
         previousObserved = current
-        return ScanResult(route, segments, perception, current, allObserved)
+        return ScanResult(route, segments, perception, horizon, current, allObserved)
     }
 
     private fun collectObserved(segments: List<RailSegment>): Map<RailObjectRef, Observed> {
@@ -1034,6 +1052,8 @@ class SimpleATO(
     }
 
     override fun capturePublishedControllerState(): Any = SimpleAtoControllerPublishedState(
+        perception = latestPerceptionSnapshot,
+        perceptionHorizonMeters = activePerceptionHorizonMeters,
         preparedReverseRevision = activePreparedReverseRevision,
         runtimeDiagnostics = activeRuntimeDiagnostics.copy(
             constraints = java.util.List.copyOf(activeRuntimeDiagnostics.constraints)
@@ -1066,6 +1086,8 @@ class SimpleATO(
             constraints = emptyList()
         )
         val INITIAL_CONTROLLER_STATE = SimpleAtoControllerPublishedState(
+            perception = null,
+            perceptionHorizonMeters = 0.0,
             preparedReverseRevision = 0L,
             runtimeDiagnostics = INITIAL_RUNTIME_DIAGNOSTICS,
             currentMission = null,

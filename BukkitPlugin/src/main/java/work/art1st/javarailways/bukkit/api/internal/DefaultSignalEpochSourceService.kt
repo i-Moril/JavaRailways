@@ -2,21 +2,29 @@ package work.art1st.javarailways.bukkit.api.internal
 
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import java.util.UUID
 
-internal class DefaultSignalEpochSourceService : SignalEpochSourceService, AutoCloseable {
+internal class DefaultSignalEpochSourceService :
+    SignalEpochSourceService,
+    InspectionSourceService,
+    AutoCloseable {
     private data class WorldBinding(
         val runtime: SignalEpochRuntime,
+        val inspectionRuntime: InspectionRuntime,
         val activeRestrictionStreams: (Set<String>) -> List<String>,
         val stallWorld: (String, Exception) -> Unit
     )
 
     private data class OwnerSources(
         val owner: Plugin,
-        val sources: List<SignalEpochSource>
+        val epochSources: List<SignalEpochSource>,
+        val inspectionSources: List<InspectionSource> = emptyList()
     )
 
     private val lock = Any()
@@ -27,13 +35,14 @@ internal class DefaultSignalEpochSourceService : SignalEpochSourceService, AutoC
     fun registerWorld(
         worldId: UUID,
         runtime: SignalEpochRuntime,
+        inspectionRuntime: InspectionRuntime,
         activeRestrictionStreams: (Set<String>) -> List<String>,
         stallWorld: (String, Exception) -> Unit
     ) = BukkitThreadGuardBridge.runInSimulationContext {
         synchronized(lock) {
             check(!closed) { "SignalEpochSourceService is closed" }
             check(worldId !in worlds) { "Signal epoch runtime already exists for world $worldId" }
-            worlds[worldId] = WorldBinding(runtime, activeRestrictionStreams, stallWorld)
+            worlds[worldId] = WorldBinding(runtime, inspectionRuntime, activeRestrictionStreams, stallWorld)
             sourcesByWorld[worldId] = mutableListOf()
         }
     }
@@ -58,17 +67,95 @@ internal class DefaultSignalEpochSourceService : SignalEpochSourceService, AutoC
             val ownerSets = checkNotNull(sourcesByWorld[worldId])
             val existingIndex = ownerSets.indexOfFirst { it.owner === pluginOwner }
             val existing = ownerSets.getOrNull(existingIndex)
-            val removedIds = existing?.sources.orEmpty().mapTo(linkedSetOf()) { it.sourceId }
-                .apply { removeAll(replacement.mapTo(hashSetOf()) { it.sourceId }) }
+            val previousIds = existing?.allSourceIds().orEmpty()
+            val replacementOwner = OwnerSources(
+                pluginOwner,
+                replacement,
+                existing?.inspectionSources.orEmpty()
+            )
+            val removedIds = previousIds - replacementOwner.allSourceIds()
             requireWithdrawn(worldId, world, pluginOwner, removedIds)
 
             val candidate = ownerSets.toMutableList()
             if (existingIndex >= 0) candidate.removeAt(existingIndex)
-            candidate += OwnerSources(pluginOwner, replacement)
-            world.runtime.replaceSources(candidate.flatMap(OwnerSources::sources))
+            candidate += replacementOwner
+            validateSourceOwnership(candidate)
+            world.runtime.replaceSources(candidate.flatMap(OwnerSources::epochSources))
 
             ownerSets.clear()
             ownerSets += candidate
+        }
+    }
+
+    override fun replaceInspectionSources(
+        pluginOwner: Plugin,
+        worldId: UUID,
+        sources: Collection<InspectionSource>
+    ) = BukkitThreadGuardBridge.runInSimulationContext {
+        check(pluginOwner.isEnabled) {
+            "Cannot install inspection sources for disabled plugin ${pluginOwner.name}"
+        }
+        val replacement = java.util.List.copyOf(sources)
+        synchronized(lock) {
+            check(!closed) { "InspectionSourceService is closed" }
+            val world = checkNotNull(worlds[worldId]) {
+                "Railway world is not registered: $worldId"
+            }
+            val ownerSets = checkNotNull(sourcesByWorld[worldId])
+            val existingIndex = ownerSets.indexOfFirst { it.owner === pluginOwner }
+            val existing = ownerSets.getOrNull(existingIndex)
+            check(replacement.isNotEmpty() || existing?.epochSources?.isNotEmpty() == true) {
+                "Complete signal owner removal requires InfrastructureResourceService.unregisterOwner"
+            }
+            val replacementOwner = OwnerSources(
+                pluginOwner,
+                existing?.epochSources.orEmpty(),
+                replacement
+            )
+            val removedIds = existing?.allSourceIds().orEmpty() - replacementOwner.allSourceIds()
+            requireWithdrawn(worldId, world, pluginOwner, removedIds)
+
+            val candidate = ownerSets.toMutableList()
+            if (existingIndex >= 0) candidate.removeAt(existingIndex)
+            candidate += replacementOwner
+            validateSourceOwnership(candidate)
+            try {
+                world.inspectionRuntime.replaceSources(candidate.flatMap(OwnerSources::inspectionSources))
+            } catch (failure: Exception) {
+                if (world.inspectionRuntime.hasActiveRoutes()) {
+                    val reason = "Inspection sources owned by ${pluginOwner.name} could not be replaced " +
+                        "safely in world $worldId"
+                    world.stallWorld(reason, failure)
+                }
+                throw failure
+            }
+
+            ownerSets.clear()
+            ownerSets += candidate
+        }
+    }
+
+    override fun markInspectionDeclarationsDirty(
+        pluginOwner: Plugin,
+        worldId: UUID,
+        sourceId: String,
+        trainId: String,
+        declarationIds: Collection<String>
+    ) = BukkitThreadGuardBridge.runInSimulationContext {
+        check(pluginOwner.isEnabled) {
+            "Cannot dirty inspection declarations for disabled plugin ${pluginOwner.name}"
+        }
+        synchronized(lock) {
+            check(!closed) { "InspectionSourceService is closed" }
+            val world = checkNotNull(worlds[worldId]) {
+                "Railway world is not registered: $worldId"
+            }
+            val owner = sourcesByWorld[worldId].orEmpty()
+                .firstOrNull { it.owner === pluginOwner }
+            check(owner?.inspectionSources?.any { it.sourceId == sourceId } == true) {
+                "Inspection source $sourceId is not owned by ${pluginOwner.name} in world $worldId"
+            }
+            world.inspectionRuntime.markDirty(sourceId, trainId, java.util.List.copyOf(declarationIds))
         }
     }
 
@@ -77,12 +164,21 @@ internal class DefaultSignalEpochSourceService : SignalEpochSourceService, AutoC
             check(!closed) { "SignalEpochSourceService is closed" }
             sourcesByWorld.forEach { (worldId, ownerSets) ->
                 ownerSets.firstOrNull { it.owner === pluginOwner }?.let { owned ->
+                    val world = checkNotNull(worlds[worldId])
                     requireWithdrawn(
                         worldId,
-                        checkNotNull(worlds[worldId]),
+                        world,
                         pluginOwner,
-                        owned.sources.mapTo(linkedSetOf()) { it.sourceId }
+                        owned.allSourceIds()
                     )
+                    val activeBindings = world.inspectionRuntime.activeBindings(
+                        owned.inspectionSources.mapTo(linkedSetOf()) { it.sourceId }
+                    )
+                    if (activeBindings.isNotEmpty()) {
+                        val reason = "Cannot remove inspection sources owned by ${pluginOwner.name} from world " +
+                            "$worldId while route bindings remain active: ${activeBindings.joinToString()}"
+                        throw IllegalStateException(reason)
+                    }
                 }
             }
         }
@@ -92,38 +188,53 @@ internal class DefaultSignalEpochSourceService : SignalEpochSourceService, AutoC
     fun removeUnusedOwner(pluginOwner: Plugin) {
         synchronized(lock) {
             check(!closed) { "SignalEpochSourceService is closed" }
-            sourcesByWorld.forEach { (worldId, ownerSets) ->
-                val owned = ownerSets.firstOrNull { it.owner === pluginOwner } ?: return@forEach
+            val removals = sourcesByWorld.mapNotNull { (worldId, ownerSets) ->
+                val owned = ownerSets.firstOrNull { it.owner === pluginOwner }
+                    ?: return@mapNotNull null
+                Triple(worldId, ownerSets, owned)
+            }
+            removals.forEach { (worldId, _, owned) ->
+                val activeBindings = checkNotNull(worlds[worldId]).inspectionRuntime.activeBindings(
+                    owned.inspectionSources.mapTo(linkedSetOf()) { it.sourceId }
+                )
+                check(activeBindings.isEmpty()) {
+                    "Inspection bindings changed while unregistering ${pluginOwner.name}: " +
+                        activeBindings.joinToString()
+                }
+            }
+            removals.forEach { (worldId, ownerSets, owned) ->
                 val world = checkNotNull(worlds[worldId])
                 val candidate = ownerSets.filterNot { it === owned }
-                world.runtime.replaceSources(candidate.flatMap(OwnerSources::sources))
+                world.inspectionRuntime.replaceSources(candidate.flatMap(OwnerSources::inspectionSources))
+                world.runtime.replaceSources(candidate.flatMap(OwnerSources::epochSources))
                 ownerSets.remove(owned)
             }
         }
     }
 
     fun forcedDisableOwner(pluginOwner: Plugin) {
-        val affected = synchronized(lock) {
+        synchronized(lock) {
             if (closed) return
-            sourcesByWorld.mapNotNull { (worldId, ownerSets) ->
-                val owned = ownerSets.firstOrNull { it.owner === pluginOwner } ?: return@mapNotNull null
+            sourcesByWorld.forEach { (worldId, ownerSets) ->
+                val owned = ownerSets.firstOrNull { it.owner === pluginOwner } ?: return@forEach
                 val world = checkNotNull(worlds[worldId])
-                val sourceIds = owned.sources.mapTo(linkedSetOf()) { it.sourceId }
+                val sourceIds = owned.allSourceIds()
                 val active = try {
-                    world.activeRestrictionStreams(sourceIds)
+                    world.activeRestrictionStreams(sourceIds) +
+                        world.inspectionRuntime.activeBindings(sourceIds).map { "active inspection binding: $it" }
                 } catch (failure: Exception) {
                     listOf("unable to inspect retained restrictions: ${failure.message ?: failure.javaClass.name}")
                 }
+                if (active.isNotEmpty()) {
+                    val reason = "Bukkit plugin ${pluginOwner.name} was disabled with active signal restrictions " +
+                        "in world $worldId: ${active.joinToString()}"
+                    world.stallWorld(reason, IllegalStateException(reason))
+                }
                 val candidate = ownerSets.filterNot { it === owned }
-                world.runtime.replaceSources(candidate.flatMap(OwnerSources::sources))
+                world.runtime.replaceSources(candidate.flatMap(OwnerSources::epochSources))
+                owned.inspectionSources.forEach { world.inspectionRuntime.removeSource(it.sourceId) }
                 ownerSets.remove(owned)
-                if (active.isEmpty()) null else Triple(worldId, world, active)
             }
-        }
-        affected.forEach { (worldId, world, active) ->
-            val reason = "Bukkit plugin ${pluginOwner.name} was disabled with active signal restrictions in world " +
-                "$worldId: ${active.joinToString()}"
-            world.stallWorld(reason, IllegalStateException(reason))
         }
     }
 
@@ -132,6 +243,7 @@ internal class DefaultSignalEpochSourceService : SignalEpochSourceService, AutoC
             val world = worlds.remove(worldId) ?: return@runInSimulationContext
             sourcesByWorld.remove(worldId)
             world.runtime.replaceSources(emptyList())
+            world.inspectionRuntime.clear()
         }
     }
 
@@ -142,7 +254,10 @@ internal class DefaultSignalEpochSourceService : SignalEpochSourceService, AutoC
             sourcesByWorld.clear()
             worlds.values.toList().also { worlds.clear() }
         }
-        snapshot.forEach { it.runtime.replaceSources(emptyList()) }
+        snapshot.forEach {
+            it.runtime.replaceSources(emptyList())
+            it.inspectionRuntime.clear()
+        }
     }
 
     private fun requireWithdrawn(
@@ -156,6 +271,23 @@ internal class DefaultSignalEpochSourceService : SignalEpochSourceService, AutoC
         check(active.isEmpty()) {
             "Cannot remove signal sources owned by ${pluginOwner.name} from world $worldId before explicit " +
                 "empty restriction snapshots are published: ${active.joinToString()}"
+        }
+    }
+
+    private fun OwnerSources.allSourceIds(): Set<String> = buildSet {
+        epochSources.mapTo(this) { it.sourceId }
+        inspectionSources.mapTo(this) { it.sourceId }
+    }
+
+    private fun validateSourceOwnership(ownerSets: Collection<OwnerSources>) {
+        val ownersBySource = linkedMapOf<String, Plugin>()
+        ownerSets.forEach { owned ->
+            owned.allSourceIds().forEach { sourceId ->
+                val previous = ownersBySource.putIfAbsent(sourceId, owned.owner)
+                require(previous == null || previous === owned.owner) {
+                    "signal source $sourceId is owned by more than one plugin"
+                }
+            }
         }
     }
 }

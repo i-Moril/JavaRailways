@@ -155,9 +155,12 @@ area-driven dirty source；本节另行冻结资源何时进入列车检查范�
 信号插件在冻结路线首次绑定、插件定义变化或列车低频能力变化时计算该语义，并提交一份完整不可变的route-local声明集。
 `train`只表示不可变列车身份和低频能力视图，例如长度、车型或制动等级；当前速度不进入插件缓存键。
 
-当前第一批公开值类型为`simpleato.api.route.FrozenRouteBinding`、
-`simpleato.api.inspection.InspectionDeclaration`、`InspectionDeclarationBinding`、`InspectionUpdateInput`和
-`InspectionUpdateHandler`。每个声明具有：
+当前公开值类型为`simpleato.api.route.FrozenRouteBinding`、
+`simpleato.api.inspection.InspectionSource`、`InspectionBindingInput`、`InspectionDeclaration`、
+`InspectionDeclarationBinding`、`InspectionUpdateInput`和`InspectionUpdateHandler`。插件不自行发现或猜测
+production route；host在Dispatcher选定exact `RouteSnapshot`后调用source binding provider，provider为该train/route
+返回一份完整binding。`InspectionBindingInput`只提供稳定train ID和host选择的route，不暴露live train或当前速度；插件以train ID
+读取自己拥有的immutable低频能力profile并把其revision写入binding。每个声明具有：
 
 - namespaced稳定来源ID和资源/信号ID；
 - 当前冻结路线binding及该资源在路线中的occurrence-specific绝对触发米数；
@@ -210,6 +213,10 @@ for each declaration in candidates:
 距离正常变化而输入未变时保持`IDLE`。离开范围只删除激活标记，不凭空撤销插件已经提交的资源或restriction；它们继续遵守
 各自的Basic grant/tail-release或SimpleATO restriction revision生命周期。
 
+每份新编译binding在第一次使用时另有一次baseline update；此时声明列表可以为空，但插件必须发布一个绑定新路线的完整snapshot，
+即使其中restriction为空。这样旧路线snapshot不会因新路线暂时没有声明进入范围而留下fail-close hold。baseline成功后仍只按新激活或
+显式dirty更新，不转为每tick回调。
+
 如果当前应存在的来源没有可验证的完整binding、binding与route/profile revision不符、dirty后的更新失败，或更新结果未能绑定
 当前world/topology/route，SimpleATO必须在该来源上保持或安装零authority/零速限制，直到新的完整结果成功提交。失效期间不能
 静默沿用旧的permissive结果，也不能退化到每tick全世界轮询。一个来源的失败不允许撤销Basic已有claim，也不改变其他来源的限制。
@@ -226,7 +233,21 @@ publication变化，清除旧限制仍必须返回更高revision的空restrictio
 runtime在首次publisher side effect前验证本批全部callback输出的source、train、observation stamp和frozen route。回调异常、
 过期binding、非法输出或publisher拒绝都会先通知注入的fail-closed owner，再向serialized caller抛出；尚未成功发布的声明重新
 变为dirty，不会因失败丢失更新。source/train删除只丢弃对应session，不释放Basic claim，也不隐式撤销restriction。该runtime
-不创建线程、重试器、Bukkit registry或持久化状态；生产Bukkit/source生命周期和Dispatcher/controller接线尚未完成。
+不创建线程、重试器、Bukkit registry或持久化状态。
+
+production world在创建`SignalEpochRuntime`和restriction store时同时创建一个`InspectionRuntime`。Bukkit公开的
+`InspectionSourceService`与`SignalEpochSourceService`共用同一个内部plugin/world owner registry，统一走
+`InfrastructureResourceService.unregisterOwner`、forced disable、world unload与host shutdown生命周期。Dispatcher维护exact
+active route并调用provider；controller只跨线程读取runtime发布的immutable per-train最大距离，不复制route identity或第二套
+route生命周期。新binding可能扩大horizon时，Dispatcher在controller发布覆盖该最大值的新physics perception前保持
+`WAITING_ROUTE`，且在此之前不请求、progress或扩大Basic authority；下一epoch仍只执行controller原有一次`peekCurve`。
+随后Dispatcher用同一published controller state中的perception、当前冻结路线head progress和host动态制动lookahead同步调用
+inspection update，并把返回snapshot写入既有world `TrainRestrictionSnapshotStore`，再经唯一restriction adapter应用。
+
+活动路线期间新增、删除或替换source会改变既有安全策略，不能靠旧perception或旧permission无缝切换。当前host没有安全的
+同epoch quiesce/refresh协议，因此普通replacement在离线编译候选后经现有world coordinator立即Stall并保留旧全集；forced
+plugin loss先Stall受影响world再删除失效callback。train结束删除对应session，world unload/host shutdown直接清空world-local
+binding，不添加retry、持久化、兼容或第二次扫描。
 
 ## 4. 接口与数据合同
 

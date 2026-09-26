@@ -34,6 +34,15 @@ fail-close该world，不能让后续suffix申请少执行一套信号策略。
 host总是删除失效callback，但只在仍有非空owner restriction时Stall该world；world unload与JavaRailways shutdown只清理
 binding，不误报故障。基础资源和signal的强制清理由同一个listener触发，不维护两套disable顺序。
 
+`InspectionSourceService`由同一个内部owner service实现并注册到`ServicesManager`。插件注册的是
+`InspectionSource` callback，host用自己选定的exact train/`RouteSnapshot`调用binding provider；API不暴露让插件先猜路线
+再提交binding的不可用流程。dirty publication同时认证plugin instance、world和source ownership。活动路线上的inspection
+source增删/替换不能静默放宽既有授权：普通replacement经world coordinator fail-close并保持旧全集；forced disable先Stall
+存在active binding的world再移除死callback。world unload和JavaRailways shutdown直接清理binding，不把正常teardown误报为
+插件故障，也不创建独立inspection unload入口。主动unregister若仍有active binding只拒绝卸载，不Stall仍可正常运行的world；
+只有插件已经被强制禁用、callback确定不可再调用时才执行fail-close。binding provider/update handler同步运行在simulation owner，
+必须有界、非阻塞且不得重入source service或直接访问Bukkit world。
+
 ## Simulation 与 physics
 
 `WorldManager` 用 global scheduler 每 tick 驱动串行 simulation context：

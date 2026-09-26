@@ -187,6 +187,7 @@ class WorldManager internal constructor(
                 signalEpochSourceService?.registerWorld(
                     worldId = bukkitWorld.uid,
                     runtime = simpleAtoData.signalEpochRuntime,
+                    inspectionRuntime = simpleAtoData.inspectionRuntime,
                     activeRestrictionStreams = simpleAtoData.signalRestrictions::activeRestrictionStreams,
                     stallWorld = { reason, failure ->
                         stallWorldRuntime(bukkitWorld, railWorld, reason, failure)

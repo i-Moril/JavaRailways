@@ -206,7 +206,7 @@ class StationCallRuntimeTest {
         )
         val station = Station(stationId, "Central", listOf(berthRef))
         data.stations.register(station, listOf(berth))
-        val ato = SimpleATO(train, world, KinematicTrainActuator(6.0, profile), profile)
+        val ato = SimpleATO(train, world, KinematicTrainActuator(6.0, profile), profile) { 0.0 }
         train.setController(ato)
         return Fixture(data, train, station, berth, ato)
     }

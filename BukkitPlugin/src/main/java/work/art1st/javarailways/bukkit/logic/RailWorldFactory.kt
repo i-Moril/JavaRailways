@@ -25,6 +25,7 @@ import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
@@ -78,41 +79,6 @@ object RailWorldFactory {
         val atoLogger = plugin.logger
         val pluginDataFolder = plugin.dataFolder
         val physicsConfig = plugin.physicsConfig
-        var boundRouteAdmission: RouteResourceAdmissionService? = null
-        val routeAdmissionProvider = TimetableRouteAdmissionContextProvider {
-            val observation = plugin.railwayObservationService.latest(bukkitWorld.uid).orElse(null)
-                ?: return@TimetableRouteAdmissionContextProvider null
-            val admission = boundRouteAdmission
-                ?: plugin.infrastructureResourceService.routeAdmission(plugin, bukkitWorld.uid)
-                    .also { boundRouteAdmission = it }
-            TimetableRouteAdmissionContext(observation, admission)
-        }
-        val signalRestrictions = TrainRestrictionSnapshotStore(bukkitWorld.uid.toString())
-        val dispatcher = TimetableDispatcher(
-            routeAdmissionContextProvider = routeAdmissionProvider,
-            signalRestrictionSnapshots = signalRestrictions,
-            operationGateway = BukkitTrainOperationGateway(
-                coreWorld,
-                operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
-            ),
-            atoFactory = TimetableAtoFactory { train, world ->
-                val profile = AtoSafetyProfile()
-                val maximumSpeed = train.rendererOrNull?.resolveControl()?.maxSpeed
-                    ?: throw IllegalArgumentException("Train ${train.id} has no model control profile")
-                SimpleATO(
-                    train,
-                    world,
-                    KinematicTrainActuator(maximumSpeed, profile),
-                    profile
-                )
-            }
-        )
-        val signalEpochRuntime = SignalEpochRuntime(
-            bukkitWorld.uid.toString(),
-            signalRestrictions,
-            signalRestrictions::retainLiveTrains
-        )
-        physicsCoordinator.registerRailwayEpochProcessor(signalEpochRuntime)
         val basicData = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
                 atoLogger.severe(report.format())
@@ -138,9 +104,49 @@ object RailWorldFactory {
             }
         )
         coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
+        var boundRouteAdmission: RouteResourceAdmissionService? = null
+        val routeAdmissionProvider = TimetableRouteAdmissionContextProvider {
+            val observation = plugin.railwayObservationService.latest(bukkitWorld.uid).orElse(null)
+                ?: return@TimetableRouteAdmissionContextProvider null
+            val admission = boundRouteAdmission
+                ?: plugin.infrastructureResourceService.routeAdmission(plugin, bukkitWorld.uid)
+                    .also { boundRouteAdmission = it }
+            TimetableRouteAdmissionContext(observation, admission)
+        }
+        val signalRestrictions = TrainRestrictionSnapshotStore(bukkitWorld.uid.toString())
+        // Dispatcher owns rich train/route failure reporting for synchronous update failures.
+        // Bukkit service-time source changes use DefaultSignalEpochSourceService.stallWorld.
+        val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
+        val dispatcher = TimetableDispatcher(
+            routeAdmissionContextProvider = routeAdmissionProvider,
+            signalRestrictionSnapshots = signalRestrictions,
+            inspectionRuntime = inspectionRuntime,
+            operationGateway = BukkitTrainOperationGateway(
+                coreWorld,
+                operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
+            ),
+            atoFactory = TimetableAtoFactory { train, world ->
+                val profile = AtoSafetyProfile()
+                val maximumSpeed = train.rendererOrNull?.resolveControl()?.maxSpeed
+                    ?: throw IllegalArgumentException("Train ${train.id} has no model control profile")
+                SimpleATO(
+                    train,
+                    world,
+                    KinematicTrainActuator(maximumSpeed, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
+            }
+        )
+        val signalEpochRuntime = SignalEpochRuntime(
+            bukkitWorld.uid.toString(),
+            signalRestrictions,
+            signalRestrictions::retainLiveTrains
+        )
+        physicsCoordinator.registerRailwayEpochProcessor(signalEpochRuntime)
         coreWorld.registerExtensionData(
             SimpleATOPlugin.INSTANCE,
-            SimpleATOWorldData(dispatcher, signalEpochRuntime, signalRestrictions)
+            SimpleATOWorldData(dispatcher, signalEpochRuntime, signalRestrictions, inspectionRuntime)
         )
         basicInfrastructure?.restore(coreWorld)
         basicRuntime?.restore(coreWorld)

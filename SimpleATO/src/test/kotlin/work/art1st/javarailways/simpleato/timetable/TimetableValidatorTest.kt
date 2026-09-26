@@ -24,6 +24,7 @@ import work.art1st.javarailways.basic.api.station.StationBerth
 import work.art1st.javarailways.basic.api.station.StationBerthRef
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
@@ -277,11 +278,19 @@ class TimetableValidatorTest {
             safetyDistanceMeters = 1.0,
             stopToleranceMeters = 0.25
         )
+        val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
+            inspectionRuntime = inspectionRuntime,
             atoFactory = TimetableAtoFactory { train, owningWorld ->
-                SimpleATO(train, owningWorld, KinematicTrainActuator(8.0, profile), profile)
+                SimpleATO(
+                    train,
+                    owningWorld,
+                    KinematicTrainActuator(8.0, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
             }
         )
         val coordinator = AtoWorldCoordinator("validator-station", reportSink = {})

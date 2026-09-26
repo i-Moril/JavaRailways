@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.UnavailableRouteAdmissionTestContext
+import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 
 class DispatcherSnapshotTest {
@@ -59,7 +60,8 @@ class DispatcherSnapshotTest {
         )
         val dispatcher = TimetableDispatcher(
             UnavailableRouteAdmissionTestContext,
-            emptyTrainRestrictionSnapshots
+            emptyTrainRestrictionSnapshots,
+            emptyInspectionRuntime()
         )
 
         dispatcher.restoreCheckpoint(saved)

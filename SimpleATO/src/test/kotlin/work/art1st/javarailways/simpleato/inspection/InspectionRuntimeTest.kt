@@ -13,6 +13,7 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
@@ -50,7 +51,7 @@ class InspectionRuntimeTest {
         val publications = arrayListOf<TrainRestrictionSnapshot>()
         val inputs = arrayListOf<List<String>>()
         val runtime = runtime(publications = publications)
-        runtime.replaceBinding(binding(), route) { input ->
+        bind(runtime, binding()) { input ->
             inputs += input.declarations.map(InspectionDeclaration::declarationId)
             listOf(snapshot(input.observationStamp, revision = inputs.size.toLong()))
         }
@@ -62,30 +63,26 @@ class InspectionRuntimeTest {
 
         assertEquals(listOf(listOf("test:signal"), listOf("test:signal")), inputs)
         assertEquals(listOf(1L, 2L), publications.map(TrainRestrictionSnapshot::revision))
-        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train", routeBinding), 0.0)
+        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
     }
 
     @Test
-    fun `invalid replacement leaves the previous binding active`() {
-        var callbacks = 0
+    fun `invalid provider binding leaves no partial session`() {
         val runtime = runtime()
-        runtime.replaceBinding(binding(), route) {
-            callbacks++
-            emptyList()
-        }
         val wrongRoute = RouteSnapshot(
             route.routeId,
             route.revision + 1L,
             route.topologyRevision,
             route.segments
         )
+        runtime.replaceSources(listOf(source(binding())))
 
         assertThrows(IllegalArgumentException::class.java) {
-            runtime.replaceBinding(binding(), wrongRoute) { emptyList() }
+            runtime.synchronizeRoute(stamp, "train", wrongRoute)
         }
-        runtime.update(stamp, routeBinding, 50.0, 0.0, perception)
 
-        assertEquals(1, callbacks)
+        assertEquals(false, runtime.hasBindings("train"))
+        assertEquals(0.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
     }
 
     @Test
@@ -93,10 +90,10 @@ class InspectionRuntimeTest {
         val unavailable = arrayListOf<String>()
         var attempts = 0
         val runtime = runtime(unavailable = unavailable)
-        runtime.replaceBinding(binding(), route) {
+        bind(runtime, binding()) { input ->
             attempts++
             if (attempts == 1) error("plugin failed")
-            emptyList()
+            listOf(snapshot(input.observationStamp, attempts.toLong()))
         }
 
         assertThrows(IllegalStateException::class.java) {
@@ -134,7 +131,7 @@ class InspectionRuntimeTest {
                 unavailable += "$sourceId/$trainId: ${failure.message}"
             }
         )
-        runtime.replaceBinding(binding(), route) { input ->
+        bind(runtime, binding()) { input ->
             callbackRevision++
             listOf(snapshot(input.observationStamp, callbackRevision))
         }
@@ -153,12 +150,15 @@ class InspectionRuntimeTest {
         val publications = arrayListOf<TrainRestrictionSnapshot>()
         val unavailable = arrayListOf<String>()
         val runtime = runtime(publications, unavailable)
-        runtime.replaceBinding(binding("test:first", "test:first-signal"), route) { input ->
-            listOf(snapshot(input.observationStamp, 1L, sourceId = "test:first"))
-        }
-        runtime.replaceBinding(binding("test:second", "test:second-signal"), route) { input ->
-            listOf(snapshot(input.observationStamp, 1L, sourceId = "test:wrong"))
-        }
+        runtime.replaceSources(listOf(
+            source(binding("test:first", "test:first-signal")) { input ->
+                listOf(snapshot(input.observationStamp, 1L, sourceId = "test:first"))
+            },
+            source(binding("test:second", "test:second-signal")) { input ->
+                listOf(snapshot(input.observationStamp, 1L, sourceId = "test:wrong"))
+            }
+        ))
+        runtime.synchronizeRoute(stamp, "train", route)
 
         assertThrows(IllegalArgumentException::class.java) {
             runtime.update(stamp, routeBinding, 50.0, 0.0, perception)
@@ -174,7 +174,7 @@ class InspectionRuntimeTest {
         val unavailable = arrayListOf<String>()
         var callbacks = 0
         val runtime = runtime(unavailable = unavailable)
-        runtime.replaceBinding(binding(), route) {
+        bind(runtime, binding()) {
             callbacks++
             emptyList()
         }
@@ -197,13 +197,14 @@ class InspectionRuntimeTest {
     fun `train and source removal discard scheduler state`() {
         var callbacks = 0
         val runtime = runtime()
-        runtime.replaceBinding(binding(), route) {
+        bind(runtime, binding()) {
             callbacks++
             emptyList()
         }
         runtime.removeSource("test:source")
         runtime.update(stamp, routeBinding, 50.0, 0.0, perception)
-        runtime.replaceBinding(binding(), route) {
+        runtime.removeTrain("train")
+        bind(runtime, binding()) {
             callbacks++
             emptyList()
         }
@@ -211,6 +212,115 @@ class InspectionRuntimeTest {
         runtime.update(stamp, routeBinding, 50.0, 0.0, perception)
 
         assertEquals(0, callbacks)
+    }
+
+    @Test
+    fun `source provider receives the exact host route and publishes its maximum`() {
+        var receivedRoute: RouteSnapshot? = null
+        val runtime = runtime()
+        runtime.replaceSources(listOf(
+            InspectionSource(
+                "test:source",
+                { input ->
+                    receivedRoute = input.route
+                    binding()
+                },
+                { emptyList() }
+            )
+        ))
+
+        val maximum = runtime.synchronizeRoute(stamp, "train", route)
+
+        assertEquals(route, receivedRoute)
+        assertEquals(80.0, maximum, 0.0)
+        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+    }
+
+    @Test
+    fun `empty binding publishes one route baseline then remains idle`() {
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        var callbacks = 0
+        val runtime = runtime(publications = publications)
+        val emptyBinding = InspectionDeclarationBinding(
+            "test:source",
+            "train",
+            routeBinding,
+            1L,
+            1L,
+            emptyList()
+        )
+        bind(runtime, emptyBinding) { input ->
+            callbacks++
+            assertEquals(emptyList<InspectionDeclaration>(), input.declarations)
+            listOf(snapshot(input.observationStamp, callbacks.toLong()))
+        }
+
+        runtime.update(stamp, routeBinding, 50.0, 0.0, perception)
+        runtime.update(stamp, routeBinding, 50.0, 0.0, perception)
+
+        assertEquals(1, callbacks)
+        assertEquals(listOf(1L), publications.map(TrainRestrictionSnapshot::revision))
+    }
+
+    @Test
+    fun `invalid source union leaves the previous complete set active`() {
+        val runtime = runtime()
+        val valid = InspectionSource("test:source", { binding() }, { emptyList() })
+        runtime.replaceSources(listOf(valid))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.replaceSources(listOf(valid, valid))
+        }
+        runtime.synchronizeRoute(stamp, "train", route)
+
+        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+    }
+
+    @Test
+    fun `new source binding on an active route fails closed before changing the live set`() {
+        val unavailable = arrayListOf<String>()
+        val runtime = runtime(unavailable = unavailable)
+        runtime.synchronizeRoute(stamp, "train", route)
+        val source = InspectionSource("test:source", { binding() }, { emptyList() })
+
+        assertThrows(IllegalStateException::class.java) {
+            runtime.replaceSources(listOf(source))
+        }
+
+        assertEquals(0.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(1, unavailable.size)
+        assertTrue(unavailable.single().contains("before another physics epoch"))
+    }
+
+    @Test
+    fun `source removal on an active route fails closed without dropping the binding`() {
+        val unavailable = arrayListOf<String>()
+        val runtime = runtime(unavailable = unavailable)
+        runtime.replaceSources(listOf(
+            InspectionSource("test:source", { binding() }, { emptyList() })
+        ))
+        runtime.synchronizeRoute(stamp, "train", route)
+
+        assertThrows(IllegalStateException::class.java) {
+            runtime.replaceSources(emptyList())
+        }
+
+        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(1, unavailable.size)
+    }
+
+    @Test
+    fun `production train retention removes ended route sessions and cached maximum`() {
+        val runtime = runtime()
+        runtime.replaceSources(listOf(
+            InspectionSource("test:source", { binding() }, { emptyList() })
+        ))
+        runtime.synchronizeRoute(stamp, "train", route)
+
+        runtime.retainTrains(emptySet())
+
+        assertEquals(0.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(false, runtime.hasBindings("train"))
     }
 
     private fun runtime(
@@ -225,6 +335,21 @@ class InspectionRuntimeTest {
             unavailable += "$sourceId/$trainId: ${failure.message}"
         }
     )
+
+    private fun bind(
+        runtime: InspectionRuntime,
+        binding: InspectionDeclarationBinding,
+        handler: work.art1st.javarailways.simpleato.api.inspection.InspectionUpdateHandler
+    ) {
+        runtime.replaceSources(listOf(source(binding, handler)))
+        runtime.synchronizeRoute(stamp, binding.trainId, route)
+    }
+
+    private fun source(
+        binding: InspectionDeclarationBinding,
+        handler: work.art1st.javarailways.simpleato.api.inspection.InspectionUpdateHandler =
+            work.art1st.javarailways.simpleato.api.inspection.InspectionUpdateHandler { emptyList() }
+    ) = InspectionSource(binding.sourceId, { binding }, handler)
 
     private fun binding(
         sourceId: String = "test:source",

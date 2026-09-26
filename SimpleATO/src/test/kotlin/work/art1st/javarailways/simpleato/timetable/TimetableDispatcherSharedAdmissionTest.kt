@@ -60,6 +60,10 @@ import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestrictio
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
+import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 
 class TimetableDispatcherSharedAdmissionTest {
     private val worlds = mutableListOf<CoreWorld>()
@@ -177,6 +181,58 @@ class TimetableDispatcherSharedAdmissionTest {
 
         assertEquals(0.0, fixture.ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1.0e-9)
         assertTrue(fixture.ato.runtimeDiagnostics.constraints.any { "test:signal/test:stop" in it })
+    }
+
+    @Test
+    fun `inspection widens the existing controller scan before route admission`() {
+        var updates = 0
+        var restrictionRevision = 0L
+        val source = InspectionSource(
+            sourceId = "test:inspection",
+            bindingProvider = { input ->
+                val segment = input.route.segments.first()
+                InspectionDeclarationBinding(
+                    sourceId = "test:inspection",
+                    trainId = input.trainId,
+                    route = FrozenRouteBinding.from(input.route),
+                    definitionRevision = 1L,
+                    trainProfileRevision = 1L,
+                    declarations = listOf(InspectionDeclaration(
+                        declarationId = "test:inspection-entry",
+                        railId = segment.railId,
+                        facing = segment.facing,
+                        triggerRouteDistanceMeters = 100.0,
+                        inspectionDistanceMeters = 300.0
+                    ))
+                )
+            },
+            updateHandler = { input ->
+                updates++
+                listOf(TrainRestrictionSnapshot(
+                    sourceId = "test:inspection",
+                    revision = ++restrictionRevision,
+                    trainId = "T1",
+                    observationStamp = input.observationStamp,
+                    route = input.route,
+                    restrictions = emptyList()
+                ))
+            }
+        )
+        val fixture = fixture(inspectionSources = listOf(source))
+        fixture.service.onRequest = fixture.service::grant
+
+        fixture.start()
+        fixture.dispatch()
+
+        assertTrue(fixture.service.intents.isEmpty())
+        assertEquals(TimetableServiceRunState.WAITING_ROUTE, fixture.status().state)
+
+        fixture.tickAto()
+        fixture.dispatch()
+
+        assertEquals(1, fixture.service.intents.size)
+        assertEquals(1, updates)
+        assertTrue(fixture.ato.publishedState.perceptionHorizonMeters >= 300.0)
     }
 
     @Test
@@ -494,7 +550,8 @@ class TimetableDispatcherSharedAdmissionTest {
             train,
             world,
             KinematicTrainActuator(10.0, profile),
-            profile
+            profile,
+            { 0.0 }
         )
         train.setController(externalAto)
         val service = FakeAdmissionService().also {
@@ -542,7 +599,10 @@ class TimetableDispatcherSharedAdmissionTest {
         assertSame(externalAto, train.controller)
     }
 
-    private fun fixture(withOrdinaryStop: Boolean = false): Fixture {
+    private fun fixture(
+        withOrdinaryStop: Boolean = false,
+        inspectionSources: List<InspectionSource> = emptyList()
+    ): Fixture {
         val world = createTestWorld().also(worlds::add)
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
@@ -582,26 +642,35 @@ class TimetableDispatcherSharedAdmissionTest {
                 TimetableRouteAdmissionContext(fixture.observation(), service)
             },
             signalRestrictions
-        )
+        ) { inspectionRuntime ->
+            inspectionRuntime.replaceSources(inspectionSources)
+        }
         fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions)
         return fixture
     }
 
     private fun sharedDispatcher(
         contextProvider: TimetableRouteAdmissionContextProvider,
-        signalRestrictions: TrainRestrictionSnapshotStore
-    ): TimetableDispatcher = TimetableDispatcher(
-        routeAdmissionContextProvider = contextProvider,
-        signalRestrictionSnapshots = signalRestrictions,
-        atoFactory = TimetableAtoFactory { selectedTrain, selectedWorld ->
-            SimpleATO(
-                selectedTrain,
-                selectedWorld,
-                KinematicTrainActuator(10.0, profile),
-                profile
-            )
-        }
-    )
+        signalRestrictions: TrainRestrictionSnapshotStore,
+        configureInspection: (InspectionRuntime) -> Unit = {}
+    ): TimetableDispatcher {
+        val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, failure -> throw failure }
+        configureInspection(inspectionRuntime)
+        return TimetableDispatcher(
+            routeAdmissionContextProvider = contextProvider,
+            signalRestrictionSnapshots = signalRestrictions,
+            inspectionRuntime = inspectionRuntime,
+            atoFactory = TimetableAtoFactory { selectedTrain, selectedWorld ->
+                SimpleATO(
+                    selectedTrain,
+                    selectedWorld,
+                    KinematicTrainActuator(10.0, profile),
+                    profile,
+                    inspectionRuntime::maximumDeclaredDistanceMeters
+                )
+            }
+        )
+    }
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {
         val tangent = Vector3d(to).sub(from).normalize()

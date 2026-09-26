@@ -11,8 +11,9 @@ import java.util.Collections
  *
  * The callback runs on the serialized railway owner. It must return before the next physics epoch,
  * must not call Bukkit or blocking I/O, and must not defer safety work asynchronously. An empty
- * collection means that this invocation publishes no restriction change; clearing an existing
- * restriction still requires a newer complete snapshot with an empty restriction list.
+ * collection means that a normal declaration update publishes no restriction change; the first
+ * baseline invocation for a new binding must instead return exactly one snapshot. Clearing an
+ * existing restriction still requires a newer complete snapshot with an empty restriction list.
  */
 fun interface InspectionUpdateHandler {
     /** Computes zero or one complete restriction snapshot for this source and train. */
@@ -23,14 +24,16 @@ fun interface InspectionUpdateHandler {
  * Immutable route-local context for one inspection-source update.
  *
  * [declarations] contains only declarations newly active at [routeProgressMeters] or explicitly
- * dirtied since their previous successful dispatch. [perception] is the controller's existing
+ * dirtied since their previous successful dispatch. It is empty exactly for the first baseline
+ * update of a newly compiled binding; that callback must publish one complete snapshot for the new
+ * route, even when the snapshot contains no restrictions. [perception] is the controller's existing
  * shared forward perception; the inspection runtime never performs another route scan.
  *
  * @property observationStamp coherent world state used for any returned restriction snapshot
  * @property route active frozen route to which declarations and returned restrictions are bound
  * @property routeProgressMeters current train-head position measured from the frozen route start
  * @property perception controller's already-computed immutable forward perception
- * @property declarations immutable nonempty declarations requiring this update
+ * @property declarations immutable declarations requiring this update, or empty for binding baseline
  */
 @ConsistentCopyVisibility
 data class InspectionUpdateInput private constructor(
@@ -50,7 +53,6 @@ data class InspectionUpdateInput private constructor(
         require(perception.route.topologyRevision == route.topologyRevision) {
             "perception and route must use the same topology revision"
         }
-        require(declarations.isNotEmpty()) { "inspection update must contain declarations" }
     }
 
     internal companion object {

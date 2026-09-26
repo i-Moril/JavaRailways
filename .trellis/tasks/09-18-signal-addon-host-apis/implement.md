@@ -271,8 +271,12 @@
       source/train, atomically replaces complete bindings, batches newly active/dirty declarations per source, reuses the supplied
       controller perception, validates all callback results before publication and notifies a fail-closed owner on stale/failure
       paths. Failed unpublished work remains dirty; source/train removal adds no recovery state machine or implicit withdrawal.
-    - [ ] Bind that runtime to the actual world/train/source lifecycle, extend the controller's sole perception horizon by the
+    - [x] Bind that runtime to the actual world/train/source lifecycle, extend the controller's sole perception horizon by the
       cached maximum, dispatch from current frozen-route progress and wire failure into the existing restriction fail-closed path.
+      Production and isolated worlds now share one world-local runtime/store; Bukkit exposes authenticated host-route-bound
+      `InspectionSource` providers through the existing signal owner lifecycle. Dispatcher holds a newly widened binding until a
+      later controller publication proves the wider single scan, then dispatches inspection before Basic request/progress. Active-route
+      source reconfiguration fail-closes instead of reusing old perception/permission; forced loss removes dead callbacks after Stall.
 - [x] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup. Observation,
   infrastructure and signal-source services are discoverable through `ServicesManager`; exact world bindings are removed
   on unload. `InfrastructureResourceService.unregisterOwner` is the single planned-disable entry: it checks infrastructure

@@ -145,13 +145,73 @@ inspection调度和具体信号插件composition仍未完成，不能把这次Di
 
 ### 3.4 资源检查距离与响应式更新
 
-监测区变化到同步restriction publication的已实现owner contract见[响应式信号epoch](./reactive-signal-epochs.md)。该接缝只负责area-driven dirty source，不提前冻结下面仍待单独review的resource inspection-distance缓存与共享route perception调度。
+监测区变化到同步restriction publication的已实现owner contract见[响应式信号epoch](./reactive-signal-epochs.md)。该接缝负责
+area-driven dirty source；本节另行冻结资源何时进入列车检查范围。两者可以由同一信号插件组合，但不能演变成两套前方扫描器
+或一个由host维护的通用信号依赖图。
 
-每个可被ATO提前申请的资源通过信号插件提供`InspectionDistance(train)`语义和`update(train)`检查语义。检查距离不是每tick运行任意脚本的理由：依赖路线、资源定义、信号配置或低频列车能力（例如长度、制动等级、车型）的部分按对应revision缓存；当前速度产生的实时制动距离由SimpleATO自己的控制数学每tick计算。有效检查距离取缓存的资源声明与动态制动距离加安全余量中的较大值。Dispatcher 自身的通用 route admission 不等待该插件缓存设计：它只复用控制器已经用于单次前方扫描的 perception horizon，不能因此调用插件代码或增加第二次扫描。
+#### 3.4.1 声明模型与 owner
 
-SimpleATO的一次共享route perception负责判断列车何时进入资源检查范围。首次进入、占用/claim/grant变化、相关配置revision变化或依赖的下游信号状态变化时，调度该资源的`update(train)`；输入和依赖均未变化时资源保持`IDLE`，不重复执行插件代码。信号插件必须显式发布其依赖变化，不能通过每tick全世界轮询来弥补缺失依赖。
+`InspectionDistance(train)`是“这个插件资源对这列车应提前多少米开始检查”的策略语义，不是SimpleATO每tick调用的函数。
+信号插件在冻结路线首次绑定、插件定义变化或列车低频能力变化时计算该语义，并提交一份完整不可变的route-local声明集。
+`train`只表示不可变列车身份和低频能力视图，例如长度、车型或制动等级；当前速度不进入插件缓存键。
 
-具体信号插件可以在Java/Kotlin中实现完整规则，并自行选择JS、YAML或其他配置层。SimpleATO只提供检查调度与最严格限制归约，不规定所有插件必须共用一个JS运行时。
+每个已编译声明至少具有以下语义字段；具体Java类型名仍由实现批次决定：
+
+- namespaced稳定来源ID和资源/信号ID；
+- 当前冻结路线binding及该资源在路线中的occurrence-specific绝对触发米数；
+- 有限、非负的提前检查距离，单位为米；
+- 插件定义revision和列车低频能力revision。
+
+同一rail在环线或折返路线中可以重复出现，因此匹配必须保留route occurrence，不能只用rail UUID去重。一次binding将声明按
+`(rail UUID, AB/BA方向)`建立只读候选索引，并在编译时保存声明距离的最大值；空声明集的最大值为0。插件原子替换完整binding，
+SimpleATO不逐项拼接来自不同route/profile revision的声明。
+
+职责固定为：
+
+- SimpleATO拥有binding、激活状态、动态制动数学和现有单次route perception；
+- 具体信号插件拥有定义索引、`InspectionDistance`策略和下游依赖反向传播；
+- Basic只验证/claim实际提交的资源，不调度检查，也不识别固定闭塞、保护区域或某一信号制式。
+
+#### 3.4.2 单次扫描与激活算法
+
+当前控制器的基础perception horizon按列车最高速度的service braking、reaction time、安全距离和固定扫描余量计算。因此它
+已经覆盖任何当前速度下的动态制动前视。SimpleATO只把本binding的最大插件声明距离并入该horizon：
+
+```text
+baseHorizon = existingControllerPerceptionHorizon(maximumTrainSpeed)
+scanHorizon = max(baseHorizon, binding.maximumDeclaredInspectionDistance)
+segments = scanForwardOnce(trainHead, scanHorizon)
+
+dynamicLookahead = hostStoppingLookahead(currentSpeed)
+for each route occurrence in segments:
+  for each declaration indexed by occurrence.railId + occurrence.direction:
+    if declaration belongs to this exact occurrence:
+      distance = declaration.triggerRouteMetres - currentHeadRouteMetres
+      threshold = max(declaration.declaredInspectionDistance, dynamicLookahead)
+      if 0 <= distance <= threshold and (newlyActive or explicitlyDirty):
+        scheduleUpdate(declaration, immutableObservation)
+```
+
+`segments`同时供车辆、轨道物体、运营停车点和既有constraint provider使用；检查调度不得再调用`peekCurve`、重新寻路或遍历
+完整冻结路线。使用binding最大值可能比每项分别决定扫描长度多看一段路线，这是为保持一次扫描而接受的保守成本，不为尚未证明
+存在的极端短区间另建第二套窗口算法。
+
+#### 3.4.3 缓存失效与响应式更新
+
+以下变化使完整声明binding失效并要求插件重新编译：冻结路线binding变化、来源定义revision变化或列车低频能力revision变化。
+当前速度变化只重算`dynamicLookahead`，不执行插件编译。占用、claim/grant或下游信号状态等运行变化由具体信号插件自己的
+反向索引转换为“哪些稳定声明已dirty”；SimpleATO只记录并调度这些ID，不复制其依赖图。
+
+声明首次进入有效检查范围时激活一次。此后只有显式dirty、完整binding替换或重新进入才调度该声明的`update(train)`语义；
+距离正常变化而输入未变时保持`IDLE`。离开范围只删除激活标记，不凭空撤销插件已经提交的资源或restriction；它们继续遵守
+各自的Basic grant/tail-release或SimpleATO restriction revision生命周期。
+
+如果当前应存在的来源没有可验证的完整binding、binding与route/profile revision不符、dirty后的更新失败，或更新结果未能绑定
+当前world/topology/route，SimpleATO必须在该来源上保持或安装零authority/零速限制，直到新的完整结果成功提交。失效期间不能
+静默沿用旧的permissive结果，也不能退化到每tick全世界轮询。一个来源的失败不允许撤销Basic已有claim，也不改变其他来源的限制。
+
+具体信号插件可以在Java/Kotlin中实现完整规则，并自行选择JS、YAML或其他配置层。SimpleATO只提供检查调度与最严格限制归约，
+不规定所有插件必须共用一个JS运行时。
 
 ## 4. 接口与数据合同
 
@@ -200,6 +260,8 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - production mission route不调用上述Dijkstra。设Core车体跨越`B`个rail occurrence、预选mission含`M`个segment，`FrozenMissionRouteAssembler`在route session建立时做一次`O(B + M)`转换、裁剪和相邻合并；普通下一mission append复制既有`R`个segment并追加`M`项，成本`O(R + M)`且不重新寻路。authority extension复用结果，不重新装配。
 - 当前准入client在首次绑定或成功append后以`O(R)`从segments计算一次restriction route length；pending/denied及普通progress/end的本地状态处理为`O(1)`。完整traversal一致性、资源编译、占用和claim复杂度仍唯一属于Basic。pending期间不轮询路线、不复制资源集合，也不重新发布未变化的旧authority。
 - 一旦路线冻结，前方 perception 对实际扫描长度为线性；一个 controlled train、一个 physics epoch 只做一次，constraint 归约对候选数线性。
+- 资源声明binding编译一次处理`D`个声明，建立索引和最大距离的时间、空间均为`O(D)`。每tick令共享扫描经过`S`个route segment、
+  索引返回`A`个候选声明，则inspection额外时间为`O(S + A)`、动态制动计算为`O(1)`；成本不包含世界总资源数。
 - 外部restriction adapter每次应用只线性转换当前列车的来源与限制`O(S + R)`；不得重新扫描冻结路线、排序来源或调用插件代码。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
 - unchanged stable denial 使用缓存的 typed result 与 revision key；相关 revision 不变时不重复昂贵解析。
@@ -226,7 +288,8 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
   pending/denied不扩大authority，修改旧前缀/topology/plan走replan。折返独立证明暂停释放、同grant rebase和新head零剩余authority。client lookahead policy用独立策略测试，
   复用controller既有perception horizon，并在剩余authority到达既有route-allocation trigger时申请下一段；不另设扫描距离。
 - signal-plugin integration：固定闭塞、保护区域和移动闭塞插件结果都只能收紧限制；附加资源只增加Basic最终union，不能删除物理底线。
-- inspection scheduling：静态/低频检查距离按revision缓存，动态制动距离每tick由host计算；无依赖变化时插件`update(train)`保持IDLE。
+- inspection scheduling：插件只在route/profile/definition变化时编译完整不可变声明；最大声明距离扩展现有单次perception，
+  动态制动距离每tick由host计算；occurrence匹配、首次激活、显式dirty、IDLE和stale fail-close均有独立断言。
 - control pipeline：车辆、停车、信号和 grant candidates 只做一次 perception，并归约到最严格 speed/authority。
 - external restrictions：严格递增revision、不同来源取最严格结果、绝对route metre到剩余距离转换、空新revision撤销、输入集合防御性复制，以及world/topology/route/source failure的零速fail-close。
 - retry：稳定配置错误 revision 不变时不逐 tick 重算；占用释放事件允许重新准入。
@@ -236,9 +299,10 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 
 迁移顺序是：先稳定 Core `TopologyState` 与 Basic route-validation seam，再把当前 Basic 中的运营 route producer、mission/constraint owner 和 Dispatcher client 整体迁入 SimpleATO，最后迁移 Destination、Station、Depot、Line、Timetable 及其持久化/composition。每批只允许一个可写 owner。
 
-准入request/result、单位、preparation descriptor与rolling extension关系已由Basic owner spec冻结。尚未冻结：
-路线 cost policy、overlay持久化边界、信号插件检查/限制接口、具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些
-问题必须在对应实现批次单独审查；signal epoch source/result已经由[响应式信号epoch](./reactive-signal-epochs.md)冻结，但inspection-distance、JS能力和WebUI仍不由本页选择兼容格式。
+准入request/result、单位、preparation descriptor与rolling extension关系已由Basic owner spec冻结；inspection-distance的
+声明、单次扫描、失效和owner语义由本页冻结。尚未冻结：路线 cost policy、overlay持久化边界、这些语义的具体public Java名称、
+具体插件的JS setter/capability/预算，以及WebUI是否独立成模块。这些问题必须在对应实现批次单独审查；signal epoch
+source/result已经由[响应式信号epoch](./reactive-signal-epochs.md)冻结，JS能力和WebUI仍不由本页选择兼容格式。
 
 ```text
 Wrong: SimpleATO selects a destination; Basic searches and chooses the physical route
@@ -246,6 +310,12 @@ Correct: SimpleATO submits one explicit topology-bound traversal; Basic only val
 
 Wrong: MA and FollowConstraint each scan and control the train independently
 Correct: one perception pass produces candidates; one train-protection pipeline reduces them
+
+Wrong: SimpleATO calls every resource's InspectionDistance/update callback on every tick
+Correct: the plugin compiles immutable declarations on low-frequency revision changes; one shared scan activates only matched declarations
+
+Wrong: SimpleATO owns a universal graph describing how every signalling system propagates downstream state
+Correct: each signal plugin publishes its dirty declaration IDs; SimpleATO only schedules and reduces their immutable results
 
 Wrong: Basic and SimpleATO both own mutable copies of the operational graph
 Correct: Core owns TopologyState; SimpleATO owns disposable revision-bound overlay projections

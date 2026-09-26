@@ -73,16 +73,12 @@ When the protection-region exit leads into a fixed block, the plugin can extend 
 
 ### Inspection and reactive updates
 
-**Deferred design review:** The mechanism below is a candidate, not a frozen implementation contract. Before this batch, decide which layer owns dependency tracking, inspection activation and fail-closed invalidation. In particular, avoid duplicating a host scheduler with a signal-plugin scheduler or building multiple reverse indexes and revision-keyed caches without a demonstrated need. The retained requirements are no duplicate forward scan, no unchanged per-tick policy execution, host-owned dynamic braking and no stale permissive authority.
-
-`InspectionDistance(train)` has two parts:
-
-- plugin-declared distance depending on resource definition, route and low-frequency train capabilities, cached by their revisions;
-- dynamic braking distance computed by SimpleATO from live speed each tick.
-
-The effective threshold is the larger value plus margin. Entering the threshold activates the relevant resource for that train. `update(train)` runs on activation or when a declared dependency changes: occupancy, Basic claim/grant, definition revision, timetable/route revision or a downstream signal state. Unchanged resources remain idle.
-
-The plugin maintains a reverse dependency index so a changed region/block invalidates only directly dependent entry signals and then propagates state changes upstream until values stabilize. It does not reevaluate all signals or run arbitrary JS every tick. Scripts, if the plugin offers them, receive immutable bounded views and return requests/restrictions/model variants through plugin-controlled APIs; they never mutate the Minecraft world or Basic registry directly.
+Stage 2 consumes the reviewed declaration, single-scan, activation and fail-closed contract from
+[`operational-routing-and-authority.md`](../../spec/javarailways/simpleato/operational-routing-and-authority.md#34-%E8%B5%84%E6%BA%90%E6%A3%80%E6%9F%A5%E8%B7%9D%E7%A6%BB%E4%B8%8E%E5%93%8D%E5%BA%94%E5%BC%8F%E6%9B%B4%E6%96%B0) rather than defining a second cache model here. The concrete signal plugin compiles
+its per-train/route inspection declarations and owns any downstream reverse-dependency propagation; SimpleATO activates matching
+declarations through its one shared perception and owns current-speed braking. The plugin does not reevaluate all signals or run
+arbitrary JS every tick. Scripts, if the plugin offers them, receive immutable bounded views and return requests/restrictions/model
+variants through plugin-controlled APIs; they never mutate the Minecraft world or Basic registry directly.
 
 ### Rendering and customization
 

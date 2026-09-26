@@ -178,7 +178,7 @@ Signal-package `signal.setSpeedLimit(value)` is defined as the target speed at t
 
 ### Distance-bounded forward observations
 
-The observation shape and distance-bounded forward lookup are product requirements. The reactive scheduling details in this section and under "Runtime lookup and commit cost" are provisional: revisit ownership, cache/index count and cycle handling with the user immediately before implementing them. Do not treat `SignalObservationPlan`, three reverse indexes or SCC evaluation as required infrastructure before that review.
+The observation shape and distance-bounded forward lookup are product requirements. The inspection-scheduler ownership review is now complete: SimpleATO owns only declaration activation through its shared perception, while the concrete signal plugin owns downstream dependency propagation. The plugin-internal cache/index count and cycle algorithm in this section and under "Runtime lookup and commit cost" remain provisional; do not treat `SignalObservationPlan`, three reverse indexes or SCC evaluation as required infrastructure without separate Stage 2 evidence.
 
 Each boundary signal publishes one committed target speed after physical, authority, system-safety, and policy constraints are merged. That scalar is sufficient for one continuous braking target, but it is not a lossless summary of a discrete multi-aspect rule: two downstream situations may give the immediate next signal the same `Y` indication/limit while requiring the current signal to display different indications. A policy must therefore be able to inspect later downstream boundaries when necessary.
 

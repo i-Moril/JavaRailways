@@ -252,7 +252,14 @@
   - [x] Keep presentation out of the Stage 1 host API. The reviewed ownership boundary assigns immutable revisioned
     presentation state, per-object latest-only Bukkit/Folia dispatch and model application to the separately packaged Stage 2
     `SimpleATOBukkit` adapter; do not add a temporary renderer, queue or model-variant vocabulary to `BukkitPlugin`.
-  - [ ] Complete the remaining inspection cache-key and fail-closed invalidation review before coding resource inspection; keep dynamic braking distance in the SimpleATO tick and avoid duplicate forward scans or unchanged per-tick plugin callbacks.
+  - [x] Complete the inspection cache-key, single-scan and fail-closed invalidation review before coding resource inspection. The
+    SimpleATO owner spec now freezes compiled immutable per-train/route declarations, one maximum declared lead distance per binding,
+    occurrence-aware rail/direction lookup, host-owned dynamic braking and plugin-owned dirty propagation. It deliberately adds no
+    host-wide signal dependency graph or per-tick plugin callback.
+  - [ ] Implement the reviewed inspection scheduler as one later code batch: validate and atomically replace complete declaration
+    bindings; extend the existing single perception horizon by the cached maximum; activate occurrence-matched declarations by the
+    larger of declared lead and current host braking lookahead; invoke plugin updates only for newly active or explicitly dirtied
+    declarations; fail closed while an expected source binding/result is invalid or stale.
 - [x] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup. Observation,
   infrastructure and signal-source services are discoverable through `ServicesManager`; exact world bindings are removed
   on unload. `InfrastructureResourceService.unregisterOwner` is the single planned-disable entry: it checks infrastructure

@@ -168,12 +168,15 @@ class WorldManager internal constructor(
                     }
                     }
                 )
-                infrastructureResourceService?.attachRouteAdmission(
+                infrastructureResourceService?.attachInfrastructureRuntime(
                     worldId = bukkitWorld.uid,
                     world = railWorld,
                     latestObservation = {
                         observationService?.latest(bukkitWorld.uid)?.orElse(null)
                     },
+                    awaitCurrentPhysics = { railWorld.awaitCurrentPhysicsEpoch() },
+                    turnoutLockingDistanceMeters = railWorld.basicWorldData
+                        .turnoutSafetyDefaults.lockingDistanceMeters,
                     stallWorld = { reason, failure ->
                         stallInfrastructureRuntime(bukkitWorld, railWorld, reason, failure)
                     }

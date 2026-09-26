@@ -15,6 +15,8 @@ import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContribut
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies;
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest;
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult;
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
@@ -149,8 +151,11 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             var routeAdmission = services.infrastructure().routeAdmission(this, worldId);
             var routeIntent = routeIntentExample(observation.getStamp());
             Function<RouteResourceIntent, RouteAdmissionResult> requestRoute = routeAdmission::request;
+            Function<ManualTurnoutSelectionRequest, ManualTurnoutSelectionResult> selectTurnout =
+                selection -> services.infrastructure().selectTurnout(this, worldId, selection);
             getLogger().fine("Route-resource request: " + routeIntent.getRequestId());
             getLogger().finest("Route-resource submitter: " + requestRoute);
+            getLogger().finest("Manual turnout selector: " + selectTurnout);
         });
     }
 

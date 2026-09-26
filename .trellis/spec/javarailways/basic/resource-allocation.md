@@ -18,7 +18,11 @@ claim，设备准备完成后才发布grant；同一route的更远authority使�
 收紧；terminal、stop、failure或插件调用方消失都不能越权释放。
 
 旧`RouteSectionAllocator`、Confirmed Route Window、Dispatcher section状态及专用RailWand allocation guard已删除。
-道岔切换由Basic preparation actuator执行；编辑阻止统一由registry live claim与common edit permit完成。
+自动道岔切换和显式手动切换共用Basic的唯一双向live-selection原语。自动切换只发生在完整route claim建立之后；
+手动切换先以独立短生命周期owner临时claim该turnout resource，因而与active route claim和edit permit互斥，
+但不生成grant、movement authority、release queue或ATO状态。手动操作等待当前physics epoch完成，再检查turnout每个port
+向内`lockingDistanceMeters`范围的已发布列车占用；任一区间被占用即拒绝。成功、物理占用拒绝和stale返回都在方法结束前
+释放临时claim。已经双向对齐的选择为`UNCHANGED`且不写live state。
 
 ## Applied-plan dependency、live claim 与 edit guard
 

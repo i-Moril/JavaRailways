@@ -6,6 +6,8 @@ import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRe
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencySnapshot;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest;
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult;
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 
@@ -43,6 +45,21 @@ public interface InfrastructureResourceService {
      *                               for the requested world
      */
     RouteResourceAdmissionService routeAdmission(Plugin pluginOwner, UUID worldId);
+
+    /**
+     * Selects one legal turnout continuation after checking live route claims and physical occupancy.
+     *
+     * <p>The request uses stable rail-endpoint identities in one topology revision. The call is
+     * serialized with the railway simulation and may block until the current physics epoch finishes.
+     * A successful call mutates the live turnout selection, but never creates a route grant,
+     * movement authority, persisted plan, or long-lived resource claim. The returned result is a
+     * detached value; world unload or service shutdown returns {@code WORLD_UNAVAILABLE}.</p>
+     */
+    ManualTurnoutSelectionResult selectTurnout(
+        Plugin pluginOwner,
+        UUID worldId,
+        ManualTurnoutSelectionRequest request
+    );
 
     /**
      * Registers the authoritative resolver for one namespaced stable resource type.

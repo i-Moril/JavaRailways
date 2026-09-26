@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.api.internal
 
+import org.joml.Vector3d
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -15,6 +16,8 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionStatus
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
@@ -38,12 +41,16 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
@@ -53,10 +60,62 @@ import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
 import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
+import work.art1st.javarailways.core.physics.createRailForTest
+import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.train.createTestWorld
 import java.lang.reflect.Proxy
 import java.util.UUID
 
 class DefaultInfrastructureResourceServiceTest {
+    @Test
+    fun `public service performs guarded manual turnout selection without retaining a claim`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val requester = plugin("operator")
+        val world = createTestWorld()
+        try {
+            val stem = world.createRailForTest(straightCurve(-10.0, 0.0, 0.0))
+            val first = world.createRailForTest(straightCurve(0.0, 10.0, -5.0))
+            val second = world.createRailForTest(straightCurve(0.0, 10.0, 5.0))
+            CoreRail.connect(stem, first)
+            CoreRail.connect(stem, second)
+            service.registerWorld(worldId, world::topologyRevision) { resource ->
+                resource is RailIntervalResource && world.getRail(resource.railId) != null ||
+                    resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
+            }
+            var physicsWaits = 0
+            service.attachInfrastructureRuntime(
+                worldId,
+                world,
+                latestObservation = { null },
+                awaitCurrentPhysics = { physicsWaits++ },
+                turnoutLockingDistanceMeters = 5.0
+            ) { reason, failure ->
+                throw IllegalStateException("unexpected stall: $reason", failure)
+            }
+
+            val result = service.selectTurnout(
+                requester,
+                worldId,
+                ManualTurnoutSelectionRequest(
+                    world.topologyRevision,
+                    RailEndpointRef(stem.id, RailEndpoint.B),
+                    RailEndpointRef(first.id, RailEndpoint.A)
+                )
+            )
+
+            assertEquals(ManualTurnoutSelectionStatus.SELECTED, result.status)
+            assertSame(first.viewAB, stem.viewAB.nextActiveRail)
+            assertSame(stem.viewBA, first.viewBA.nextActiveRail)
+            assertEquals(1, physicsWaits)
+            assertTrue(service.liveClaims(worldId).isEmpty())
+        } finally {
+            service.close()
+            world.physicsCoordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
     @Test
     fun `Basic-owned diamond is claimable without an external resource provider`() {
         val service = DefaultInfrastructureResourceService()
@@ -80,7 +139,9 @@ class DefaultInfrastructureResourceServiceTest {
             resource is RailIntervalResource && resource.railId in setOf(firstRail, secondRail) ||
                 resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
-        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, failure ->
+        service.attachInfrastructureRuntime(
+            worldId, TestWorld(topology), { observation }, {}, 5.0
+        ) { reason, failure ->
             throw IllegalStateException("unexpected stall: $reason", failure)
         }
 
@@ -117,7 +178,9 @@ class DefaultInfrastructureResourceServiceTest {
         service.registerWorld(worldId, { topology.revision }) { resource ->
             resource is RailIntervalResource && resource.railId == railId
         }
-        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, failure ->
+        service.attachInfrastructureRuntime(
+            worldId, TestWorld(topology), { observation }, {}, 5.0
+        ) { reason, failure ->
             throw IllegalStateException("unexpected stall: $reason", failure)
         }
         val admission = service.routeAdmission(requester, worldId)
@@ -167,7 +230,9 @@ class DefaultInfrastructureResourceServiceTest {
                 admission.request(intent)).failure.code
         )
         service.registerWorld(worldId, { topology.revision }) { false }
-        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { _, _ -> }
+        service.attachInfrastructureRuntime(
+            worldId, TestWorld(topology), { observation }, {}, 5.0
+        ) { _, _ -> }
         assertEquals(
             RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
             assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
@@ -188,7 +253,9 @@ class DefaultInfrastructureResourceServiceTest {
         service.registerWorld(worldId, { topology.revision }) { resource ->
             resource is RailIntervalResource && resource.railId == railId
         }
-        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, _ ->
+        service.attachInfrastructureRuntime(
+            worldId, TestWorld(topology), { observation }, {}, 5.0
+        ) { reason, _ ->
             stalls += reason
         }
         val admission = service.routeAdmission(requester, worldId)
@@ -236,7 +303,9 @@ class DefaultInfrastructureResourceServiceTest {
         service.registerWorld(worldId, { topology.revision }) { resource ->
             resource is RailIntervalResource && resource.railId == railId
         }
-        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, _ ->
+        service.attachInfrastructureRuntime(
+            worldId, TestWorld(topology), { observation }, {}, 5.0
+        ) { reason, _ ->
             stalls += reason
         }
         val intent = RouteResourceIntent(
@@ -303,7 +372,9 @@ class DefaultInfrastructureResourceServiceTest {
             resource is RailIntervalResource && resource.railId == railId ||
                 resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
-        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, _ ->
+        service.attachInfrastructureRuntime(
+            worldId, TestWorld(topology), { observation }, {}, 5.0
+        ) { reason, _ ->
             stalls += reason
         }
         val admission = service.routeAdmission(requester, worldId)
@@ -408,7 +479,9 @@ class DefaultInfrastructureResourceServiceTest {
             claimed is RailIntervalResource && claimed.railId == railId ||
                 claimed is StableInfrastructureResource && service.stableResourceExists(worldId, claimed)
         }
-        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, failure ->
+        service.attachInfrastructureRuntime(
+            worldId, TestWorld(topology), { observation }, {}, 5.0
+        ) { reason, failure ->
             throw IllegalStateException("unexpected stall: $reason", failure)
         }
         val admission = service.routeAdmission(requester, worldId)
@@ -447,13 +520,17 @@ class DefaultInfrastructureResourceServiceTest {
             RailwayWorldFrameSnapshot.create(1L, topology.revision, emptyList())
         )
         service.registerWorld(worldId, { topology.revision }) { false }
-        service.attachRouteAdmission(worldId, world, { observation }) { reason, failure ->
+        service.attachInfrastructureRuntime(
+            worldId, world, { observation }, {}, 5.0
+        ) { reason, failure ->
             throw IllegalStateException("unexpected stall: $reason", failure)
         }
 
         service.consumeObservation(worldId, observation)
         assertThrows(IllegalStateException::class.java) {
-            service.attachRouteAdmission(worldId, world, { observation }) { _, _ -> }
+            service.attachInfrastructureRuntime(
+                worldId, world, { observation }, {}, 5.0
+            ) { _, _ -> }
         }
 
         service.removeWorld(worldId)
@@ -721,7 +798,9 @@ class DefaultInfrastructureResourceServiceTest {
             resource is RailIntervalResource && resource.railId == railId ||
                 resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
-        service.attachRouteAdmission(worldId, TestWorld(topology), { observation }) { reason, _ -> stalls += reason }
+        service.attachInfrastructureRuntime(
+            worldId, TestWorld(topology), { observation }, {}, 5.0
+        ) { reason, _ -> stalls += reason }
         assertEquals(
             AppliedPlanDependencyMutationStatus.APPLIED,
             service.setAppliedPlanDependencies(
@@ -957,5 +1036,16 @@ class DefaultInfrastructureResourceServiceTest {
         java.lang.Double.TYPE -> 0.0
         java.lang.Character.TYPE -> '\u0000'
         else -> null
+    }
+
+    private fun straightCurve(fromX: Double, toX: Double, toZ: Double): PrimeCurve {
+        val from = Vector3d(fromX, 0.0, 0.0)
+        val to = Vector3d(toX, 0.0, toZ)
+        val tangent = Vector3d(to).sub(from).normalize()
+        val normal = Vector3d(0.0, 1.0, 0.0)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(from, tangent, normal, 0.0, Curve.SegmentType.LINE_START),
+            Curve.RawPoint(to, tangent, normal, from.distance(to), Curve.SegmentType.LINE_END)
+        ))
     }
 }

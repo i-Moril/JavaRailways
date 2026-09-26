@@ -10,6 +10,9 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationR
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionStatus
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
@@ -28,6 +31,7 @@ import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.basic.infrastructure.ManualTurnoutSelectionRuntime
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
@@ -48,6 +52,7 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
     private data class WorldRuntime(
         val registry: InfrastructureCoordinationRegistry,
         var routeAdmission: RouteResourceAdmissionRuntime? = null,
+        var manualTurnoutSelection: ManualTurnoutSelectionRuntime? = null,
         var stallWorld: ((String, Exception) -> Unit)? = null
     )
 
@@ -80,17 +85,21 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
     }
 
     /** Completes world composition after Basic data is attached and before the first physics wake. */
-    fun attachRouteAdmission(
+    fun attachInfrastructureRuntime(
         worldId: UUID,
         world: World,
         latestObservation: () -> RailwayObservation?,
+        awaitCurrentPhysics: () -> Unit,
+        turnoutLockingDistanceMeters: Double,
         stallWorld: (String, Exception) -> Unit
     ) = BukkitThreadGuardBridge.runInSimulationContext {
         val runtime = synchronized(lock) {
             check(!closed) { "InfrastructureResourceService is closed" }
             checkNotNull(worlds[worldId]) { "Infrastructure coordination is not registered for world $worldId" }
         }
-        check(runtime.routeAdmission == null) { "Route admission runtime already exists for world $worldId" }
+        check(runtime.routeAdmission == null && runtime.manualTurnoutSelection == null) {
+            "Infrastructure runtime already exists for world $worldId"
+        }
         val admission = RouteResourceAdmissionRuntime.create(
             worldId = worldId.toString(),
             world = world,
@@ -110,11 +119,20 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
             },
             stallWorld = stallWorld
         )
+        val manualTurnoutSelection = ManualTurnoutSelectionRuntime(
+            world,
+            runtime.registry,
+            awaitCurrentPhysics,
+            turnoutLockingDistanceMeters
+        )
         synchronized(lock) {
-            check(!closed && worlds[worldId] === runtime && runtime.routeAdmission == null) {
-                "railway world changed while attaching route admission for $worldId"
+            check(!closed && worlds[worldId] === runtime && runtime.routeAdmission == null &&
+                runtime.manualTurnoutSelection == null
+            ) {
+                "railway world changed while attaching infrastructure runtime for $worldId"
             }
             runtime.routeAdmission = admission
+            runtime.manualTurnoutSelection = manualTurnoutSelection
             runtime.stallWorld = stallWorld
         }
     }
@@ -271,6 +289,21 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
         return BoundRouteAdmissionService(requester, worldId, worldRuntime)
     }
 
+    override fun selectTurnout(
+        pluginOwner: Plugin,
+        worldId: UUID,
+        request: ManualTurnoutSelectionRequest
+    ): ManualTurnoutSelectionResult = BukkitThreadGuardBridge.runInSimulationContext {
+        val requester = requireEnabled(pluginOwner)
+        val runtime = synchronized(lock) {
+            if (closed) null else worlds[worldId]?.manualTurnoutSelection
+        } ?: return@runInSimulationContext ManualTurnoutSelectionResult(
+            ManualTurnoutSelectionStatus.WORLD_UNAVAILABLE,
+            detail = "manual turnout runtime is unavailable for world $worldId"
+        )
+        runtime.select(requester, request)
+    }
+
     private inner class BoundRouteAdmissionService(
         private val requester: Plugin,
         private val worldId: UUID,
@@ -419,6 +452,7 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
     fun removeWorld(worldId: UUID) {
         BukkitThreadGuardBridge.runInSimulationContext {
             synchronized(lock) { worlds.remove(worldId) }?.let { runtime ->
+                runtime.manualTurnoutSelection?.close()
                 runtime.routeAdmission?.close()
                 runtime.registry.close()
             }
@@ -611,6 +645,7 @@ internal class DefaultInfrastructureResourceService : InfrastructureResourceServ
                 worlds.values.toList().also { worlds.clear() }
             }
             snapshot.forEach { runtime ->
+                runtime.manualTurnoutSelection?.close()
                 runtime.routeAdmission?.close()
                 runtime.registry.close()
             }

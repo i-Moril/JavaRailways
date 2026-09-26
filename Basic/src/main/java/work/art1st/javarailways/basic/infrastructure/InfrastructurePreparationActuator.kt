@@ -7,9 +7,6 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationState
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailView
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
-import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
-import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 
 /** Result of asking the physical actuator to begin one validated preparation batch. */
@@ -44,6 +41,8 @@ internal class LiveInfrastructurePreparationActuator(
         ResourcePreparationDescriptor
     ) -> (() -> ResourcePreparationTicket)? = { _, _ -> null }
 ) : InfrastructurePreparationActuator {
+    private val turnoutSelection = LiveTurnoutSelection(world)
+
     @MainThread
     override fun start(
         requirements: List<InfrastructurePreparationRequirement>
@@ -52,13 +51,13 @@ internal class LiveInfrastructurePreparationActuator(
             requirements.map { requirement ->
                 when (requirement) {
                     is ResolvedTurnoutSelection -> {
-                        val operations = resolveBidirectional(requirement)
+                        val prepared = turnoutSelection.resolve(
+                            requirement.resource,
+                            requirement.fromPort,
+                            requirement.toPort
+                        )
                         val starter: () -> ResourcePreparationTicket = {
-                            operations.forEach { operation ->
-                                if (operation.from.nextActiveRail !== operation.to) {
-                                    operation.from.selectNextRail(operation.to)
-                                }
-                            }
+                            prepared.apply()
                             ReadyTicket
                         }
                         starter
@@ -155,38 +154,5 @@ internal class LiveInfrastructurePreparationActuator(
             }
         }
     }
-
-    private fun resolveBidirectional(selection: ResolvedTurnoutSelection): List<SelectionOperation> {
-        val from = arrivingView(selection.fromPort)
-        val to = arrivingView(selection.toPort)
-        val fromTarget = to.reversed
-        val toTarget = from.reversed
-        require(from.nextRails.any { it === fromTarget }) {
-            "turnout continuation no longer exists: ${selection.fromPort} -> ${selection.toPort}"
-        }
-        require(to.nextRails.any { it === toTarget }) {
-            "reverse turnout continuation no longer exists: ${selection.toPort} -> ${selection.fromPort}"
-        }
-        return listOf(
-            SelectionOperation(from, fromTarget),
-            SelectionOperation(to, toTarget)
-        )
-    }
-
-    private fun arrivingView(port: RailEndpointRef): RailView {
-        val rail = requireNotNull(world.getRail(port.railId)) {
-            "turnout port rail no longer exists: ${port.railId}"
-        }
-        val direction = when (port.endpoint) {
-            RailEndpoint.A -> ViewDirection.BA
-            RailEndpoint.B -> ViewDirection.AB
-        }
-        return rail.getView(direction)
-    }
-
-    private data class SelectionOperation(
-        val from: RailView,
-        val to: RailView
-    )
 
 }

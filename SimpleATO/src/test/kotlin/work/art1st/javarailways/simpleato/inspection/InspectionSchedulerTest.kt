@@ -54,12 +54,9 @@ class InspectionSchedulerTest {
 
         assertEquals(100.0, compiled.maximumDeclaredInspectionDistanceMeters, 0.0)
         assertEquals(
-            listOf("test:repeated"),
-            compiled.declarationsAt(occurrence(2, firstRail, ViewDirection.AB)).map { it.declarationId }
+            listOf("test:first", "test:repeated"),
+            compiled.declarationsBetween(0.0, 300.0).map { it.declarationId }
         )
-        assertThrows(IllegalArgumentException::class.java) {
-            compiled.declarationsAt(occurrence(2, secondRail, ViewDirection.BA))
-        }
         assertThrows(IllegalArgumentException::class.java) {
             CompiledInspectionBinding.compile(
                 binding(listOf(declaration("test:first", firstRail, ViewDirection.AB, 50.0, 30.0))),
@@ -77,17 +74,13 @@ class InspectionSchedulerTest {
     }
 
     @Test
-    fun `scheduler activates only the encountered repeated occurrence`() {
+    fun `scheduler distinguishes a repeated rail by absolute route position`() {
         val scheduler = scheduler(
             declaration("test:first", firstRail, ViewDirection.AB, 50.0, 200.0),
             declaration("test:repeated", firstRail, ViewDirection.AB, 250.0, 100.0)
         )
 
-        val updates = scheduler.updatesFor(
-            listOf(occurrence(2, firstRail, ViewDirection.AB)),
-            currentHeadRouteDistanceMeters = 160.0,
-            dynamicLookaheadMeters = 40.0
-        )
+        val updates = scheduler.updatesFor(160.0, 40.0)
 
         assertEquals(listOf("test:repeated"), updates.map { it.declarationId })
     }
@@ -98,11 +91,7 @@ class InspectionSchedulerTest {
             declaration("test:dynamic", secondRail, ViewDirection.BA, 150.0, 10.0)
         )
 
-        val updates = scheduler.updatesFor(
-            listOf(occurrence(1, secondRail, ViewDirection.BA)),
-            currentHeadRouteDistanceMeters = 100.0,
-            dynamicLookaheadMeters = 60.0
-        )
+        val updates = scheduler.updatesFor(100.0, 60.0)
 
         assertEquals(listOf("test:dynamic"), updates.map { it.declarationId })
     }
@@ -112,13 +101,11 @@ class InspectionSchedulerTest {
         val scheduler = scheduler(
             declaration("test:idle", secondRail, ViewDirection.BA, 150.0, 60.0)
         )
-        val perception = listOf(occurrence(1, secondRail, ViewDirection.BA))
-
-        assertEquals(1, scheduler.updatesFor(perception, 100.0, 0.0).size)
-        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(perception, 110.0, 0.0))
+        assertEquals(1, scheduler.updatesFor(100.0, 0.0).size)
+        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(110.0, 0.0))
         scheduler.markDirty(listOf("test:idle"))
-        assertEquals(listOf("test:idle"), scheduler.updatesFor(perception, 120.0, 0.0).map { it.declarationId })
-        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(perception, 125.0, 0.0))
+        assertEquals(listOf("test:idle"), scheduler.updatesFor(120.0, 0.0).map { it.declarationId })
+        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(125.0, 0.0))
     }
 
     @Test
@@ -126,11 +113,10 @@ class InspectionSchedulerTest {
         val scheduler = scheduler(
             declaration("test:later", secondRail, ViewDirection.BA, 150.0, 20.0)
         )
-        val perception = listOf(occurrence(1, secondRail, ViewDirection.BA))
         scheduler.markDirty(listOf("test:later"))
 
-        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(perception, 100.0, 0.0))
-        assertEquals(listOf("test:later"), scheduler.updatesFor(perception, 135.0, 0.0).map { it.declarationId })
+        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(100.0, 0.0))
+        assertEquals(listOf("test:later"), scheduler.updatesFor(135.0, 0.0).map { it.declarationId })
     }
 
     @Test
@@ -138,11 +124,9 @@ class InspectionSchedulerTest {
         val scheduler = scheduler(
             declaration("test:reenter", firstRail, ViewDirection.AB, 50.0, 20.0)
         )
-        val perception = listOf(occurrence(0, firstRail, ViewDirection.AB))
-
-        assertEquals(1, scheduler.updatesFor(perception, 35.0, 0.0).size)
-        assertEquals(0, scheduler.updatesFor(perception, 0.0, 0.0).size)
-        assertEquals(1, scheduler.updatesFor(perception, 35.0, 0.0).size)
+        assertEquals(1, scheduler.updatesFor(35.0, 0.0).size)
+        assertEquals(0, scheduler.updatesFor(0.0, 0.0).size)
+        assertEquals(1, scheduler.updatesFor(35.0, 0.0).size)
     }
 
     @Test
@@ -150,8 +134,7 @@ class InspectionSchedulerTest {
         val scheduler = scheduler(
             declaration("test:first", firstRail, ViewDirection.AB, 50.0, 20.0)
         )
-        val perception = listOf(occurrence(0, firstRail, ViewDirection.AB))
-        assertEquals(1, scheduler.updatesFor(perception, 35.0, 0.0).size)
+        assertEquals(1, scheduler.updatesFor(35.0, 0.0).size)
         assertThrows(IllegalArgumentException::class.java) {
             scheduler.markDirty(listOf("test:missing"))
         }
@@ -162,27 +145,22 @@ class InspectionSchedulerTest {
 
         assertEquals(
             listOf("test:replacement"),
-            scheduler.updatesFor(perception, 35.0, 0.0).map { it.declarationId }
+            scheduler.updatesFor(35.0, 0.0).map { it.declarationId }
         )
     }
 
     @Test
-    fun `scheduler rejects perception occurrences outside frozen route order`() {
+    fun `scheduler uses a binary trigger window and each declaration threshold`() {
         val scheduler = scheduler(
-            declaration("test:first", firstRail, ViewDirection.AB, 50.0, 300.0),
-            declaration("test:second", firstRail, ViewDirection.AB, 250.0, 300.0)
+            declaration("test:short", secondRail, ViewDirection.BA, 120.0, 10.0),
+            declaration("test:long", secondRail, ViewDirection.BA, 180.0, 100.0),
+            declaration("test:outside", firstRail, ViewDirection.AB, 250.0, 20.0)
         )
 
-        assertThrows(IllegalArgumentException::class.java) {
-            scheduler.updatesFor(
-                listOf(
-                    occurrence(2, firstRail, ViewDirection.AB),
-                    occurrence(0, firstRail, ViewDirection.AB)
-                ),
-                currentHeadRouteDistanceMeters = 0.0,
-                dynamicLookaheadMeters = 0.0
-            )
-        }
+        assertEquals(
+            listOf("test:long"),
+            scheduler.updatesFor(100.0, 0.0).map { it.declarationId }
+        )
     }
 
     private fun scheduler(vararg declarations: InspectionDeclaration) =
@@ -207,9 +185,6 @@ class InspectionSchedulerTest {
         triggerDistance: Double,
         inspectionDistance: Double
     ) = InspectionDeclaration(id, railId, facing, triggerDistance, inspectionDistance)
-
-    private fun occurrence(index: Int, railId: UUID, facing: ViewDirection) =
-        InspectionPerceptionOccurrence(index, railId, facing)
 
     private fun segment(railId: UUID, facing: ViewDirection) =
         RouteSegmentSnapshot(railId, facing, 0.0, 100.0)

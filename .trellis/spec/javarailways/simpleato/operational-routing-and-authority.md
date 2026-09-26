@@ -163,9 +163,9 @@ area-driven dirty source；本节另行冻结资源何时进入列车检查范�
 - 有限、非负的提前检查距离，单位为米；
 - 插件定义revision和列车低频能力revision。
 
-同一rail在环线或折返路线中可以重复出现，因此匹配必须保留route occurrence，不能只用rail UUID去重。编译器先用路线累计
-距离二分定位声明的segment occurrence，再按`(rail UUID, AB/BA方向, segment occurrence)`建立只读候选索引，并保存声明距离的
-最大值；空声明集的最大值为0。插件原子替换完整binding，SimpleATO不逐项拼接来自不同route/profile revision的声明。
+同一rail在环线或折返路线中可以重复出现，因此不能只用rail UUID定位声明。编译器先用路线累计距离二分定位声明的唯一
+segment occurrence，并以声明携带的rail UUID和AB/BA方向做一次交叉验证；随后只需按occurrence-specific绝对触发米数排序声明，
+并保存声明距离的最大值。空声明集的最大值为0。插件原子替换完整binding，SimpleATO不逐项拼接来自不同route/profile revision的声明。
 
 职责固定为：
 
@@ -181,21 +181,23 @@ area-driven dirty source；本节另行冻结资源何时进入列车检查范�
 ```text
 baseHorizon = existingControllerPerceptionHorizon(maximumTrainSpeed)
 scanHorizon = max(baseHorizon, binding.maximumDeclaredInspectionDistance)
-segments = scanForwardOnce(trainHead, scanHorizon)
+perception = scanForwardOnce(trainHead, scanHorizon)
 
 dynamicLookahead = hostStoppingLookahead(currentSpeed)
-for each route occurrence in segments:
-  for each declaration indexed by occurrence.railId + occurrence.direction:
-    if declaration belongs to this exact occurrence:
-      distance = declaration.triggerRouteMetres - currentHeadRouteMetres
-      threshold = max(declaration.declaredInspectionDistance, dynamicLookahead)
-      if 0 <= distance <= threshold and (newlyActive or explicitlyDirty):
-        scheduleUpdate(declaration, immutableObservation)
+candidates = declarations.binaryRange(
+  currentHeadRouteMetres,
+  currentHeadRouteMetres + max(binding.maximumDeclaredInspectionDistance, dynamicLookahead)
+)
+for each declaration in candidates:
+  distance = declaration.triggerRouteMetres - currentHeadRouteMetres
+  threshold = max(declaration.declaredInspectionDistance, dynamicLookahead)
+  if distance <= threshold and (newlyActive or explicitlyDirty):
+    scheduleUpdate(declaration, immutableObservation, perception)
 ```
 
-`segments`同时供车辆、轨道物体、运营停车点和既有constraint provider使用；检查调度不得再调用`peekCurve`、重新寻路或遍历
-完整冻结路线。使用binding最大值可能比每项分别决定扫描长度多看一段路线，这是为保持一次扫描而接受的保守成本，不为尚未证明
-存在的极端短区间另建第二套窗口算法。
+`perception`同时供车辆、轨道物体、运营停车点、既有constraint provider和插件更新使用；声明激活只查询排序后的绝对路线坐标，
+不得再调用`peekCurve`、重新寻路或遍历完整冻结路线。使用binding最大值可能比每项分别决定扫描长度多看一段路线，这是为保持
+一次扫描而接受的保守成本，不为尚未证明存在的极端短区间另建第二套窗口算法。
 
 #### 3.4.3 缓存失效与响应式更新
 
@@ -261,9 +263,10 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - production mission route不调用上述Dijkstra。设Core车体跨越`B`个rail occurrence、预选mission含`M`个segment，`FrozenMissionRouteAssembler`在route session建立时做一次`O(B + M)`转换、裁剪和相邻合并；普通下一mission append复制既有`R`个segment并追加`M`项，成本`O(R + M)`且不重新寻路。authority extension复用结果，不重新装配。
 - 当前准入client在首次绑定或成功append后以`O(R)`从segments计算一次restriction route length；pending/denied及普通progress/end的本地状态处理为`O(1)`。完整traversal一致性、资源编译、占用和claim复杂度仍唯一属于Basic。pending期间不轮询路线、不复制资源集合，也不重新发布未变化的旧authority。
 - 一旦路线冻结，前方 perception 对实际扫描长度为线性；一个 controlled train、一个 physics epoch 只做一次，constraint 归约对候选数线性。
-- 令冻结路线有`S_r`个segment、binding有`D`个声明。编译先以`O(S_r)`建立累计距离，再为每个声明以二分定位occurrence，
-  总时间为`O(S_r + D log S_r)`、空间为`O(S_r + D)`。每tick令共享扫描经过`S`个route segment、索引返回`A`个候选声明，
-  则inspection额外时间为`O(S + A)`、动态制动计算为`O(1)`；成本不包含世界总资源数。
+- 令冻结路线有`S_r`个segment、binding有`D`个声明。编译先以`O(S_r)`建立累计距离，再为每个声明以二分定位occurrence并将
+  声明按触发位置排序，总时间为`O(S_r + D log S_r + D log D)`、空间为`O(S_r + D)`。每tick在声明数组中以两次二分取得前方
+  候选窗口，再按每项阈值过滤；令窗口内有`A`个候选，则inspection额外时间为`O(log D + A)`，共享perception本身仍按实际扫描
+  长度线性、动态制动计算为`O(1)`；成本不包含世界总资源数，也不再构造route occurrence索引。
 - 外部restriction adapter每次应用只线性转换当前列车的来源与限制`O(S + R)`；不得重新扫描冻结路线、排序来源或调用插件代码。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
 - unchanged stable denial 使用缓存的 typed result 与 revision key；相关 revision 不变时不重复昂贵解析。
@@ -291,7 +294,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
   复用controller既有perception horizon，并在剩余authority到达既有route-allocation trigger时申请下一段；不另设扫描距离。
 - signal-plugin integration：固定闭塞、保护区域和移动闭塞插件结果都只能收紧限制；附加资源只增加Basic最终union，不能删除物理底线。
 - inspection scheduling：插件只在route/profile/definition变化时编译完整不可变声明；最大声明距离扩展现有单次perception，
-  动态制动距离每tick由host计算；occurrence匹配、首次激活、显式dirty、IDLE和stale fail-close均有独立断言。
+  动态制动距离每tick由host计算；编译期occurrence验证、绝对路线坐标激活、首次激活、显式dirty、IDLE和stale fail-close均有独立断言。
 - control pipeline：车辆、停车、信号和 grant candidates 只做一次 perception，并归约到最严格 speed/authority。
 - external restrictions：严格递增revision、不同来源取最严格结果、绝对route metre到剩余距离转换、空新revision撤销、输入集合防御性复制，以及world/topology/route/source failure的零速fail-close。
 - retry：稳定配置错误 revision 不变时不逐 tick 重算；占用释放事件允许重新准入。

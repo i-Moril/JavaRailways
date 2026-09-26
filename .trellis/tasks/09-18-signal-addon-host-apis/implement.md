@@ -254,19 +254,21 @@
     `SimpleATOBukkit` adapter; do not add a temporary renderer, queue or model-variant vocabulary to `BukkitPlugin`.
   - [x] Complete the inspection cache-key, single-scan and fail-closed invalidation review before coding resource inspection. The
     SimpleATO owner spec now freezes compiled immutable per-train/route declarations, one maximum declared lead distance per binding,
-    occurrence-aware rail/direction lookup, host-owned dynamic braking and plugin-owned dirty propagation. It deliberately adds no
+    compile-time route-anchor validation, absolute route-coordinate activation, host-owned dynamic braking and plugin-owned dirty propagation. It deliberately adds no
     host-wide signal dependency graph or per-tick plugin callback.
   - [ ] Implement the reviewed inspection scheduler as one later code batch: validate and atomically replace complete declaration
-    bindings; extend the existing single perception horizon by the cached maximum; activate occurrence-matched declarations by the
+    bindings; extend the existing single perception horizon by the cached maximum; activate route-coordinate-matched declarations by the
     larger of declared lead and current host braking lookahead; invoke plugin updates only for newly active or explicitly dirtied
     declarations; fail closed while an expected source binding/result is invalid or stale.
     - [x] Add the public immutable `FrozenRouteBinding`, `InspectionDeclaration` and complete
       `InspectionDeclarationBinding`; remove the restriction-specific route-binding name instead of duplicating it. Add a pure
       compiler that validates exact route occurrence by cumulative-distance binary search, caches the maximum declared lead and
-      indexes by rail/direction/occurrence. Add the stateful pure activation filter with explicit dirty input and IDLE behavior,
-      plus focused tests. No Bukkit publication service or plugin callback is wired in this foundation batch.
-    - [ ] Bind complete declaration replacement to world/train/source lifecycle, feed occurrences from the existing controller
-      perception, dispatch actual plugin updates and mark the associated restriction source unavailable on stale/failure paths.
+      sorts declarations by their occurrence-specific absolute route coordinate. Add the stateful pure activation filter with
+      binary candidate lookup, explicit dirty input and IDLE behavior, plus focused tests. No Bukkit publication service or plugin
+      callback is wired in this foundation batch. The initial runtime occurrence index was removed after review because the
+      validated absolute route coordinate already distinguishes repeated rail occurrences.
+    - [ ] Bind complete declaration replacement to world/train/source lifecycle, feed current route progress plus the existing
+      controller perception to plugin updates and mark the associated restriction source unavailable on stale/failure paths.
 - [x] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup. Observation,
   infrastructure and signal-source services are discoverable through `ServicesManager`; exact world bindings are removed
   on unload. `InfrastructureResourceService.unregisterOwner` is the single planned-disable entry: it checks infrastructure

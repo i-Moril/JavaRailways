@@ -10,8 +10,8 @@ import java.util.UUID
  * One signal-plugin resource that must be inspected before its route-local trigger is reached.
  *
  * [triggerRouteDistanceMeters] identifies one occurrence on the frozen route in [InspectionDeclarationBinding.route].
- * [railId] and [facing] let the host verify that occurrence and find it in the shared forward
- * perception without another route scan.
+ * [railId] and [facing] let the host verify that occurrence once when compiling the binding.
+ * Runtime activation uses the validated absolute route coordinate and does not scan the route again.
  *
  * @property declarationId stable namespaced resource or signal identity within one source
  * @property railId persistent rail UUID containing the trigger

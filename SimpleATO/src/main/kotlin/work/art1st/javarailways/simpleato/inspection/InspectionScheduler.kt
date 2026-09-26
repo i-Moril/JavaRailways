@@ -8,36 +8,48 @@ import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.UUID
 import kotlin.math.max
 
-/** One occurrence encountered by the controller's existing shared forward perception. */
-internal data class InspectionPerceptionOccurrence(
-    val routeSegmentIndex: Int,
-    val railId: UUID,
-    val facing: ViewDirection
-) {
-    init {
-        require(routeSegmentIndex >= 0) { "routeSegmentIndex must be non-negative" }
-    }
-}
-
-/** Validated immutable declaration index for one exact train and frozen route binding. */
+/** Validated immutable declarations for one exact train and frozen route binding. */
 internal class CompiledInspectionBinding private constructor(
     val binding: InspectionDeclarationBinding,
     val maximumDeclaredInspectionDistanceMeters: Double,
-    private val routeSegments: List<RouteSegmentIdentity>,
-    private val declarationsByOccurrence: Map<RailDirectionKey, Map<Int, List<InspectionDeclaration>>>,
+    private val declarationsByTriggerDistance: List<InspectionDeclaration>,
     private val declarationIds: Set<String>
 ) {
-    fun declarationsAt(occurrence: InspectionPerceptionOccurrence): List<InspectionDeclaration> {
-        val expected = routeSegments.getOrNull(occurrence.routeSegmentIndex)
-            ?: throw IllegalArgumentException(
-                "route segment ${occurrence.routeSegmentIndex} is outside the frozen route"
-            )
-        require(expected.railId == occurrence.railId && expected.facing == occurrence.facing) {
-            "perception occurrence ${occurrence.routeSegmentIndex} does not match the frozen route"
+    fun declarationsBetween(
+        startRouteDistanceMeters: Double,
+        endRouteDistanceMeters: Double
+    ): List<InspectionDeclaration> {
+        val startIndex = lowerBound(startRouteDistanceMeters)
+        val endIndex = upperBound(endRouteDistanceMeters)
+        return declarationsByTriggerDistance.subList(startIndex, endIndex)
+    }
+
+    private fun lowerBound(routeDistanceMeters: Double): Int {
+        var low = 0
+        var high = declarationsByTriggerDistance.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (declarationsByTriggerDistance[middle].triggerRouteDistanceMeters < routeDistanceMeters) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
         }
-        return declarationsByOccurrence[RailDirectionKey(occurrence.railId, occurrence.facing)]
-            ?.get(occurrence.routeSegmentIndex)
-            .orEmpty()
+        return low
+    }
+
+    private fun upperBound(routeDistanceMeters: Double): Int {
+        var low = 0
+        var high = declarationsByTriggerDistance.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (declarationsByTriggerDistance[middle].triggerRouteDistanceMeters <= routeDistanceMeters) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
     }
 
     companion object {
@@ -48,42 +60,29 @@ internal class CompiledInspectionBinding private constructor(
             require(binding.route == FrozenRouteBinding.from(route)) {
                 "inspection declarations must bind the supplied frozen route"
             }
-            val routeSegments = route.segments.map { RouteSegmentIdentity(it.railId, it.facing) }
             val occurrences = ArrayList<RouteOccurrence>(route.segments.size)
             var routeDistance = 0.0
-            route.segments.forEachIndexed { index, segment ->
+            route.segments.forEach { segment ->
                 val start = routeDistance
                 routeDistance += segment.lengthMeters
-                occurrences += RouteOccurrence(index, segment.railId, segment.facing, start, routeDistance)
+                occurrences += RouteOccurrence(segment.railId, segment.facing, start, routeDistance)
             }
             val cumulativeStarts = occurrences.map(RouteOccurrence::startRouteDistanceMeters).toDoubleArray()
 
-            val mutableIndex = linkedMapOf<RailDirectionKey, MutableMap<Int, MutableList<InspectionDeclaration>>>()
             binding.declarations.forEach { declaration ->
                 val matchingOccurrences = matchingOccurrences(declaration, occurrences, cumulativeStarts)
                 require(matchingOccurrences.size == 1) {
                     "declaration ${declaration.declarationId} must identify exactly one route occurrence"
                 }
-                val segmentIndex = matchingOccurrences.single().segmentIndex
-                mutableIndex
-                    .getOrPut(RailDirectionKey(declaration.railId, declaration.facing), ::linkedMapOf)
-                    .getOrPut(segmentIndex, ::arrayListOf)
-                    .add(declaration)
             }
 
-            val compiledIndex = mutableIndex.mapValues { (_, bySegment) ->
-                bySegment.mapValues { (_, declarations) ->
-                    declarations.sortedWith(
-                        compareBy(InspectionDeclaration::triggerRouteDistanceMeters)
-                            .thenBy(InspectionDeclaration::declarationId)
-                    )
-                }.toMap()
-            }.toMap()
             return CompiledInspectionBinding(
                 binding,
                 binding.declarations.maxOfOrNull(InspectionDeclaration::inspectionDistanceMeters) ?: 0.0,
-                routeSegments,
-                compiledIndex,
+                binding.declarations.sortedWith(
+                    compareBy(InspectionDeclaration::triggerRouteDistanceMeters)
+                        .thenBy(InspectionDeclaration::declarationId)
+                ),
                 binding.declarations.mapTo(hashSetOf(), InspectionDeclaration::declarationId)
             )
         }
@@ -133,8 +132,8 @@ internal class CompiledInspectionBinding private constructor(
 /**
  * Stateful activation filter for one compiled declaration binding.
  *
- * It never calls plugin code. The owner invokes [updatesFor] with occurrences from the already
- * completed shared perception and then dispatches only the returned declarations.
+ * It never calls plugin code or scans the frozen route. The owner invokes [updatesFor] with the
+ * current route progress and then dispatches only the returned declarations.
  */
 internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
     private var binding = initialBinding
@@ -158,7 +157,6 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
     }
 
     fun updatesFor(
-        occurrences: List<InspectionPerceptionOccurrence>,
         currentHeadRouteDistanceMeters: Double,
         dynamicLookaheadMeters: Double
     ): List<InspectionDeclaration> {
@@ -169,22 +167,20 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
         require(dynamicLookaheadMeters.isFinite() && dynamicLookaheadMeters >= 0.0) {
             "dynamicLookaheadMeters must be finite and non-negative"
         }
-        require(occurrences.zipWithNext().all { (previous, next) ->
-            previous.routeSegmentIndex < next.routeSegmentIndex
-        }) {
-            "shared perception occurrences must follow frozen-route order"
-        }
-
+        val maximumActivationDistance = max(maximumDeclaredInspectionDistanceMeters, dynamicLookaheadMeters)
+        val visibleEndRouteDistance = minOf(
+            binding.binding.route.totalLengthMeters,
+            currentHeadRouteDistanceMeters + maximumActivationDistance
+        )
         val visible = linkedMapOf<String, InspectionDeclaration>()
-        occurrences.forEach { occurrence ->
-            binding.declarationsAt(occurrence).forEach { declaration ->
+        binding.declarationsBetween(currentHeadRouteDistanceMeters, visibleEndRouteDistance)
+            .forEach { declaration ->
                 val distance = declaration.triggerRouteDistanceMeters - currentHeadRouteDistanceMeters
                 val threshold = max(declaration.inspectionDistanceMeters, dynamicLookaheadMeters)
-                if (distance >= 0.0 && distance <= threshold) {
+                if (distance <= threshold) {
                     visible[declaration.declarationId] = declaration
                 }
             }
-        }
 
         val updates = visible.values.filter { declaration ->
             declaration.declarationId !in activeDeclarationIds ||
@@ -197,12 +193,7 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
     }
 }
 
-private data class RailDirectionKey(val railId: UUID, val facing: ViewDirection)
-
-private data class RouteSegmentIdentity(val railId: UUID, val facing: ViewDirection)
-
 private data class RouteOccurrence(
-    val segmentIndex: Int,
     val railId: UUID,
     val facing: ViewDirection,
     val startRouteDistanceMeters: Double,

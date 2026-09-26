@@ -249,7 +249,9 @@
     - [x] Add the platform-neutral synchronous epoch slice: Core captures but does not publish the coherent world frame until registered value-only processors return and revalidation succeeds; Basic exposes its indexed monitored-area tracker through one public serialized engine; SimpleATO binds each area to one namespaced Java/Kotlin source in the source snapshot captured for that epoch, invokes only dirty/baseline owners, validates every complete restriction result before deterministic publication, and propagates callback/publication failure so Core stalls. Same-epoch ENTER+LEFT remains one callback. Production composition, controller application, concrete plugin dependency propagation and presentation remain pending, so the parent item stays incomplete.
     - [x] Correct the source lifecycle prerequisite before Bukkit wiring: each world will keep one empty host processor registered before physics starts, while `SignalEpochRuntime` atomically replaces a fully validated immutable source state during runtime. One epoch captures exactly one state; a new state starts with a fresh occupancy baseline, invalid replacement retains the old state, and an empty state has no per-train work. Production plugin registration/unregister barriers remain in the Bukkit service batch.
     - [x] Compose that empty processor in Bukkit production and isolated simulation before `PhysicsCoordinator.start`. Signal callbacks publish only immutable per-train/source DTOs into a world-local copy-on-write store; they never retain or look up live trains/controllers. After epoch N's exact ticket completes, Dispatcher synchronizes the active train's latest snapshots into its existing restriction adapter before applying route-bound constraints, so the next controller tick uses the new minimum. Bukkit now exposes atomic per-owner source replacement, explicit-withdrawal removal and forced-disable fail-close; concrete plugin dependency propagation remains later.
-  - [ ] Bridge only immutable revisioned presentation state to Bukkit/Folia and coalesce each object's pending visual update to its newest revision.
+  - [x] Keep presentation out of the Stage 1 host API. The reviewed ownership boundary assigns immutable revisioned
+    presentation state, per-object latest-only Bukkit/Folia dispatch and model application to the separately packaged Stage 2
+    `SimpleATOBukkit` adapter; do not add a temporary renderer, queue or model-variant vocabulary to `BukkitPlugin`.
   - [ ] Complete the remaining inspection cache-key and fail-closed invalidation review before coding resource inspection; keep dynamic braking distance in the SimpleATO tick and avoid duplicate forward scans or unchanged per-tick plugin callbacks.
 - [x] Add Bukkit public service interfaces, internal implementations, lifecycle registration, and cleanup. Observation,
   infrastructure and signal-source services are discoverable through `ServicesManager`; exact world bindings are removed
@@ -342,7 +344,9 @@
       occupancy replaces the old broad duplicate check; live route claims are covered by the common registry permit and frozen
       operational routes retain only the separate `hasLiveRouteOn` replacement guard.
 - [ ] Cover remaining protection-region, signal, topology migration, and administrative mutation paths with the common edit guard.
-- [ ] Document a minimal external consumer and supported failure/lifecycle behavior.
+- [x] Document the compile-only external consumer and supported failure/lifecycle behavior beside its compiled fixture.
+  The guide covers service discovery, synchronous signal callbacks, resource/contributor admission, applied-plan edit
+  dependencies, explicit restriction withdrawal, the single owner-unregister gate and forced-disable fail-close behavior.
 
 ## Validation
 

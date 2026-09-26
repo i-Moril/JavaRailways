@@ -21,7 +21,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 - Move ATO/ATP, operating direction, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, timetable apply state and their persistence into platform-neutral `SimpleATO`.
 - Keep generic graph algorithms and physical/resource validation in Basic; do not move concrete signalling policy into SimpleATO.
-- Create `SimpleATOBukkit` as the Bukkit/Paper adapter for SimpleATO lifecycle, service lookup, ATO presentation and common platform interaction.
+- Create `SimpleATOBukkit` as the Bukkit/Paper adapter for SimpleATO lifecycle, service lookup, ATO presentation and common platform interaction. It owns immutable revisioned presentation publication and per-object latest-only Folia dispatch; this is not backfilled into the Stage 1 host plugin.
 - Leave low-level `RailWand`, manual driving and host world/composition behavior in `BukkitPlugin`.
 - Remove old Basic/BukkitPlugin owners as each slice moves; never keep two writable production implementations or add runtime compatibility wrappers for development data without separate approval.
 
@@ -30,6 +30,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Create a separately deployable Java/Kotlin plugin/artifact with its own descriptor, lifecycle, persistence boundary, commands/tools and rendering.
 - Depend on JavaRailways/SimpleATO public contracts at compile time and host services at runtime; do not shadow host classes.
 - Own its fixed-block definitions, protection-region boundaries/interiors, interlocking policy, signal definitions/aspects, renderer state, authoring and optional script/configuration runtime.
+- Publish model/aspect changes as immutable per-object presentation revisions. The adapter may skip obsolete pending visual revisions but must converge to the newest value without delaying the railway safety epoch.
 - Migrate the current protection-region domain code out of Basic: definition, catalog, graph-cut/interior derivation, route-window matching, authoring validation, persistence and diagnostics. Reuse Basic topology/resource APIs instead of copying the physical graph or claim registry.
 - Allow one player-authored region to protect a simple turnout or a complete station throat. Do not synthesize one stop/protection boundary per turnout.
 - At authoring/update time, cut the immutable directed topology at region gates, derive the selected bounded interior and reject leaks, ambiguity, invalid directions and unsupported overlap. Cache/index the result by topology and plugin-definition revision; do not flood-fill each tick.
@@ -56,6 +57,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 - [ ] `SimpleATO` contains the platform-neutral operational stack and Basic has no production owner for the migrated state.
 - [ ] `SimpleATOBukkit` is a separate plugin/artifact and does not become the owner of any concrete signalling system.
+- [ ] Signal presentation is applied through target-aware latest-only dispatch: an unchanged or superseded model revision creates no replay backlog and cannot delay logical signal evaluation.
 - [ ] The `JapaneseSignals` JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
 - [ ] Protection-region/fixed-block classes, persistence and authoring are absent from Basic's target API and owned by `JapaneseSignals`.
 - [ ] One region protects both a simple turnout and a multi-turnout throat without internal per-turnout stop boundaries.

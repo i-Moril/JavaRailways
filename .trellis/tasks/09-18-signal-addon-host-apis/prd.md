@@ -31,7 +31,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - Compute world occupancy once per published epoch using rail-indexed intervals and reuse one route perception pass per controlled train; do not add `allTrains × allResources` scans.
 - Run each railway epoch as one host-thread-independent safety pipeline: physics publication, ordered boundary occupancy changes, signal/interlocking recomputation and next-epoch restriction publication must finish before another physics epoch begins. Bukkit rendering must not own or block this pipeline.
 - Represent monitored-area crossings only as ordered `ENTER` and `LEFT` changes carrying stable area and boundary identities. Core must retain enough ordered head/tail traversal evidence to report a complete same-epoch enter-then-leave sequence; a synthetic `PASSED_THROUGH` change is not part of the contract.
-- Send logical signal results to Bukkit through immutable revisioned presentation state. Platform adapters may coalesce pending presentation updates per object to the newest revision; they may not discard, reorder or asynchronously replay safety changes.
+- Keep presentation out of the Stage 1 host runtime. The separately packaged Stage 2 `SimpleATOBukkit` adapter will consume immutable revisioned presentation state and may coalesce pending updates per object to the newest revision; presentation must never delay or asynchronously replay safety changes.
 - Preserve timetable compile/apply requirements: validate statically reachable routes and required signalling configuration before apply, atomically publish non-exclusive rail/node/resource dependencies for the applied revision, and block only intersecting edits until safe unapply/replacement. These dependencies never arbitrate train resources.
 - Separate explicit manual turnout selection from automatic allocation. Manual selection checks physical occupancy and active claims, grants no movement authority and cannot bypass a live route lock.
 - Follow the project persistence policy: no new runtime compatibility path or schema boundary without separate review.
@@ -50,7 +50,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - [ ] Signal restrictions are namespaced, revisioned and most-restrictive; stale or missing plugin state never silently expands authority.
 - [ ] Resource inspection uses cached declarations plus host braking math; unchanged inputs do not repeatedly run plugin code.
 - [ ] A train that enters and leaves a short monitored area within one physics epoch produces ordered boundary-bearing `ENTER` then `LEFT` changes, and the signal runtime consumes both before the next physics epoch.
-- [ ] Railway physics and logical signalling continue without waiting for the Minecraft main thread; after a platform stall, each rendered signal converges to its newest published presentation revision without replaying obsolete visual states.
+- [ ] Railway physics and logical signalling continue without waiting for the Minecraft main thread; Stage 1 exposes no temporary host-owned signal renderer or presentation queue.
 - [ ] Applied timetable dependencies overlap safely, remain separate from runtime claims, block every covered editor by rail/node/resource intersection and change atomically.
 - [ ] Service registration, plugin disable, world unload/reload and train removal have focused fail-closed lifecycle tests.
 - [ ] Existing Core, Basic, BukkitPlugin, SimpleATO, timetable and ATO tests pass.
@@ -60,6 +60,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 
 - A host-owned national signalling rule set or universal protection-region/fixed-block model.
 - Signal aspects/models, region/block authoring, concrete interlocking algorithms and signal-plugin persistence.
+- Signal presentation DTOs, latest-only Bukkit/Folia dispatch and model application; these belong to the Stage 2 `SimpleATOBukkit` adapter and concrete signal plugin.
 - Choosing the first concrete signal plugin's final product name, its JS/YAML API or WebUI packaging during this Stage 1 batch.
 - Certification-grade communication, redundancy or train-integrity proving.
 - Permanent runtime compatibility for pre-release development data.
@@ -70,6 +71,9 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - Stage 1 leaves the existing Basic protection-region implementation transitional; moving its policy,
   authoring and persistence into `JapaneseSignals` is Stage 2 work. Stage 1 must not expose that
   transitional implementation as the generic host contract or add a runtime compatibility wrapper.
+- Stage 1 deliberately does not add a presentation seam to `BukkitPlugin`. Stage 2 creates
+  `SimpleATOBukkit` and owns immutable presentation publication, per-object latest-only dispatch and
+  target-aware model application without making presentation part of the safety epoch.
 - Completion must provide a consumer example and contract notes for the Stage 2 signal-plugin task.
 - Stage 2 may reuse the transitional protection-region algorithms, but the resulting code and
   persistence boundary must belong to that plugin, not Basic.

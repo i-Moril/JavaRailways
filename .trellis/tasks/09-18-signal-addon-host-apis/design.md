@@ -137,11 +137,12 @@ facts stay separate: placement answers “still inside”, swept spans answer �
 head/safety-rear traversal answers “which boundary was crossed, in what direction and order”. A future approximate rear
 may lag the exact train tail and delay `LEFT`, but must never lead it or release early.
 
-Only presentation crosses into the Bukkit scheduler asynchronously. A signal plugin publishes immutable per-object visual
-state with a monotonic revision; its Bukkit adapter keeps at most the newest pending revision and applies it on the proper
-platform thread. A stalled Minecraft thread may delay or skip obsolete lamp/model transitions, but never delays logical
-signal evaluation. A resource whose physical preparation genuinely requires a Bukkit-side action stays `PREPARING` until
-the adapter reports completion, so that dependency can stop the affected train without stopping unrelated railway physics.
+Presentation is a Stage 2 adapter responsibility, not a Stage 1 host service. `SimpleATOBukkit` will accept immutable
+per-object visual state with a monotonic revision, keep at most the newest pending revision and apply it on the proper
+platform thread. Stage 1 does not add a temporary queue or model vocabulary to `BukkitPlugin`. A stalled Minecraft thread
+may eventually skip obsolete lamp/model transitions, but never delays logical signal evaluation. A resource whose physical
+preparation genuinely requires a Bukkit-side action remains a separate preparation concern and stays `PREPARING` until its
+owner reports completion.
 
 ## Public service capabilities
 
@@ -243,6 +244,6 @@ migration boundary has completed.
 All validation failure is atomic and does not widen authority. Missing resource indexes, stale revisions, contributor failure or invalid contributed resources fail closed. Existing committed grants remain host-owned through physical release, so unloading a signal plugin cannot drop resources beneath a train.
 
 Physics workers consume immutable observations and constraint snapshots. The serialized railway coordinator owns the
-post-physics occupancy/signal phase and does not wait for Minecraft presentation work. Route claim and equipment preparation
-execute on their documented railway owner; only platform actions are dispatched to Bukkit/Folia threads. Add-on callbacks
-are bounded and are never invoked once per world resource every tick merely because time advanced.
+post-physics occupancy/signal phase. Stage 1 schedules no signal presentation work; the future `SimpleATOBukkit` adapter must
+not make the coordinator wait for Minecraft presentation. Route claim and equipment preparation execute on their documented
+railway owner. Add-on callbacks are bounded and are never invoked once per world resource every tick merely because time advanced.

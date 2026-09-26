@@ -14,7 +14,9 @@
 - [ ] Move ATO/ATP control, operating direction and operational route selection into `SimpleATO` with existing behavior tests.
 - [ ] Move Destination, Station, Depot, Line, Timetable, rolling-stock assignment, Dispatcher/applied-plan state and persistence into `SimpleATO` in dependency-safe slices.
 - [ ] Create `SimpleATOBukkit` with its own descriptor, lifecycle, service discovery and packaging/boundary tests.
-- [ ] Move only SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; keep RailWand/manual driving/host composition in `BukkitPlugin`.
+- [ ] Move only SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; define immutable per-object revisions,
+  keep one in-flight plus one newest pending value per object, reject stale revisions and apply through the target's Folia
+  owner. Keep RailWand/manual driving/host composition in `BukkitPlugin`.
 - [ ] Remove each old production owner after its replacement is wired; prove there is one writable state owner and no compatibility wrapper.
 - [ ] Implement cached resource inspection declarations, dynamic braking-distance comparison and dependency-driven update scheduling in SimpleATO.
 - [ ] Add namespaced most-restrictive restriction integration; plugin output cannot widen Basic grant or existing ATO/ATP limits.
@@ -56,7 +58,8 @@
 - [ ] Implement draft/apply/replace/draining/unapply lifecycle with no dependency changes from save/dry-run and no removal beneath live work.
 - [ ] Route all affected editors through the common edit permit and show blocking owner/revision diagnostics.
 - [ ] Add create/edit/delete/inspect/validate/dry-run commands/tools and topology-migration recovery points.
-- [ ] Add plugin-owned aspect/model rendering with target-aware scheduling, change-only updates and idempotent cleanup.
+- [ ] Add plugin-owned aspect/model rendering through the `SimpleATOBukkit` revisioned latest-only bridge, with target-aware
+  scheduling, change-only updates, stale-revision rejection and idempotent world/plugin cleanup.
 
 ## Validation
 

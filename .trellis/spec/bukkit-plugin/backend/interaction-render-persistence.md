@@ -41,6 +41,13 @@
 4. 文档线程、ownership、failure 与 lifecycle；
 5. consumer build 使用 `compileOnly(project(":BukkitPlugin"))`，不 shadow 主插件。
 
+信号附属的当前完整消费流程记录在
+`BukkitPlugin/src/signalApiConsumer/README.md`，并由同目录Java fixture通过
+`:BukkitPlugin:compileSignalApiConsumerJava`持续验证。正常停用只调用
+`InfrastructureResourceService.unregisterOwner`这一条统一owner gate；不要先分别删除provider、contributor或signal source
+来模拟插件卸载。Stage 1的`BukkitPlugin`不拥有信号aspect/model presentation；immutable revision、per-object latest-only
+Folia dispatch和具体模型应用属于Stage 2的`SimpleATOBukkit`及具体信号插件。
+
 ## Persistence 与配置
 
 - world 保存分为 infrastructure/runtime 两文件，必须选择相同 `infrastructureRevision` 的最新 primary/backup pair。写入使用 temp、backup、atomic replace fallback；transport 策略不等于 schema version。

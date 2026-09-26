@@ -52,7 +52,8 @@ import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * Compile-only fixture for an independently built JavaRailways add-on.
+ * Compile-only fixture for an independently built JavaRailways add-on. The adjacent README explains
+ * the lifecycle and threading contract exercised by this source.
  *
  * <p>This source set may import Bukkit and documented JavaRailways API packages, but must not import
  * BukkitPlugin implementation packages.</p>

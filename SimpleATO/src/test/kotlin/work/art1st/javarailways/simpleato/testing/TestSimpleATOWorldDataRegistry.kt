@@ -5,6 +5,7 @@ import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
@@ -23,17 +24,29 @@ internal object TestSimpleATOWorldDataRegistry {
         return basicData
     }
 
-    fun register(world: World, basicData: BasicWorldData) {
+    fun register(
+        world: World,
+        basicData: BasicWorldData,
+        atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(
+            safetyInterlock = basicData.safetyInterlock
+        )
+    ) {
         TestBasicWorldDataRegistry.register(world, basicData)
-        registerSimpleAto(world, basicData)
+        registerSimpleAto(world, basicData, atoCoordinator)
     }
 
     fun unregister(world: World) {
         TestBasicWorldDataRegistry.unregister(world)
     }
 
-    private fun registerSimpleAto(world: World, basicData: BasicWorldData) {
-        val worldId = basicData.atoCoordinator.worldId
+    private fun registerSimpleAto(
+        world: World,
+        basicData: BasicWorldData,
+        atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(
+            safetyInterlock = basicData.safetyInterlock
+        )
+    ) {
+        val worldId = atoCoordinator.worldId
         val restrictions = TrainRestrictionSnapshotStore(worldId)
         val inspection = InspectionRuntime(
             publisher = restrictions,
@@ -51,11 +64,13 @@ internal object TestSimpleATOWorldDataRegistry {
         world.registerExtensionData(
             plugin,
             SimpleATOWorldData(
+                atoCoordinator,
                 dispatcher,
                 signalEpoch,
                 restrictions,
                 inspection,
-                basicData.railObjects
+                basicData.railObjects,
+                basicData.safetyInterlock
             )
         )
     }

@@ -10,9 +10,10 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.di.KoinWorldParentContext
 import work.art1st.javarailways.core.di.javaRailwaysParentScope
 import work.art1st.javarailways.basic.BasicPlugin
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.basic.BasicWorldData
+import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
@@ -82,21 +83,9 @@ object RailWorldFactory {
         val atoLogger = plugin.logger
         val pluginDataFolder = plugin.dataFolder
         val physicsConfig = plugin.physicsConfig
+        val safetyInterlock = WorldSafetyInterlock()
         val basicData = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator(bukkitWorld.uid.toString()) { report ->
-                atoLogger.severe(report.format())
-                PluginDiagnosticLog.ato("WORLD_STALLED", report.format())
-                runCatching { AtoStallDiagnostics.write(pluginDataFolder, report) }
-                    .onSuccess { file ->
-                        atoLogger.warning("ATO Stall diagnostics written to ${file.absolutePath}")
-                    }
-                    .onFailure { error ->
-                        atoLogger.severe(
-                            "Failed to write ATO Stall diagnostics: " +
-                                "${error::class.simpleName}: ${error.message.orEmpty()}"
-                        )
-                    }
-            },
+            safetyInterlock = safetyInterlock,
             turnoutSafetyDefaults = physicsConfig.turnoutSafety.let {
                 TurnoutSafetyDefaults(
                     protectionDistanceMeters = it.defaultProtectionDistanceMeters,
@@ -106,6 +95,23 @@ object RailWorldFactory {
                 )
             }
         )
+        val atoCoordinator = AtoWorldCoordinator(
+            bukkitWorld.uid.toString(),
+            safetyInterlock
+        ) { report ->
+            atoLogger.severe(report.format())
+            PluginDiagnosticLog.ato("WORLD_STALLED", report.format())
+            runCatching { AtoStallDiagnostics.write(pluginDataFolder, report) }
+                .onSuccess { file ->
+                    atoLogger.warning("ATO Stall diagnostics written to ${file.absolutePath}")
+                }
+                .onFailure { error ->
+                    atoLogger.severe(
+                        "Failed to write ATO Stall diagnostics: " +
+                            "${error::class.simpleName}: ${error.message.orEmpty()}"
+                    )
+                }
+        }
         coreWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
         var boundRouteAdmission: RouteResourceAdmissionService? = null
         val routeAdmissionProvider = TimetableRouteAdmissionContextProvider {
@@ -186,11 +192,13 @@ object RailWorldFactory {
         coreWorld.registerExtensionData(
             SimpleATOPlugin.INSTANCE,
             SimpleATOWorldData(
+                atoCoordinator,
                 dispatcher,
                 signalEpochRuntime,
                 signalRestrictions,
                 inspectionRuntime,
-                basicData.railObjects
+                basicData.railObjects,
+                basicData.safetyInterlock
             )
         )
         basicInfrastructure?.restore(coreWorld)

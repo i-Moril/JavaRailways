@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.debug
 
-import work.art1st.javarailways.basic.api.ato.AtoStallReport
-import work.art1st.javarailways.basic.api.ato.AtoStallReportJson
+import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
+import work.art1st.javarailways.simpleato.api.ato.AtoStallReportJson
 import java.io.File
 
 object AtoStallDiagnostics {

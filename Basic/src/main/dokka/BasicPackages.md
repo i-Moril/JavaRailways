@@ -12,19 +12,15 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 
 # Package work.art1st.javarailways.basic.api.ato
 
-ATO Planner、控制需求、车辆 Actuator、固定安全参数和按 World 隔离的 Stall 协调器。
-
-# Package work.art1st.javarailways.basic.api.ato.constraint
-
-SimpleATO 使用的 owner-scoped 速度、停车、跟车和移动授权约束。
-
-# Package work.art1st.javarailways.basic.api.ato.mission
-
-从稳定 WayPoint 引用解析、按 revision 提交并在 physics Tick 边界激活的不可变 ATO Mission 契约。
+自动/手动控制共用的控制需求、车辆 Actuator 和坡度感知制动包络。它们不选择 mission、ATO安全参数或信号策略。
 
 # Package work.art1st.javarailways.basic.api.ato.provider
 
-可选单一信号 Provider、Provider Boundary RailObject 和 world-local registry。
+world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含已删除的 ATO Provider/Boundary 切换机制。
+
+# Package work.art1st.javarailways.basic.api.safety
+
+由 Basic 物理控制读取的 world-local fail-close interlock。它不保存 ATO 诊断或运营状态。
 
 # Package work.art1st.javarailways.basic.api.operation
 

@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simpleato
 
 import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
+import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationStore
@@ -8,6 +9,7 @@ import work.art1st.javarailways.simpleato.api.depot.DepotStore
 import work.art1st.javarailways.simpleato.api.line.LineStore
 import work.art1st.javarailways.simpleato.api.station.StationStore
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
@@ -16,11 +18,13 @@ import work.art1st.javarailways.simpleato.timetable.TimetableStore
 
 /** Mutable operational runtime owned by SimpleATO for one Core world. */
 data class SimpleATOWorldData(
+    val atoCoordinator: AtoWorldCoordinator,
     val dispatcher: TimetableDispatcher,
     val signalEpochRuntime: SignalEpochRuntime,
     val signalRestrictions: TrainRestrictionSnapshotStore,
     val inspectionRuntime: InspectionRuntime,
     private val sharedRailObjects: RailObjectStore,
+    private val sharedSafetyInterlock: WorldSafetyInterlock,
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val stations: StationStore = StationStore(sharedRailObjects),
     val depots: DepotStore = DepotStore(),
@@ -31,6 +35,9 @@ data class SimpleATOWorldData(
     init {
         require(stations.usesRailObjectStore(sharedRailObjects)) {
             "StationStore must use the Basic world RailObjectStore"
+        }
+        require(atoCoordinator.safetyInterlock === sharedSafetyInterlock) {
+            "AtoWorldCoordinator must use the Basic world WorldSafetyInterlock"
         }
     }
 }

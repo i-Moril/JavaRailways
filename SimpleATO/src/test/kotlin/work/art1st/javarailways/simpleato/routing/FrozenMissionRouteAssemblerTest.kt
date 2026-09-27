@@ -2,10 +2,10 @@ package work.art1st.javarailways.simpleato.routing
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.ato.mission.AtoMission
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionLeg
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
-import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
+import work.art1st.javarailways.simpleato.api.mission.AtoMission
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionLeg
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayObservation

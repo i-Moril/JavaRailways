@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
 import work.art1st.javarailways.simpleato.controller.SimpleATO

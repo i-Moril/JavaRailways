@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ato
+package work.art1st.javarailways.simpleato.api.ato
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -6,19 +6,19 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import work.art1st.javarailways.basic.api.ato.constraint.AtoConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.CurrentSpeedLimitConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.DepartureHoldConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.FollowConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.MovementAuthorityConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.RouteSpeedLimitConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.StopConstraint
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RailObservationSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailObjectSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
+import work.art1st.javarailways.simpleato.api.constraint.CurrentSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.DepartureHoldConstraint
+import work.art1st.javarailways.simpleato.api.constraint.FollowConstraint
+import work.art1st.javarailways.simpleato.api.constraint.MovementAuthorityConstraint
+import work.art1st.javarailways.simpleato.api.constraint.RouteSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.StopConstraint
 
 /** Stable, structured diagnostic representation written when a world-local ATO Stall occurs. */
 object AtoStallReportJson {
@@ -29,7 +29,7 @@ object AtoStallReportJson {
 
     private fun AtoStallReport.toJson(): JsonObject = JsonObject(
         mapOf(
-            "schemaVersion" to JsonPrimitive(2),
+            "schemaVersion" to JsonPrimitive(3),
             "occurredAtEpochMillis" to JsonPrimitive(occurredAtEpochMillis),
             "worldId" to JsonPrimitive(worldId),
             "trainId" to JsonPrimitive(trainId),
@@ -41,7 +41,6 @@ object AtoStallReportJson {
                     "stackTrace" to JsonPrimitive(stackTrace)
                 )
             ),
-            "activeProviderId" to nullableString(activeProviderId),
             "initialTrain" to (initialTrain?.toJson() ?: JsonNull),
             "currentTrain" to (currentTrain?.toJson() ?: JsonNull),
             "route" to (route?.toJson() ?: JsonNull),

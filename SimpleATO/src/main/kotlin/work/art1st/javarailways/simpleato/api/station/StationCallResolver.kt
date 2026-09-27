@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simpleato.api.station
 
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.PlannedRoute

@@ -1,6 +1,6 @@
-package work.art1st.javarailways.basic.api.ato.constraint
+package work.art1st.javarailways.simpleato.api.constraint
 
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 
 /** Owner-scoped constraint storage. Each [replace] is atomic. */

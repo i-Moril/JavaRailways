@@ -3,9 +3,11 @@ package work.art1st.javarailways.basic.control
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
+import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
@@ -194,6 +196,36 @@ class TrainDynamicsTest {
 
         actuator.step(first.speedMetersPerSecond, ControlDemand(trainProfile.maxSpeed), 0.1)
         assertEquals("P2", actuator.selectedHandle)
+    }
+
+    @Test
+    fun `world safety interlock forces the manual controller to emergency brake`() {
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(200.0)
+        )
+        val train = createTrainWithConfig("manual-interlock", rail, world, listOf(10.0))
+        val basicData = BasicWorldData()
+        TestBasicWorldDataRegistry.register(world, basicData)
+        val controller = RealisticManualController(
+            train,
+            world,
+            trainProfile,
+            listOf(carProfile),
+            9.80665
+        )
+        controller.setDirection(TrainDriveDirection.FORWARD)
+        controller.setHandle("P2")
+
+        try {
+            basicData.safetyInterlock.engage()
+            controller.tick(50.0)
+
+            assertEquals("EB", controller.handle)
+        } finally {
+            TestBasicWorldDataRegistry.unregister(world)
+        }
     }
 
     private class TestTrainProfile(

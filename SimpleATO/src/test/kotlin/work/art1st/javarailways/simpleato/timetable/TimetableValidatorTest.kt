@@ -8,9 +8,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
@@ -297,8 +297,8 @@ class TimetableValidatorTest {
             }
         )
         val coordinator = AtoWorldCoordinator("validator-station", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)

@@ -1,10 +1,11 @@
-package work.art1st.javarailways.basic.api.ato
+package work.art1st.javarailways.simpleato.api.ato
 
-import work.art1st.javarailways.basic.api.ato.constraint.AtoConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwner
+import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
+import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
@@ -24,7 +25,6 @@ data class AtoStallReport(
     val currentTrain: TrainSnapshot?,
     val route: RouteSnapshot?,
     val perception: PerceptionSnapshot?,
-    val activeProviderId: String?,
     val constraints: Map<ConstraintOwner, List<AtoConstraint>>,
     val occurredAtEpochMillis: Long = System.currentTimeMillis()
 ) {
@@ -35,7 +35,6 @@ data class AtoStallReport(
         appendLine("[JavaRailways] ATO world stalled")
         appendLine("world=$worldId train=$trainId tick=$tick occurredAtEpochMillis=$occurredAtEpochMillis")
         appendLine("error=$errorType: ${message.orEmpty()}")
-        appendLine("provider=${activeProviderId ?: "<none>"}")
         appendLine("initialTrain=$initialTrain")
         appendLine("currentTrain=$currentTrain")
         appendLine("route=$route")
@@ -48,6 +47,7 @@ data class AtoStallReport(
 /** World-local latch shared by all ATO controllers in that world. */
 class AtoWorldCoordinator(
     val worldId: String = "unbound",
+    val safetyInterlock: WorldSafetyInterlock = WorldSafetyInterlock(),
     private val reportSink: (AtoStallReport) -> Unit = { System.err.println(it.format()) }
 ) {
     private val stateRef = AtomicReference(AtoWorldState.RUNNING)
@@ -61,7 +61,7 @@ class AtoWorldCoordinator(
         get() = stateRef.get()
 
     val isStalled: Boolean
-        get() = state == AtoWorldState.STALLED
+        get() = state == AtoWorldState.STALLED || safetyInterlock.isEngaged
 
     fun recordInitialTrain(snapshot: TrainSnapshot) {
         initialTrains[snapshot.trainId] = snapshot
@@ -72,6 +72,7 @@ class AtoWorldCoordinator(
     /** The first failure wins; later failures observe the same world Stall. */
     fun stall(report: AtoStallReport): Boolean {
         if (!stateRef.compareAndSet(AtoWorldState.RUNNING, AtoWorldState.STALLED)) return false
+        safetyInterlock.engage()
         lastStall = report
         reportSink(report)
         return true
@@ -81,5 +82,6 @@ class AtoWorldCoordinator(
     fun reset() {
         lastStall = null
         stateRef.set(AtoWorldState.RUNNING)
+        safetyInterlock.reset()
     }
 }

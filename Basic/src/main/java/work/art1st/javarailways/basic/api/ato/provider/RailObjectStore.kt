@@ -11,7 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * World-local registry for Basic and plugin operational RailObjects.
  *
  * Generic object owners must publish [RailObjectLifecycleState.REMOVED] before unregistering.
- * [AtoProviderBoundary] is owned by this store and is transitioned during unregister.
+ * The store never knows concrete object types or performs owner-specific lifecycle transitions.
  */
 class RailObjectStore {
     private val byRef = ConcurrentHashMap<RailObjectRef, RailObject>()
@@ -29,7 +29,6 @@ class RailObjectStore {
 
     fun unregister(ref: RailObjectRef): RailObject? = synchronized(mutationLock) {
         val registered = byRef[ref] ?: return@synchronized null
-        if (registered is AtoProviderBoundary) registered.markRemoved()
         check(registered.lifecycleState == RailObjectLifecycleState.REMOVED) {
             "RailObject owner must publish REMOVED before unregistering: $ref"
         }

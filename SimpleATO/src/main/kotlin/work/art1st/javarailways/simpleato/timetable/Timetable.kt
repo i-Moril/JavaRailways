@@ -8,7 +8,7 @@ import work.art1st.javarailways.simpleato.api.timetable.TimetableCondition
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionScope
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall
 import work.art1st.javarailways.simpleato.api.timetable.TimetableServiceActivation
-import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.simpleato.api.station.DwellPlan
 import work.art1st.javarailways.simpleato.api.station.StationBerthRef
 import work.art1st.javarailways.simpleato.api.station.StationCall

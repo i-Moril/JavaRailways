@@ -1,6 +1,8 @@
-package work.art1st.javarailways.basic.api.ato
+package work.art1st.javarailways.simpleato.api.ato
 
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintManager
+import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintManager
 
 data class AtoPlanningContext(
     val currentSpeedMetersPerSecond: Double,

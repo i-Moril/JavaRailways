@@ -16,9 +16,9 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
@@ -190,9 +190,7 @@ class TimetableDispatcherTest {
     fun `maintenance query reports rails referenced by a live mission`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-maintenance-route-test", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -219,9 +217,7 @@ class TimetableDispatcherTest {
     fun `service infrastructure line maximum speed is installed in ATO`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-line-speed-test", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -256,9 +252,7 @@ class TimetableDispatcherTest {
     fun `starts explicit train only after the first Basic route grant`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-test", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -312,9 +306,7 @@ class TimetableDispatcherTest {
     fun `takeFromDepot deterministically assigns a compatible available train`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-depot", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -389,9 +381,7 @@ class TimetableDispatcherTest {
     fun `takeFromWaypoint acquires a stopped unassigned train at the scheduled tick`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-waypoint", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -431,16 +421,14 @@ class TimetableDispatcherTest {
 
         assertEquals(train.id, started.run.trainId)
         assertTrue(train.controller is SimpleATO)
-        assertFalse(data.atoCoordinator.isStalled)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
     fun `takeFromWaypoint failure stalls the world`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-waypoint-failure", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -466,17 +454,15 @@ class TimetableDispatcherTest {
         val result = dispatcher.startService(world, "waypoint-failure", "s1")
 
         assertTrue(result is TimetableServiceStartResult.Failure)
-        assertTrue(data.atoCoordinator.isStalled)
-        assertEquals("TrainAcquisitionFailure", data.atoCoordinator.lastStall?.errorType)
+        assertTrue(world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertEquals("TrainAcquisitionFailure", world.simpleAtoWorldData.atoCoordinator.lastStall?.errorType)
     }
 
     @Test
     fun `takeFromDepot selects an unregistered train physically stopped at a stabling point`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("physical-depot-selection", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
         val train = createTrainWithConfig("T-physical", rail, world, listOf(10.0))
@@ -511,7 +497,7 @@ class TimetableDispatcherTest {
         assertTrue(result is TimetableServiceStartResult.Started, result.toString())
         assertEquals(train.id, (result as TimetableServiceStartResult.Started).run.trainId)
         assertEquals(null, world.simpleAtoWorldData.depots.rollingStock(train.id))
-        assertTrue(!data.atoCoordinator.isStalled)
+        assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
         assertEquals(1, dispatcher.forceDiscardTimetable(world, "physical-depot"))
         assertEquals(null, dispatcher.status(TimetableServiceRunId("physical-depot", "s1")))
@@ -522,9 +508,7 @@ class TimetableDispatcherTest {
     fun `leading reverse enters the normal reversing state before the first Mission`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("leading-reverse", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
         val train = createTrainWithConfig("T-reverse", rail, world, listOf(10.0))
@@ -580,16 +564,14 @@ class TimetableDispatcherTest {
         assertTrue(train.isReversed)
         assertEquals(0.0, train.speed, 1.0e-9)
         assertEquals(0.0, stagedAto.lifetimeTravelDistanceMeters, 1.0e-9)
-        assertTrue(!data.atoCoordinator.isStalled)
+        assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
     fun `storeAtDepot releases departure occupancy and completes availability handoff`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-store", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
         val returnRail = rail(world, Vector3d(140.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
@@ -680,7 +662,7 @@ class TimetableDispatcherTest {
         assertEquals(StablingPointRef(depotId, "in"), rolling.stablingPointRef)
         assertEquals(null, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "out"))?.occupantTrainId)
         assertEquals(train.id, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
-        assertTrue(!data.atoCoordinator.isStalled)
+        assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
         data.wayPoints.add(WayPoint("C", "C", rail.id, originArc + 115.0))
         world.simpleAtoWorldData.timetables.add(
@@ -705,7 +687,7 @@ class TimetableDispatcherTest {
         val departure = dispatcher.startService(world, "tt-depart-again", "s1")
         assertTrue(
             departure is TimetableServiceStartResult.Started,
-            "$departure stall=${data.atoCoordinator.lastStall?.message}"
+            "$departure stall=${world.simpleAtoWorldData.atoCoordinator.lastStall?.message}"
         )
         val departureAto = train.controller as SimpleATO
         repeat(2_000) {
@@ -719,7 +701,7 @@ class TimetableDispatcherTest {
         assertTrue(departureStatus.routeGrantActive)
         assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
         assertEquals(null, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
-        assertTrue(!data.atoCoordinator.isStalled)
+        assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -727,8 +709,8 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-store-capacity", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val outboundRail = rail(
             world,
             Vector3d(0.0, 0.0, 0.0),
@@ -849,9 +831,7 @@ class TimetableDispatcherTest {
     fun `period boundary automatically creates the next dynamic service cycle`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-next-cycle", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val outboundRail = rail(
             world,
@@ -981,7 +961,7 @@ class TimetableDispatcherTest {
         assertEquals(train.id, next.trainId)
         assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
         assertEquals("tt-cycle/cyclic@cycle-1", world.simpleAtoWorldData.depots.rollingStock(train.id)?.assignmentId)
-        assertTrue(!data.atoCoordinator.isStalled)
+        assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
         assertTrue(dispatcher.stopFutureCycles("tt-cycle"))
         repeat(24_000) {
@@ -990,7 +970,7 @@ class TimetableDispatcherTest {
         }
         assertEquals(1L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
         assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
-        assertTrue(!data.atoCoordinator.isStalled, data.atoCoordinator.lastStall.toString())
+        assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled, world.simpleAtoWorldData.atoCoordinator.lastStall.toString())
     }
 
     @Test
@@ -998,8 +978,8 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-cycle-overlap", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1067,8 +1047,8 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-depot-miss", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1117,9 +1097,7 @@ class TimetableDispatcherTest {
     fun `shared timetable epoch prevents an early first departure and records lateness`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-clock", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1159,9 +1137,7 @@ class TimetableDispatcherTest {
 
         val lateWorld = createTestWorld().also(worlds::add)
         val lateDispatcher = dispatcher()
-        val lateData = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-late", reportSink = {})
-        )
+        val lateData = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(lateWorld, lateData)
         val lateRail = createStraightRailFromSegments(
             lateWorld,
@@ -1187,8 +1163,8 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-controller-identity", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1215,9 +1191,7 @@ class TimetableDispatcherTest {
     fun `manual routed driver keeps dispatcher route assistance without automatic speed`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-manual-routed", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1278,7 +1252,7 @@ class TimetableDispatcherTest {
         assertEquals(TimetableServiceRunState.COMPLETED, completed.state)
         assertEquals(TimetableControlMode.MANUAL_ROUTED, completed.controlMode)
         assertTrue(completed.routeGrantActive)
-        assertTrue(!data.atoCoordinator.isStalled)
+        assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -1286,8 +1260,8 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-manual-violation", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1318,9 +1292,7 @@ class TimetableDispatcherTest {
     fun `full manual requests no new route and release still requires replan`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-full-manual", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1378,9 +1350,7 @@ class TimetableDispatcherTest {
     fun `released ad hoc navigation can be discarded before replacement`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-navigation-replace", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1426,9 +1396,7 @@ class TimetableDispatcherTest {
     fun `manual control transfer suspends ATO and requires explicit released replan`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-transfer", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1481,9 +1449,7 @@ class TimetableDispatcherTest {
     fun `suspension preserves active Basic route grant`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-transfer-route", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1519,9 +1485,7 @@ class TimetableDispatcherTest {
     fun `straight route creates no synthetic resource claims across multiple legs`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-progress", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1584,9 +1548,7 @@ class TimetableDispatcherTest {
     fun `advances through dwell and a later movement mission`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-sequence", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1661,16 +1623,14 @@ class TimetableDispatcherTest {
         val status = dispatcher.status(TimetableServiceRunId("tt", "s"))
         assertTrue(status?.routeGrantActive == true, "$status occupied=${train.occupiedRailIntervals}")
         assertSame(branch.viewAB, approach.viewAB.nextActiveRail)
-        assertFalse(data.atoCoordinator.isStalled)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
     fun `unconfirmed later section stops at its protection point without stalling`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-authority", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val mainBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
@@ -1732,7 +1692,7 @@ class TimetableDispatcherTest {
         )
         assertEquals(0.0, mainTrain.speed)
         assertTrue(mainTrain.head.location.arcLength <= 80.0)
-        assertTrue(!data.atoCoordinator.isStalled)
+        assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertSame(blockingBranch.viewAB, approach.viewAB.nextActiveRail)
     }
 
@@ -1740,9 +1700,7 @@ class TimetableDispatcherTest {
     fun `short turnout claim releases for a later conflicting service`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-conflict", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val firstBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
@@ -1777,7 +1735,7 @@ class TimetableDispatcherTest {
         assertEquals(
             TimetableServiceRunState.COMPLETED,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state,
-            "status=${dispatcher.status(TimetableServiceRunId("tt", "s1"))} stall=${data.atoCoordinator.lastStall}"
+            "status=${dispatcher.status(TimetableServiceRunId("tt", "s1"))} stall=${world.simpleAtoWorldData.atoCoordinator.lastStall}"
         )
         secondTrain.setLocation(RailLocationWithFacing(approach.viewAB, secondOriginArc))
         secondTrain.commitMaintenancePlacement()
@@ -1793,10 +1751,10 @@ class TimetableDispatcherTest {
         assertEquals(
             TimetableServiceRunState.COMPLETED,
             firstStatus?.state,
-            "$firstStatus / $secondStatus / stall=${data.atoCoordinator.lastStall}"
+            "$firstStatus / $secondStatus / stall=${world.simpleAtoWorldData.atoCoordinator.lastStall}"
         )
         assertEquals(TimetableServiceRunState.COMPLETED, secondStatus?.state, "$firstStatus / $secondStatus")
-        assertFalse(data.atoCoordinator.isStalled)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -1804,8 +1762,8 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-stall-boundary", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val firstRail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1848,9 +1806,7 @@ class TimetableDispatcherTest {
     fun `short claims let physically separated conflicting services proceed`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-priority", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val lateBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
@@ -1900,22 +1856,20 @@ class TimetableDispatcherTest {
             dispatcher.status(TimetableServiceRunId("tt", "early"))?.state,
             "early=${dispatcher.status(TimetableServiceRunId("tt", "early"))} " +
                 "late=${dispatcher.status(TimetableServiceRunId("tt", "late"))} " +
-                "stall=${data.atoCoordinator.lastStall}"
+                "stall=${world.simpleAtoWorldData.atoCoordinator.lastStall}"
         )
         assertEquals(
             TimetableServiceRunState.COMPLETED,
             dispatcher.status(TimetableServiceRunId("tt", "late"))?.state
         )
-        assertFalse(data.atoCoordinator.isStalled)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
     fun `wait-until-true activation starts a future cycle only after provider becomes true`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-activation", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1966,9 +1920,7 @@ class TimetableDispatcherTest {
     fun `evaluates runtime condition once and waits for registered extension action ticket`() {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("dispatcher-extension", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,

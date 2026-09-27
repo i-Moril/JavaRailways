@@ -1,6 +1,6 @@
 package work.art1st.javarailways.simpleato.routing
 
-import work.art1st.javarailways.basic.api.ato.mission.AtoMission
+import work.art1st.javarailways.simpleato.api.mission.AtoMission
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

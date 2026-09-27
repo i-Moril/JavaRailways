@@ -421,7 +421,7 @@ class JavaRailwaysCommand {
         val destinations = world.simpleAtoWorldData.destinations
         val destinationService = OperationalDestinationService(world)
         val dispatcher = world.simpleAtoWorldData.dispatcher
-        if (data.atoCoordinator.isStalled) {
+        if (world.simpleAtoWorldData.atoCoordinator.isStalled) {
             sender.sendMessage("导航失败：当前世界 ATO 已 Stall，请先检查诊断并执行 ato reset")
             return true
         }
@@ -695,7 +695,7 @@ class JavaRailwaysCommand {
         world: RailWorld,
         depotIds: Set<DepotId>?
     ) {
-        if (!world.basicWorldData.atoCoordinator.isStalled) {
+        if (!world.simpleAtoWorldData.atoCoordinator.isStalled) {
             sender.sendMessage("Depot Reset 只允许在当前 World 已 Stall 时执行")
             return
         }
@@ -968,7 +968,7 @@ class JavaRailwaysCommand {
                 )
                 (world as? CoreWorld)?.physicsCoordinator?.captureCurrentTicket()?.await()
                 val dispatcher = world.simpleAtoWorldData.dispatcher
-                val coordinator = world.basicWorldData.atoCoordinator
+                val coordinator = world.simpleAtoWorldData.atoCoordinator
                 val discarded = if (force) {
                     val selectedTrainIds = dispatcher.statuses().asSequence()
                         .filter { it.id.timetableId == timetableId }
@@ -1171,7 +1171,7 @@ class JavaRailwaysCommand {
                     return true
                 }
                 worlds.forEach { (bukkitWorld, railWorld) ->
-                    val coordinator = railWorld.basicWorldData.atoCoordinator
+                    val coordinator = railWorld.simpleAtoWorldData.atoCoordinator
                     val stall = coordinator.lastStall
                     sender.sendMessage("ATO ${bukkitWorld.name}: ${coordinator.state}")
                     if (stall != null) {
@@ -1193,7 +1193,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("JavaRailways 世界不存在: $requestedWorld")
                     return true
                 }
-                val report = selection.value.basicWorldData.atoCoordinator.lastStall
+                val report = selection.value.simpleAtoWorldData.atoCoordinator.lastStall
                 if (report == null) {
                     sender.sendMessage("世界 ${selection.key.name} 没有 ATO Stall 报告")
                     return true
@@ -1213,7 +1213,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("JavaRailways 世界不存在: $requestedWorld")
                     return true
                 }
-                val coordinator = selection.value.basicWorldData.atoCoordinator
+                val coordinator = selection.value.simpleAtoWorldData.atoCoordinator
                 if (!coordinator.isStalled) {
                     sender.sendMessage("世界 ${selection.key.name} 的 ATO 已处于 RUNNING")
                     return true

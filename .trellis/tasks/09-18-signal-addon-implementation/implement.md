@@ -17,8 +17,10 @@ Current extraction progress:
 - [x] Move Destination/Station model, stores, StationCall runtime/resolver, berth allocation, infrastructure persistence and Bukkit callers into SimpleATO; keep only the derived route-anchor projection in Basic WayPointStore, with no Basic aliases or mirror stores. Move Depot reset coordination to SimpleATO to avoid a reverse dependency.
 - [x] Move Depot/DepotStore, rolling-stock assignment, runtime persistence and Bukkit callers into SimpleATO; keep Basic runtime as a strict revision/epoch pairing document without a mirror ledger or compatibility reader.
 
-- [ ] Inventory remaining ATO/operations production owners and callers in Basic/BukkitPlugin.
-- [ ] Move the remaining automated operating policy, ATO/ATP constraint owners, operating direction and operational route selection into `SimpleATO` with existing behavior tests; retain Basic's generic dynamics/actuation and physical safety contracts shared with manual driving.
+- [x] Inventory remaining ATO/operations production owners and callers in Basic/BukkitPlugin.
+- [x] Move ATO mission, route progress, planner, constraint manager/types and world coordinator/diagnostics into `SimpleATO`; retain Basic's generic dynamics/actuation, route/perception snapshots, RailObject store and physical safety contracts shared with manual driving. Preserve manual fail-close through a generic Basic world safety interlock driven by the SimpleATO coordinator.
+- [x] Delete the legacy `AtoProvider` registry/boundary/controller-switching path instead of migrating or replacing it. Signal extensions use the Stage 1 inspection and namespaced restrictive-output contracts.
+- [ ] Finish the separate operating-direction authoring/persistence seam; the current SimpleATO overlay must not be used to justify a second Basic operating-policy owner.
 - [ ] Create `SimpleATOBukkit` with its own descriptor, lifecycle, service discovery and packaging/boundary tests.
 - [ ] Move only SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; define immutable per-object revisions,
   keep one in-flight plus one newest pending value per object, reject stale revisions and apply through the target's Folia

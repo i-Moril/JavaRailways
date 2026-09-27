@@ -21,7 +21,7 @@ Runtime `BasicRuntimeSnapshotV4(formatVersion=4,infrastructureRevision,physicsEp
 
 Destination、Station、Depot、rolling-stock ledger、Line、Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
 
-Diagnostic独立：`AtoStallReportJson.schemaVersion=2`、`DepotResetReportJson.schemaVersion=1`。SimpleATO 的 `lineRevision`是edit revision；`infrastructureRevision`配对files；`physicsEpoch`配对publication；都非schemaVersion。
+Diagnostic独立：`AtoStallReportJson.schemaVersion=3`、`DepotResetReportJson.schemaVersion=2`。ATO诊断版本3删除已废弃的`activeProviderId`。SimpleATO 的 `lineRevision`是edit revision；`infrastructureRevision`配对files；`physicsEpoch`配对publication；都非schemaVersion。
 
 ## Split pairing与restore pipeline
 

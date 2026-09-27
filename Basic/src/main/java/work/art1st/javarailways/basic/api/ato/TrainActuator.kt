@@ -34,39 +34,3 @@ interface TrainActuator {
     /** Returns a braking envelope for the current forward route, or null for a test-only fallback. */
     fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope? = null
 }
-
-/** Constant-acceleration actuator retained for small, deterministic planner/constraint tests. */
-class KinematicTrainActuator(
-    override val maximumSpeedMetersPerSecond: Double,
-    private val profile: AtoSafetyProfile
-) : TrainActuator {
-    init {
-        require(maximumSpeedMetersPerSecond > 0.0 && maximumSpeedMetersPerSecond.isFinite())
-    }
-
-    override fun step(
-        currentSpeedMetersPerSecond: Double,
-        demand: ControlDemand,
-        deltaTimeSeconds: Double
-    ): ActuationStep {
-        require(currentSpeedMetersPerSecond >= 0.0 && currentSpeedMetersPerSecond.isFinite())
-        require(deltaTimeSeconds >= 0.0 && deltaTimeSeconds.isFinite())
-
-        val target = demand.targetSpeedMetersPerSecond.coerceAtMost(maximumSpeedMetersPerSecond)
-        val nextSpeed = when {
-            currentSpeedMetersPerSecond < target -> minOf(
-                target,
-                currentSpeedMetersPerSecond + profile.accelerationMetersPerSecondSquared * deltaTimeSeconds
-            )
-            currentSpeedMetersPerSecond > target -> maxOf(
-                target,
-                currentSpeedMetersPerSecond - profile.serviceDecelerationMetersPerSecondSquared * deltaTimeSeconds
-            )
-            else -> target
-        }
-        return ActuationStep(
-            speedMetersPerSecond = nextSpeed,
-            distanceMeters = (currentSpeedMetersPerSecond + nextSpeed) * 0.5 * deltaTimeSeconds
-        )
-    }
-}

@@ -1,8 +1,7 @@
 package work.art1st.javarailways.basic
 
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.provider.AtoProviderRegistry
 import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
+import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
 import work.art1st.javarailways.basic.pathFinding.RailMap
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
@@ -14,14 +13,13 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Basic 模块挂在每个 World 上的运营层数据容器。
  *
- * 这里只保存通用路径点、ATO 协调器、Provider 和底层轨道运营对象。
- * Destination、Station、Depot、Line、Timetable 与 rolling-stock ledger 由 SimpleATO 持有。
+ * 这里只保存通用路径点、物理 fail-closed latch 和底层轨道运营对象。
+ * ATO 协调器、策略以及其他运营状态由 SimpleATO 持有。
  */
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
-    val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
-    val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
+    val safetyInterlock: WorldSafetyInterlock = WorldSafetyInterlock(),
     val railObjects: RailObjectStore = RailObjectStore(),
     val turnoutSafetyDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults(),
     val railMetadata: RailInfrastructureMetadataStore = RailInfrastructureMetadataStore(),

@@ -7,8 +7,8 @@
 | 模块 | 主要职责 | 关键证据 |
 | --- | --- | --- |
 | `Core` | 平台无关物理、车辆、轨道、事件、Tick 与底层 API | `Core/src/main/java/work/art1st/javarailways/core/api/`、`Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt` |
-| `Basic` | 当前承载曲线、寻路、安全、资源内核及迁移期共享ATO primitive；重构目标保留平台无关底层机制、通用图算法、拓扑/物理资源推导、资源仲裁、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
-| `SimpleATO` | 迁移中的平台无关运营模块；当前拥有Destination、Station、Depot/rolling-stock、Line、Timetable、Dispatcher、具体ATO controller、手动导航、运营选路/准入client和限制归约 | `SimpleATO/build.gradle.kts`、`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/` |
+| `Basic` | 曲线、通用寻路、安全与资源内核，以及自动/手动共用的actuation、制动包络和route/perception snapshot primitive；长期保留平台无关底层机制、通用图算法、拓扑/物理资源推导、资源仲裁、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
+| `SimpleATO` | 迁移中的平台无关运营模块；当前拥有Destination、Station、Depot/rolling-stock、Line、Timetable、Dispatcher、ATO安全参数/mission/constraint/coordinator、具体controller、手动导航、运营选路/准入client和限制归约 | `SimpleATO/build.gradle.kts`、`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/` |
 | `ConfigLib` | kotlinx.serialization 的持久化代理辅助 | `ConfigLib/src/main/kotlin/work/art1st/configLib/persistence/Persistence.kt` |
 | `Annotation` | 独立 KSP 代码生成实验 | `Annotation/src/main/kotlin/work/art1st/javarailways/annotation/processor/PersistentByProcessor.kt` |
 | `BukkitPlugin` | Paper/Folia composition、命令/工具、渲染、世界生命周期与持久化 | `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt` |
@@ -18,7 +18,7 @@
 
 `docs-site` 不在 Gradle `include` 中；它由 `.gitmodules` 声明为独立 Git submodule。
 
-`SimpleATO`已经进入`settings.gradle`，并已拥有Dispatcher、具体ATO controller、Destination、Station、Depot、Line、Timetable、运营冻结路线、通用准入client、信号限制与inspection runtime；Depot/rolling-stock ledger已迁入SimpleATO，部分共享ATO primitive仍在Basic，所以模块迁移尚未完成。`SimpleATOBukkit`与首个信号系统插件`JapaneseSignals`仍是尚未创建的Stage 2目标模块。迁移完成后的ownership是：`Basic`保留拓扑校验、不可删除的物理资源底线、通用资源仲裁、设备准备与释放；`SimpleATO`拥有ATO/ATP、运行方向、Destination/Station/Depot/Line/Timetable、运营寻路、资源检查调度和限制归约，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`只拥有SimpleATO的Bukkit适配和通用平台呈现；`JapaneseSignals`拥有首套日本式固定闭塞、保护区域、联锁、信号模型、authoring/rendering、持久化以及可选JS/YAML；其他独立信号系统插件不依赖其领域模型；`BukkitPlugin`保留RailWand、手动驾驶、world/composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得先制造两个运行owner。
+`SimpleATO`已经进入`settings.gradle`，并已拥有Dispatcher、ATO mission/constraint/coordinator、具体controller、Destination、Station、Depot、Line、Timetable、运营冻结路线、通用准入client、信号限制与inspection runtime；旧`AtoProvider`切换机制已经删除，Basic仅保留共享物理actuation、安全包络、snapshot与通用resource primitive，所以ATO policy owner迁移已经完成。`SimpleATOBukkit`与首个信号系统插件`JapaneseSignals`仍是尚未创建的Stage 2目标模块。迁移完成后的ownership是：`Basic`保留拓扑校验、不可删除的物理资源底线、通用资源仲裁、设备准备与释放；`SimpleATO`拥有ATO/ATP、运行方向、Destination/Station/Depot/Line/Timetable、运营寻路、资源检查调度和限制归约，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`只拥有SimpleATO的Bukkit适配和通用平台呈现；`JapaneseSignals`拥有首套日本式固定闭塞、保护区域、联锁、信号模型、authoring/rendering、持久化以及可选JS/YAML；其他独立信号系统插件不依赖其领域模型；`BukkitPlugin`保留RailWand、手动驾驶、world/composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得先制造两个运行owner。
 
 ## 依赖方向
 

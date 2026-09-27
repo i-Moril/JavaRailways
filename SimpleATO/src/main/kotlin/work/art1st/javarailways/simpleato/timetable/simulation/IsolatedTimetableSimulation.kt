@@ -2,7 +2,7 @@ package work.art1st.javarailways.simpleato.timetable.simulation
 
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.api.ato.AtoStallReport
+import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
@@ -17,13 +17,13 @@ import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
@@ -124,7 +124,6 @@ class IsolatedTimetableSimulationWorld private constructor(
     private fun simulateOnIsolatedThread(
         request: IsolatedTimetableSimulationRequest
     ): IsolatedTimetableSimulationResult {
-        val data = world.basicWorldData
         val dispatcher = world.simpleAtoWorldData.dispatcher
         world.simpleAtoWorldData.timetables.add(request.timetable)
         when (val started = dispatcher.beginTimetable(world, request.timetable.id)) {
@@ -147,7 +146,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             }
             step()
             val runs = cycleZeroRuns(request.timetable.id)
-            data.atoCoordinator.lastStall?.let { stall ->
+            world.simpleAtoWorldData.atoCoordinator.lastStall?.let { stall ->
                 return IsolatedTimetableSimulationResult.Failed(
                     tick,
                     "${stall.errorType}: ${stall.message.orEmpty()}",
@@ -190,7 +189,7 @@ class IsolatedTimetableSimulationWorld private constructor(
         physicsCoordinator.stepSimulation(LOGICAL_TICK_MILLIS.toDouble()).await()
         routeAdmissionHost.publish(
             RailwayObservation.fromCore(
-                world.basicWorldData.atoCoordinator.worldId,
+                world.simpleAtoWorldData.atoCoordinator.worldId,
                 world.latestWorldFrame()
             )
         )
@@ -258,14 +257,16 @@ class IsolatedTimetableSimulationWorld private constructor(
                             physics
                         )
                     ).also { isolatedWorld ->
-                        isolatedWorld.registerExtensionData(
-                            BasicPlugin.INSTANCE,
-                            basicDataFactory(isolatedWorld)
-                        )
+                        val basicData = basicDataFactory(isolatedWorld)
+                        isolatedWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
                         basicInfrastructure.restore(isolatedWorld)
-                        val admission = IsolatedRouteAdmissionHost(isolatedWorld)
+                        val atoCoordinator = AtoWorldCoordinator(
+                            worldId = "isolated",
+                            safetyInterlock = basicData.safetyInterlock
+                        )
+                        val admission = IsolatedRouteAdmissionHost(isolatedWorld, atoCoordinator)
                         routeAdmissionHost = admission
-                        val worldId = isolatedWorld.basicWorldData.atoCoordinator.worldId
+                        val worldId = atoCoordinator.worldId
                         val signalRestrictions = TrainRestrictionSnapshotStore(worldId)
                         val signalEpochRuntime = SignalEpochRuntime(
                             worldId,
@@ -277,6 +278,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                         isolatedWorld.registerExtensionData(
                             SimpleATOPlugin.INSTANCE,
                             SimpleATOWorldData(
+                                atoCoordinator,
                                 dispatcherFactory(
                                     isolatedWorld,
                                     admission.contextProvider,
@@ -287,7 +289,8 @@ class IsolatedTimetableSimulationWorld private constructor(
                                 signalEpochRuntime,
                                 signalRestrictions,
                                 inspectionRuntime,
-                                isolatedWorld.basicWorldData.railObjects,
+                                basicData.railObjects,
+                                basicData.safetyInterlock,
                                 timetableExtensions = timetableExtensions
                             )
                         )
@@ -314,7 +317,8 @@ class IsolatedTimetableSimulationWorld private constructor(
 
 /** Basic's real admission runtime, composed without Bukkit-only providers for isolated simulation. */
 private class IsolatedRouteAdmissionHost(
-    private val world: CoreWorld
+    private val world: CoreWorld,
+    private val atoCoordinator: AtoWorldCoordinator
 ) : AutoCloseable {
     private val requester = Any()
     private var latestObservation: RailwayObservation? = null
@@ -358,7 +362,7 @@ private class IsolatedRouteAdmissionHost(
 
     init {
         runtime = RouteResourceAdmissionRuntime.create(
-            worldId = world.basicWorldData.atoCoordinator.worldId,
+            worldId = atoCoordinator.worldId,
             world = world,
             registry = registry,
             hostClaimOwner = this,
@@ -387,10 +391,9 @@ private class IsolatedRouteAdmissionHost(
     }
 
     private fun stall(reason: String, failure: Exception) {
-        val coordinator = world.basicWorldData.atoCoordinator
-        coordinator.stall(
+        atoCoordinator.stall(
             AtoStallReport(
-                worldId = coordinator.worldId,
+                worldId = atoCoordinator.worldId,
                 trainId = "isolated-route-admission",
                 tick = latestObservation?.stamp?.physicsEpoch ?: 0L,
                 errorType = "RouteAdmissionFailure",
@@ -400,7 +403,6 @@ private class IsolatedRouteAdmissionHost(
                 currentTrain = null,
                 route = null,
                 perception = null,
-                activeProviderId = null,
                 constraints = emptyMap()
             )
         )

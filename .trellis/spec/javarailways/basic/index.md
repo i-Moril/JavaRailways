@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-当前`Basic/`承载curve/rail metadata、安全、route/resource、WayPoint、Basic snapshot，以及由SimpleATO消费的ATO value/safety primitives；Destination、Station、Depot、rolling-stock ledger、Line、timetable model/store/extensions/persistence、具体`SimpleATO` controller、Dispatcher、checkpoint和隔离模拟runtime由`SimpleATO/`拥有。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`承载curve/rail metadata、安全、route/resource、WayPoint、route/perception snapshot，以及自动/手动控制共用的物理actuation primitive；ATO mission、constraint、world coordinator与具体controller均由`SimpleATO/`拥有，旧`AtoProvider`切换机制已经删除。Destination、Station、Depot、rolling-stock ledger、Line、timetable model/store/extensions/persistence、Dispatcher、checkpoint和隔离模拟runtime同样由`SimpleATO/`拥有。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 
@@ -10,12 +10,12 @@
 | --- | --- | --- |
 | [API 边界](./api-boundaries.md) | 改`basic.api.*`、Dokka、Core/Bukkit imports | 候选API与consumer边界 |
 | [world runtime](./world-runtime.md) | 构造/查找`BasicWorldData`或world stores | world-local composition与RailObject lifecycle |
-| [threading 与 publication](./threading-and-publication.md) | main↔physics command、ATO publication、Dispatcher顺序 | cross-thread handoff与world Stall |
+| [threading 与 publication](./threading-and-publication.md) | main↔physics command、observation publication、Dispatcher顺序 | cross-thread handoff与Basic safety interlock |
 | [监测区占用](./railway-area-occupancy.md) | 区间占用、边界ENTER/LEFT、响应式信号输入 | Basic通用物理派生，不包含信号制式策略 |
-| [ATO mission 与 perception](./ato-missions-and-perception.md) | mission、route/perception snapshot | revision、resolve、immutable perception |
-| [ATO control primitives 与 constraints](./ato-control-and-constraints.md) | AbstractATO、actuator、speed/stop/authority primitive | Basic共享safety skeleton与constraint math；具体controller归SimpleATO |
+| [ATO snapshot](./ato-missions-and-perception.md) | route/perception snapshot与revision queue | Basic immutable input primitive；mission归SimpleATO |
+| [自动/手动物理控制 primitive](./ato-control-and-constraints.md) | actuator、control demand、braking envelope、world safety latch | Basic共享物理执行；ATO policy归SimpleATO |
 | [列车纵向动力学](./train-longitudinal-dynamics.md) | 牵引/制动/阻力/坡度、人工或ATO手柄执行、重力注入 | Basic共享动力学、真实手柄执行与坡度制动包络 |
-| [ATO providers](./ato-providers.md) | 注册provider/boundary | world-local factory、worker purity |
+| [RailObject store](./ato-providers.md) | 注册/删除通用RailObject | generic lifecycle；不包含ATO provider切换 |
 | [train operations](./train-operations.md) | door/model/announcement adapter | request/ticket/cancel/completion |
 | [curve authoring](./curve-authoring.md) | Anchor/template/solver/measurement | stable token、SI单位、off-main build |
 | [rail infrastructure](./rail-infrastructure.md) | metadata、split/merge/turnout | metadata ownership与Core topology同步 |

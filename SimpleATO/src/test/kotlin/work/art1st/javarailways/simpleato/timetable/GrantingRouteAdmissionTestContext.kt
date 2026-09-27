@@ -5,7 +5,8 @@ import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
-import work.art1st.javarailways.basic.api.ato.AtoStallReport
+import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
@@ -75,7 +76,7 @@ internal class GrantingRouteAdmissionTestContext(
         }
         val observation = RailwayObservation.create(
             RailwayStateStamp(
-                currentWorld.basicWorldData.atoCoordinator.worldId,
+                currentWorld.simpleAtoWorldData.atoCoordinator.worldId,
                 nextEpoch,
                 currentWorld.topologyState.revision
             ),
@@ -126,7 +127,7 @@ internal class GrantingRouteAdmissionTestContext(
             }
         )
         createdRuntime = RouteResourceAdmissionRuntime.create(
-            worldId = currentWorld.basicWorldData.atoCoordinator.worldId,
+            worldId = currentWorld.simpleAtoWorldData.atoCoordinator.worldId,
             world = currentWorld,
             registry = createdRegistry,
             hostClaimOwner = this,
@@ -135,7 +136,7 @@ internal class GrantingRouteAdmissionTestContext(
             validateContribution = { _, _ -> null },
             resolveContributedPreparation = { _, _ -> null },
             stallWorld = { reason, failure ->
-                val coordinator = currentWorld.basicWorldData.atoCoordinator
+                val coordinator = currentWorld.simpleAtoWorldData.atoCoordinator
                 coordinator.stall(AtoStallReport(
                     worldId = coordinator.worldId,
                     trainId = "test-route-admission",
@@ -147,7 +148,6 @@ internal class GrantingRouteAdmissionTestContext(
                     currentTrain = null,
                     route = null,
                     perception = null,
-                    activeProviderId = null,
                     constraints = emptyMap()
                 ))
             }

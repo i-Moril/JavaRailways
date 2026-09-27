@@ -29,7 +29,7 @@ Basic tests优先复用Core `createTestWorld/createStraightRailFromSegments/crea
 | 主题 | 必需assertion points |
 | --- | --- |
 | world/thread | world isolation、queue revision、publish前后、exact ticket、Stall first failure、cleanup |
-| ATO/provider | typed resolve/revision result、constraint math、no mission zero、provider purity/diagnostic/freeze |
+| ATO policy | typed resolve/revision result、constraint math、no mission zero、diagnostic/freeze |
 | Destination/domain | canonical IDs、all derived stores、revision/no partial、tail/full envelope |
 | curve/rail | template token、SI单位、off-main fail、endpoint/frame/radius/roll、topology+metadata rollback |
 | route/resource | actual weighted shortest、AB/BA/loop、compile failure、atomic turnout/no preempt、tail release |

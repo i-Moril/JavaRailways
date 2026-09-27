@@ -7,13 +7,13 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionRequest
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
-import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionSubmissionResult
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.simpleato.api.station.DwellPlan
 import work.art1st.javarailways.simpleato.api.station.Station
 import work.art1st.javarailways.simpleato.api.station.StationBerth
@@ -123,7 +123,7 @@ class StationCallRuntimeTest {
             notifications.map(StationCallNotification::type),
             "speed=${fixture.train.speed} head=${fixture.train.head.location.arcLengthIn(ViewDirection.AB)} " +
                 "berth=${fixture.berth.location.arcLengthIn(ViewDirection.AB)} " +
-                "stall=${fixture.data.atoCoordinator.lastStall?.message}"
+                "stall=${fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.message}"
         )
         assertEquals(0.0, fixture.train.speed)
         assertEquals(
@@ -151,7 +151,7 @@ class StationCallRuntimeTest {
             notifications.map(StationCallNotification::type)
         )
         assertNull(fixture.ato.currentStationCall)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertTrue(notifications.zipWithNext().all { (first, second) ->
             second.physicsEpoch >= first.physicsEpoch
         })
@@ -177,16 +177,16 @@ class StationCallRuntimeTest {
         fixture.world.simpleAtoWorldData.stations.remove(fixture.station.id)
         fixture.tick()
 
-        assertTrue(fixture.data.atoCoordinator.isStalled)
-        assertTrue(fixture.data.atoCoordinator.lastStall?.message?.contains("StationBerth") == true)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.message?.contains("StationBerth") == true)
         assertFalse(otherCoordinator.isStalled)
     }
 
     private fun fixture(id: String): Fixture {
         val world = createTestWorld()
         val coordinator = AtoWorldCoordinator("station-$id", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)

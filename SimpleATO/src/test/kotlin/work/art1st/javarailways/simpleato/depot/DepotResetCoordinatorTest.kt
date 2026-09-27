@@ -13,10 +13,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoStallReport
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.depot.*
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
@@ -86,8 +86,8 @@ class DepotResetCoordinatorTest {
             }
         )
         val coordinator = AtoWorldCoordinator("reset-world", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
@@ -174,8 +174,8 @@ class DepotResetCoordinatorTest {
     fun `failed placement restores every train including the train that threw mid-move`() {
         val world = createTestWorld().also(worlds::add)
         val coordinator = AtoWorldCoordinator("reset-placement-rollback", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(140.0, segmentCount = 1)
@@ -281,8 +281,8 @@ class DepotResetCoordinatorTest {
     fun `reset rejects actual train envelopes that overlap across connected rails`() {
         val world = createTestWorld().also(worlds::add)
         val coordinator = AtoWorldCoordinator("reset-cross-rail-envelope", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val firstRail = rail(
             world,
             Vector3d(0.0, 0.0, 0.0),
@@ -383,7 +383,8 @@ class DepotResetCoordinatorTest {
         val coordinator = AtoWorldCoordinator("reset-preflight", reportSink = {})
         TestSimpleATOWorldDataRegistry.register(
             world,
-            BasicWorldData(atoCoordinator = coordinator)
+            BasicWorldData(safetyInterlock = coordinator.safetyInterlock),
+            coordinator
         )
         val rail = createStraightRailFromSegments(
             world,
@@ -471,7 +472,6 @@ class DepotResetCoordinatorTest {
         currentTrain = null,
         route = null,
         perception = null,
-        activeProviderId = null,
         constraints = emptyMap()
     )
 }

@@ -11,9 +11,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
@@ -293,7 +293,7 @@ class TimetableDispatcherSharedAdmissionTest {
         assertEquals(1, fixture.service.intents.size)
         assertEquals(TimetableControlMode.MANUAL_ROUTED, fixture.status().controlMode)
         assertSame(manual, fixture.train.controller)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -396,10 +396,9 @@ class TimetableDispatcherSharedAdmissionTest {
     @Test
     fun `stored train transfers its tail held grant to the next forward service`() {
         val world = createTestWorld().also(worlds::add)
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
-        )
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val coordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = world.createRailForTest(straightCurve(
             Vector3d(0.0, 0.0, 0.0),
             Vector3d(240.0, 0.0, 0.0)
@@ -516,10 +515,9 @@ class TimetableDispatcherSharedAdmissionTest {
     @Test
     fun `sequential services reuse the restriction stream of an externally owned ATO`() {
         val world = createTestWorld().also(worlds::add)
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
-        )
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val coordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
@@ -600,7 +598,7 @@ class TimetableDispatcherSharedAdmissionTest {
 
         assertTrue(service.intents.size > requestCountAfterFirst)
         assertTrue(service.intents.drop(requestCountAfterFirst).all { it.owner == firstOwner })
-        assertFalse(data.atoCoordinator.isStalled)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertSame(externalAto, train.controller)
     }
 
@@ -609,10 +607,9 @@ class TimetableDispatcherSharedAdmissionTest {
         inspectionSources: List<InspectionSource> = emptyList()
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
-        )
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val coordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(400.0, segmentCount = 1)

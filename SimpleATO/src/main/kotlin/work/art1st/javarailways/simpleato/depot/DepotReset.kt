@@ -99,7 +99,7 @@ class DepotResetCoordinator(
         val worldData = world.basicWorldData
         val operationalData = world.simpleAtoWorldData
         val resetId = "depot-reset-${System.currentTimeMillis()}"
-        if (!worldData.atoCoordinator.isStalled) {
+        if (!operationalData.atoCoordinator.isStalled) {
             return failed(
                 resetId,
                 depotIds.orEmpty(),
@@ -349,7 +349,7 @@ class DepotResetCoordinator(
         return DepotResetResult.Succeeded(
             DepotResetReport(
                 resetId = resetId,
-                worldId = worldData.atoCoordinator.worldId,
+                worldId = operationalData.atoCoordinator.worldId,
                 status = DepotResetStatus.SUCCEEDED,
                 depotIds = plan.depotIds,
                 assignments = plan.assignments,
@@ -392,7 +392,7 @@ class DepotResetCoordinator(
     ): DepotResetResult.PartiallyCommitted = DepotResetResult.PartiallyCommitted(
         DepotResetReport(
             resetId = resetId,
-            worldId = world.basicWorldData.atoCoordinator.worldId,
+            worldId = world.simpleAtoWorldData.atoCoordinator.worldId,
             status = DepotResetStatus.PARTIALLY_COMMITTED,
             depotIds = depotIds,
             assignments = assignments,
@@ -413,7 +413,7 @@ class DepotResetCoordinator(
     ): DepotResetResult.Failed = DepotResetResult.Failed(
         DepotResetReport(
             resetId = resetId,
-            worldId = world.basicWorldData.atoCoordinator.worldId,
+            worldId = world.simpleAtoWorldData.atoCoordinator.worldId,
             status = DepotResetStatus.FAILED,
             depotIds = depotIds,
             assignments = assignments,

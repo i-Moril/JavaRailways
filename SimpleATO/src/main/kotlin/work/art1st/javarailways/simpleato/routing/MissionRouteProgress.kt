@@ -1,10 +1,11 @@
-package work.art1st.javarailways.basic.route
+package work.art1st.javarailways.simpleato.routing
 
-import work.art1st.javarailways.basic.api.ato.mission.AtoMission
+import work.art1st.javarailways.basic.route.RailViewRef
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import kotlin.math.abs
+import work.art1st.javarailways.simpleato.api.mission.AtoMission
 
 /** Immutable projection helper from published train positions to Mission route progress. */
 class MissionRouteLayout(

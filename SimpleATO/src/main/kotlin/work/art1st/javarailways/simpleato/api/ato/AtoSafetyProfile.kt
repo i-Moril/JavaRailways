@@ -1,6 +1,6 @@
-package work.art1st.javarailways.basic.api.ato
+package work.art1st.javarailways.simpleato.api.ato
 
-/** Fixed Phase B motion limits. All values use SI units. */
+/** Fixed ATO planning limits. All values use SI units. */
 data class AtoSafetyProfile(
     val accelerationMetersPerSecondSquared: Double = 1.0,
     val serviceDecelerationMetersPerSecondSquared: Double = 1.0,

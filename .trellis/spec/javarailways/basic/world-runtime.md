@@ -14,8 +14,7 @@
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
-    val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
-    val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
+    val safetyInterlock: WorldSafetyInterlock = WorldSafetyInterlock(),
     val railObjects: RailObjectStore = RailObjectStore(),
     ...
 )
@@ -23,7 +22,7 @@ data class BasicWorldData(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。
 
-Destination/Station/Depot/Line/Timetable store、rolling-stock ledger、extension registry 与 Dispatcher 都不属于该container；`SimpleATOWorldData`是它们的唯一world-local owner。Basic不保存Depot镜像store，也不反向查找SimpleATO。
+ATO coordinator、Destination/Station/Depot/Line/Timetable store、rolling-stock ledger、extension registry 与 Dispatcher 都不属于该container；`SimpleATOWorldData`是它们的唯一world-local owner。旧ATO provider registry已经删除。`WorldSafetyInterlock`只是Basic物理控制使用的通用fail-close latch，不携带ATO诊断。Basic不保存运营镜像store，也不反向查找SimpleATO。
 
 通用资源运行时由Bukkit composition为每个world另建一条成对生命周期记录：同一记录持有唯一
 `InfrastructureCoordinationRegistry`和`RouteResourceAdmissionRuntime`，后者复用前者完成自动进路claim、设备准备、
@@ -36,15 +35,13 @@ coordinator与tick owner。attach失败不得把半构造world放入`WorldManage
 ## RailObject lifecycle
 
 - `RailObjectStore.register(obj)`要求`ACTIVE`，`RailObjectRef`world内唯一；duplicate→`IllegalStateException`且原object保持。
-- generic owner先发布`REMOVED`再`unregister(ref)`；否则fail且registration保持。
-- `AtoProviderBoundary`由store owns removal transition。
+- concrete owner先发布`REMOVED`再`unregister(ref)`；否则fail且registration保持。
 - `objectsOnRail(UUID)`只返回ACTIVE；`get(ref)` consumer仍检查lifecycle。
 - same live ref不得解析成不同object；perception必须Stall而非shadow。
 
 真实unregister顺序：
 
 ```kotlin
-if (registered is AtoProviderBoundary) registered.markRemoved()
 check(registered.lifecycleState == RailObjectLifecycleState.REMOVED)
 check(byRef.remove(ref, registered))
 byRail[registered.location.rail.id]?.remove(registered)
@@ -73,7 +70,7 @@ byRail[registered.location.rail.id]?.remove(registered)
 
 ## 必需测试与验证
 
-- `RailObjectStoreTest.kt`：duplicate ref、ACTIVE unregister failure、provider boundary store-owned removal。
+- `RailObjectStoreTest.kt`：duplicate ref、ACTIVE unregister failure与双索引一致性。
 - world creation/unload integration：attach一次、restore后first wake、fixture unregister与Core resources close。
 
 ```bash

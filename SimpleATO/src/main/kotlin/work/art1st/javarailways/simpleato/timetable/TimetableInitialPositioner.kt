@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoStallReport
+import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
@@ -86,9 +86,9 @@ class TimetableInitialPositioner(private val world: World) {
             TimetableInitialPositionResult.Applied(placements.size)
         } catch (failure: Exception) {
             val reason = failure.message ?: failure::class.java.simpleName
-            world.basicWorldData.atoCoordinator.stall(
+            world.simpleAtoWorldData.atoCoordinator.stall(
                 AtoStallReport(
-                    worldId = world.basicWorldData.atoCoordinator.worldId,
+                    worldId = world.simpleAtoWorldData.atoCoordinator.worldId,
                     trainId = "<timetable:${timetable.id}>",
                     tick = tick,
                     errorType = "TimetableInitialPositionFailure",
@@ -98,7 +98,6 @@ class TimetableInitialPositioner(private val world: World) {
                     currentTrain = null,
                     route = null,
                     perception = null,
-                    activeProviderId = null,
                     constraints = emptyMap()
                 )
             )

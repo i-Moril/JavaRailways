@@ -70,7 +70,8 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 - 换向只改变`operatingDirection`和列车head/tail语义，不改变`Car.direction`模型朝向。
 - 重力只来自composition注入；Basic不得读取YAML或Bukkit singleton。
 - `track.gravity`是schema 2的必填正数字段；它由旧`track.gravity-mps2`破坏性重命名而来，不保留runtime兼容读取。
-- `KinematicTrainActuator`只可作为无真实profile的纯规划/约束测试替身，production和isolated composition不得构造它。
+- SimpleATO test source中的`KinematicTrainActuator`只可作为无真实车辆profile的纯规划/约束测试替身，production和
+  isolated composition不得构造它；Basic main source不拥有该ATO测试策略。
 
 ## 6. 校验与错误矩阵
 

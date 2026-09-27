@@ -16,9 +16,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationExecutionResult
 import work.art1st.javarailways.basic.api.operation.TrainOperationGateway
@@ -137,7 +136,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(departingAtTick >= 1_200)
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
         assertEquals(fixture.targetArc, fixture.train.head.location.arcLengthIn(ViewDirection.AB), 0.4)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -188,7 +187,7 @@ class TimetableStationCallDispatcherTest {
         assertEquals(TimetableServiceRunState.COMPLETED, finalStatus?.state, finalStatus.toString())
         assertFalse(finalStatus?.berthHeld == true)
         assertEquals(fixture.targetArc, fixture.train.head.location.arcLengthIn(ViewDirection.AB), 0.4)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -212,7 +211,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(TimetableServiceRunState.DWELLING in observed)
         assertFalse(TimetableServiceRunState.DEPARTED in observed)
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -260,7 +259,7 @@ class TimetableStationCallDispatcherTest {
         val departedOnSchedule = status
         assertEquals(300L, departedOnSchedule.timetableElapsedTicks)
         assertEquals(300L, departedOnSchedule.scheduledActionTick)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -309,7 +308,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(TimetableServiceRunState.DEPARTING in observed)
         assertEquals(2, gateway.requests.size)
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -401,7 +400,7 @@ class TimetableStationCallDispatcherTest {
         assertEquals(2, gateway.requests.size)
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
         assertEquals(fixture.targetArc, fixture.train.head.location.arcLengthIn(ViewDirection.AB), 0.4)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -442,8 +441,8 @@ class TimetableStationCallDispatcherTest {
         val status = fixture.dispatcher.status(id)!!
         assertEquals(TimetableServiceRunState.COMPLETED, status.state, status.toString())
         assertFalse(
-            fixture.data.atoCoordinator.isStalled,
-            fixture.data.atoCoordinator.lastStall.toString()
+            fixture.world.simpleAtoWorldData.atoCoordinator.isStalled,
+            fixture.world.simpleAtoWorldData.atoCoordinator.lastStall.toString()
         )
     }
 
@@ -471,8 +470,8 @@ class TimetableStationCallDispatcherTest {
         val status = fixture.dispatcher.status(id)!!
         assertEquals(TimetableServiceRunState.COMPLETED, status.state, status.toString())
         assertFalse(
-            fixture.data.atoCoordinator.isStalled,
-            fixture.data.atoCoordinator.lastStall.toString()
+            fixture.world.simpleAtoWorldData.atoCoordinator.isStalled,
+            fixture.world.simpleAtoWorldData.atoCoordinator.lastStall.toString()
         )
     }
 
@@ -507,7 +506,7 @@ class TimetableStationCallDispatcherTest {
         val powerOff = gateway.requests[2].operation as TrainOperation.ExecuteModelAction
         assertEquals("power-off", powerOff.actionName)
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -538,8 +537,8 @@ class TimetableStationCallDispatcherTest {
         assertTrue(status.message!!.contains("timed out"))
         repeat(20) { fixture.tick() }
         assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
-        assertTrue(fixture.data.atoCoordinator.isStalled)
-        assertEquals("TrainOperationFailure", fixture.data.atoCoordinator.lastStall?.errorType)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertEquals("TrainOperationFailure", fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.errorType)
     }
 
     @Test
@@ -559,7 +558,7 @@ class TimetableStationCallDispatcherTest {
             if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.FAILED) break
         }
 
-        assertTrue(fixture.data.atoCoordinator.isStalled)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
         assertThrows(IllegalStateException::class.java) {
             fixture.dispatcher.discardFailedRunsForAtoReset(fixture.world)
@@ -590,7 +589,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(status.message!!.contains("timed out"))
         assertTrue(status.message!!.contains("cancellation failed"), status.message)
         assertTrue(status.message!!.contains("cancel failed"), status.message)
-        assertTrue(fixture.data.atoCoordinator.isStalled)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -631,8 +630,8 @@ class TimetableStationCallDispatcherTest {
         assertFalse(status.state == TimetableServiceRunState.DEPARTING)
         assertEquals(0.0, fixture.train.speed)
         assertTrue(status.berthHeld)
-        assertTrue(fixture.data.atoCoordinator.isStalled)
-        assertEquals("TrainOperationFailure", fixture.data.atoCoordinator.lastStall?.errorType)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertEquals("TrainOperationFailure", fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.errorType)
     }
 
     @Test
@@ -660,8 +659,8 @@ class TimetableStationCallDispatcherTest {
 
         fixture.tick()
 
-        assertTrue(fixture.data.atoCoordinator.isStalled)
-        assertEquals("TrainOperationFailure", fixture.data.atoCoordinator.lastStall?.errorType)
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertEquals("TrainOperationFailure", fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.errorType)
         assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
         assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
     }
@@ -732,7 +731,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(result is TimetableControlTransferResult.Failure)
         assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
         assertSame(ato, fixture.train.controller)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -764,7 +763,7 @@ class TimetableStationCallDispatcherTest {
         assertNull(fixture.train.controller)
         assertEquals(TimetableServiceRunState.SUSPENDED, fixture.dispatcher.status(id)?.state)
         fixture.dispatcher.tick(fixture.world)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertEquals(TimetableServiceRunState.SUSPENDED, fixture.dispatcher.status(id)?.state)
     }
 
@@ -827,7 +826,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue((result as TimetableControlTransferResult.Failure).reason.contains("snapshot"))
         assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
         assertSame(ato, fixture.train.controller)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -867,7 +866,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(observedNewMissionWhileHeld)
         assertTrue(observedRelease)
         assertEquals(TimetableServiceRunState.COMPLETED, fixture.dispatcher.status(id)?.state)
-        assertFalse(fixture.data.atoCoordinator.isStalled)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -889,9 +888,7 @@ class TimetableStationCallDispatcherTest {
                 )
             }
         )
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("station-route-wait", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val mainBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
@@ -971,7 +968,7 @@ class TimetableStationCallDispatcherTest {
         assertEquals(0.0, mainTrain.speed)
         assertTrue(dispatcher.status(mainId)?.berthHeld == true)
         assertTrue(dispatcher.status(blockerId)?.routeGrantActive == true)
-        assertFalse(data.atoCoordinator.isStalled)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     @Test
@@ -993,9 +990,7 @@ class TimetableStationCallDispatcherTest {
                 )
             }
         )
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("station-conflict", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
@@ -1058,7 +1053,7 @@ class TimetableStationCallDispatcherTest {
         tick(firstTrain.controller as SimpleATO)
         dispatcher.tick(world)
         assertTrue(dispatcher.status(firstId)?.berthHeld == true)
-        assertFalse(data.atoCoordinator.isStalled)
+        assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
 
     private fun service(
@@ -1131,9 +1126,7 @@ class TimetableStationCallDispatcherTest {
                 )
             }
         )
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("station-dispatcher", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,

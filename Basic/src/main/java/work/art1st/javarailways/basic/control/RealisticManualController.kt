@@ -96,7 +96,7 @@ class RealisticManualController(
     }
 
     override fun tick(deltaT: Double) {
-        if (controlledTrain.world.basicWorldData.atoCoordinator.isStalled) emergencyBrake()
+        if (controlledTrain.world.basicWorldData.safetyInterlock.isEngaged) emergencyBrake()
         val deltaSeconds = deltaT.coerceAtLeast(0.0) * 0.001
         val currentHandle = if (
             directionRef.get() == TrainDriveDirection.NEUTRAL &&

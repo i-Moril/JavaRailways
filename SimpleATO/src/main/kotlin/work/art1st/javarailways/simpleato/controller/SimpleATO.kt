@@ -1,37 +1,33 @@
 package work.art1st.javarailways.simpleato.controller
 
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
-import work.art1st.javarailways.basic.api.ato.AbstractATO
-import work.art1st.javarailways.basic.api.ato.AtoPlanningContext
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AbstractATO
+import work.art1st.javarailways.simpleato.api.ato.AtoPlanningContext
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
-import work.art1st.javarailways.basic.api.ato.MinimumConstraintPlanner
+import work.art1st.javarailways.simpleato.api.ato.MinimumConstraintPlanner
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.basic.api.ato.command.CommandOfferResult
 import work.art1st.javarailways.basic.api.ato.command.RevisionedCommandQueue
-import work.art1st.javarailways.basic.api.ato.constraint.AtoConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintKey
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintManager
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwner
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwnerType
-import work.art1st.javarailways.basic.api.ato.constraint.CurrentSpeedLimitConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.DepartureHoldConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.MovementAuthorityConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.FollowConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.RouteSpeedLimitConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.StopConstraint
-import work.art1st.javarailways.basic.api.ato.mission.AtoMission
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionRequest
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionResolutionResult
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionResolver
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
-import work.art1st.javarailways.basic.api.ato.provider.AtoProvider
-import work.art1st.javarailways.basic.api.ato.provider.AtoProviderBoundary
-import work.art1st.javarailways.basic.api.ato.provider.AtoProviderContext
-import work.art1st.javarailways.basic.api.ato.provider.ProviderBoundaryAction
+import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintKey
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintManager
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwnerType
+import work.art1st.javarailways.simpleato.api.constraint.CurrentSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.DepartureHoldConstraint
+import work.art1st.javarailways.simpleato.api.constraint.MovementAuthorityConstraint
+import work.art1st.javarailways.simpleato.api.constraint.FollowConstraint
+import work.art1st.javarailways.simpleato.api.constraint.RouteSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.StopConstraint
+import work.art1st.javarailways.simpleato.api.mission.AtoMission
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.basic.api.ato.snapshot.ObservationTransition
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RailObservationSnapshot
@@ -52,7 +48,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
-import work.art1st.javarailways.basic.route.MissionRouteLayout
+import work.art1st.javarailways.simpleato.routing.MissionRouteLayout
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObject
@@ -106,19 +102,18 @@ private data class SimpleAtoControllerPublishedState(
     val currentStationCall: ResolvedStationCall?
 )
 
-/** Basic ATO with line-speed, fixed-stop, following, and one optional signalling provider. */
+/** Automatic controller with line-speed, fixed-stop, following, and external restrictive signal inputs. */
 class SimpleATO(
     train: Train,
     world: World,
     actuator: TrainActuator,
     safetyProfile: AtoSafetyProfile = AtoSafetyProfile(),
     private val inspectionMaximumDistanceMeters: (String) -> Double
-) : AbstractATO(train, world, actuator, safetyProfile, world.basicWorldData.atoCoordinator) {
+) : AbstractATO(train, world, actuator, safetyProfile, world.simpleAtoWorldData.atoCoordinator) {
     private sealed interface Command {
         data class SetSpeedLimit(val key: String, val speed: Double) : Command
         data class StopAt(val key: String, val target: RailObjectRef, val offsetMeters: Double) : Command
         data class Remove(val key: String) : Command
-        data class SetProvider(val providerId: String?) : Command
         data class SetMovementAuthority(val missionRevision: Long, val limitDistanceMeters: Double) : Command
         data class GrantStationDeparture(val callId: String, val missionRevision: Long) : Command
         data class PrepareReverse(
@@ -183,7 +178,6 @@ class SimpleATO(
     private var infrastructureLimitDirection: work.art1st.javarailways.core.api.physics.rail.ViewDirection? = null
     private var previousObserved: Map<RailObjectRef, Observed> = emptyMap()
     private var currentSegments: List<RailSegment> = emptyList()
-    private var activeProvider: AtoProvider? = null
     private var routeRevision = 0L
     private var previousRouteKey: List<Pair<java.util.UUID, work.art1st.javarailways.core.api.physics.rail.ViewDirection>> = emptyList()
     private var perceptionEpoch = 0L
@@ -442,11 +436,6 @@ class SimpleATO(
         return commands.enqueue(Command.Remove(key)).revision
     }
 
-    fun setProvider(providerId: String?): Long {
-        require(providerId == null || providerId.isNotBlank())
-        return commands.enqueue(Command.SetProvider(providerId)).revision
-    }
-
     override fun processPendingCommands() {
         missionCommands.drain().lastOrNull()?.command?.let { mission ->
             constraintManager.remove(MISSION_OWNER)
@@ -503,7 +492,6 @@ class SimpleATO(
                     speedLimits.remove(command.key)
                     stopTargets.remove(command.key)
                 }
-                is Command.SetProvider -> switchProvider(command.providerId)
                 is Command.SetMovementAuthority -> {
                     val activeRevision = activeMission?.revision ?: -1L
                     when {
@@ -586,11 +574,9 @@ class SimpleATO(
         updateTrainRestrictions()
         synchronizeInfrastructureLimitWithHead()
         processSpeedLimitTransitions(scan)
-        processProviderBoundaries(scan)
         updateBuiltInConstraints(scan)
         updateMissionConstraints()
         updateStationCallConstraints(scan)
-        updateProviderConstraints(scan)
         publishRuntimeDiagnostics()
 
         // Continue perception and invariant validation without a Mission, but never turn line-speed
@@ -644,8 +630,6 @@ class SimpleATO(
             }
         }
     }
-
-    override fun activeProviderId(): String? = activeProvider?.id
 
     override fun constraintSnapshot(): Map<ConstraintOwner, List<AtoConstraint>> = constraintManager.snapshot()
 
@@ -924,17 +908,6 @@ class SimpleATO(
         )
     }
 
-    private fun updateProviderConstraints(scan: ScanResult) {
-        val provider = activeProvider
-        if (provider == null) {
-            constraintManager.remove(PROVIDER_OWNER)
-            return
-        }
-        val trainSnapshot = scan.perception.train
-        val values = provider.constraints(AtoProviderContext(trainSnapshot, scan.route, scan.perception))
-        constraintManager.replace(PROVIDER_OWNER, values)
-    }
-
     private fun synchronizeInfrastructureLimitWithHead() {
         val head = train.headLocation as? RailLocationWithFacing
             ?: error("SimpleATO requires a facing-aware train head location")
@@ -959,30 +932,6 @@ class SimpleATO(
                 if (!signal.appliesTo(observation.subject.position.facing)) return@forEach
                 activeInfrastructureLimitMetersPerSecond = signal.getSpeedLimit(train)
             }
-    }
-
-    private fun processProviderBoundaries(scan: ScanResult) {
-        scan.perception.observations.forEach { observation ->
-            if (observation.transition != ObservationTransition.PASS) return@forEach
-            val boundary = scan.eventObjectsByRef[observation.subject.ref]?.railObject as? AtoProviderBoundary
-                ?: return@forEach
-            if (boundary.direction != null && boundary.direction != observation.subject.position.facing) return@forEach
-            when (boundary.action) {
-                ProviderBoundaryAction.ACTIVATE -> switchProvider(boundary.providerId)
-                ProviderBoundaryAction.DEACTIVATE -> if (activeProvider?.id == boundary.providerId) switchProvider(null)
-            }
-        }
-    }
-
-    private fun switchProvider(providerId: String?) {
-        constraintManager.remove(PROVIDER_OWNER)
-        activeProvider = providerId?.let { requestedId ->
-            worldData.atoProviders.create(requestedId, train).also { provider ->
-                check(provider.id == requestedId) {
-                    "ATO provider factory '$requestedId' returned '${provider.id}'"
-                }
-            }
-        }
     }
 
     private fun scanRouteAndObjects(): ScanResult {
@@ -1190,7 +1139,6 @@ class SimpleATO(
         val ROUTE_END_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:route-end")
         val FOLLOW_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:following")
         val EXTERNAL_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:simple-api")
-        val PROVIDER_OWNER = ConstraintOwner(ConstraintOwnerType.SIGNALLING, "basic:active-provider")
         val MISSION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:mission")
         val STATION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:station-call")
         const val POSITION_EPSILON_METERS = 1.0e-3

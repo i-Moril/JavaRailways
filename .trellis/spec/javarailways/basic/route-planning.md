@@ -74,9 +74,10 @@ return when (direction) {
 - `RoutePlannerWeightedTest.kt`：more hops但30 m更短、disconnected failure、same-view loop behind。
 - `DirectionRestrictionRouteTest.kt`：start/goal/branch direction。
 - `PlannedRouteCompilerTest.kt`：range/connection failure、direction restriction，以及道岔路线不会生成signal section。
-- `MissionRouteProgressTest.kt`：AB/BA和loop monotonic projection。
+- SimpleATO `MissionRouteProgressTest.kt`：AB/BA和loop monotonic projection。
 
 ```bash
 ./gradlew :Basic:test --tests '*RoutePlannerWeightedTest' --tests '*DirectionRestrictionRouteTest' \
-  --tests '*PlannedRouteCompilerTest' --tests '*MissionRouteProgressTest'
+  --tests '*PlannedRouteCompilerTest'
+./gradlew :SimpleATO:test --tests '*MissionRouteProgressTest'
 ```

@@ -9,9 +9,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -90,9 +89,7 @@ class ManualNavigationTest {
             }
         )
         val world = createTestWorld()
-        val data = BasicWorldData(
-            atoCoordinator = AtoWorldCoordinator("manual-navigation-test", reportSink = {})
-        )
+        val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         try {
             val rail = createStraightRailFromSegments(

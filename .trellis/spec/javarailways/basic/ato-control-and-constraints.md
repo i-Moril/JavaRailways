@@ -1,84 +1,37 @@
-# Basic ATO control primitives 与 constraints 契约
+# Basic 自动/手动共用物理控制 primitive
 
-## 适用场景与用途
+## 状态与 owner
 
-触发：修改`AbstractATO` tick skeleton、`TrainActuator`、`AtoSafetyProfile`或constraint math/owner。具体`SimpleATO` controller运行时见[SimpleATO controller](../simpleato/controller-runtime.md)。
+Basic拥有`TrainActuator`、`ControlDemand`、`ActuationStep`和`GradeAwareBrakingEnvelope`。这些值和算法只描述
+物理执行或制动能力，不选择ATO策略。`AtoSafetyProfile`、`AbstractATO`、planner、constraint类型/manager与world ATO
+coordinator属于SimpleATO；确定性的恒加减速actuator也只作为SimpleATO测试fixture存在。
 
-用途：为迁移期SimpleATO和Basic诊断/安全代码提供共享的控制骨架和值类型；所有速度决策经owner-scoped constraints取最小许可值，actuator用SI单位生成value movement；exception只Stall owning world并freeze。Basic不再包含具体`SimpleATO` controller或其可写mission/constraint状态。
+Basic另外拥有`WorldSafetyInterlock`：一个world-local、线程安全、只从false锁存到true的通用fail-closed latch。
+SimpleATO coordinator在首次Stall时锁住它，管理员完成恢复后才reset；Basic手动控制器每tick先读取它，锁住时施加紧急制动。
+因此SimpleATO故障仍会阻止手动列车继续运行，但Basic不依赖SimpleATO类型。
 
-## Tick owner、签名与单位
-
-`AbstractATO.tick(deltaT: Double)`由Core physics worker调用，`deltaT`毫秒。固定顺序不可绕过：process commands → `plan(deltaSeconds)` → `validateBeforeMovement()` → actuator → Core move → active speed/distance；exception→`AtoStallReport`→world Stall→freeze。publication仍由AbstractATO原子保存；跨模块subclass只能一次取得protected immutable `PublishedAtoState`来构造自己的公开快照，不能分次读取可能跨epoch的字段，也不能改写内部publication reference。
+## 执行机制与单位
 
 ```kotlin
 interface TrainActuator {
     val maximumSpeedMetersPerSecond: Double
-    fun step(
-        currentSpeedMetersPerSecond: Double,
-        demand: ControlDemand,
-        deltaTimeSeconds: Double
-    ): ActuationStep
-    fun freeze(): ActuationStep = ActuationStep(0.0, 0.0)
-    fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope? = null
+    fun step(currentSpeedMetersPerSecond: Double, demand: ControlDemand, deltaTimeSeconds: Double): ActuationStep
+    fun freeze(): ActuationStep
+    fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope?
 }
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/ato/TrainActuator.kt`。`ActuationStep(speedMetersPerSecond,distanceMeters)`字段finite且`>=0`；生产SimpleATO使用共享真实手柄动力学和坡度包络。Kinematic实现只作为纯控制测试替身，以constant accel/decel并用平均速度积分距离。完整算法见[列车纵向动力学](./train-longitudinal-dynamics.md)。
+所有输入输出使用SI单位并要求finite/non-negative。运动学测试actuator用平均速度积分距离；生产
+`HandleTrainActuator`把需求转换为真实手柄和共享纵向动力学。坡度包络保守计算前方可制动速度，完整机制见
+[列车纵向动力学](./train-longitudinal-dynamics.md)。
 
-`ConstraintOwnerType`稳定token：`SYSTEM_SAFETY/SIGNALLING/OPERATIONS/ADVISORY`。`ConstraintManager.replace(owner,values)`原子替换，同owner duplicate `ConstraintKey(namespace,value)`拒绝；`permittedSpeedMetersPerSecond`取所有owner最小值。
+## 禁止实现与测试
 
-## Constraint输入/结果矩阵
-
-| constraint | 输入字段/单位 | permitted result |
-| --- | --- | --- |
-| `CurrentSpeedLimitConstraint` | `maximumSpeedMetersPerSecond>=0` | 当前固定上限 |
-| `RouteSpeedLimitConstraint` | distance to lower limit m、target m/s | reaction + 坡度包络；无包络测试回退常减速度 |
-| `StopConstraint` | remaining m、optional margin m | 到目标0 m/s；station可margin=0精确停车 |
-| `FollowConstraint` | gap m、leading speed m/s | 扣safety distance/reaction后使用同一坡度包络 |
-| `MovementAuthorityConstraint` | remaining authority m | 用同一坡度包络在authority前到0 m/s |
-| `DepartureHoldConstraint` | key | 恒0 m/s |
-
-无active Mission时，`SimpleATO.plan`即使有line/infrastructure speed cap也必须输出zero demand。constraint是当前Tick value；owner replace empty即remove，不跨Tick累积stale map。
-
-## 项目内正确示例
-
-Kinematic actuator显式用seconds并返回trapezoid distance：
-
-```kotlin
-return ActuationStep(
-    speedMetersPerSecond = nextSpeed,
-    distanceMeters = (currentSpeedMetersPerSecond + nextSpeed) * 0.5 * deltaTimeSeconds
-)
-```
-
-来源：`TrainActuator.kt`。例如0→1 m/s用1 s应移动0.5 m，而不是1 m。
-
-## Failure与side effect
-
-| 条件 | 结果 |
-| --- | --- |
-| invalid/nonfinite speed/distance/profile | constructor/`require`失败；不movement |
-| duplicate key同owner | replace失败；旧owner set保持 |
-| provider/plan/invariant exception | first world Stall report，speed/distance freeze 0 |
-| coordinator已Stalled | 每Tick直接freeze，不再plan/move |
-| operational cap无authority | cap只限制速度，不授权越过protection point |
-
-## 禁止实现
-
-- provider/controller直接写train speed；
-- 修改其他owner constraints；
-- 把speed cap当movement authority；
-- stop目标出现立即强制0而不算braking；
-- mutable/stale map跨Tick累积；
-- worker exception继续movement或影响其他world。
-
-## 必需测试与验证
-
-- `PhaseBConstraintTest.kt`：`sqrt(v²+2ad)` braking、station zero margin、atomic replace/min wins、actuator 0.5 m、freeze。
-- SimpleATO `SimpleATOTest.kt`：no mission zero、line/infrastructure layers、follow/stop/authority、Stall freeze。
-- 每种constraint覆盖base(远目标)、boundary(0 distance)、bad(nonfinite/negative)。
+- Basic actuator不得选择mission、provider、信号aspect或运营方向；
+- SimpleATO不得复制纵向动力学或让Basic反向依赖其coordinator；
+- interlock不得因普通mission拒绝而自动锁住，也不得由controller tick自动reset。
 
 ```bash
-./gradlew :Basic:test --tests '*PhaseBConstraintTest'
-./gradlew :SimpleATO:test --tests '*SimpleATOTest'
+./gradlew :Basic:test --tests '*WorldSafetyInterlockTest'
+./gradlew :SimpleATO:test --tests '*AtoPolicyTest' --tests '*KinematicTrainActuatorTest' --tests '*SimpleATOTest'
 ```

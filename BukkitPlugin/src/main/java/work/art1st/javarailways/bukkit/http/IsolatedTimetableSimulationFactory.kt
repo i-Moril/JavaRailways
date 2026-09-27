@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.http
 
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector

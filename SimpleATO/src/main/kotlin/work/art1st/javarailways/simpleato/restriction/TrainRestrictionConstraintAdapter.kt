@@ -1,15 +1,15 @@
 package work.art1st.javarailways.simpleato.restriction
 
-import work.art1st.javarailways.basic.api.ato.constraint.AtoConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintKey
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintManager
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwner
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwnerType
-import work.art1st.javarailways.basic.api.ato.constraint.CurrentSpeedLimitConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.DepartureHoldConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.MovementAuthorityConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.RouteSpeedLimitConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.StopConstraint
+import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintKey
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintManager
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwnerType
+import work.art1st.javarailways.simpleato.api.constraint.CurrentSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.DepartureHoldConstraint
+import work.art1st.javarailways.simpleato.api.constraint.MovementAuthorityConstraint
+import work.art1st.javarailways.simpleato.api.constraint.RouteSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.StopConstraint
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction

@@ -1,7 +1,7 @@
-package work.art1st.javarailways.basic.api.ato
+package work.art1st.javarailways.simpleato.api.ato
 
-import work.art1st.javarailways.basic.api.ato.constraint.AtoConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwner
+import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.control.TrainController
@@ -9,6 +9,8 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
 
 /** Fixed ATO Tick boundary: plan, actuate, move, or freeze the world-local ATO subsystem. */
 abstract class AbstractATO(
@@ -88,8 +90,6 @@ abstract class AbstractATO(
 
     protected open fun validateBeforeMovement() = Unit
 
-    protected open fun activeProviderId(): String? = null
-
     protected open fun constraintSnapshot(): Map<ConstraintOwner, List<AtoConstraint>> = emptyMap()
 
     private fun freeze() {
@@ -124,7 +124,6 @@ abstract class AbstractATO(
         currentTrain = runCatching { captureTrainSnapshot(atoTick, activeSpeed) }.getOrNull(),
         route = latestRouteSnapshot,
         perception = latestPerceptionSnapshot,
-        activeProviderId = activeProviderId(),
         constraints = constraintSnapshot()
     )
 

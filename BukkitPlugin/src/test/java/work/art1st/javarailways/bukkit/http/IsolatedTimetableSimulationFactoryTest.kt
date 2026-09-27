@@ -27,6 +27,7 @@ import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetable
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
@@ -225,7 +226,8 @@ class IsolatedTimetableSimulationFactoryTest {
     private fun registerWorldData(world: work.art1st.javarailways.core.physics.CoreWorld) {
         val basicData = BasicWorldData()
         world.registerExtensionData(BasicPlugin.INSTANCE, basicData)
-        val worldId = basicData.atoCoordinator.worldId
+        val atoCoordinator = AtoWorldCoordinator(safetyInterlock = basicData.safetyInterlock)
+        val worldId = atoCoordinator.worldId
         val restrictions = TrainRestrictionSnapshotStore(worldId)
         val inspection = InspectionRuntime(restrictions) { _, _, failure -> throw failure }
         val signalEpoch = SignalEpochRuntime(worldId, restrictions, restrictions::completeEpoch)
@@ -248,11 +250,13 @@ class IsolatedTimetableSimulationFactoryTest {
         world.registerExtensionData(
             SimpleATOPlugin.INSTANCE,
             SimpleATOWorldData(
+                atoCoordinator,
                 dispatcher,
                 signalEpoch,
                 restrictions,
                 inspection,
-                basicData.railObjects
+                basicData.railObjects,
+                basicData.safetyInterlock
             )
         )
     }

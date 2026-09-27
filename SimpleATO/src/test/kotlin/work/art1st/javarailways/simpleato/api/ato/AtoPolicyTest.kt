@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ato
+package work.art1st.javarailways.simpleato.api.ato
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -7,17 +7,17 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintKey
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintManager
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwner
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintOwnerType
-import work.art1st.javarailways.basic.api.ato.constraint.CurrentSpeedLimitConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.RouteSpeedLimitConstraint
-import work.art1st.javarailways.basic.api.ato.constraint.StopConstraint
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintKey
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintManager
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwnerType
+import work.art1st.javarailways.simpleato.api.constraint.CurrentSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.RouteSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.StopConstraint
 import kotlin.math.sqrt
 
-class PhaseBConstraintTest {
+class AtoPolicyTest {
     private val profile = AtoSafetyProfile(reactionTimeSeconds = 0.0, stopToleranceMeters = 0.0)
 
     @Test
@@ -84,20 +84,6 @@ class PhaseBConstraintTest {
     }
 
     @Test
-    fun `kinematic actuator respects train maximum speed and freezes`() {
-        val actuator = KinematicTrainActuator(10.0, profile)
-        val step = actuator.step(0.0, ControlDemand(20.0), 1.0)
-
-        assertEquals(1.0, step.speedMetersPerSecond, 1.0e-9)
-        assertEquals(0.5, step.distanceMeters, 1.0e-9)
-        assertEquals(
-            0.0,
-            actuator.step(0.051605736934817736, ControlDemand(0.0), 0.1).speedMetersPerSecond
-        )
-        assertEquals(0.0, actuator.freeze().speedMetersPerSecond)
-    }
-
-    @Test
     fun `world coordinators stall independently`() {
         val first = AtoWorldCoordinator("first", reportSink = {})
         val second = AtoWorldCoordinator("second", reportSink = {})
@@ -112,16 +98,17 @@ class PhaseBConstraintTest {
             currentTrain = null,
             route = null,
             perception = null,
-            activeProviderId = null,
             constraints = emptyMap()
         )
 
         assertTrue(first.stall(report))
         assertTrue(first.isStalled)
+        assertTrue(first.safetyInterlock.isEngaged)
         assertFalse(second.isStalled)
 
         first.reset()
         assertFalse(first.isStalled)
+        assertFalse(first.safetyInterlock.isEngaged)
         assertEquals(null, first.lastStall)
     }
 
@@ -138,14 +125,14 @@ class PhaseBConstraintTest {
             currentTrain = null,
             route = RouteSnapshot("test:route", 4L, 9L, emptyList()),
             perception = null,
-            activeProviderId = "test:provider",
             constraints = emptyMap(),
             occurredAtEpochMillis = 123L
         )
 
         val root = Json.parseToJsonElement(AtoStallReportJson.encode(report)).jsonObject
 
-        assertEquals(2, root.getValue("schemaVersion").jsonPrimitive.content.toInt())
+        assertEquals(3, root.getValue("schemaVersion").jsonPrimitive.content.toInt())
+        assertFalse(root.containsKey("activeProviderId"))
         assertEquals("world-id", root.getValue("worldId").jsonPrimitive.content)
         assertEquals("broken", root.getValue("error").jsonObject.getValue("message").jsonPrimitive.content)
         assertEquals(123L, root.getValue("occurredAtEpochMillis").jsonPrimitive.content.toLong())

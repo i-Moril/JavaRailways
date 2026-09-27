@@ -8,7 +8,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.api.ato.AtoStallReport
+import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
@@ -237,7 +237,7 @@ class WorldManager internal constructor(
         failure: Exception
     ) {
         val observation = observationService?.latest(bukkitWorld.uid)?.orElse(null)
-        coreWorld.basicWorldData.atoCoordinator.stall(
+        coreWorld.simpleAtoWorldData.atoCoordinator.stall(
             AtoStallReport(
                 worldId = bukkitWorld.uid.toString(),
                 trainId = "<infrastructure>",
@@ -249,7 +249,6 @@ class WorldManager internal constructor(
                 currentTrain = null,
                 route = null,
                 perception = null,
-                activeProviderId = null,
                 constraints = emptyMap()
             )
         )

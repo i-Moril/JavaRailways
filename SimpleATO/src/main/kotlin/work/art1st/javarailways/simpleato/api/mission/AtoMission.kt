@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ato.mission
+package work.art1st.javarailways.simpleato.api.mission
 
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.PlannedRoute

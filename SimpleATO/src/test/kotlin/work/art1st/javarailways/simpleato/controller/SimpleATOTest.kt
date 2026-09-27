@@ -9,23 +9,20 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
-import work.art1st.javarailways.basic.api.ato.constraint.AtoConstraint
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionRequest
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
-import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
-import work.art1st.javarailways.basic.api.ato.constraint.ConstraintKey
-import work.art1st.javarailways.basic.api.ato.constraint.CurrentSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.testing.KinematicTrainActuator
+import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionSubmissionResult
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef
+import work.art1st.javarailways.simpleato.api.constraint.ConstraintKey
+import work.art1st.javarailways.simpleato.api.constraint.CurrentSpeedLimitConstraint
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
-import work.art1st.javarailways.basic.api.ato.provider.AtoProvider
-import work.art1st.javarailways.basic.api.ato.provider.AtoProviderBoundary
-import work.art1st.javarailways.basic.api.ato.provider.AtoProviderContext
-import work.art1st.javarailways.basic.api.ato.provider.ProviderBoundaryAction
 import work.art1st.javarailways.basic.pathFinding.RailDestination
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
@@ -446,8 +443,8 @@ class SimpleATOTest {
         approach.viewAB.selectNextRail(straight.viewAB)
         val train = createTrainWithConfig("cross-tick-duplicate", approach, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("cross-tick-duplicate", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val ref = RailObjectRef("test", "cross-tick-duplicate")
         data.railMap.addDestination(
             straight.viewAB,
@@ -482,140 +479,6 @@ class SimpleATOTest {
             fixture.train.head.location.arcLength,
             0.4
         )
-        assertFalse(fixture.coordinator.isStalled)
-    }
-
-    @Test
-    fun `unknown provider stalls all ATO in its world only`() {
-        val fixture = fixture("provider-failure")
-        val otherWorld = AtoWorldCoordinator("other", reportSink = {})
-        val secondTrain = createTrainWithConfig(
-            "same-world-second",
-            fixture.train.head.location.rail,
-            fixture.world,
-            listOf(10.0)
-        )
-        secondTrain.setLocation(fixture.train.head.location.forward(100.0)!!)
-        secondTrain.commit()
-        val secondAto = SimpleATO(
-            secondTrain,
-            fixture.world,
-            KinematicTrainActuator(10.0, profile),
-            profile,
-            { 0.0 }
-        )
-        secondTrain.setController(secondAto)
-        tickAndPublish(secondAto, 1_000.0)
-        assertEquals(0.0, secondTrain.speed, 1.0e-9)
-
-        fixture.ato.setProvider("missing")
-        tickAndPublish(fixture.ato, 50.0)
-        tickAndPublish(secondAto, 50.0)
-
-        assertTrue(fixture.coordinator.isStalled)
-        assertFalse(otherWorld.isStalled)
-        assertEquals(0.0, fixture.train.speed)
-        assertEquals(0.0, secondTrain.speed)
-        assertTrue(fixture.coordinator.lastStall?.message?.contains("not registered") == true)
-    }
-
-    @Test
-    fun `passing provider deactivation boundary removes its constraints`() {
-        val fixture = fixture("provider-deactivation")
-        authorizeMovement(fixture)
-        fixture.data.atoProviders.register("slow-provider") {
-            object : AtoProvider {
-                override val id = "slow-provider"
-                override fun constraints(context: AtoProviderContext): Collection<AtoConstraint> = listOf(
-                    CurrentSpeedLimitConstraint(ConstraintKey("test", "provider-slow"), 2.0)
-                )
-            }
-        }
-        val head = fixture.train.head.location
-        fixture.data.railObjects.register(
-            AtoProviderBoundary(
-                ref = RailObjectRef("test", "provider-deactivation"),
-                location = RailLocationWithFacing(head.railView, head.arcLength + 0.5),
-                providerId = "slow-provider",
-                action = ProviderBoundaryAction.DEACTIVATE,
-                direction = head.facing
-            )
-        )
-        fixture.ato.setProvider("slow-provider")
-
-        repeat(3) { tickAndPublish(fixture.ato, 1_000.0) }
-
-        assertEquals(3.0, fixture.train.speed, 1.0e-9)
-        assertFalse(fixture.coordinator.isStalled)
-    }
-
-    @Test
-    fun `turnout change during planning stalls the world`() {
-        val world = createTestWorld()
-        val approach = world.createRailForTest(
-            straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0))
-        )
-        val straight = world.createRailForTest(
-            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
-        )
-        val branch = world.createRailForTest(
-            straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0))
-        )
-        configureTurnoutForTest(approach, listOf(straight, branch))
-        approach.viewAB.selectNextRail(straight.viewAB)
-
-        val train = createTrainWithConfig("turnout-change", approach, world, listOf(10.0))
-        val coordinator = AtoWorldCoordinator("turnout-world", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
-        data.atoProviders.register("switch-during-plan") {
-            object : AtoProvider {
-                override val id = "switch-during-plan"
-                override fun constraints(context: AtoProviderContext): Collection<AtoConstraint> {
-                    approach.viewAB.selectNextRail(branch.viewAB)
-                    return emptyList()
-                }
-            }
-        }
-        val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile) { 0.0 }
-        train.setController(ato)
-        ato.setProvider("switch-during-plan")
-
-        tickAndPublish(ato, 50.0)
-
-        assertTrue(coordinator.isStalled)
-        assertTrue(coordinator.lastStall?.message?.contains("turnout changed") == true)
-        assertEquals(0.0, train.speed, 1.0e-9)
-    }
-
-    @Test
-    fun `passing provider boundary activates its constraints`() {
-        val fixture = fixture("provider-boundary")
-        authorizeMovement(fixture)
-        fixture.data.atoProviders.register("stop-provider") {
-            object : AtoProvider {
-                override val id: String = "stop-provider"
-
-                override fun constraints(context: AtoProviderContext): Collection<AtoConstraint> = listOf(
-                    CurrentSpeedLimitConstraint(ConstraintKey("test", "provider-stop"), 0.0)
-                )
-            }
-        }
-        val head = fixture.train.head.location
-        val boundary = AtoProviderBoundary(
-            ref = RailObjectRef("test", "provider-boundary"),
-            location = RailLocationWithFacing(head.railView, head.arcLength + 0.5),
-            providerId = "stop-provider",
-            action = ProviderBoundaryAction.ACTIVATE,
-            direction = head.facing
-        )
-        fixture.data.railObjects.register(boundary)
-
-        tickAndPublish(fixture.ato, 1_000.0)
-        assertEquals(1.0, fixture.train.speed, 1.0e-9)
-        repeat(3) { tickAndPublish(fixture.ato, 1_000.0) }
-
-        assertEquals(0.0, fixture.train.speed, 1.0e-9)
         assertFalse(fixture.coordinator.isStalled)
     }
 
@@ -657,8 +520,8 @@ class SimpleATOTest {
         )
         val train = createTrainWithConfig(id, rail, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("world-$id", reportSink = {})
-        val data = BasicWorldData(atoCoordinator = coordinator)
-        TestSimpleATOWorldDataRegistry.register(world, data)
+        val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
+        TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val ato = SimpleATO(
             train = train,
             world = world,

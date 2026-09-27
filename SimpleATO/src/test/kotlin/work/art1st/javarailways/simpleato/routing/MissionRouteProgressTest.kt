@@ -1,20 +1,20 @@
-package work.art1st.javarailways.basic.route
+package work.art1st.javarailways.simpleato.routing
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionRequest
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionResolutionResult
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionResolver
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
-import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 
 class MissionRouteProgressTest {
     @Test

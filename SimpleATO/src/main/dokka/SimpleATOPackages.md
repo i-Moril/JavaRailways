@@ -1,3 +1,15 @@
+# Package work.art1st.javarailways.simpleato.api.ato
+
+SimpleATO安全参数、controller skeleton、planner、world-local Stall coordinator 与结构化诊断。Coordinator 同时驱动 Basic 的通用物理 safety interlock。
+
+# Package work.art1st.javarailways.simpleato.api.constraint
+
+owner-scoped 的速度、停车、跟车和移动授权约束，以及取最严格限制的 manager。
+
+# Package work.art1st.javarailways.simpleato.api.mission
+
+从稳定 WayPoint 引用解析、按 revision 提交并在 physics Tick 边界激活的不可变 ATO Mission 契约。
+
 # Package work.art1st.javarailways.simpleato.api.route
 
 SimpleATO跨限制与资源检查共用的常量大小冻结路线绑定。它只携带路线身份、路线revision、拓扑revision和总长度；完整有序traversal仍由host持有。

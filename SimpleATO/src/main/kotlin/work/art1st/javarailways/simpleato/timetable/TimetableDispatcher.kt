@@ -1,13 +1,13 @@
 package work.art1st.javarailways.simpleato.timetable
 
-import work.art1st.javarailways.basic.api.ato.AtoStallReport
-import work.art1st.javarailways.basic.api.ato.mission.AtoMission
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionRequest
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionResolutionResult
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionResolver
-import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
-import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
+import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
+import work.art1st.javarailways.simpleato.api.mission.AtoMission
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionSubmissionResult
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
@@ -79,7 +79,7 @@ import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.simpleato.timetable.*
-import work.art1st.javarailways.basic.route.MissionRouteLayout
+import work.art1st.javarailways.simpleato.routing.MissionRouteLayout
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.core.api.control.TrainController
@@ -444,7 +444,7 @@ class TimetableDispatcher(
         timetableId: String
     ): TimetableEpochStartResult {
         bindWorld(world)
-        if (world.basicWorldData.atoCoordinator.isStalled) {
+        if (world.simpleAtoWorldData.atoCoordinator.isStalled) {
             return TimetableEpochStartResult.Failure(
                 "world ATO is stalled; inspect and reset before starting a timetable"
             )
@@ -554,7 +554,7 @@ class TimetableDispatcher(
         serviceId: String,
         requestedCycleIndex: Long?
     ): TimetableServiceStartResult {
-        if (world.basicWorldData.atoCoordinator.isStalled) {
+        if (world.simpleAtoWorldData.atoCoordinator.isStalled) {
             return TimetableServiceStartResult.Failure(
                 "world ATO is stalled; inspect and reset before starting a service"
             )
@@ -603,7 +603,7 @@ class TimetableDispatcher(
         }
         val selected = selectTrainForService(world, timetable, cycleIndex, runId, service)
             ?: return TimetableServiceStartResult.Failure(
-                if (world.basicWorldData.atoCoordinator.isStalled) {
+                if (world.simpleAtoWorldData.atoCoordinator.isStalled) {
                     "world stalled because train acquisition failed: $runId"
                 } else {
                     "service requires TrainSelector.TrainId, takeFromDepot, or takeFromWaypoint: $runId"
@@ -1036,7 +1036,7 @@ class TimetableDispatcher(
         bindWorld(world)
         val run = findRun(id, cycleIndex)
             ?: return TimetableReplanResult.Failure("service run not found: $id")
-        if (world.basicWorldData.atoCoordinator.isStalled) {
+        if (world.simpleAtoWorldData.atoCoordinator.isStalled) {
             return TimetableReplanResult.Failure("world ATO is stalled; inspect and reset before replanning")
         }
         if (run.state != TimetableServiceRunState.REPLAN_REQUIRED ||
@@ -1137,7 +1137,7 @@ class TimetableDispatcher(
     @MainThread
     fun tick(world: World) {
         dispatcherTick++
-        val coordinator = world.basicWorldData.atoCoordinator
+        val coordinator = world.simpleAtoWorldData.atoCoordinator
         if (coordinator.isStalled) {
             runs.values.filter { it.state.isTerminal() }.forEach {
                 waypointProgressListeners.remove(it.waypointProgressKey())
@@ -1575,7 +1575,7 @@ class TimetableDispatcher(
                         }
                         is TimetableServiceStartResult.Failure -> {
                             clock.lastCycleStartFailure = result.reason
-                            if (world.basicWorldData.atoCoordinator.isStalled) return
+                            if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
                         }
                     }
                     AutomaticActivation.SKIP -> clock.pendingActivationCycles.remove(serviceId)
@@ -1625,7 +1625,7 @@ class TimetableDispatcher(
                         is TimetableServiceStartResult.Failure -> {
                             clock.lastCycleStartFailure = result.reason
                             complete = false
-                            if (world.basicWorldData.atoCoordinator.isStalled) return
+                            if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
                         }
                     }
                 }
@@ -1680,7 +1680,7 @@ class TimetableDispatcher(
      */
     @MainThread
     fun discardFailedRunsForAtoReset(world: World): Int {
-        check(world.basicWorldData.atoCoordinator.isStalled) {
+        check(world.simpleAtoWorldData.atoCoordinator.isStalled) {
             "failed runs may only be discarded while the World ATO is stalled"
         }
         val failedRuns = runs.values.filter { it.state == TimetableServiceRunState.FAILED }
@@ -1778,7 +1778,7 @@ class TimetableDispatcher(
      */
     @MainThread
     override fun applyDepotReset(world: World, trainIds: Set<String>): DepotResetDispatchSummary {
-        check(world.basicWorldData.atoCoordinator.isStalled) {
+        check(world.simpleAtoWorldData.atoCoordinator.isStalled) {
             "Depot Reset is only legal while the World ATO is stalled"
         }
         validateDepotReset(world, trainIds)?.let { error(it) }
@@ -2741,7 +2741,7 @@ class TimetableDispatcher(
         }
 
         processSharedRouteAdmission(world, run, runtime, snapshot, context, selectionContext)
-        if (world.basicWorldData.atoCoordinator.isStalled) return
+        if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
 
         val activeRoute = run.admittedRoute ?: run.admissionCandidate ?: return
         val routeProgress = activeRoute.progressFor(runtime)
@@ -2771,7 +2771,7 @@ class TimetableDispatcher(
                 "waiting for a coherent railway observation")
             return
         }
-        if (context.observation.stamp.worldId != world.basicWorldData.atoCoordinator.worldId) {
+        if (context.observation.stamp.worldId != world.simpleAtoWorldData.atoCoordinator.worldId) {
             stallRun(
                 world,
                 run,
@@ -2800,7 +2800,7 @@ class TimetableDispatcher(
                     candidate
                 )
             ) {
-                if (!world.basicWorldData.atoCoordinator.isStalled) {
+                if (!world.simpleAtoWorldData.atoCoordinator.isStalled) {
                     setRouteState(
                         run,
                         TimetableServiceRunState.WAITING_ROUTE,
@@ -2845,7 +2845,7 @@ class TimetableDispatcher(
                     candidate
                 )
             ) {
-                if (!world.basicWorldData.atoCoordinator.isStalled) {
+                if (!world.simpleAtoWorldData.atoCoordinator.isStalled) {
                     setRouteState(
                         run,
                         TimetableServiceRunState.WAITING_ROUTE,
@@ -3120,19 +3120,18 @@ class TimetableDispatcher(
             run.depotReservationPending = false
         }
         val failure = IllegalStateException(effectiveReason)
-        world.basicWorldData.atoCoordinator.stall(
+        world.simpleAtoWorldData.atoCoordinator.stall(
             AtoStallReport(
-                worldId = world.basicWorldData.atoCoordinator.worldId,
+                worldId = world.simpleAtoWorldData.atoCoordinator.worldId,
                 trainId = run.train.id,
                 tick = dispatcherTick,
                 errorType = errorType,
                 message = effectiveReason,
                 stackTrace = failure.stackTraceToString(),
-                initialTrain = world.basicWorldData.atoCoordinator.initialTrain(run.train.id),
+                initialTrain = world.simpleAtoWorldData.atoCoordinator.initialTrain(run.train.id),
                 currentTrain = snapshot,
                 route = null,
                 perception = null,
-                activeProviderId = null,
                 constraints = emptyMap()
             )
         )
@@ -4252,9 +4251,9 @@ class TimetableDispatcher(
         reason: String
     ) {
         val failure = IllegalStateException(reason)
-        world.basicWorldData.atoCoordinator.stall(
+        world.simpleAtoWorldData.atoCoordinator.stall(
             AtoStallReport(
-                worldId = world.basicWorldData.atoCoordinator.worldId,
+                worldId = world.simpleAtoWorldData.atoCoordinator.worldId,
                 trainId = "<unassigned:$runId>",
                 tick = dispatcherTick,
                 errorType = errorType,
@@ -4264,7 +4263,6 @@ class TimetableDispatcher(
                 currentTrain = null,
                 route = null,
                 perception = null,
-                activeProviderId = null,
                 constraints = emptyMap()
             )
         )

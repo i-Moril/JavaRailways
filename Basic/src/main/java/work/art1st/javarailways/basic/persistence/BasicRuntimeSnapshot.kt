@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 @Serializable
-data class BasicRuntimeSnapshotV4(
+data class BasicRuntimeSnapshotV3(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val physicsEpoch: Long
@@ -16,14 +16,14 @@ data class BasicRuntimeSnapshotV4(
     }
 
     companion object {
-        const val CURRENT_FORMAT_VERSION = 4
+        const val CURRENT_FORMAT_VERSION = 3
 
         fun capture(
             infrastructureRevision: Long,
             physicsEpoch: Long
-        ): BasicRuntimeSnapshotV4 {
+        ): BasicRuntimeSnapshotV3 {
             require(infrastructureRevision >= 0L && physicsEpoch >= 0L)
-            return BasicRuntimeSnapshotV4(
+            return BasicRuntimeSnapshotV3(
                 formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
                 physicsEpoch = physicsEpoch
@@ -34,11 +34,11 @@ data class BasicRuntimeSnapshotV4(
 
 object BasicRuntimeSnapshotCodec {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
-    fun encode(value: BasicRuntimeSnapshotV4): String =
-        json.encodeToString(BasicRuntimeSnapshotV4.serializer(), value)
-    fun decode(value: String): BasicRuntimeSnapshotV4 =
-        json.decodeFromString(BasicRuntimeSnapshotV4.serializer(), value).also {
-            require(it.formatVersion == BasicRuntimeSnapshotV4.CURRENT_FORMAT_VERSION) {
+    fun encode(value: BasicRuntimeSnapshotV3): String =
+        json.encodeToString(BasicRuntimeSnapshotV3.serializer(), value)
+    fun decode(value: String): BasicRuntimeSnapshotV3 =
+        json.decodeFromString(BasicRuntimeSnapshotV3.serializer(), value).also {
+            require(it.formatVersion == BasicRuntimeSnapshotV3.CURRENT_FORMAT_VERSION) {
                 "Unsupported Basic runtime snapshot version: ${it.formatVersion}"
             }
         }

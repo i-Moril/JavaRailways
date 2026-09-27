@@ -2,7 +2,6 @@ package work.art1st.javarailways.basic.route
 
 import work.art1st.javarailways.core.physics.createRailForTest
 
-import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -38,11 +37,10 @@ class RoutePlannerWeightedTest {
         CoreRail.connect(longBranch, goal)
         CoreRail.connect(shortA, shortB)
         CoreRail.connect(shortB, goal)
-        listOf(start, longBranch, shortA, shortB, goal).forEach(::allowAbOnly)
         val from = WayPoint("A", "A", start.id, 5.0)
         val to = WayPoint("B", "B", goal.id, 5.0)
 
-        val result = RoutePlanner(world).buildRoute(from, to)
+        val result = RoutePlanner(world) { it.viewDirection == ViewDirection.AB }.buildRoute(from, to)
 
         assertTrue(result is RouteBuildResult.Success)
         val route = (result as RouteBuildResult.Success).route
@@ -80,11 +78,10 @@ class RoutePlannerWeightedTest {
         CoreRail.connect(first, second)
         CoreRail.connect(second, third)
         CoreRail.connect(third, first)
-        listOf(first, second, third).forEach(::allowAbOnly)
         val from = WayPoint("A", "A", first.id, 8.0)
         val to = WayPoint("B", "B", first.id, 2.0)
 
-        val result = RoutePlanner(world).buildRoute(from, to)
+        val result = RoutePlanner(world) { it.viewDirection == ViewDirection.AB }.buildRoute(from, to)
 
         assertTrue(result is RouteBuildResult.Success)
         val route = (result as RouteBuildResult.Success).route
@@ -98,10 +95,6 @@ class RoutePlannerWeightedTest {
 
     private fun rail(world: CoreWorld, vararg points: Vector3d): CoreRail =
         world.createRailForTest(curve(*points))
-
-    private fun allowAbOnly(rail: CoreRail) {
-        rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)
-    }
 
     private fun curve(vararg points: Vector3d): PrimeCurve {
         require(points.size >= 2)

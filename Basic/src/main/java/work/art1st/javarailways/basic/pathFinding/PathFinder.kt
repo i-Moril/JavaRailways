@@ -1,6 +1,5 @@
 package work.art1st.javarailways.basic.pathFinding
 
-import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import java.util.LinkedList
 
@@ -12,16 +11,15 @@ import java.util.LinkedList
  * 线程不安全，使用前需确保同一 [RailMap] 不会并发访问。
  */
 class PathFinder(
-    private val railMap: RailMap
+    private val railMap: RailMap,
+    private val traversalAllowed: (RailView) -> Boolean = { true }
 ) {
     /**
      * 从指定的起始 [RailView] 出发，查找通往标签为 [label] 的目的地的路径。
      * @return 路径经过的所有 [RailView]（从起点到终点），若不存在则返回 null。
      */
     fun findPath(start: RailView, label: String): List<RailView>? {
-        fun allows(view: RailView): Boolean =
-            view.rail.infrastructureMetadata.operating.allowedDirection?.let { it == view.viewDirection } ?: true
-        if (!allows(start)) return null
+        if (!traversalAllowed(start)) return null
         val pending: ArrayDeque<State> = ArrayDeque()
         // 记录当前 view 来自哪个 view（用于路径重建）
         val predecessor = HashMap<RailView, RailView?>()
@@ -39,13 +37,13 @@ class PathFinder(
             val neighbors = mutableListOf<RailView>()
             // 沿 nextRails 前进（顺向搜索）
             for (next in current.view.nextRails) {
-                if (allows(next) && !predecessor.containsKey(next)) {
+                if (traversalAllowed(next) && !predecessor.containsKey(next)) {
                     neighbors.add(next)
                 }
             }
             // 反向（同 rail 的另一个方向）
             val reversed = current.view.reversed
-            if (allows(reversed) && !predecessor.containsKey(reversed)) {
+            if (traversalAllowed(reversed) && !predecessor.containsKey(reversed)) {
                 neighbors.add(reversed)
             }
 

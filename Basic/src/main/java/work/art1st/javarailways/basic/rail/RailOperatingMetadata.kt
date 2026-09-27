@@ -1,7 +1,6 @@
 package work.art1st.javarailways.basic.rail
 
 import kotlinx.serialization.Serializable
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 
 @Serializable
 data class TurnoutEndpointMetadata(
@@ -17,7 +16,6 @@ data class TurnoutEndpointMetadata(
 
 @Serializable
 data class RailOperatingMetadata(
-    val allowedDirection: ViewDirection? = null,
     val turnoutAtA: TurnoutEndpointMetadata? = null,
     val turnoutAtB: TurnoutEndpointMetadata? = null
 )

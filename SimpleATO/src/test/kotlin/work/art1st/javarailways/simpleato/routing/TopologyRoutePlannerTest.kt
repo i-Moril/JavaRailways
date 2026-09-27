@@ -57,7 +57,7 @@ class TopologyRoutePlannerTest {
                 topology,
                 location(first, 10.0),
                 location(second, 5.0),
-                allowedDirections = mapOf(first.id to setOf(ViewDirection.BA))
+                allowedDirections = mapOf(first.id to ViewDirection.BA)
             ).copy(startFacing = ViewDirection.AB)
         )
 
@@ -218,7 +218,7 @@ class TopologyRoutePlannerTest {
             topology,
             location(entry, 0.0),
             location(exit, 5.0),
-            allowedDirections = mapOf(shorter.id to setOf(ViewDirection.BA))
+            allowedDirections = mapOf(shorter.id to ViewDirection.BA)
         ) as TopologyRoutePlanningResult.Planned
         assertEquals(listOf(entry.id, longer.id, exit.id), constrained.route.segments.map { it.railId })
         assertEquals(30.0, constrained.route.totalLengthMeters, 1e-12)
@@ -265,7 +265,7 @@ class TopologyRoutePlannerTest {
             topology,
             location(first, 8.0),
             location(first, 2.0),
-            allowedDirections = mapOf(first.id to setOf(ViewDirection.AB))
+            allowedDirections = mapOf(first.id to ViewDirection.AB)
         )
 
         val planned = result as TopologyRoutePlanningResult.Planned
@@ -331,7 +331,7 @@ class TopologyRoutePlannerTest {
                 topology,
                 location(first, 1.0),
                 location(first, 9.0),
-                allowedDirections = mapOf(UUID(0L, 999L) to setOf(ViewDirection.AB))
+                allowedDirections = mapOf(UUID(0L, 999L) to ViewDirection.AB)
             )
         )
 
@@ -350,7 +350,7 @@ class TopologyRoutePlannerTest {
         topology: work.art1st.javarailways.core.api.physics.rail.topology.TopologyState,
         start: OperationalRouteLocation,
         end: OperationalRouteLocation,
-        allowedDirections: Map<UUID, Set<ViewDirection>> = emptyMap()
+        allowedDirections: Map<UUID, ViewDirection> = emptyMap()
     ): TopologyRoutePlanningResult = TopologyRoutePlanner.plan(
         input(topology, start, end, allowedDirections = allowedDirections)
     )
@@ -360,7 +360,7 @@ class TopologyRoutePlannerTest {
         start: OperationalRouteLocation,
         end: OperationalRouteLocation,
         overlayTopologyRevision: Long = topology.revision,
-        allowedDirections: Map<UUID, Set<ViewDirection>> = emptyMap()
+        allowedDirections: Map<UUID, ViewDirection> = emptyMap()
     ) = TopologyRoutePlanningInput(
         topology = topology,
         operatingDirections = OperatingDirectionOverlay(

@@ -322,6 +322,7 @@ data class RailWorldUndoSnapshot(
     val rails: List<CoreRail.SavedRailV1>,
     val renderMetas: List<PersistedRailRenderMeta>,
     val railMetadata: Map<UUID, RailMetadata>,
+    val operatingDirections: Map<UUID, ViewDirection>,
     val destinations: List<OperationalDestination>,
     val wayPoints: List<WayPoint>
 )
@@ -1808,6 +1809,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     )
                     if (oldToNew.isNotEmpty()) {
                         OperationalDestinationService(liveCoreWorld).migrateAllOnRails(oldToNew)
+                        migrateOperatingDirections(liveCoreWorld, oldToNew)
                         destinationsMigrated = true
                     }
                     liveAdjacentRails.values.forEach { oldRail ->
@@ -1844,6 +1846,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     refreshAllAnchorsForPlayer(livePlayer)
                     updateAnchorDisplay(livePlayer)
                     } catch (e: Exception) {
+                    restoreOperatingDirections(liveCoreWorld, undoSnapshot.operatingDirections)
                     if (destinationsMigrated && oldToNew.values.all { liveCoreWorld.getRail(it) != null }) {
                         runCatching {
                             OperationalDestinationService(liveCoreWorld).migrateAllOnRails(
@@ -2147,6 +2150,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     OperationalDestinationService(liveCoreWorld).migrateAllOnRails(
                         oldToNew.mapValues { (_, replacement) -> replacement.id }
                     )
+                    migrateOperatingDirections(
+                        liveCoreWorld,
+                        oldToNew.mapValues { (_, replacement) -> replacement.id }
+                    )
                     liveAffectedRails.forEach { rail ->
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
@@ -2172,6 +2179,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.endpoint_updated"
                     ).color(NamedTextColor.GREEN))
                     } catch (e: Exception) {
+                    restoreOperatingDirections(liveCoreWorld, undoSnapshot.operatingDirections)
                     createdRails.forEach { rail ->
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
@@ -2538,8 +2546,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun railMetadata(
         settings: CurveBuildSettingsSnapshot,
         speedLimits: RailSpeedLimits,
-        parallel: ParallelRailMetadata? = null,
-        allowedDirection: ViewDirection? = null
+        parallel: ParallelRailMetadata? = null
     ): RailMetadata {
         val subgrade = settings.designSpeedKmH / 3.6
         val limits = buildList {
@@ -2565,7 +2572,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 ),
                 curveSpeedLimitAutomatic = settings.automaticCurveSpeedLimit
             ),
-            operating = RailOperatingMetadata(allowedDirection = allowedDirection),
+            operating = RailOperatingMetadata(),
             speedLimits = SpeedLimitMetadata(limits),
             curveSafety = CurveSafetyMetadata(speedLimits.derailSpeedMetersPerSecond)
         )
@@ -2890,6 +2897,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             editPlan.applyExplicitConnections(world, installedRails)
             RailRenderMetaStore.saveAll(player.world, renderBefore.filterNot { it.railId in oldIds } + renderAfter)
             OperationalDestinationService(world).migrateAllOnRails(oldToNew)
+            migrateOperatingDirections(world, oldToNew)
             oldRails.forEach { old ->
                 RailVisualBootstrap.unregisterRail(old.id)
                 old.destroy()
@@ -2917,6 +2925,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 created.size
             ).color(NamedTextColor.GREEN))
             } catch (failure: Exception) {
+            restoreOperatingDirections(world, undoSnapshot.operatingDirections)
             created.forEach { rail ->
                 RailVisualBootstrap.unregisterRail(rail.id)
                 rail.destroy()
@@ -3613,8 +3622,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             val rebuiltMetadata = railMetadata(
                                 laneSettings,
                                 calculateSpeedLimits(part.curve, null, laneSettings),
-                                parallelMeta,
-                                oldForRole.metadata.allowedDirection
+                                parallelMeta
                             )
                             val metadata = rebuiltMetadata.copy(
                                 authoring = requireNotNull(rebuiltMetadata.authoring).copy(
@@ -3646,6 +3654,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     }.toMap()
                     editPlan.applyExplicitConnections(liveWorld, installedRails)
                     OperationalDestinationService(liveWorld).migrateAllOnRails(oldToNew)
+                    val replacementDirections = createdLanes.flatMapIndexed { laneIndex, newLane ->
+                        val oldLane = oldLanes[laneIndex]
+                        newLane.mapIndexedNotNull { segmentIndex, newRail ->
+                            val oldForRole = oldLane.firstOrNull {
+                                it.metadata.assembly?.role == newRail.metadata.assembly?.role
+                            } ?: oldLane[minOf(segmentIndex, oldLane.lastIndex)]
+                            liveWorld.simpleAtoWorldData.operatingDirections[oldForRole.id]?.let {
+                                newRail.id to it
+                            }
+                        }
+                    }.toMap()
+                    liveWorld.simpleAtoWorldData.operatingDirections.replaceRails(
+                        removedRailIds = oldIds,
+                        replacementDirections = replacementDirections
+                    )
                     liveOldRails.forEach { old ->
                         RailVisualBootstrap.unregisterRail(old.id)
                         old.destroy()
@@ -3684,6 +3707,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.curve_updated"
                     ).color(NamedTextColor.GREEN))
                     } catch (error: Exception) {
+                    restoreOperatingDirections(liveWorld, undoSnapshot.operatingDirections)
                     created.forEach { rail ->
                         RailVisualBootstrap.unregisterRail(rail.id)
                         rail.destroy()
@@ -4204,6 +4228,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 result.after.id,
                                 result.operationId
                             )
+                            liveWorld.simpleAtoWorldData.operatingDirections.run {
+                                val inherited = this[railId]
+                                replaceRails(
+                                    removedRailIds = listOf(railId),
+                                    replacementDirections = inherited?.let {
+                                        mapOf(result.before.id to it, result.after.id to it)
+                                    }.orEmpty()
+                                )
+                            }
                             OperationalSpeedLimitSignalMaterializer.materializeRail(result.before)
                             OperationalSpeedLimitSignalMaterializer.materializeRail(result.after)
                             OperationalDestinationService(liveWorld).migrateAfterRailSplit(
@@ -4247,6 +4280,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             ))
                         }
                     } catch (error: Throwable) {
+                        restoreOperatingDirections(liveWorld, undoSnapshot.operatingDirections)
                         plugin.logger.warning("Rail split failed: ${error::class.simpleName}: ${error.message ?: ""}")
                         livePlayer.sendMessage(RailWandI18n.component(
                             livePlayer,
@@ -4407,6 +4441,16 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ))
                     return@supply
                 }
+                val operatingDirections = liveWorld.simpleAtoWorldData.operatingDirections
+                val beforeDirection = operatingDirections[livePair.first.id]
+                val afterDirection = operatingDirections[livePair.second.id]
+                if (beforeDirection != afterDirection) {
+                    livePlayer.sendActionBar(Component.text(
+                        "两段轨道的运行方向限制不一致，无法合并",
+                        NamedTextColor.RED
+                    ))
+                    return@supply
+                }
                 splitSafetyError(liveWorld, livePair.toList())?.let { error ->
                     livePlayer.sendActionBar(Component.text(
                 RailWandI18n.resolve(livePlayer, error),
@@ -4445,6 +4489,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 beforeRailId,
                                 afterRailId,
                                 merged.id
+                            )
+                            operatingDirections.replaceRails(
+                                removedRailIds = listOf(beforeRailId, afterRailId),
+                                replacementDirections = beforeDirection?.let { mapOf(merged.id to it) }.orEmpty()
                             )
                             OperationalSpeedLimitSignalMaterializer.materializeRail(merged)
                             OperationalDestinationService(liveWorld).migrateAfterRailMerge(
@@ -4489,6 +4537,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             ))
                         }
                     } catch (error: Throwable) {
+                        restoreOperatingDirections(liveWorld, undoSnapshot.operatingDirections)
                         plugin.logger.warning("Rail merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
                         livePlayer.sendMessage(RailWandI18n.component(
                             livePlayer,
@@ -4646,6 +4695,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             RailVisualBootstrap.unregisterRail(railId)
             RailRenderMetaStore.removeRail(player.world, railId)
             coreWorld.basicWorldData.railMetadata.remove(railId)
+            coreWorld.simpleAtoWorldData.operatingDirections.put(railId, null)
             refreshAllAnchorsForPlayer(player)
             player.sendActionBar(RailWandI18n.component(
                 player,
@@ -4689,6 +4739,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     coreWorld.removeRail(target)
                     coreWorld.basicWorldData.railMetadata.remove(target.id)
                 }
+                coreWorld.simpleAtoWorldData.operatingDirections.replaceRails(targetIds, emptyMap())
                 RailRenderMetaStore.saveAll(player.world, renderAfter)
                 state.selectedRails.removeAll(targetIds)
                 state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) in targetIds }
@@ -5313,9 +5364,38 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         rails = rails.sortedBy { it.id },
         renderMetas = renderMetas.sortedBy { it.railId.toString() },
         railMetadata = railMetadata.toSortedMap(compareBy(UUID::toString)),
+        operatingDirections = coreWorld.simpleAtoWorldData.operatingDirections.entries()
+            .toSortedMap(compareBy(UUID::toString)),
         destinations = coreWorld.simpleAtoWorldData.destinations.all(),
         wayPoints = coreWorld.basicWorldData.wayPoints.all()
     )
+
+    private fun migrateOperatingDirections(coreWorld: CoreWorld, oldToNew: Map<UUID, UUID>) {
+        val store = coreWorld.simpleAtoWorldData.operatingDirections
+        val grouped = oldToNew.entries.mapNotNull { (oldId, newId) ->
+            store[oldId]?.let { newId to it }
+        }.groupBy({ it.first }, { it.second })
+        val conflicting = grouped.filterValues { it.distinct().size > 1 }.keys
+        require(conflicting.isEmpty()) {
+            "replacement rails inherit conflicting operating directions: ${conflicting.sorted()}"
+        }
+        store.replaceRails(
+            removedRailIds = oldToNew.keys,
+            replacementDirections = grouped.mapValues { (_, directions) -> directions.single() }
+        )
+    }
+
+    private fun restoreOperatingDirections(
+        coreWorld: CoreWorld,
+        target: Map<UUID, ViewDirection>
+    ) {
+        val store = coreWorld.simpleAtoWorldData.operatingDirections
+        val current = store.entries()
+        store.replaceRails(
+            removedRailIds = current.keys + target.keys,
+            replacementDirections = target
+        )
+    }
 
     private fun pushUndo(player: Player, action: WandAction) {
         val operation = RailWandOperation(action)
@@ -5692,6 +5772,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             coreWorld.basicWorldData.railMetadata.replace(
                 removals = changedMetadataIds,
                 additions = target.railMetadata.filterKeys { it in changedMetadataIds }
+            )
+            val currentDirections = coreWorld.simpleAtoWorldData.operatingDirections.entries()
+            val changedDirectionIds = (currentDirections.keys + target.operatingDirections.keys)
+                .filterTo(linkedSetOf()) { currentDirections[it] != target.operatingDirections[it] }
+            coreWorld.simpleAtoWorldData.operatingDirections.replaceRails(
+                removedRailIds = changedDirectionIds,
+                replacementDirections = target.operatingDirections.filterKeys { it in changedDirectionIds }
             )
             changedMetadataIds.forEach { railId ->
                 coreWorld.getRail(railId)?.let(OperationalSpeedLimitSignalMaterializer::materializeRail)

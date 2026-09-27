@@ -18,7 +18,6 @@ data class RailInfrastructureMetadata(
         designSpeedMetersPerSecond: Double? = null,
         speedLimitMetersPerSecond: Double? = designSpeedMetersPerSecond,
         derailSpeedMetersPerSecond: Double? = null,
-        allowedDirection: work.art1st.javarailways.core.api.physics.rail.ViewDirection? = null,
         geometry: RailGeometryMetadata = RailGeometryMetadata(),
         assembly: RailAssemblyMetadata? = null,
         createdBySplit: RailSplitMetadata? = null,
@@ -37,7 +36,7 @@ data class RailInfrastructureMetadata(
             gradeLockedAtB,
             curveSpeedLimitAutomatic
         ),
-        operating = RailOperatingMetadata(allowedDirection, turnoutAtA, turnoutAtB),
+        operating = RailOperatingMetadata(turnoutAtA, turnoutAtB),
         speedLimits = legacySpeedLimits(designSpeedMetersPerSecond, speedLimitMetersPerSecond),
         curveSafety = CurveSafetyMetadata(derailSpeedMetersPerSecond)
     )
@@ -45,7 +44,6 @@ data class RailInfrastructureMetadata(
     val designSpeedMetersPerSecond: Double? get() = authoring?.designSpeedMetersPerSecond
     val speedLimitMetersPerSecond: Double? get() = speedLimits.effectiveLimitMetersPerSecond()
     val derailSpeedMetersPerSecond: Double? get() = curveSafety.baseCurveDerailSpeedMetersPerSecond
-    val allowedDirection get() = operating.allowedDirection
     val geometry: RailGeometryMetadata get() = authoring?.geometry ?: RailGeometryMetadata()
     val assembly: RailAssemblyMetadata? get() = authoring?.assembly
     val createdBySplit: RailSplitMetadata? get() = authoring?.createdBySplit
@@ -59,7 +57,6 @@ data class RailInfrastructureMetadata(
         designSpeedMetersPerSecond: Double? = this.designSpeedMetersPerSecond,
         speedLimitMetersPerSecond: Double? = this.speedLimitMetersPerSecond,
         derailSpeedMetersPerSecond: Double? = this.derailSpeedMetersPerSecond,
-        allowedDirection: work.art1st.javarailways.core.api.physics.rail.ViewDirection? = this.allowedDirection,
         geometry: RailGeometryMetadata = this.geometry,
         assembly: RailAssemblyMetadata? = this.assembly,
         createdBySplit: RailSplitMetadata? = this.createdBySplit,
@@ -72,7 +69,6 @@ data class RailInfrastructureMetadata(
         designSpeedMetersPerSecond,
         speedLimitMetersPerSecond,
         derailSpeedMetersPerSecond,
-        allowedDirection,
         geometry,
         assembly,
         createdBySplit,

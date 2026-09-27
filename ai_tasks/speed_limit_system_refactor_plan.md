@@ -186,12 +186,9 @@ data class CurveSafetyMetadata(
 
 ## 持久化迁移
 
-这是破坏性变化，必须升级最小独立 Core infrastructure schema，并提供一次性配对迁移：
-
-```text
-/jr migrate rail-infrastructure-metadata --dry-run
-/jr migrate rail-infrastructure-metadata --apply
-```
+这是破坏性变化，必须升级最小独立 Core infrastructure schema，并由
+`09-24-explicit-rail-endpoint-connections`任务的独立文件迁移工具执行一次性配对迁移。
+运行中插件不再提供临时`/jr migrate`命令；当前代码只保留无文件副作用的纯转换器。
 
 迁移必须：
 

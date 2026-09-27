@@ -6,11 +6,11 @@
 
 用途：记录当前Mission/Station/Line/Timetable共用的按实际弧长加权planner，并约束它向SimpleATO运营寻路迁移。长期authoritative输入是Core发布的版本化`TopologyState`；SimpleATO拥有方向、停站、线路和时刻表等路径选择策略，Basic只保留可复用的纯图算法与冻结路线校验/资源投影，不拥有另一张图。
 
-当前`RoutePlanner(world)`直接遍历`RailView.nextRails`，属于待迁移实现，不能被新API固化。迁移完成前现有调用继续使用本页后续合同；新增跨模块路径合同必须遵守Core[版本化铁路拓扑](../core/versioned-operational-topology.md)。
+当前通用`RoutePlanner`仍直接遍历`RailView.nextRails`，属于待迁移实现，不能被新API固化；它只接受调用方提供的`(RailView) -> Boolean`遍历谓词，不读取任何运营metadata。SimpleATO把自己的运行方向store作为谓词传入。新增跨模块路径合同必须遵守Core[版本化铁路拓扑](../core/versioned-operational-topology.md)。
 
 ## Owner、输入输出与坐标
 
-`RoutePlanner(world)`输入`WayPoint(id,displayName,railId,arcLength)`，arc是canonical AB米；optional required start/goal `ViewDirection`必须由运营调用方显式解析并传入。通用planner不查询Destination/Station store，也不推断运营方向；未传入表示该端点没有额外方向约束。planner只遍历Basic `allowedDirection`许可的view。
+`RoutePlanner(world,traversalAllowed)`输入`WayPoint(id,displayName,railId,arcLength)`，arc是canonical AB米；optional required start/goal `ViewDirection`必须由运营调用方显式解析并传入。通用planner不查询Destination/Station/OperatingDirection store，也不推断运营方向；未传入端点方向表示该端点没有额外要求，默认谓词允许所有物理view。
 
 ```kotlin
 data class RouteSegment(
@@ -24,7 +24,7 @@ data class RouteSegment(
 
 `buildRoute(...): RouteBuildResult.Success(route)|Failure(reason)`使用Dijkstra actual remaining/full arc length。same view goal在start后direct；在start前可绕loop重新进入。
 
-`PlannedRouteCompiler.compile(routeId,revision,route): Success|Failure`重新resolve stable views，检查segment range、connected endpoint和direction restriction。`PlannedRoute`只保存route identity、revision和已通过验证且自身defensive copy的`ExpandedRoute`；它不保存信号边界、保护点、资源claim或道岔准备参数。
+`PlannedRouteCompiler.compile(routeId,revision,route): Success|Failure`重新resolve stable views，检查segment range、connected endpoint和调用方遍历谓词。`PlannedRoute`只保存route identity、revision和已通过验证且自身defensive copy的`ExpandedRoute`；它不保存信号边界、保护点、资源claim或道岔准备参数。
 
 目标流程为：SimpleATO在一个`TopologyState(revision)`上生成一份绑定该revision的冻结traversal；Basic验证该traversal连续且每个continuation合法，并在同一次pass中把沿途rail intervals、受控transition与route-bound shared resources加入唯一claim集合。物理占用范围只是资源binding的验证数据，不是第二份footprint。Basic不得要求调用方另报资源清单，也不得在验证时另行寻路或用保护区域替调用方选择路径。
 
@@ -38,7 +38,7 @@ data class RouteSegment(
 | same rail goal behind | direct非法；若loop存在可成功重复rail |
 | stale/missing compiled view | compilation `Failure` |
 | transition非endpoint/不connected | compilation `Failure` |
-| direction-restricted selected branch | compilation `Failure` |
+| caller predicate rejects selected branch | compilation `Failure` |
 | facing/trailing turnout | compiler只验证选定连接；后续物理资源编译从冻结拓扑投影canonical turnout identity |
 | straight/turnout route | 都不生成signal section或synthetic protection point |
 
@@ -66,7 +66,7 @@ return when (direction) {
 - compile后跳过stable topology revalidation；
 - 新功能继续把`RailView.nextRails`或Basic复制的adjacency当成第二个authoritative graph；
 - Basic收到非法或不连续route后自行搜索并补齐一条运营路径；
-- RoutePlanner隐式查询SimpleATO Destination或通过callback/provider反向获得方向；
+- RoutePlanner隐式查询Basic/SimpleATO metadata；方向谓词只能由上层调用方显式注入；
 - repeated rail progress取第一个candidate导致倒退。
 
 ## 必需测试与验证

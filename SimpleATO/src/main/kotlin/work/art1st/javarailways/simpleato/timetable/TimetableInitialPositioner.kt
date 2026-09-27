@@ -3,7 +3,6 @@ package work.art1st.javarailways.simpleato.timetable
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -109,8 +108,8 @@ class TimetableInitialPositioner(private val world: World) {
         val rail = world.getRail(wayPoint.railId) as? CoreRail
             ?: error("waypoint ${wayPoint.id} references missing rail ${wayPoint.railId}")
         val direction = world.simpleAtoWorldData.destinations[wayPoint.id]?.approachDirection
-            ?: rail.infrastructureMetadata.operating.allowedDirection
-            ?: error("waypoint ${wayPoint.id} and rail ${rail.id} define no allowed direction")
+            ?: world.simpleAtoWorldData.operatingDirections[rail.id]
+            ?: ViewDirection.AB
         val arcInView = when (direction) {
             ViewDirection.AB -> wayPoint.arcLength
             ViewDirection.BA -> rail.curve.totalArcLength - wayPoint.arcLength

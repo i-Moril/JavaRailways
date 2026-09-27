@@ -20,6 +20,7 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.api.line.Line
 import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -53,10 +54,11 @@ class SimpleATOInfrastructureSnapshotTest {
         val sourceRail = requireNotNull(source.getRail(
             source.simpleAtoWorldData.destinations["central@one"]!!.railId
         ))
+        source.simpleAtoWorldData.operatingDirections.put(sourceRail.id, ViewDirection.BA)
 
         val snapshot = SimpleATOInfrastructureSnapshotCodec.decode(
             SimpleATOInfrastructureSnapshotCodec.encode(
-                SimpleATOInfrastructureSnapshotV2.capture(source, infrastructureRevision = 7L)
+                SimpleATOInfrastructureSnapshotV1.capture(source, infrastructureRevision = 7L)
             )
         )
         val restored = createTestWorld().also(worlds::add)
@@ -68,6 +70,7 @@ class SimpleATOInfrastructureSnapshotTest {
         val restoredLines = restored.simpleAtoWorldData.lines.snapshot()
         assertEquals(7L, snapshot.infrastructureRevision)
         assertEquals(1L, restoredLines.revision)
+        assertEquals(ViewDirection.BA, restored.simpleAtoWorldData.operatingDirections[sourceRail.id])
         assertEquals(setOf("central@one", "south@one"),
             restored.simpleAtoWorldData.destinations.all().map { it.id }.toSet())
         assertEquals(setOf("central", "south"),
@@ -90,9 +93,10 @@ class SimpleATOInfrastructureSnapshotTest {
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
-        val snapshot = SimpleATOInfrastructureSnapshotV2(
-            formatVersion = SimpleATOInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION,
+        val snapshot = SimpleATOInfrastructureSnapshotV1(
+            formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 1L,
+            operatingDirections = emptyList(),
             destinations = listOf(SavedOperationalDestinationV1.capture(
                 berth("central", 20.0, rail.id)
             )),
@@ -121,9 +125,10 @@ class SimpleATOInfrastructureSnapshotTest {
             "Existing",
             DepotStablingPoint(pointRef, "existing@one", 100.0)
         )
-        val snapshot = SimpleATOInfrastructureSnapshotV2(
-            formatVersion = SimpleATOInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION,
+        val snapshot = SimpleATOInfrastructureSnapshotV1(
+            formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 1L,
+            operatingDirections = emptyList(),
             destinations = emptyList(),
             lines = emptyList(),
             lineRevision = 0L

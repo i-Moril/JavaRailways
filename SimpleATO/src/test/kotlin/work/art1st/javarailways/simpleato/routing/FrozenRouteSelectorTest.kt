@@ -154,7 +154,7 @@ class FrozenRouteSelectorTest {
             observation = observation,
             trainId = "train-1",
             target = OperationalRouteLocation(first.id, 10.0),
-            allowedDirections = mapOf(UUID(0L, 999L) to setOf(ViewDirection.AB))
+            allowedDirections = mapOf(UUID(0L, 999L) to ViewDirection.AB)
         ) as FrozenRouteSelectionResult.Rejected
         assertEquals(FrozenRouteSelectionRejection.PLANNER_REJECTED, invalidDirections.reason)
         assertEquals(
@@ -169,7 +169,7 @@ class FrozenRouteSelectorTest {
         trainId: String,
         target: OperationalRouteLocation,
         overlayTopologyRevision: Long = topology.revision,
-        allowedDirections: Map<UUID, Set<ViewDirection>> = emptyMap()
+        allowedDirections: Map<UUID, ViewDirection> = emptyMap()
     ): FrozenRouteSelectionResult = FrozenRouteSelector.select(
         FrozenRouteSelectionInput(
             topology = topology,

@@ -6,7 +6,6 @@ import work.art1st.javarailways.basic.pathFinding.RailMap
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
 import work.art1st.javarailways.basic.safety.TrainSpeedProfileStore
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -60,16 +59,4 @@ class WayPointStore {
     operator fun get(id: String): WayPoint? = wayPoints[id]
 
     fun all(): List<WayPoint> = wayPoints.values.sortedBy { it.id }
-}
-
-object DirectionRestrictionResolver {
-    fun fromArcPoints(
-        playerArcLength: Double,
-        clickedArcLength: Double,
-        minimumDifference: Double = 0.25
-    ): ViewDirection? {
-        val delta = clickedArcLength - playerArcLength
-        if (kotlin.math.abs(delta) < minimumDifference) return null
-        return if (delta > 0.0) ViewDirection.AB else ViewDirection.BA
-    }
 }

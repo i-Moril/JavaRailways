@@ -9,7 +9,7 @@
 ## Owner、独立 documents 与精确字段
 
 ```kotlin
-data class BasicInfrastructureSnapshotV3(
+data class BasicInfrastructureSnapshotV2(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val wayPoints: List<SavedWayPointV1>,
@@ -17,7 +17,13 @@ data class BasicInfrastructureSnapshotV3(
 )
 ```
 
-Runtime `BasicRuntimeSnapshotV4(formatVersion=4,infrastructureRevision,physicsEpoch)`只保留split pairing需要的revision/epoch，不包含运营ledger或Dispatcher。移除rolling-stock是Basic runtime的breaking shape change，因此只升级该内部边界到format 4；writer current-only。
+Infrastructure format 2 是相对最后一个真实 Basic format 1 的一次 breaking transition：Destination/Line 被迁到
+SimpleATO 的第一个 infrastructure document，`allowedDirection`也从 Basic rail metadata 移到 SimpleATO。
+
+Runtime `BasicRuntimeSnapshotV3(formatVersion=3,infrastructureRevision,physicsEpoch)`只保留 split pairing 需要的
+revision/epoch，不包含运营 ledger、Timetable 或 Dispatcher。最后一个真实 Basic runtime format 2 同时保存
+Timetable 与 rolling stock；最终删除这两组字段是一次 breaking transition，因此只升级一次到 format 3。
+writer 与正常 reader 均 current-only。
 
 Destination、Station、Depot、rolling-stock ledger、Line、Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
 
@@ -26,6 +32,16 @@ Diagnostic独立：`AtoStallReportJson.schemaVersion=3`、`DepotResetReportJson.
 ## Split pairing与restore pipeline
 
 Bukkit outer infrastructure要求Core+Basic+SimpleATO revision相同；runtime要求revision和physicsEpoch都相同。capture在同一server revision、awaited exact physics ticket后产生六个value payload；background writer只写capture结果。
+
+一次性迁移的真实 source/target 是：
+
+```text
+InfrastructureFileV1 + BasicInfrastructureSnapshotV1 + no SimpleATO infrastructure
+  → InfrastructureFileV2 + BasicInfrastructureSnapshotV2 + SimpleATOInfrastructureSnapshotV1
+```
+
+source Basic V1 中的 Destination、Line 和 `operating.allowedDirection` 在 migration boundary 内一次拆分到最终
+owners。正常 codec 只读取 current document。
 
 ```text
 strict decode current
@@ -59,7 +75,7 @@ strict decode current
 Basic capture由composition显式传入SimpleATO canonical destination ID，排除其派生WayPoint：
 
 ```kotlin
-BasicInfrastructureSnapshotV3.capture(
+BasicInfrastructureSnapshotV2.capture(
     world,
     revision,
     projectedWayPointIds = world.simpleAtoWorldData.destinations.all().mapTo(HashSet()) { it.id }

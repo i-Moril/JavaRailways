@@ -27,7 +27,6 @@ internal data class LegacyRailMetadataV1(
         designSpeedMetersPerSecond,
         speedLimitMetersPerSecond,
         derailSpeedMetersPerSecond,
-        allowedDirection,
         geometry,
         assembly,
         createdBySplit,

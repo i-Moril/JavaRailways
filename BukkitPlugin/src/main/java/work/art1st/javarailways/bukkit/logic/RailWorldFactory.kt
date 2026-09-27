@@ -16,8 +16,8 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV4
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableAppliedPlanService
@@ -30,7 +30,7 @@ import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
-import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
@@ -55,9 +55,9 @@ object RailWorldFactory {
         bukkitWorld: BukkitWorld,
         infrastructure: CoreWorld.SavedInfrastructureV2? = null,
         runtime: CoreWorld.SavedRuntimeV1? = null,
-        basicInfrastructure: BasicInfrastructureSnapshotV3? = null,
-        simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV2? = null,
-        basicRuntime: BasicRuntimeSnapshotV4? = null
+        basicInfrastructure: BasicInfrastructureSnapshotV2? = null,
+        simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1? = null,
+        basicRuntime: BasicRuntimeSnapshotV3? = null
     ): World {
         ThreadGuard.ensureMainThread("RailWorldFactory.createForBukkit")
         val tickManager = TickManagerImpl(

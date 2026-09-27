@@ -40,8 +40,6 @@ import work.art1st.javarailways.bukkit.control.TrainKeyItem
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.render.backend.PacketPlatformDiagnostics
-import work.art1st.javarailways.bukkit.persistence.RailInfrastructureMetadataMigrationFiles
-import work.art1st.javarailways.bukkit.persistence.WorldPersistence
 import work.art1st.javarailways.bukkit.render.model.SeatModel
 import work.art1st.javarailways.bukkit.tool.RailWandEditPermitAcquisition
 import work.art1st.javarailways.bukkit.tool.RailWandTopologyEditPlan
@@ -91,7 +89,6 @@ class JavaRailwaysCommand {
             "ato" -> return handleAto(sender, args.drop(1))
             "perf", "performance" -> return handlePerf(sender, args.drop(1))
             "resources", "resource" -> return handleResources(sender, args.drop(1))
-            "migrate" -> return handleMigrate(sender, args.drop(1))
             "undo" -> return handleUndo(sender)
             "redo" -> return handleRedo(sender)
             "help" -> sendHelp(sender)
@@ -118,11 +115,6 @@ class JavaRailwaysCommand {
         if (args.size <= 1) return filtered(ROOT_COMMANDS)
         return when (args[0].lowercase()) {
             "resources", "resource" -> if (args.size == 2) filtered(listOf("reload")) else emptyList()
-            "migrate" -> when (args.size) {
-                2 -> filtered(listOf("rail-infrastructure-metadata"))
-                3 -> filtered(listOf("--dry-run", "--apply"))
-                else -> emptyList()
-            }
             "train" -> when (args.size) {
                 2 -> filtered(listOf("create", "rename", "key", "anim", "action", "behavior", "info", "list", "delete", "sit", "stand"))
                 3 -> when (args[1].lowercase()) {
@@ -176,51 +168,8 @@ class JavaRailwaysCommand {
     private companion object {
         val ROOT_COMMANDS = listOf(
             "train", "wand", "waypoint", "route", "navigate", "timetable", "depot",
-            "ato", "stop", "perf", "resources", "migrate", "undo", "redo", "help"
+            "ato", "stop", "perf", "resources", "undo", "redo", "help"
         )
-    }
-
-    private fun handleMigrate(sender: CommandSender, args: List<String>): Boolean {
-        if (!sender.hasPermission("javarailways.admin")) {
-            sender.sendMessage("你没有权限迁移 JavaRailways 数据")
-            return true
-        }
-        if (args.firstOrNull() != "rail-infrastructure-metadata" ||
-            args.getOrNull(1) !in setOf("--dry-run", "--apply")
-        ) {
-            sender.sendMessage("用法: /jr migrate rail-infrastructure-metadata <--dry-run|--apply>")
-            return true
-        }
-        val apply = args[1] == "--apply"
-        val files = WorldPersistence.infrastructureFiles()
-        if (files.isEmpty()) {
-            sender.sendMessage("没有可迁移的世界 infrastructure 文件")
-            return true
-        }
-        var migratedFiles = 0
-        var migratedRails = 0
-        files.forEach { file ->
-            runCatching {
-                RailInfrastructureMetadataMigrationFiles.migrate(file.toPath(), apply)
-            }.onSuccess { report ->
-                if (report.migratedRailCount > 0) {
-                    migratedFiles++
-                    migratedRails += report.migratedRailCount
-                    sender.sendMessage(
-                        "${file.name}: ${report.migratedRailCount} 条 Rail" +
-                            if (apply) "，恢复点 ${report.recoveryPoint.fileName}" else "（dry-run）"
-                    )
-                }
-            }.onFailure { failure ->
-                throw IllegalStateException("迁移 ${file.name} 失败", failure)
-            }
-        }
-        sender.sendMessage(
-            "Rail metadata 迁移${if (apply) "完成" else "检查完成"}：" +
-                "$migratedFiles 个文件，$migratedRails 条 Rail" +
-                if (apply) "；请重启服务器后加载迁移后的世界" else ""
-        )
-        return true
     }
 
     private fun handleResources(sender: CommandSender, args: List<String>): Boolean {
@@ -361,7 +310,9 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr route validate <fromWaypoint> <toWaypoint>")
                     return true
                 }
-                when (val result = RoutePlanner(world).buildRoute(from, to)) {
+                when (val result = RoutePlanner(world) {
+                    world.simpleAtoWorldData.operatingDirections.allows(it)
+                }.buildRoute(from, to)) {
                     is RouteBuildResult.Success -> {
                         val route = result.route
                         sender.sendMessage("=== 经路验证成功 ===")

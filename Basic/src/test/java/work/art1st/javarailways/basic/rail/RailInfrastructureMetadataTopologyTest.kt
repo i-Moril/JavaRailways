@@ -168,7 +168,7 @@ class RailInfrastructureMetadataTopologyTest {
     }
 
     @Test
-    fun `merge restores parent lineage and rejects divergent metadata`() {
+    fun `merge restores parent lineage`() {
         val source = UUID.randomUUID()
         val before = UUID.randomUUID()
         val after = UUID.randomUUID()
@@ -176,13 +176,6 @@ class RailInfrastructureMetadataTopologyTest {
         val store = RailInfrastructureMetadataStore()
         store.put(source, RailInfrastructureMetadata(authoring = RailAuthoringMetadata()))
         RailInfrastructureMetadataTopology.split(store, source, before, after, "split-1")
-        store.put(after, store.getValue(after).copy(allowedDirection = work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB))
-
-        assertThrows(IllegalArgumentException::class.java) {
-            RailInfrastructureMetadataTopology.merge(store, before, after, merged)
-        }
-
-        store.put(after, store.getValue(after).copy(allowedDirection = null))
         RailInfrastructureMetadataTopology.merge(store, before, after, merged)
         assertNull(store[before])
         assertNull(store[after])

@@ -26,7 +26,7 @@ class BasicInfrastructureSnapshotTest {
         assertThrows(Exception::class.java) {
             BasicInfrastructureSnapshotCodec.decode(
                 """
-                {"formatVersion":3,"infrastructureRevision":1,"destinations":[],"wayPoints":[],"railMetadata":[]}
+                {"formatVersion":2,"infrastructureRevision":1,"destinations":[],"wayPoints":[],"railMetadata":[]}
                 """.trimIndent()
             )
         }
@@ -35,8 +35,8 @@ class BasicInfrastructureSnapshotTest {
     @Test
     fun `infrastructure snapshot rejects unsupported format version`() {
         val encoded = BasicInfrastructureSnapshotCodec.encode(
-            BasicInfrastructureSnapshotV3(
-                formatVersion = BasicInfrastructureSnapshotV3.CURRENT_FORMAT_VERSION + 1,
+            BasicInfrastructureSnapshotV2(
+                formatVersion = BasicInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION + 1,
                 infrastructureRevision = 0L,
                 wayPoints = emptyList()
             )
@@ -65,7 +65,7 @@ class BasicInfrastructureSnapshotTest {
         world.removeRail(rail)
 
         val failure = assertThrows(IllegalStateException::class.java) {
-            BasicInfrastructureSnapshotV3.capture(world, infrastructureRevision = 1L, projectedWayPointIds = emptySet())
+            BasicInfrastructureSnapshotV2.capture(world, infrastructureRevision = 1L, projectedWayPointIds = emptySet())
         }
 
         assertTrue(failure.message.orEmpty().contains("orphan"))
@@ -83,7 +83,7 @@ class BasicInfrastructureSnapshotTest {
         world.basicWorldData.wayPoints.add(WayPoint("standalone", "Standalone", rail.id, 20.0))
         world.basicWorldData.wayPoints.add(WayPoint("projected", "Projected", rail.id, 40.0))
 
-        val snapshot = BasicInfrastructureSnapshotV3.capture(
+        val snapshot = BasicInfrastructureSnapshotV2.capture(
             world,
             infrastructureRevision = 1L,
             projectedWayPointIds = setOf("projected")
@@ -111,7 +111,7 @@ class BasicInfrastructureSnapshotTest {
             )
         )
         source.basicWorldData.railMetadata.put(rail.id, metadata)
-        val snapshot = BasicInfrastructureSnapshotV3.capture(source, infrastructureRevision = 2L, projectedWayPointIds = emptySet())
+        val snapshot = BasicInfrastructureSnapshotV2.capture(source, infrastructureRevision = 2L, projectedWayPointIds = emptySet())
 
         val restored = createTestWorld().also(worlds::add)
         TestBasicWorldDataRegistry.getOrCreate(restored)

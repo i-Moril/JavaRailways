@@ -6,7 +6,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -14,10 +15,35 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class AtoMissionTest {
     @Test
+    fun `mission planning uses the SimpleATO operating direction store`() {
+        val world = createTestWorld()
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        data.wayPoints.add(WayPoint("A", "A", rail.id, 80.0))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, 20.0))
+        val request = AtoMissionRequest(
+            "direction-policy",
+            1L,
+            WayPointRef("A"),
+            listOf(AtoMissionPoint.Stop(WayPointRef("B")))
+        )
+
+        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
+        assertTrue(AtoMissionResolver(world).resolve(request) is AtoMissionResolutionResult.RouteUnavailable)
+
+        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.BA)
+        assertTrue(AtoMissionResolver(world).resolve(request) is AtoMissionResolutionResult.Success)
+    }
+
+    @Test
     fun `resolves immutable mission legs through stable waypoint references`() {
         val world = createTestWorld()
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -51,7 +77,7 @@ class AtoMissionTest {
     fun `reports the first unresolved mission target`() {
         val world = createTestWorld()
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -76,7 +102,7 @@ class AtoMissionTest {
     fun `reports unavailable route before mission reaches the ATO`() {
         val world = createTestWorld()
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val first = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
@@ -106,7 +132,7 @@ class AtoMissionTest {
     fun `carries each leg end direction into the next leg`() {
         val world = createTestWorld()
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)

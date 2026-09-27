@@ -3,15 +3,15 @@ package work.art1st.javarailways.bukkit.persistence
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotCodec
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV4
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotCodec
-import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV2
+import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec
-import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 
 @Serializable
 data class InfrastructureFileV2(
@@ -25,11 +25,11 @@ data class InfrastructureFileV2(
         WorldSnapshotCodec.decodeInfrastructure(coreSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
-    fun basic(): BasicInfrastructureSnapshotV3 =
+    fun basic(): BasicInfrastructureSnapshotV2 =
         BasicInfrastructureSnapshotCodec.decode(basicSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
-    fun simpleAto(): SimpleATOInfrastructureSnapshotV2 =
+    fun simpleAto(): SimpleATOInfrastructureSnapshotV1 =
         SimpleATOInfrastructureSnapshotCodec.decode(simpleAtoSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
@@ -47,10 +47,10 @@ data class RuntimeFileV2(
     fun core(): CoreWorld.SavedRuntimeV1 = WorldSnapshotCodec.decodeRuntime(coreSnapshotJson).also {
         require(it.infrastructureRevision == infrastructureRevision && it.physicsEpoch == physicsEpoch)
     }
-    fun basic(): BasicRuntimeSnapshotV4 = BasicRuntimeSnapshotCodec.decode(basicSnapshotJson).also {
+    fun basic(): BasicRuntimeSnapshotV3 = BasicRuntimeSnapshotCodec.decode(basicSnapshotJson).also {
         require(it.infrastructureRevision == infrastructureRevision && it.physicsEpoch == physicsEpoch)
     }
-    fun simpleAto(): SimpleATORuntimeSnapshotV2 =
+    fun simpleAto(): SimpleATORuntimeSnapshotV1 =
         SimpleATORuntimeSnapshotCodec.decode(simpleAtoSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision && it.physicsEpoch == physicsEpoch)
         }
@@ -67,11 +67,11 @@ data class CapturedWorldSnapshots(
 
 data class WorldSnapshotCapture(
     val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
-    val basicInfrastructure: BasicInfrastructureSnapshotV3,
-    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV2,
+    val basicInfrastructure: BasicInfrastructureSnapshotV2,
+    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
     val coreRuntime: CoreWorld.SavedRuntimeV1,
-    val basicRuntime: BasicRuntimeSnapshotV4,
-    val simpleAtoRuntime: SimpleATORuntimeSnapshotV2
+    val basicRuntime: BasicRuntimeSnapshotV3,
+    val simpleAtoRuntime: SimpleATORuntimeSnapshotV1
 ) {
     init {
         val revision = coreInfrastructure.infrastructureRevision
@@ -101,8 +101,8 @@ object SplitWorldSnapshotCodec {
 
     fun infrastructure(
         core: CoreWorld.SavedInfrastructureV2,
-        basic: BasicInfrastructureSnapshotV3,
-        simpleAto: SimpleATOInfrastructureSnapshotV2
+        basic: BasicInfrastructureSnapshotV2,
+        simpleAto: SimpleATOInfrastructureSnapshotV1
     ): InfrastructureFileV2 {
         require(core.infrastructureRevision == basic.infrastructureRevision)
         require(core.infrastructureRevision == simpleAto.infrastructureRevision)
@@ -117,8 +117,8 @@ object SplitWorldSnapshotCodec {
 
     fun runtime(
         core: CoreWorld.SavedRuntimeV1,
-        basic: BasicRuntimeSnapshotV4,
-        simpleAto: SimpleATORuntimeSnapshotV2
+        basic: BasicRuntimeSnapshotV3,
+        simpleAto: SimpleATORuntimeSnapshotV1
     ): RuntimeFileV2 {
         require(core.infrastructureRevision == basic.infrastructureRevision)
         require(core.infrastructureRevision == simpleAto.infrastructureRevision)

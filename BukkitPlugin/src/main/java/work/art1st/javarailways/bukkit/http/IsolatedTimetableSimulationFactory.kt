@@ -12,9 +12,9 @@ import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
-import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.simpleato.timetable.TimetableAction
@@ -43,8 +43,8 @@ internal data class TimetableProfileSelection(
 
 internal data class IsolatedTimetableSimulationSnapshot(
     val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
-    val basicInfrastructure: BasicInfrastructureSnapshotV3,
-    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV2,
+    val basicInfrastructure: BasicInfrastructureSnapshotV2,
+    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
     val timetable: Timetable,
     val profilesByService: Map<String, SimulationControlProfile>,
     val gravityMetersPerSecondSquared: Double,
@@ -111,12 +111,12 @@ internal class IsolatedTimetableSimulationFactory(
         }
         return IsolatedTimetableSimulationSnapshot(
             coreInfrastructure,
-            BasicInfrastructureSnapshotV3.capture(
+            BasicInfrastructureSnapshotV2.capture(
                 liveWorld,
                 revision,
                 liveWorld.simpleAtoWorldData.destinations.all().mapTo(HashSet()) { it.id }
             ),
-            SimpleATOInfrastructureSnapshotV2.capture(liveWorld, revision),
+            SimpleATOInfrastructureSnapshotV1.capture(liveWorld, revision),
             timetable,
             profiles,
             gravityMetersPerSecondSquared,

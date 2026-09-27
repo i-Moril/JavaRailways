@@ -9,7 +9,6 @@ import work.art1st.javarailways.simpleato.api.station.StationBerth
 import work.art1st.javarailways.simpleato.api.station.StationBerthRef
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.Heavy
@@ -441,7 +440,7 @@ class OperationalDestinationService(private val world: World) {
     ) {
         val rail = requireNotNull(world.getRail(destination.railId))
         val placementDirection = destination.approachDirection
-            ?: rail.infrastructureMetadata.operating.allowedDirection
+            ?: data.operatingDirections[rail.id]
             ?: ViewDirection.AB
         val view = rail.getView(placementDirection)
         val arcInView = when (placementDirection) {

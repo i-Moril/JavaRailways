@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前拥有每世界唯一的 `TimetableDispatcher`和`AtoWorldCoordinator`，以及Destination、Station、Depot/rolling-stock ledger、Line、timetable model/store/extensions/persistence、ATO安全参数/mission/constraint policy、具体`SimpleATO` controller、checkpoint与隔离仿真运行时、手动导航命令、临时时刻表生成、时刻表JSON展示，以及第一批外部列车限制公开契约与约束适配器。production与隔离仿真Dispatcher均只使用Basic通用route admission；旧allocator、Confirmed Route Window、null-provider fallback以及`AtoProvider`切换机制已删除。Basic只保留自动/手动共用的actuation、安全包络和route/perception snapshot primitive。因此本层状态仍是`TRANSITIONAL`，不能据此声称全部Stage 2平台拆分已经完成。新增或迁移ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
+本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前拥有每世界唯一的 `TimetableDispatcher`和`AtoWorldCoordinator`，以及Destination、Station、Depot/rolling-stock ledger、Line、timetable model/store/extensions/persistence、ATO安全参数/mission/constraint policy、具体`SimpleATO` controller、checkpoint与隔离仿真运行时、手动导航命令、临时时刻表生成、时刻表JSON展示，以及第一批外部列车限制公开契约与约束适配器。production与隔离仿真Dispatcher均只使用Basic通用route admission；旧allocator、Confirmed Route Window、null-provider fallback以及`AtoProvider`切换机制已删除。Basic只保留自动/手动共用的actuation、安全包络和route/perception snapshot primitive。独立`SimpleATOBukkit`插件现已建立lifecycle/service-discovery/package骨架，但production world composition、tick、snapshot和presentation尚未迁出`BukkitPlugin`。因此本层状态仍是`TRANSITIONAL`，不能据此声称全部Stage 2平台拆分已经完成。新增或迁移ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
 
 SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调度和最严格限制归约。物理铁路图和列车几何由Core拥有，平台无关的纵向动力学与手柄执行由Basic拥有；资源身份校验、冻结路线的不可删除物理资源底线、物理占用、原子 claim、设备准备与尾部释放由 Basic 拥有。每一个独立信号系统由自己的Java/Kotlin插件拥有固定闭塞、保护区域、联锁规则、信号显示及可选JS/YAML配置。`SimpleATOBukkit`只作为SimpleATO的平台适配器和可复用运行时，不成为所有信号制式的领域owner。
 
@@ -21,7 +21,7 @@ SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调
 | [Stations](./stations.md) | berth/call/dwell/allocation | exact berth、door gate、tail release |
 | [Depots](./depots.md) | rolling stock、storage/reset | ledger、physical selection、reset transaction |
 | [Lines](./lines.md) | 改line pattern/revision/planning | infrastructure line identity、store与shortest leg |
-| [SimpleATO 持久化](./persistence.md) | 改 Line/Dispatcher、SimpleATO infrastructure/runtime 文件或恢复顺序 | `SimpleATOInfrastructureSnapshotV2`、`SimpleATORuntimeSnapshotV2` |
+| [SimpleATO 持久化](./persistence.md) | 改运行方向、Line/Dispatcher、SimpleATO infrastructure/runtime 文件或恢复顺序 | `SimpleATOInfrastructureSnapshotV1`、`SimpleATORuntimeSnapshotV1` |
 
 后续为信号脚本建立owner spec；在对应接口冻结前，不把概念草图写成已存在API。
 

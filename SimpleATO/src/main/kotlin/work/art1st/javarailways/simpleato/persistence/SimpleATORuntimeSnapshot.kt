@@ -53,13 +53,13 @@ data class SavedRollingStockV1(
 }
 
 @Serializable
-data class SimpleATORuntimeSnapshotV2(
+data class SimpleATORuntimeSnapshotV1(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val physicsEpoch: Long,
     val dispatcher: SavedDispatcherV1,
-    val timetables: List<SavedTimetableV1>,
-    val rollingStock: List<SavedRollingStockV1>
+    val timetables: List<SavedTimetableV1> = emptyList(),
+    val rollingStock: List<SavedRollingStockV1> = emptyList()
 ) {
     fun restore(world: World) {
         require(formatVersion == CURRENT_FORMAT_VERSION) {
@@ -82,15 +82,15 @@ data class SimpleATORuntimeSnapshotV2(
     }
 
     companion object {
-        const val CURRENT_FORMAT_VERSION = 2
+        const val CURRENT_FORMAT_VERSION = 1
 
         fun capture(
             world: World,
             infrastructureRevision: Long,
             physicsEpoch: Long
-        ): SimpleATORuntimeSnapshotV2 {
+        ): SimpleATORuntimeSnapshotV1 {
             require(infrastructureRevision >= 0L && physicsEpoch >= 0L)
-            return SimpleATORuntimeSnapshotV2(
+            return SimpleATORuntimeSnapshotV1(
                 formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
                 physicsEpoch = physicsEpoch,
@@ -106,12 +106,12 @@ data class SimpleATORuntimeSnapshotV2(
 object SimpleATORuntimeSnapshotCodec {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
 
-    fun encode(value: SimpleATORuntimeSnapshotV2): String =
-        json.encodeToString(SimpleATORuntimeSnapshotV2.serializer(), value)
+    fun encode(value: SimpleATORuntimeSnapshotV1): String =
+        json.encodeToString(SimpleATORuntimeSnapshotV1.serializer(), value)
 
-    fun decode(value: String): SimpleATORuntimeSnapshotV2 =
-        json.decodeFromString(SimpleATORuntimeSnapshotV2.serializer(), value).also {
-            require(it.formatVersion == SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION) {
+    fun decode(value: String): SimpleATORuntimeSnapshotV1 =
+        json.decodeFromString(SimpleATORuntimeSnapshotV1.serializer(), value).also {
+            require(it.formatVersion == SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION) {
                 "Unsupported SimpleATO runtime snapshot version: ${it.formatVersion}"
             }
         }

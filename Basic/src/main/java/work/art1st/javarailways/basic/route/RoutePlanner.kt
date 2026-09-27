@@ -2,7 +2,6 @@ package work.art1st.javarailways.basic.route
 
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -71,7 +70,10 @@ sealed class RouteBuildResult {
     data class Failure(val reason: String) : RouteBuildResult()
 }
 
-class RoutePlanner(private val world: World) {
+class RoutePlanner(
+    private val world: World,
+    private val traversalAllowed: (RailView) -> Boolean = { true }
+) {
     fun buildRoute(
         fromWayPointId: String,
         toWayPointId: String,
@@ -140,7 +142,7 @@ class RoutePlanner(private val world: World) {
         return listOf(
             rail.getView(ViewDirection.AB),
             rail.getView(ViewDirection.BA)
-        ).filter(::allowsDirection)
+        ).filter(traversalAllowed)
     }
 
     private fun arcLengthInView(wayPoint: WayPoint, direction: ViewDirection, totalLength: Double): Double {
@@ -182,7 +184,7 @@ class RoutePlanner(private val world: World) {
                 current.view.curve.totalArcLength - startArcLength
             }
             for (next in current.view.nextRails) {
-                if (!allowsDirection(next)) continue
+                if (!traversalAllowed(next)) continue
                 val nextState = SearchState(next, departedStart = true)
                 val candidate = bestKnown + traversalLength
                 if (candidate >= (distances[nextState] ?: Double.POSITIVE_INFINITY)) continue
@@ -193,9 +195,6 @@ class RoutePlanner(private val world: World) {
         }
         return null
     }
-
-    private fun allowsDirection(view: RailView): Boolean =
-        view.rail.infrastructureMetadata.operating.allowedDirection?.let { it == view.viewDirection } ?: true
 
     private fun rebuildPath(
         predecessor: Map<SearchState, SearchState?>,

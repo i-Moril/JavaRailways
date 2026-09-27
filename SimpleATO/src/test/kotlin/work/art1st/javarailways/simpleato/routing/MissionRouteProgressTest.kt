@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -15,13 +14,14 @@ import work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver
 import work.art1st.javarailways.simpleato.api.mission.WayPointRef
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 
 class MissionRouteProgressTest {
     @Test
     fun `projects BA positions onto cumulative mission distance`() {
         val world = createTestWorld()
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)

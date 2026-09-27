@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Test
 class BasicRuntimeSnapshotTest {
     @Test
     fun `current Basic runtime contains only pairing metadata`() {
-        val snapshot = BasicRuntimeSnapshotV4(
-            formatVersion = BasicRuntimeSnapshotV4.CURRENT_FORMAT_VERSION,
+        val snapshot = BasicRuntimeSnapshotV3(
+            formatVersion = BasicRuntimeSnapshotV3.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 11L
         )
@@ -21,7 +21,7 @@ class BasicRuntimeSnapshotTest {
         assertThrows(Exception::class.java) {
             BasicRuntimeSnapshotCodec.decode(
                 """
-                {"formatVersion":4,"infrastructureRevision":7,"physicsEpoch":11,"rollingStock":[]}
+                {"formatVersion":3,"infrastructureRevision":7,"physicsEpoch":11,"rollingStock":[]}
                 """.trimIndent()
             )
         }
@@ -30,8 +30,8 @@ class BasicRuntimeSnapshotTest {
     @Test
     fun `current Basic runtime rejects unsupported versions`() {
         val encoded = BasicRuntimeSnapshotCodec.encode(
-            BasicRuntimeSnapshotV4(
-                formatVersion = BasicRuntimeSnapshotV4.CURRENT_FORMAT_VERSION + 1,
+            BasicRuntimeSnapshotV3(
+                formatVersion = BasicRuntimeSnapshotV3.CURRENT_FORMAT_VERSION + 1,
                 infrastructureRevision = 7L,
                 physicsEpoch = 11L
             )

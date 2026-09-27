@@ -31,8 +31,8 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 class DispatcherSnapshotTest {
     @Test
     fun `SimpleATO runtime codec round trips the dispatcher checkpoint and rejects other versions`() {
-        val snapshot = SimpleATORuntimeSnapshotV2(
-            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
+        val snapshot = SimpleATORuntimeSnapshotV1(
+            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 11L,
             dispatcher = SavedDispatcherV1(
@@ -52,27 +52,26 @@ class DispatcherSnapshotTest {
         assertThrows(IllegalArgumentException::class.java) {
             SimpleATORuntimeSnapshotCodec.decode(
                 SimpleATORuntimeSnapshotCodec.encode(
-                    snapshot.copy(formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION + 1)
+                    snapshot.copy(formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION + 1)
                 )
             )
         }
-        assertThrows(Exception::class.java) {
-            SimpleATORuntimeSnapshotCodec.decode(
-                """
-                {"formatVersion":2,"infrastructureRevision":7,"physicsEpoch":11,
-                 "dispatcher":{"formatVersion":1,"dispatcherTick":0,"missionRevision":0,"clocks":[],"runs":[]},
-                 "timetables":[]}
-                """.trimIndent()
-            )
-        }
+        val originalV1 = SimpleATORuntimeSnapshotCodec.decode(
+            """
+            {"formatVersion":1,"infrastructureRevision":7,"physicsEpoch":11,
+             "dispatcher":{"formatVersion":1,"dispatcherTick":0,"missionRevision":0,"clocks":[],"runs":[]}}
+            """.trimIndent()
+        )
+        assertTrue(originalV1.timetables.isEmpty())
+        assertTrue(originalV1.rollingStock.isEmpty())
     }
 
     @Test
     fun `SimpleATO runtime restores timetables before dispatcher clocks`() {
         val world = createTestWorld()
         TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
-        val snapshot = SimpleATORuntimeSnapshotV2(
-            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
+        val snapshot = SimpleATORuntimeSnapshotV1(
+            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 0L,
             physicsEpoch = 0L,
             dispatcher = SavedDispatcherV1(
@@ -117,8 +116,8 @@ class DispatcherSnapshotTest {
             state = RollingStockState.AVAILABLE.name,
             stablingPointId = pointRef.pointId
         )
-        val snapshot = SimpleATORuntimeSnapshotV2(
-            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
+        val snapshot = SimpleATORuntimeSnapshotV1(
+            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 0L,
             physicsEpoch = 0L,
             dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
@@ -158,8 +157,8 @@ class DispatcherSnapshotTest {
             state = RollingStockState.AVAILABLE.name,
             stablingPointId = pointRef.pointId
         )
-        val snapshot = SimpleATORuntimeSnapshotV2(
-            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
+        val snapshot = SimpleATORuntimeSnapshotV1(
+            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 0L,
             physicsEpoch = 0L,
             dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),

@@ -6,7 +6,6 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
 
 @Serializable
@@ -47,7 +46,7 @@ data class SavedRailInfrastructureMetadataV1(
 }
 
 @Serializable
-data class BasicInfrastructureSnapshotV3(
+data class BasicInfrastructureSnapshotV2(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val wayPoints: List<SavedWayPointV1>,
@@ -87,13 +86,13 @@ data class BasicInfrastructureSnapshotV3(
     }
 
     companion object {
-        const val CURRENT_FORMAT_VERSION = 3
+        const val CURRENT_FORMAT_VERSION = 2
 
         fun capture(
             world: World,
             infrastructureRevision: Long,
             projectedWayPointIds: Set<String>
-        ): BasicInfrastructureSnapshotV3 {
+        ): BasicInfrastructureSnapshotV2 {
             require(infrastructureRevision >= 0L)
             val data = world.basicWorldData
             val standaloneWayPoints = data.wayPoints.all().filterNot { it.id in projectedWayPointIds }
@@ -107,7 +106,7 @@ data class BasicInfrastructureSnapshotV3(
             check(orphanMetadata.isEmpty()) {
                 "Cannot capture metadata for missing rails: ${orphanMetadata.joinToString()}"
             }
-            return BasicInfrastructureSnapshotV3(
+            return BasicInfrastructureSnapshotV2(
                 formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
                 wayPoints = standaloneWayPoints.map(SavedWayPointV1::capture),
@@ -126,12 +125,12 @@ object BasicInfrastructureSnapshotCodec {
         prettyPrint = true
     }
 
-    fun encode(snapshot: BasicInfrastructureSnapshotV3): String =
-        json.encodeToString(BasicInfrastructureSnapshotV3.serializer(), snapshot)
+    fun encode(snapshot: BasicInfrastructureSnapshotV2): String =
+        json.encodeToString(BasicInfrastructureSnapshotV2.serializer(), snapshot)
 
-    fun decode(data: String): BasicInfrastructureSnapshotV3 =
-        json.decodeFromString(BasicInfrastructureSnapshotV3.serializer(), data).also {
-            require(it.formatVersion == BasicInfrastructureSnapshotV3.CURRENT_FORMAT_VERSION) {
+    fun decode(data: String): BasicInfrastructureSnapshotV2 =
+        json.decodeFromString(BasicInfrastructureSnapshotV2.serializer(), data).also {
+            require(it.formatVersion == BasicInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION) {
                 "Unsupported Basic infrastructure snapshot version: ${it.formatVersion}"
             }
         }

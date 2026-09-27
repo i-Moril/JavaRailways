@@ -1,11 +1,8 @@
 package work.art1st.javarailways.basic.route
 
-import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.DirectionRestrictionResolver
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -14,13 +11,6 @@ import work.art1st.javarailways.core.physics.train.createStraightRailFromSegment
 import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class DirectionRestrictionRouteTest {
-    @Test
-    fun `arc A to clicked B determines allowed direction`() {
-        assertEquals(ViewDirection.AB, DirectionRestrictionResolver.fromArcPoints(10.0, 20.0))
-        assertEquals(ViewDirection.BA, DirectionRestrictionResolver.fromArcPoints(20.0, 10.0))
-        assertEquals(null, DirectionRestrictionResolver.fromArcPoints(10.0, 10.1))
-    }
-
     @Test
     fun `route planner only uses allowed direction`() {
         val world = createTestWorld()
@@ -34,12 +24,15 @@ class DirectionRestrictionRouteTest {
         val pointB = WayPoint("B", "B", rail.id, 90.0)
         data.wayPoints.add(pointA)
         data.wayPoints.add(pointB)
-        rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)
+        var permittedDirection: ViewDirection? = ViewDirection.AB
+        fun planner() = RoutePlanner(world) { view ->
+            permittedDirection?.let { it == view.viewDirection } ?: true
+        }
 
-        assertTrue(RoutePlanner(world).buildRoute(pointA, pointB) is RouteBuildResult.Success)
-        assertTrue(RoutePlanner(world).buildRoute(pointB, pointA) is RouteBuildResult.Failure)
+        assertTrue(planner().buildRoute(pointA, pointB) is RouteBuildResult.Success)
+        assertTrue(planner().buildRoute(pointB, pointA) is RouteBuildResult.Failure)
 
-        rail.metadata = rail.metadata.copy(allowedDirection = null)
-        assertTrue(RoutePlanner(world).buildRoute(pointB, pointA) is RouteBuildResult.Success)
+        permittedDirection = null
+        assertTrue(planner().buildRoute(pointB, pointA) is RouteBuildResult.Success)
     }
 }

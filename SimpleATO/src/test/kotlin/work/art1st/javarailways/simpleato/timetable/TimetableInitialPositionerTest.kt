@@ -1,6 +1,5 @@
 package work.art1st.javarailways.simpleato.timetable
 
-import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -12,6 +11,7 @@ import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -34,7 +34,7 @@ class TimetableInitialPositionerTest {
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
         )
-        rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)
+        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val train = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(train, "s100-1")
         world.basicWorldData.wayPoints.add(WayPoint("yard@1", "Yard 1", rail.id, 70.0))
@@ -72,7 +72,7 @@ class TimetableInitialPositionerTest {
             world,
             PrimeCurveGenerator.buildStraight(240.0, segmentCount = 1)
         )
-        rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)
+        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val first = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
         val second = createTrainWithConfig("uuid-2", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(first, "s100-1")
@@ -120,7 +120,7 @@ class TimetableInitialPositionerTest {
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
         )
-        rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)
+        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val train = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(train, "s100-1")
         train.setController(object : TrainController(train, world) {})
@@ -143,7 +143,7 @@ class TimetableInitialPositionerTest {
     }
 
     @Test
-    fun `missing waypoint and rail direction stalls without moving train`() {
+    fun `missing operating direction permits both and defaults initial placement to AB`() {
         val world = createTestWorld()
         val coordinator = AtoWorldCoordinator("initial-position-failure", reportSink = {})
         TestSimpleATOWorldDataRegistry.register(
@@ -157,7 +157,6 @@ class TimetableInitialPositionerTest {
         )
         val train = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(train, "s100-1")
-        val originalArc = train.headLocation.arcLengthIn(ViewDirection.AB)
         world.basicWorldData.wayPoints.add(WayPoint("undirected", "Undirected", rail.id, 70.0))
         val timetable = Timetable(
             id = "tt",
@@ -171,9 +170,8 @@ class TimetableInitialPositionerTest {
 
         val result = TimetableInitialPositioner(world).apply(timetable, tick = 3L)
 
-        assertTrue(result is TimetableInitialPositionResult.Failure)
-        assertEquals(originalArc, train.headLocation.arcLengthIn(ViewDirection.AB), 0.0)
-        assertTrue(coordinator.isStalled)
-        assertEquals("TimetableInitialPositionFailure", coordinator.lastStall?.errorType)
+        assertEquals(TimetableInitialPositionResult.Applied(1), result)
+        assertEquals(70.0, train.headLocation.arcLengthIn(ViewDirection.AB), 0.01)
+        assertFalse(coordinator.isStalled)
     }
 }

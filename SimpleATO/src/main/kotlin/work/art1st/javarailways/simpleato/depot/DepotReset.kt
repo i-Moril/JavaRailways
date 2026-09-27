@@ -9,7 +9,6 @@ import work.art1st.javarailways.simpleato.api.depot.DepotResetAssignment
 import work.art1st.javarailways.simpleato.api.depot.DepotResetPlanningResult
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.SweptRailSpan
@@ -164,7 +163,7 @@ class DepotResetCoordinator(
                 )
             val railLength = rail.getView(ViewDirection.AB).curve.totalArcLength
             val placementDirection = destination.approachDirection
-                ?: rail.infrastructureMetadata.operating.allowedDirection
+                ?: world.simpleAtoWorldData.operatingDirections[rail.id]
                 ?: ViewDirection.AB
             val arcInView = when (placementDirection) {
                 ViewDirection.AB -> destination.arcLengthInAbMeters

@@ -3,7 +3,6 @@ package work.art1st.javarailways.basic.route
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
-import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -45,7 +44,6 @@ class PlannedRouteCompilerTest {
         CoreRail.connect(start, selected)
         CoreRail.connect(start, otherBranch)
         CoreRail.connect(selected, goal)
-        listOf(start, selected, otherBranch, goal).forEach(::allowAbOnly)
         val expanded = ExpandedRoute(
             "A",
             "B",
@@ -56,7 +54,9 @@ class PlannedRouteCompilerTest {
             )
         )
 
-        val result = PlannedRouteCompiler(world).compile("service-1/A-B", 3L, expanded)
+        val result = PlannedRouteCompiler(world) {
+            it.viewDirection == ViewDirection.AB
+        }.compile("service-1/A-B", 3L, expanded)
 
         assertTrue(result is PlannedRouteCompilationResult.Success)
         val planned = (result as PlannedRouteCompilationResult.Success).route
@@ -101,10 +101,6 @@ class PlannedRouteCompilerTest {
 
     private fun rail(world: CoreWorld, fromX: Double, toX: Double): CoreRail =
         world.createRailForTest(straightCurve(Vector3d(fromX, 0.0, 0.0), Vector3d(toX, 0.0, 0.0)))
-
-    private fun allowAbOnly(rail: CoreRail) {
-        rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)
-    }
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve =
         polylineCurve(from, to)

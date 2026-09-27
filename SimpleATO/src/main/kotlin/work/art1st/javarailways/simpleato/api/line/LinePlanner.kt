@@ -32,7 +32,9 @@ data class CompiledLineResetCandidate(
 
 /** Resolves station berth combinations and chooses the shortest directed route for each line leg. */
 class LinePlanner(private val world: World) {
-    private val routePlanner = RoutePlanner(world)
+    private val routePlanner = RoutePlanner(world) {
+        world.simpleAtoWorldData.operatingDirections.allows(it)
+    }
 
     fun compile(line: Line, direction: LineDirection = LineDirection.UP): LineCompileResult =
         compileStations(line, line.stations(direction))

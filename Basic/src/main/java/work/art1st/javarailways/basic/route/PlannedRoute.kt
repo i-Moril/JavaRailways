@@ -1,6 +1,5 @@
 package work.art1st.javarailways.basic.route
 
-import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import kotlin.math.abs
@@ -73,7 +72,10 @@ data class TurnoutSafetyDefaults(
 }
 
 /** Resolves stable route references and validates one already-selected physical traversal. */
-class PlannedRouteCompiler(private val world: World) {
+class PlannedRouteCompiler(
+    private val world: World,
+    private val traversalAllowed: (RailView) -> Boolean = { true }
+) {
     fun compile(
         routeId: String,
         revision: Long,
@@ -115,7 +117,7 @@ class PlannedRouteCompiler(private val world: World) {
                     "route views are not connected: ${segment.railViewRef} -> ${nextSegment.railViewRef}"
                 )
             }
-            if (!allowsDirection(next)) {
+            if (!traversalAllowed(next)) {
                 return PlannedRouteCompilationResult.Failure(
                     "route selects a direction-restricted branch: ${nextSegment.railViewRef}"
                 )
@@ -128,9 +130,6 @@ class PlannedRouteCompiler(private val world: World) {
 
     private fun resolve(ref: RailViewRef): RailView? =
         world.getRail(ref.railId)?.getView(ref.direction)
-
-    private fun allowsDirection(view: RailView): Boolean =
-        view.rail.infrastructureMetadata.operating.allowedDirection?.let { it == view.viewDirection } ?: true
 
     private companion object {
         const val EPSILON = 1.0e-6

@@ -20,7 +20,8 @@ Current extraction progress:
 - [x] Inventory remaining ATO/operations production owners and callers in Basic/BukkitPlugin.
 - [x] Move ATO mission, route progress, planner, constraint manager/types and world coordinator/diagnostics into `SimpleATO`; retain Basic's generic dynamics/actuation, route/perception snapshots, RailObject store and physical safety contracts shared with manual driving. Preserve manual fail-close through a generic Basic world safety interlock driven by the SimpleATO coordinator.
 - [x] Delete the legacy `AtoProvider` registry/boundary/controller-switching path instead of migrating or replacing it. Signal extensions use the Stage 1 inspection and namespaced restrictive-output contracts.
-- [ ] Finish the separate operating-direction authoring/persistence seam; the current SimpleATO overlay must not be used to justify a second Basic operating-policy owner.
+- [x] Finish the separate operating-direction authoring/persistence seam: SimpleATO owns the sparse store, topology-bound overlay, authoring, route predicate and infrastructure persistence; Basic has no direction field or fallback owner.
+- [x] Collapse Stage 2 persistence numbering to the real boundaries: infrastructure migrates once from outer V1/Basic V1 to outer V2/Basic V2/SimpleATO V1; Basic runtime moves once from V2 to V3 while additive SimpleATO runtime fields remain V1. Keep the converter pure and leave packaged file migration/recovery to the 09-24 task.
 - [ ] Create `SimpleATOBukkit` with its own descriptor, lifecycle, service discovery and packaging/boundary tests.
 - [ ] Move only SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; define immutable per-object revisions,
   keep one in-flight plus one newest pending value per object, reject stale revisions and apply through the target's Folia

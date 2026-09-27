@@ -25,6 +25,7 @@ class WandActionUndoSupportTest {
             rails = emptyList(),
             renderMetas = emptyList(),
             railMetadata = emptyMap(),
+            operatingDirections = emptyMap(),
             destinations = emptyList(),
             wayPoints = emptyList()
         )
@@ -52,7 +53,9 @@ class WandActionUndoSupportTest {
             worldId = worldId.toString()
         )
         val edited = anchor.withPosition(Vector3d(2.0, 2.0, 3.0))
-        val emptyWorld = RailWorldUndoSnapshot(emptyList(), emptyList(), emptyMap(), emptyList(), emptyList())
+        val emptyWorld = RailWorldUndoSnapshot(
+            emptyList(), emptyList(), emptyMap(), emptyMap(), emptyList(), emptyList()
+        )
         val unsupported = listOf(
             WandAction.CreateAnchor(worldId, anchor),
             WandAction.EditAnchors(worldId, listOf(anchor), listOf(edited)),

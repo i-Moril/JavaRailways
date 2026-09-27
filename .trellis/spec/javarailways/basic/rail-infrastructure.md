@@ -4,7 +4,7 @@
 
 触发：修改rail authoring/operating metadata、split/merge/replacement、显式endpoint连接、turnout topology或Core topology synchronization。
 
-用途：Basic metadata与Core physical topology必须在同一上层transaction一致迁移；metadata区分authoring、operating、speed与safety，不让adapter复制turnout policy。
+用途：Basic metadata与Core physical topology必须在同一上层transaction一致迁移；metadata区分authoring、turnout endpoint、speed与safety，不让adapter复制物理策略。运行方向是SimpleATO运营策略，不属于本store。
 
 ## Owner 与精确metadata
 
@@ -22,7 +22,7 @@ data class RailInfrastructureMetadata(
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/rail/RailInfrastructureMetadataStore.kt`。
 
 - authoring：design speed m/s、geometry、assembly、split lineage、A/B grade locks、automatic curve speed policy。
-- operating：optional `allowedDirection`、A/B turnout endpoint metadata。
+- operating：只保存A/B turnout endpoint metadata；不得保存运行方向。
 - speed与derail归[speed safety](./speed-and-derail-safety.md)。
 - assembly role token：`LEADING_TANGENT/CURVE/TRAILING_TANGENT`。
 - `RailSplitMetadata(operationId,segmentIndex 0..1,parent?,sourceAssemblyRole?)`；`sourceAssemblyRole=null`是additive default，不升boundary version。
@@ -32,11 +32,11 @@ data class RailInfrastructureMetadata(
 
 | structural operation | metadata结果 | 其他owner |
 | --- | --- | --- |
-| split | parent lineage、outer grade/turnout、assembly lane/role映射到children | Destination/WayPoint按arc迁移 |
+| split | parent lineage、outer grade/turnout、assembly lane/role映射到children | Destination/WayPoint按arc迁移；SimpleATO方向一并迁移 |
 | selected lane detach | parallel group dissolve/detach | Core connections同步 |
 | merge | 仅same lineage且metadata equivalent | 重建assembly；destination arcs合并 |
-| reversed replacement | endpoint metadata/grade lock物理方向转换 | approach direction也转换 |
-| delete | remove metadata | operational destinations先处理 |
+| reversed replacement | endpoint metadata/grade lock物理方向转换 | SimpleATO direction/approach direction也转换 |
+| delete | remove metadata | operational destinations和SimpleATO方向先处理 |
 | failure任一步 | rollback Core topology + metadata + projections | 不留partial |
 
 Basic不拥有按距离搜索并自动连接轨道的策略。RailWand把玩家选中的endpoint、批内明确相邻段及replacement旧→新endpoint映射

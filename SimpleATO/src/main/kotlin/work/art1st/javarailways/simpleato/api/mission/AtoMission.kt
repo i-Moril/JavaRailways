@@ -9,6 +9,7 @@ import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import java.util.Collections
 
 /** Stable reference to a Basic WayPoint without retaining a live rail object. */
@@ -150,8 +151,11 @@ sealed interface AtoMissionSubmissionResult {
 
 /** Resolves WayPoint references and compiles every mission leg before it reaches physics state. */
 class AtoMissionResolver(private val world: World) {
-    private val routePlanner = RoutePlanner(world)
-    private val plannedRouteCompiler = PlannedRouteCompiler(world)
+    private val traversalAllowed = { view: work.art1st.javarailways.core.api.physics.rail.RailView ->
+        world.simpleAtoWorldData.operatingDirections.allows(view)
+    }
+    private val routePlanner = RoutePlanner(world, traversalAllowed)
+    private val plannedRouteCompiler = PlannedRouteCompiler(world, traversalAllowed)
 
     @MainThread
     fun resolve(request: AtoMissionRequest): AtoMissionResolutionResult {

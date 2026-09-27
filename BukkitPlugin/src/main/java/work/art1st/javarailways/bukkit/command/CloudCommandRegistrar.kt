@@ -86,7 +86,6 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
             args("perf"); args("performance")
             parent("resources"); parent("resources", "reload")
             parent("resource"); parent("resource", "reload")
-            parent("migrate"); args("migrate", "rail-infrastructure-metadata")
             parent("undo"); parent("redo"); parent("help")
         }
     }

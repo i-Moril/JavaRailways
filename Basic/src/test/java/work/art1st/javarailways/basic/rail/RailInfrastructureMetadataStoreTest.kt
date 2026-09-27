@@ -17,7 +17,7 @@ class RailInfrastructureMetadataStoreTest {
                 designSpeedMetersPerSecond = 30.0,
                 gradeLockedAtA = true
             ),
-            operating = RailOperatingMetadata(allowedDirection = ViewDirection.AB),
+            operating = RailOperatingMetadata(),
             speedLimits = SpeedLimitMetadata(
                 listOf(
                     SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE),

@@ -226,7 +226,9 @@ data class TimetableValidationResult(
 }
 
 class TimetableValidator(private val world: World) {
-    private val routePlanner = RoutePlanner(world)
+    private val routePlanner = RoutePlanner(world) {
+        world.simpleAtoWorldData.operatingDirections.allows(it)
+    }
 
     fun validate(timetable: Timetable): TimetableValidationResult {
         val errors = mutableListOf<String>()

@@ -48,12 +48,12 @@ class PathFinderTest {
         @Test
         fun `findPath respects rail direction restriction`() {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(50.0))
-            rail.metadata = rail.metadata.copy(allowedDirection = ViewDirection.AB)
             val map = RailMap()
             map.addDestination(rail.viewBA, RailDestination(rail.viewBA, "reverse"))
 
-            assertNull(PathFinder(map).findPath(rail.viewAB, "reverse"))
-            assertNull(PathFinder(map).findPath(rail.viewBA, "reverse"))
+            val finder = PathFinder(map) { it.viewDirection == ViewDirection.AB }
+            assertNull(finder.findPath(rail.viewAB, "reverse"))
+            assertNull(finder.findPath(rail.viewBA, "reverse"))
         }
 
         @Test

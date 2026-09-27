@@ -29,25 +29,16 @@ internal data class OperationalRouteLocation(
 /** Immutable operating-direction overlay resolved for exactly one topology revision. */
 internal class OperatingDirectionOverlay(
     val topologyRevision: Long,
-    allowedDirections: Map<UUID, Set<ViewDirection>>
+    allowedDirections: Map<UUID, ViewDirection>
 ) {
-    val allowedDirections: Map<UUID, Set<ViewDirection>> = immutableDirectionMap(allowedDirections)
+    val allowedDirections: Map<UUID, ViewDirection> = Collections.unmodifiableMap(LinkedHashMap(allowedDirections))
 
     init {
         require(topologyRevision >= 0L) { "topology revision must be non-negative" }
     }
 
     fun allows(railId: UUID, direction: ViewDirection): Boolean =
-        allowedDirections[railId]?.contains(direction) ?: true
-
-    private companion object {
-        private fun immutableDirectionMap(source: Map<UUID, Set<ViewDirection>>): Map<UUID, Set<ViewDirection>> =
-            Collections.unmodifiableMap(
-                source.mapValuesTo(linkedMapOf()) { (_, directions) ->
-                    Collections.unmodifiableSet(directions.toSet())
-                }
-            )
-    }
+        allowedDirections[railId]?.let { it == direction } ?: true
 }
 
 internal data class TopologyRoutePlanningInput(

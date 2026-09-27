@@ -68,8 +68,11 @@ enum class StationCallResolutionFailure {
 
 /** Main-thread resolution of one explicit StationCall into an immutable PlannedRoute target. */
 class StationCallResolver(private val world: World) {
-    private val routePlanner = RoutePlanner(world)
-    private val routeCompiler = PlannedRouteCompiler(world)
+    private val traversalAllowed = { view: work.art1st.javarailways.core.api.physics.rail.RailView ->
+        world.simpleAtoWorldData.operatingDirections.allows(view)
+    }
+    private val routePlanner = RoutePlanner(world, traversalAllowed)
+    private val routeCompiler = PlannedRouteCompiler(world, traversalAllowed)
 
     @MainThread
     fun resolve(

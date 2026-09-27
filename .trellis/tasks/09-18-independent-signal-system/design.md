@@ -1,5 +1,10 @@
 # Independent signal system design
 
+> **Updated deployment boundary (2026-09-27):** the executable child design embeds the independent
+> `SimpleATOBukkit` Gradle module into the JavaRailways main plugin JAR. It has no second Bukkit
+> descriptor or lifecycle. The older separately deployed adapter wording below is retained only as
+> decision history; `JapaneseSignals` is the independent server plugin.
+
 ## Architecture boundary
 
 The task uses the following agreed module boundary. Fine-grained signal-package indication interoperability is a deferred Stage 2 policy-runtime decision and does not block this extraction design.

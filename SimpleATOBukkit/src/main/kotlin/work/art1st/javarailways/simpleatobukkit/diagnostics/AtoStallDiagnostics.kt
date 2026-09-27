@@ -1,4 +1,4 @@
-package work.art1st.javarailways.bukkit.debug
+package work.art1st.javarailways.simpleatobukkit.diagnostics
 
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReportJson

@@ -50,7 +50,7 @@
 `:BukkitPlugin:compileSignalApiConsumerJava`持续验证。正常停用只调用
 `InfrastructureResourceService.unregisterOwner`这一条统一owner gate；不要先分别删除provider、contributor或signal source
 来模拟插件卸载。Stage 1的`BukkitPlugin`不拥有信号aspect/model presentation；immutable revision、per-object latest-only
-Folia dispatch和具体模型应用属于Stage 2的`SimpleATOBukkit`及具体信号插件。
+Folia dispatch的通用平台桥属于嵌入主插件的Stage 2 `SimpleATOBukkit`模块，具体aspect/model应用属于具体信号插件。
 
 ## Persistence 与配置
 

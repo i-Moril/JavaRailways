@@ -43,7 +43,7 @@ import work.art1st.javarailways.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.javarailways.bukkit.tool.RailObjectWand
 import work.art1st.javarailways.bukkit.tool.RailWand
 import work.art1st.javarailways.basic.BasicPlugin
-import work.art1st.javarailways.simpleato.SimpleATOPlugin
+import work.art1st.javarailways.simpleatobukkit.SimpleATOBukkitModule
 import work.art1st.javarailways.core.api.event.processor.EventRegistration
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.util.plugin.Plugin
@@ -158,8 +158,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         ensureJavaRailwaysKoinStarted()
         BasicPlugin.INSTANCE = BasicPlugin(0)
         PluginRegistry.register(BasicPlugin.INSTANCE)
-        SimpleATOPlugin.INSTANCE = SimpleATOPlugin(0)
-        PluginRegistry.register(SimpleATOPlugin.INSTANCE)
+        SimpleATOBukkitModule.install()
         PluginRegistry.register(this)
         INSTANCE = this
         ThreadGuard.installPlatformBridge(BukkitThreadGuardBridge)

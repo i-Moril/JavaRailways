@@ -18,7 +18,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
-| [模块与构建边界](./modules-and-build.md) | 九个 Gradle 子项目、依赖方向、JVM 与打包关系 |
+| [模块与构建边界](./modules-and-build.md) | 十个 Gradle 子项目、依赖方向、JVM 与打包关系 |
 | [持久化与 Schema 演进](./persistence.md) | 世界快照、配置、extension payload、WebUI recovery 的统一政策 |
 | [全局质量检查](./quality.md) | 根构建、CI 对齐和按改动范围选择验证命令 |
 

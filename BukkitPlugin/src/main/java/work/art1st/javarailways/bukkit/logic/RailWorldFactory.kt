@@ -3,7 +3,7 @@ package work.art1st.javarailways.bukkit.logic
 import org.bukkit.World as BukkitWorld
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.diagnostics.PluginDiagnosticLog
-import work.art1st.javarailways.bukkit.debug.AtoStallDiagnostics
+import work.art1st.javarailways.simpleatobukkit.diagnostics.AtoStallDiagnostics
 import work.art1st.javarailways.bukkit.extension.BukkitWorldData
 import work.art1st.javarailways.bukkit.render.chunk.RenderChunkManager
 import work.art1st.javarailways.core.api.physics.World

@@ -1,5 +1,11 @@
 # Independent signal system
 
+> **Updated deployment boundary (2026-09-27):** the child implementation task is authoritative.
+> `SimpleATOBukkit` remains an independent Gradle source/test module, but it is embedded into the
+> JavaRailways main plugin JAR and has no second Bukkit descriptor or lifecycle. `JapaneseSignals`
+> remains the independently installed signal-system plugin. Earlier statements below that describe
+> `SimpleATOBukkit` as separately deployed are decision history rather than the current plan.
+
 ## Goal
 
 Deliver an independently installable Signal add-on without making signalling rules, signal persistence, or signal rendering part of the JavaRailways main plugin.

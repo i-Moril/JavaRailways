@@ -33,8 +33,8 @@ import work.art1st.javarailways.bukkit.diagnostics.PluginDiagnosticLog
 import work.art1st.javarailways.bukkit.config.TimetableWebUiMode
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.http.TimetableScriptNormalizer
-import work.art1st.javarailways.bukkit.debug.AtoStallDiagnostics
-import work.art1st.javarailways.bukkit.debug.DepotResetDiagnostics
+import work.art1st.javarailways.simpleatobukkit.diagnostics.AtoStallDiagnostics
+import work.art1st.javarailways.simpleatobukkit.diagnostics.DepotResetDiagnostics
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.control.TrainKeyItem
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull

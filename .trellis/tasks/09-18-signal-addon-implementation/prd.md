@@ -10,7 +10,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 - Stage 1 is complete and archived. It provides the Basic physical-resource floor, plugin-contributed resources, one claim/preparation/grant lifecycle, suffix extension, tail release, compiled inspection bindings, namespaced restrictive outputs, applied-plan edit dependencies and one owner-level unload gate.
 - `SimpleATO` owns its controller, mission/constraint policy, world coordinator/diagnostics, frozen-route/authority client, inspection runtime, signal epoch runtime, restriction adapter, timetable dispatcher, manual navigation and SimpleATO runtime snapshot. The legacy `AtoProvider` registry/boundary switching path has been deleted; signal extensions use inspection plus namespaced restrictive outputs. Destination, Station, Depot, Line, Timetable and rolling-stock assignment also belong to SimpleATO; remaining extraction work is platform adaptation and the operating-direction authoring/persistence seam.
-- `SimpleATOBukkit` does not yet exist as a separate plugin/module.
+- `SimpleATOBukkit` now exists as an independent Gradle source/test module embedded into the JavaRailways main plugin JAR. It is not a second deployable Bukkit plugin and has no separate descriptor, `JavaPlugin` lifecycle or internal service-discovery hop.
 - Basic currently contains a transitional protection-region catalog, graph-cut resolver, route window and admission seam. Generic topology projection, resource identities, claims, preparation and release remain useful; protection-specific ownership must move out.
 - Basic derives a non-removable physical footprint and allows signal plugins only to add validated resources or stricter holds/restrictions.
 - SimpleATO owns operating-route selection, resource inspection scheduling and the single most-restrictive ATO/ATP pipeline.
@@ -24,7 +24,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Move the remaining automated operating policy, operating direction, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, timetable apply state and their persistence into platform-neutral `SimpleATO`.
 - Keep generic longitudinal dynamics, train-actuation primitives and physical safety floors shared with manual driving in Basic; do not move them merely because SimpleATO consumes them.
 - Keep generic graph algorithms and physical/resource validation in Basic; do not move concrete signalling policy into SimpleATO.
-- Create `SimpleATOBukkit` as the Bukkit/Paper adapter for SimpleATO lifecycle, service lookup, ATO presentation and common platform interaction. It owns immutable revisioned presentation publication and per-object latest-only Folia dispatch; this is not backfilled into the Stage 1 host plugin.
+- Keep `SimpleATOBukkit` as the Bukkit/Paper adapter module for SimpleATO startup wiring, ATO presentation and common platform interaction. `BukkitPlugin` directly constructs/calls it and embeds it in the main plugin JAR; there is one deployable JavaRailways plugin and one Bukkit lifecycle. The module will own immutable revisioned presentation publication and per-object latest-only Folia dispatch without becoming a concrete signal-system owner.
 - Leave low-level `RailWand`, manual driving and host world/composition behavior in `BukkitPlugin`.
 - Remove old Basic/BukkitPlugin owners as each slice moves; never keep two writable production implementations or add runtime compatibility wrappers for development data without separate approval.
 
@@ -59,7 +59,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 ## Acceptance criteria
 
 - [ ] `SimpleATO` contains the platform-neutral operational stack and Basic has no production owner for the migrated state.
-- [ ] `SimpleATOBukkit` is a separate plugin/artifact and does not become the owner of any concrete signalling system.
+- [ ] `SimpleATOBukkit` is a separate Gradle source/test module embedded in the JavaRailways main plugin JAR, has no independent Bukkit descriptor/lifecycle, and does not become the owner of any concrete signalling system.
 - [ ] Signal presentation is applied through target-aware latest-only dispatch: an unchanged or superseded model revision creates no replay backlog and cannot delay logical signal evaluation.
 - [ ] The `JapaneseSignals` JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
 - [ ] Protection-region/fixed-block classes, persistence and authoring are absent from Basic's target API and owned by `JapaneseSignals`.

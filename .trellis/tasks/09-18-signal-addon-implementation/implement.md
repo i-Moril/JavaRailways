@@ -22,8 +22,8 @@ Current extraction progress:
 - [x] Delete the legacy `AtoProvider` registry/boundary/controller-switching path instead of migrating or replacing it. Signal extensions use the Stage 1 inspection and namespaced restrictive-output contracts.
 - [x] Finish the separate operating-direction authoring/persistence seam: SimpleATO owns the sparse store, topology-bound overlay, authoring, route predicate and infrastructure persistence; Basic has no direction field or fallback owner.
 - [x] Collapse Stage 2 persistence numbering to the real boundaries: infrastructure migrates once from outer V1/Basic V1 to outer V2/Basic V2/SimpleATO V1; Basic runtime moves once from V2 to V3 while additive SimpleATO runtime fields remain V1. Keep the converter pure and leave packaged file migration/recovery to the 09-24 task.
-- [ ] Create `SimpleATOBukkit` with its own descriptor, lifecycle, service discovery and packaging/boundary tests.
-- [ ] Move only SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; define immutable per-object revisions,
+- [x] Create `SimpleATOBukkit` as an independent adapter library module with direct main-plugin composition and no descriptor, second `JavaPlugin` or internal service discovery. Package it through the main plugin's project dependency, and move SimpleATO Core-slot startup wiring plus SimpleATO diagnostics into it as the first real slice.
+- [ ] Move the remaining SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; define immutable per-object revisions,
   keep one in-flight plus one newest pending value per object, reject stale revisions and apply through the target's Folia
   owner. Keep RailWand/manual driving/host composition in `BukkitPlugin`.
 - [ ] Remove each old production owner after its replacement is wired; prove there is one writable state owner and no compatibility wrapper.
@@ -73,7 +73,7 @@ Current extraction progress:
 ## Validation
 
 - [ ] Module-boundary tests prove Basic, SimpleATO, SimpleATOBukkit and `JapaneseSignals` have one owner per state and valid dependency direction.
-- [ ] Packaging tests prove separate JARs, descriptors, compile-only host dependencies and no shadowed host classes.
+- [ ] Packaging checks for the independently installed `JapaneseSignals` plugin prove it has its own descriptor/JAR, compile-only host dependencies and no shadowed host classes; embedded `SimpleATOBukkit` needs no separate deployable-artifact verification.
 - [ ] Region tests cover simple turnout, multi-turnout throat, leak, ambiguity, direction, topology invalidation and unsupported overlap.
 - [ ] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.
 - [ ] Fixed/moving transition tests cover whole next block versus exact post-exit boundary and sufficient train-tail clearance.
@@ -88,7 +88,7 @@ Current extraction progress:
 ## Reviewable commit order
 
 1. SimpleATO production slice migrations, one owner at a time.
-2. `SimpleATOBukkit` scaffold and platform adapter extraction.
+2. Embedded `SimpleATOBukkit` library scaffold and platform adapter extraction.
 3. `JapaneseSignals` scaffold and persistence boundary.
 4. Protection-region domain/index migration from Basic.
 5. Generic Basic intent integration and removal of old protection policy.

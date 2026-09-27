@@ -1,8 +1,10 @@
 ## 包
 - Core: 物理层核心代码，定义了物理、车辆、轨道等基础设备，为不同铁路系统的实现提供底层API。
 - ConfigLib: 持久化/配置相关代码
-- Basic: 一套基础铁路系统的逻辑层实现，包括定义轨道曲线、信号系统、列车自动控制、时刻表等功能。也提供API便于扩展或更细致的定制化。
-- BukkitPlugin: 交互层，主要负责管理列车模型以及面向玩家渲染，以及接收玩家指令并发送给Core/Basic的物理/逻辑层。作为Bukkit插件，还需要负责把Core和Basic拉起来。
+- Basic: 平台无关的基础铁路机制，包括轨道曲线、通用寻路、列车动力学/手柄执行、安全包络、拓扑与物理资源验证、资源仲裁、设备准备和车尾释放；不拥有具体ATO、时刻表或信号制式。
+- SimpleATO: 平台无关的运营与自动驾驶模块，拥有ATO/ATP、运行方向、Destination/Station/Depot/Line/Timetable、运营选路、资源检查调度和最严格限制归约。
+- SimpleATOBukkit: SimpleATO的Paper/Folia适配源码模块，由BukkitPlugin直接组合并嵌入JavaRailways主插件JAR；它没有独立plugin descriptor或第二个Bukkit生命周期。
+- BukkitPlugin: 唯一的JavaRailways Bukkit插件与composition root，负责列车模型/玩家渲染、玩家指令、world lifecycle和持久化，并拉起Core、Basic、SimpleATO及SimpleATOBukkit。
 - BukkitPluginDev: 游戏内测试代码
 
 日后Core和Basic可以作为Standalone模式。

@@ -5,14 +5,14 @@
 This is a `TARGET` design with two ordered deliverables. The first concrete signal-system module, plugin and product name is `JapaneseSignals`. Stage 1 public APIs are complete and archived; this task consumes them without adding parallel resource, inspection, restriction, applied-plan dependency or unload machinery.
 
 ```text
-JavaRailways Core/Basic/BukkitPlugin
-  physical world + generic resource safety + low-level platform tools
-
-SimpleATO + SimpleATOBukkit
-  operations + ATO/ATP + inspection scheduling + Bukkit adapter
+JavaRailways main plugin JAR
+  Core + Basic + SimpleATO
+    physical world + generic resource safety + operations/ATO/ATP
+  BukkitPlugin -> SimpleATOBukkit
+    one JavaPlugin lifecycle + embedded SimpleATO platform adapter
 
 JapaneseSignals
-  one concrete signalling/interlocking model + its platform UI/persistence/customization
+  independently installed signalling/interlocking model + its UI/persistence/customization
 ```
 
 `JapaneseSignals` is the first reference consumer, not a new universal layer. Other signal plugins can implement route tables, realistic interlocking, different block systems or no protection regions while sharing the same Basic physical safety floor and SimpleATO constraint pipeline.
@@ -21,9 +21,9 @@ JapaneseSignals
 
 `SimpleATO` owns platform-neutral automated operating policy, ATO/ATP constraints, operating direction, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route selection, applied timetable state and persistence. Generic pathfinding implementation, longitudinal dynamics, actuation primitives and physical/resource validation shared with manual driving remain in Basic; operating costs/constraints and the selected route belong to SimpleATO.
 
-`SimpleATOBukkit` is separately packaged and owns only SimpleATO platform adaptation: service discovery, Bukkit lifecycle, commands/presentation needed by the operational stack and target-aware scheduling. It does not own protection regions, fixed blocks, national signal aspects or a mandatory JS engine.
+`SimpleATOBukkit` is a separate Gradle source/test module but not a separately installed plugin. `BukkitPlugin` directly composes it and includes its classes in the JavaRailways shadow JAR, so there is one `JavaPlugin`, one descriptor and one server-plugin lifecycle. The adapter module owns only SimpleATO platform adaptation: startup wiring, commands/presentation needed by the operational stack and target-aware scheduling. It does not use Bukkit service discovery to find its own host, and it does not own protection regions, fixed blocks, national signal aspects or a mandatory JS engine.
 
-`BukkitPlugin` keeps RailWand, manual driving, host world composition and other low-level tools. Each migrated slice moves its contract, implementation, tests and composition together; the old production owner is then removed.
+`BukkitPlugin` keeps RailWand, manual driving, the final host world composition and other low-level tools. It calls the adapter module at explicit lifecycle points rather than delegating lifecycle ownership. Each migrated slice moves its contract, implementation, tests and composition together; the old production owner is then removed.
 
 ## Deliverable 2: JapaneseSignals
 

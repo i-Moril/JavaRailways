@@ -168,6 +168,8 @@ packages:
     path: Annotation
   bukkit-plugin:
     path: BukkitPlugin
+  simpleato-bukkit:
+    path: SimpleATOBukkit
   bukkit-plugin-dev:
     path: BukkitPluginDev
   tunnel-bridge-builder:

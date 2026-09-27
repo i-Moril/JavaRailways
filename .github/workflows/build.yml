@@ -47,6 +47,7 @@ jobs:
           :ConfigLib:test
           :Core:test
           :SimpleATO:test
+          :SimpleATOBukkit:test
           :WebUI:test
           :BukkitPlugin:shadowJar
           :WebUI:shadowJar

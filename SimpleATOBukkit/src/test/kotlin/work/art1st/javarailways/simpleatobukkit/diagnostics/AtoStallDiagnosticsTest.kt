@@ -1,4 +1,4 @@
-package work.art1st.javarailways.bukkit.debug
+package work.art1st.javarailways.simpleatobukkit.diagnostics
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject

@@ -2,24 +2,24 @@
 
 ## Start gate
 
-- [ ] Stage 1 public resource, restriction, inspection and applied-plan dependency/edit APIs are complete and reviewed.
+- [x] Stage 1 public resource, restriction, inspection, applied-plan dependency/edit and owner-lifecycle APIs are complete, reviewed and archived.
 - [x] Freeze the module/plugin/product name as `JapaneseSignals`; package names, persisted type IDs and script identifiers remain separate API decisions.
 - [ ] Load SimpleATO, Basic, Bukkit, persistence, interaction/render and shared module specs.
-- [ ] Confirm no runtime compatibility path is required; if development data needs migration, design a separate dry-run tool and recovery point first.
-- [ ] Re-run the PRD convergence pass and present the final Stage 2 summary for explicit implementation approval.
+- [x] Keep runtime code current-model only. If pre-release protection definitions need importing, extend the separate auditable world-format migrator with dry-run and recovery rather than adding a Stage 2 runtime compatibility path.
+- [x] Re-run the PRD convergence pass against the completed Stage 1 contracts and present the final Stage 2 summary for fresh implementation approval.
 
 ## Deliverable 1: complete SimpleATO extraction
 
 - [ ] Inventory remaining ATO/operations production owners and callers in Basic/BukkitPlugin.
-- [ ] Move ATO/ATP control, operating direction and operational route selection into `SimpleATO` with existing behavior tests.
+- [ ] Move the remaining automated operating policy, ATO/ATP constraint owners, operating direction and operational route selection into `SimpleATO` with existing behavior tests; retain Basic's generic dynamics/actuation and physical safety contracts shared with manual driving.
 - [ ] Move Destination, Station, Depot, Line, Timetable, rolling-stock assignment, Dispatcher/applied-plan state and persistence into `SimpleATO` in dependency-safe slices.
 - [ ] Create `SimpleATOBukkit` with its own descriptor, lifecycle, service discovery and packaging/boundary tests.
 - [ ] Move only SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; define immutable per-object revisions,
   keep one in-flight plus one newest pending value per object, reject stale revisions and apply through the target's Folia
   owner. Keep RailWand/manual driving/host composition in `BukkitPlugin`.
 - [ ] Remove each old production owner after its replacement is wired; prove there is one writable state owner and no compatibility wrapper.
-- [ ] Implement cached resource inspection declarations, dynamic braking-distance comparison and dependency-driven update scheduling in SimpleATO.
-- [ ] Add namespaced most-restrictive restriction integration; plugin output cannot widen Basic grant or existing ATO/ATP limits.
+- [ ] Integrate concrete signal sources with the existing SimpleATO inspection declarations, single shared perception scan and dynamic braking-distance comparison; do not build another inspection runtime.
+- [ ] Wire `JapaneseSignals` through the existing namespaced most-restrictive restriction pipeline; plugin output cannot widen Basic grants or existing ATO/ATP limits.
 
 ## Deliverable 2: JapaneseSignals foundation
 
@@ -38,7 +38,7 @@
 - [ ] Submit only additive flank/approach/block resources; rely on Basic to derive every rail/turnout/diamond physical resource.
 - [ ] Keep region identity non-exclusive by default; test disjoint paths through one throat and conflicts from actual shared/additional resources.
 - [ ] Derive permissive aspects only from a committed Basic grant and valid SimpleATO authority; missing or stale plugin state remains restrictive.
-- [ ] Use host cursor/release/extension lifecycle and verify plugin disable does not release committed claims beneath trains.
+- [ ] Use the existing host cursor/release/extension lifecycle and unified owner-unregister gate; verify planned disable is rejected while plugin resources remain active and forced disable retains committed claims/dependencies while stalling only affected worlds.
 - [ ] Integrate route-bound diamonds for conflict/inspection without cross-line continuation or selectable state.
 
 ## Reactive signal state and customization
@@ -53,8 +53,8 @@
 
 ## Timetable, authoring and rendering
 
-- [ ] Add signal-plugin participation in whole-timetable compile/audit with pinned topology/plugin/timetable/train-assignment revisions.
-- [ ] Include every referenced topology rail/node and runtime resource in one atomic applied-plan dependency declaration.
+- [ ] Add signal-plugin participation to the existing selected-route timetable compile/audit with pinned topology/plugin/timetable/train-assignment revisions; do not run pathfinding again.
+- [ ] Extend the existing atomic applied-plan dependency declaration with every exact JapaneseSignals runtime resource referenced by those selected routes; keep this non-exclusive edit protection distinct from live train claims.
 - [ ] Implement draft/apply/replace/draining/unapply lifecycle with no dependency changes from save/dry-run and no removal beneath live work.
 - [ ] Route all affected editors through the common edit permit and show blocking owner/revision diagnostics.
 - [ ] Add create/edit/delete/inspect/validate/dry-run commands/tools and topology-migration recovery points.
@@ -71,8 +71,8 @@
 - [ ] Reactive tests cover inspection-distance cache invalidation, host braking distance, affected-only dependency propagation and idle unchanged state.
 - [ ] Constraint tests prove plugin output only tightens authority/speed and stale/exceptional state fails restrictive.
 - [ ] Lifecycle tests cover enable/disable, missing capability, world unload/reload, live-grant recovery and rendering cleanup.
-- [ ] Persistence tests use fixed current/legacy migration fixtures according to the approved support window; current round-trip alone is insufficient.
-- [ ] Timetable tests cover audit diagnostics, atomic lease apply/replace, draining and edit blocking.
+- [ ] Persistence tests use fixed current-model fixtures plus corruption/orphan cases. Add a legacy fixture only for a separately approved sidecar migration support window.
+- [ ] Timetable tests cover audit diagnostics, atomic applied-plan dependency apply/replace, draining and edit blocking without treating dependencies as train claims.
 - [ ] Run focused module tests, then `./gradlew test`, plugin packaging tasks and Folia smoke checks.
 - [ ] Run `git diff --check`.
 
@@ -86,7 +86,7 @@
 6. Fixed blocks and Japanese signal policy.
 7. Reactive state/dependency scheduling.
 8. Authoring/rendering and optional customization runtime.
-9. Timetable audit/lease integration and lifecycle closure.
+9. Timetable audit/applied-plan dependency integration and lifecycle closure.
 
 Each commit must explain which runtime flow it changes, the mechanism used, the remaining transitional owner and the focused verification performed. Stop for user review after every commit.
 

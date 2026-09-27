@@ -1,2 +1,6 @@
 {"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Verify service, world, rendering, disable, and Folia cleanup semantics"}
 {"file": "ai_tasks/persistence_schema_evolution_rules.md", "reason": "Verify Signal-owned schema and migration behavior"}
+{"file": ".trellis/spec/javarailways/simpleato/operational-routing-and-authority.md", "reason": "Check that Stage 2 reuses rather than duplicates route perception, inspection, and restriction paths"}
+{"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "Check that concrete policy only adds validated resources and cannot weaken the Basic physical floor"}
+{"file": ".trellis/spec/javarailways/basic/railway-area-occupancy.md", "reason": "Check fixed-block occupancy integration without imposing signal policy on Basic"}
+{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Check separate packaging, latest-only presentation, authoring, and sidecar persistence"}

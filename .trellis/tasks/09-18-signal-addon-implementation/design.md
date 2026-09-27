@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-This is a `TARGET` design with two ordered deliverables. The first concrete signal-system module, plugin and product name is `JapaneseSignals`; Stage 1 public APIs must still be completed and reviewed before Stage 2 starts.
+This is a `TARGET` design with two ordered deliverables. The first concrete signal-system module, plugin and product name is `JapaneseSignals`. Stage 1 public APIs are complete and archived; this task consumes them without adding parallel resource, inspection, restriction, applied-plan dependency or unload machinery.
 
 ```text
 JavaRailways Core/Basic/BukkitPlugin
@@ -19,7 +19,7 @@ JapaneseSignals
 
 ## Deliverable 1: SimpleATO extraction
 
-`SimpleATO` owns platform-neutral ATO/ATP, operating direction, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route selection, applied timetable state and persistence. Generic pathfinding implementation may remain in Basic, but its operating costs/constraints and selected route belong to SimpleATO.
+`SimpleATO` owns platform-neutral automated operating policy, ATO/ATP constraints, operating direction, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route selection, applied timetable state and persistence. Generic pathfinding implementation, longitudinal dynamics, actuation primitives and physical/resource validation shared with manual driving remain in Basic; operating costs/constraints and the selected route belong to SimpleATO.
 
 `SimpleATOBukkit` is separately packaged and owns only SimpleATO platform adaptation: service discovery, Bukkit lifecycle, commands/presentation needed by the operational stack and target-aware scheduling. It does not own protection regions, fixed blocks, national signal aspects or a mandatory JS engine.
 
@@ -51,7 +51,7 @@ The first release treats one region as one throat/interlocking area. It does not
 
 ### Runtime route decision
 
-SimpleATO's shared perception reports which indexed signal resources are entering inspection range on the frozen route. `JapaneseSignals` evaluates only those resources and their declared dependencies.
+SimpleATO's existing shared perception and inspection scheduler report which indexed signal resources are entering inspection range on the frozen route. `JapaneseSignals` evaluates only those resources and its declared downstream dependencies; it does not add another train-forward scanner.
 
 For a protection-region entry, the plugin:
 
@@ -88,9 +88,9 @@ There is no host-wide `return "YG"` contract. A plugin-local customization API m
 
 ## Timetable apply and editing
 
-SimpleATO compiles an automatic timetable into an immutable candidate before service start. It asks every required signal plugin to validate the statically reachable routes against one topology, timetable, train-assignment and plugin-definition revision. Structural faults are accumulated as actionable diagnostics; transient occupancy/live claim conflicts are not apply failures.
+SimpleATO already compiles selected automatic timetable routes into immutable candidates before service start and installs the host's static applied-plan dependencies before clocks become visible. Stage 2 asks every required signal plugin to validate those selected routes against one topology, timetable, train-assignment and plugin-definition revision. Structural faults are accumulated as actionable diagnostics; transient occupancy/live claim conflicts are not apply failures, and the plugin does not repeat pathfinding.
 
-After rechecking revisions, SimpleATO atomically publishes the host's explicit rail/node/runtime-resource dependencies and installs the applied plan. Replacement atomically replaces the complete declaration. Unapply enters `DRAINING`, stops new departures/grants and removes dependencies only after live runs/claims clear or explicit administrative recovery succeeds.
+After rechecking revisions, SimpleATO extends the existing atomic declaration of exact rail/node/runtime-resource edit dependencies with referenced JapaneseSignals resources and installs the applied plan. Replacement atomically replaces the complete declaration. Unapply enters `DRAINING`, stops new departures/grants and removes dependencies only after live runs/claims clear or explicit administrative recovery succeeds. These non-exclusive edit dependencies are not train resource claims.
 
 Plugin definitions and operational objects referenced by an applied timetable are represented by their owning plugin's stable runtime-resource IDs in the dependency declaration. Editors submit the exact affected rail/node/resource identities to the common host edit permit before mutating topology, regions, blocks, signals or referenced operational objects.
 
@@ -98,7 +98,7 @@ Plugin definitions and operational objects referenced by an applied timetable ar
 
 SimpleATO and every signal plugin own separate persistence boundaries. `JapaneseSignals` uses atomic primary/backup writes and fixed current-model fixtures. Decode/migration upcasts at that boundary; runtime code sees only the current model, and writers emit only the current version. Topology migrations are dry-run first and create a recovery point.
 
-At enable/load, the plugin remains restrictive until host capabilities, persisted definitions, topology bindings and derived indexes validate. Missing required host services prevents enable. Plugin disable stops new route decisions and restrictions fail closed; committed grants/release metadata remain host-owned until safe clearance. Renderer and authoring resources clean up idempotently.
+At enable/load, the plugin remains restrictive until host capabilities, persisted definitions, topology bindings and derived indexes validate. Missing required host services prevents enable. Planned disable first un-applies the plugin's plans, publishes empty restrictions where required and calls the single host owner-unregister operation. That operation succeeds only when no plugin-owned pending request, live claim, referenced type, applied-plan dependency, active inspection binding or non-empty restriction remains. If Bukkit has already forced disable, the host removes dead callbacks, retains claims/dependencies and stalls only affected worlds. Renderer and authoring resources clean up idempotently after the safety gate succeeds.
 
 ## Migration from Basic
 
@@ -119,7 +119,7 @@ Development data migration, if required, is a separate auditable one-time tool w
 - Route matching is linear in the relevant frozen-route range plus indexed resource hits.
 - Dependency invalidation is proportional to affected resources/edges; a cycle or non-stabilizing plugin dependency fails restrictive with diagnostics.
 - Basic admission is one physical projection plus additions and one atomic claim.
-- Missing indexes, stale revisions, invalid script output, plugin exception or preparation uncertainty cannot widen authority.
+- Missing indexes, stale revisions, invalid script output, plugin exception, forced owner loss or preparation uncertainty cannot widen authority.
 
 ## Open decisions
 

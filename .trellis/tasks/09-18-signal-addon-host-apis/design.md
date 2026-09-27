@@ -118,7 +118,7 @@ calling plugin code every tick. SimpleATO owns activation and its existing singl
 definition lookup and downstream dependency propagation. Basic owns neither concern. No shared host-wide signal dependency graph or
 second route scanner is introduced.
 
-A plugin publishes immutable restrictions; SimpleATO combines them with Basic grant, following, operational stops and infrastructure speed constraints. Plugin code can only keep or tighten the result. The first reviewed reactive slice routes Basic monitored-area changes synchronously to the owning Java/Kotlin source from the immutable source snapshot captured for that Core epoch; unchanged areas do not invoke plugin code. The complete source set may be replaced between epochs without rebuilding the world. Each production and isolated world installs one empty runtime before physics starts. Its callbacks publish value-only snapshots to a world-local immutable store; after the exact ticket completes, Dispatcher feeds the active train's latest values into the controller's existing restriction adapter before the next controller tick. The epoch host therefore never retains a live train/controller or creates a second constraint pipeline. Concrete plugin-internal downstream dependency propagation and the approved inspection scheduler implementation remain later work.
+A plugin publishes immutable restrictions; SimpleATO combines them with Basic grant, following, operational stops and infrastructure speed constraints. Plugin code can only keep or tighten the result. Basic monitored-area changes route synchronously to the owning Java/Kotlin source from the immutable source snapshot captured for that Core epoch; unchanged areas do not invoke plugin code. The complete source set may be replaced between epochs without rebuilding the world. Each production and isolated world installs one empty runtime before physics starts. Its callbacks publish value-only snapshots to a world-local immutable store and advance the completed observation stamp only after all publications succeed. Dispatcher binds the frozen route and Mission coordinate mapping when it establishes or extends a route; before every later physics movement, the controller reads the latest completed store state and applies it through its existing restriction adapter. The epoch host therefore never retains a live train/controller, waits for a later Bukkit/Dispatcher tick or creates a second constraint pipeline. The inspection scheduler is also wired: it caches complete declarations, expands the controller's existing perception horizon and invokes plugin updates only for newly active or explicitly dirtied declarations. Concrete plugin-internal downstream dependency propagation remains Stage 2 work.
 
 The railway safety loop is independent of the Minecraft main thread and serializes complete epochs:
 
@@ -151,9 +151,9 @@ owner reports completion.
 
 ## Public service capabilities
 
-Route-admission value names and semantics are frozen by the Basic owner spec. The generic request/progress/end service is
-now exposed through an authenticated plugin/world binding on the existing Bukkit infrastructure service; production callers
-and the remaining public surfaces still arrive in separate reviewable batches:
+Route-admission value names and semantics are frozen by the Basic owner spec. The generic request/progress/end service and
+the other Stage 1 surfaces are exposed through authenticated plugin/world bindings and registered through Bukkit
+`ServicesManager`:
 
 - immutable railway observation subscription/read service;
 - namespaced infrastructure resource registration and validation;
@@ -168,7 +168,7 @@ Raw claim mutation, mutable Core trains/rails, Basic internal cursors and comple
 
 ## Applied timetable and edit locking
 
-SimpleATO compiles every statically reachable automatic route and required signal-plugin configuration before apply. It pins topology, timetable, signalling package and referenced-object revisions, computes explicit persistent rail IDs, stable structural-node keys and runtime resource IDs, then atomically installs those non-exclusive dependencies with the applied plan.
+SimpleATO validates its statically reachable automatic routes before apply, compiles their exact persistent rail IDs, stable structural-node keys and physical runtime resource IDs without another path search, then installs those non-exclusive dependencies before publishing clocks or initial positions. The public infrastructure service lets a concrete signal plugin validate its own configuration and install its additional resource dependencies under that plugin's owner; choosing and validating a concrete signalling package remains Stage 2 policy rather than a hidden Basic branch.
 
 Draft save/dry-run publishes no dependencies. Apply enables service; replacement atomically replaces the complete declaration; unapply enters draining and blocks new departures/grants until live work clears. Every topology, resource, signal or operational-object editor must obtain a common edit permit and return the owning plan/revision plus the intersecting rail/node/resource identities when blocked. Runtime occupancy conflicts remain waits, not apply-time structural failures.
 

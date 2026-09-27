@@ -10,7 +10,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - Basic already contains reusable pieces for route projection, stable turnout identity, route-bound resources, atomic claims, occupancy queries, infrastructure preparation, rolling extension and tail-cursor release.
 - The current Basic protection-region catalog/window/compiler is transitional. It was implemented under an earlier ownership decision and must not become the universal signal-system model.
 - A diamond crossing changes resource conflict but not route connectivity, so it remains a route-bound shared physical resource rather than a topology node.
-- SimpleATO already has the target module for operating-route selection and the shared ATO/ATP constraint pipeline, although most production callers remain in Basic during migration.
+- SimpleATO already owns the production Dispatcher, concrete controller, operating-route admission client and shared ATO/ATP constraint pipeline; operating objects and several shared value/safety primitives remain in Basic during migration.
 - Existing Bukkit add-ons discover `bukkit.api.*` services through `ServicesManager` and compile against the host without shadowing its classes.
 
 ## Requirements
@@ -38,23 +38,28 @@ Provide a small, signalling-system-neutral host surface so independently compile
 
 ## Acceptance criteria
 
-- [ ] A compile-only external plugin consumes every required contract using public packages only and can define a custom resource without importing Basic internals.
-- [ ] Disconnected, illegal or stale frozen routes are rejected without path substitution or partial mutation.
-- [ ] Omitting every plugin addition still claims every traversed rail, turnout and matched diamond resource; a plugin cannot remove or replace these identities.
-- [ ] Valid plugin additions enter the same atomic footprint; invalid, unauthorized, occupied or conflicting additions leave the registry unchanged.
-- [ ] Zero-, one- and multi-turnout routes prepare and release without `single()` assumptions.
-- [ ] A grant is not published before all claimed resource preparations are `READY`; unsafe/unprovable preparation retains the safest claim and stalls the world.
-- [ ] The existing cursor/release queue and suffix extension operate on the same frozen route and never perform whole-claim replacement.
-- [ ] A concrete signal plugin can implement protection regions or route-table interlocking without adding a Basic/SimpleATO resource-type branch.
-- [ ] Diamonds share one conflict identity across both same-line traversals, never create cross-line continuation and require no per-tick geometry scan.
-- [ ] Signal restrictions are namespaced, revisioned and most-restrictive; stale or missing plugin state never silently expands authority.
-- [ ] Resource inspection uses cached declarations plus host braking math; unchanged inputs do not repeatedly run plugin code.
-- [ ] A train that enters and leaves a short monitored area within one physics epoch produces ordered boundary-bearing `ENTER` then `LEFT` changes, and the signal runtime consumes both before the next physics epoch.
-- [ ] Railway physics and logical signalling continue without waiting for the Minecraft main thread; Stage 1 exposes no temporary host-owned signal renderer or presentation queue.
-- [ ] Applied timetable dependencies overlap safely, remain separate from runtime claims, block every covered editor by rail/node/resource intersection and change atomically.
-- [ ] Service registration, plugin disable, world unload/reload and train removal have focused fail-closed lifecycle tests.
-- [ ] Existing Core, Basic, BukkitPlugin, SimpleATO, timetable and ATO tests pass.
-- [ ] Public documentation states identities, units, direction basis, snapshot/live semantics, threading, lifecycle and typed failure behavior.
+- [x] A compile-only external plugin consumes every required contract using public packages only and can define a custom resource without importing Basic internals.
+- [x] Disconnected, illegal or stale frozen routes are rejected without path substitution or partial mutation.
+- [x] Omitting every plugin addition still claims every traversed rail, turnout and matched diamond resource; a plugin cannot remove or replace these identities.
+- [x] Valid plugin additions enter the same atomic footprint; invalid, unauthorized, occupied or conflicting additions leave the registry unchanged.
+- [x] Zero-, one- and multi-turnout routes prepare and release without `single()` assumptions.
+- [x] A grant is not published before all claimed resource preparations are `READY`; unsafe/unprovable preparation retains the safest claim and stalls the world.
+- [x] The existing cursor/release queue and suffix extension operate on the same frozen route and never perform whole-claim replacement.
+- [x] A concrete signal plugin can implement protection regions or route-table interlocking without adding a Basic/SimpleATO resource-type branch.
+- [x] Diamonds share one conflict identity across both same-line traversals, never create cross-line continuation and require no per-tick geometry scan.
+- [x] Signal restrictions are namespaced, revisioned and most-restrictive; stale or missing plugin state never silently expands authority.
+- [x] Resource inspection uses cached declarations plus host braking math; unchanged inputs do not repeatedly run plugin code.
+- [x] A train that enters and leaves a short monitored area within one physics epoch produces ordered boundary-bearing `ENTER` then `LEFT` changes, and the signal runtime consumes both before the next physics epoch.
+- [x] Railway physics and logical signalling continue without waiting for the Minecraft main thread; Stage 1 exposes no temporary host-owned signal renderer or presentation queue.
+- [x] Applied timetable dependencies overlap safely, remain separate from runtime claims, block every covered Stage 1 editor by rail/node/resource intersection and change atomically.
+- [x] Service registration, plugin disable, world unload/reload and train removal have focused fail-closed lifecycle tests.
+- [x] Existing Core, Basic, BukkitPlugin, SimpleATO, timetable and ATO tests pass.
+- [x] Public documentation states identities, units, direction basis, snapshot/live semantics, threading, lifecycle and typed failure behavior.
+
+Evidence for these criteria is recorded by completed implementation item and test class in `implement.md`.
+Concrete protection-region/signal authoring, its edit entrypoints and presentation remain Stage 2 work;
+the Stage 1 criterion is the absence of a host resource-type branch and the independently compiled
+consumer's ability to register resources, preparation, epoch and inspection policy through public APIs.
 
 ## Out of scope
 
@@ -84,7 +89,7 @@ Provide a small, signalling-system-neutral host surface so independently compile
 - Without a signal plugin, SimpleATO may still provide route following/moving-block behavior using Basic's mandatory physical claims and its own following/braking constraints.
 - If an installed signal plugin considers its configuration incomplete, it withholds its permissive request and publishes a restrictive result. Basic does not invent a protection region or a replacement stop rule.
 
-## Blocking open questions
+## Deferred follow-ups (do not block Stage 1)
 
 Existing development runtime snapshots will be preserved through the packaged world-pair migrator
 planned by `09-24-explicit-rail-endpoint-connections`; normal runtime code gains no long-lived

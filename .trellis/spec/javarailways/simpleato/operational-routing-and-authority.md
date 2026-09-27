@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与 Owner
 
-- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经拥有具体ATO、Dispatcher、内部运营选路/冻结路线、admission client与限制适配器，Bukkit production Dispatcher已接入Basic通用准入。运行方向、Destination、Station、Depot、Line、Timetable model/persistence及共享ATO primitive仍在Basic；具体信号插件与响应式检查仍是后续目标。
+- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经拥有具体ATO、Dispatcher、内部运营选路/冻结路线、admission client、限制适配器与inspection scheduler/runtime，Bukkit production Dispatcher已接入Basic通用准入。运行方向、Destination、Station、Depot、Line、Timetable model/persistence及共享ATO primitive仍在Basic；具体信号插件、其内部依赖传播与presentation仍是Stage 2目标。
 - **Owner**：SimpleATO 拥有运营路线选择、运行方向、任务/时刻表决策和列车保护约束合成。
 - **Inputs**：Core 发布的不可变 `TopologyState` 与同 epoch 物理观察；SimpleATO 自己发布的运营 overlay/plan revision；Basic 的通用资源准入结果；已安装信号系统插件发布的资源检查与限制结果。
 - **Outputs**：一份绑定 topology revision 的冻结路线、资源准入请求，以及交给控制器的统一 authority/stop/speed constraint 结果。
@@ -48,7 +48,7 @@ SimpleATO增加类型分支。
 
 目标正好位于共享结构节点的另一条incident edge起点时，搜索只有在入口port→目标port continuation合法后才生成该目标rail的零长度末段标记；它不会为了得到非零segment多跑一圈。该标记保留目标port与方向，使Basic后续线性投影仍可验证turnout/loop-anchor transition。搜索成功后，选路器沿每个edge的有序`railSlices`裁剪查询局部首尾区间，并按实际行进方向转换成递增的AB或BA局部弧长，生成现有不可变`RouteSnapshot`。
 
-当前Core builder保证每条物理rail完整地、恰好投影为一个`TrackEdgeSlice`，当前Basic projector也要求单一无歧义projection；本选路器与这一**当前实现不变量**一致，遇到零个或多个projection会拒绝位置。它不是允许未来partial/multi-edge rail projection的通用API保证；若Core以后放宽builder，Core位置查询、Basic projector和本选路器必须在同一契约批次一起修改。snapshot精确保留输入topology revision及调用方给出的route ID/revision。运行方向只参与计划生成；计划改变由新的route revision表达，不把metadata或direction revision带入运行中的资源申请。当前这一类型仍为SimpleATO internal：尚未迁移production Dispatcher，也尚未加入线路、车辆能力和时刻表cost，因此不构成冻结public API。
+当前Core builder保证每条物理rail完整地、恰好投影为一个`TrackEdgeSlice`，当前Basic projector也要求单一无歧义projection；本选路器与这一**当前实现不变量**一致，遇到零个或多个projection会拒绝位置。它不是允许未来partial/multi-edge rail projection的通用API保证；若Core以后放宽builder，Core位置查询、Basic projector和本选路器必须在同一契约批次一起修改。snapshot精确保留输入topology revision及调用方给出的route ID/revision。运行方向只参与计划生成；计划改变由新的route revision表达，不把metadata或direction revision带入运行中的资源申请。当前这一类型仍为SimpleATO internal：production Dispatcher从已选定的Mission route组装准入路线，不在准入时再运行该选路器；线路、车辆能力和时刻表cost仍属后续运营迁移，因此该类型不构成冻结public API。
 
 当前内部`FrozenRouteSelector`是观测与上述纯选路器之间的唯一接缝。一次调用显式接收同一个不可变
 `TopologyState`、一个`RailwayObservation`、一个运行方向overlay、稳定train ID、运营目标及route
@@ -136,8 +136,7 @@ topology revision和总长度。远端目标统一用冻结路线起点起算的
 已接受结果。world不匹配、topology过期、冻结路线身份/版本/长度改变、来源被明确标记不可用或当前progress越过路线范围时，
 adapter以该来源的constraint key安装零速`DepartureHoldConstraint`而不是静默删除限制。每列车的adapter把全部来源转换后
 通过一个`SIGNALLING` owner一次性replace，避免逐来源更新期间短暂扩大许可。physics epoch晚于生成观察是正常消费，早于生成
-观察才是时间倒置。当前adapter已接入production timetable controller与Bukkit认证Basic服务；响应式信号source的
-inspection调度和具体信号插件composition仍未完成，不能把这次Dispatcher接线描述成信号插件已经可运行。
+观察才是时间倒置。当前adapter已接入production timetable controller与Bukkit认证Basic服务，host inspection scheduler/runtime也已组合到同一控制器perception流程。具体信号插件的保护区、固定闭塞、内部依赖传播与presentation仍属Stage 2，因此不能把host接线描述成完整信号系统已经生产可用。
 
 每次应用令`S`为该列车已发布的信号来源数、`R`为其限制总数，时间和临时空间均为`O(S + R)`。来源使用有序map在发布时
 以`O(log S)`维护稳定顺序，physics tick不再排序；route binding是常量大小值对象，应用时不扫描或比较路线segment。snapshot

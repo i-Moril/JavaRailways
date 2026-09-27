@@ -18,7 +18,7 @@
 
 `docs-site` 不在 Gradle `include` 中；它由 `.gitmodules` 声明为独立 Git submodule。
 
-`SimpleATO`已经进入`settings.gradle`，但只完成第一批dependency-safe owner迁移；`SimpleATOBukkit`与首个信号系统插件`JapaneseSignals`仍是尚未创建的目标模块。迁移完成后的ownership是：`Basic`保留拓扑校验、不可删除的物理资源底线、通用资源仲裁、设备准备与释放；`SimpleATO`拥有ATO/ATP、运行方向、Destination/Station/Depot/Line/Timetable、运营寻路、资源检查调度和限制归约，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`只拥有SimpleATO的Bukkit适配和通用平台呈现；`JapaneseSignals`拥有首套日本式固定闭塞、保护区域、联锁、信号模型、authoring/rendering、持久化以及可选JS/YAML；其他独立信号系统插件不依赖其领域模型；`BukkitPlugin`保留RailWand、手动驾驶、world/composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得先制造两个运行owner。
+`SimpleATO`已经进入`settings.gradle`，并已拥有Dispatcher、具体ATO controller、运营冻结路线、通用准入client、信号限制与inspection runtime；运行方向及Destination/Station/Depot/Line/Timetable model等运营对象仍在Basic，所以模块迁移尚未完成。`SimpleATOBukkit`与首个信号系统插件`JapaneseSignals`仍是尚未创建的Stage 2目标模块。迁移完成后的ownership是：`Basic`保留拓扑校验、不可删除的物理资源底线、通用资源仲裁、设备准备与释放；`SimpleATO`拥有ATO/ATP、运行方向、Destination/Station/Depot/Line/Timetable、运营寻路、资源检查调度和限制归约，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`只拥有SimpleATO的Bukkit适配和通用平台呈现；`JapaneseSignals`拥有首套日本式固定闭塞、保护区域、联锁、信号模型、authoring/rendering、持久化以及可选JS/YAML；其他独立信号系统插件不依赖其领域模型；`BukkitPlugin`保留RailWand、手动驾驶、world/composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得先制造两个运行owner。
 
 ## 依赖方向
 
@@ -38,7 +38,7 @@
 - 当前 `BukkitPlugin`、`BukkitPluginDev`、`TunnelBridgeBuilder` build 使用 JVM 25；根 CI 也安装 JDK 25。以 build 文件为准，不依赖可能滞后的说明文档。
 - `BukkitPlugin:shadowJar` 合并 runtime、重定位 PacketEvents/EntityLib/Cloud，并嵌入 `WebUI:shadowJar`。
 - `TunnelBridgeBuilder:shadowJar` 只产出 add-on；JavaRailways 与语言运行库由插件依赖/Paper libraries 提供。
-- 根 Dokka 当前只聚合 `Core` 与 `Basic` 的候选 API；`SimpleATO`尚无冻结public API package，所以迁移期内部package不进入聚合文档。
+- 根 Dokka 当前聚合 `Core`、`Basic` 与 `SimpleATO` 的候选 API；`SimpleATO` 只公开 `work.art1st.javarailways.simpleato.api.*`，迁移期内部package仍保持suppression。
 
 ## 变更检查
 

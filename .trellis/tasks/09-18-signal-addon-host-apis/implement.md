@@ -253,9 +253,9 @@
   - [x] Publish ordered directed head/tail movement evidence plus the epoch-end ordered tail-to-head body placement in addition to merged swept occupancy. Core reuses the actual movement paths for boundary events and its committed train-local path for Dispatcher route assembly; Basic projects both unchanged. Merged swept occupancy remains the separate query index.
   - [x] Add generic monitored-area boundaries and derive ordered boundary-bearing `ENTER`/`LEFT` changes, including both changes for a complete same-epoch crossing; do not add `PASSED_THROUGH`. Plugin-owned areas are explicit per-rail canonical intervals plus inward-facing boundaries; Basic compiles rail-local boundary and interval indexes, consumes only consecutive coherent observations, uses a new epoch-end conservative `occupiedIntervals` publication for final membership, and keeps whole-epoch `sweptSpans` separate for collision/admission. Multi-rail AB/BA, exact-boundary rear clearance, administrative relocation and same-epoch pass-through are covered without assigning fixed-block or protection-region policy.
   - [x] Consume occupancy changes, recompute dirty signal dependencies and publish next-epoch restrictions before permitting the following physics epoch; do not add a cross-epoch safety-event backlog.
-    - [x] Add the platform-neutral synchronous epoch slice: Core captures but does not publish the coherent world frame until registered value-only processors return and revalidation succeeds; Basic exposes its indexed monitored-area tracker through one public serialized engine; SimpleATO binds each area to one namespaced Java/Kotlin source in the source snapshot captured for that epoch, invokes only dirty/baseline owners, validates every complete restriction result before deterministic publication, and propagates callback/publication failure so Core stalls. Same-epoch ENTER+LEFT remains one callback. Production composition, controller application, concrete plugin dependency propagation and presentation remain pending, so the parent item stays incomplete.
+    - [x] Add the platform-neutral synchronous epoch slice: Core captures but does not publish the coherent world frame until registered value-only processors return and revalidation succeeds; Basic exposes its indexed monitored-area tracker through one public serialized engine; SimpleATO binds each area to one namespaced Java/Kotlin source in the source snapshot captured for that epoch, invokes only dirty/baseline owners, validates every complete restriction result before deterministic publication, and propagates callback/publication failure so Core stalls. Same-epoch ENTER+LEFT remains one callback. Production composition and controller application are now complete; concrete plugin dependency propagation and presentation remain Stage 2 work.
     - [x] Correct the source lifecycle prerequisite before Bukkit wiring: each world will keep one empty host processor registered before physics starts, while `SignalEpochRuntime` atomically replaces a fully validated immutable source state during runtime. One epoch captures exactly one state; a new state starts with a fresh occupancy baseline, invalid replacement retains the old state, and an empty state has no per-train work. Production plugin registration/unregister barriers remain in the Bukkit service batch.
-    - [x] Compose that empty processor in Bukkit production and isolated simulation before `PhysicsCoordinator.start`. Signal callbacks publish only immutable per-train/source DTOs into a world-local copy-on-write store; they never retain or look up live trains/controllers. After epoch N's exact ticket completes, Dispatcher synchronizes the active train's latest snapshots into its existing restriction adapter before applying route-bound constraints, so the next controller tick uses the new minimum. Bukkit now exposes atomic per-owner source replacement, explicit-withdrawal removal and forced-disable fail-close; concrete plugin dependency propagation remains later.
+    - [x] Compose that empty processor in Bukkit production and isolated simulation before `PhysicsCoordinator.start`. Signal callbacks publish only immutable per-train/source DTOs into a world-local copy-on-write store; they never retain or look up live trains/controllers. Dispatcher binds route/Mission coordinates when the route changes; every physics tick then reads the latest completed signal stamp and applies the snapshots before movement, without waiting for another Dispatcher tick. Bukkit exposes atomic per-owner source replacement, explicit-withdrawal removal and forced-disable fail-close; concrete plugin dependency propagation remains Stage 2 work.
   - [x] Keep presentation out of the Stage 1 host API. The reviewed ownership boundary assigns immutable revisioned
     presentation state, per-object latest-only Bukkit/Folia dispatch and model application to the separately packaged Stage 2
     `SimpleATOBukkit` adapter; do not add a temporary renderer, queue or model-variant vocabulary to `BukkitPlugin`.
@@ -290,18 +290,13 @@
   activity plus non-empty restrictions from that plugin before removing either side, while non-empty signal-source replacement
   remains available for ordinary configuration edits. Forced owner loss removes dead callbacks and stalls only worlds where
   that owner still has active infrastructure state or non-empty restrictions; unrelated trains and idle sources do not block.
-- [ ] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
+- [x] Migrate `TimetableDispatcher` and `SimpleATO` integration to the shared services.
   - [x] Add the platform-neutral per-train SimpleATO admission client without changing production Dispatcher. It submits the
     exact frozen selection through Basic's single request operation, owns at most one pending handle, publishes a 0 m
     fail-closed authority before the first grant, advances only from `Granted.committedAuthority`, retains the previous
     boundary for pending/denied extensions, and requires explicit successful lifecycle end before accepting a changed route.
     The client feeds the existing namespaced `TrainRestriction` adapter/constraint manager and knows no resource identities.
-    Production composition, retry policy and removal of the legacy Dispatcher allocator remain unchecked.
-  - [ ] Preserve existing development runtime files through the packaged world-pair migration task:
-    recovery copies, dry-run, current-pair validation and recoverable replacement move the exact
-    Dispatcher checkpoint into SimpleATO. Do not retain a runtime compatibility reader, nullable
-    fallback or dual writer. The current target schemas now exist, but the one-time migrator is not
-    implemented yet; until it is, old development runtime files fail closed in the normal loader.
+    Production composition, retry policy and removal of the legacy Dispatcher allocator were completed by the later checked items.
   - [x] Move `TimetableDispatcher`, its checkpoint contract/tests and all live composition into one world-local
     `SimpleATOWorldData`; remove `BasicWorldData.dispatcher` in the same batch. Keep behavior and the legacy allocator unchanged,
     and allow only the existing transitional `SimpleATO -> Basic` dependency. The implementation, checkpoint DTO/codec,
@@ -374,31 +369,39 @@
       owner and holds the permit through the outer Core transaction plus metadata/render/player side effects. Snapshot-plan
       occupancy replaces the old broad duplicate check; live route claims are covered by the common registry permit and frozen
       operational routes retain only the separate `hasLiveRouteOn` replacement guard.
-- [ ] Cover remaining protection-region, signal, topology migration, and administrative mutation paths with the common edit guard.
+- [x] Cover every current Stage 1 topology and administrative mutation path with the common edit guard.
   - [x] Guard the current rail-scoped administrative/runtime writers without broadening their impact: RailWand speed metadata and
     undo, RailObjectWand operating direction and destination create/edit/delete, `/jr waypoint remove`, and the BukkitPluginDev
     `/phys` structural playground now acquire the same world-local permit. Property/object edits contain only their exact existing
     rail IDs; `/phys` creation uses Core's prepared endpoint/crossing plan and cleanup uses the exact replacement/removal resolver.
     The offline metadata migrator remains outside the live world and the separately packaged world-format migrator remains deferred.
-  - [ ] Guard concrete protection-region/signal authoring entrypoints when Stage 2 supplies them; the transitional Basic catalog has
-    no production mutation caller and is not promoted into a host-owned editor for this task.
 - [x] Document the compile-only external consumer and supported failure/lifecycle behavior beside its compiled fixture.
   The guide covers service discovery, synchronous signal callbacks, resource/contributor admission, applied-plan edit
   dependencies, explicit restriction withdrawal, the single owner-unregister gate and forced-disable fail-close behavior.
 
 ## Validation
 
-- [ ] Focused Core tests for immutable publication, epochs, occupancy, diamond resource binding/no-connectivity-change, detection/update, and controller enforcement.
-- [ ] Focused Basic tests for no-partial atomic claims, conflicts, zero/one/multi-turnout paths, mandatory physical floor, additive plugin resources, stale revisions, tail release and timetable migration.
-- [ ] Migration tests prove protection-region/fixed-block ownership leaves Basic without changing generic topology projection, claims, preparation or release behavior.
-- [ ] Tests prove omitted/replaced turnout or diamond resources are restored from Basic derivation, while plugin configuration failures remain restrictive without a Basic `PROTECTION_REQUIRED` policy.
-- [ ] Inspection tests prove the reviewed declaration/invalidation behavior, host-owned dynamic braking distance, no duplicate forward scan and no unchanged per-tick plugin callback.
-- [ ] Tests for overlapping applied-plan dependencies, atomic apply/replace/remove, field-wise edit denial diagnostics, and no partial mutation across every supported infrastructure editor. Test in-process disable/world reload separately from restart recovery; do not require reconstruction of in-flight claims without an approved persistence contract.
-- [ ] Bukkit tests for service registration/lookup, plugin disable, world unload, and target-aware dispatch.
+- [x] Focused Core tests cover immutable publication, exact epoch processing, shared occupancy, diamond detection without connectivity, and controller-visible publication (`ImmutableSnapshotTest`, `PhysicsCoordinatorTest`, `SweptOccupancyIndexTest`, `CoreWorldAtGradeRailCrossingTest`).
+- [x] Focused Basic tests cover atomic claims, zero/one/multi-turnout physical floors, additive resources, stale roots, preparation, suffix extension and tail release (`PhysicalRouteResourceCompilerTest`, `RouteResourceAdmissionEngineTest`, `InfrastructureCoordinationRegistryTest`, `LiveClaimTailReleaseTest`).
+- [x] Tests prove Basic always derives turnout/diamond identities even with no additions, while duplicate plugin identities can only extend a hold and invalid additions do not mutate the compiled admission (`PhysicalRouteResourceCompilerTest`, `RouteResourceAdmissionEngineTest`).
+- [x] Inspection tests cover immutable declaration compilation, binary route-coordinate activation, host braking lookahead, dirty invalidation, single-perception reuse and unchanged IDLE behavior (`InspectionSchedulerTest`, `InspectionRuntimeTest`, `SimpleATOTest`).
+- [x] Applied-plan/edit tests cover overlapping dependencies, atomic mutation, field-wise diagnostics, exact Stage 1 editor impacts and denial without a leaked permit (`InfrastructureCoordinationRegistryTest`, `PhysicalRouteAppliedPlanCompilerTest`, `RailWandTopologyEditPlanTest`, `DefaultInfrastructureResourceServiceTest`).
+- [x] Bukkit/runtime lifecycle tests cover the exact production service registrar/lookup, planned and forced disable, world unload, checkpoint restore, train retention and controller-side route-bound restriction handoff (`JavaRailwaysServiceRegistrationTest`, `DefaultInfrastructureResourceServiceTest`, `DefaultSignalEpochSourceServiceTest`, `DispatcherSnapshotTest`, `SignalEpochRuntimeTest`, `TimetableDispatcherSharedAdmissionTest`).
 - [x] Compile-only external consumer test imports public packages only.
 - [x] Run `./gradlew :Core:test :Basic:test :SimpleATO:test :BukkitPlugin:test`.
 - [x] Run `./gradlew :BukkitPlugin:shadowJar` and inspect service/API packaging.
 - [x] Run `git diff --check`.
+
+## Deferred follow-ups (not Stage 1 blockers)
+
+- [ ] The packaged world-pair migrator remains owned by `09-24-explicit-rail-endpoint-connections`: recovery copies,
+  dry-run, current-pair validation and recoverable replacement must move the old embedded Dispatcher checkpoint into
+  the current SimpleATO document. Normal runtime loading remains strict and has no compatibility reader.
+- [ ] Stage 2 must move the transitional protection-region implementation into the concrete signal plugin, add that
+  plugin's authoring/edit entrypoints and guard them with the common edit permit. No such production mutation caller
+  exists in Stage 1.
+- [ ] Stage 2 `SimpleATOBukkit` must add immutable presentation DTOs and target-aware latest-only model dispatch;
+  presentation is intentionally absent from the Stage 1 safety runtime.
 
 ## Rollback points
 

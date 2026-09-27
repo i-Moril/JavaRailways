@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-当前`Basic/`仍承载Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、rolling-stock ledger、Basic snapshot，以及迁移期由SimpleATO消费的ATO value/safety primitives；timetable model/store/extensions/persistence、具体`SimpleATO` controller、Dispatcher、checkpoint和隔离模拟runtime已经迁入`SimpleATO/`。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：其余运营对象会继续整体迁入`SimpleATO`；Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`仍承载Destination/Station/Depot、curve/rail metadata、安全、route/resource、rolling-stock ledger、Basic snapshot，以及迁移期由SimpleATO消费的ATO value/safety primitives；Line、timetable model/store/extensions/persistence、具体`SimpleATO` controller、Dispatcher、checkpoint和隔离模拟runtime已经迁入`SimpleATO/`。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：其余运营对象会继续整体迁入`SimpleATO`；Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 
@@ -20,7 +20,6 @@
 | [Destinations](./destinations.md) | 创建/migrate operational stop | canonical destination与derived WayPoint transaction |
 | [Stations](./stations.md) | berth/call/dwell/allocation | exact berth、door gate、tail release |
 | [Depots](./depots.md) | rolling stock、storage/reset | ledger、physical selection、reset transaction |
-| [Lines](./lines.md) | line pattern/revision/planning | infrastructure line identity与shortest leg |
 | [curve authoring](./curve-authoring.md) | Anchor/template/solver/measurement | stable token、SI单位、off-main build |
 | [rail infrastructure](./rail-infrastructure.md) | metadata、split/merge/turnout | metadata ownership与Core topology同步 |
 | [speed 与 derail safety](./speed-and-derail-safety.md) | speed signal/geometry threshold/derail request | operating limit与worker→main safety |

@@ -10,8 +10,6 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.line.Line
-import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
@@ -31,26 +29,25 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class BasicInfrastructureSnapshotTest {
     @Test
-    fun `line snapshot requires explicit up and down patterns`() {
+    fun `current Basic infrastructure rejects removed line fields`() {
         assertThrows(Exception::class.java) {
-            BasicInfrastructureSnapshotCodec.decode("""
-                {"formatVersion":1,"infrastructureRevision":1,"destinations":[],"wayPoints":[],"lines":[{
-                  "id":"old","displayName":"Old","stationIds":["a","b"]
-                }],"lineRevision":0}
-            """.trimIndent())
+            BasicInfrastructureSnapshotCodec.decode(
+                """
+                {"formatVersion":2,"infrastructureRevision":1,"destinations":[],"wayPoints":[],
+                 "lines":[],"lineRevision":0,"railMetadata":[]}
+                """.trimIndent()
+            )
         }
     }
 
     @Test
     fun `infrastructure snapshot rejects unsupported format version`() {
         val encoded = BasicInfrastructureSnapshotCodec.encode(
-            BasicInfrastructureSnapshotV1(
-                formatVersion = BasicInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION + 1,
+            BasicInfrastructureSnapshotV2(
+                formatVersion = BasicInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION + 1,
                 infrastructureRevision = 0L,
                 destinations = emptyList(),
-                wayPoints = emptyList(),
-                lines = emptyList(),
-                lineRevision = 0L
+                wayPoints = emptyList()
             )
         )
         assertThrows(IllegalArgumentException::class.java) {
@@ -79,7 +76,7 @@ class BasicInfrastructureSnapshotTest {
         world.removeRail(rail)
 
         val failure = assertThrows(IllegalStateException::class.java) {
-            BasicInfrastructureSnapshotV1.capture(world, infrastructureRevision = 1L)
+            BasicInfrastructureSnapshotV2.capture(world, infrastructureRevision = 1L)
         }
 
         assertTrue(failure.message.orEmpty().contains("orphan"))
@@ -87,7 +84,7 @@ class BasicInfrastructureSnapshotTest {
         OperationalDestinationService(world).remove("orphan")
         world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", rail.id, 30.0))
         val wayPointFailure = assertThrows(IllegalStateException::class.java) {
-            BasicInfrastructureSnapshotV1.capture(world, infrastructureRevision = 1L)
+            BasicInfrastructureSnapshotV2.capture(world, infrastructureRevision = 1L)
         }
         assertTrue(wayPointFailure.message.orEmpty().contains("legacy"))
     }
@@ -111,7 +108,7 @@ class BasicInfrastructureSnapshotTest {
             )
         )
         source.basicWorldData.railMetadata.put(rail.id, metadata)
-        val snapshot = BasicInfrastructureSnapshotV1.capture(source, infrastructureRevision = 2L)
+        val snapshot = BasicInfrastructureSnapshotV2.capture(source, infrastructureRevision = 2L)
 
         val restored = createTestWorld().also(worlds::add)
         TestBasicWorldDataRegistry.getOrCreate(restored)
@@ -164,14 +161,6 @@ class BasicInfrastructureSnapshotTest {
                 )
             )
         )
-        source.basicWorldData.lines.put(
-            Line(
-                LineId("metro"), "Metro",
-                listOf(StationId("central"), StationId("south")),
-                listOf(StationId("south"), StationId("central"))
-            ),
-            expectedRevision = 0L
-        )
         service.register(
             OperationalDestination(
                 id = "north@road-1",
@@ -189,7 +178,7 @@ class BasicInfrastructureSnapshotTest {
         )
 
         val encoded = BasicInfrastructureSnapshotCodec.encode(
-            BasicInfrastructureSnapshotV1.capture(source, infrastructureRevision = 7L)
+            BasicInfrastructureSnapshotV2.capture(source, infrastructureRevision = 7L)
         )
         val snapshot = BasicInfrastructureSnapshotCodec.decode(encoded)
 
@@ -208,9 +197,5 @@ class BasicInfrastructureSnapshotTest {
         val depotRole = restored.basicWorldData.destinations["north@road-1"]?.role as
             DestinationRole.DepotStablingPointRole
         assertEquals(setOf("metro"), depotRole.allowedTags)
-        val restoredLines = restored.basicWorldData.lines.snapshot()
-        assertEquals(1L, restoredLines.revision)
-        assertEquals(listOf("central", "south"), restoredLines.lines.single().upStationIds.map { it.value })
-        assertEquals(listOf("south", "central"), restoredLines.lines.single().downStationIds.map { it.value })
     }
 }

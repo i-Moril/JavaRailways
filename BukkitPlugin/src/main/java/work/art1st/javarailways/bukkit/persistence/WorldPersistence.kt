@@ -83,8 +83,10 @@ object WorldPersistence {
             }
             pair.snapshots.infrastructure.core()
             pair.snapshots.infrastructure.basic()
+            pair.snapshots.infrastructure.simpleAto()
             pair.snapshots.runtime.core()
             pair.snapshots.runtime.basic()
+            pair.snapshots.runtime.simpleAto()
             SplitSnapshotLoadResult.Loaded(pair.snapshots)
         } catch (failure: Exception) {
             SplitSnapshotLoadResult.Corrupted(listOf(infrastructure, runtime), failure)
@@ -113,7 +115,7 @@ object WorldPersistence {
     }
 
     private fun noMatchingRevisionFailure(
-        infrastructureCandidates: List<DecodedCandidate<InfrastructureFileV1>>,
+        infrastructureCandidates: List<DecodedCandidate<InfrastructureFileV2>>,
         runtimeCandidates: List<DecodedCandidate<RuntimeFileV2>>,
         failures: List<Pair<File, Exception>>
     ): IllegalStateException {

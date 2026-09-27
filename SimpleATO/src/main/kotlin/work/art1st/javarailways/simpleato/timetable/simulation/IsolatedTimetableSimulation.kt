@@ -18,7 +18,8 @@ import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
@@ -214,7 +215,8 @@ class IsolatedTimetableSimulationWorld private constructor(
 
         fun create(
             coreInfrastructure: CoreWorld.SavedInfrastructureV2,
-            basicInfrastructure: BasicInfrastructureSnapshotV1,
+            basicInfrastructure: BasicInfrastructureSnapshotV2,
+            simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
             workerThreads: Int,
             basicDataFactory: (CoreWorld) -> BasicWorldData,
             timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
@@ -229,6 +231,7 @@ class IsolatedTimetableSimulationWorld private constructor(
         ): IsolatedTimetableSimulationWorld {
             require(workerThreads > 0)
             require(coreInfrastructure.infrastructureRevision == basicInfrastructure.infrastructureRevision)
+            require(coreInfrastructure.infrastructureRevision == simpleAtoInfrastructure.infrastructureRevision)
             val tickManager = TickManagerImpl(
                 Executors.newScheduledThreadPool(workerThreads) { runnable ->
                     Thread(runnable, "JavaRailways-SimulationTick").apply { isDaemon = true }
@@ -260,7 +263,6 @@ class IsolatedTimetableSimulationWorld private constructor(
                             basicDataFactory(isolatedWorld)
                         )
                         basicInfrastructure.restore(isolatedWorld)
-                        seed(isolatedWorld)
                         val admission = IsolatedRouteAdmissionHost(isolatedWorld)
                         routeAdmissionHost = admission
                         val worldId = isolatedWorld.basicWorldData.atoCoordinator.worldId
@@ -288,6 +290,8 @@ class IsolatedTimetableSimulationWorld private constructor(
                                 timetableExtensions = timetableExtensions
                             )
                         )
+                        simpleAtoInfrastructure.restore(isolatedWorld)
+                        seed(isolatedWorld)
                     }
                 }
                 physics.start()

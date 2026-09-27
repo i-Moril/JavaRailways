@@ -2,7 +2,7 @@ package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
-import work.art1st.javarailways.basic.api.line.LineId
+import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.TimetableCondition
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionScope
@@ -240,7 +240,7 @@ class TimetableValidator(private val world: World) {
         }
 
         timetable.lineSpeedLimits.forEach { limit ->
-            if (world.basicWorldData.lines[limit.lineId] == null) {
+            if (world.simpleAtoWorldData.lines[limit.lineId] == null) {
                 errors.add("线路限速引用不存在的 LineId: ${limit.lineId.value}")
             }
         }
@@ -260,7 +260,7 @@ class TimetableValidator(private val world: World) {
     ) {
         val lineId = service.lineId ?: return
         val prefix = "[${timetable.id}/${service.id}]"
-        if (world.basicWorldData.lines[lineId] == null) {
+        if (world.simpleAtoWorldData.lines[lineId] == null) {
             errors.add("$prefix 引用不存在的 LineId: ${lineId.value}")
         }
         if (LineMaximumSpeedResolver.resolve(timetable, service) == null) {

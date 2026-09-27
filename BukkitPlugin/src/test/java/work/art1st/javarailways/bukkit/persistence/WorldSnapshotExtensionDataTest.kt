@@ -4,10 +4,11 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -15,11 +16,32 @@ import work.art1st.javarailways.core.physics.train.SavedTrainV1
 
 class WorldSnapshotExtensionDataTest {
     @Test
+    fun `current infrastructure outer document requires SimpleATO payload`() {
+        assertThrows(Exception::class.java) {
+            SplitWorldSnapshotCodec.decodeInfrastructure(
+                """
+                {"formatVersion":2,"infrastructureRevision":1,
+                 "coreSnapshotJson":"{}","basicSnapshotJson":"{}"}
+                """.trimIndent()
+            )
+        }
+    }
+
+    @Test
     fun `split snapshot requires one infrastructure revision and physics epoch`() {
         val infrastructure = CoreWorld.SavedInfrastructureV2(CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION, 7L, emptyList())
         val runtime = CoreWorld.SavedRuntimeV1(1, 7L, 9L, emptyList())
-        val basicInfrastructure = BasicInfrastructureSnapshotV1(
-            1, 7L, emptyList(), emptyList(), emptyList(), 0L
+        val basicInfrastructure = BasicInfrastructureSnapshotV2(
+            formatVersion = BasicInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION,
+            infrastructureRevision = 7L,
+            destinations = emptyList(),
+            wayPoints = emptyList()
+        )
+        val simpleAtoInfrastructure = SimpleATOInfrastructureSnapshotV1(
+            formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
+            infrastructureRevision = 7L,
+            lines = emptyList(),
+            lineRevision = 0L
         )
         val basicRuntime = BasicRuntimeSnapshotV3(
             formatVersion = BasicRuntimeSnapshotV3.CURRENT_FORMAT_VERSION,
@@ -37,6 +59,7 @@ class WorldSnapshotExtensionDataTest {
         val capture = WorldSnapshotCapture(
             infrastructure,
             basicInfrastructure,
+            simpleAtoInfrastructure,
             runtime,
             basicRuntime,
             simpleAtoRuntime
@@ -49,6 +72,7 @@ class WorldSnapshotExtensionDataTest {
         )
 
         assertEquals(7L, decodedInfrastructure.infrastructureRevision)
+        assertEquals(7L, decodedInfrastructure.simpleAto().infrastructureRevision)
         assertEquals(9L, decodedRuntime.physicsEpoch)
         assertEquals(7L, decodedRuntime.basic().infrastructureRevision)
         assertEquals(9L, decodedRuntime.simpleAto().physicsEpoch)
@@ -56,6 +80,7 @@ class WorldSnapshotExtensionDataTest {
             WorldSnapshotCapture(
                 infrastructure,
                 basicInfrastructure.copy(infrastructureRevision = 8L),
+                simpleAtoInfrastructure,
                 runtime,
                 basicRuntime,
                 simpleAtoRuntime
@@ -65,9 +90,20 @@ class WorldSnapshotExtensionDataTest {
             WorldSnapshotCapture(
                 infrastructure,
                 basicInfrastructure,
+                simpleAtoInfrastructure,
                 runtime,
                 basicRuntime,
                 simpleAtoRuntime.copy(physicsEpoch = 10L)
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            WorldSnapshotCapture(
+                infrastructure,
+                basicInfrastructure,
+                simpleAtoInfrastructure.copy(infrastructureRevision = 8L),
+                runtime,
+                basicRuntime,
+                simpleAtoRuntime
             )
         }
     }

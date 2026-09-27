@@ -13,8 +13,8 @@ import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.line.Line
-import work.art1st.javarailways.basic.api.line.LineId
+import work.art1st.javarailways.simpleato.api.line.Line
+import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.simpleato.timetable.Timetable
@@ -27,6 +27,7 @@ import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetable
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
@@ -110,7 +111,7 @@ class IsolatedTimetableSimulationFactoryTest {
             ))
         }
         val lineId = LineId("metro")
-        source.basicWorldData.lines.put(
+        source.simpleAtoWorldData.lines.put(
             Line(lineId, "Metro", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
             0L
         )

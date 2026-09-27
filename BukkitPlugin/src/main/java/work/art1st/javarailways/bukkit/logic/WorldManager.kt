@@ -11,7 +11,7 @@ import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
@@ -30,6 +30,7 @@ import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.persistence.WorldPersistence
 import work.art1st.javarailways.bukkit.persistence.WorldSnapshotCapture
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
@@ -151,6 +152,7 @@ class WorldManager internal constructor(
             infrastructure = splitInfrastructure?.core(),
             runtime = splitRuntime?.core(),
             basicInfrastructure = splitInfrastructure?.basic(),
+            simpleAtoInfrastructure = splitInfrastructure?.simpleAto(),
             basicRuntime = splitRuntime?.basic()
         )
         try {
@@ -581,7 +583,8 @@ class WorldManager internal constructor(
     private fun captureSnapshots(coreWorld: CoreWorld, physicsEpoch: Long): WorldSnapshotCapture {
         val revision = serverTickIndex.coerceAtLeast(0L)
         val coreInfrastructure = coreWorld.saveInfrastructure(revision)
-        val basicInfrastructure = BasicInfrastructureSnapshotV1.capture(coreWorld, revision)
+        val basicInfrastructure = BasicInfrastructureSnapshotV2.capture(coreWorld, revision)
+        val simpleAtoInfrastructure = SimpleATOInfrastructureSnapshotV1.capture(coreWorld, revision)
         val coreRuntime = coreWorld.saveRuntime(revision, physicsEpoch.coerceAtLeast(0L))
         val basicRuntime = BasicRuntimeSnapshotV3.capture(
             coreWorld,
@@ -596,6 +599,7 @@ class WorldManager internal constructor(
         return WorldSnapshotCapture(
             coreInfrastructure,
             basicInfrastructure,
+            simpleAtoInfrastructure,
             coreRuntime,
             basicRuntime,
             simpleAtoRuntime

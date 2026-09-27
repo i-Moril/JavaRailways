@@ -3,27 +3,34 @@ package work.art1st.javarailways.bukkit.persistence
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotCodec
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotCodec
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 
 @Serializable
-data class InfrastructureFileV1(
+data class InfrastructureFileV2(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val coreSnapshotJson: String,
-    val basicSnapshotJson: String
+    val basicSnapshotJson: String,
+    val simpleAtoSnapshotJson: String
 ) {
     fun core(): CoreWorld.SavedInfrastructureV2 =
         WorldSnapshotCodec.decodeInfrastructure(coreSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
-    fun basic(): BasicInfrastructureSnapshotV1 =
+    fun basic(): BasicInfrastructureSnapshotV2 =
         BasicInfrastructureSnapshotCodec.decode(basicSnapshotJson).also {
+            require(it.infrastructureRevision == infrastructureRevision)
+        }
+    fun simpleAto(): SimpleATOInfrastructureSnapshotV1 =
+        SimpleATOInfrastructureSnapshotCodec.decode(simpleAtoSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
 }
@@ -50,7 +57,7 @@ data class RuntimeFileV2(
 }
 
 data class CapturedWorldSnapshots(
-    val infrastructure: InfrastructureFileV1,
+    val infrastructure: InfrastructureFileV2,
     val runtime: RuntimeFileV2
 ) {
     init {
@@ -60,7 +67,8 @@ data class CapturedWorldSnapshots(
 
 data class WorldSnapshotCapture(
     val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
-    val basicInfrastructure: BasicInfrastructureSnapshotV1,
+    val basicInfrastructure: BasicInfrastructureSnapshotV2,
+    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
     val coreRuntime: CoreWorld.SavedRuntimeV1,
     val basicRuntime: BasicRuntimeSnapshotV3,
     val simpleAtoRuntime: SimpleATORuntimeSnapshotV1
@@ -68,6 +76,7 @@ data class WorldSnapshotCapture(
     init {
         val revision = coreInfrastructure.infrastructureRevision
         require(basicInfrastructure.infrastructureRevision == revision)
+        require(simpleAtoInfrastructure.infrastructureRevision == revision)
         require(coreRuntime.infrastructureRevision == revision)
         require(basicRuntime.infrastructureRevision == revision)
         require(simpleAtoRuntime.infrastructureRevision == revision)
@@ -76,26 +85,33 @@ data class WorldSnapshotCapture(
     }
 
     fun encode(): CapturedWorldSnapshots = CapturedWorldSnapshots(
-        SplitWorldSnapshotCodec.infrastructure(coreInfrastructure, basicInfrastructure),
+        SplitWorldSnapshotCodec.infrastructure(
+            coreInfrastructure,
+            basicInfrastructure,
+            simpleAtoInfrastructure
+        ),
         SplitWorldSnapshotCodec.runtime(coreRuntime, basicRuntime, simpleAtoRuntime)
     )
 }
 
 object SplitWorldSnapshotCodec {
-    const val CURRENT_INFRASTRUCTURE_FORMAT_VERSION = 1
+    const val CURRENT_INFRASTRUCTURE_FORMAT_VERSION = 2
     const val CURRENT_RUNTIME_FORMAT_VERSION = 2
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
 
     fun infrastructure(
         core: CoreWorld.SavedInfrastructureV2,
-        basic: BasicInfrastructureSnapshotV1
-    ): InfrastructureFileV1 {
+        basic: BasicInfrastructureSnapshotV2,
+        simpleAto: SimpleATOInfrastructureSnapshotV1
+    ): InfrastructureFileV2 {
         require(core.infrastructureRevision == basic.infrastructureRevision)
-        return InfrastructureFileV1(
+        require(core.infrastructureRevision == simpleAto.infrastructureRevision)
+        return InfrastructureFileV2(
             formatVersion = CURRENT_INFRASTRUCTURE_FORMAT_VERSION,
             infrastructureRevision = core.infrastructureRevision,
             coreSnapshotJson = WorldSnapshotCodec.encodeInfrastructure(core),
-            basicSnapshotJson = BasicInfrastructureSnapshotCodec.encode(basic)
+            basicSnapshotJson = BasicInfrastructureSnapshotCodec.encode(basic),
+            simpleAtoSnapshotJson = SimpleATOInfrastructureSnapshotCodec.encode(simpleAto)
         )
     }
 
@@ -118,12 +134,12 @@ object SplitWorldSnapshotCodec {
         )
     }
 
-    fun encode(value: InfrastructureFileV1): String =
-        json.encodeToString(InfrastructureFileV1.serializer(), value)
+    fun encode(value: InfrastructureFileV2): String =
+        json.encodeToString(InfrastructureFileV2.serializer(), value)
     fun encode(value: RuntimeFileV2): String =
         json.encodeToString(RuntimeFileV2.serializer(), value)
-    fun decodeInfrastructure(value: String): InfrastructureFileV1 =
-        json.decodeFromString(InfrastructureFileV1.serializer(), value).also {
+    fun decodeInfrastructure(value: String): InfrastructureFileV2 =
+        json.decodeFromString(InfrastructureFileV2.serializer(), value).also {
             require(it.formatVersion == CURRENT_INFRASTRUCTURE_FORMAT_VERSION) {
                 "Unsupported infrastructure file version: ${it.formatVersion}"
             }

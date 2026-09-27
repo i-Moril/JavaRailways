@@ -27,10 +27,10 @@ elapsed += STEP_SECONDS
 
 `IsolatedTimetableSimulationRequest(timetable,delayThresholdTicks=1200,maximumSimulationTicks=periodTicks)`要求threshold>0、max在`1..periodTicks`。Result sealed：`Completed/DelayExceeded/Failed/PeriodEnded`，均含simulatedTicks/runs。
 
-`IsolatedTimetableSimulationWorld.create(coreInfrastructure,basicInfrastructure,workerThreads,basicDataFactory,timetableExtensions,dispatcherFactory,seed)`：
+`IsolatedTimetableSimulationWorld.create(coreInfrastructure,basicInfrastructure,simpleAtoInfrastructure,workerThreads,basicDataFactory,timetableExtensions,dispatcherFactory,seed)`：
 
-- Core/Basic `infrastructureRevision`必须相等；
-- restore Core infrastructure only，attach freshBasic data，restoreBasic infrastructure；
+- Core/Basic/SimpleATO `infrastructureRevision`必须相等；
+- restore Core infrastructure，attach fresh Basic data并restore Basic infrastructure；随后attach fresh SimpleATO data并restore SimpleATO infrastructure；
 - 不restore runtime trains/reservations/Dispatcher；`seed`从profile assignments创建train；
 - own TickManager/PhysicsCoordinator pools，`automaticFallback=false`；
 - logical Tick固定50 ms：preTick→`stepSimulation(50).await`→same Dispatcher→postTick→drain commits；

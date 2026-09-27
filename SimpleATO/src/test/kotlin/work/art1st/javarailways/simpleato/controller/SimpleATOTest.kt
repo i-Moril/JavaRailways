@@ -32,7 +32,7 @@ import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitType
-import work.art1st.javarailways.basic.api.line.LineId
+import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.simpleato.timetable.TimetableLineSpeedLimit

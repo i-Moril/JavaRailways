@@ -9,32 +9,31 @@
 ## Owner、独立 documents 与精确字段
 
 ```kotlin
-data class BasicInfrastructureSnapshotV1(
+data class BasicInfrastructureSnapshotV2(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val destinations: List<SavedOperationalDestinationV1>,
     val wayPoints: List<SavedWayPointV1>,
-    val lines: List<SavedLineV1>,
-    val lineRevision: Long,
     val railMetadata: List<SavedRailInfrastructureMetadataV1> = emptyList()
 )
 ```
 
-Runtime `BasicRuntimeSnapshotV3(formatVersion=3,infrastructureRevision,physicsEpoch,rollingStock)`不包含Timetable或Dispatcher。Basic infrastructure仍为format 1；两个独立boundary各自使用`encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
+Runtime `BasicRuntimeSnapshotV3(formatVersion=3,infrastructureRevision,physicsEpoch,rollingStock)`不包含Timetable或Dispatcher。删除 Line 字段后 Basic infrastructure 为format 2；两个独立boundary各自使用`encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
 
-Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
+Line、Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
 
-Diagnostic独立：`AtoStallReportJson.schemaVersion=2`、`DepotResetReportJson.schemaVersion=1`。`lineRevision`是edit revision；`infrastructureRevision`配对files；`physicsEpoch`配对publication；都非schemaVersion。
+Diagnostic独立：`AtoStallReportJson.schemaVersion=2`、`DepotResetReportJson.schemaVersion=1`。SimpleATO 的 `lineRevision`是edit revision；`infrastructureRevision`配对files；`physicsEpoch`配对publication；都非schemaVersion。
 
 ## Split pairing与restore pipeline
 
-Bukkit outer infrastructure要求Core+Basic revision相同；runtime要求revision和physicsEpoch都相同。capture在同一server revision、awaited exact physics ticket后产生四个value payload；background writer只写capture结果。
+Bukkit outer infrastructure要求Core+Basic+SimpleATO revision相同；runtime要求revision和physicsEpoch都相同。capture在同一server revision、awaited exact physics ticket后产生六个value payload；background writer只写capture结果。
 
 ```text
 strict decode current
 → prevalidate all duplicate identities、cross-store collisions、rail/station/point/provider refs
 → require fresh target
-→ materialize canonical Destinations/roles/WayPoints/Lines/metadata
+→ materialize canonical Basic Destinations/roles/WayPoints/metadata
+→ validate Line StationId references and materialize SimpleATO Lines
 → materialize Basic RollingStock
 → restore SimpleATO Timetables before Dispatcher checkpoint
 → rebuild ephemeral speed signals/providers separately
@@ -46,8 +45,8 @@ strict decode current
 | --- | --- | --- |
 | unsupported/future/unknown field/invalid JSON | fail-fast | untouched |
 | orphan destination/waypoint/metadata rail | fail before materialize | fresh |
-| duplicate destination/waypoint/line/metadata或cross-store ID | fail before materialize | fresh |
-| Line missing Station | fail prevalidation | fresh |
+| duplicate destination/waypoint/metadata或cross-store ID | fail before materialize | fresh |
+| SimpleATO Line missing Basic Station | fail prevalidation | fresh SimpleATO line store |
 | runtime duplicate train/orphan point | fail prevalidation | fresh |
 | Core/Basic/SimpleATO pair mismatch | outer load拒绝 | 不选partial file |
 | checkpoint active run | recovery record + disabled service | 无live execution |
@@ -88,5 +87,6 @@ val standaloneWayPoints = data.wayPoints.all()
 
 ```bash
 ./gradlew :Basic:test --tests 'work.art1st.javarailways.basic.persistence.*'
+./gradlew :SimpleATO:test --tests 'work.art1st.javarailways.simpleato.persistence.*'
 ./gradlew :BukkitPlugin:test --tests '*SplitWorldSnapshot*' --tests '*WorldPersistence*'
 ```

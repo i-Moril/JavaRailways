@@ -46,7 +46,7 @@ class RailInfrastructureMetadataMigrationTest {
         SplitWorldSnapshotCodec.decodeInfrastructure(Files.readString(file)).core()
     }
 
-    private fun legacyFile(): InfrastructureFileV1 {
+    private fun legacyFile(): InfrastructureFileV2 {
         val legacyCore = """
             {"formatVersion":1,"infrastructureRevision":7,"rails":[{
               "id":"00000000-0000-0000-0000-000000000001",
@@ -62,9 +62,12 @@ class RailInfrastructureMetadataMigrationTest {
             }]}
         """.trimIndent()
         val legacyBasic = """
-            {"formatVersion":1,"infrastructureRevision":7,"destinations":[],"wayPoints":[],
-             "lines":[],"lineRevision":0}
+            {"formatVersion":2,"infrastructureRevision":7,"destinations":[],"wayPoints":[],
+             "railMetadata":[]}
         """.trimIndent()
-        return InfrastructureFileV1(1, 7L, legacyCore, legacyBasic)
+        val simpleAto = """
+            {"formatVersion":1,"infrastructureRevision":7,"lines":[],"lineRevision":0}
+        """.trimIndent()
+        return InfrastructureFileV2(2, 7L, legacyCore, legacyBasic, simpleAto)
     }
 }

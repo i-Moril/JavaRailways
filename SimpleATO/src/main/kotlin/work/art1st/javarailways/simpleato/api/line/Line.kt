@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.line
+package work.art1st.javarailways.simpleato.api.line
 
 import work.art1st.javarailways.basic.api.station.StationId
 import java.util.Collections

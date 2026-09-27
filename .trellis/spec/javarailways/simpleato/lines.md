@@ -1,4 +1,4 @@
-# Basic line 契约
+# SimpleATO line 契约
 
 ## 适用场景与用途
 
@@ -18,7 +18,10 @@ data class Line private constructor(
 )
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/line/Line.kt`。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/line/Line.kt`。
+
+`LineStore` 由每世界唯一的 `SimpleATOWorldData.lines` 持有。Station 与 Destination 在当前过渡期仍由
+Basic 提供只读引用与停靠点数据；这不把 Line 的写 ownership 交还 Basic。
 
 - `LineId`world-local stable、trimmed、no control char。
 - UP/DOWN独立有序，各2..128 stations、无duplicate、defensive copy。
@@ -73,5 +76,5 @@ private fun checkRevision(expected: Long) {
 - Dispatcher through-running test：boundary前后cap owner、published ATO constraint与currentLineId。
 
 ```bash
-./gradlew :Basic:test --tests '*LineStoreTest' --tests '*LinePlannerTest' --tests '*LineMaximumSpeedResolverTest'
+./gradlew :SimpleATO:test --tests '*LineStoreTest' --tests '*LinePlannerTest' --tests '*LineMaximumSpeedResolverTest'
 ```

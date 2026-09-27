@@ -18,7 +18,7 @@ import java.util.UUID
 /** Pure one-way migration from Core infrastructure format 1 to the current split ownership model. */
 object RailInfrastructureMetadataMigration {
     data class Result(
-        val file: InfrastructureFileV1,
+        val file: InfrastructureFileV2,
         val migratedRailCount: Int
     )
 
@@ -28,7 +28,7 @@ object RailInfrastructureMetadataMigration {
         prettyPrint = true
     }
 
-    fun migrate(file: InfrastructureFileV1): Result {
+    fun migrate(file: InfrastructureFileV2): Result {
         val coreRoot = json.parseToJsonElement(file.coreSnapshotJson).jsonObject
         val version = coreRoot.requiredInt("formatVersion")
         require(version in setOf(1, CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION)) {
@@ -38,11 +38,13 @@ object RailInfrastructureMetadataMigration {
         if (version == CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION) {
             file.core()
             file.basic()
+            file.simpleAto()
             return Result(file, migratedRailCount = 0)
         }
 
         val basic = BasicInfrastructureSnapshotCodec.decode(file.basicSnapshotJson)
         require(basic.infrastructureRevision == file.infrastructureRevision)
+        file.simpleAto()
         require(basic.railMetadata.isEmpty()) {
             "Basic infrastructure already contains Rail metadata; refusing ambiguous merge"
         }

@@ -28,8 +28,8 @@ import work.art1st.javarailways.basic.api.depot.DepotResetDispatchSummary
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.line.Line
-import work.art1st.javarailways.basic.api.line.LineId
+import work.art1st.javarailways.simpleato.api.line.Line
+import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.Station
 import work.art1st.javarailways.basic.api.station.StationBerth
@@ -232,7 +232,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
         val lineId = LineId("metro")
-        data.lines.put(
+        world.simpleAtoWorldData.lines.put(
             Line(lineId, "Metro", listOf(StationId("a"), StationId("b")), listOf(StationId("b"), StationId("a"))),
             0L
         )

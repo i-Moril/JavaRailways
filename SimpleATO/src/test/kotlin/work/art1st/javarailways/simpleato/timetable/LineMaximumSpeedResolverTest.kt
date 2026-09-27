@@ -3,7 +3,7 @@ package work.art1st.javarailways.simpleato.timetable
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.line.LineId
+import work.art1st.javarailways.simpleato.api.line.LineId
 
 class LineMaximumSpeedResolverTest {
     @Test

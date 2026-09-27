@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.line
+package work.art1st.javarailways.simpleato.api.line
 
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals

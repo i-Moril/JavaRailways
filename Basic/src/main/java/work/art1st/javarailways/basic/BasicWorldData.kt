@@ -5,7 +5,6 @@ import work.art1st.javarailways.basic.api.ato.provider.AtoProviderRegistry
 import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
 import work.art1st.javarailways.basic.api.depot.DepotStore
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationStore
-import work.art1st.javarailways.basic.api.line.LineStore
 import work.art1st.javarailways.basic.api.station.StationStore
 import work.art1st.javarailways.basic.pathFinding.RailMap
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
@@ -18,14 +17,14 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Basic 模块挂在每个 World 上的运营层数据容器。
  *
- * 这里保存自动时刻表、停车点、ATO 协调器、Provider 和轨道运营对象等非 Core 物理数据。
+ * 这里保存停车点、ATO 协调器、Provider 和通用轨道运营对象等非 Core 物理数据。
+ * Line 与 Timetable 等自动运营状态由 SimpleATO 自己的 world data 持有。
  */
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val depots: DepotStore = DepotStore(),
-    val lines: LineStore = LineStore(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),

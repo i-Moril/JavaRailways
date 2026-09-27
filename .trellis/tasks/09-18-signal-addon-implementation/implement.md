@@ -13,7 +13,8 @@
 Current extraction progress:
 
 - [x] Move Timetable model, validation, runtime store, extension registry, persistence, simulation helpers and Bukkit callers into SimpleATO; remove the Basic owner without aliases or runtime fallback.
-- [ ] Move Destination, Station, Depot, Line and rolling-stock assignment in later dependency-safe slices.
+- [x] Move Line model, revisioned store, planner, infrastructure persistence, isolated simulation capture and Bukkit callers into SimpleATO; restore after Basic Station data without aliases or runtime fallback.
+- [ ] Move Destination, Station, Depot and rolling-stock assignment in later dependency-safe slices.
 
 - [ ] Inventory remaining ATO/operations production owners and callers in Basic/BukkitPlugin.
 - [ ] Move the remaining automated operating policy, ATO/ATP constraint owners, operating direction and operational route selection into `SimpleATO` with existing behavior tests; retain Basic's generic dynamics/actuation and physical safety contracts shared with manual driving.

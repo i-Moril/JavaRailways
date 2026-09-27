@@ -12,8 +12,9 @@ import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.simpleato.timetable.TimetableAction
@@ -42,7 +43,8 @@ internal data class TimetableProfileSelection(
 
 internal data class IsolatedTimetableSimulationSnapshot(
     val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
-    val basicInfrastructure: BasicInfrastructureSnapshotV1,
+    val basicInfrastructure: BasicInfrastructureSnapshotV2,
+    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
     val timetable: Timetable,
     val profilesByService: Map<String, SimulationControlProfile>,
     val gravityMetersPerSecondSquared: Double,
@@ -109,7 +111,8 @@ internal class IsolatedTimetableSimulationFactory(
         }
         return IsolatedTimetableSimulationSnapshot(
             coreInfrastructure,
-            BasicInfrastructureSnapshotV1.capture(liveWorld, revision),
+            BasicInfrastructureSnapshotV2.capture(liveWorld, revision),
+            SimpleATOInfrastructureSnapshotV1.capture(liveWorld, revision),
             timetable,
             profiles,
             gravityMetersPerSecondSquared,
@@ -129,6 +132,7 @@ internal class IsolatedTimetableSimulationFactory(
         return IsolatedTimetableSimulationWorld.create(
             snapshot.coreInfrastructure,
             snapshot.basicInfrastructure,
+            snapshot.simpleAtoInfrastructure,
             workerThreads,
             basicDataFactory = { world ->
                 world.tickManager.register(operationGateway)

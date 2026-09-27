@@ -18,12 +18,12 @@ import org.bukkit.event.HandlerList
 import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.line.Line
-import work.art1st.javarailways.basic.api.line.LineCompileResult
-import work.art1st.javarailways.basic.api.line.LineDirection
-import work.art1st.javarailways.basic.api.line.LineId
-import work.art1st.javarailways.basic.api.line.LinePlanner
-import work.art1st.javarailways.basic.api.line.LineRevisionConflict
+import work.art1st.javarailways.simpleato.api.line.Line
+import work.art1st.javarailways.simpleato.api.line.LineCompileResult
+import work.art1st.javarailways.simpleato.api.line.LineDirection
+import work.art1st.javarailways.simpleato.api.line.LineId
+import work.art1st.javarailways.simpleato.api.line.LinePlanner
+import work.art1st.javarailways.simpleato.api.line.LineRevisionConflict
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionProvider
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
@@ -537,7 +537,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             })
 
         private fun linesJson(worldName: String) = withWorld(worldName) { _, world ->
-            val snapshot = world.basicWorldData.lines.snapshot()
+            val snapshot = world.simpleAtoWorldData.lines.snapshot()
             json.encodeToString(buildJsonObject {
                 put("revision", snapshot.revision)
                 put("lines", JsonArray(snapshot.lines.map(::lineJson)))
@@ -551,7 +551,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val expected = root["expectedRevision"]?.jsonPrimitive?.content?.toLongOrNull()
                 ?: throw HttpFailure(400, "expectedRevision is required")
             val revision = try {
-                world.basicWorldData.lines.put(line, expected)
+                world.simpleAtoWorldData.lines.put(line, expected)
             } catch (conflict: LineRevisionConflict) {
                 throw HttpFailure(409, conflict.message ?: "line revision conflict")
             }
@@ -566,7 +566,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val snapshot = await {
                 withWorld(worldName) { _, world ->
                     val data = world.basicWorldData
-                    val line = data.lines[LineId(lineId)] ?: throw HttpFailure(404, "line not found: $lineId")
+                    val line = world.simpleAtoWorldData.lines[LineId(lineId)]
+                        ?: throw HttpFailure(404, "line not found: $lineId")
                     val timetableId = request["timetableId"]?.jsonPrimitive?.content
                     val serviceId = request["serviceId"]?.jsonPrimitive?.content
                     if ((timetableId == null) != (serviceId == null)) {
@@ -661,7 +662,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         SimulationControlProfileCatalog(plugin).resolve(world, profileType, profileId)
                     }.getOrElse { throw HttpFailure(422, it.message ?: "simulation profile is unavailable") }
                     LineSimulationSnapshot(
-                        revision = data.lines.snapshot().revision,
+                        revision = world.simpleAtoWorldData.lines.snapshot().revision,
                         profile = profile,
                         gravityMetersPerSecondSquared = plugin.physicsConfig.track.gravityMetersPerSecondSquared,
                         legs = selectedLegs.mapIndexed { index, leg ->
@@ -712,7 +713,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 throw interrupted
             }
             val currentRevision = await {
-                withWorld(worldName) { _, world -> world.basicWorldData.lines.snapshot().revision }
+                withWorld(worldName) { _, world -> world.simpleAtoWorldData.lines.snapshot().revision }
             }
             if (currentRevision != snapshot.revision) {
                 throw HttpFailure(409, "lines changed while simulation was running; retry")
@@ -735,9 +736,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val root = json.parseToJsonElement(body).jsonObject
             val expected = root["expectedRevision"]?.jsonPrimitive?.content?.toLongOrNull()
                 ?: throw HttpFailure(400, "expectedRevision is required")
-            val data = world.basicWorldData
             val result = try {
-                data.lines.remove(LineId(pathId), expected)
+                world.simpleAtoWorldData.lines.remove(LineId(pathId), expected)
             } catch (conflict: LineRevisionConflict) {
                 throw HttpFailure(409, conflict.message ?: "line revision conflict")
             }

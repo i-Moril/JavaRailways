@@ -7,8 +7,6 @@ import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.DestinationRoleType
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.line.Line
-import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
@@ -125,33 +123,6 @@ data class SavedOperationalDestinationV1(
 }
 
 @Serializable
-data class SavedLineV1(
-    val id: String,
-    val displayName: String,
-    val upStationIds: List<String>,
-    val downStationIds: List<String>,
-    val color: String? = null
-) {
-    fun restore(): Line = Line(
-        LineId(id),
-        displayName,
-        upStationIds.map(::StationId),
-        downStationIds.map(::StationId),
-        color
-    )
-
-    companion object {
-        fun capture(value: Line): SavedLineV1 = SavedLineV1(
-            id = value.id.value,
-            displayName = value.displayName,
-            upStationIds = value.upStationIds.map { it.value },
-            downStationIds = value.downStationIds.map { it.value },
-            color = value.color
-        )
-    }
-}
-
-@Serializable
 data class SavedRailInfrastructureMetadataV1(
     val railId: String,
     val metadata: RailInfrastructureMetadata
@@ -165,13 +136,11 @@ data class SavedRailInfrastructureMetadataV1(
 }
 
 @Serializable
-data class BasicInfrastructureSnapshotV1(
+data class BasicInfrastructureSnapshotV2(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val destinations: List<SavedOperationalDestinationV1>,
     val wayPoints: List<SavedWayPointV1>,
-    val lines: List<SavedLineV1>,
-    val lineRevision: Long,
     val railMetadata: List<SavedRailInfrastructureMetadataV1> = emptyList()
 ) {
     fun restore(world: World) {
@@ -206,22 +175,15 @@ data class BasicInfrastructureSnapshotV1(
         val service = OperationalDestinationService(world)
         destinations.forEach { service.register(it.restore()) }
         wayPoints.forEach { world.basicWorldData.wayPoints.add(it.restore()) }
-        val restoredLines = lines.map(SavedLineV1::restore)
-        val stationIds = world.basicWorldData.stations.all().mapTo(HashSet()) { it.id }
-        val missingStations = restoredLines.flatMap { it.upStationIds + it.downStationIds }.filterNot { it in stationIds }.distinct()
-        check(missingStations.isEmpty()) {
-            "Infrastructure snapshot contains lines with missing stations: ${missingStations.joinToString()}"
-        }
-        world.basicWorldData.lines.restore(restoredLines, lineRevision)
         world.basicWorldData.railMetadata.restore(
             railMetadata.associate { it.parsedRailId() to it.metadata }
         )
     }
 
     companion object {
-        const val CURRENT_FORMAT_VERSION = 1
+        const val CURRENT_FORMAT_VERSION = 2
 
-        fun capture(world: World, infrastructureRevision: Long): BasicInfrastructureSnapshotV1 {
+        fun capture(world: World, infrastructureRevision: Long): BasicInfrastructureSnapshotV2 {
             require(infrastructureRevision >= 0L)
             val data = world.basicWorldData
             val destinations = data.destinations.all()
@@ -242,14 +204,11 @@ data class BasicInfrastructureSnapshotV1(
             check(orphanMetadata.isEmpty()) {
                 "Cannot capture metadata for missing rails: ${orphanMetadata.joinToString()}"
             }
-            val lineSnapshot = data.lines.snapshot()
-            return BasicInfrastructureSnapshotV1(
+            return BasicInfrastructureSnapshotV2(
                 formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
                 destinations = destinations.map(SavedOperationalDestinationV1::capture),
                 wayPoints = standaloneWayPoints.map(SavedWayPointV1::capture),
-                lines = lineSnapshot.lines.map(SavedLineV1::capture),
-                lineRevision = lineSnapshot.revision,
                 railMetadata = railMetadata.map { (railId, metadata) ->
                     SavedRailInfrastructureMetadataV1.capture(railId, metadata)
                 }
@@ -265,12 +224,12 @@ object BasicInfrastructureSnapshotCodec {
         prettyPrint = true
     }
 
-    fun encode(snapshot: BasicInfrastructureSnapshotV1): String =
-        json.encodeToString(BasicInfrastructureSnapshotV1.serializer(), snapshot)
+    fun encode(snapshot: BasicInfrastructureSnapshotV2): String =
+        json.encodeToString(BasicInfrastructureSnapshotV2.serializer(), snapshot)
 
-    fun decode(data: String): BasicInfrastructureSnapshotV1 =
-        json.decodeFromString(BasicInfrastructureSnapshotV1.serializer(), data).also {
-            require(it.formatVersion == BasicInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION) {
+    fun decode(data: String): BasicInfrastructureSnapshotV2 =
+        json.decodeFromString(BasicInfrastructureSnapshotV2.serializer(), data).also {
+            require(it.formatVersion == BasicInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION) {
                 "Unsupported Basic infrastructure snapshot version: ${it.formatVersion}"
             }
         }

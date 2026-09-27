@@ -20,7 +20,7 @@ data class Timetable(
 
 来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/Timetable.kt`。
 
-`periodDays>0`；一天固定`24_000` Tick；`periodTicks=Math.multiplyExact(periodDays,24000)`。`TimetableService.steps`是runtime authority；`editorRows`、diagram line/arrival/compiler trace只presentation/authoring。`service.lineId`才是Basic infrastructure identity。
+`periodDays>0`；一天固定`24_000` Tick；`periodTicks=Math.multiplyExact(periodDays,24000)`。`TimetableService.steps`是runtime authority；`editorRows`、diagram line/arrival/compiler trace只presentation/authoring。`service.lineId`才是SimpleATO infrastructure identity。
 
 Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot/Waypoint、StoreAtDepot、GoTo/GoVia、Stop、Extension/Conditional、Halt、Reverse、DestinationOptions、CallStation。`At.tick`为timetable-relative action/departure tick，nonnegative且period内、非降序。
 
@@ -41,7 +41,7 @@ Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot
 | route/direction/berth/provider/parameters unresolved | errors + failure context | none |
 | valid | `isSuccess=true`并返回pre-expanded routes | Dispatcher才可begin/start |
 
-Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Destination、Station、Depot 与 Line 当前仍由 Basic 提供，因此 validator 暂时通过 Basic 的只读运营存储解析这些引用；这不是 Basic 对 timetable 的反向 ownership。
+Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Line 由 `SimpleATOWorldData.lines` 提供；Destination、Station 与 Depot 当前仍由 Basic 提供，因此 validator 暂时通过 Basic 的只读运营存储解析这些引用；这不是 Basic 对 timetable 的反向 ownership。
 
 ## 项目内正确示例
 

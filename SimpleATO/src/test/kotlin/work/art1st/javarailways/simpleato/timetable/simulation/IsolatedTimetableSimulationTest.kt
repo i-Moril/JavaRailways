@@ -13,7 +13,8 @@ import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefini
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
@@ -166,7 +167,7 @@ class IsolatedTimetableSimulationTest {
         createTrainWithConfig("live-only", rail, source, listOf(10.0))
         val revision = 1L
         val coreSnapshot = source.saveInfrastructure(revision)
-        val basicSnapshot = BasicInfrastructureSnapshotV1.capture(source, revision)
+        val basicSnapshot = BasicInfrastructureSnapshotV2.capture(source, revision)
         source.physicsCoordinator.close()
         (source.tickManager as? AutoCloseable)?.close()
         val timetable = Timetable(
@@ -180,6 +181,12 @@ class IsolatedTimetableSimulationTest {
         val runtime = IsolatedTimetableSimulationWorld.create(
             coreSnapshot,
             basicSnapshot,
+            SimpleATOInfrastructureSnapshotV1(
+                SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
+                revision,
+                emptyList(),
+                0L
+            ),
             workerThreads = 2,
             basicDataFactory = {
                 BasicWorldData()

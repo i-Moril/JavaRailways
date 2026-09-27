@@ -2,9 +2,9 @@ package work.art1st.javarailways.bukkit.http
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.timetable.TimetableServiceActivation
-import work.art1st.javarailways.basic.persistence.TimetableSnapshotCodec
-import work.art1st.javarailways.basic.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.api.timetable.TimetableServiceActivation
+import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.scriptworker.executeScript
 
 class ScriptWorkerCompatibilityTest {
@@ -35,7 +35,7 @@ class ScriptWorkerCompatibilityTest {
         )
         assertEquals(
             TimetableAction.Conditional::class,
-            (restored.services.single().steps.last() as work.art1st.javarailways.basic.timetable.TimetableStep.At).action::class
+            (restored.services.single().steps.last() as work.art1st.javarailways.simpleato.timetable.TimetableStep.At).action::class
         )
     }
 }

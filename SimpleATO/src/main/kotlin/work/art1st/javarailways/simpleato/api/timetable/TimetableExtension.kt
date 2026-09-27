@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.timetable
+package work.art1st.javarailways.simpleato.api.timetable
 
 import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.core.api.util.annotation.MainThread

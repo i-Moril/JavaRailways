@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable.simulation
+package work.art1st.javarailways.simpleato.timetable.simulation
 
 import java.util.concurrent.CancellationException
 import work.art1st.javarailways.basic.control.TrainDynamics

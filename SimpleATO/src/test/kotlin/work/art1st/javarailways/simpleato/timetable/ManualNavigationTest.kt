@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -18,13 +20,13 @@ import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
-import work.art1st.javarailways.basic.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TimetableWaypointProgress
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -91,7 +93,7 @@ class ManualNavigationTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("manual-navigation-test", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         try {
             val rail = createStraightRailFromSegments(
                 world,
@@ -122,7 +124,7 @@ class ManualNavigationTest {
                     ManualNavigationWaypoint("stop", pass = false)
                 )
             )
-            data.timetables.add(timetable)
+            world.simpleAtoWorldData.timetables.add(timetable)
             val runId = TimetableServiceRunId("navigate", "driver")
             val observed = ArrayList<TimetableWaypointProgress>()
             val subscription = dispatcher.observeWaypointProgress(runId) { observed += it }
@@ -144,14 +146,14 @@ class ManualNavigationTest {
             assertEquals(listOf(true, false), observed.map { it.pass })
             assertTrue(observed[1].timetableElapsedTicks > observed[0].timetableElapsedTicks)
         } finally {
-            TestBasicWorldDataRegistry.unregister(world)
+            TestSimpleATOWorldDataRegistry.unregister(world)
         }
     }
 
     @Test
     fun `factory groups pass points into missions ending at each stop`() {
         val world = createTestWorld()
-        TestBasicWorldDataRegistry.register(world, BasicWorldData())
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
         try {
             val rail = createStraightRailFromSegments(
                 world,
@@ -202,7 +204,7 @@ class ManualNavigationTest {
                 (steps[3] as TimetableStep.At).action
             )
         } finally {
-            TestBasicWorldDataRegistry.unregister(world)
+            TestSimpleATOWorldDataRegistry.unregister(world)
         }
     }
 }

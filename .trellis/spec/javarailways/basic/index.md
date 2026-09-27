@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-当前`Basic/`仍承载Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、timetable model、Basic snapshot，以及迁移期由SimpleATO消费的ATO value/safety primitives；具体`SimpleATO` controller、Dispatcher、checkpoint和隔离模拟runtime已经迁入`SimpleATO/`。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：其余运营对象会继续整体迁入`SimpleATO`；Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`仍承载Destination/Station/Depot/Line、curve/rail metadata、安全、route/resource、rolling-stock ledger、Basic snapshot，以及迁移期由SimpleATO消费的ATO value/safety primitives；timetable model/store/extensions/persistence、具体`SimpleATO` controller、Dispatcher、checkpoint和隔离模拟runtime已经迁入`SimpleATO/`。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：其余运营对象会继续整体迁入`SimpleATO`；Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 
@@ -28,8 +28,6 @@
 | [resource allocation](./resource-allocation.md) | turnout/section/berth locks/manual resource | atomic ownership与physical release |
 | [route resource admission](./route-resource-admission.md) | 自动路线claim、插件附加资源、设备准备与release | Basic目标物理资源底线、原子union与grant生命周期 |
 | [protected route admission](./protected-route-admission.md) | 迁移/删除当前保护区域实现时 | transitional region cut、window与既有回归语义；非目标ownership |
-| [timetable model 与 validation](./timetable-model-and-validation.md) | authoring/runtime model、validator | execution authority与validation gate |
-| [simulation](./simulation.md) | detailed/isolated simulation | clone boundary、determinism、provider opt-in |
 | [持久化](./persistence.md) | Basic documents/codec/restore | split pairing、strict decode、materialize |
 | [测试](./testing.md) | Basic fixture/contract tests | isolation、assertion matrix、downstream验证 |
 

@@ -9,23 +9,24 @@ import work.art1st.javarailways.basic.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
 import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.timetable.TimetableExtensionRegistry
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
-import work.art1st.javarailways.basic.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
+import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
-import work.art1st.javarailways.basic.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
-import work.art1st.javarailways.basic.timetable.TimetableService
-import work.art1st.javarailways.basic.timetable.TimetableStep
-import work.art1st.javarailways.basic.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TrainSelector
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationWorld
-import work.art1st.javarailways.basic.timetable.simulation.SimulationTrainOperationDurationResolver
-import work.art1st.javarailways.basic.timetable.simulation.SimulationTrainOperationGateway
+import work.art1st.javarailways.simpleato.timetable.simulation.SimulationTrainOperationDurationResolver
+import work.art1st.javarailways.simpleato.timetable.simulation.SimulationTrainOperationGateway
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
@@ -113,7 +114,7 @@ internal class IsolatedTimetableSimulationFactory(
             profiles,
             gravityMetersPerSecondSquared,
             liveWorld.basicWorldData.turnoutSafetyDefaults,
-            liveWorld.basicWorldData.timetableExtensions.createSimulationRegistry()
+            liveWorld.simpleAtoWorldData.timetableExtensions.createSimulationRegistry()
         )
     }
 
@@ -131,11 +132,9 @@ internal class IsolatedTimetableSimulationFactory(
             workerThreads,
             basicDataFactory = { world ->
                 world.tickManager.register(operationGateway)
-                BasicWorldData(
-                    turnoutSafetyDefaults = snapshot.turnoutSafetyDefaults,
-                    timetableExtensions = snapshot.timetableExtensions
-                )
+                BasicWorldData(turnoutSafetyDefaults = snapshot.turnoutSafetyDefaults)
             },
+            timetableExtensions = snapshot.timetableExtensions,
             dispatcherFactory = {
                     _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime, appliedPlanService ->
                 TimetableDispatcher(

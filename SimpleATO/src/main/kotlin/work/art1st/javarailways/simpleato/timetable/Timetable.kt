@@ -1,13 +1,13 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.timetable.TimetableCondition
-import work.art1st.javarailways.basic.api.timetable.TimetableConditionScope
-import work.art1st.javarailways.basic.api.timetable.TimetableExtensionCall
-import work.art1st.javarailways.basic.api.timetable.TimetableServiceActivation
+import work.art1st.javarailways.simpleato.api.timetable.TimetableCondition
+import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionScope
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall
+import work.art1st.javarailways.simpleato.api.timetable.TimetableServiceActivation
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
 import work.art1st.javarailways.basic.api.station.DwellPlan
 import work.art1st.javarailways.basic.api.station.StationBerthRef
@@ -22,6 +22,8 @@ import work.art1st.javarailways.basic.route.RouteBuildResult
 import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 /** 自动时刻表的内部 Kotlin 数据模型。JS loader 后续只负责生成这些数据。 */
@@ -45,6 +47,21 @@ data class Timetable(
     companion object {
         const val TICKS_PER_GAME_DAY = 24_000L
     }
+}
+
+class TimetableStore {
+    private val timetables = ConcurrentHashMap<String, Timetable>()
+
+    fun add(timetable: Timetable) {
+        require(timetable.id.isNotBlank()) { "timetable id must not be blank" }
+        timetables[timetable.id] = timetable
+    }
+
+    fun remove(id: String): Timetable? = timetables.remove(id)
+
+    operator fun get(id: String): Timetable? = timetables[id]
+
+    fun all(): List<Timetable> = timetables.values.sortedBy { it.id }
 }
 
 data class TimetableLineSpeedLimit(
@@ -264,7 +281,7 @@ class TimetableValidator(private val world: World) {
             TimetableServiceActivation.Scheduled,
             TimetableServiceActivation.Manual -> Unit
             is TimetableServiceActivation.Conditional -> {
-                world.basicWorldData.timetableExtensions.validateCondition(
+                world.simpleAtoWorldData.timetableExtensions.validateCondition(
                     activation.condition,
                     TimetableConditionScope.SERVICE_ACTIVATION
                 )
@@ -439,7 +456,7 @@ class TimetableValidator(private val world: World) {
                             if (!hasMovement) {
                                 errors.add("$prefix step#$index 首次 destination 前不得执行条件分支")
                             }
-                            world.basicWorldData.timetableExtensions
+                            world.simpleAtoWorldData.timetableExtensions
                                 .validateCondition(
                                     step.action.condition,
                                     TimetableConditionScope.RUNTIME_BRANCH
@@ -555,7 +572,7 @@ class TimetableValidator(private val world: World) {
         when (action) {
             is TimetableAction.Extension -> {
                 val call = action.call
-                val provider = world.basicWorldData.timetableExtensions.action(call.typeId, call.version)
+                val provider = world.simpleAtoWorldData.timetableExtensions.action(call.typeId, call.version)
                 if (provider == null) {
                     errors.add("$prefix step#$stepIndex action provider is not registered: ${call.typeId}@${call.version}")
                 } else {
@@ -565,7 +582,7 @@ class TimetableValidator(private val world: World) {
                 }
             }
             is TimetableAction.Conditional -> {
-                world.basicWorldData.timetableExtensions.validateCondition(
+                world.simpleAtoWorldData.timetableExtensions.validateCondition(
                     action.condition,
                     TimetableConditionScope.RUNTIME_BRANCH
                 )

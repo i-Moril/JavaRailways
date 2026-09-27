@@ -11,13 +11,21 @@ data class SimpleATORuntimeSnapshotV1(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val physicsEpoch: Long,
-    val dispatcher: SavedDispatcherV1
+    val dispatcher: SavedDispatcherV1,
+    val timetables: List<SavedTimetableV1> = emptyList()
 ) {
     fun restore(world: World) {
         require(formatVersion == CURRENT_FORMAT_VERSION) {
             "Unsupported SimpleATO runtime snapshot version: $formatVersion"
         }
-        when (val restored = world.simpleAtoWorldData.dispatcher.restoreCheckpoint(world, dispatcher)) {
+        val runtime = world.simpleAtoWorldData
+        check(runtime.timetables.all().isEmpty())
+        val restoredTimetables = timetables.map(SavedTimetableV1::restore)
+        require(restoredTimetables.map { it.id }.distinct().size == restoredTimetables.size) {
+            "SimpleATO runtime snapshot contains duplicate timetable IDs"
+        }
+        restoredTimetables.forEach(runtime.timetables::add)
+        when (val restored = runtime.dispatcher.restoreCheckpoint(world, dispatcher)) {
             TimetableCheckpointRestoreResult.Restored -> Unit
             is TimetableCheckpointRestoreResult.Rejected ->
                 error("SimpleATO dispatcher restore rejected: ${restored.reason}")
@@ -37,7 +45,8 @@ data class SimpleATORuntimeSnapshotV1(
                 formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
                 physicsEpoch = physicsEpoch,
-                dispatcher = world.simpleAtoWorldData.dispatcher.saveCheckpoint()
+                dispatcher = world.simpleAtoWorldData.dispatcher.saveCheckpoint(),
+                timetables = world.simpleAtoWorldData.timetables.all().map(SavedTimetableV1::capture)
             )
         }
     }

@@ -27,16 +27,16 @@ import work.art1st.javarailways.basic.api.ato.provider.AtoProviderBoundary
 import work.art1st.javarailways.basic.api.ato.provider.AtoProviderContext
 import work.art1st.javarailways.basic.api.ato.provider.ProviderBoundaryAction
 import work.art1st.javarailways.basic.pathFinding.RailDestination
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.basic.api.line.LineId
-import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
-import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableLineSpeedLimit
-import work.art1st.javarailways.basic.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableLineSpeedLimit
+import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.physics.rail.configureTurnoutForTest
@@ -60,7 +60,7 @@ import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 
 class SimpleATOTest {
-    private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+    private fun createTestWorld() = createCoreTestWorld().also { TestSimpleATOWorldDataRegistry.getOrCreate(it) }
 
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
@@ -447,7 +447,7 @@ class SimpleATOTest {
         val train = createTrainWithConfig("cross-tick-duplicate", approach, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("cross-tick-duplicate", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val ref = RailObjectRef("test", "cross-tick-duplicate")
         data.railMap.addDestination(
             straight.viewAB,
@@ -567,7 +567,7 @@ class SimpleATOTest {
         val train = createTrainWithConfig("turnout-change", approach, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("turnout-world", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         data.atoProviders.register("switch-during-plan") {
             object : AtoProvider {
                 override val id = "switch-during-plan"
@@ -658,7 +658,7 @@ class SimpleATOTest {
         val train = createTrainWithConfig(id, rail, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("world-$id", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val ato = SimpleATO(
             train = train,
             world = world,

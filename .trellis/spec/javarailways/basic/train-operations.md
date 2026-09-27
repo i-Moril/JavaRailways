@@ -50,7 +50,7 @@ override fun cancel() {
 }
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/timetable/simulation/SimulationTrainOperationGateway.kt`。`snapshot`先检查cancelled，因此后续tick不能改为SUCCEEDED。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/SimulationTrainOperationGateway.kt`。`snapshot`先检查cancelled，因此后续tick不能改为SUCCEEDED。
 
 ## 禁止实现
 
@@ -68,6 +68,6 @@ override fun cancel() {
 - `BukkitTrainOperationGatewayTest.kt`：region dispatch、completion定义、atomic cancel race、request identity。
 
 ```bash
-./gradlew :Basic:test --tests '*TimetableStationCallDispatcherTest' --tests '*SimulationTrainOperationGatewayTest'
+./gradlew :SimpleATO:test --tests '*TimetableStationCallDispatcherTest' --tests '*SimulationTrainOperationGatewayTest'
 ./gradlew :BukkitPlugin:test --tests '*BukkitTrainOperationGatewayTest'
 ```

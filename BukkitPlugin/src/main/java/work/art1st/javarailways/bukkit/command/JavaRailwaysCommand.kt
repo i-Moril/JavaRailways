@@ -26,7 +26,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableReplanResult
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
-import work.art1st.javarailways.basic.timetable.TimetableValidator
+import work.art1st.javarailways.simpleato.timetable.TimetableValidator
 import work.art1st.javarailways.simpleato.timetable.TimetableWaypointProgressListener
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.diagnostics.PluginDiagnosticLog
@@ -431,7 +431,7 @@ class JavaRailwaysCommand {
             originId = "__navigate_origin_$sequence"
             timetableId = "manual-navigate-$sequence"
         } while (data.wayPoints[originId] != null || data.destinations[originId] != null ||
-            data.timetables[timetableId] != null)
+            world.simpleAtoWorldData.timetables[timetableId] != null)
         val serviceId = "navigate"
         data.wayPoints.add(
             WayPoint(
@@ -508,12 +508,12 @@ class JavaRailwaysCommand {
                 )
             }
         }
-        data.timetables.add(timetable)
+        world.simpleAtoWorldData.timetables.add(timetable)
         val startAttempt = runCatching {
             dispatcher.startService(world, timetableId, serviceId)
         }
         dispatcher.stopFutureCycles(timetableId)
-        data.timetables.remove(timetableId)
+        world.simpleAtoWorldData.timetables.remove(timetableId)
         data.destinations.remove(originId)
         data.wayPoints.remove(originId)
         val start = startAttempt.getOrElse { failure ->
@@ -836,7 +836,7 @@ class JavaRailwaysCommand {
                                     ))
                                     return@runInSimulationContext
                                 }
-                                world.basicWorldData.timetables.add(timetable)
+                                world.simpleAtoWorldData.timetables.add(timetable)
                                 PluginDiagnosticLog.timetable(
                                     "LOAD_SUCCEEDED",
                                     "player=${player.name}\nworld=$sourceWorldId\nscript=$scriptName\n" +
@@ -887,7 +887,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr timetable dump <id>")
                     return true
                 }
-                val timetable = world.basicWorldData.timetables[id]
+                val timetable = world.simpleAtoWorldData.timetables[id]
                 if (timetable == null) {
                     sender.sendMessage("时刻表不存在: $id")
                     return true
@@ -896,7 +896,7 @@ class JavaRailwaysCommand {
                 TimetableDumper.dumpToJson(timetable).lines().forEach { sender.sendMessage(it) }
             }
             "list" -> {
-                val timetables = world.basicWorldData.timetables.all()
+                val timetables = world.simpleAtoWorldData.timetables.all()
                 if (timetables.isEmpty()) {
                     sender.sendMessage("当前没有已加载时刻表")
                 } else {
@@ -916,7 +916,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr timetable start <id> [service]")
                     return true
                 }
-                val timetable = world.basicWorldData.timetables[timetableId]
+                val timetable = world.simpleAtoWorldData.timetables[timetableId]
                 if (timetable == null) {
                     sender.sendMessage("时刻表不存在: $timetableId")
                     return true
@@ -965,7 +965,7 @@ class JavaRailwaysCommand {
                     )
                     return true
                 }
-                val timetable = world.basicWorldData.timetables[timetableId]
+                val timetable = world.simpleAtoWorldData.timetables[timetableId]
                 if (timetable == null) {
                     sender.sendMessage("时刻表不存在: $timetableId")
                     return true

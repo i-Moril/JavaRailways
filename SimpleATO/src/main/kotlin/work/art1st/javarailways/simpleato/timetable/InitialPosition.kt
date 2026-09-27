@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 sealed interface TimetableObjectSelector {
     fun matches(id: String): Boolean

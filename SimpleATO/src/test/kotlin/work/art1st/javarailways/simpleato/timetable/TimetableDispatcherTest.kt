@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import kotlinx.serialization.json.JsonObject
@@ -33,15 +35,15 @@ import work.art1st.javarailways.basic.api.station.Station
 import work.art1st.javarailways.basic.api.station.StationBerth
 import work.art1st.javarailways.basic.api.station.StationBerthRef
 import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.api.timetable.*
+import work.art1st.javarailways.simpleato.api.timetable.*
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
-import work.art1st.javarailways.basic.timetable.*
+import work.art1st.javarailways.simpleato.timetable.*
 import work.art1st.javarailways.basic.controller.ManualController
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -61,8 +63,8 @@ class TimetableDispatcherTest {
     fun `timetable without known routes applies without creating an empty dependency`() {
         val world = createTestWorld().also(worlds::add)
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
-        data.timetables.add(Timetable("empty"))
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        world.simpleAtoWorldData.timetables.add(Timetable("empty"))
         val plans = RecordingTimetableAppliedPlanService()
         val dispatcher = dispatcher(plans)
 
@@ -75,7 +77,7 @@ class TimetableDispatcherTest {
     fun `timetable apply installs exact physical dependencies and releases them after drain`() {
         val world = createTestWorld().also(worlds::add)
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
@@ -84,7 +86,7 @@ class TimetableDispatcherTest {
         val origin = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
-        data.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
         val plans = RecordingTimetableAppliedPlanService()
         val dispatcher = dispatcher(plans)
 
@@ -99,7 +101,7 @@ class TimetableDispatcherTest {
     fun `timetable apply publishes no clock when dependency installation fails`() {
         val world = createTestWorld().also(worlds::add)
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
@@ -108,7 +110,7 @@ class TimetableDispatcherTest {
         val origin = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
-        data.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
         val plans = RecordingTimetableAppliedPlanService().apply {
             setFailure = AppliedPlanDependencyMutationResult(
                 AppliedPlanDependencyMutationStatus.EDIT_IN_PROGRESS,
@@ -128,7 +130,7 @@ class TimetableDispatcherTest {
     fun `stopping recurrence retains dependencies while a run is active`() {
         val world = createTestWorld().also(worlds::add)
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(50.0, segmentCount = 1)
@@ -137,7 +139,7 @@ class TimetableDispatcherTest {
         val origin = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
-        data.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
         val plans = RecordingTimetableAppliedPlanService()
         val dispatcher = dispatcher(plans)
 
@@ -180,7 +182,7 @@ class TimetableDispatcherTest {
 
     @AfterEach
     fun unregisterWorlds() {
-        worlds.forEach(TestBasicWorldDataRegistry::unregister)
+        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
         worlds.clear()
     }
 
@@ -191,7 +193,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-maintenance-route-test", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -204,7 +206,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
-        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
 
         assertFalse(dispatcher.hasLiveRouteOn(setOf(rail.id)))
         assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
@@ -220,7 +222,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-line-speed-test", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -235,7 +237,7 @@ class TimetableDispatcherTest {
             0L
         )
         val base = timetable("tt", "s1", train.id, "A", "B")
-        data.timetables.add(base.copy(
+        world.simpleAtoWorldData.timetables.add(base.copy(
             services = listOf(base.services.single().copy(lineId = lineId)),
             lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, 7.5))
         ))
@@ -257,7 +259,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-test", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -266,7 +268,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
-        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
 
         val started = dispatcher.startService(world, "tt", "s1")
         assertTrue(started is TimetableServiceStartResult.Started)
@@ -313,7 +315,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-depot", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -345,7 +347,7 @@ class TimetableDispatcherTest {
             ),
             StablingPointRef(depotId, "one")
         )
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -390,7 +392,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-waypoint", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -399,7 +401,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("platform@1", "Platform 1", rail.id, originArc))
         data.wayPoints.add(WayPoint("next", "Next", rail.id, originArc + 30.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "waypoint-tt",
                 services = listOf(
@@ -439,14 +441,14 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-waypoint-failure", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
         data.wayPoints.add(WayPoint("empty", "Empty", rail.id, 10.0))
         data.wayPoints.add(WayPoint("next", "Next", rail.id, 40.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "waypoint-failure",
                 services = listOf(
@@ -475,7 +477,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("physical-depot-selection", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
         val train = createTrainWithConfig("T-physical", rail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
@@ -490,7 +492,7 @@ class TimetableDispatcherTest {
             )
         )
         data.wayPoints.add(WayPoint("next", "Next", rail.id, originArc + 80.0))
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "physical-depot",
             services = listOf(TimetableService(
                 "s1",
@@ -523,7 +525,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("leading-reverse", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
         val train = createTrainWithConfig("T-reverse", rail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
@@ -536,7 +538,7 @@ class TimetableDispatcherTest {
             DestinationRole.DepotStablingPointRole("north", "1", usableLengthMeters = 20.0)
         ))
         data.wayPoints.add(WayPoint("next", "Next", rail.id, originArc + 80.0))
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "reverse-start",
             services = listOf(TimetableService(
                 "s1",
@@ -588,7 +590,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-store", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
         val returnRail = rail(world, Vector3d(140.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         CoreRail.connect(rail, returnRail)
@@ -639,7 +641,7 @@ class TimetableDispatcherTest {
             ),
             StablingPointRef(depotId, "out")
         )
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -681,7 +683,7 @@ class TimetableDispatcherTest {
         assertTrue(!data.atoCoordinator.isStalled)
 
         data.wayPoints.add(WayPoint("C", "C", rail.id, originArc + 115.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-depart-again",
                 services = listOf(
@@ -726,7 +728,7 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-store-capacity", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val outboundRail = rail(
             world,
             Vector3d(0.0, 0.0, 0.0),
@@ -798,7 +800,7 @@ class TimetableDispatcherTest {
             ),
             StablingPointRef(depotId, "in")
         )
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-store-capacity",
                 services = listOf(
@@ -850,7 +852,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-next-cycle", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val outboundRail = rail(
             world,
             Vector3d(0.0, 0.0, 0.0),
@@ -925,7 +927,7 @@ class TimetableDispatcherTest {
             ),
             StablingPointRef(depotId, "one")
         )
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-cycle",
                 services = listOf(
@@ -997,7 +999,7 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-cycle-overlap", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1029,7 +1031,7 @@ class TimetableDispatcherTest {
             ),
             StablingPointRef(depotId, "one")
         )
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-overlap",
                 services = listOf(
@@ -1066,7 +1068,7 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-depot-miss", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1084,7 +1086,7 @@ class TimetableDispatcherTest {
             )
         )
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -1118,7 +1120,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-clock", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1127,7 +1129,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 id = "tt",
                 periodDays = 2L,
@@ -1160,7 +1162,7 @@ class TimetableDispatcherTest {
         val lateData = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-late", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(lateWorld, lateData)
+        TestSimpleATOWorldDataRegistry.register(lateWorld, lateData)
         val lateRail = createStraightRailFromSegments(
             lateWorld,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1169,7 +1171,7 @@ class TimetableDispatcherTest {
         val lateOrigin = lateTrain.head.location.arcLength
         lateData.wayPoints.add(WayPoint("A", "A", lateRail.id, lateOrigin))
         lateData.wayPoints.add(WayPoint("B", "B", lateRail.id, lateOrigin + 30.0))
-        lateData.timetables.add(timetable("late", "s1", lateTrain.id, "A", "B"))
+        lateWorld.simpleAtoWorldData.timetables.add(timetable("late", "s1", lateTrain.id, "A", "B"))
         lateDispatcher.beginTimetable(lateWorld, "late")
         repeat(10) { lateDispatcher.tick(lateWorld) }
 
@@ -1186,7 +1188,7 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-controller-identity", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1195,7 +1197,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 40.0))
-        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
         dispatcher.startService(world, "tt", "s1")
 
         train.setController(ManualController(train, world))
@@ -1216,7 +1218,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-manual-routed", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
@@ -1226,7 +1228,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("P", "P", rail.id, originArc + 30.0))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 60.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -1285,7 +1287,7 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-manual-violation", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1294,7 +1296,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
-        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
         dispatcher.startService(world, "tt", "s1")
         dispatcher.enterManualRoutedControl(world, train.id, "driver")
         val manual = ManualController(train, world, maxSpeed = 10.0)
@@ -1319,7 +1321,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-full-manual", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1329,7 +1331,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("P", "P", rail.id, originArc + 25.0))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -1379,7 +1381,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-navigation-replace", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1388,7 +1390,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "manual-navigate-99",
                 services = listOf(
@@ -1427,7 +1429,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-transfer", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1436,7 +1438,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
-        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
         val id = TimetableServiceRunId("tt", "s1")
         val started = dispatcher.startService(world, "tt", "s1") as
             TimetableServiceStartResult.Started
@@ -1482,7 +1484,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-transfer-route", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1491,7 +1493,7 @@ class TimetableDispatcherTest {
         val originArc = train.head.location.arcLength
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
-        data.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
+        world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
         val id = TimetableServiceRunId("tt", "s1")
         dispatcher.startService(world, "tt", "s1") as TimetableServiceStartResult.Started
         tickAndPublish(train.controller as SimpleATO)
@@ -1520,7 +1522,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-progress", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(140.0, segmentCount = 1)
@@ -1532,7 +1534,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, viaArc))
         data.wayPoints.add(WayPoint("C", "C", rail.id, targetArc))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -1585,7 +1587,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-sequence", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(140.0, segmentCount = 1)
@@ -1595,7 +1597,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
         data.wayPoints.add(WayPoint("C", "C", rail.id, originArc + 65.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -1638,7 +1640,7 @@ class TimetableDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val dispatcher = dispatcher()
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
         val straight = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 0.0))
         val branch = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 10.0))
@@ -1650,7 +1652,7 @@ class TimetableDispatcherTest {
         assertTrue(30.0 - origin in 5.0..20.0)
         data.wayPoints.add(WayPoint("A", "A", approach.id, origin))
         data.wayPoints.add(WayPoint("B", "B", branch.id, 20.0))
-        data.timetables.add(Timetable("tt", services = listOf(service("s", train.id, "A", "B"))))
+        world.simpleAtoWorldData.timetables.add(Timetable("tt", services = listOf(service("s", train.id, "A", "B"))))
 
         assertTrue(dispatcher.startService(world, "tt", "s") is TimetableServiceStartResult.Started)
         tickAndPublish(train.controller as SimpleATO)
@@ -1669,7 +1671,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-authority", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val mainBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
         val blockingBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
@@ -1686,7 +1688,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("M1", "M1", mainBranch.id, 20.0))
         data.wayPoints.add(WayPoint("B0", "B0", approach.id, blockingTrain.head.location.arcLength))
         data.wayPoints.add(WayPoint("B1", "B1", blockingBranch.id, 20.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -1741,7 +1743,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-conflict", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val firstBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
         val secondBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
@@ -1756,7 +1758,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A2", "A2", approach.id, secondOriginArc))
         data.wayPoints.add(WayPoint("B1", "B1", firstBranch.id, 20.0))
         data.wayPoints.add(WayPoint("B2", "B2", secondBranch.id, 20.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 id = "tt",
                 services = listOf(
@@ -1803,7 +1805,7 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val coordinator = AtoWorldCoordinator("dispatcher-stall-boundary", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val firstRail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1818,7 +1820,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("F1", "F1", firstRail.id, 80.0))
         data.wayPoints.add(WayPoint("S0", "S0", secondRail.id, secondTrain.head.location.arcLength))
         data.wayPoints.add(WayPoint("S1", "S1", secondRail.id, 80.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt-stall-boundary",
                 services = listOf(
@@ -1849,7 +1851,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-priority", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val lateBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
         val earlyBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
@@ -1863,7 +1865,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("E0", "E0", approach.id, earlyTrain.head.location.arcLength))
         data.wayPoints.add(WayPoint("L1", "L1", lateBranch.id, 20.0))
         data.wayPoints.add(WayPoint("E1", "E1", earlyBranch.id, 20.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -1914,7 +1916,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-activation", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1925,7 +1927,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
         var enabled = false
         var evaluations = 0
-        data.timetableExtensions.registerCondition(object : TimetableConditionProvider {
+        world.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider {
             override val typeId = "test:demand"
             override val version = 1
             override val descriptor = TimetableExtensionDescriptor("Demand", "Test demand")
@@ -1935,7 +1937,7 @@ class TimetableDispatcherTest {
                 return if (enabled) TimetableConditionResult.True else TimetableConditionResult.False
             }
         })
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "tt-activation",
             services = listOf(service("service", train.id, "A", "B").copy(
                 activation = TimetableServiceActivation.Conditional(
@@ -1967,7 +1969,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("dispatcher-extension", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -1980,7 +1982,7 @@ class TimetableDispatcherTest {
         var evaluations = 0
         var actionStarts = 0
         val extensionDescriptor = TimetableExtensionDescriptor("Test", "Test extension")
-        data.timetableExtensions.registerCondition(object : TimetableConditionProvider {
+        world.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider {
             override val typeId = "test:enabled"
             override val version = 1
             override val descriptor = extensionDescriptor
@@ -1991,7 +1993,7 @@ class TimetableDispatcherTest {
                 return TimetableConditionResult.True
             }
         })
-        data.timetableExtensions.registerAction(object : TimetableActionProvider {
+        world.simpleAtoWorldData.timetableExtensions.registerAction(object : TimetableActionProvider {
             override val typeId = "test:record"
             override val version = 1
             override val descriptor = extensionDescriptor
@@ -2008,7 +2010,7 @@ class TimetableDispatcherTest {
                 })
             }
         })
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "tt-extension",
             services = listOf(TimetableService(
                 id = "service",

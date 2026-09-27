@@ -73,7 +73,7 @@ CoreWorld.load(
 )
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/timetable/simulation/IsolatedTimetableSimulation.kt`。该模式保证相同snapshot可在Bukkit外恢复。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulation.kt`。该模式保证相同snapshot可在Bukkit外恢复。
 
 ## 禁止实现
 

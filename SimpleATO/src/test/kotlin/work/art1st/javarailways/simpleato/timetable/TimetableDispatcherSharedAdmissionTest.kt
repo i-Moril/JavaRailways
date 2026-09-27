@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -33,12 +35,12 @@ import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.controller.ManualController
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
-import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableAction
-import work.art1st.javarailways.basic.timetable.TimetableService
-import work.art1st.javarailways.basic.timetable.TimetableStep
-import work.art1st.javarailways.basic.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TrainSelector
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -77,7 +79,7 @@ class TimetableDispatcherSharedAdmissionTest {
 
     @AfterEach
     fun unregisterWorlds() {
-        worlds.forEach(TestBasicWorldDataRegistry::unregister)
+        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
         worlds.clear()
     }
 
@@ -397,7 +399,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = world.createRailForTest(straightCurve(
             Vector3d(0.0, 0.0, 0.0),
             Vector3d(240.0, 0.0, 0.0)
@@ -443,7 +445,7 @@ class TimetableDispatcherSharedAdmissionTest {
             ),
             StablingPointRef(depotId, "out")
         )
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "store",
             services = listOf(TimetableService(
                 "first",
@@ -454,7 +456,7 @@ class TimetableDispatcherSharedAdmissionTest {
                 )
             ))
         ))
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "depart",
             services = listOf(TimetableService(
                 "second",
@@ -517,7 +519,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
@@ -527,7 +529,7 @@ class TimetableDispatcherSharedAdmissionTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 45.0))
         data.wayPoints.add(WayPoint("C", "C", rail.id, origin + 110.0))
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "first",
             services = listOf(TimetableService(
                 id = "run",
@@ -538,7 +540,7 @@ class TimetableDispatcherSharedAdmissionTest {
                 )
             ))
         ))
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "second",
             services = listOf(TimetableService(
                 id = "run",
@@ -610,7 +612,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(400.0, segmentCount = 1)
@@ -628,7 +630,7 @@ class TimetableDispatcherSharedAdmissionTest {
             steps += TimetableStep.At(0L, TimetableAction.Stop(1L))
             steps += TimetableStep.At(0L, TimetableAction.GoTo("C"))
         }
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "tt",
             services = listOf(TimetableService(
                 id = "service",

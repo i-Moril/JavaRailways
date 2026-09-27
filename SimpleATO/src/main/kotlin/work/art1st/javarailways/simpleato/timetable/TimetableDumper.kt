@@ -5,15 +5,15 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import work.art1st.javarailways.basic.api.timetable.TimetableCondition
-import work.art1st.javarailways.basic.api.timetable.TimetableExtensionCall
-import work.art1st.javarailways.basic.api.timetable.TimetableServiceActivation
-import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableAction
-import work.art1st.javarailways.basic.timetable.TimetableObjectSelector
-import work.art1st.javarailways.basic.timetable.TimetableService
-import work.art1st.javarailways.basic.timetable.TimetableStep
-import work.art1st.javarailways.basic.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.api.timetable.TimetableCondition
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall
+import work.art1st.javarailways.simpleato.api.timetable.TimetableServiceActivation
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.TimetableObjectSelector
+import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TrainSelector
 
 object TimetableDumper {
     private val json = Json { prettyPrint = true }

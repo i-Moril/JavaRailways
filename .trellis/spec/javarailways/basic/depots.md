@@ -68,5 +68,6 @@ fun planReset(requestedDepotIds: Set<DepotId>? = null): DepotResetPlanningResult
 - `DepotResetCoordinatorTest.kt`：Stall precondition、preflight no mutation、mid-placement rollback、cross-rail overlap、PARTIALLY_COMMITTED。
 
 ```bash
-./gradlew :Basic:test --tests '*DepotStoreTest' --tests '*DepotResetCoordinatorTest' --tests '*TimetableDispatcherTest'
+./gradlew :Basic:test --tests '*DepotStoreTest'
+./gradlew :SimpleATO:test --tests '*DepotResetCoordinatorTest' --tests '*TimetableDispatcherTest'
 ```

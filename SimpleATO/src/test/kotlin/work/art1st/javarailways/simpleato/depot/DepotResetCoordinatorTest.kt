@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.depot
 
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -22,19 +24,19 @@ import work.art1st.javarailways.basic.api.destination.OperationalDestinationServ
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.GrantingRouteAdmissionTestContext
 import work.art1st.javarailways.simpleato.timetable.UnavailableRouteAdmissionTestContext
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
-import work.art1st.javarailways.basic.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
 import work.art1st.javarailways.simpleato.timetable.acceptingTimetableAppliedPlanService
-import work.art1st.javarailways.basic.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -60,7 +62,7 @@ class DepotResetCoordinatorTest {
 
     @AfterEach
     fun unregisterWorlds() {
-        worlds.forEach(TestBasicWorldDataRegistry::unregister)
+        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
         worlds.clear()
     }
 
@@ -85,7 +87,7 @@ class DepotResetCoordinatorTest {
         )
         val coordinator = AtoWorldCoordinator("reset-world", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
@@ -121,7 +123,7 @@ class DepotResetCoordinatorTest {
             ),
             StablingPointRef(depotId, "one")
         )
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -173,7 +175,7 @@ class DepotResetCoordinatorTest {
         val world = createTestWorld().also(worlds::add)
         val coordinator = AtoWorldCoordinator("reset-placement-rollback", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(140.0, segmentCount = 1)
@@ -280,7 +282,7 @@ class DepotResetCoordinatorTest {
         val world = createTestWorld().also(worlds::add)
         val coordinator = AtoWorldCoordinator("reset-cross-rail-envelope", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val firstRail = rail(
             world,
             Vector3d(0.0, 0.0, 0.0),
@@ -379,7 +381,7 @@ class DepotResetCoordinatorTest {
     fun `failed train preflight changes neither train nor depot ledger`() {
         val world = createTestWorld().also(worlds::add)
         val coordinator = AtoWorldCoordinator("reset-preflight", reportSink = {})
-        TestBasicWorldDataRegistry.register(
+        TestSimpleATOWorldDataRegistry.register(
             world,
             BasicWorldData(atoCoordinator = coordinator)
         )

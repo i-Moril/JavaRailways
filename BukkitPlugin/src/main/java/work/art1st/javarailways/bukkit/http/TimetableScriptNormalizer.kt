@@ -2,10 +2,10 @@ package work.art1st.javarailways.bukkit.http
 
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.SavedTimetableActionTypeV1
-import work.art1st.javarailways.basic.persistence.SavedTimetableServiceV1
-import work.art1st.javarailways.basic.persistence.SavedTimetableStepV1
-import work.art1st.javarailways.basic.persistence.SavedTimetableV1
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableActionTypeV1
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableServiceV1
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableStepV1
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
 import work.art1st.javarailways.core.api.physics.World
 
 /** Resolves world-dependent destination roles after the isolated Worker has produced pure JSON. */

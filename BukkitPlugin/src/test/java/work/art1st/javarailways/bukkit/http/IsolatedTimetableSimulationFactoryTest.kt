@@ -17,15 +17,22 @@ import work.art1st.javarailways.basic.api.line.Line
 import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableAction
-import work.art1st.javarailways.basic.timetable.TimetableLineSpeedLimit
-import work.art1st.javarailways.basic.timetable.TimetableService
-import work.art1st.javarailways.basic.timetable.TimetableStep
-import work.art1st.javarailways.basic.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.TimetableLineSpeedLimit
+import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TrainSelector
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationRequest
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
+import work.art1st.javarailways.simpleato.SimpleATOWorldData
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
+import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
+import work.art1st.javarailways.simpleato.timetable.TimetableAppliedPlanService
+import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.MotorControlConfig
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
@@ -51,7 +58,7 @@ class IsolatedTimetableSimulationFactoryTest {
             source,
             PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1)
         )
-        source.registerExtensionData(BasicPlugin.INSTANCE, BasicWorldData())
+        registerWorldData(source)
         source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
         createTrainWithConfig("live-transient", rail, source, listOf(10.0))
         val timetable = Timetable("t", services = listOf(TimetableService(
@@ -83,7 +90,7 @@ class IsolatedTimetableSimulationFactoryTest {
             source,
             PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1)
         )
-        source.registerExtensionData(BasicPlugin.INSTANCE, BasicWorldData())
+        registerWorldData(source)
         source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
         source.basicWorldData.wayPoints.add(WayPoint("terminal", "Terminal", rail.id, 250.0))
         val destinationService = OperationalDestinationService(source)
@@ -155,7 +162,7 @@ class IsolatedTimetableSimulationFactoryTest {
             source,
             PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1)
         )
-        source.registerExtensionData(BasicPlugin.INSTANCE, BasicWorldData())
+        registerWorldData(source)
         source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
         val services = listOf("a", "b").map { id -> TimetableService(
             id,
@@ -181,7 +188,7 @@ class IsolatedTimetableSimulationFactoryTest {
     @Test
     fun `rejects different profiles for structurally equivalent selectors`() {
         val source = createTestWorld()
-        source.registerExtensionData(BasicPlugin.INSTANCE, BasicWorldData())
+        registerWorldData(source)
         val services = listOf("a", "b").map { id ->
             TimetableService(id, TrainSelector.TrainId("same-train"), emptyList())
         }
@@ -211,6 +218,35 @@ class IsolatedTimetableSimulationFactoryTest {
             TrainControlConfig(maxSpeed = 10.0),
             listOf(carControl),
             listOf(SimulationCarBlueprint(10.0, 0.0, 0.0, 0.0, 3.5, -3.5, carControl))
+        )
+    }
+
+    private fun registerWorldData(world: work.art1st.javarailways.core.physics.CoreWorld) {
+        val basicData = BasicWorldData()
+        world.registerExtensionData(BasicPlugin.INSTANCE, basicData)
+        val worldId = basicData.atoCoordinator.worldId
+        val restrictions = TrainRestrictionSnapshotStore(worldId)
+        val inspection = InspectionRuntime(restrictions) { _, _, failure -> throw failure }
+        val signalEpoch = SignalEpochRuntime(worldId, restrictions, restrictions::completeEpoch)
+        val dispatcher = TimetableDispatcher(
+            TimetableRouteAdmissionContextProvider { null },
+            restrictions,
+            inspection,
+            object : TimetableAppliedPlanService {
+                override fun set(request: work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest) =
+                    work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult(
+                        work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus.APPLIED
+                    )
+
+                override fun remove(owner: work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner) =
+                    work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult(
+                        work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus.REMOVED
+                    )
+            }
+        )
+        world.registerExtensionData(
+            SimpleATOPlugin.INSTANCE,
+            SimpleATOWorldData(dispatcher, signalEpoch, restrictions, inspection)
         )
     }
 }

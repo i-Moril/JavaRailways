@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
 import work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState
@@ -21,11 +21,10 @@ class WorldSnapshotExtensionDataTest {
         val basicInfrastructure = BasicInfrastructureSnapshotV1(
             1, 7L, emptyList(), emptyList(), emptyList(), 0L
         )
-        val basicRuntime = BasicRuntimeSnapshotV2(
-            formatVersion = BasicRuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
+        val basicRuntime = BasicRuntimeSnapshotV3(
+            formatVersion = BasicRuntimeSnapshotV3.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 9L,
-            timetables = emptyList(),
             rollingStock = emptyList()
         )
         val simpleAtoRuntime = SimpleATORuntimeSnapshotV1(

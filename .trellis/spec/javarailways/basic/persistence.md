@@ -2,7 +2,7 @@
 
 ## 适用场景与用途
 
-触发：修改Basic infrastructure/runtime、Timetable JSON、diagnostic/provider payload或Core/Basic/SimpleATO split pairing。
+触发：修改Basic infrastructure/runtime、rolling-stock ledger、diagnostic/provider payload或Core/Basic/SimpleATO split pairing。Timetable JSON与runtime归SimpleATO。
 
 用途：strict decode current document后做全identity/reference预校验，再materialize fresh world；schema version、revision、physics epoch、provider/diagnostic version各自独立。通用规则见[共享持久化](../shared/persistence.md)。
 
@@ -20,9 +20,9 @@ data class BasicInfrastructureSnapshotV1(
 )
 ```
 
-Runtime `BasicRuntimeSnapshotV2(formatVersion=2,infrastructureRevision,physicsEpoch,timetables,rollingStock)`不再包含Dispatcher。Basic infrastructure仍为format 1；两个独立boundary各自使用`encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
+Runtime `BasicRuntimeSnapshotV3(formatVersion=3,infrastructureRevision,physicsEpoch,rollingStock)`不包含Timetable或Dispatcher。Basic infrastructure仍为format 1；两个独立boundary各自使用`encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
 
-Dispatcher checkpoint和SimpleATO runtime由[SimpleATO persistence](../simpleato/persistence.md)拥有。`SavedTimetableV1`同时有codec并嵌runtime；演进前必须明确它是否独立document boundary，不从class suffix推断。
+Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
 
 Diagnostic独立：`AtoStallReportJson.schemaVersion=2`、`DepotResetReportJson.schemaVersion=1`。`lineRevision`是edit revision；`infrastructureRevision`配对files；`physicsEpoch`配对publication；都非schemaVersion。
 
@@ -35,7 +35,8 @@ strict decode current
 → prevalidate all duplicate identities、cross-store collisions、rail/station/point/provider refs
 → require fresh target
 → materialize canonical Destinations/roles/WayPoints/Lines/metadata
-→ materialize Timetables/RollingStock/checkpoint
+→ materialize Basic RollingStock
+→ restore SimpleATO Timetables before Dispatcher checkpoint
 → rebuild ephemeral speed signals/providers separately
 ```
 
@@ -47,7 +48,7 @@ strict decode current
 | orphan destination/waypoint/metadata rail | fail before materialize | fresh |
 | duplicate destination/waypoint/line/metadata或cross-store ID | fail before materialize | fresh |
 | Line missing Station | fail prevalidation | fresh |
-| runtime duplicate timetable/train/orphan point | fail prevalidation | fresh |
+| runtime duplicate train/orphan point | fail prevalidation | fresh |
 | Core/Basic/SimpleATO pair mismatch | outer load拒绝 | 不选partial file |
 | checkpoint active run | recovery record + disabled service | 无live execution |
 | additive default field | fixed old fixture直接decode，不升版 | writer输出current |
@@ -82,7 +83,7 @@ val standaloneWayPoints = data.wayPoints.all()
 - infrastructure/runtime各有hand-written current/old/future/unknown/corrupt/orphan/duplicate/collision fixtures。
 - 每个failure断言target所有stores fresh/unchanged。
 - pairing tests覆盖main/backup highest matching pair和missing half。
-- `TimetableSnapshotTest.kt`固定presentation不进入runtime；Dispatcher recovery测试属于SimpleATO。
+- Timetable snapshot与Dispatcher recovery测试属于SimpleATO。
 - additive field固定旧JSON+default+round-trip+version不变。
 
 ```bash

@@ -7,9 +7,7 @@ import work.art1st.javarailways.basic.api.depot.DepotStore
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationStore
 import work.art1st.javarailways.basic.api.line.LineStore
 import work.art1st.javarailways.basic.api.station.StationStore
-import work.art1st.javarailways.basic.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.basic.pathFinding.RailMap
-import work.art1st.javarailways.basic.timetable.Timetable
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
 import work.art1st.javarailways.basic.safety.TrainSpeedProfileStore
@@ -28,10 +26,8 @@ data class BasicWorldData(
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val depots: DepotStore = DepotStore(),
     val lines: LineStore = LineStore(),
-    val timetables: TimetableStore = TimetableStore(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
-    val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),
     val stations: StationStore = StationStore(railObjects),
     val turnoutSafetyDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults(),
@@ -91,19 +87,4 @@ object DirectionRestrictionResolver {
         if (kotlin.math.abs(delta) < minimumDifference) return null
         return if (delta > 0.0) ViewDirection.AB else ViewDirection.BA
     }
-}
-
-class TimetableStore {
-    private val timetables = ConcurrentHashMap<String, Timetable>()
-
-    fun add(timetable: Timetable) {
-        require(timetable.id.isNotBlank()) { "timetable id must not be blank" }
-        timetables[timetable.id] = timetable
-    }
-
-    fun remove(id: String): Timetable? = timetables.remove(id)
-
-    operator fun get(id: String): Timetable? = timetables[id]
-
-    fun all(): List<Timetable> = timetables.values.sortedBy { it.id }
 }

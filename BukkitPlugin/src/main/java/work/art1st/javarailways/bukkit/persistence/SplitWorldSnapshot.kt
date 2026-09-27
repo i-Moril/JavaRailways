@@ -5,7 +5,7 @@ import kotlinx.serialization.json.Json
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotCodec
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotCodec
@@ -40,7 +40,7 @@ data class RuntimeFileV2(
     fun core(): CoreWorld.SavedRuntimeV1 = WorldSnapshotCodec.decodeRuntime(coreSnapshotJson).also {
         require(it.infrastructureRevision == infrastructureRevision && it.physicsEpoch == physicsEpoch)
     }
-    fun basic(): BasicRuntimeSnapshotV2 = BasicRuntimeSnapshotCodec.decode(basicSnapshotJson).also {
+    fun basic(): BasicRuntimeSnapshotV3 = BasicRuntimeSnapshotCodec.decode(basicSnapshotJson).also {
         require(it.infrastructureRevision == infrastructureRevision && it.physicsEpoch == physicsEpoch)
     }
     fun simpleAto(): SimpleATORuntimeSnapshotV1 =
@@ -62,7 +62,7 @@ data class WorldSnapshotCapture(
     val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
     val basicInfrastructure: BasicInfrastructureSnapshotV1,
     val coreRuntime: CoreWorld.SavedRuntimeV1,
-    val basicRuntime: BasicRuntimeSnapshotV2,
+    val basicRuntime: BasicRuntimeSnapshotV3,
     val simpleAtoRuntime: SimpleATORuntimeSnapshotV1
 ) {
     init {
@@ -101,7 +101,7 @@ object SplitWorldSnapshotCodec {
 
     fun runtime(
         core: CoreWorld.SavedRuntimeV1,
-        basic: BasicRuntimeSnapshotV2,
+        basic: BasicRuntimeSnapshotV3,
         simpleAto: SimpleATORuntimeSnapshotV1
     ): RuntimeFileV2 {
         require(core.infrastructureRevision == basic.infrastructureRevision)

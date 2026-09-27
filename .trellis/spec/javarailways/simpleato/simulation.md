@@ -1,4 +1,4 @@
-# Basic simulation 契约
+# SimpleATO timetable simulation 契约
 
 ## 适用场景与用途
 
@@ -21,13 +21,13 @@ distance += result.distance
 elapsed += STEP_SECONDS
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/timetable/simulation/DetailedTrainTravelSimulator.kt`。同input应得相同result；不访问world/platform。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/DetailedTrainTravelSimulator.kt`。同input应得相同result；不访问world/platform，纵向积分仍复用 Basic `TrainDynamics`。
 
 ## Isolated world owner、clone与lifecycle
 
 `IsolatedTimetableSimulationRequest(timetable,delayThresholdTicks=1200,maximumSimulationTicks=periodTicks)`要求threshold>0、max在`1..periodTicks`。Result sealed：`Completed/DelayExceeded/Failed/PeriodEnded`，均含simulatedTicks/runs。
 
-`IsolatedTimetableSimulationWorld.create(coreInfrastructure,basicInfrastructure,workerThreads,basicDataFactory,seed)`：
+`IsolatedTimetableSimulationWorld.create(coreInfrastructure,basicInfrastructure,workerThreads,basicDataFactory,timetableExtensions,dispatcherFactory,seed)`：
 
 - Core/Basic `infrastructureRevision`必须相等；
 - restore Core infrastructure only，attach freshBasic data，restoreBasic infrastructure；
@@ -70,6 +70,6 @@ Registry只复制显式实现simulation factory的providers；Bukkit capture can
 - Bukkit factory tests：revision/profile/provider opt-in/canonical turnout。
 
 ```bash
-./gradlew :Basic:test --tests 'work.art1st.javarailways.basic.timetable.simulation.*'
+./gradlew :SimpleATO:test --tests 'work.art1st.javarailways.simpleato.timetable.simulation.*'
 ./gradlew :BukkitPlugin:test --tests '*IsolatedTimetableSimulation*'
 ```

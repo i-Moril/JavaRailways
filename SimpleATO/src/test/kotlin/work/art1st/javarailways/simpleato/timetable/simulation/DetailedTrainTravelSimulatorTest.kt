@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable.simulation
+package work.art1st.javarailways.simpleato.timetable.simulation
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue

@@ -19,7 +19,8 @@ import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationR
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
@@ -124,7 +125,7 @@ class IsolatedTimetableSimulationWorld private constructor(
     ): IsolatedTimetableSimulationResult {
         val data = world.basicWorldData
         val dispatcher = world.simpleAtoWorldData.dispatcher
-        data.timetables.add(request.timetable)
+        world.simpleAtoWorldData.timetables.add(request.timetable)
         when (val started = dispatcher.beginTimetable(world, request.timetable.id)) {
             is TimetableEpochStartResult.Failure -> return IsolatedTimetableSimulationResult.Failed(
                 0L, started.reason
@@ -216,6 +217,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             basicInfrastructure: BasicInfrastructureSnapshotV1,
             workerThreads: Int,
             basicDataFactory: (CoreWorld) -> BasicWorldData,
+            timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
             dispatcherFactory: (
                 CoreWorld,
                 TimetableRouteAdmissionContextProvider,
@@ -282,7 +284,8 @@ class IsolatedTimetableSimulationWorld private constructor(
                                 ),
                                 signalEpochRuntime,
                                 signalRestrictions,
-                                inspectionRuntime
+                                inspectionRuntime,
+                                timetableExtensions = timetableExtensions
                             )
                         )
                     }

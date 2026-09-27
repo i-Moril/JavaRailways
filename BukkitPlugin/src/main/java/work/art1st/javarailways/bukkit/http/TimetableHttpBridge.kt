@@ -25,12 +25,12 @@ import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.line.LinePlanner
 import work.art1st.javarailways.basic.api.line.LineRevisionConflict
 import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.api.timetable.TimetableConditionProvider
+import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionProvider
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.SavedTimetableV1
-import work.art1st.javarailways.basic.persistence.TimetableSnapshotCodec
-import work.art1st.javarailways.basic.timetable.LineMaximumSpeedResolver
-import work.art1st.javarailways.basic.timetable.TimetableValidator
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
+import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
+import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
+import work.art1st.javarailways.simpleato.timetable.TimetableValidator
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationRequest
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -313,10 +313,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         private fun extensionsJson(worldName: String) = withWorld(worldName) { _, world ->
             json.encodeToString(buildJsonObject {
                 put("conditions", JsonArray(
-                    world.basicWorldData.timetableExtensions.conditionProviders().map(::conditionDescriptorJson)
+                    world.simpleAtoWorldData.timetableExtensions.conditionProviders().map(::conditionDescriptorJson)
                 ))
                 put("actions", JsonArray(
-                    world.basicWorldData.timetableExtensions.actionProviders().map { provider ->
+                    world.simpleAtoWorldData.timetableExtensions.actionProviders().map { provider ->
                         descriptorJson(
                             provider.typeId,
                             provider.version,
@@ -404,7 +404,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             worldName: String,
             source: String,
             timetableId: String
-        ): Pair<SavedTimetableV1, work.art1st.javarailways.basic.timetable.TimetableValidationResult> {
+        ): Pair<SavedTimetableV1, work.art1st.javarailways.simpleato.timetable.TimetableValidationResult> {
             val workerSaved = plugin.timetableScriptSandbox.compileSource(source, timetableId)
             return await {
                 withWorld(worldName) { _, world ->
@@ -417,7 +417,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             }
         }
 
-        private fun validationJson(validation: work.art1st.javarailways.basic.timetable.TimetableValidationResult) =
+        private fun validationJson(validation: work.art1st.javarailways.simpleato.timetable.TimetableValidationResult) =
             buildJsonObject {
                 put("valid", validation.isSuccess)
                 put("errors", JsonArray(validation.errors.map(::JsonPrimitive)))
@@ -573,7 +573,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         throw HttpFailure(400, "timetableId and serviceId must be provided together")
                     }
                     val lineMaximumSpeed = timetableId?.let { requestedTimetableId ->
-                        val timetable = data.timetables[requestedTimetableId]
+                        val timetable = world.simpleAtoWorldData.timetables[requestedTimetableId]
                             ?: throw HttpFailure(404, "timetable not found: $requestedTimetableId")
                         val service = timetable.services.firstOrNull { it.id == serviceId }
                             ?: throw HttpFailure(404, "service not found: $requestedTimetableId/$serviceId")
@@ -770,10 +770,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         }
 
         private fun timetablesJson(worldName: String) = withWorld(worldName) { _, world ->
-            json.encodeToString(JsonArray(world.basicWorldData.timetables.all().map { JsonPrimitive(it.id) }))
+            json.encodeToString(JsonArray(world.simpleAtoWorldData.timetables.all().map { JsonPrimitive(it.id) }))
         }
         private fun timetableJson(worldName: String, id: String) = withWorld(worldName) { _, world ->
-            val tt = world.basicWorldData.timetables[id] ?: throw IllegalArgumentException("timetable not found: $id")
+            val tt = world.simpleAtoWorldData.timetables[id] ?: throw IllegalArgumentException("timetable not found: $id")
             TimetableSnapshotCodec.encode(SavedTimetableV1.capture(tt))
         }
         private fun validateJson(worldName: String, id: String, body: String) = withWorld(worldName) { _, world ->
@@ -794,7 +794,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val data = world.basicWorldData
             val saved = TimetableSnapshotCodec.decode(body); val tt = saved.restore()
             require(tt.id == id && saved.id == id) { "path timetable id does not match body id" }
-            val current = data.timetables[id]
+            val current = world.simpleAtoWorldData.timetables[id]
             val currentEtag = current?.let { etag(TimetableSnapshotCodec.encode(SavedTimetableV1.capture(it))) }
             require(ifMatch == null || ifMatch == currentEtag) { "If-Match does not match current timetable" }
             val checkpoint = world.simpleAtoWorldData.dispatcher.saveCheckpoint()
@@ -803,7 +803,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             }
             val validation = TimetableValidator(world).validate(tt)
             require(validation.isSuccess) { validation.errors.joinToString("; ") }
-            data.timetables.add(tt)
+            world.simpleAtoWorldData.timetables.add(tt)
             json.encodeToString(buildJsonObject { put("published", true); put("etag", etag(TimetableSnapshotCodec.encode(saved))) })
         }
 

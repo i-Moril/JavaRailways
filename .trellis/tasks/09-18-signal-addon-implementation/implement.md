@@ -4,11 +4,16 @@
 
 - [x] Stage 1 public resource, restriction, inspection, applied-plan dependency/edit and owner-lifecycle APIs are complete, reviewed and archived.
 - [x] Freeze the module/plugin/product name as `JapaneseSignals`; package names, persisted type IDs and script identifiers remain separate API decisions.
-- [ ] Load SimpleATO, Basic, Bukkit, persistence, interaction/render and shared module specs.
+- [x] Load SimpleATO, Basic, Bukkit, persistence, interaction/render and shared module specs.
 - [x] Keep runtime code current-model only. If pre-release protection definitions need importing, extend the separate auditable world-format migrator with dry-run and recovery rather than adding a Stage 2 runtime compatibility path.
 - [x] Re-run the PRD convergence pass against the completed Stage 1 contracts and present the final Stage 2 summary for fresh implementation approval.
 
 ## Deliverable 1: complete SimpleATO extraction
+
+Current extraction progress:
+
+- [x] Move Timetable model, validation, runtime store, extension registry, persistence, simulation helpers and Bukkit callers into SimpleATO; remove the Basic owner without aliases or runtime fallback.
+- [ ] Move Destination, Station, Depot, Line and rolling-stock assignment in later dependency-safe slices.
 
 - [ ] Inventory remaining ATO/operations production owners and callers in Basic/BukkitPlugin.
 - [ ] Move the remaining automated operating policy, ATO/ATP constraint owners, operating direction and operational route selection into `SimpleATO` with existing behavior tests; retain Basic's generic dynamics/actuation and physical safety contracts shared with manual driving.

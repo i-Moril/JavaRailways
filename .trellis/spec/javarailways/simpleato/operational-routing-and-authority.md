@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与 Owner
 
-- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经拥有具体ATO、Dispatcher、内部运营选路/冻结路线、admission client、限制适配器与inspection scheduler/runtime，Bukkit production Dispatcher已接入Basic通用准入。运行方向、Destination、Station、Depot、Line、Timetable model/persistence及共享ATO primitive仍在Basic；具体信号插件、其内部依赖传播与presentation仍是Stage 2目标。
+- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经拥有具体ATO、Timetable model/store/persistence、Dispatcher、内部运营选路/冻结路线、admission client、限制适配器与inspection scheduler/runtime，Bukkit production Dispatcher已接入Basic通用准入。运行方向、Destination、Station、Depot、Line及共享ATO primitive仍在Basic；具体信号插件、其内部依赖传播与presentation仍是Stage 2目标。
 - **Owner**：SimpleATO 拥有运营路线选择、运行方向、任务/时刻表决策和列车保护约束合成。
 - **Inputs**：Core 发布的不可变 `TopologyState` 与同 epoch 物理观察；SimpleATO 自己发布的运营 overlay/plan revision；Basic 的通用资源准入结果；已安装信号系统插件发布的资源检查与限制结果。
 - **Outputs**：一份绑定 topology revision 的冻结路线、资源准入请求，以及交给控制器的统一 authority/stop/speed constraint 结果。
@@ -340,7 +340,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 
 ## 10. 迁移、未决事项与 Wrong / Correct
 
-迁移顺序是：先稳定 Core `TopologyState` 与 Basic route-validation seam，再把当前 Basic 中的运营 route producer、mission/constraint owner 和 Dispatcher client 整体迁入 SimpleATO，最后迁移 Destination、Station、Depot、Line、Timetable 及其持久化/composition。每批只允许一个可写 owner。
+迁移顺序是：先稳定 Core `TopologyState` 与 Basic route-validation seam，再把当前 Basic 中的运营 route producer、mission/constraint owner 和 Dispatcher client 整体迁入 SimpleATO；Timetable 已完成迁移，后续继续迁移 Destination、Station、Depot、Line 及其持久化/composition。每批只允许一个可写 owner。
 
 准入request/result、单位、preparation descriptor与rolling extension关系已由Basic owner spec冻结；inspection-distance的
 声明、单次扫描、失效和owner语义由本页冻结；第一批route/declaration public value名称已经实现。尚未冻结：路线 cost policy、

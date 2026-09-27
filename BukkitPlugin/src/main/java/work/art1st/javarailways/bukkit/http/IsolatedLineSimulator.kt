@@ -1,9 +1,9 @@
 package work.art1st.javarailways.bukkit.http
 
-import work.art1st.javarailways.basic.timetable.simulation.DetailedTrainSimulationLimitException
-import work.art1st.javarailways.basic.timetable.simulation.DetailedTrainSimulationProfile
-import work.art1st.javarailways.basic.timetable.simulation.DetailedTrainTravelSimulator
-import work.art1st.javarailways.basic.timetable.simulation.DetailedTravelLeg
+import work.art1st.javarailways.simpleato.timetable.simulation.DetailedTrainSimulationLimitException
+import work.art1st.javarailways.simpleato.timetable.simulation.DetailedTrainSimulationProfile
+import work.art1st.javarailways.simpleato.timetable.simulation.DetailedTrainTravelSimulator
+import work.art1st.javarailways.simpleato.timetable.simulation.DetailedTravelLeg
 
 class SimulationComputationLimitException(message: String) : IllegalStateException(message)
 

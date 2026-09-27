@@ -16,7 +16,7 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableAppliedPlanService
@@ -54,7 +54,7 @@ object RailWorldFactory {
         infrastructure: CoreWorld.SavedInfrastructureV2? = null,
         runtime: CoreWorld.SavedRuntimeV1? = null,
         basicInfrastructure: BasicInfrastructureSnapshotV1? = null,
-        basicRuntime: BasicRuntimeSnapshotV2? = null
+        basicRuntime: BasicRuntimeSnapshotV3? = null
     ): World {
         ThreadGuard.ensureMainThread("RailWorldFactory.createForBukkit")
         val tickManager = TickManagerImpl(

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -11,7 +11,7 @@ import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -25,7 +25,7 @@ class TimetableInitialPositionerTest {
     fun `matches player train name and relocates atomically using rail direction`() {
         val world = createTestWorld()
         val coordinator = AtoWorldCoordinator("initial-position", reportSink = {})
-        TestBasicWorldDataRegistry.register(world, BasicWorldData(atoCoordinator = coordinator))
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData(atoCoordinator = coordinator))
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
@@ -59,7 +59,7 @@ class TimetableInitialPositionerTest {
     fun `depot id selector expands to distinct physical stabling points`() {
         val world = createTestWorld()
         val coordinator = AtoWorldCoordinator("initial-depot", reportSink = {})
-        TestBasicWorldDataRegistry.register(world, BasicWorldData(atoCoordinator = coordinator))
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData(atoCoordinator = coordinator))
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(240.0, segmentCount = 1)
@@ -103,7 +103,7 @@ class TimetableInitialPositionerTest {
     fun `controlled exact-match train reports an explicit reset error`() {
         val world = createTestWorld()
         val coordinator = AtoWorldCoordinator("initial-controlled", reportSink = {})
-        TestBasicWorldDataRegistry.register(world, BasicWorldData(atoCoordinator = coordinator))
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData(atoCoordinator = coordinator))
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
@@ -134,7 +134,7 @@ class TimetableInitialPositionerTest {
     fun `missing waypoint and rail direction stalls without moving train`() {
         val world = createTestWorld()
         val coordinator = AtoWorldCoordinator("initial-position-failure", reportSink = {})
-        TestBasicWorldDataRegistry.register(world, BasicWorldData(atoCoordinator = coordinator))
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData(atoCoordinator = coordinator))
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)

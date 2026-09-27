@@ -79,5 +79,6 @@ berthOwners[key.berthRef] = key
 - `TimetableStationCallDispatcherTest.kt`：door/dwell/route/tail gates与failure hold。
 
 ```bash
-./gradlew :Basic:test --tests '*Station*Test' --tests '*TimetableStationCallDispatcherTest'
+./gradlew :Basic:test --tests '*Station*Test'
+./gradlew :SimpleATO:test --tests '*TimetableStationCallDispatcherTest'
 ```

@@ -8,11 +8,11 @@ import kotlinx.serialization.json.longOrNull
 import work.art1st.javarailways.basic.api.destination.DestinationRole
 import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
 import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableAction
-import work.art1st.javarailways.basic.timetable.TimetableService
-import work.art1st.javarailways.basic.timetable.TimetableStep
-import work.art1st.javarailways.basic.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TrainSelector
 import work.art1st.javarailways.core.api.physics.World
 import java.util.Locale
 

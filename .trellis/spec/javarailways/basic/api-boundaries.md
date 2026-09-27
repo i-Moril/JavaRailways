@@ -75,18 +75,6 @@ Basic只知道semantic request/result；region scheduling与model action完成�
 
 ## 项目内正确示例
 
-`TimetableExtensionCall`把provider identity做成稳定数据：
-
-```kotlin
-data class TimetableExtensionCall(
-    val typeId: String,
-    val version: Int = 1,
-    val parameters: JsonObject = JsonObject(emptyMap())
-)
-```
-
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/timetable/TimetableExtension.kt`。`typeId`必须匹配`namespace:name`且`version>0`，不会随Kotlin class rename改变。
-
 `RailwayObservation.fromCore(worldId, frame)`是另一个正确边界：它保留同一Core world frame的physics epoch、topology revision、列车位置/占用与frame revision，但主动丢弃render-only car数据。Infrastructure API同样只暴露stable resource identity、owner revision和immutable diagnostics；Bukkit service负责plugin owner与lifecycle，不把`InfrastructureCoordinationRegistry`公开给add-on。
 
 目标route validator是host-owned物理证明边界：它不选择路径或解释保护区域，而是校验调用方traversal的edge连续性与合法continuation，并在同一次线性遍历中从`TopologyState`及route-bound resource index加入不可删除的rail、turnout与diamond资源。调用方可以附加已注册资源，但不能删改该底线。Basic从同一观察读取列车占用、验证最终union并原子提交；`INVALID_ROUTE`、stale、occupancy、无效addition或任一资源冲突都不得留下partial claim。完整算法见[路线资源准入](./route-resource-admission.md)。

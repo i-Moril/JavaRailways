@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.http
 
-import work.art1st.javarailways.basic.persistence.SavedTimetableV1
-import work.art1st.javarailways.basic.persistence.TimetableSnapshotCodec
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
+import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.scriptworker.executeScript
 import java.nio.charset.StandardCharsets

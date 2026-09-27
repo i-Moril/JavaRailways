@@ -12,7 +12,7 @@ import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
@@ -583,7 +583,7 @@ class WorldManager internal constructor(
         val coreInfrastructure = coreWorld.saveInfrastructure(revision)
         val basicInfrastructure = BasicInfrastructureSnapshotV1.capture(coreWorld, revision)
         val coreRuntime = coreWorld.saveRuntime(revision, physicsEpoch.coerceAtLeast(0L))
-        val basicRuntime = BasicRuntimeSnapshotV2.capture(
+        val basicRuntime = BasicRuntimeSnapshotV3.capture(
             coreWorld,
             revision,
             physicsEpoch.coerceAtLeast(0L)

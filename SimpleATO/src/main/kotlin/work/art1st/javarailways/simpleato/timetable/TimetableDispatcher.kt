@@ -49,17 +49,18 @@ import work.art1st.javarailways.basic.api.station.StationCallRequest
 import work.art1st.javarailways.basic.api.station.StationCallResolutionResult
 import work.art1st.javarailways.basic.api.station.StationCallResolver
 import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
-import work.art1st.javarailways.basic.api.timetable.TimetableActivationFalseBehavior
-import work.art1st.javarailways.basic.api.timetable.TimetableConditionResult
-import work.art1st.javarailways.basic.api.timetable.TimetableConditionScope
-import work.art1st.javarailways.basic.api.timetable.TimetableExtensionActionState
-import work.art1st.javarailways.basic.api.timetable.TimetableExtensionActionTicket
-import work.art1st.javarailways.basic.api.timetable.TimetableExtensionActionStartResult
-import work.art1st.javarailways.basic.api.timetable.TimetableRuntimeContext
-import work.art1st.javarailways.basic.api.timetable.TimetableServiceActivation
-import work.art1st.javarailways.basic.api.timetable.TimetableTrainContext
+import work.art1st.javarailways.simpleato.api.timetable.TimetableActivationFalseBehavior
+import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionResult
+import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionScope
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionState
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionTicket
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionActionStartResult
+import work.art1st.javarailways.simpleato.api.timetable.TimetableRuntimeContext
+import work.art1st.javarailways.simpleato.api.timetable.TimetableServiceActivation
+import work.art1st.javarailways.simpleato.api.timetable.TimetableTrainContext
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.controller.SimpleAtoPublishedState
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
 import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClient
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
@@ -77,7 +78,7 @@ import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
-import work.art1st.javarailways.basic.timetable.*
+import work.art1st.javarailways.simpleato.timetable.*
 import work.art1st.javarailways.basic.route.MissionRouteLayout
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
 import work.art1st.javarailways.basic.route.ExpandedRoute
@@ -448,7 +449,7 @@ class TimetableDispatcher(
                 "world ATO is stalled; inspect and reset before starting a timetable"
             )
         }
-        val timetable = world.basicWorldData.timetables[timetableId]
+        val timetable = world.simpleAtoWorldData.timetables[timetableId]
             ?: return TimetableEpochStartResult.Failure("timetable not found: $timetableId")
         val validation = TimetableValidator(world).validate(timetable)
         if (!validation.isSuccess) {
@@ -559,7 +560,7 @@ class TimetableDispatcher(
             )
         }
         val runId = TimetableServiceRunId(timetableId, serviceId)
-        val timetable = world.basicWorldData.timetables[timetableId]
+        val timetable = world.simpleAtoWorldData.timetables[timetableId]
             ?: return TimetableServiceStartResult.Failure("timetable not found: $timetableId")
         val clock = timetableClocks.getOrPut(timetableId) {
             TimetableClock(dispatcherTick, timetable.periodTicks)
@@ -1067,7 +1068,7 @@ class TimetableDispatcher(
         validateAtWayPoint(world, run.train, originWayPointId)?.let {
             return TimetableReplanResult.Failure(it)
         }
-        val timetable = world.basicWorldData.timetables[run.id.timetableId]
+        val timetable = world.simpleAtoWorldData.timetables[run.id.timetableId]
             ?: return TimetableReplanResult.Failure("timetable not found: ${run.id.timetableId}")
         val factory = atoFactory
             ?: return TimetableReplanResult.Failure("timetable ATO factory is not configured")
@@ -1504,7 +1505,7 @@ class TimetableDispatcher(
                 currentWayPointId = null,
                 train = null
             )
-            when (val result = world.basicWorldData.timetableExtensions.evaluate(
+            when (val result = world.simpleAtoWorldData.timetableExtensions.evaluate(
                 activation.condition,
                 context,
                 TimetableConditionScope.SERVICE_ACTIVATION
@@ -1528,7 +1529,7 @@ class TimetableDispatcher(
 
     private fun startDueCycles(world: World) {
         for ((timetableId, clock) in timetableClocks.toList().sortedBy { it.first }) {
-            val timetable = world.basicWorldData.timetables[timetableId]
+            val timetable = world.simpleAtoWorldData.timetables[timetableId]
             if (timetable == null) {
                 stallTimetableRuntime(
                     world,
@@ -3668,7 +3669,7 @@ class TimetableDispatcher(
         while (run.extensionActionQueue.isNotEmpty()) {
             when (val action = run.extensionActionQueue.removeFirst()) {
                 is TimetableAction.Conditional -> {
-                    val selected = when (val result = world.basicWorldData.timetableExtensions.evaluate(
+                    val selected = when (val result = world.simpleAtoWorldData.timetableExtensions.evaluate(
                         action.condition,
                         extensionContext(world, run, scheduledTick),
                         TimetableConditionScope.RUNTIME_BRANCH
@@ -3688,7 +3689,7 @@ class TimetableDispatcher(
                 }
                 is TimetableAction.Extension -> {
                     val call = action.call
-                    val provider = world.basicWorldData.timetableExtensions
+                    val provider = world.simpleAtoWorldData.timetableExtensions
                         .action(call.typeId, call.version)
                     if (provider == null) {
                         stallRun(
@@ -3933,7 +3934,7 @@ class TimetableDispatcher(
         previous: AppliedTimetablePlan?,
         validatedRoutes: List<ExpandedRoute>? = null
     ): AppliedPlanInstallResult {
-        val timetable = world.basicWorldData.timetables[timetableId]
+        val timetable = world.simpleAtoWorldData.timetables[timetableId]
             ?: return AppliedPlanInstallResult.Rejected("timetable not found: $timetableId")
         val routes = validatedRoutes ?: TimetableValidator(world).validate(timetable).let { validation ->
             if (!validation.isSuccess) {

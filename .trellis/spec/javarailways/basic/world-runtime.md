@@ -17,10 +17,8 @@ data class BasicWorldData(
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val depots: DepotStore = DepotStore(),
     val lines: LineStore = LineStore(),
-    val timetables: TimetableStore = TimetableStore(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
-    val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),
     val stations: StationStore = StationStore(railObjects),
     ...
@@ -29,7 +27,7 @@ data class BasicWorldData(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。constructor要求`StationStore`与`railObjects`为同一instance。
 
-Dispatcher不再属于该container；`SimpleATOWorldData`是其唯一world-local owner。Basic中的Depot Reset仅依赖显式传入的
+Timetable store、extension registry 与 Dispatcher 都不属于该container；`SimpleATOWorldData`是它们的唯一world-local owner。Basic中的Depot Reset仅依赖显式传入的
 `DepotResetDispatchParticipant`，不能通过`BasicWorldData`反向查找SimpleATO。
 
 通用资源运行时由Bukkit composition为每个world另建一条成对生命周期记录：同一记录持有唯一

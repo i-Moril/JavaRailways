@@ -27,7 +27,7 @@ import work.art1st.javarailways.basic.api.station.StationCallResolutionFailure
 import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
 import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreTrain
@@ -185,7 +185,7 @@ class StationCallRuntimeTest {
         val world = createTestWorld()
         val coordinator = AtoWorldCoordinator("station-$id", reportSink = {})
         val data = BasicWorldData(atoCoordinator = coordinator)
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)

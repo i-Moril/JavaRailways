@@ -97,12 +97,12 @@ fun tick(world: World) {
 
 - `TimetableDispatcherTest.kt`：clock/At/lateness/cycles、physical acquisition、route retry/authority/tail release、sameTick Stall、reverse/halt/manual/replan/storage。
 - `TimetableStationCallDispatcherTest.kt`：door/dwell/berth/operation failure gates。
-- `TimetableExtensionRegistryTest.kt`（Basic）+ Dispatcher action tests（SimpleATO）：condition unavailable/error、start once/ticket。
+- `TimetableExtensionRegistryTest.kt` + Dispatcher action tests（SimpleATO）：condition unavailable/error、start once/ticket。
 - `DispatcherSnapshotTest.kt`：dependency先恢复、active checkpoint→recovery required/disabled，以及失败时无partial clock。
 - `TimetableDispatcherSharedAdmissionTest.kt`：production automatic/manual mode、pending、跨epoch retry/extension、ordinary-stop append、stored-run transfer和stale topology。
 
 ```bash
 ./gradlew :SimpleATO:test --tests '*TimetableDispatcherTest' \
   --tests '*TimetableStationCallDispatcherTest' --tests '*DispatcherSnapshotTest'
-./gradlew :Basic:test --tests '*TimetableExtensionRegistryTest'
+./gradlew :SimpleATO:test --tests '*TimetableExtensionRegistryTest'
 ```

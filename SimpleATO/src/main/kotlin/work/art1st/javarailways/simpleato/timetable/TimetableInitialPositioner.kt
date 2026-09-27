@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.timetable
+package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.AtoStallReport

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.persistence
+package work.art1st.javarailways.simpleato.persistence
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -7,8 +7,8 @@ import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.api.line.LineId
 import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.timetable.*
-import work.art1st.javarailways.basic.timetable.*
+import work.art1st.javarailways.simpleato.api.timetable.*
+import work.art1st.javarailways.simpleato.timetable.*
 
 @Serializable
 enum class SavedTrainSelectorTypeV1 { ANY, TRAIN_ID }

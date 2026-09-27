@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.persistence
 
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -12,12 +14,12 @@ import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
-import work.art1st.javarailways.basic.timetable.Timetable
-import work.art1st.javarailways.basic.timetable.TimetableAction
-import work.art1st.javarailways.basic.timetable.TimetableService
-import work.art1st.javarailways.basic.timetable.TimetableStep
-import work.art1st.javarailways.basic.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TrainSelector
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -35,7 +37,8 @@ class DispatcherSnapshotTest {
                 missionRevision = 3L,
                 clocks = emptyList(),
                 runs = emptyList()
-            )
+            ),
+            timetables = listOf(SavedTimetableV1.capture(Timetable("weekday")))
         )
 
         assertEquals(snapshot, SimpleATORuntimeSnapshotCodec.decode(
@@ -49,17 +52,43 @@ class DispatcherSnapshotTest {
     }
 
     @Test
+    fun `SimpleATO runtime restores timetables before dispatcher clocks`() {
+        val world = createTestWorld()
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
+        val snapshot = SimpleATORuntimeSnapshotV1(
+            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
+            infrastructureRevision = 0L,
+            physicsEpoch = 0L,
+            dispatcher = SavedDispatcherV1(
+                formatVersion = SavedDispatcherV1.CURRENT_FORMAT_VERSION,
+                dispatcherTick = 5L,
+                missionRevision = 2L,
+                clocks = listOf(SavedTimetableClockV1(
+                    "weekday", 0L, 24_000L, 1L, emptySet(), emptyMap()
+                )),
+                runs = emptyList()
+            ),
+            timetables = listOf(SavedTimetableV1.capture(Timetable("weekday")))
+        )
+
+        snapshot.restore(world)
+
+        assertEquals("weekday", world.simpleAtoWorldData.timetables.all().single().id)
+        assertEquals("weekday", world.simpleAtoWorldData.dispatcher.saveCheckpoint().clocks.single().timetableId)
+    }
+
+    @Test
     fun `restored active runs become recovery required checkpoints`() {
         val world = createTestWorld()
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(20.0, segmentCount = 1)
         )
         data.wayPoints.add(WayPoint("central@one", "Central", rail.id, 0.0))
         data.wayPoints.add(WayPoint("terminal@one", "Terminal", rail.id, 10.0))
-        data.timetables.add(Timetable(
+        world.simpleAtoWorldData.timetables.add(Timetable(
             "weekday",
             services = listOf(TimetableService(
                 "S1",
@@ -119,7 +148,7 @@ class DispatcherSnapshotTest {
     @Test
     fun `restore publishes no clocks when an applied timetable cannot be reinstalled`() {
         val world = createTestWorld()
-        TestBasicWorldDataRegistry.register(world, BasicWorldData())
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
         val plans = RecordingTimetableAppliedPlanService()
         val dispatcher = TimetableDispatcher(
             UnavailableRouteAdmissionTestContext,

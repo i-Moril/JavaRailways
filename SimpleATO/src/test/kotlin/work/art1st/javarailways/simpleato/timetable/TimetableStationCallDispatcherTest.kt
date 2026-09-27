@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -34,8 +36,8 @@ import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
-import work.art1st.javarailways.basic.timetable.*
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
+import work.art1st.javarailways.simpleato.timetable.*
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -69,7 +71,7 @@ class TimetableStationCallDispatcherTest {
 
     @AfterEach
     fun unregisterWorlds() {
-        worlds.forEach(TestBasicWorldDataRegistry::unregister)
+        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
         worlds.clear()
         ThreadGuard.clearPlatformBridge()
     }
@@ -890,7 +892,7 @@ class TimetableStationCallDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("station-route-wait", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val mainBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
         val blockingBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
@@ -905,7 +907,7 @@ class TimetableStationCallDispatcherTest {
         data.wayPoints.add(WayPoint("M1", "M1", mainBranch.id, 20.0))
         data.wayPoints.add(WayPoint("B0", "B0", approach.id, blockingTrain.head.location.arcLengthIn(ViewDirection.AB)))
         data.wayPoints.add(WayPoint("B1", "B1", blockingBranch.id, 20.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 "tt",
                 services = listOf(
@@ -994,7 +996,7 @@ class TimetableStationCallDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("station-conflict", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
@@ -1006,7 +1008,7 @@ class TimetableStationCallDispatcherTest {
         data.wayPoints.add(WayPoint("A1", "A1", rail.id, firstTrain.head.location.arcLengthIn(ViewDirection.AB)))
         data.wayPoints.add(WayPoint("A2", "A2", rail.id, secondTrain.head.location.arcLengthIn(ViewDirection.AB)))
         data.wayPoints.add(WayPoint("C", "C", rail.id, 160.0))
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 id = "tt",
                 services = listOf(
@@ -1132,7 +1134,7 @@ class TimetableStationCallDispatcherTest {
         val data = BasicWorldData(
             atoCoordinator = AtoWorldCoordinator("station-dispatcher", reportSink = {})
         )
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
@@ -1146,7 +1148,7 @@ class TimetableStationCallDispatcherTest {
         if (nextTargetOffsetMeters != null) {
             data.wayPoints.add(WayPoint("D", "D", rail.id, targetArc))
         }
-        data.timetables.add(
+        world.simpleAtoWorldData.timetables.add(
             Timetable(
                 id = "tt",
                 services = listOf(

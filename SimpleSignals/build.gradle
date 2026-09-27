@@ -1,0 +1,111 @@
+plugins {
+    id 'java'
+    id('xyz.jpenilla.resource-factory-bukkit-convention') version '1.3.0'
+}
+
+group = 'work.art1st'
+version = '1.0-SNAPSHOT'
+
+base {
+    archivesName = 'SimpleSignals'
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'papermc-repo'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+    }
+}
+
+dependencies {
+    compileOnly('io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT')
+
+    // The host owns these APIs at runtime. The add-on JAR must not copy them.
+    compileOnly(project(':Core'))
+    compileOnly(project(':Basic'))
+    compileOnly(project(':SimpleATO'))
+    compileOnly(project(':BukkitPlugin'))
+
+    testImplementation(platform('org.junit:junit-bom:5.10.0'))
+    testImplementation('org.junit.jupiter:junit-jupiter')
+    testImplementation('io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT')
+    testCompileOnly(project(':Core'))
+    testCompileOnly(project(':Basic'))
+    testCompileOnly(project(':SimpleATO'))
+    testCompileOnly(project(':BukkitPlugin'))
+    testRuntimeOnly(project(':Core')) { transitive = false }
+    testRuntimeOnly(project(':Basic')) { transitive = false }
+    testRuntimeOnly(project(':SimpleATO')) { transitive = false }
+    testRuntimeOnly(project(':BukkitPlugin')) { transitive = false }
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(25)
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+bukkitPluginYaml {
+    name = 'SimpleSignals'
+    main = 'work.art1st.javarailways.simplesignals.SimpleSignalsPlugin'
+    apiVersion = '1.21.11'
+    foliaSupported = true
+    authors.add('__ART1st__')
+    depend.add('JavaRailways')
+}
+
+def pluginJar = tasks.named('jar', Jar)
+def verifyPluginJar = tasks.register('verifyPluginJar') {
+    dependsOn(pluginJar)
+    inputs.file(pluginJar.flatMap { it.archiveFile })
+
+    doLast {
+        def jarTree = zipTree(pluginJar.get().archiveFile.get().asFile)
+        def relativeEntries = [] as Set
+        jarTree.visit { details ->
+            if (!details.directory) {
+                relativeEntries.add(details.relativePath.pathString)
+            }
+        }
+        if (!relativeEntries.contains('plugin.yml')) {
+            throw new GradleException('SimpleSignals JAR does not contain plugin.yml')
+        }
+        def descriptor = jarTree.matching { include('plugin.yml') }.singleFile.getText('UTF-8')
+        [
+            'name: SimpleSignals',
+            'main: work.art1st.javarailways.simplesignals.SimpleSignalsPlugin',
+            'api-version: 1.21.11',
+            'JavaRailways',
+            'folia-supported: true'
+        ].each { requiredText ->
+            if (!descriptor.contains(requiredText)) {
+                throw new GradleException("SimpleSignals plugin.yml is missing: ${requiredText}")
+            }
+        }
+        def forbiddenPrefixes = [
+            'work/art1st/javarailways/core/',
+            'work/art1st/javarailways/basic/',
+            'work/art1st/javarailways/simpleato/',
+            'work/art1st/javarailways/bukkit/'
+        ]
+        def shadowedHostClasses = relativeEntries.findAll { entry ->
+            forbiddenPrefixes.any { prefix -> entry.startsWith(prefix) }
+        }
+        if (!shadowedHostClasses.isEmpty()) {
+            throw new GradleException("SimpleSignals JAR contains host classes: ${shadowedHostClasses.sort()}")
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn(verifyPluginJar)
+}

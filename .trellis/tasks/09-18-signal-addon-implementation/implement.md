@@ -3,7 +3,7 @@
 ## Start gate
 
 - [x] Stage 1 public resource, restriction, inspection, applied-plan dependency/edit and owner-lifecycle APIs are complete, reviewed and archived.
-- [x] Freeze the module/plugin/product name as `JapaneseSignals`; package names, persisted type IDs and script identifiers remain separate API decisions.
+- [x] Freeze the module/plugin/product name as `SimpleSignals`; the scaffold fixes the Java package root as `work.art1st.javarailways.simplesignals`, while persisted type IDs and script identifiers remain separate API decisions.
 - [x] Load SimpleATO, Basic, Bukkit, persistence, interaction/render and shared module specs.
 - [x] Keep runtime code current-model only. If pre-release protection definitions need importing, extend the separate auditable world-format migrator with dry-run and recovery rather than adding a Stage 2 runtime compatibility path.
 - [x] Re-run the PRD convergence pass against the completed Stage 1 contracts and present the final Stage 2 summary for fresh implementation approval.
@@ -24,15 +24,15 @@ Current extraction progress:
 - [x] Collapse Stage 2 persistence numbering to the real boundaries: infrastructure migrates once from outer V1/Basic V1 to outer V2/Basic V2/SimpleATO V1; Basic runtime moves once from V2 to V3 while additive SimpleATO runtime fields remain V1. Keep the converter pure and leave packaged file migration/recovery to the 09-24 task.
 - [x] Create `SimpleATOBukkit` as an independent adapter library module with direct main-plugin composition and no descriptor, second `JavaPlugin` or internal service discovery. Package it through the main plugin's project dependency, and move SimpleATO Core-slot startup wiring plus SimpleATO diagnostics into it as the first real slice.
 - [x] Audit the platform presentation boundary: keep the existing generic latest-only scheduler with its actual
-  `BukkitPlugin` consumers, keep concrete signal rendering in `JapaneseSignals`, and do not turn `SimpleATOBukkit` into a
+  `BukkitPlugin` consumers, keep concrete signal rendering in `SimpleSignals`, and do not turn `SimpleATOBukkit` into a
   generic platform bridge merely to share one helper. Move only platform behavior with a real SimpleATO owner/caller.
-- [ ] Remove each old production owner after its replacement is wired; prove there is one writable state owner and no compatibility wrapper.
+- [x] Remove each old production owner after its replacement is wired; a final source audit confirms Basic has no Destination/Station/Depot/Line/Timetable/operating-direction/ATO-policy store or compatibility facade, while BukkitPlugin only composes or presents the SimpleATO-owned stores. Basic's remaining RailObject/WayPoint projections and generic pathfinding/actuation/resource code have distinct shared owners; its explicitly transitional protection-region code belongs to the next SimpleSignals migration rather than duplicating SimpleATO.
 - [ ] Integrate concrete signal sources with the existing SimpleATO inspection declarations, single shared perception scan and dynamic braking-distance comparison; do not build another inspection runtime.
-- [ ] Wire `JapaneseSignals` through the existing namespaced most-restrictive restriction pipeline; plugin output cannot widen Basic grants or existing ATO/ATP limits.
+- [ ] Wire `SimpleSignals` through the existing namespaced most-restrictive restriction pipeline; plugin output cannot widen Basic grants or existing ATO/ATP limits.
 
-## Deliverable 2: JapaneseSignals foundation
+## Deliverable 2: SimpleSignals foundation
 
-- [ ] Scaffold the independent Java/Kotlin plugin, descriptor, compile-only host dependencies, capability/version checks and separate JAR packaging.
+- [x] Scaffold the independent Java/Kotlin plugin, descriptor, compile-only host dependencies, capability checks and separate JAR packaging. The descriptor hard-depends on JavaRailways and declares the Bukkit API target; the current host exposes typed services rather than a numeric signal-API version, so startup validates the four required service capabilities instead of inventing string-version comparison.
 - [ ] Establish plugin-owned world runtime, strict current-model sidecar, stable namespaced IDs and atomic primary/backup store.
 - [ ] Move `ProtectionRegionDefinition`, boundary/catalog, graph-cut/interior derivation, route-window matching and validation tests out of Basic.
 - [ ] Move protection-region authoring, diagnostics, RailObjectWand mode and persistence/composition callers into the plugin.
@@ -56,25 +56,25 @@ Current extraction progress:
 - [ ] Implement only the dependency/invalidation mechanism approved in that review; update affected signals without a world-wide scan.
 - [ ] Prove unchanged resources remain idle and stale permissive outputs cannot survive invalidation.
 - [ ] Propagate changed downstream state only as far as needed; stop when an output is unchanged and fail closed if an actual feedback loop cannot settle.
-- [ ] Define `JapaneseSignals` Java/Kotlin aspect/block/interlocking rules before adding scripts.
+- [ ] Define `SimpleSignals` Java/Kotlin aspect/block/interlocking rules before adding scripts.
 - [ ] In a separately reviewed batch, define optional JS/YAML input views, setters such as speed/model variant, validation, execution budget and failure behavior.
 - [ ] Keep scripts away from mutable world objects and raw Basic claim mutation; all outputs pass plugin validation and host restriction/resource APIs.
 
 ## Timetable, authoring and rendering
 
 - [ ] Add signal-plugin participation to the existing selected-route timetable compile/audit with pinned topology/plugin/timetable/train-assignment revisions; do not run pathfinding again.
-- [ ] Extend the existing atomic applied-plan dependency declaration with every exact JapaneseSignals runtime resource referenced by those selected routes; keep this non-exclusive edit protection distinct from live train claims.
+- [ ] Extend the existing atomic applied-plan dependency declaration with every exact SimpleSignals runtime resource referenced by those selected routes; keep this non-exclusive edit protection distinct from live train claims.
 - [ ] Implement draft/apply/replace/draining/unapply lifecycle with no dependency changes from save/dry-run and no removal beneath live work.
 - [ ] Route all affected editors through the common edit permit and show blocking owner/revision diagnostics.
 - [ ] Add create/edit/delete/inspect/validate/dry-run commands/tools and topology-migration recovery points.
-- [ ] Add plugin-owned aspect/model rendering in `JapaneseSignals`, with target-aware latest-only scheduling, change-only
+- [ ] Add plugin-owned aspect/model rendering in `SimpleSignals`, with target-aware latest-only scheduling, change-only
   updates, stale-revision rejection and idempotent world/plugin cleanup. Use a host platform API only if a concrete
   cross-plugin requirement is reviewed first; do not route rendering through `SimpleATOBukkit`.
 
 ## Validation
 
-- [ ] Module-boundary tests prove Basic, SimpleATO, SimpleATOBukkit and `JapaneseSignals` have one owner per state and valid dependency direction.
-- [ ] Packaging checks for the independently installed `JapaneseSignals` plugin prove it has its own descriptor/JAR, compile-only host dependencies and no shadowed host classes; embedded `SimpleATOBukkit` needs no separate deployable-artifact verification.
+- [ ] Module-boundary tests prove Basic, SimpleATO, SimpleATOBukkit and `SimpleSignals` have one owner per state and valid dependency direction.
+- [ ] Packaging checks for the independently installed `SimpleSignals` plugin prove it has its own descriptor/JAR, compile-only host dependencies and no shadowed host classes; embedded `SimpleATOBukkit` needs no separate deployable-artifact verification.
 - [ ] Region tests cover simple turnout, multi-turnout throat, leak, ambiguity, direction, topology invalidation and unsupported overlap.
 - [ ] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.
 - [ ] Fixed/moving transition tests cover whole next block versus exact post-exit boundary and sufficient train-tail clearance.
@@ -90,10 +90,10 @@ Current extraction progress:
 
 1. SimpleATO production slice migrations, one owner at a time.
 2. Embedded `SimpleATOBukkit` library scaffold and platform adapter extraction.
-3. `JapaneseSignals` scaffold and persistence boundary.
+3. `SimpleSignals` scaffold and persistence boundary.
 4. Protection-region domain/index migration from Basic.
 5. Generic Basic intent integration and removal of old protection policy.
-6. Fixed blocks and Japanese signal policy.
+6. Fixed blocks and SimpleSignals policy.
 7. Reactive state/dependency scheduling.
 8. Authoring/rendering and optional customization runtime.
 9. Timetable audit/applied-plan dependency integration and lifecycle closure.
@@ -105,4 +105,4 @@ Each commit must explain which runtime flow it changes, the mechanism used, the 
 - Keep module extraction, protection migration, route integration, reactive policy, persistence and rendering in separate commits.
 - Do not delete the old owner until the new owner is wired and parity tests pass in the same reviewed slice.
 - Do not enable permissive aspects until resource/grant/constraint integration tests pass.
-- Leave `JapaneseSignals` disabled for a world when persisted state or topology derivation cannot be validated safely.
+- Leave `SimpleSignals` disabled for a world when persisted state or topology derivation cannot be validated safely.

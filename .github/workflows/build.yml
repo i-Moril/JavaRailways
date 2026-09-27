@@ -46,6 +46,7 @@ jobs:
           :BukkitPluginDev:test
           :ConfigLib:test
           :Core:test
+          :SimpleSignals:check
           :SimpleATO:test
           :SimpleATOBukkit:test
           :WebUI:test
@@ -61,6 +62,7 @@ jobs:
           retention-days: 14
           path: |
             BukkitPlugin/build/libs/*-all.jar
+            SimpleSignals/build/libs/*.jar
             WebUI/build/libs/*-all.jar
 
       - name: Upload test reports on failure

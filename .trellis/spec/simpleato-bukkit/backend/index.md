@@ -7,7 +7,7 @@
 `shadowJar`，不是第二个可安装插件：不得包含`plugin.yml`、继承`JavaPlugin`、声明JavaRailways
 plugin dependency，或通过Bukkit `ServicesManager`反向发现同一主插件。
 
-具体信号制式仍由独立附属插件拥有。`SimpleATOBukkit`不得拥有`JapaneseSignals`的固定闭塞、
+具体信号制式仍由独立附属插件拥有。`SimpleATOBukkit`不得拥有`SimpleSignals`的固定闭塞、
 保护区域、联锁规则、aspect/model vocabulary、renderer或可选JS/YAML语义。通用车辆渲染、
 Folia调度helper和面向所有附属插件的平台facade也不属于本模块；前两者留在`BukkitPlugin`，
 后者只有在出现明确的跨插件需求后才能作为`BukkitPlugin`公开API单独设计。

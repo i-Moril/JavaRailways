@@ -5,7 +5,7 @@
 - **Status**：`TRANSITIONAL`。本页只记录当前仍在 Basic 中运行的保护区域、单窗口准入和回归语义。
 - **Current owner**：Basic 当前保存公开 definition/provider contract、区域 catalog、窗口解析适配器和
   `ProtectedRouteClaimService`；这是迁移起点，不是长期模块边界。
-- **Target owner**：`JapaneseSignals` 拥有保护区域定义、图切割、窗口策略、authoring 和持久化。Basic 最终只保留
+- **Target owner**：`SimpleSignals` 拥有保护区域定义、图切割、窗口策略、authoring 和持久化。Basic 最终只保留
   [通用路线资源准入](./route-resource-admission.md)所定义的物理资源底线、原子 claim、准备、grant 和释放。
 - **Non-goals**：本页不再保存固定闭塞、`AuthoritySection`、递归 contributor closure、provider route callback 或
   其他未实现历史方案。
@@ -30,7 +30,7 @@ ProtectionRegionProvider publishes definitions for topology revision T
 ```
 
 The null-window/`NOT_REQUIRED` branch and `PROTECTION_REQUIRED` are current compatibility behavior only. They must disappear
-when production callers use the generic intent and protection policy moves to `JapaneseSignals`; they are not copied into the
+when production callers use the generic intent and protection policy moves to `SimpleSignals`; they are not copied into the
 new Basic API.
 
 ## 3. 内部机制与关键算法
@@ -192,7 +192,7 @@ The target generic service always derives requested rail intervals and has no Ba
 - **Base**：the current null-window straight route returns `NOT_REQUIRED`; this is migration behavior, not the target API.
 - **Bad**：a caller supplies a handcrafted footprint or Basic searches another route after validation fails.
 - **Bad**：a stale catalog is treated as complete-empty, or provider disable releases a live claim beneath a train.
-- **Bad**：new signal/fixed-block policy is added to these Basic transitional classes instead of `JapaneseSignals`.
+- **Bad**：new signal/fixed-block policy is added to these Basic transitional classes instead of `SimpleSignals`.
 
 ## 9. 必需回归测试
 
@@ -221,7 +221,7 @@ Migration must preserve behavior through the generic kernel rather than preserve
 
 1. expose and test the generic route intent, additions, preparation and grant services;
 2. migrate production automatic/`MANUAL_ROUTED` callers away from `ProtectedRouteRequest`;
-3. move definitions, graph cut, catalog/window policy, authoring and persistence ownership to `JapaneseSignals`;
+3. move definitions, graph cut, catalog/window policy, authoring and persistence ownership to `SimpleSignals`;
 4. run parity/lifecycle tests using the same simple- and multi-turnout fixtures;
 5. delete Basic protection-region API/internal classes, `PROTECTION_REQUIRED` and the transitional null-window shortcut.
 
@@ -232,6 +232,6 @@ auditable one-time migration with dry-run and recovery point under the repositor
 Wrong: keep obsolete Basic signal-policy abstractions as historical alternatives
 Correct: retain only current migration evidence here; keep the target contract in route-resource-admission.md
 
-Wrong: move the old single-window public API unchanged into JapaneseSignals
+Wrong: move the old single-window public API unchanged into SimpleSignals
 Correct: reuse its graph-cut tests and region semantics, then integrate through Basic's generic intent/addition API
 ```

@@ -2,7 +2,7 @@
 
 > **Updated deployment boundary (2026-09-27):** the child implementation task is authoritative.
 > `SimpleATOBukkit` remains an independent Gradle source/test module, but it is embedded into the
-> JavaRailways main plugin JAR and has no second Bukkit descriptor or lifecycle. `JapaneseSignals`
+> JavaRailways main plugin JAR and has no second Bukkit descriptor or lifecycle. `SimpleSignals`
 > remains the independently installed signal-system plugin. Earlier statements below that describe
 > `SimpleATOBukkit` as separately deployed, as the generic signal/rendering owner, or as the owner
 > of protection-region policy are decision history rather than the current plan.

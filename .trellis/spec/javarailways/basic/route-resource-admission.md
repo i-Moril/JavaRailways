@@ -178,7 +178,7 @@ train/world、callback、JVM class name或serialized JSON。它**不是持久化
 
 Resource registration是namespaced、world-local并绑定认证platform owner。registration定义stable identity、
 authenticated contributor与preparation descriptor validation、可选preparation handler和lifecycle ownership；
-它不允许直接修改Basic registry。contributor不必拥有resource type：例如JapaneseSignals可以贡献Basic拥有的侧面防护
+它不允许直接修改Basic registry。contributor不必拥有resource type：例如SimpleSignals可以贡献Basic拥有的侧面防护
 道岔，但Basic的turnout registration必须按contributor身份、resource identity与descriptor明确接受，否则返回
 `INVALID_CONTRIBUTION`或`INVALID_PREPARATION`。
 
@@ -447,13 +447,13 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 
 ## 10. 迁移、未决事项与 Wrong / Correct
 
-Migration keeps the implemented generic pieces—topology projection, canonical turnout identity, route-bound catalog, occupancy query, atomic registry, preparation, cursor/release queue and suffix extension—and removes protection-region assumptions from their public target. `ProtectionRegionDefinition`, region graph-cut/catalog/window resolution, fixed-block partitioning and `PROTECTION_REQUIRED` move to `JapaneseSignals` or a helper library owned by that plugin.
+Migration keeps the implemented generic pieces—topology projection, canonical turnout identity, route-bound catalog, occupancy query, atomic registry, preparation, cursor/release queue and suffix extension—and removes protection-region assumptions from their public target. `ProtectionRegionDefinition`, region graph-cut/catalog/window resolution, fixed-block partitioning and `PROTECTION_REQUIRED` move to `SimpleSignals` or a helper library owned by that plugin.
 
 Still open for later API batches: optional administration UI/policy for restricting cross-plugin resource use,
 persistence/recovery formats and plugin-local script identifiers. The runtime contract already permits a provider to validate
 an authenticated request from another plugin, which is required for a signal plugin to request Basic-owned flank turnouts.
 The host authenticates each contributor independently from the SimpleATO route caller; SimpleATO supplies the frozen route and later
-consumes the committed grant, but does not repackage a plugin contribution under its own identity. `JapaneseSignals` does not change the
+consumes the committed grant, but does not repackage a plugin contribution under its own identity. `SimpleSignals` does not change the
 physical-floor invariant or turn the runtime descriptor into a persisted format.
 
 ```text

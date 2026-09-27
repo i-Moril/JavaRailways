@@ -1,8 +1,8 @@
 {
   "id": "signal-addon-implementation",
   "name": "signal-addon-implementation",
-  "title": "Stage 2: SimpleATO extraction and JapaneseSignals",
-  "description": "Finish the SimpleATO module split and implement JapaneseSignals as the first independent signalling-system plugin on the Stage 1 host APIs.",
+  "title": "Stage 2: SimpleATO extraction and SimpleSignals",
+  "description": "Finish the SimpleATO module split and implement SimpleSignals as the first independent signalling-system plugin on the Stage 1 host APIs.",
   "status": "in_progress",
   "dev_type": null,
   "scope": null,

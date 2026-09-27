@@ -4,7 +4,7 @@
 > `09-18-signal-addon-implementation` is authoritative. It embeds the independent
 > `SimpleATOBukkit` Gradle module into the JavaRailways main plugin JAR. It has no second Bukkit
 > descriptor or lifecycle and owns only actual SimpleATO-specific platform adaptation. Generic host
-> scheduling remains in `BukkitPlugin`; rendering and policy belong to `JapaneseSignals`. The older
+> scheduling remains in `BukkitPlugin`; rendering and policy belong to `SimpleSignals`. The older
 > boundary below is retained only as decision history.
 
 ## Architecture boundary

@@ -27,3 +27,26 @@ Removed the stale StationBerthRole DoorSide.NONE restriction, added registration
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: Unify SimpleATO and manual train dynamics
+<!-- trellis-session: v=2 fp=0a524d6d42472db4 -->
+
+**Date**: 2026-09-27
+**Task**: Unify SimpleATO and manual train dynamics
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+SimpleATO and manual control now share Basic handle-based train dynamics; gravity is configured as track.gravity; operating direction is separate from model direction; reverse-grade force semantics were fixed and covered by tests.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `560fb0f0` | feat(physics): unify manual and ATO train dynamics |
+
+### Status
+
+[OK] **Completed**

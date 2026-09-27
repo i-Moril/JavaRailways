@@ -27,9 +27,11 @@ data class DetailedSimulatedLeg(
 data class DetailedTrainSimulationProfile(
     val train: TrainDynamics.TrainProfile,
     val cars: List<TrainDynamics.CarProfile>,
+    val gravityMetersPerSecondSquared: Double,
     val maximumSpeedMetersPerSecond: Double? = null
 ) {
     init {
+        require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
         require(maximumSpeedMetersPerSecond == null ||
             maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0)
     }
@@ -132,7 +134,14 @@ object DetailedTrainTravelSimulator {
             val cars = profile.cars.map { TrainDynamics.CarInput(it, currentLeg.averageGrade) }
             val beforeDistance = distance
             val beforeElapsed = elapsed
-            val result = TrainDynamics.step(state, profile.train, cars, handle, STEP_SECONDS)
+            val result = TrainDynamics.step(
+                state,
+                profile.train,
+                cars,
+                handle,
+                profile.gravityMetersPerSecondSquared,
+                STEP_SECONDS
+            )
             state = result.state
             distance += result.distance
             elapsed += STEP_SECONDS

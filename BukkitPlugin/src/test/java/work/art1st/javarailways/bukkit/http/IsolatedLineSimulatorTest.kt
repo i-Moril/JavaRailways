@@ -27,7 +27,8 @@ class IsolatedLineSimulatorTest {
                 SimulationLeg("A", "B", 500.0),
                 SimulationLeg("B", "C", 800.0)
             ),
-            profile
+            profile,
+            gravityMetersPerSecondSquared = 9.80665
         )
 
         assertEquals(2, result.legs.size)
@@ -43,8 +44,10 @@ class IsolatedLineSimulatorTest {
             SimulationLeg("B", "C", 500.0, stopAtEnd = false),
             SimulationLeg("C", "D", 500.0, stopAtEnd = true)
         )
-        val passing = IsolatedLineSimulator.simulate(legs, profile)
-        val allStops = IsolatedLineSimulator.simulate(legs.map { it.copy(stopAtEnd = true) }, profile)
+        val passing = IsolatedLineSimulator.simulate(legs, profile, 9.80665)
+        val allStops = IsolatedLineSimulator.simulate(
+            legs.map { it.copy(stopAtEnd = true) }, profile, 9.80665
+        )
 
         assertEquals(listOf("B", "C", "D"), passing.legs.map { it.toStationId })
         assertTrue(passing.legs.all { it.travelSeconds > 0.0 })
@@ -55,11 +58,13 @@ class IsolatedLineSimulatorTest {
     fun `applies the resolved timetable line maximum speed to detailed simulation`() {
         val uncapped = IsolatedLineSimulator.simulate(
             listOf(SimulationLeg("A", "B", 1_000.0)),
-            profile
+            profile,
+            gravityMetersPerSecondSquared = 9.80665
         )
         val capped = IsolatedLineSimulator.simulate(
             listOf(SimulationLeg("A", "B", 1_000.0)),
             profile,
+            gravityMetersPerSecondSquared = 9.80665,
             lineMaximumSpeedMetersPerSecond = 5.0
         )
 
@@ -74,7 +79,8 @@ class IsolatedLineSimulatorTest {
             assertThrows(java.util.concurrent.CancellationException::class.java) {
                 IsolatedLineSimulator.simulate(
                     listOf(SimulationLeg("A", "B", 500.0)),
-                    profile
+                    profile,
+                    gravityMetersPerSecondSquared = 9.80665
                 )
             }
         } finally {

@@ -30,9 +30,12 @@ interface TrainActuator {
     ): ActuationStep
 
     fun freeze(): ActuationStep = ActuationStep(0.0, 0.0)
+
+    /** Returns a braking envelope for the current forward route, or null for a test-only fallback. */
+    fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope? = null
 }
 
-/** Constant-acceleration actuator used by SimpleATO. */
+/** Constant-acceleration actuator retained for small, deterministic planner/constraint tests. */
 class KinematicTrainActuator(
     override val maximumSpeedMetersPerSecond: Double,
     private val profile: AtoSafetyProfile

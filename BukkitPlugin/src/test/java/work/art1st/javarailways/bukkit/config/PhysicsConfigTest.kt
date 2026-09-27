@@ -15,7 +15,7 @@ class PhysicsConfigTest {
 
         val config = PhysicsConfig.fromYaml(yaml)
 
-        assertEquals(1, config.schemaVersion)
+        assertEquals(2, config.schemaVersion)
         assertEquals(1.435, config.track.gaugeMeters)
         assertEquals(9.80665, config.track.gravityMetersPerSecondSquared)
         assertEquals(1.0 / 300.0, config.track.maximumCantGradient, 1.0e-12)
@@ -30,7 +30,7 @@ class PhysicsConfigTest {
 
     @Test
     fun `physics config rejects unsupported schema and invalid gradient`() {
-        val unsupported = validYaml().apply { set("schema-version", 2) }
+        val unsupported = validYaml().apply { set("schema-version", 1) }
         val invalidGradient = validYaml().apply { set("track.maximum-cant-gradient", 0.0) }
 
         assertThrows(IllegalArgumentException::class.java) { PhysicsConfig.fromYaml(unsupported) }
@@ -46,11 +46,20 @@ class PhysicsConfigTest {
         assertThrows(IllegalArgumentException::class.java) { PhysicsConfig.fromYaml(yaml) }
     }
 
+    @Test
+    fun `physics config rejects the removed gravity-mps2 key`() {
+        val yaml = validYaml().apply {
+            set("track.gravity-mps2", 9.80665)
+        }
+
+        assertThrows(IllegalArgumentException::class.java) { PhysicsConfig.fromYaml(yaml) }
+    }
+
     private fun validYaml(): YamlConfiguration = YamlConfiguration().apply {
-        set("schema-version", 1)
+        set("schema-version", 2)
         set("worker-threads", 4)
         set("track.gauge-meters", 1.435)
-        set("track.gravity-mps2", 9.80665)
+        set("track.gravity", 9.80665)
         set("track.maximum-cant-gradient", 1.0 / 300.0)
         set("track.cant-balance-speed-offset-kmh", 10.0)
         set("geometry-sampling.default-step-meters", 0.2)

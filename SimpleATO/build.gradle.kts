@@ -17,6 +17,7 @@ dependencies {
     compileOnly(project(":Core"))
     compileOnly(project(":Basic"))
     compileOnly(project(":ConfigLib"))
+    compileOnly("org.joml:joml:1.10.8")
     implementation(kotlin("stdlib-jdk8"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 

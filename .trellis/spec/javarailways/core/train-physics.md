@@ -49,7 +49,9 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 | even reverse requests | 抵消 | 无direction mutation |
 | `destroy()` | deferred完整cleanup | world index最后移除 |
 
-Reverse改变operating head/tail，但保持car visual direction contract。exact persisted bogie/head/tail placement restore后重建derived car state。
+Reverse改变operating head/tail，但保持`Car.direction`的模型/渲染朝向不变。`Car.operatingDirection`是只读派生值，
+表示正的`moveTrainForward`距离对应的当前物理前进方向；换向后它必须翻转，供Basic坡度计算使用。不得把这两个方向
+重新合并成一个字段。exact persisted bogie/head/tail placement restore后重建derived car state。
 
 ## 项目内正确示例
 

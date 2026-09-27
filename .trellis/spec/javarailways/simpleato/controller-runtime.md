@@ -15,11 +15,13 @@ Basic暂时提供`AbstractATO`、`AtoSafetyProfile`、actuator、mission/snapsho
 
 一次控制周期按以下顺序运行：
 
-1. Bukkit或隔离仿真的`TimetableAtoFactory`创建一个controller并安装到目标Core train；
+1. Bukkit或隔离仿真的`TimetableAtoFactory`解析/捕获同一列车profile、逐车profile和重力，创建Basic
+   `HandleTrainActuator`后再把controller安装到目标Core train；生产与隔离composition不得使用运动学actuator；
 2. Dispatcher在serialized owner上提交带revision的mission、station call、reverse或authority命令；
 3. physics tick开始时controller只在边界drain已接受命令，形成一份active mission/route/provider状态；
 4. controller构造一次perception，读取上一成功signal epoch的immutable snapshots，用当前Mission投影更新外部限制，再按owner原子替换其他constraints并取所有候选中最严格速度；
-5. Basic `AbstractATO`先执行invariant validation，再调用actuator并移动Core train；
+5. Basic `AbstractATO`先执行invariant validation，再调用真实手柄actuator；它逐级选择配置中的P/N/B档并通过共享
+   `TrainDynamicsExecutor`移动Core train；
 6. 成功epoch结束时`AbstractATO`原子发布train snapshot、累计距离和controller value state，Dispatcher只读取这份publication。
 
 Mission、constraint、provider和station-call的mutable集合都只存在于该controller实例，不在
@@ -28,6 +30,11 @@ inspection runtime读取一个thread-safe immutable per-train最大声明距离�
 成功publication把本次`PerceptionSnapshot`和实际horizon与train/controller state一起原子发布。production Dispatcher
 复用该perception规划滚动授权与inspection update，不增加第二次路线扫描。Dispatcher不维护第二套route allocator；生产环境与
 隔离仿真都通过Basic的同一个route-admission runtime申请、准备、授权并按车尾释放资源。
+
+每次既有route scan还构造最多256个保守坡度切片，并从actuator取得共享`GradeAwareBrakingEnvelope`。前方限速、
+停车、跟车、移动授权和路线终点都查询这一包络；无真实包络的纯单元测试才回退常减速度。扫描不是物理终点时，
+其远端在真实包络下作为可制停边界，避免下坡制动距离超过平坡感知horizon。算法owner与复杂度见
+[Basic列车纵向动力学](../basic/train-longitudinal-dynamics.md)。
 
 controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。admission client直接向adapter发布immutable
 restriction snapshot；Dispatcher仅在route建立/延长时绑定冻结route、Mission revision及二者的坐标映射。每个physics tick

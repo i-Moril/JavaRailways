@@ -8,10 +8,14 @@
 
 ## Detailed simulation
 
-`DetailedTrainTravelSimulator.STEP_SECONDS=0.05`。`simulate(legs,profile,computationDeadlineNanos): DetailedTravelSimulationResult`要求legs/cars非空、length positive、final leg stop；支持optional max speed、interrupt、nano deadline、每leg最大3600 s。Result leg含from/to、length m、travel seconds、peak m/s、stopping error m。
+`DetailedTrainTravelSimulator.STEP_SECONDS=0.05`。`DetailedTrainSimulationProfile`显式携带正数
+`gravityMetersPerSecondSquared`；`simulate(legs,profile,computationDeadlineNanos): DetailedTravelSimulationResult`要求legs/cars非空、length positive、final leg stop；支持optional max speed、interrupt、nano deadline、每leg最大3600 s。Result leg含from/to、length m、travel seconds、peak m/s、stopping error m。
 
 ```kotlin
-val result = TrainDynamics.step(state, profile.train, cars, handle, STEP_SECONDS)
+val result = TrainDynamics.step(
+    state, profile.train, cars, handle,
+    profile.gravityMetersPerSecondSquared, STEP_SECONDS
+)
 state = result.state
 distance += result.distance
 elapsed += STEP_SECONDS

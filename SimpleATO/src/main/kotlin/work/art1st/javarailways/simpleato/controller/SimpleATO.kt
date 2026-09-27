@@ -3,7 +3,9 @@ package work.art1st.javarailways.simpleato.controller
 import work.art1st.javarailways.basic.api.ato.AbstractATO
 import work.art1st.javarailways.basic.api.ato.AtoPlanningContext
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.MinimumConstraintPlanner
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.basic.api.ato.command.CommandOfferResult
@@ -185,6 +187,7 @@ class SimpleATO(
     private var previousRouteKey: List<Pair<java.util.UUID, work.art1st.javarailways.core.api.physics.rail.ViewDirection>> = emptyList()
     private var perceptionEpoch = 0L
     private var activePerceptionHorizonMeters = 0.0
+    private var activeBrakingEnvelope: GradeAwareBrakingEnvelope? = null
     private var missionProgressMeters = 0.0
     private var missionRouteLayout: MissionRouteLayout? = null
     private var missionProjectedProgressMeters: Double? = null
@@ -577,6 +580,7 @@ class SimpleATO(
         latestPerceptionSnapshot = scan.perception
         activePerceptionHorizonMeters = scan.perceptionHorizonMeters
         currentSegments = scan.segments
+        activeBrakingEnvelope = actuator.brakingEnvelope(buildBrakingGradeSegments(scan.segments))
 
         updateTrainRestrictions()
         synchronizeInfrastructureLimitWithHead()
@@ -597,7 +601,8 @@ class SimpleATO(
                 currentSpeedMetersPerSecond = activeSpeed,
                 maximumSpeedMetersPerSecond = actuator.maximumSpeedMetersPerSecond,
                 profile = safetyProfile,
-                constraints = constraintManager
+                constraints = constraintManager,
+                brakingEnvelope = activeBrakingEnvelope
             )
         )
     }
@@ -666,14 +671,24 @@ class SimpleATO(
         constraintManager.replace(LINE_SPEED_OWNER, infrastructureLimits)
 
         val lastSegment = scan.segments.last()
-        val routeEnd = if (
-            lastSegment.railView.activeRail == null &&
-            lastSegment.endArcLength >= lastSegment.railView.curve.totalArcLength - safetyProfile.stopToleranceMeters
-        ) {
+        val observedRouteDistance = scan.segments.sumOf { it.totalArcLength }
+        val reachesPhysicalRouteEnd = lastSegment.railView.activeRail == null &&
+            lastSegment.endArcLength >=
+            lastSegment.railView.curve.totalArcLength - safetyProfile.stopToleranceMeters
+        val routeEnd = if (reachesPhysicalRouteEnd) {
             listOf(
                 StopConstraint(
                     ConstraintKey("basic", "route-end/${lastSegment.railView.rail.id}"),
-                    scan.segments.sumOf { it.totalArcLength }
+                    observedRouteDistance
+                )
+            )
+        } else if (activeBrakingEnvelope != null) {
+            // The nominal horizon is derived from flat-track braking. Treat its far edge as a
+            // stop boundary so a known downhill cannot require more route than was inspected.
+            listOf(
+                StopConstraint(
+                    ConstraintKey("basic", "perception-boundary"),
+                    observedRouteDistance
                 )
             )
         } else {
@@ -858,11 +873,16 @@ class SimpleATO(
         val permittedSpeed = constraintManager.permittedSpeedMetersPerSecond(
             currentSpeedMetersPerSecond = activeSpeed,
             maximumSpeedMetersPerSecond = actuator.maximumSpeedMetersPerSecond,
-            profile = safetyProfile
+            profile = safetyProfile,
+            brakingEnvelope = activeBrakingEnvelope
         )
         val descriptions = constraintManager.snapshot().flatMap { (owner, constraints) ->
             constraints.map { constraint ->
-                val limit = constraint.permittedSpeedMetersPerSecond(activeSpeed, safetyProfile)
+                val limit = constraint.permittedSpeedMetersPerSecond(
+                    activeSpeed,
+                    safetyProfile,
+                    activeBrakingEnvelope
+                )
                 "${owner.type}/${owner.id}:${constraint.key.namespace}/${constraint.key.value}" +
                     "=${constraint}; permitted=$limit"
             }
@@ -1079,6 +1099,47 @@ class SimpleATO(
         return result
     }
 
+    private fun buildBrakingGradeSegments(segments: List<RailSegment>): List<BrakingGradeSegment> {
+        val result = ArrayList<BrakingGradeSegment>()
+        segments.forEachIndexed { segmentIndex, segment ->
+            var start = segment.startArcLength
+            while (start < segment.endArcLength - GRADE_ARC_EPSILON_METERS) {
+                if (result.size >= MAX_BRAKING_GRADE_SEGMENTS - 1) {
+                    var remainingLength = 0.0
+                    var worstGradeValue = 1.0
+                    segments.drop(segmentIndex).forEachIndexed { remainingIndex, remaining ->
+                        val remainingStart = if (remainingIndex == 0) start else remaining.startArcLength
+                        if (remaining.endArcLength > remainingStart) {
+                            remainingLength += remaining.endArcLength - remainingStart
+                            worstGradeValue = minOf(
+                                worstGradeValue,
+                                worstGrade(remaining, remainingStart, remaining.endArcLength)
+                            )
+                        }
+                    }
+                    if (remainingLength > 0.0) {
+                        result += BrakingGradeSegment(remainingLength, worstGradeValue)
+                    }
+                    return result
+                }
+                val end = minOf(start + BRAKING_GRADE_SAMPLE_SPACING_METERS, segment.endArcLength)
+                result += BrakingGradeSegment(end - start, worstGrade(segment, start, end))
+                start = end
+            }
+        }
+        return result
+    }
+
+    private fun worstGrade(segment: RailSegment, startArc: Double, endArc: Double): Double {
+        val curve = segment.railView.curve
+        val middleArc = (startArc + endArc) * 0.5
+        return minOf(
+            curve.getPointAt(startArc).tangent.y(),
+            curve.getPointAt(middleArc).tangent.y(),
+            curve.getPointAt(endArc).tangent.y()
+        )
+    }
+
     override fun capturePublishedControllerState(): Any = SimpleAtoControllerPublishedState(
         perception = latestPerceptionSnapshot,
         perceptionHorizonMeters = activePerceptionHorizonMeters,
@@ -1101,6 +1162,9 @@ class SimpleATO(
 
     private companion object {
         const val ROUTE_PERCEPTION_MARGIN_METERS = 10.0
+        const val BRAKING_GRADE_SAMPLE_SPACING_METERS = 10.0
+        const val MAX_BRAKING_GRADE_SEGMENTS = 256
+        const val GRADE_ARC_EPSILON_METERS = 1.0e-9
         val INITIAL_RUNTIME_DIAGNOSTICS = SimpleAtoRuntimeDiagnostics(
             missionRevision = null,
             odometerProgressMeters = 0.0,

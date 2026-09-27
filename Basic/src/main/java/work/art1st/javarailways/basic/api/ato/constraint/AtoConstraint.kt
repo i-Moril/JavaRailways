@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.api.ato.constraint
 
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import kotlin.math.sqrt
 
 data class ConstraintKey(val namespace: String, val value: String) {
@@ -27,7 +28,8 @@ sealed interface AtoConstraint {
 
     fun permittedSpeedMetersPerSecond(
         currentSpeedMetersPerSecond: Double,
-        profile: AtoSafetyProfile
+        profile: AtoSafetyProfile,
+        brakingEnvelope: GradeAwareBrakingEnvelope? = null
     ): Double
 }
 
@@ -41,7 +43,8 @@ data class CurrentSpeedLimitConstraint(
 
     override fun permittedSpeedMetersPerSecond(
         currentSpeedMetersPerSecond: Double,
-        profile: AtoSafetyProfile
+        profile: AtoSafetyProfile,
+        brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = maximumSpeedMetersPerSecond
 }
 
@@ -57,11 +60,13 @@ data class RouteSpeedLimitConstraint(
 
     override fun permittedSpeedMetersPerSecond(
         currentSpeedMetersPerSecond: Double,
-        profile: AtoSafetyProfile
+        profile: AtoSafetyProfile,
+        brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = maximumSpeedMetersPerSecond,
         distance = distanceToStartMeters - currentSpeedMetersPerSecond * profile.reactionTimeSeconds,
-        deceleration = profile.serviceDecelerationMetersPerSecondSquared
+        deceleration = profile.serviceDecelerationMetersPerSecondSquared,
+        brakingEnvelope = brakingEnvelope
     )
 }
 
@@ -78,13 +83,15 @@ data class StopConstraint(
 
     override fun permittedSpeedMetersPerSecond(
         currentSpeedMetersPerSecond: Double,
-        profile: AtoSafetyProfile
+        profile: AtoSafetyProfile,
+        brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = 0.0,
         distance = remainingDistanceMeters -
             currentSpeedMetersPerSecond * profile.reactionTimeSeconds -
             (stoppingMarginMeters ?: profile.stopToleranceMeters),
-        deceleration = profile.serviceDecelerationMetersPerSecondSquared
+        deceleration = profile.serviceDecelerationMetersPerSecondSquared,
+        brakingEnvelope = brakingEnvelope
     )
 }
 
@@ -100,12 +107,14 @@ data class FollowConstraint(
 
     override fun permittedSpeedMetersPerSecond(
         currentSpeedMetersPerSecond: Double,
-        profile: AtoSafetyProfile
+        profile: AtoSafetyProfile,
+        brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = leadingSpeedMetersPerSecond,
         distance = gapMeters - profile.safetyDistanceMeters -
             currentSpeedMetersPerSecond * profile.reactionTimeSeconds,
-        deceleration = profile.serviceDecelerationMetersPerSecondSquared
+        deceleration = profile.serviceDecelerationMetersPerSecondSquared,
+        brakingEnvelope = brakingEnvelope
     )
 }
 
@@ -119,12 +128,14 @@ data class MovementAuthorityConstraint(
 
     override fun permittedSpeedMetersPerSecond(
         currentSpeedMetersPerSecond: Double,
-        profile: AtoSafetyProfile
+        profile: AtoSafetyProfile,
+        brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = 0.0,
         distance = remainingDistanceMeters - profile.safetyDistanceMeters -
             currentSpeedMetersPerSecond * profile.reactionTimeSeconds,
-        deceleration = profile.serviceDecelerationMetersPerSecondSquared
+        deceleration = profile.serviceDecelerationMetersPerSecondSquared,
+        brakingEnvelope = brakingEnvelope
     )
 }
 
@@ -133,9 +144,15 @@ data class DepartureHoldConstraint(
 ) : AtoConstraint {
     override fun permittedSpeedMetersPerSecond(
         currentSpeedMetersPerSecond: Double,
-        profile: AtoSafetyProfile
+        profile: AtoSafetyProfile,
+        brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = 0.0
 }
 
-private fun speedForTarget(targetSpeed: Double, distance: Double, deceleration: Double): Double =
-    sqrt(targetSpeed * targetSpeed + 2.0 * deceleration * distance.coerceAtLeast(0.0))
+private fun speedForTarget(
+    targetSpeed: Double,
+    distance: Double,
+    deceleration: Double,
+    brakingEnvelope: GradeAwareBrakingEnvelope?
+): Double = brakingEnvelope?.permittedSpeedMetersPerSecond(targetSpeed, distance.coerceAtLeast(0.0))
+    ?: sqrt(targetSpeed * targetSpeed + 2.0 * deceleration * distance.coerceAtLeast(0.0))

@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerInputEvent
 import org.bukkit.event.player.PlayerQuitEvent
+import work.art1st.javarailways.basic.control.RealisticManualController
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap

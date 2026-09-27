@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.api.ato.constraint
 
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 
 /** Owner-scoped constraint storage. Each [replace] is atomic. */
 class ConstraintManager {
@@ -24,7 +25,8 @@ class ConstraintManager {
     fun permittedSpeedMetersPerSecond(
         currentSpeedMetersPerSecond: Double,
         maximumSpeedMetersPerSecond: Double,
-        profile: AtoSafetyProfile
+        profile: AtoSafetyProfile,
+        brakingEnvelope: GradeAwareBrakingEnvelope? = null
     ): Double {
         require(currentSpeedMetersPerSecond >= 0.0 && currentSpeedMetersPerSecond.isFinite())
         require(maximumSpeedMetersPerSecond > 0.0 && maximumSpeedMetersPerSecond.isFinite())
@@ -34,7 +36,11 @@ class ConstraintManager {
                 ownerConstraints.forEach { constraint ->
                     limit = minOf(
                         limit,
-                        constraint.permittedSpeedMetersPerSecond(currentSpeedMetersPerSecond, profile)
+                        constraint.permittedSpeedMetersPerSecond(
+                            currentSpeedMetersPerSecond,
+                            profile,
+                            brakingEnvelope
+                        )
                     )
                 }
             }

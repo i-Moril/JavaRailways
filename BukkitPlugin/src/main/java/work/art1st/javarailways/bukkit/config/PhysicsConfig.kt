@@ -93,7 +93,7 @@ data class PhysicsConfig(
         standardTurnouts.getValue(standard)
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 1
+        const val CURRENT_SCHEMA_VERSION = 2
 
         fun load(plugin: BukkitPlugin): PhysicsConfig {
             val file = File(plugin.dataFolder, "physics.yml")
@@ -106,11 +106,14 @@ data class PhysicsConfig(
             require(schemaVersion == CURRENT_SCHEMA_VERSION) {
                 "Unsupported physics.yml schema-version $schemaVersion; expected $CURRENT_SCHEMA_VERSION"
             }
+            require(!yaml.contains("track.gravity-mps2", true)) {
+                "Removed physics config key 'track.gravity-mps2'; use 'track.gravity'"
+            }
             val workerThreads = requireInt(yaml, "worker-threads")
             require(workerThreads > 0) { "worker-threads must be > 0" }
 
             val gauge = requirePositiveDouble(yaml, "track.gauge-meters")
-            val gravity = requirePositiveDouble(yaml, "track.gravity-mps2")
+            val gravity = requirePositiveDouble(yaml, "track.gravity")
             val maximumCantGradient = requirePositiveDouble(yaml, "track.maximum-cant-gradient")
             require(maximumCantGradient <= 1.0) { "track.maximum-cant-gradient must be <= 1.0" }
             val cantBalanceOffset = requireNonNegativeDouble(yaml, "track.cant-balance-speed-offset-kmh")

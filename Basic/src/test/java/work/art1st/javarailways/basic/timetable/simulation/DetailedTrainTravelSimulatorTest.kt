@@ -32,7 +32,7 @@ class DetailedTrainTravelSimulatorTest {
                 defaultResistance(speed)
         }
         val legs = listOf(DetailedTravelLeg("a", "b", 250.0))
-        val profile = DetailedTrainSimulationProfile(train, listOf(car))
+        val profile = DetailedTrainSimulationProfile(train, listOf(car), 9.80665)
 
         val first = DetailedTrainTravelSimulator.simulate(legs, profile)
         val second = DetailedTrainTravelSimulator.simulate(legs, profile)

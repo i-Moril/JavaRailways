@@ -27,6 +27,7 @@ import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetable
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
+import work.art1st.javarailways.bukkit.config.model.MotorControlConfig
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -60,7 +61,8 @@ class IsolatedTimetableSimulationFactoryTest {
         )))
         val profile = profile()
         val factory = IsolatedTimetableSimulationFactory(
-            IsolatedSimulationProfileResolver { _, _, _ -> profile }
+            IsolatedSimulationProfileResolver { _, _, _ -> profile },
+            9.80665
         )
         val snapshot = factory.capture(source, timetable, listOf(
             TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")
@@ -119,7 +121,8 @@ class IsolatedTimetableSimulationFactoryTest {
             lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, speed))
         )
         val factory = IsolatedTimetableSimulationFactory(
-            IsolatedSimulationProfileResolver { _, _, _ -> profile() }
+            IsolatedSimulationProfileResolver { _, _, _ -> profile() },
+            9.80665
         )
         fun capture(timetable: Timetable) = factory.capture(source, timetable, listOf(
             TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")
@@ -161,7 +164,8 @@ class IsolatedTimetableSimulationFactoryTest {
         ) }
         val profile = profile()
         val factory = IsolatedTimetableSimulationFactory(
-            IsolatedSimulationProfileResolver { _, _, _ -> profile }
+            IsolatedSimulationProfileResolver { _, _, _ -> profile },
+            9.80665
         )
         val snapshot = factory.capture(source, Timetable("t", services = services), services.map {
             TimetableProfileSelection(it.id, SimulationProfileType.TRAIN_TEMPLATE, "template")
@@ -182,7 +186,8 @@ class IsolatedTimetableSimulationFactoryTest {
             TimetableService(id, TrainSelector.TrainId("same-train"), emptyList())
         }
         val factory = IsolatedTimetableSimulationFactory(
-            IsolatedSimulationProfileResolver { _, _, id -> profile(id) }
+            IsolatedSimulationProfileResolver { _, _, id -> profile(id) },
+            9.80665
         )
 
         val failure = assertThrows(IllegalArgumentException::class.java) {
@@ -196,11 +201,16 @@ class IsolatedTimetableSimulationFactoryTest {
         (source.tickManager as? AutoCloseable)?.close()
     }
 
-    private fun profile(id: String = "template") = SimulationControlProfile(
-        SimulationProfileType.TRAIN_TEMPLATE,
-        id,
-        TrainControlConfig(maxSpeed = 10.0),
-        listOf(CarControlConfig()),
-        listOf(SimulationCarBlueprint(10.0, 0.0, 0.0, 0.0, 3.5, -3.5, CarControlConfig()))
-    )
+    private fun profile(id: String = "template"): SimulationControlProfile {
+        val carControl = CarControlConfig(
+            motor = MotorControlConfig(enabled = true, maxForce = 80_000.0, maxPower = 800_000.0)
+        )
+        return SimulationControlProfile(
+            SimulationProfileType.TRAIN_TEMPLATE,
+            id,
+            TrainControlConfig(maxSpeed = 10.0),
+            listOf(carControl),
+            listOf(SimulationCarBlueprint(10.0, 0.0, 0.0, 0.0, 3.5, -3.5, carControl))
+        )
+    }
 }

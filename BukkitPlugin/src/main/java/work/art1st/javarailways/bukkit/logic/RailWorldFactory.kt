@@ -12,8 +12,9 @@ import work.art1st.javarailways.core.di.javaRailwaysParentScope
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
 import work.art1st.javarailways.basic.BasicWorldData
+import work.art1st.javarailways.basic.control.HandleTrainActuator
+import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV1
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV2
 import work.art1st.javarailways.simpleato.controller.SimpleATO
@@ -32,6 +33,7 @@ import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
+import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGateway
 import work.art1st.javarailways.bukkit.operation.RegionTrainOperationDispatcher
 import work.art1st.javarailways.bukkit.persistence.RailRenderMetaStore
@@ -141,13 +143,33 @@ object RailWorldFactory {
                 operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
             ),
             atoFactory = TimetableAtoFactory { train, world ->
-                val profile = AtoSafetyProfile()
-                val maximumSpeed = train.rendererOrNull?.resolveControl()?.maxSpeed
+                val renderer = train.rendererOrNull
                     ?: throw IllegalArgumentException("Train ${train.id} has no model control profile")
+                val trainProfile = renderer.resolveControl()
+                val carProfiles = train.cars.mapIndexed { index, car ->
+                    val modelName = car.carRendererOrNull?.carModelName
+                        ?: throw IllegalArgumentException(
+                            "Train ${train.id} car #${index + 1} has no model control profile"
+                        )
+                    renderer.resolveCarControl(modelName)
+                        ?: throw IllegalArgumentException(
+                            "Train ${train.id} car #${index + 1} model '$modelName' has no control profile"
+                        )
+                }
+                val gravity = physicsConfig.track.gravityMetersPerSecondSquared
+                val profile = AtoSafetyProfile(
+                    serviceDecelerationMetersPerSecondSquared =
+                        TrainDynamics.flatServiceDeceleration(trainProfile, carProfiles, gravity),
+                    reactionTimeSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(
+                        trainProfile,
+                        carProfiles,
+                        gravity
+                    )
+                )
                 SimpleATO(
                     train,
                     world,
-                    KinematicTrainActuator(maximumSpeed, profile),
+                    HandleTrainActuator(train, trainProfile, carProfiles, gravity),
                     profile,
                     inspectionRuntime::maximumDeclaredDistanceMeters
                 )

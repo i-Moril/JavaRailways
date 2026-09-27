@@ -19,10 +19,11 @@ interface TrainActuator {
         deltaTimeSeconds: Double
     ): ActuationStep
     fun freeze(): ActuationStep = ActuationStep(0.0, 0.0)
+    fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope? = null
 }
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/ato/TrainActuator.kt`。`ActuationStep(speedMetersPerSecond,distanceMeters)`字段finite且`>=0`；Kinematic实现constant accel/decel并用平均速度积分距离。
+来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/ato/TrainActuator.kt`。`ActuationStep(speedMetersPerSecond,distanceMeters)`字段finite且`>=0`；生产SimpleATO使用共享真实手柄动力学和坡度包络。Kinematic实现只作为纯控制测试替身，以constant accel/decel并用平均速度积分距离。完整算法见[列车纵向动力学](./train-longitudinal-dynamics.md)。
 
 `ConstraintOwnerType`稳定token：`SYSTEM_SAFETY/SIGNALLING/OPERATIONS/ADVISORY`。`ConstraintManager.replace(owner,values)`原子替换，同owner duplicate `ConstraintKey(namespace,value)`拒绝；`permittedSpeedMetersPerSecond`取所有owner最小值。
 
@@ -31,10 +32,10 @@ interface TrainActuator {
 | constraint | 输入字段/单位 | permitted result |
 | --- | --- | --- |
 | `CurrentSpeedLimitConstraint` | `maximumSpeedMetersPerSecond>=0` | 当前固定上限 |
-| `RouteSpeedLimitConstraint` | distance to lower limit m、target m/s | reaction + service braking curve |
+| `RouteSpeedLimitConstraint` | distance to lower limit m、target m/s | reaction + 坡度包络；无包络测试回退常减速度 |
 | `StopConstraint` | remaining m、optional margin m | 到目标0 m/s；station可margin=0精确停车 |
-| `FollowConstraint` | gap m、leading speed m/s | 扣safety distance/reaction后braking curve |
-| `MovementAuthorityConstraint` | remaining authority m | 到authority前0 m/s |
+| `FollowConstraint` | gap m、leading speed m/s | 扣safety distance/reaction后使用同一坡度包络 |
+| `MovementAuthorityConstraint` | remaining authority m | 用同一坡度包络在authority前到0 m/s |
 | `DepartureHoldConstraint` | key | 恒0 m/s |
 
 无active Mission时，`SimpleATO.plan`即使有line/infrastructure speed cap也必须输出zero demand。constraint是当前Tick value；owner replace empty即remove，不跨Tick累积stale map。

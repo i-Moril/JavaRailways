@@ -6,6 +6,7 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.api.depot.RollingStockState
+import work.art1st.javarailways.basic.control.RealisticManualController
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.bukkit.BukkitPlugin
@@ -16,7 +17,6 @@ import work.art1st.javarailways.bukkit.config.model.CarDefinition
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import work.art1st.javarailways.bukkit.extension.train.CarExtension
 import work.art1st.javarailways.bukkit.extension.train.TrainExtension
-import work.art1st.javarailways.bukkit.control.RealisticManualController
 import work.art1st.javarailways.bukkit.control.TrainKeyItem
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.renderer
@@ -430,7 +430,13 @@ object TrainCommand {
             sender.sendMessage("错误: ${e.message}")
             return true
         }
-        val controller = RealisticManualController(train, coreWorld, controlConfig, carControls)
+        val controller = RealisticManualController(
+            train,
+            coreWorld,
+            controlConfig,
+            carControls,
+            BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared
+        )
         train.setController(controller)
         playerControllers[sender.uniqueId] = controller
 
@@ -903,7 +909,13 @@ object TrainCommand {
                 BukkitPlugin.INSTANCE.logger.warning("Failed to resolve control profile for train ${train.id}: ${e.message}")
                 return null
             }
-            RealisticManualController(train, train.world, controlConfig, carControls).also { train.setController(it) }
+            RealisticManualController(
+                train,
+                train.world,
+                controlConfig,
+                carControls,
+                BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared
+            ).also { train.setController(it) }
         }
         playerControllers[player.uniqueId] = controller
         return controller

@@ -14,6 +14,7 @@
 | [监测区占用](./railway-area-occupancy.md) | 区间占用、边界ENTER/LEFT、响应式信号输入 | Basic通用物理派生，不包含信号制式策略 |
 | [ATO mission 与 perception](./ato-missions-and-perception.md) | mission、route/perception snapshot | revision、resolve、immutable perception |
 | [ATO control primitives 与 constraints](./ato-control-and-constraints.md) | AbstractATO、actuator、speed/stop/authority primitive | Basic共享safety skeleton与constraint math；具体controller归SimpleATO |
+| [列车纵向动力学](./train-longitudinal-dynamics.md) | 牵引/制动/阻力/坡度、人工或ATO手柄执行、重力注入 | Basic共享动力学、真实手柄执行与坡度制动包络 |
 | [ATO providers](./ato-providers.md) | 注册provider/boundary | world-local factory、worker purity |
 | [train operations](./train-operations.md) | door/model/announcement adapter | request/ticket/cancel/completion |
 | [Destinations](./destinations.md) | 创建/migrate operational stop | canonical destination与derived WayPoint transaction |

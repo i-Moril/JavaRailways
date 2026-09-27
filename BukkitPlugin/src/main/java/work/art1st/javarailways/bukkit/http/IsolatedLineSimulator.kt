@@ -33,6 +33,7 @@ object IsolatedLineSimulator {
     fun simulate(
         legs: List<SimulationLeg>,
         profile: SimulationControlProfile,
+        gravityMetersPerSecondSquared: Double,
         lineMaximumSpeedMetersPerSecond: Double? = null
     ): IsolatedLineSimulationResult {
         val result = try {
@@ -43,6 +44,7 @@ object IsolatedLineSimulator {
                 DetailedTrainSimulationProfile(
                     profile.trainControl,
                     profile.carControls,
+                    gravityMetersPerSecondSquared,
                     lineMaximumSpeedMetersPerSecond
                 )
             )

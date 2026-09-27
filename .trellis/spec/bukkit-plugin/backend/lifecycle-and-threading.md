@@ -45,6 +45,11 @@ source增删/替换不能静默放宽既有授权：普通replacement经world co
 
 ## Simulation 与 physics
 
+Bukkit是列车控制的composition owner，但不是动力学owner：它从当前renderer的pinned/live策略解析
+`TrainDynamics.TrainProfile`和逐车`CarProfile`，读取必填`physics.yml`的`track.gravity`，再构造Basic
+`RealisticManualController`或SimpleATO的`HandleTrainActuator`。不得在Bukkit恢复纵向公式、硬编码重力或为已删除的
+Bukkit controller保留兼容facade。隔离模拟capture必须把重力和profile一起冻结，worker阶段不得访问live renderer。
+
 `WorldManager` 用 global scheduler 每 tick 驱动串行 simulation context：
 
 ```text

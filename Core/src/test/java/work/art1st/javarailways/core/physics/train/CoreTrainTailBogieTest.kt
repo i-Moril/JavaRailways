@@ -133,6 +133,7 @@ class CoreTrainTailBogieTest {
         train.setLocation(RailLocationWithFacing(rail.viewAB, 150.0))
         train.commit()
         val directionsBeforeReverse = train.cars.map { org.joml.Vector3d(it.direction) }
+        val operatingDirectionsBeforeReverse = train.cars.map { org.joml.Vector3d(it.operatingDirection) }
         train.reverseOnMainThread()
         AsyncTickTestSupport.run { train.moveTrainForward(5.0) }
         train.commit()
@@ -144,6 +145,12 @@ class CoreTrainTailBogieTest {
         assertEquals(10.0, d12, 0.5, "car 1/2 spacing")
         train.cars.forEachIndexed { index, car ->
             assertEquals(1.0, directionsBeforeReverse[index].dot(car.direction), 1e-9, "car $index visual direction should not flip")
+            assertEquals(
+                -1.0,
+                operatingDirectionsBeforeReverse[index].dot(car.operatingDirection),
+                1e-9,
+                "car $index operating direction should flip"
+            )
         }
     }
 

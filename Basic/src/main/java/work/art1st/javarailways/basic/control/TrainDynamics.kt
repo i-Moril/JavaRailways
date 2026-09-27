@@ -4,8 +4,6 @@ import kotlin.math.abs
 
 /** Pure longitudinal dynamics shared by live train control and isolated timetable simulation. */
 object TrainDynamics {
-    private const val G = 9.80665
-
     interface TrainProfile {
         val maxSpeed: Double
         val powerHandles: List<String>
@@ -56,8 +54,12 @@ object TrainDynamics {
         config: TrainProfile,
         cars: List<CarInput>,
         handle: String,
+        gravityMetersPerSecondSquared: Double,
         deltaSeconds: Double
     ): StepResult {
+        require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0) {
+            "gravityMetersPerSecondSquared must be finite and positive"
+        }
         if (deltaSeconds <= 0.0 || cars.isEmpty()) {
             return StepResult(state, 0.0, 0.0, 0.0, 0.0, 0.0)
         }
@@ -81,14 +83,16 @@ object TrainDynamics {
         } else {
             cars.sumOf { car ->
                 val raw = car.control.motorForceAt(speed) * powerScale
-                val adhesionLimit = car.control.mass * car.control.motorAdhesionMassRatio * G *
+                val adhesionLimit = car.control.mass * car.control.motorAdhesionMassRatio *
+                    gravityMetersPerSecondSquared *
                     config.adhesionCoefficient
                 raw.coerceIn(0.0, adhesionLimit.coerceAtLeast(0.0))
             }
         }
         val brakeForce = cars.sumOf { car ->
             val raw = car.control.brakeMaxForce * brakeScale
-            val adhesionLimit = car.control.mass * car.control.brakeAdhesionMassRatio * G *
+            val adhesionLimit = car.control.mass * car.control.brakeAdhesionMassRatio *
+                gravityMetersPerSecondSquared *
                 config.adhesionCoefficient
             raw.coerceIn(0.0, adhesionLimit.coerceAtLeast(0.0))
         }
@@ -96,7 +100,7 @@ object TrainDynamics {
             car.control.resistanceForceAt(speed, config::resistanceForceAt)
         }
         val gradeForce = cars.sumOf { car ->
-            car.control.mass * G * car.grade.coerceIn(-1.0, 1.0)
+            car.control.mass * gravityMetersPerSecondSquared * car.grade.coerceIn(-1.0, 1.0)
         }
 
         var targetAcceleration = (tractionForce - brakeForce - resistanceForce - gradeForce) / effectiveMass
@@ -124,6 +128,38 @@ object TrainDynamics {
             resistanceForce,
             gradeForce
         )
+    }
+
+    fun strongestServiceBrakeHandle(config: TrainProfile): String =
+        config.brakeHandles.asSequence()
+            .filterNot { it.equals("EB", ignoreCase = true) }
+            .maxByOrNull(config::normalizedBrakeScale)
+            ?: throw IllegalArgumentException("train profile has no non-emergency brake handle")
+
+    fun steadyServiceBrakeForce(
+        config: TrainProfile,
+        cars: List<CarProfile>,
+        gravityMetersPerSecondSquared: Double
+    ): Double {
+        require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
+        val brakeScale = config.normalizedBrakeScale(strongestServiceBrakeHandle(config))
+            .coerceAtLeast(0.0)
+        return cars.sumOf { car ->
+            val raw = car.brakeMaxForce * brakeScale
+            val adhesionLimit = car.mass * car.brakeAdhesionMassRatio *
+                gravityMetersPerSecondSquared * config.adhesionCoefficient
+            raw.coerceIn(0.0, adhesionLimit.coerceAtLeast(0.0))
+        }
+    }
+
+    fun flatServiceDeceleration(
+        config: TrainProfile,
+        cars: List<CarProfile>,
+        gravityMetersPerSecondSquared: Double
+    ): Double {
+        require(cars.isNotEmpty()) { "at least one car profile is required" }
+        val effectiveMass = cars.sumOf(CarProfile::effectiveMass).coerceAtLeast(1.0)
+        return steadyServiceBrakeForce(config, cars, gravityMetersPerSecondSquared) / effectiveMass
     }
 
     private fun approachBrakeScale(

@@ -55,6 +55,7 @@ internal class HttpFailure(val status: Int, message: String) : RuntimeException(
 private data class LineSimulationSnapshot(
     val revision: Long,
     val profile: SimulationControlProfile,
+    val gravityMetersPerSecondSquared: Double,
     val legs: List<SimulationLeg>,
     val lineMaximumSpeedMetersPerSecond: Double?
 )
@@ -450,7 +451,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     }
                 }.getOrElse { throw HttpFailure(400, "invalid profileAssignments: ${it.message}") }
             } ?: throw HttpFailure(400, "profileAssignments is required")
-            val factory = IsolatedTimetableSimulationFactory(SimulationControlProfileCatalog(plugin))
+            val factory = IsolatedTimetableSimulationFactory(
+                SimulationControlProfileCatalog(plugin),
+                plugin.physicsConfig.track.gravityMetersPerSecondSquared
+            )
             val snapshot = await {
                 withWorld(worldName) { _, world ->
                     val coreWorld = world as? work.art1st.javarailways.core.physics.CoreWorld
@@ -659,6 +663,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     LineSimulationSnapshot(
                         revision = data.lines.snapshot().revision,
                         profile = profile,
+                        gravityMetersPerSecondSquared = plugin.physicsConfig.track.gravityMetersPerSecondSquared,
                         legs = selectedLegs.mapIndexed { index, leg ->
                             val weightedGrade = leg.route.segments.sumOf { segment ->
                                 val rail = world.getRail(segment.railViewRef.railId)
@@ -684,6 +689,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     IsolatedLineSimulator.simulate(
                         snapshot.legs,
                         snapshot.profile,
+                        snapshot.gravityMetersPerSecondSquared,
                         snapshot.lineMaximumSpeedMetersPerSecond
                     )
                 }

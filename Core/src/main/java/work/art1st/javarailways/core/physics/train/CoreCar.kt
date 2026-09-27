@@ -92,6 +92,8 @@ class CoreCar @MainThread internal constructor(
     // 渲染的朝向，与速度方向无关
     override var direction: Vector3dc by _direction
         private set
+    override val operatingDirection: Vector3dc
+        get() = if (isReversed) -direction else direction
     private val activeDirection
         get() = _direction.getActive()
 

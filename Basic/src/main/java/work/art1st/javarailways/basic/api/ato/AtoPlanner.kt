@@ -6,7 +6,8 @@ data class AtoPlanningContext(
     val currentSpeedMetersPerSecond: Double,
     val maximumSpeedMetersPerSecond: Double,
     val profile: AtoSafetyProfile,
-    val constraints: ConstraintManager
+    val constraints: ConstraintManager,
+    val brakingEnvelope: GradeAwareBrakingEnvelope? = null
 )
 
 fun interface AtoPlanner {
@@ -19,7 +20,8 @@ object MinimumConstraintPlanner : AtoPlanner {
         context.constraints.permittedSpeedMetersPerSecond(
             currentSpeedMetersPerSecond = context.currentSpeedMetersPerSecond,
             maximumSpeedMetersPerSecond = context.maximumSpeedMetersPerSecond,
-            profile = context.profile
+            profile = context.profile,
+            brakingEnvelope = context.brakingEnvelope
         )
     )
 }

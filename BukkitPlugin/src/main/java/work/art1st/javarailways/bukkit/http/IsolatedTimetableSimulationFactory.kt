@@ -2,7 +2,8 @@ package work.art1st.javarailways.bukkit.http
 
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
-import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
+import work.art1st.javarailways.basic.control.HandleTrainActuator
+import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.operation.TrainOperation
@@ -43,6 +44,7 @@ internal data class IsolatedTimetableSimulationSnapshot(
     val basicInfrastructure: BasicInfrastructureSnapshotV1,
     val timetable: Timetable,
     val profilesByService: Map<String, SimulationControlProfile>,
+    val gravityMetersPerSecondSquared: Double,
     val turnoutSafetyDefaults: TurnoutSafetyDefaults,
     val timetableExtensions: TimetableExtensionRegistry
 )
@@ -53,10 +55,19 @@ internal fun interface IsolatedSimulationProfileResolver {
 }
 
 internal class IsolatedTimetableSimulationFactory(
-    private val profileResolver: IsolatedSimulationProfileResolver
+    private val profileResolver: IsolatedSimulationProfileResolver,
+    private val gravityMetersPerSecondSquared: Double
 ) {
-    constructor(profileCatalog: SimulationControlProfileCatalog) : this(
-        IsolatedSimulationProfileResolver { world, type, id -> profileCatalog.resolve(world, type, id) }
+    init {
+        require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
+    }
+
+    constructor(
+        profileCatalog: SimulationControlProfileCatalog,
+        gravityMetersPerSecondSquared: Double
+    ) : this(
+        IsolatedSimulationProfileResolver { world, type, id -> profileCatalog.resolve(world, type, id) },
+        gravityMetersPerSecondSquared
     )
     fun capture(
         liveWorld: CoreWorld,
@@ -100,6 +111,7 @@ internal class IsolatedTimetableSimulationFactory(
             BasicInfrastructureSnapshotV1.capture(liveWorld, revision),
             timetable,
             profiles,
+            gravityMetersPerSecondSquared,
             liveWorld.basicWorldData.turnoutSafetyDefaults,
             liveWorld.basicWorldData.timetableExtensions.createSimulationRegistry()
         )
@@ -136,11 +148,29 @@ internal class IsolatedTimetableSimulationFactory(
                         val profile = requireNotNull(profilesByTrainId[train.id]) {
                             "simulation profile missing for train ${train.id}"
                         }
-                        val safety = AtoSafetyProfile()
+                        val gravity = snapshot.gravityMetersPerSecondSquared
+                        val safety = AtoSafetyProfile(
+                            serviceDecelerationMetersPerSecondSquared =
+                                TrainDynamics.flatServiceDeceleration(
+                                    profile.trainControl,
+                                    profile.carControls,
+                                    gravity
+                                ),
+                            reactionTimeSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(
+                                profile.trainControl,
+                                profile.carControls,
+                                gravity
+                            )
+                        )
                         SimpleATO(
                             train,
                             owningWorld,
-                            KinematicTrainActuator(profile.trainControl.maxSpeed, safety),
+                            HandleTrainActuator(
+                                train,
+                                profile.trainControl,
+                                profile.carControls,
+                                gravity
+                            ),
                             safety,
                             inspectionRuntime::maximumDeclaredDistanceMeters
                         )

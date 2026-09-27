@@ -11,6 +11,8 @@ import net.kyori.adventure.text.event.ClickCallback
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
+import work.art1st.javarailways.basic.control.RealisticManualController
+import work.art1st.javarailways.basic.control.TrainDriveDirection
 import work.art1st.javarailways.simpleato.timetable.TimetableControlMode
 import work.art1st.javarailways.simpleato.timetable.TimetableControlTransferResult
 import work.art1st.javarailways.bukkit.BukkitPlugin

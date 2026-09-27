@@ -13,6 +13,8 @@ import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.inventory.ItemStack
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import org.joml.Vector3d
+import work.art1st.javarailways.basic.control.RealisticManualController
+import work.art1st.javarailways.basic.control.TrainDriveDirection
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.timetable.TimetableControlMode
@@ -128,6 +130,7 @@ class TrainControlManager(
                 coreTrain.world,
                 controlConfig,
                 carControls,
+                plugin.physicsConfig.track.gravityMetersPerSecondSquared,
                 initialSpeedMetersPerSecond = transferSpeedMetersPerSecond
             ).also { coreTrain.setController(it) }
         }

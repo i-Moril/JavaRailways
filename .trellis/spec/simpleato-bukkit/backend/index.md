@@ -8,7 +8,9 @@
 plugin dependency，或通过Bukkit `ServicesManager`反向发现同一主插件。
 
 具体信号制式仍由独立附属插件拥有。`SimpleATOBukkit`不得拥有`JapaneseSignals`的固定闭塞、
-保护区域、联锁规则、aspect/model vocabulary或可选JS/YAML语义。
+保护区域、联锁规则、aspect/model vocabulary、renderer或可选JS/YAML语义。通用车辆渲染、
+Folia调度helper和面向所有附属插件的平台facade也不属于本模块；前两者留在`BukkitPlugin`，
+后者只有在出现明确的跨插件需求后才能作为`BukkitPlugin`公开API单独设计。
 
 ## 工作方式
 
@@ -26,12 +28,14 @@ BukkitPlugin.onEnable
 按实现类复用slot并替换旧实例，因此adapter每次安装创建当前实例，然后把完全相同的实例同时
 发布给`SimpleATOPlugin.INSTANCE`和registry。任何Core world创建都必须发生在此步骤之后。
 
-当前首批还拥有SimpleATO的ATO stall与Depot reset诊断文件适配。后续平台呈现应继续迁入本模块，
-但world composition、最终启动/停止顺序、RailWand和手动驾驶仍由`BukkitPlugin`拥有。
+当前模块还拥有SimpleATO的ATO stall与Depot reset诊断文件适配。它们分别消费SimpleATO拥有的
+`AtoStallReport`与`DepotResetReport`，把报告写入主插件提供的数据目录。world composition、通用车辆
+渲染、最终启动/停止顺序、RailWand和手动驾驶仍由`BukkitPlugin`拥有。
 
 ## 依赖与打包不变量
 
-- `SimpleATOBukkit`可依赖`SimpleATO`、Core公开API和Paper API；不得依赖`BukkitPlugin`，否则形成
+- `SimpleATOBukkit`可依赖`SimpleATO`以及实际使用的Core/Paper公开API；不得为了预留未来功能加入未使用的
+  platform dependency，也不得依赖`BukkitPlugin`，否则形成
   `BukkitPlugin -> SimpleATOBukkit -> BukkitPlugin`循环。
 - `BukkitPlugin`使用`implementation(project(":SimpleATOBukkit"))`，最终主插件JAR必须包含
   `SimpleATOBukkitModule.class`。
@@ -45,6 +49,7 @@ BukkitPlugin.onEnable
 - [ ] 是否能由`BukkitPlugin`直接构造并传入依赖，而不是新增内部service discovery。
 - [ ] 是否保持单一`JavaPlugin`生命周期和单一部署JAR。
 - [ ] target-aware side effect是否回到location/entity owner；纯IO是否避开simulation owner热路径。
+- [ ] 是否有真实SimpleATO producer/consumer；通用Bukkit工具和独立信号插件功能不得为了填充模块而迁入。
 
 ## 质量检查
 

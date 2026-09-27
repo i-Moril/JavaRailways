@@ -2,9 +2,9 @@
 
 ## 范围与加载条件
 
-本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前拥有每世界唯一的 `TimetableDispatcher`和`AtoWorldCoordinator`，以及Destination、Station、Depot/rolling-stock ledger、Line、timetable model/store/extensions/persistence、ATO安全参数/mission/constraint policy、具体`SimpleATO` controller、checkpoint与隔离仿真运行时、手动导航命令、临时时刻表生成、时刻表JSON展示，以及第一批外部列车限制公开契约与约束适配器。production与隔离仿真Dispatcher均只使用Basic通用route admission；旧allocator、Confirmed Route Window、null-provider fallback以及`AtoProvider`切换机制已删除。Basic只保留自动/手动共用的actuation、安全包络和route/perception snapshot primitive。独立源码模块`SimpleATOBukkit`已建立adapter library边界，并由JavaRailways主`BukkitPlugin`直接组合、嵌入同一部署JAR；它不拥有第二个Bukkit plugin lifecycle。production world composition、tick和snapshot仍由主插件统筹，后续SimpleATO专属平台呈现逐批迁入adapter模块。因此本层状态仍是`TRANSITIONAL`，不能据此声称全部Stage 2平台拆分已经完成。新增或迁移ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
+本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前拥有每世界唯一的 `TimetableDispatcher`和`AtoWorldCoordinator`，以及Destination、Station、Depot/rolling-stock ledger、Line、timetable model/store/extensions/persistence、ATO安全参数/mission/constraint policy、具体`SimpleATO` controller、checkpoint与隔离仿真运行时、手动导航命令、临时时刻表生成、时刻表JSON展示，以及第一批外部列车限制公开契约与约束适配器。production与隔离仿真Dispatcher均只使用Basic通用route admission；旧allocator、Confirmed Route Window、null-provider fallback以及`AtoProvider`切换机制已删除。Basic只保留自动/手动共用的actuation、安全包络和route/perception snapshot primitive。独立源码模块`SimpleATOBukkit`已建立adapter library边界，并由JavaRailways主`BukkitPlugin`直接组合、嵌入同一部署JAR；它不拥有第二个Bukkit plugin lifecycle。production world composition、tick和snapshot仍由主插件统筹，后续只将已有明确SimpleATO producer/consumer的平台适配逐批迁入adapter模块。因此本层状态仍是`TRANSITIONAL`，不能据此声称全部Stage 2平台拆分已经完成。新增或迁移ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
 
-SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调度和最严格限制归约。物理铁路图和列车几何由Core拥有，平台无关的纵向动力学与手柄执行由Basic拥有；资源身份校验、冻结路线的不可删除物理资源底线、物理占用、原子 claim、设备准备与尾部释放由 Basic 拥有。每一个独立信号系统由自己的Java/Kotlin插件拥有固定闭塞、保护区域、联锁规则、信号显示及可选JS/YAML配置。`SimpleATOBukkit`只作为嵌入主插件的SimpleATO平台适配模块和可复用运行时，不成为所有信号制式的领域owner。
+SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调度和最严格限制归约。物理铁路图和列车几何由Core拥有，平台无关的纵向动力学与手柄执行由Basic拥有；资源身份校验、冻结路线的不可删除物理资源底线、物理占用、原子 claim、设备准备与尾部释放由 Basic 拥有。每一个独立信号系统由自己的Java/Kotlin插件拥有固定闭塞、保护区域、联锁规则、信号显示及可选JS/YAML配置。`SimpleATOBukkit`只作为嵌入主插件的SimpleATO平台适配模块，不为独立信号插件提供通用运行时或取得其领域ownership。
 
 ## 主题导航
 

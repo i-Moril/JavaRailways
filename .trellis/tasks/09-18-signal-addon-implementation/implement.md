@@ -23,9 +23,9 @@ Current extraction progress:
 - [x] Finish the separate operating-direction authoring/persistence seam: SimpleATO owns the sparse store, topology-bound overlay, authoring, route predicate and infrastructure persistence; Basic has no direction field or fallback owner.
 - [x] Collapse Stage 2 persistence numbering to the real boundaries: infrastructure migrates once from outer V1/Basic V1 to outer V2/Basic V2/SimpleATO V1; Basic runtime moves once from V2 to V3 while additive SimpleATO runtime fields remain V1. Keep the converter pure and leave packaged file migration/recovery to the 09-24 task.
 - [x] Create `SimpleATOBukkit` as an independent adapter library module with direct main-plugin composition and no descriptor, second `JavaPlugin` or internal service discovery. Package it through the main plugin's project dependency, and move SimpleATO Core-slot startup wiring plus SimpleATO diagnostics into it as the first real slice.
-- [ ] Move the remaining SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; define immutable per-object revisions,
-  keep one in-flight plus one newest pending value per object, reject stale revisions and apply through the target's Folia
-  owner. Keep RailWand/manual driving/host composition in `BukkitPlugin`.
+- [x] Audit the platform presentation boundary: keep the existing generic latest-only scheduler with its actual
+  `BukkitPlugin` consumers, keep concrete signal rendering in `JapaneseSignals`, and do not turn `SimpleATOBukkit` into a
+  generic platform bridge merely to share one helper. Move only platform behavior with a real SimpleATO owner/caller.
 - [ ] Remove each old production owner after its replacement is wired; prove there is one writable state owner and no compatibility wrapper.
 - [ ] Integrate concrete signal sources with the existing SimpleATO inspection declarations, single shared perception scan and dynamic braking-distance comparison; do not build another inspection runtime.
 - [ ] Wire `JapaneseSignals` through the existing namespaced most-restrictive restriction pipeline; plugin output cannot widen Basic grants or existing ATO/ATP limits.
@@ -67,8 +67,9 @@ Current extraction progress:
 - [ ] Implement draft/apply/replace/draining/unapply lifecycle with no dependency changes from save/dry-run and no removal beneath live work.
 - [ ] Route all affected editors through the common edit permit and show blocking owner/revision diagnostics.
 - [ ] Add create/edit/delete/inspect/validate/dry-run commands/tools and topology-migration recovery points.
-- [ ] Add plugin-owned aspect/model rendering through the `SimpleATOBukkit` revisioned latest-only bridge, with target-aware
-  scheduling, change-only updates, stale-revision rejection and idempotent world/plugin cleanup.
+- [ ] Add plugin-owned aspect/model rendering in `JapaneseSignals`, with target-aware latest-only scheduling, change-only
+  updates, stale-revision rejection and idempotent world/plugin cleanup. Use a host platform API only if a concrete
+  cross-plugin requirement is reviewed first; do not route rendering through `SimpleATOBukkit`.
 
 ## Validation
 

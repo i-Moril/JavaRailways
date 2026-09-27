@@ -1,5 +1,10 @@
 # Independent signal system implementation plan
 
+> **Superseded plan (2026-09-27):** current implementation work and ownership are tracked by
+> `09-18-signal-addon-implementation`. The unchecked items below preserve the original decomposition;
+> they are not current instructions for moving rendering, protection policy or generic platform code
+> into `SimpleATOBukkit`.
+
 ## Ordered work
 
 - [x] Record the Stage 2 MVP boundary and explicitly defer fine-grained signal-package indication/shunting API choices that do not affect the host refactor.

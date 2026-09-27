@@ -73,7 +73,7 @@ wake physics + generic preTick
 
 `ThreadGuard.ensureMainThread()` 在 Bukkit bridge 下只证明 simulation serialization；对 entity/location 副作用仍要 target-aware ownership。参考 `BukkitThreadOwnership.kt`、`PlatformDispatcher.kt`、`BukkitThreadGuardBridgeTest.kt`。
 
-异步结果回 owner 后应重查：plugin/world 是否 stopping/unloading、player/entity 是否仍有效、world 是否改变、revision 是否仍是最新。`LatestAffinityTaskDispatcher` 的 per-key one-in-flight + latest-pending 模式用于限制 region backlog；不要恢复逐 tick 无界 task queue。
+异步结果回 owner 后应重查：plugin/world 是否 stopping/unloading、player/entity 是否仍有效、world 是否改变、revision 是否仍是最新。`BukkitPlugin`内部的`LatestAffinityTaskDispatcher`为现有车辆画面与platform commit提供per-key one-in-flight + latest-pending模式来限制region backlog；最终呈现对象负责stale revision检查。它不是`SimpleATOBukkit`或附属插件的公共API。不要恢复逐tick无界task queue；未来确有跨插件复用需求时再单独评审public platform facade。
 
 ## 世界 lifecycle
 

@@ -51,5 +51,21 @@ class LatestAffinityTaskDispatcherTest {
         assertEquals(0, dispatcher.metrics().activeKeys)
     }
 
+    @Test
+    fun `clear drops pending values without reviving them on late completion`() {
+        val scheduled = mutableListOf<ScheduledValue>()
+        val dispatcher = LatestAffinityTaskDispatcher<String, Int> { value, complete ->
+            scheduled += ScheduledValue(value, complete)
+        }
+
+        dispatcher.offer("car", 1)
+        dispatcher.offer("car", 2)
+        dispatcher.clear()
+        scheduled.single().complete()
+
+        assertEquals(listOf(1), scheduled.map { it.value })
+        assertEquals(0, dispatcher.metrics().activeKeys)
+    }
+
     private data class ScheduledValue(val value: Int, val complete: () -> Unit)
 }

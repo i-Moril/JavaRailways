@@ -105,7 +105,8 @@ stalls rather than widening authority.
 ## Presentation boundary
 
 The Stage 1 host API does not define signal aspects, model variants or a Bukkit rendering queue.
-Immutable revisioned presentation and per-object latest-only Folia dispatch belong to the embedded
-Stage 2 `SimpleATOBukkit` adapter module and the concrete signal-system plugin. The adapter is
-packaged inside the JavaRailways main plugin; it is not another installed Bukkit plugin. Safety
-callbacks must not perform presentation work directly.
+Immutable revisioned presentation, per-object latest-only Folia dispatch and model application
+belong to the concrete signal-system plugin. The existing JavaRailways latest-only helper is an
+internal host rendering mechanism, not a `SimpleATOBukkit` or add-on API. If concrete add-ons later
+need a shared host platform service, that contract must be reviewed and exposed from the public
+`bukkit.api` boundary. Safety callbacks must not perform presentation work directly.

@@ -1,9 +1,11 @@
 # Independent signal system design
 
-> **Updated deployment boundary (2026-09-27):** the executable child design embeds the independent
+> **Superseded design boundary (2026-09-27):** the executable child task
+> `09-18-signal-addon-implementation` is authoritative. It embeds the independent
 > `SimpleATOBukkit` Gradle module into the JavaRailways main plugin JAR. It has no second Bukkit
-> descriptor or lifecycle. The older separately deployed adapter wording below is retained only as
-> decision history; `JapaneseSignals` is the independent server plugin.
+> descriptor or lifecycle and owns only actual SimpleATO-specific platform adaptation. Generic host
+> scheduling remains in `BukkitPlugin`; rendering and policy belong to `JapaneseSignals`. The older
+> boundary below is retained only as decision history.
 
 ## Architecture boundary
 

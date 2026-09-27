@@ -74,6 +74,7 @@ Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装非�
 - publisher非ACCEPTED与handler exception向Core传播；
 - source/input/result collection defensive copy。
 
-尚未完成：具体插件的信号依赖传播与制式策略。Host inspection-distance声明编译、缓存与激活调度已在Stage 1完成。Immutable revisioned presentation、per-object latest-only
-Bukkit/Folia通用dispatch已经明确属于嵌入主插件的Stage 2 `SimpleATOBukkit`模块，具体模型应用属于具体信号插件；
-Stage 1不在`BukkitPlugin`实现类中增加临时presentation API。上述Stage 2具体策略和呈现工作完成前，不得声称完整信号系统已经生产可用。
+尚未完成：具体插件的信号依赖传播、制式策略和呈现。Host inspection-distance声明编译、缓存与激活调度已在Stage 1完成。
+Immutable revisioned presentation、per-object latest-only Bukkit/Folia dispatch与具体模型应用均由具体信号插件负责；
+`SimpleATOBukkit`只适配SimpleATO自身的平台功能，Stage 1也不为尚无消费者的需求增加临时presentation API。
+出现真实跨插件平台需求后才能单独评审host public service。上述Stage 2具体策略和呈现工作完成前，不得声称完整信号系统已经生产可用。

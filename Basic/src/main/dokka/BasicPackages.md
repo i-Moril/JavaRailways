@@ -26,10 +26,6 @@ SimpleATO 使用的 owner-scoped 速度、停车、跟车和移动授权约束�
 
 可选单一信号 Provider、Provider Boundary RailObject 和 world-local registry。
 
-# Package work.art1st.javarailways.basic.api.depot
-
-Phase T3/T4 的 Depot/StablingPoint、RollingStockRecord、occupancy/reservation、确定性动态配车和 Stall-only 原子 Depot Reset。
-
 # Package work.art1st.javarailways.basic.api.operation
 
 平台无关语义列车操作、共用的 DoorSide primitive、稳定 request、可确认 ticket 和主线程 Gateway 边界。

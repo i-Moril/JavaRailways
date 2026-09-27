@@ -11,10 +11,10 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
-import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
-import work.art1st.javarailways.basic.api.depot.RollingStockRecord
-import work.art1st.javarailways.basic.api.depot.StablingPointRef
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
+import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
+import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -173,7 +173,7 @@ class TimetableValidatorTest {
             )
         )
         data.wayPoints.add(WayPoint("B", "B", metroRail.id, 90.0))
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 metroTrain.id,
                 depotId,
@@ -186,7 +186,7 @@ class TimetableValidatorTest {
             ),
             StablingPointRef(depotId, "metro")
         )
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 freightTrain.id,
                 depotId,

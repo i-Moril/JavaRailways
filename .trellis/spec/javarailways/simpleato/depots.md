@@ -1,18 +1,18 @@
-# Basic depot 与 rolling stock 契约
+# SimpleATO depot 与 rolling stock 契约
 
 ## 适用场景与用途
 
 触发：配置Depot/stabling point、登记RollingStock、take/store、reservation、tail release或Depot Reset。
 
-用途：`DepotStore`原子维护logical ledger，但SimpleATO Dispatcher仍以live stopped train geometry作为physical selection authority；storage/reset在完整preflight后提交，避免persisted occupancy冒充真实列车位置。
+用途：`SimpleATOWorldData.depots`的`DepotStore`原子维护logical ledger，但Dispatcher仍以live stopped train geometry作为physical selection authority；storage/reset在完整preflight后提交，避免persisted occupancy冒充真实列车位置。
 
 ## Owner、类型与单位
 
-`DepotStore`是world-local main-thread owner，在一个lock内维护Depot/points/rollingStock/assignments/storage reservations。`RollingStockRecord`字段：stable train/home depot/model package IDs；tags/capabilities sets；`carCount>0`；`lengthMeters>0`；`maximumSpeedMetersPerSecond>0`。
+`DepotStore`是SimpleATO world-local main-thread owner，在一个lock内维护Depot/points/rollingStock/assignments/storage reservations。`RollingStockRecord`字段：stable train/home depot/model package IDs；tags/capabilities sets；`carCount>0`；`lengthMeters>0`；`maximumSpeedMetersPerSecond>0`。
 
 State token：`AVAILABLE/RESERVED/IN_SERVICE`。`DepotTrainSelector`同时匹配home depot、required tags/capabilities、min/max cars、minimum speed m/s。
 
-过渡边界：Depot/DepotStore/rolling-stock ledger仍由Basic拥有；依赖Destination、Station及Dispatcher的`DepotResetCoordinator`和`DepotResetDispatchParticipant`位于SimpleATO。Basic不得为reset反向依赖SimpleATO。
+Depot/DepotStore/rolling-stock ledger、`DepotResetCoordinator`和`DepotResetDispatchParticipant`均由SimpleATO拥有。Basic只提供物理列车、资源与Stall协调能力，不保存或转发Depot状态。
 
 ```kotlin
 fun allocate(
@@ -22,7 +22,7 @@ fun allocate(
 ): DepotTrainAllocationResult
 ```
 
-结果：`Allocated`、`NoMatchingTrain(depotId,selector,availableTrainCount)`、`AssignmentConflict`。来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/depot/Depot.kt`。
+结果：`Allocated`、`NoMatchingTrain(depotId,selector,availableTrainCount)`、`AssignmentConflict`。来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/depot/Depot.kt`。
 
 候选先按train ID稳定排序，再以SHA-256 stable seed选index。`reservePhysicallySelected`只更新已由Dispatcher物理选择的optional metadata；store不是physical availability authority。
 
@@ -70,6 +70,6 @@ fun planReset(requestedDepotIds: Set<DepotId>? = null): DepotResetPlanningResult
 - `DepotResetCoordinatorTest.kt`：Stall precondition、preflight no mutation、mid-placement rollback、cross-rail overlap、PARTIALLY_COMMITTED。
 
 ```bash
-./gradlew :Basic:test --tests '*DepotStoreTest'
-./gradlew :SimpleATO:test --tests '*DepotResetCoordinatorTest' --tests '*TimetableDispatcherTest'
+./gradlew :SimpleATO:test --tests '*DepotStoreTest' --tests '*DepotResetCoordinatorTest' \
+  --tests '*TimetableDispatcherTest'
 ```

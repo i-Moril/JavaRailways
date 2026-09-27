@@ -47,10 +47,10 @@ class TimetableInitialPositioner(private val world: World) {
                 }
                 val matchingWayPoints = world.basicWorldData.wayPoints.all().asSequence()
                     .filter { constraint.wayPointSelector.matches(it.id) }
-                val depotWayPoints = world.basicWorldData.depots.allDepots().asSequence()
+                val depotWayPoints = world.simpleAtoWorldData.depots.allDepots().asSequence()
                     .filter { constraint.wayPointSelector.matches(it.id.value) }
                     .flatMap { depot ->
-                        world.basicWorldData.depots.stablingPoints(depot.id).asSequence()
+                        world.simpleAtoWorldData.depots.stablingPoints(depot.id).asSequence()
                     }
                     .map { point ->
                         val destination = world.simpleAtoWorldData.destinations[point.point.destinationId]

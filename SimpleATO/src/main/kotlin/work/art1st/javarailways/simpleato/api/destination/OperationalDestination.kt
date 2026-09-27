@@ -1,9 +1,9 @@
 package work.art1st.javarailways.simpleato.api.destination
 
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.depot.DepotStablingPoint
-import work.art1st.javarailways.basic.api.depot.StablingPointRef
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint
+import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.station.StationBerth
 import work.art1st.javarailways.simpleato.api.station.StationBerthRef
@@ -206,7 +206,7 @@ class OperationalDestinationService(private val world: World) {
         val depotRole = destination.role as? DestinationRole.DepotStablingPointRole
         if (stationRole != null) registerStationBerth(destination, stationRole, railLength)
         if (depotRole != null) {
-            basicData.depots.addStablingPoint(
+            data.depots.addStablingPoint(
                 depotId = depotRole.pointRef.depotId,
                 depotDisplayName = depotRole.depotDisplayName,
                 point = DepotStablingPoint(
@@ -223,7 +223,7 @@ class OperationalDestinationService(private val world: World) {
         } catch (failure: Exception) {
             basicData.wayPoints.remove(destination.id)
             if (stationRole != null) data.stations.removeBerth(stationRole.berthRef)
-            if (depotRole != null) basicData.depots.removeStablingPoint(depotRole.pointRef)
+            if (depotRole != null) data.depots.removeStablingPoint(depotRole.pointRef)
             throw failure
         }
     }
@@ -422,7 +422,7 @@ class OperationalDestinationService(private val world: World) {
     fun remove(id: String): OperationalDestination? {
         val destination = data.destinations[id] ?: return null
         (destination.role as? DestinationRole.DepotStablingPointRole)?.let { role ->
-            basicData.depots.removeStablingPoint(role.pointRef)
+            data.depots.removeStablingPoint(role.pointRef)
         }
         (destination.role as? DestinationRole.StationBerthRole)?.let { role ->
             data.stations.removeBerth(role.berthRef)

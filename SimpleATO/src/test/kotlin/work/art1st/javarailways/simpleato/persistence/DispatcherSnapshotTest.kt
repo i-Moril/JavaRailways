@@ -20,6 +20,10 @@ import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint
+import work.art1st.javarailways.simpleato.api.depot.RollingStockState
+import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -27,8 +31,8 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 class DispatcherSnapshotTest {
     @Test
     fun `SimpleATO runtime codec round trips the dispatcher checkpoint and rejects other versions`() {
-        val snapshot = SimpleATORuntimeSnapshotV1(
-            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
+        val snapshot = SimpleATORuntimeSnapshotV2(
+            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 11L,
             dispatcher = SavedDispatcherV1(
@@ -38,7 +42,8 @@ class DispatcherSnapshotTest {
                 clocks = emptyList(),
                 runs = emptyList()
             ),
-            timetables = listOf(SavedTimetableV1.capture(Timetable("weekday")))
+            timetables = listOf(SavedTimetableV1.capture(Timetable("weekday"))),
+            rollingStock = emptyList()
         )
 
         assertEquals(snapshot, SimpleATORuntimeSnapshotCodec.decode(
@@ -46,7 +51,18 @@ class DispatcherSnapshotTest {
         ))
         assertThrows(IllegalArgumentException::class.java) {
             SimpleATORuntimeSnapshotCodec.decode(
-                SimpleATORuntimeSnapshotCodec.encode(snapshot.copy(formatVersion = 2))
+                SimpleATORuntimeSnapshotCodec.encode(
+                    snapshot.copy(formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION + 1)
+                )
+            )
+        }
+        assertThrows(Exception::class.java) {
+            SimpleATORuntimeSnapshotCodec.decode(
+                """
+                {"formatVersion":2,"infrastructureRevision":7,"physicsEpoch":11,
+                 "dispatcher":{"formatVersion":1,"dispatcherTick":0,"missionRevision":0,"clocks":[],"runs":[]},
+                 "timetables":[]}
+                """.trimIndent()
             )
         }
     }
@@ -55,8 +71,8 @@ class DispatcherSnapshotTest {
     fun `SimpleATO runtime restores timetables before dispatcher clocks`() {
         val world = createTestWorld()
         TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
-        val snapshot = SimpleATORuntimeSnapshotV1(
-            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
+        val snapshot = SimpleATORuntimeSnapshotV2(
+            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 0L,
             physicsEpoch = 0L,
             dispatcher = SavedDispatcherV1(
@@ -68,13 +84,92 @@ class DispatcherSnapshotTest {
                 )),
                 runs = emptyList()
             ),
-            timetables = listOf(SavedTimetableV1.capture(Timetable("weekday")))
+            timetables = listOf(SavedTimetableV1.capture(Timetable("weekday"))),
+            rollingStock = emptyList()
         )
 
         snapshot.restore(world)
 
         assertEquals("weekday", world.simpleAtoWorldData.timetables.all().single().id)
         assertEquals("weekday", world.simpleAtoWorldData.dispatcher.saveCheckpoint().clocks.single().timetableId)
+    }
+
+    @Test
+    fun `SimpleATO runtime owns and atomically restores rolling stock`() {
+        val world = createTestWorld()
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
+        val depotId = DepotId("north")
+        val pointRef = StablingPointRef(depotId, "one")
+        world.simpleAtoWorldData.depots.addStablingPoint(
+            depotId,
+            "North",
+            DepotStablingPoint(pointRef, "north@one", usableLengthMeters = 100.0)
+        )
+        val rollingStock = SavedRollingStockV1(
+            trainId = "T1",
+            homeDepotId = depotId.value,
+            modelPackageId = "test/s100",
+            tags = setOf("metro"),
+            carCount = 4,
+            lengthMeters = 60.0,
+            maximumSpeedMetersPerSecond = 20.0,
+            capabilities = setOf("doors"),
+            state = RollingStockState.AVAILABLE.name,
+            stablingPointId = pointRef.pointId
+        )
+        val snapshot = SimpleATORuntimeSnapshotV2(
+            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
+            infrastructureRevision = 0L,
+            physicsEpoch = 0L,
+            dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
+            timetables = emptyList(),
+            rollingStock = listOf(rollingStock)
+        )
+
+        snapshot.restore(world)
+
+        assertEquals("T1", world.simpleAtoWorldData.depots.stablingPoint(pointRef)?.occupantTrainId)
+        assertEquals(
+            RollingStockState.AVAILABLE,
+            world.simpleAtoWorldData.depots.rollingStock("T1")?.state
+        )
+    }
+
+    @Test
+    fun `invalid SimpleATO rolling stock snapshot leaves ledger untouched`() {
+        val world = createTestWorld()
+        TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
+        val depotId = DepotId("north")
+        val pointRef = StablingPointRef(depotId, "one")
+        world.simpleAtoWorldData.depots.addStablingPoint(
+            depotId,
+            "North",
+            DepotStablingPoint(pointRef, "north@one", usableLengthMeters = 100.0)
+        )
+        fun saved(trainId: String) = SavedRollingStockV1(
+            trainId = trainId,
+            homeDepotId = depotId.value,
+            modelPackageId = "test/s100",
+            tags = emptySet(),
+            carCount = 1,
+            lengthMeters = 10.0,
+            maximumSpeedMetersPerSecond = 20.0,
+            capabilities = emptySet(),
+            state = RollingStockState.AVAILABLE.name,
+            stablingPointId = pointRef.pointId
+        )
+        val snapshot = SimpleATORuntimeSnapshotV2(
+            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
+            infrastructureRevision = 0L,
+            physicsEpoch = 0L,
+            dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
+            timetables = emptyList(),
+            rollingStock = listOf(saved("T1"), saved("T2"))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) { snapshot.restore(world) }
+        assertTrue(world.simpleAtoWorldData.depots.allRollingStock().isEmpty())
+        assertEquals(null, world.simpleAtoWorldData.depots.stablingPoint(pointRef)?.occupantTrainId)
     }
 
     @Test

@@ -41,7 +41,7 @@ Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot
 | route/direction/berth/provider/parameters unresolved | errors + failure context | none |
 | valid | `isSuccess=true`并返回pre-expanded routes | Dispatcher才可begin/start |
 
-Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Line、Destination与Station由`SimpleATOWorldData`提供；Depot/rolling-stock暂时由Basic提供。validator先从canonical Destination解析route anchor与approach direction，再把方向显式传给Basic通用RoutePlanner，planner本身不查询运营store。
+Manual parser/factory、timetable model、validator、runtime store、extension registry 与 JSON 展示均由 `SimpleATO` 拥有。token `+id` 表示 pass；final 必须 stop。stop JSON strict 且只允许 `minimumDwellTicks/stoppingOffsetMetersBefore/doorSide`；unknown/type error拒绝。Line、Destination、Station、Depot与rolling-stock ledger均由`SimpleATOWorldData`提供。validator先从canonical Destination解析route anchor与approach direction，再把方向显式传给Basic通用RoutePlanner，planner本身不查询运营store。
 
 ## 项目内正确示例
 

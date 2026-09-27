@@ -1,6 +1,7 @@
-package work.art1st.javarailways.basic.api.depot
+package work.art1st.javarailways.simpleato.api.depot
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -194,6 +195,124 @@ class DepotStoreTest {
         assertEquals(RollingStockState.AVAILABLE, rolling.state)
         assertEquals(allocated.allocation.trainId, point.occupantTrainId)
         assertEquals(null, point.reservedByAssignmentId)
+    }
+
+    @Test
+    fun `invalid restored lifecycle leaves the complete ledger untouched`() {
+        val store = DepotStore()
+        val depot = DepotId("north")
+        val point = StablingPointRef(depot, "one")
+        store.addStablingPoint(
+            depot,
+            "North",
+            DepotStablingPoint(point, "north@one", 120.0)
+        )
+        val record = RollingStockRecord(
+            trainId = "T1",
+            homeDepotId = depot,
+            modelPackageId = "test/s100",
+            tags = setOf("metro"),
+            carCount = 4,
+            lengthMeters = 60.0,
+            maximumSpeedMetersPerSecond = 18.0,
+            capabilities = setOf("doors")
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            store.restoreRollingStock(listOf(
+                RollingStockSnapshot(
+                    record = record,
+                    state = RollingStockState.AVAILABLE,
+                    stablingPointRef = point,
+                    assignmentId = "unexpected-assignment"
+                )
+            ))
+        }
+
+        assertTrue(store.allRollingStock().isEmpty())
+        assertEquals(null, store.stablingPoint(point)?.occupantTrainId)
+        assertEquals(null, store.stablingPoint(point)?.reservedByAssignmentId)
+    }
+
+    @Test
+    fun `duplicate restored assignment leaves the complete ledger untouched`() {
+        val store = DepotStore()
+        val depot = DepotId("north")
+        val firstPoint = StablingPointRef(depot, "one")
+        val secondPoint = StablingPointRef(depot, "two")
+        store.addStablingPoint(
+            depot,
+            "North",
+            DepotStablingPoint(firstPoint, "north@one", 120.0)
+        )
+        store.addStablingPoint(
+            depot,
+            "North",
+            DepotStablingPoint(secondPoint, "north@two", 120.0)
+        )
+        fun restored(trainId: String, point: StablingPointRef) = RollingStockSnapshot(
+            record = RollingStockRecord(
+                trainId = trainId,
+                homeDepotId = depot,
+                modelPackageId = "test/s100",
+                tags = emptySet(),
+                carCount = 4,
+                lengthMeters = 60.0,
+                maximumSpeedMetersPerSecond = 18.0,
+                capabilities = emptySet()
+            ),
+            state = RollingStockState.RESERVED,
+            stablingPointRef = point,
+            assignmentId = "weekday/service-1"
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            store.restoreRollingStock(listOf(
+                restored("T1", firstPoint),
+                restored("T2", secondPoint)
+            ))
+        }
+
+        assertTrue(store.allRollingStock().isEmpty())
+        assertEquals(null, store.stablingPoint(firstPoint)?.occupantTrainId)
+        assertEquals(null, store.stablingPoint(firstPoint)?.reservedByAssignmentId)
+        assertEquals(null, store.stablingPoint(secondPoint)?.occupantTrainId)
+        assertEquals(null, store.stablingPoint(secondPoint)?.reservedByAssignmentId)
+    }
+
+    @Test
+    fun `orphan restored home depot leaves the complete ledger untouched`() {
+        val store = DepotStore()
+        val depot = DepotId("north")
+        val point = StablingPointRef(depot, "one")
+        store.addStablingPoint(
+            depot,
+            "North",
+            DepotStablingPoint(point, "north@one", 120.0)
+        )
+        val orphan = RollingStockSnapshot(
+            record = RollingStockRecord(
+                trainId = "T1",
+                homeDepotId = DepotId("missing"),
+                modelPackageId = "test/s100",
+                tags = emptySet(),
+                carCount = 4,
+                lengthMeters = 60.0,
+                maximumSpeedMetersPerSecond = 18.0,
+                capabilities = emptySet()
+            ),
+            state = RollingStockState.IN_SERVICE,
+            stablingPointRef = null,
+            assignmentId = "weekday/service-1"
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            store.restoreRollingStock(listOf(orphan))
+        }
+
+        assertTrue(store.allRollingStock().isEmpty())
+        assertEquals(null, store.stablingPoint(point)?.occupantTrainId)
+        assertEquals(null, store.stablingPoint(point)?.reservedByAssignmentId)
     }
 
     private fun storeWithRollingStock(): DepotStore = DepotStore().apply {

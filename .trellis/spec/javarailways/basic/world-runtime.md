@@ -14,7 +14,6 @@
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
-    val depots: DepotStore = DepotStore(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),
@@ -24,7 +23,7 @@ data class BasicWorldData(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。
 
-Destination/Station/Line/Timetable store、extension registry 与 Dispatcher 都不属于该container；`SimpleATOWorldData`是它们的唯一world-local owner。Depot store和rolling-stock ledger暂时仍由Basic拥有；Depot reset协调器位于SimpleATO，不能让Basic反向查找SimpleATO。
+Destination/Station/Depot/Line/Timetable store、rolling-stock ledger、extension registry 与 Dispatcher 都不属于该container；`SimpleATOWorldData`是它们的唯一world-local owner。Basic不保存Depot镜像store，也不反向查找SimpleATO。
 
 通用资源运行时由Bukkit composition为每个world另建一条成对生命周期记录：同一记录持有唯一
 `InfrastructureCoordinationRegistry`和`RouteResourceAdmissionRuntime`，后者复用前者完成自动进路claim、设备准备、

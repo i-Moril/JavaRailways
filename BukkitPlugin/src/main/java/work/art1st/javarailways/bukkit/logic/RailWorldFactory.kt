@@ -16,7 +16,7 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV4
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableAppliedPlanService
@@ -56,7 +56,7 @@ object RailWorldFactory {
         runtime: CoreWorld.SavedRuntimeV1? = null,
         basicInfrastructure: BasicInfrastructureSnapshotV3? = null,
         simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV2? = null,
-        basicRuntime: BasicRuntimeSnapshotV3? = null
+        basicRuntime: BasicRuntimeSnapshotV4? = null
     ): World {
         ThreadGuard.ensureMainThread("RailWorldFactory.createForBukkit")
         val tickManager = TickManagerImpl(
@@ -195,7 +195,7 @@ object RailWorldFactory {
         )
         basicInfrastructure?.restore(coreWorld)
         simpleAtoInfrastructure?.restore(coreWorld)
-        basicRuntime?.restore(coreWorld)
+        basicRuntime?.restore()
         OperationalSpeedLimitSignalMaterializer.materialize(coreWorld)
         val persisted = RailRenderMetaStore.load(bukkitWorld)
         val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }

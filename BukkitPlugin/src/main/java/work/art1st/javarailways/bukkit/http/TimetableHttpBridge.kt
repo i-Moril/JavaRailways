@@ -256,13 +256,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun metadataJson(worldName: String) = withWorld(worldName) { bukkit, world ->
             val data = world.basicWorldData
-            val destinations = world.simpleAtoWorldData.destinations.all()
+            val operationalData = world.simpleAtoWorldData
+            val destinations = operationalData.destinations.all()
             val depotIds = buildSet {
                 destinations.mapNotNullTo(this) {
                     (it.role as? DestinationRole.DepotStablingPointRole)?.depotId
                 }
-                data.depots.allDepots().mapTo(this) { it.id.value }
-                data.depots.allRollingStock().mapTo(this) { it.record.homeDepotId.value }
+                operationalData.depots.allDepots().mapTo(this) { it.id.value }
+                operationalData.depots.allRollingStock().mapTo(this) { it.record.homeDepotId.value }
             }.sorted()
             json.encodeToString(buildJsonObject {
                 put("id", bukkit.name)
@@ -280,10 +281,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     }
                 }))
                 put("depots", JsonArray(depotIds.map(::JsonPrimitive)))
-                put("depotDetails", JsonArray(data.depots.allDepots().map { depot -> buildJsonObject {
+                put("depotDetails", JsonArray(operationalData.depots.allDepots().map { depot -> buildJsonObject {
                     put("id", depot.id.value)
                     put("displayName", depot.displayName)
-                    put("stablingPoints", JsonArray(data.depots.stablingPoints(depot.id).map { point -> buildJsonObject {
+                    put("stablingPoints", JsonArray(operationalData.depots.stablingPoints(depot.id).map { point -> buildJsonObject {
                         put("id", point.point.ref.pointId)
                         put("destinationId", point.point.destinationId)
                     } }))

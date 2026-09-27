@@ -2,7 +2,7 @@
 
 ## 适用场景与用途
 
-触发：修改Basic infrastructure/runtime、rolling-stock ledger、diagnostic/provider payload或Core/Basic/SimpleATO split pairing。Timetable JSON与runtime归SimpleATO。
+触发：修改Basic infrastructure/runtime、diagnostic/provider payload或Core/Basic/SimpleATO split pairing。运营对象、rolling-stock ledger、Timetable JSON与runtime归SimpleATO。
 
 用途：strict decode current document后做全identity/reference预校验，再materialize fresh world；schema version、revision、physics epoch、provider/diagnostic version各自独立。通用规则见[共享持久化](../shared/persistence.md)。
 
@@ -17,9 +17,9 @@ data class BasicInfrastructureSnapshotV3(
 )
 ```
 
-Runtime `BasicRuntimeSnapshotV3(formatVersion=3,infrastructureRevision,physicsEpoch,rollingStock)`不包含Timetable或Dispatcher。Destination字段迁出后Basic infrastructure升为format 3；两个独立boundary各自使用`encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
+Runtime `BasicRuntimeSnapshotV4(formatVersion=4,infrastructureRevision,physicsEpoch)`只保留split pairing需要的revision/epoch，不包含运营ledger或Dispatcher。移除rolling-stock是Basic runtime的breaking shape change，因此只升级该内部边界到format 4；writer current-only。
 
-Destination、Station、Line、Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
+Destination、Station、Depot、rolling-stock ledger、Line、Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
 
 Diagnostic独立：`AtoStallReportJson.schemaVersion=2`、`DepotResetReportJson.schemaVersion=1`。SimpleATO 的 `lineRevision`是edit revision；`infrastructureRevision`配对files；`physicsEpoch`配对publication；都非schemaVersion。
 
@@ -34,7 +34,7 @@ strict decode current
 → materialize Basic standalone WayPoints/metadata
 → materialize canonical SimpleATO Destinations及其Station/Depot/WayPoint投影
 → validate Line StationId references and materialize SimpleATO Lines
-→ materialize Basic RollingStock
+→ materialize SimpleATO RollingStock
 → restore SimpleATO Timetables before Dispatcher checkpoint
 → rebuild ephemeral speed signals/providers separately
 ```

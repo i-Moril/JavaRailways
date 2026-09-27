@@ -9,11 +9,15 @@ Station与Destination由同world的SimpleATO canonical stores提供；Basic只�
 
 # Package work.art1st.javarailways.simpleato.api.destination
 
-SimpleATO拥有的stable directed Destination、普通/StationBerth/DepotStablingPoint角色，以及原子维护Basic WayPoint/Depot和SimpleATO Station投影的world service。
+SimpleATO拥有的stable directed Destination、普通/StationBerth/DepotStablingPoint角色，以及原子维护Basic WayPoint和SimpleATO Depot/Station投影的world service。
 
 # Package work.art1st.javarailways.simpleato.api.station
 
 SimpleATO拥有的Station聚合、被动StationBerth RailObject、StationCall/DwellPlan、主线程解析和不可变停站通知。
+
+# Package work.art1st.javarailways.simpleato.api.depot
+
+SimpleATO拥有的Depot/StablingPoint、RollingStockRecord、occupancy/reservation、确定性配车和Stall-only原子Depot Reset ledger。
 
 # Package work.art1st.javarailways.simpleato.api.inspection
 

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.depot
+package work.art1st.javarailways.simpleato.api.depot
 
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import java.nio.ByteBuffer
@@ -337,29 +337,61 @@ class DepotStore {
         rollingStock[record.trainId] = RollingRuntime(record, RollingStockState.AVAILABLE, at)
     }
 
-    /** Restore a persisted logical record without recreating transient allocation/reservation objects. */
+    /** Restore one complete persisted ledger after validating every reference, without partial mutation. */
     @MainThread
-    fun restoreRollingStock(snapshot: RollingStockSnapshot) = synchronized(lock) {
-        check(rollingStock[snapshot.record.trainId] == null) {
-            "RollingStock already registered: ${snapshot.record.trainId}"
+    fun restoreRollingStock(snapshots: List<RollingStockSnapshot>) = synchronized(lock) {
+        check(rollingStock.isEmpty()) { "RollingStock ledger must be empty before restore" }
+        require(snapshots.map { it.record.trainId }.distinct().size == snapshots.size) {
+            "RollingStock snapshot contains duplicate train IDs"
         }
-        val point = snapshot.stablingPointRef?.let { ref ->
-            points[ref] ?: throw IllegalArgumentException("StablingPoint not found: $ref")
+        val occupiedPoints = snapshots.mapNotNull { it.stablingPointRef }
+        require(occupiedPoints.distinct().size == occupiedPoints.size) {
+            "RollingStock snapshot assigns one StablingPoint more than once"
         }
-        require(snapshot.stablingPointRef == null ||
-            snapshot.stablingPointRef.depotId == snapshot.record.homeDepotId)
-        if (point != null) {
-            require(point.occupantTrainId == null && point.reservedByAssignmentId == null)
-            require(pointAccepts(point.point, snapshot.record))
-            point.occupantTrainId = snapshot.record.trainId
-            point.reservedByAssignmentId = snapshot.assignmentId
+        val assignmentIds = snapshots.mapNotNull { it.assignmentId }
+        require(assignmentIds.distinct().size == assignmentIds.size) {
+            "RollingStock snapshot assigns one assignment ID more than once"
         }
-        rollingStock[snapshot.record.trainId] = RollingRuntime(
-            snapshot.record,
-            snapshot.state,
-            snapshot.stablingPointRef,
-            snapshot.assignmentId
-        )
+        snapshots.forEach { snapshot ->
+            require(snapshot.record.homeDepotId in depots) {
+                "RollingStock home Depot not found: ${snapshot.record.homeDepotId}"
+            }
+            snapshot.assignmentId?.let { requireStableId("assignmentId", it) }
+            val point = snapshot.stablingPointRef?.let { ref ->
+                points[ref] ?: throw IllegalArgumentException("StablingPoint not found: $ref")
+            }
+            when (snapshot.state) {
+                RollingStockState.AVAILABLE -> require(
+                    snapshot.stablingPointRef != null && snapshot.assignmentId == null
+                ) { "AVAILABLE RollingStock must occupy a StablingPoint without an assignment" }
+                RollingStockState.RESERVED -> require(
+                    snapshot.stablingPointRef != null && snapshot.assignmentId != null
+                ) { "RESERVED RollingStock must occupy a StablingPoint with an assignment" }
+                RollingStockState.IN_SERVICE -> require(snapshot.assignmentId != null) {
+                    "IN_SERVICE RollingStock must retain its assignment"
+                }
+            }
+            require(snapshot.stablingPointRef == null ||
+                snapshot.stablingPointRef.depotId == snapshot.record.homeDepotId)
+            if (point != null) {
+                require(point.occupantTrainId == null && point.reservedByAssignmentId == null)
+                require(pointAccepts(point.point, snapshot.record))
+            }
+        }
+        snapshots.forEach { snapshot ->
+            snapshot.stablingPointRef?.let { ref ->
+                points.getValue(ref).apply {
+                    occupantTrainId = snapshot.record.trainId
+                    reservedByAssignmentId = snapshot.assignmentId
+                }
+            }
+            rollingStock[snapshot.record.trainId] = RollingRuntime(
+                snapshot.record,
+                snapshot.state,
+                snapshot.stablingPointRef,
+                snapshot.assignmentId
+            )
+        }
     }
 
     @MainThread

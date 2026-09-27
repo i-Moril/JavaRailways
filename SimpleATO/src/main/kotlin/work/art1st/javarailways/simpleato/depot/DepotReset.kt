@@ -4,9 +4,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.depot.DepotResetAssignment
-import work.art1st.javarailways.basic.api.depot.DepotResetPlanningResult
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.DepotResetAssignment
+import work.art1st.javarailways.simpleato.api.depot.DepotResetPlanningResult
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
@@ -108,7 +108,7 @@ class DepotResetCoordinator(
                 "Depot Reset is only legal while this World is stalled"
             )
         }
-        val plan = when (val result = worldData.depots.planReset(depotIds)) {
+        val plan = when (val result = operationalData.depots.planReset(depotIds)) {
             is DepotResetPlanningResult.Planned -> result.plan
             is DepotResetPlanningResult.Failure -> return failed(
                 resetId,
@@ -128,7 +128,7 @@ class DepotResetCoordinator(
                     "TRAIN_RESOLUTION",
                     "train not found or not movable: ${assignment.trainId}"
                 )
-            val rolling = worldData.depots.rollingStock(assignment.trainId)
+            val rolling = operationalData.depots.rollingStock(assignment.trainId)
                 ?: return failed(
                     resetId,
                     plan.depotIds,
@@ -179,7 +179,7 @@ class DepotResetCoordinator(
                     "INFRASTRUCTURE",
                     "cannot resolve directed location: ${assignment.destinationId}"
                 )
-            val stablingPoint = worldData.depots.stablingPoint(assignment.stablingPointRef)
+            val stablingPoint = operationalData.depots.stablingPoint(assignment.stablingPointRef)
                 ?: return failed(
                     resetId,
                     plan.depotIds,
@@ -226,7 +226,7 @@ class DepotResetCoordinator(
             }
             prepared += PreparedPlacement(assignment, train, target, previous)
         }
-        worldData.depots.validateResetPlan(plan)?.let { reason ->
+        operationalData.depots.validateResetPlan(plan)?.let { reason ->
             return failed(
                 resetId,
                 plan.depotIds,
@@ -325,7 +325,7 @@ class DepotResetCoordinator(
         var dispatcherSummary: DepotResetDispatchSummary? = null
         try {
             dispatcherSummary = dispatchParticipant.applyDepotReset(world, trainIds)
-            check(worldData.depots.applyReset(plan)) {
+            check(operationalData.depots.applyReset(plan)) {
                 "Depot reset plan changed after successful preflight"
             }
             prepared.forEach { placement ->

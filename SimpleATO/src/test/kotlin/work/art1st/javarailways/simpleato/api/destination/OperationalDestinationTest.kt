@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
@@ -235,7 +235,7 @@ class OperationalDestinationTest {
             )
         )
 
-        val point = world.basicWorldData.depots.stablingPoints(DepotId("north")).single()
+        val point = world.simpleAtoWorldData.depots.stablingPoints(DepotId("north")).single()
         assertEquals("north@one", point.point.destinationId)
         assertEquals(90.0, point.point.usableLengthMeters)
         assertEquals(setOf("metro"), point.point.allowedTags)

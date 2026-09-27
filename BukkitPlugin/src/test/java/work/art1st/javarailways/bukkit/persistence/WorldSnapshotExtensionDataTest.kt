@@ -5,9 +5,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV4
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
-import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV2
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
 import work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
@@ -43,17 +43,18 @@ class WorldSnapshotExtensionDataTest {
             lines = emptyList(),
             lineRevision = 0L
         )
-        val basicRuntime = BasicRuntimeSnapshotV3(
-            formatVersion = BasicRuntimeSnapshotV3.CURRENT_FORMAT_VERSION,
+        val basicRuntime = BasicRuntimeSnapshotV4(
+            formatVersion = BasicRuntimeSnapshotV4.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
-            physicsEpoch = 9L,
-            rollingStock = emptyList()
+            physicsEpoch = 9L
         )
-        val simpleAtoRuntime = SimpleATORuntimeSnapshotV1(
-            formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
+        val simpleAtoRuntime = SimpleATORuntimeSnapshotV2(
+            formatVersion = SimpleATORuntimeSnapshotV2.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
             physicsEpoch = 9L,
-            dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList())
+            dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
+            timetables = emptyList(),
+            rollingStock = emptyList()
         )
 
         val capture = WorldSnapshotCapture(

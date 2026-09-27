@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
-import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.TimetableCondition
@@ -496,7 +496,7 @@ class TimetableValidator(private val world: World) {
                     }
                     when (val action = step.action) {
                         is TimetableAction.TakeFromDepot -> {
-                            dynamicOriginCandidates = world.basicWorldData.depots
+                            dynamicOriginCandidates = world.simpleAtoWorldData.depots
                                 .compatibleStablingPoints(action.selector)
                                 .map { it.point.destinationId }
                                 .filter(::wayPointExists)
@@ -606,8 +606,8 @@ class TimetableValidator(private val world: World) {
     ): String? {
         return when (action) {
             is TimetableAction.TakeFromDepot -> {
-                val points = world.basicWorldData.depots.stablingPoints(action.selector.depotId)
-                val compatiblePoints = world.basicWorldData.depots
+                val points = world.simpleAtoWorldData.depots.stablingPoints(action.selector.depotId)
+                val compatiblePoints = world.simpleAtoWorldData.depots
                     .compatibleStablingPoints(action.selector)
                 if (points.isEmpty()) {
                     errors.add(
@@ -637,13 +637,13 @@ class TimetableValidator(private val world: World) {
                 action.wayPointIds.firstOrNull(::wayPointExists) ?: currentWayPointId
             }
             is TimetableAction.StoreAtDepot -> {
-                val allPoints = world.basicWorldData.depots.stablingPoints(action.depotId)
+                val allPoints = world.simpleAtoWorldData.depots.stablingPoints(action.depotId)
                 val points = allPoints.filter {
                     action.stablingPointIds.isEmpty() ||
                         it.point.ref.pointId in action.stablingPointIds
                 }
                 val routePoints = depotSelector?.let {
-                    world.basicWorldData.depots.compatibleStablingPoints(it)
+                    world.simpleAtoWorldData.depots.compatibleStablingPoints(it)
                 }.orEmpty().filter {
                     it.point.ref.depotId == action.depotId &&
                         (action.stablingPointIds.isEmpty() ||

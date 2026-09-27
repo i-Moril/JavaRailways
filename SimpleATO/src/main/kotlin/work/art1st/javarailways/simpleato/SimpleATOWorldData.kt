@@ -4,6 +4,7 @@ import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationStore
+import work.art1st.javarailways.simpleato.api.depot.DepotStore
 import work.art1st.javarailways.simpleato.api.line.LineStore
 import work.art1st.javarailways.simpleato.api.station.StationStore
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
@@ -22,6 +23,7 @@ data class SimpleATOWorldData(
     private val sharedRailObjects: RailObjectStore,
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val stations: StationStore = StationStore(sharedRailObjects),
+    val depots: DepotStore = DepotStore(),
     val lines: LineStore = LineStore(),
     val timetables: TimetableStore = TimetableStore(),
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry()

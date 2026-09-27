@@ -5,11 +5,11 @@ import kotlinx.serialization.json.Json
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotCodec
-import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
+import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV4
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotCodec
-import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV2
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
 
@@ -47,10 +47,10 @@ data class RuntimeFileV2(
     fun core(): CoreWorld.SavedRuntimeV1 = WorldSnapshotCodec.decodeRuntime(coreSnapshotJson).also {
         require(it.infrastructureRevision == infrastructureRevision && it.physicsEpoch == physicsEpoch)
     }
-    fun basic(): BasicRuntimeSnapshotV3 = BasicRuntimeSnapshotCodec.decode(basicSnapshotJson).also {
+    fun basic(): BasicRuntimeSnapshotV4 = BasicRuntimeSnapshotCodec.decode(basicSnapshotJson).also {
         require(it.infrastructureRevision == infrastructureRevision && it.physicsEpoch == physicsEpoch)
     }
-    fun simpleAto(): SimpleATORuntimeSnapshotV1 =
+    fun simpleAto(): SimpleATORuntimeSnapshotV2 =
         SimpleATORuntimeSnapshotCodec.decode(simpleAtoSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision && it.physicsEpoch == physicsEpoch)
         }
@@ -70,8 +70,8 @@ data class WorldSnapshotCapture(
     val basicInfrastructure: BasicInfrastructureSnapshotV3,
     val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV2,
     val coreRuntime: CoreWorld.SavedRuntimeV1,
-    val basicRuntime: BasicRuntimeSnapshotV3,
-    val simpleAtoRuntime: SimpleATORuntimeSnapshotV1
+    val basicRuntime: BasicRuntimeSnapshotV4,
+    val simpleAtoRuntime: SimpleATORuntimeSnapshotV2
 ) {
     init {
         val revision = coreInfrastructure.infrastructureRevision
@@ -117,8 +117,8 @@ object SplitWorldSnapshotCodec {
 
     fun runtime(
         core: CoreWorld.SavedRuntimeV1,
-        basic: BasicRuntimeSnapshotV3,
-        simpleAto: SimpleATORuntimeSnapshotV1
+        basic: BasicRuntimeSnapshotV4,
+        simpleAto: SimpleATORuntimeSnapshotV2
     ): RuntimeFileV2 {
         require(core.infrastructureRevision == basic.infrastructureRevision)
         require(core.infrastructureRevision == simpleAto.infrastructureRevision)

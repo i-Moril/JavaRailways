@@ -4,8 +4,8 @@ import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
-import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
-import work.art1st.javarailways.basic.api.depot.RollingStockRecord
+import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
+import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
 import work.art1st.javarailways.basic.api.operation.DoorSide
@@ -246,9 +246,9 @@ internal class IsolatedTimetableSimulationFactory(
                 TrainSpeedProfile(profile.trainControl.curveSpeedLimitOffset)
             )
             placement.depotSelector?.let { selector ->
-                val point = requireNotNull(world.basicWorldData.depots.stablingPoints(selector.depotId)
+                val point = requireNotNull(world.simpleAtoWorldData.depots.stablingPoints(selector.depotId)
                     .firstOrNull { it.point.destinationId == placement.wayPointId })
-                world.basicWorldData.depots.registerRollingStock(
+                world.simpleAtoWorldData.depots.registerRollingStock(
                     RollingStockRecord(
                         train.id,
                         selector.depotId,
@@ -272,7 +272,7 @@ internal class IsolatedTimetableSimulationFactory(
         occupied: MutableSet<String>
     ): Placement {
         val trainLength = profile.cars.sumOf(SimulationCarBlueprint::length)
-        val point = world.basicWorldData.depots.stablingPoints(selector.depotId)
+        val point = world.simpleAtoWorldData.depots.stablingPoints(selector.depotId)
             .sortedBy { it.point.ref.pointId }
             .filter { it.point.usableLengthMeters == null || trainLength <= it.point.usableLengthMeters!! }
             .filter {

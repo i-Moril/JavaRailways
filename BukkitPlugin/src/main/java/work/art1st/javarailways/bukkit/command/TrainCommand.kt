@@ -5,7 +5,8 @@ import org.bukkit.entity.Player
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.simpleato.controller.SimpleATO
-import work.art1st.javarailways.basic.api.depot.RollingStockState
+import work.art1st.javarailways.simpleato.api.depot.RollingStockState
+import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.basic.control.RealisticManualController
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
@@ -187,7 +188,7 @@ object TrainCommand {
             sender.sendMessage("错误: 列车 ${train.name} 正被控制或分配给 service，不能重命名")
             return true
         }
-        val rollingStock = world.basicWorldDataOrNull?.depots?.rollingStock(train.id)
+        val rollingStock = world.simpleAtoWorldDataOrNull?.depots?.rollingStock(train.id)
         if (rollingStock?.state == RollingStockState.RESERVED ||
             rollingStock?.state == RollingStockState.IN_SERVICE
         ) {

@@ -159,6 +159,9 @@ data class SimpleATOInfrastructureSnapshotV2(
         val basicData = world.basicWorldData
         check(data.destinations.all().isEmpty()) { "SimpleATO DestinationStore is not empty" }
         check(data.stations.all().isEmpty()) { "SimpleATO StationStore is not empty" }
+        check(data.depots.allDepots().isEmpty() && data.depots.allRollingStock().isEmpty()) {
+            "SimpleATO DepotStore is not empty"
+        }
         check(data.lines.snapshot().let { it.lines.isEmpty() && it.revision == 0L }) {
             "SimpleATO LineStore is not empty"
         }
@@ -198,7 +201,7 @@ data class SimpleATOInfrastructureSnapshotV2(
             it.role as? DestinationRole.DepotStablingPointRole
         }
         val depotPointCollisions = depotRoles.filter {
-            basicData.depots.stablingPoint(it.pointRef) != null
+            data.depots.stablingPoint(it.pointRef) != null
         }
         check(depotPointCollisions.isEmpty()) {
             "SimpleATO depot destinations collide with existing StablingPoints: " +

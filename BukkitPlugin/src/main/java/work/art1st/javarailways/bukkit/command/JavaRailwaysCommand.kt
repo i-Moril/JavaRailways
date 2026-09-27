@@ -7,9 +7,9 @@ import org.bukkit.Bukkit
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.depot.RollingStockRecord
-import work.art1st.javarailways.basic.api.depot.StablingPointRef
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
+import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -566,7 +566,7 @@ class JavaRailwaysCommand {
             sender.sendMessage("错误: 无法获取 JavaRailways 世界")
             return true
         }
-        val store = world.basicWorldData.depots
+        val store = world.simpleAtoWorldData.depots
         when (args.firstOrNull()?.lowercase()) {
             "assign" -> {
                 val trainId = args.getOrNull(1)

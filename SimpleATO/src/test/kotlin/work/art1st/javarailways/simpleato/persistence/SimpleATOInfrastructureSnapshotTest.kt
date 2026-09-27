@@ -9,6 +9,9 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint
+import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.simpleato.api.station.StationId
@@ -105,6 +108,32 @@ class SimpleATOInfrastructureSnapshotTest {
         assertTrue(world.simpleAtoWorldData.destinations.all().isEmpty())
         assertTrue(world.simpleAtoWorldData.stations.all().isEmpty())
         assertTrue(world.basicWorldData.wayPoints.all().isEmpty())
+    }
+
+    @Test
+    fun `restore rejects a non-fresh depot store before materializing destinations`() {
+        val world = createTestWorld().also(worlds::add)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val depotId = DepotId("existing")
+        val pointRef = StablingPointRef(depotId, "one")
+        world.simpleAtoWorldData.depots.addStablingPoint(
+            depotId,
+            "Existing",
+            DepotStablingPoint(pointRef, "existing@one", 100.0)
+        )
+        val snapshot = SimpleATOInfrastructureSnapshotV2(
+            formatVersion = SimpleATOInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION,
+            infrastructureRevision = 1L,
+            destinations = emptyList(),
+            lines = emptyList(),
+            lineRevision = 0L
+        )
+
+        val failure = assertThrows(IllegalStateException::class.java) { snapshot.restore(world) }
+
+        assertTrue(failure.message.orEmpty().contains("DepotStore is not empty"))
+        assertEquals(pointRef, world.simpleAtoWorldData.depots.stablingPoints(depotId).single().point.ref)
+        assertTrue(world.simpleAtoWorldData.destinations.all().isEmpty())
     }
 
     private fun worldWithStations(): CoreWorld {

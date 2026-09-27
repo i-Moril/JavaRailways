@@ -9,7 +9,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 ## Confirmed facts
 
 - Stage 1 is complete and archived. It provides the Basic physical-resource floor, plugin-contributed resources, one claim/preparation/grant lifecycle, suffix extension, tail release, compiled inspection bindings, namespaced restrictive outputs, applied-plan edit dependencies and one owner-level unload gate.
-- `SimpleATO` already owns its controller, frozen-route/authority client, inspection runtime, signal epoch runtime, restriction adapter, timetable dispatcher, manual navigation and SimpleATO runtime snapshot. The operational domain models/stores for Destination, Station, Depot, Line, Timetable and rolling-stock assignment, plus part of their persistence/composition, remain in Basic/BukkitPlugin.
+- `SimpleATO` already owns its controller, frozen-route/authority client, inspection runtime, signal epoch runtime, restriction adapter, timetable dispatcher, manual navigation and SimpleATO runtime snapshot. Destination, Station, Depot, Line, Timetable and rolling-stock assignment now belong to SimpleATO; remaining extraction work is platform adaptation and shared ATO-policy ownership.
 - `SimpleATOBukkit` does not yet exist as a separate plugin/module.
 - Basic currently contains a transitional protection-region catalog, graph-cut resolver, route window and admission seam. Generic topology projection, resource identities, claims, preparation and release remain useful; protection-specific ownership must move out.
 - Basic derives a non-removable physical footprint and allows signal plugins only to add validated resources or stricter holds/restrictions.

@@ -19,11 +19,11 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
-import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
-import work.art1st.javarailways.basic.api.depot.RollingStockRecord
-import work.art1st.javarailways.basic.api.depot.RollingStockState
-import work.art1st.javarailways.basic.api.depot.StablingPointRef
+import work.art1st.javarailways.simpleato.api.depot.DepotId
+import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
+import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
+import work.art1st.javarailways.simpleato.api.depot.RollingStockState
+import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.simpleato.depot.DepotResetDispatchSummary
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
@@ -334,7 +334,7 @@ class TimetableDispatcherTest {
             )
         )
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 trainId = train.id,
                 homeDepotId = depotId,
@@ -374,14 +374,14 @@ class TimetableDispatcherTest {
         assertTrue(dispatcher.beginTimetable(world, "tt") is TimetableEpochStartResult.Started)
         assertTrue(dispatcher.scheduleInitialCycle("tt"))
         repeat(4) { dispatcher.tick(world) }
-        assertEquals(RollingStockState.AVAILABLE, data.depots.rollingStock(train.id)?.state)
+        assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
         assertEquals(null, dispatcher.status(TimetableServiceRunId("tt", "s1")))
         dispatcher.tick(world)
         val started = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
 
         assertEquals(train.id, started.trainId)
-        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
-        assertEquals("tt/s1@cycle-0", data.depots.rollingStock(train.id)?.assignmentId)
+        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
+        assertEquals("tt/s1@cycle-0", world.simpleAtoWorldData.depots.rollingStock(train.id)?.assignmentId)
         assertTrue(train.controller is SimpleATO)
     }
 
@@ -510,7 +510,7 @@ class TimetableDispatcherTest {
 
         assertTrue(result is TimetableServiceStartResult.Started, result.toString())
         assertEquals(train.id, (result as TimetableServiceStartResult.Started).run.trainId)
-        assertEquals(null, data.depots.rollingStock(train.id))
+        assertEquals(null, world.simpleAtoWorldData.depots.rollingStock(train.id))
         assertTrue(!data.atoCoordinator.isStalled)
 
         assertEquals(1, dispatcher.forceDiscardTimetable(world, "physical-depot"))
@@ -628,7 +628,7 @@ class TimetableDispatcherTest {
         )
         data.wayPoints.add(WayPoint("B", "B", returnRail.id, 50.0))
         val depotId = DepotId("north")
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 train.id,
                 depotId,
@@ -675,11 +675,11 @@ class TimetableDispatcherTest {
         assertEquals(TimetableServiceRunState.COMPLETED, status.state)
         assertTrue(status.routeGrantActive)
         assertEquals(originArc + 100.0, train.head.location.arcLength, 0.6)
-        val rolling = data.depots.rollingStock(train.id)!!
+        val rolling = world.simpleAtoWorldData.depots.rollingStock(train.id)!!
         assertEquals(RollingStockState.AVAILABLE, rolling.state)
         assertEquals(StablingPointRef(depotId, "in"), rolling.stablingPointRef)
-        assertEquals(null, data.depots.stablingPoint(StablingPointRef(depotId, "out"))?.occupantTrainId)
-        assertEquals(train.id, data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
+        assertEquals(null, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "out"))?.occupantTrainId)
+        assertEquals(train.id, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
         assertTrue(!data.atoCoordinator.isStalled)
 
         data.wayPoints.add(WayPoint("C", "C", rail.id, originArc + 115.0))
@@ -717,8 +717,8 @@ class TimetableDispatcherTest {
         )!!
         assertEquals(TimetableServiceRunState.COMPLETED, departureStatus.state)
         assertTrue(departureStatus.routeGrantActive)
-        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
-        assertEquals(null, data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
+        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
+        assertEquals(null, world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId)
         assertTrue(!data.atoCoordinator.isStalled)
     }
 
@@ -774,7 +774,7 @@ class TimetableDispatcherTest {
         )
         data.wayPoints.add(WayPoint("B", "B", returnRail.id, 50.0))
         val depotId = DepotId("north")
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 train.id,
                 depotId,
@@ -787,7 +787,7 @@ class TimetableDispatcherTest {
             ),
             StablingPointRef(depotId, "out")
         )
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 "blocker",
                 depotId,
@@ -836,13 +836,13 @@ class TimetableDispatcherTest {
         assertEquals("DepotAllocationFailure", coordinator.lastStall?.errorType)
         assertEquals(
             "blocker",
-            data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId
+            world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.occupantTrainId
         )
         assertEquals(
             null,
-            data.depots.stablingPoint(StablingPointRef(depotId, "in"))?.reservedByAssignmentId
+            world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "in"))?.reservedByAssignmentId
         )
-        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
+        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
     }
 
     @Test
@@ -914,7 +914,7 @@ class TimetableDispatcherTest {
             )
         )
         val depotId = DepotId("north")
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 train.id,
                 depotId,
@@ -970,7 +970,7 @@ class TimetableDispatcherTest {
             dispatcher.tick(world)
         }
         assertEquals(0L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
-        assertEquals(RollingStockState.AVAILABLE, data.depots.rollingStock(train.id)?.state)
+        assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
 
         tickAndPublish(ato)
         dispatcher.tick(world)
@@ -979,8 +979,8 @@ class TimetableDispatcherTest {
         assertEquals(1L, next.cycleIndex)
         assertEquals(0L, next.timetableElapsedTicks)
         assertEquals(train.id, next.trainId)
-        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
-        assertEquals("tt-cycle/cyclic@cycle-1", data.depots.rollingStock(train.id)?.assignmentId)
+        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
+        assertEquals("tt-cycle/cyclic@cycle-1", world.simpleAtoWorldData.depots.rollingStock(train.id)?.assignmentId)
         assertTrue(!data.atoCoordinator.isStalled)
 
         assertTrue(dispatcher.stopFutureCycles("tt-cycle"))
@@ -989,7 +989,7 @@ class TimetableDispatcherTest {
             dispatcher.tick(world)
         }
         assertEquals(1L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
-        assertEquals(RollingStockState.AVAILABLE, data.depots.rollingStock(train.id)?.state)
+        assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
         assertTrue(!data.atoCoordinator.isStalled, data.atoCoordinator.lastStall.toString())
     }
 
@@ -1018,7 +1018,7 @@ class TimetableDispatcherTest {
         )
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
         val depotId = DepotId("north")
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 train.id,
                 depotId,
@@ -1059,7 +1059,7 @@ class TimetableDispatcherTest {
         assertTrue(coordinator.isStalled)
         assertEquals("DepotAllocationFailure", coordinator.lastStall?.errorType)
         assertEquals(0L, dispatcher.status(TimetableServiceRunId("tt-overlap", "s1"))?.cycleIndex)
-        assertEquals(RollingStockState.IN_SERVICE, data.depots.rollingStock(train.id)?.state)
+        assertEquals(RollingStockState.IN_SERVICE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
     }
 
     @Test

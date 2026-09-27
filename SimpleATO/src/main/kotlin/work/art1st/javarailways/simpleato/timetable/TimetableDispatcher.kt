@@ -18,12 +18,12 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
-import work.art1st.javarailways.basic.api.depot.DepotTrainAllocation
-import work.art1st.javarailways.basic.api.depot.DepotStorageReservation
-import work.art1st.javarailways.basic.api.depot.DepotStorageReservationResult
-import work.art1st.javarailways.basic.api.depot.DepotTrainAllocationResult
-import work.art1st.javarailways.basic.api.depot.RollingStockState
-import work.art1st.javarailways.basic.api.depot.StablingPointRef
+import work.art1st.javarailways.simpleato.api.depot.DepotTrainAllocation
+import work.art1st.javarailways.simpleato.api.depot.DepotStorageReservation
+import work.art1st.javarailways.simpleato.api.depot.DepotStorageReservationResult
+import work.art1st.javarailways.simpleato.api.depot.DepotTrainAllocationResult
+import work.art1st.javarailways.simpleato.api.depot.RollingStockState
+import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationIds
 import work.art1st.javarailways.simpleato.depot.DepotResetDispatchApplyException
 import work.art1st.javarailways.simpleato.depot.DepotResetDispatchParticipant
@@ -612,7 +612,7 @@ class TimetableDispatcher(
         val trainId = selected.trainId
         fun startupFailure(reason: String): TimetableServiceStartResult.Failure {
             if (selected.depotReservationPending) {
-                selected.depotAllocation?.let(world.basicWorldData.depots::cancelReservation)
+                selected.depotAllocation?.let(world.simpleAtoWorldData.depots::cancelReservation)
                 stallDepotAllocation(world, runId, reason)
             } else if (selected.dynamicAcquisition) {
                 stallTimetableRuntime(world, runId, "TrainAcquisitionFailure", reason)
@@ -1744,7 +1744,7 @@ class TimetableDispatcher(
             if (run.physicalStorageOnly) {
                 physicalStorageReservations.remove(reservation.stablingPointRef, run.instanceId)
             } else {
-                world.basicWorldData.depots.cancelStorage(reservation)
+                world.simpleAtoWorldData.depots.cancelStorage(reservation)
             }
             run.storageReservation = null
         }
@@ -3116,7 +3116,7 @@ class TimetableDispatcher(
     ) {
         val effectiveReason = cancelExtensionAction(run)?.let { "$reason; $it" } ?: reason
         if (run.depotReservationPending) {
-            run.depotAllocation?.let(world.basicWorldData.depots::cancelReservation)
+            run.depotAllocation?.let(world.simpleAtoWorldData.depots::cancelReservation)
             run.depotReservationPending = false
         }
         val failure = IllegalStateException(effectiveReason)
@@ -3177,7 +3177,7 @@ class TimetableDispatcher(
         }
         val tailProgress = runtime.tailProgressMeters ?: return
         if (tailProgress < DEPOT_DEPARTURE_RELEASE_EPSILON_METERS) return
-        if (!world.basicWorldData.depots.releaseDeparture(allocation)) {
+        if (!world.simpleAtoWorldData.depots.releaseDeparture(allocation)) {
             stallRun(
                 world,
                 run,
@@ -3204,7 +3204,7 @@ class TimetableDispatcher(
             )
             return false
         }
-        val point = world.basicWorldData.depots.stablingPoint(reservation.stablingPointRef)
+        val point = world.simpleAtoWorldData.depots.stablingPoint(reservation.stablingPointRef)
         if (point == null) {
             stallRun(
                 world,
@@ -3232,7 +3232,7 @@ class TimetableDispatcher(
         val storageCommitted = if (run.physicalStorageOnly) {
             physicalStorageReservations.remove(reservation.stablingPointRef, run.instanceId)
         } else {
-            world.basicWorldData.depots.completeStorage(reservation)
+            world.simpleAtoWorldData.depots.completeStorage(reservation)
         }
         if (!storageCommitted) {
             stallRun(
@@ -3330,7 +3330,7 @@ class TimetableDispatcher(
                         }
                         val reservation = if (allocation == null) {
                             val trainLength = run.train.cars.sumOf { it.length }
-                            val point = world.basicWorldData.depots.stablingPoints(action.depotId)
+                            val point = world.simpleAtoWorldData.depots.stablingPoints(action.depotId)
                                 .asSequence()
                                 .filter {
                                     action.stablingPointIds.isEmpty() ||
@@ -3366,7 +3366,7 @@ class TimetableDispatcher(
                                 run.train.id,
                                 point.point.ref
                             )
-                        } else when (val result = world.basicWorldData.depots.reserveStorage(
+                        } else when (val result = world.simpleAtoWorldData.depots.reserveStorage(
                             trainId = run.train.id,
                             depotId = action.depotId,
                             requestedPointIds = action.stablingPointIds,
@@ -3387,14 +3387,14 @@ class TimetableDispatcher(
                                 return
                             }
                         }
-                        val point = world.basicWorldData.depots
+                        val point = world.simpleAtoWorldData.depots
                             .stablingPoint(reservation.stablingPointRef)
                         val target = point?.point?.destinationId
                         if (target == null) {
                             if (run.physicalStorageOnly) {
                                 physicalStorageReservations.remove(reservation.stablingPointRef, run.instanceId)
                             } else {
-                                world.basicWorldData.depots.cancelStorage(reservation)
+                                world.simpleAtoWorldData.depots.cancelStorage(reservation)
                             }
                             stallRun(
                                 world,
@@ -3420,7 +3420,7 @@ class TimetableDispatcher(
                                     run.instanceId
                                 )
                             } else {
-                                world.basicWorldData.depots.cancelStorage(reservation)
+                                world.simpleAtoWorldData.depots.cancelStorage(reservation)
                             }
                             if (!cancelled) {
                                 stallRun(
@@ -3596,7 +3596,7 @@ class TimetableDispatcher(
                         if (run.depotReservationPending) {
                             val allocation = run.depotAllocation
                             if (allocation == null ||
-                                !world.basicWorldData.depots.confirmInService(allocation)
+                                !world.simpleAtoWorldData.depots.confirmInService(allocation)
                             ) {
                                 stallRun(
                                     world,
@@ -3800,7 +3800,7 @@ class TimetableDispatcher(
         run: ActiveRun,
         scheduledTick: Long?
     ): TimetableRuntimeContext {
-        val record = world.basicWorldData.depots.rollingStock(run.train.id)?.record
+        val record = world.simpleAtoWorldData.depots.rollingStock(run.train.id)?.record
         return TimetableRuntimeContext(
             timetableId = run.id.timetableId,
             serviceId = run.id.serviceId,
@@ -4103,7 +4103,7 @@ class TimetableDispatcher(
         service: TimetableService,
         take: TimetableAction.TakeFromDepot
     ): SelectedServiceTrain? {
-        val store = world.basicWorldData.depots
+        val store = world.simpleAtoWorldData.depots
         val points = store.stablingPoints(take.selector.depotId)
             .sortedBy { it.point.ref.pointId }
         if (points.isEmpty()) {

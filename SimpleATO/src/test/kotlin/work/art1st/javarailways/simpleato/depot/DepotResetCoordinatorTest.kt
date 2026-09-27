@@ -17,7 +17,7 @@ import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.basic.api.ato.KinematicTrainActuator
-import work.art1st.javarailways.basic.api.depot.*
+import work.art1st.javarailways.simpleato.api.depot.*
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -110,7 +110,7 @@ class DepotResetCoordinatorTest {
             )
         )
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 60.0))
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 train.id,
                 depotId,
@@ -158,10 +158,10 @@ class DepotResetCoordinatorTest {
         assertNull(dispatcher.status(TimetableServiceRunId("tt", "s1")))
         assertNull(train.controller)
         assertEquals(originArc, train.head.location.arcLength, 1.0e-6)
-        assertEquals(RollingStockState.AVAILABLE, data.depots.rollingStock(train.id)?.state)
+        assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
         assertEquals(
             train.id,
-            data.depots.stablingPoint(StablingPointRef(depotId, "one"))?.occupantTrainId
+            world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "one"))?.occupantTrainId
         )
         assertTrue(coordinator.isStalled)
         val encoded = DepotResetReportJson.encode(success)
@@ -215,7 +215,7 @@ class DepotResetCoordinatorTest {
                 )
             )
         )
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 safeTrain.id,
                 depotId,
@@ -228,7 +228,7 @@ class DepotResetCoordinatorTest {
             ),
             StablingPointRef(depotId, "safe")
         )
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 riskyTrain.id,
                 depotId,
@@ -247,8 +247,8 @@ class DepotResetCoordinatorTest {
         val beforeRiskyHead = riskyTrain.head.location.arcLengthIn(ViewDirection.AB)
         val beforeRiskyBogies = riskyTrain.cars.flatMap { car -> car.bogies }
             .map { it.location.arcLengthIn(ViewDirection.AB) }
-        val beforeStock = data.depots.allRollingStock()
-        val beforePoints = data.depots.stablingPoints(depotId)
+        val beforeStock = world.simpleAtoWorldData.depots.allRollingStock()
+        val beforePoints = world.simpleAtoWorldData.depots.stablingPoints(depotId)
         coordinator.stall(report(coordinator.worldId, riskyTrain.id))
 
         val result = onMainThread {
@@ -273,8 +273,8 @@ class DepotResetCoordinatorTest {
             riskyTrain.cars.flatMap { car -> car.bogies }
                 .map { it.location.arcLengthIn(ViewDirection.AB) }
         )
-        assertEquals(beforeStock, data.depots.allRollingStock())
-        assertEquals(beforePoints, data.depots.stablingPoints(depotId))
+        assertEquals(beforeStock, world.simpleAtoWorldData.depots.allRollingStock())
+        assertEquals(beforePoints, world.simpleAtoWorldData.depots.stablingPoints(depotId))
     }
 
     @Test
@@ -330,7 +330,7 @@ class DepotResetCoordinatorTest {
                 )
             )
         )
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 firstTrain.id,
                 depotId,
@@ -343,7 +343,7 @@ class DepotResetCoordinatorTest {
             ),
             StablingPointRef(depotId, "first")
         )
-        data.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 secondTrain.id,
                 depotId,
@@ -374,7 +374,7 @@ class DepotResetCoordinatorTest {
         assertEquals("TRAIN_ENVELOPE", result.report.failureStage)
         assertEquals(beforeFirst, firstTrain.head.location)
         assertEquals(beforeSecond, secondTrain.head.location)
-        assertFalse(data.depots.stablingPoints(depotId).any { it.occupantTrainId == null })
+        assertFalse(world.simpleAtoWorldData.depots.stablingPoints(depotId).any { it.occupantTrainId == null })
     }
 
     @Test
@@ -400,7 +400,7 @@ class DepotResetCoordinatorTest {
                 DestinationRole.DepotStablingPointRole("north", "one", usableLengthMeters = 20.0)
             )
         )
-        world.basicWorldData.depots.registerRollingStock(
+        world.simpleAtoWorldData.depots.registerRollingStock(
             RollingStockRecord(
                 "ghost",
                 depotId,
@@ -414,8 +414,8 @@ class DepotResetCoordinatorTest {
             StablingPointRef(depotId, "one")
         )
         coordinator.stall(report(coordinator.worldId, "ghost"))
-        val beforeStock = world.basicWorldData.depots.allRollingStock()
-        val beforePoints = world.basicWorldData.depots.stablingPoints(depotId)
+        val beforeStock = world.simpleAtoWorldData.depots.allRollingStock()
+        val beforePoints = world.simpleAtoWorldData.depots.stablingPoints(depotId)
 
         val result = DepotResetCoordinator(
             world,
@@ -429,8 +429,8 @@ class DepotResetCoordinatorTest {
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_RESOLUTION", result.report.failureStage)
-        assertEquals(beforeStock, world.basicWorldData.depots.allRollingStock())
-        assertEquals(beforePoints, world.basicWorldData.depots.stablingPoints(depotId))
+        assertEquals(beforeStock, world.simpleAtoWorldData.depots.allRollingStock())
+        assertEquals(beforePoints, world.simpleAtoWorldData.depots.stablingPoints(depotId))
         assertTrue(coordinator.isStalled)
     }
 

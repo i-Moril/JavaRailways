@@ -27,7 +27,7 @@ data class OperationalDestination(
 - role-owned ID固定`<owner>@<point>`；component禁止`@`/control char；general destination ID还禁止`/`。只用`OperationalDestinationIds`生成/解析。
 - `toWayPoint()`只派生id/displayName/railId/AB arc；WayPoint本身无direction。
 
-`SimpleATOWorldData.destinations`是唯一canonical writable store。`OperationalDestinationService(world)`是mutation的main-thread owner；它原子维护SimpleATO Station投影、Basic Depot投影及Basic通用WayPoint route-anchor投影。Basic WayPoint不是第二个Destination owner。`service[id]`提供只读查询，返回当前不可变`OperationalDestination`值或`null`。
+`SimpleATOWorldData.destinations`是唯一canonical writable store。`OperationalDestinationService(world)`是mutation的main-thread owner；它原子维护SimpleATO Station投影、SimpleATO Depot投影及Basic通用WayPoint route-anchor投影。Basic WayPoint不是第二个Destination owner。`service[id]`提供只读查询，返回当前不可变`OperationalDestination`值或`null`。
 
 ## Transaction与结果矩阵
 

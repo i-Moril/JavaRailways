@@ -9,7 +9,7 @@ import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationExecutionResult
 import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicketState
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments

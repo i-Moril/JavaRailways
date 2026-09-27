@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.line.LineId
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.*
 import work.art1st.javarailways.simpleato.timetable.*
 

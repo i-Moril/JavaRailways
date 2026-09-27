@@ -3,7 +3,7 @@ package work.art1st.javarailways.bukkit.persistence
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotCodec
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
@@ -11,7 +11,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotCodec
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec
-import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
 
 @Serializable
 data class InfrastructureFileV2(
@@ -25,11 +25,11 @@ data class InfrastructureFileV2(
         WorldSnapshotCodec.decodeInfrastructure(coreSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
-    fun basic(): BasicInfrastructureSnapshotV2 =
+    fun basic(): BasicInfrastructureSnapshotV3 =
         BasicInfrastructureSnapshotCodec.decode(basicSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
-    fun simpleAto(): SimpleATOInfrastructureSnapshotV1 =
+    fun simpleAto(): SimpleATOInfrastructureSnapshotV2 =
         SimpleATOInfrastructureSnapshotCodec.decode(simpleAtoSnapshotJson).also {
             require(it.infrastructureRevision == infrastructureRevision)
         }
@@ -67,8 +67,8 @@ data class CapturedWorldSnapshots(
 
 data class WorldSnapshotCapture(
     val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
-    val basicInfrastructure: BasicInfrastructureSnapshotV2,
-    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
+    val basicInfrastructure: BasicInfrastructureSnapshotV3,
+    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV2,
     val coreRuntime: CoreWorld.SavedRuntimeV1,
     val basicRuntime: BasicRuntimeSnapshotV3,
     val simpleAtoRuntime: SimpleATORuntimeSnapshotV1
@@ -101,8 +101,8 @@ object SplitWorldSnapshotCodec {
 
     fun infrastructure(
         core: CoreWorld.SavedInfrastructureV2,
-        basic: BasicInfrastructureSnapshotV2,
-        simpleAto: SimpleATOInfrastructureSnapshotV1
+        basic: BasicInfrastructureSnapshotV3,
+        simpleAto: SimpleATOInfrastructureSnapshotV2
     ): InfrastructureFileV2 {
         require(core.infrastructureRevision == basic.infrastructureRevision)
         require(core.infrastructureRevision == simpleAto.infrastructureRevision)

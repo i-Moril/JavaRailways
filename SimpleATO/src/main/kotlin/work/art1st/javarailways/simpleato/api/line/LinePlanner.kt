@@ -1,13 +1,14 @@
 package work.art1st.javarailways.simpleato.api.line
 
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.RouteBuildResult
 import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 sealed interface LineCompileResult {
     data class Success(val line: Line, val legs: List<CompiledLineLeg>) : LineCompileResult {
@@ -48,7 +49,7 @@ class LinePlanner(private val world: World) {
     ): List<CompiledLineResetCandidate> {
         require(stationIds.size >= 2) { "A line section requires at least two stations" }
         require(destinationIds.size == stationIds.size) { "Selected berth count must match station count" }
-        val destinationService = world.basicWorldData.destinations
+        val destinationService = world.simpleAtoWorldData.destinations
         val destinations = destinationIds.mapIndexed { index, destinationId ->
             val destination = requireNotNull(destinationService[destinationId]) { "Unknown berth destination: $destinationId" }
             val role = destination.role as? DestinationRole.StationBerthRole
@@ -112,7 +113,7 @@ class LinePlanner(private val world: World) {
         if (destinationIds != null && destinationIds.size != stationIds.size) {
             return LineCompileResult.Failure(line, 0, "Selected berth count must match station count")
         }
-        val destinationService = world.basicWorldData.destinations
+        val destinationService = world.simpleAtoWorldData.destinations
         val destinationsByStation = destinationService.all().mapNotNull { destination ->
             val role = destination.role as? DestinationRole.StationBerthRole ?: return@mapNotNull null
             role.stationId to destination

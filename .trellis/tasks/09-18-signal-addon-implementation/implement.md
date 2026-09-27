@@ -13,12 +13,13 @@
 Current extraction progress:
 
 - [x] Move Timetable model, validation, runtime store, extension registry, persistence, simulation helpers and Bukkit callers into SimpleATO; remove the Basic owner without aliases or runtime fallback.
-- [x] Move Line model, revisioned store, planner, infrastructure persistence, isolated simulation capture and Bukkit callers into SimpleATO; restore after Basic Station data without aliases or runtime fallback.
-- [ ] Move Destination, Station, Depot and rolling-stock assignment in later dependency-safe slices.
+- [x] Move Line model, revisioned store, planner, infrastructure persistence, isolated simulation capture and Bukkit callers into SimpleATO; restore after SimpleATO Destination/Station materialization without aliases or runtime fallback.
+- [x] Move Destination/Station model, stores, StationCall runtime/resolver, berth allocation, infrastructure persistence and Bukkit callers into SimpleATO; keep only the derived route-anchor projection in Basic WayPointStore, with no Basic aliases or mirror stores. Move Depot reset coordination to SimpleATO to avoid a reverse dependency.
+- [ ] Move Depot/DepotStore and rolling-stock assignment in a later dependency-safe slice; they remain the explicit Basic transition boundary.
 
 - [ ] Inventory remaining ATO/operations production owners and callers in Basic/BukkitPlugin.
 - [ ] Move the remaining automated operating policy, ATO/ATP constraint owners, operating direction and operational route selection into `SimpleATO` with existing behavior tests; retain Basic's generic dynamics/actuation and physical safety contracts shared with manual driving.
-- [ ] Move Destination, Station, Depot, Line, Timetable, rolling-stock assignment, Dispatcher/applied-plan state and persistence into `SimpleATO` in dependency-safe slices.
+- [ ] Complete the remaining Depot/rolling-stock assignment migration into `SimpleATO`; Destination, Station, Line, Timetable, Dispatcher/applied-plan state and their persistence have already moved in dependency-safe slices.
 - [ ] Create `SimpleATOBukkit` with its own descriptor, lifecycle, service discovery and packaging/boundary tests.
 - [ ] Move only SimpleATO platform adaptation and presentation into `SimpleATOBukkit`; define immutable per-object revisions,
   keep one in-flight plus one newest pending value per object, reject stale revisions and apply through the target's Folia

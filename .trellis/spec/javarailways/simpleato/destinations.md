@@ -1,4 +1,4 @@
-# Basic operational destination 契约
+# SimpleATO operational destination 契约
 
 ## 适用场景与用途
 
@@ -19,7 +19,7 @@ data class OperationalDestination(
 )
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/destination/OperationalDestination.kt`。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/destination/OperationalDestination.kt`。
 
 - `railId`是persistent Core rail UUID；arc finite、`>=0 m`且始终canonical AB。
 - `approachDirection=null`表示destination不额外限制，仍受rail operating direction。
@@ -27,7 +27,7 @@ data class OperationalDestination(
 - role-owned ID固定`<owner>@<point>`；component禁止`@`/control char；general destination ID还禁止`/`。只用`OperationalDestinationIds`生成/解析。
 - `toWayPoint()`只派生id/displayName/railId/AB arc；WayPoint本身无direction。
 
-`OperationalDestinationService(world)`是mutation的main-thread owner；stores不是跨store transaction API。`service[id]`提供只读查询，返回当前不可变`OperationalDestination`值或`null`，让SimpleATO等consumer无需导入`basic.pathFinding`或直接取得world data/store。
+`SimpleATOWorldData.destinations`是唯一canonical writable store。`OperationalDestinationService(world)`是mutation的main-thread owner；它原子维护SimpleATO Station投影、Basic Depot投影及Basic通用WayPoint route-anchor投影。Basic WayPoint不是第二个Destination owner。`service[id]`提供只读查询，返回当前不可变`OperationalDestination`值或`null`。
 
 ## Transaction与结果矩阵
 
@@ -49,12 +49,12 @@ Service在最后两次写入失败时清已materialize role：
 
 ```kotlin
 try {
-    data.wayPoints.add(destination.toWayPoint())
+    basicData.wayPoints.add(destination.toWayPoint())
     data.destinations.add(destination)
 } catch (failure: Exception) {
-    data.wayPoints.remove(destination.id)
+    basicData.wayPoints.remove(destination.id)
     if (stationRole != null) data.stations.removeBerth(stationRole.berthRef)
-    if (depotRole != null) data.depots.removeStablingPoint(depotRole.pointRef)
+    if (depotRole != null) basicData.depots.removeStablingPoint(depotRole.pointRef)
     throw failure
 }
 ```
@@ -74,6 +74,7 @@ try {
 `OperationalDestinationTest.kt`必须覆盖canonical ID/invalid token、directed route、role materialization、duplicate/rollback、rail delete、reversed replacement、split/merge及standalone WayPoint migration。Assertion同时检查Destination、WayPoint、Station/Depot role与RailObjectStore，而非单一store。
 
 ```bash
-./gradlew :Basic:test --tests '*OperationalDestinationTest'
+./gradlew :SimpleATO:test --tests '*OperationalDestinationTest'
+./gradlew :SimpleATO:test --tests '*SimpleATOInfrastructureSnapshotTest'
 ./gradlew :Basic:test --tests '*BasicInfrastructureSnapshotTest'
 ```

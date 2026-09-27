@@ -18,9 +18,9 @@ import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.depot.StablingPointRef
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation

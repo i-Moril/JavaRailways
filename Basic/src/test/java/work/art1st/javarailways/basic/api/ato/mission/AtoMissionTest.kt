@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
@@ -99,5 +100,38 @@ class AtoMissionTest {
         result as AtoMissionResolutionResult.RouteUnavailable
         assertEquals(WayPointRef("A"), result.from)
         assertEquals(WayPointRef("B"), result.to)
+    }
+
+    @Test
+    fun `carries each leg end direction into the next leg`() {
+        val world = createTestWorld()
+        val data = BasicWorldData()
+        TestBasicWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
+        data.wayPoints.add(WayPoint("A", "A", rail.id, 80.0))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, 40.0))
+        data.wayPoints.add(WayPoint("C", "C", rail.id, 60.0))
+
+        val result = AtoMissionResolver(world).resolve(
+            AtoMissionRequest(
+                id = "direction-continuity",
+                revision = 1L,
+                origin = WayPointRef("A"),
+                points = listOf(
+                    AtoMissionPoint.Via(WayPointRef("B")),
+                    AtoMissionPoint.Stop(WayPointRef("C"))
+                ),
+                requiredStartDirection = ViewDirection.BA,
+                requiredGoalDirections = listOf(ViewDirection.BA, ViewDirection.AB)
+            )
+        )
+
+        assertTrue(result is AtoMissionResolutionResult.RouteUnavailable)
+        result as AtoMissionResolutionResult.RouteUnavailable
+        assertEquals(WayPointRef("B"), result.from)
+        assertEquals(WayPointRef("C"), result.to)
     }
 }

@@ -4,13 +4,15 @@
 
 触发：配置Depot/stabling point、登记RollingStock、take/store、reservation、tail release或Depot Reset。
 
-用途：`DepotStore`原子维护logical ledger，但Dispatcher仍以live stopped train geometry作为physical selection authority；storage/reset在完整preflight后提交，避免persisted occupancy冒充真实列车位置。
+用途：`DepotStore`原子维护logical ledger，但SimpleATO Dispatcher仍以live stopped train geometry作为physical selection authority；storage/reset在完整preflight后提交，避免persisted occupancy冒充真实列车位置。
 
 ## Owner、类型与单位
 
 `DepotStore`是world-local main-thread owner，在一个lock内维护Depot/points/rollingStock/assignments/storage reservations。`RollingStockRecord`字段：stable train/home depot/model package IDs；tags/capabilities sets；`carCount>0`；`lengthMeters>0`；`maximumSpeedMetersPerSecond>0`。
 
 State token：`AVAILABLE/RESERVED/IN_SERVICE`。`DepotTrainSelector`同时匹配home depot、required tags/capabilities、min/max cars、minimum speed m/s。
+
+过渡边界：Depot/DepotStore/rolling-stock ledger仍由Basic拥有；依赖Destination、Station及Dispatcher的`DepotResetCoordinator`和`DepotResetDispatchParticipant`位于SimpleATO。Basic不得为reset反向依赖SimpleATO。
 
 ```kotlin
 fun allocate(

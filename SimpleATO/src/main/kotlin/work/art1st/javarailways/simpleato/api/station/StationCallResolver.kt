@@ -1,7 +1,8 @@
-package work.art1st.javarailways.basic.api.station
+package work.art1st.javarailways.simpleato.api.station
 
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.PlannedRoute
 import work.art1st.javarailways.basic.route.PlannedRouteCompilationResult
@@ -12,6 +13,7 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 data class StationCallRequest(
     val serviceRunId: String,
@@ -76,13 +78,14 @@ class StationCallResolver(private val world: World) {
         requiredStartDirection: ViewDirection? = null
     ): StationCallResolutionResult {
         require(trainLengthMeters == null || trainLengthMeters.isFinite() && trainLengthMeters > 0.0)
-        val data = world.basicWorldData
-        val origin = data.wayPoints[request.origin.id]
+        val basicData = world.basicWorldData
+        val operationalData = world.simpleAtoWorldData
+        val origin = basicData.wayPoints[request.origin.id]
             ?: return failure(
                 StationCallResolutionFailure.ORIGIN_UNRESOLVED,
                 "station call origin not found: ${request.origin.id}"
             )
-        val station = data.stations[request.call.stationId]
+        val station = operationalData.stations[request.call.stationId]
             ?: return failure(
                 StationCallResolutionFailure.STATION_UNRESOLVED,
                 "station not found: ${request.call.stationId}"
@@ -93,7 +96,7 @@ class StationCallResolver(private val world: World) {
                 "berth ${request.call.berthRef} does not belong to station ${station.id}"
             )
         }
-        val berth = data.stations.berth(request.call.berthRef)
+        val berth = operationalData.stations.berth(request.call.berthRef)
             ?: return failure(
                 StationCallResolutionFailure.BERTH_UNRESOLVED,
                 "berth not found: ${request.call.berthRef}"

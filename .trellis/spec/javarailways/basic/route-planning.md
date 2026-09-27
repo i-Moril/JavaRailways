@@ -10,7 +10,7 @@
 
 ## Owner、输入输出与坐标
 
-`RoutePlanner(world)`输入`WayPoint(id,displayName,railId,arcLength)`，arc是canonical AB米；optional required start/goal `ViewDirection`，未显式提供时使用OperationalDestination approach。只遍历Basic `allowedDirection`许可的view。
+`RoutePlanner(world)`输入`WayPoint(id,displayName,railId,arcLength)`，arc是canonical AB米；optional required start/goal `ViewDirection`必须由运营调用方显式解析并传入。通用planner不查询Destination/Station store，也不推断运营方向；未传入表示该端点没有额外方向约束。planner只遍历Basic `allowedDirection`许可的view。
 
 ```kotlin
 data class RouteSegment(
@@ -66,6 +66,7 @@ return when (direction) {
 - compile后跳过stable topology revalidation；
 - 新功能继续把`RailView.nextRails`或Basic复制的adjacency当成第二个authoritative graph；
 - Basic收到非法或不连续route后自行搜索并补齐一条运营路径；
+- RoutePlanner隐式查询SimpleATO Destination或通过callback/provider反向获得方向；
 - repeated rail progress取第一个candidate导致倒退。
 
 ## 必需测试与验证

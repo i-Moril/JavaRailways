@@ -5,9 +5,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableService

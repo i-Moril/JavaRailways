@@ -4,11 +4,11 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.DestinationRoleType
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
 

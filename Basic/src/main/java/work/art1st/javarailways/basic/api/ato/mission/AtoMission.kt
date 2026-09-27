@@ -40,24 +40,39 @@ data class AtoMissionRequest private constructor(
     val revision: Long,
     val origin: WayPointRef,
     val points: List<AtoMissionPoint>,
-    val requiredStartDirection: ViewDirection?
+    val requiredStartDirection: ViewDirection?,
+    val requiredGoalDirections: List<ViewDirection?>
 ) {
     constructor(
         id: String,
         revision: Long,
         origin: WayPointRef,
         points: Collection<AtoMissionPoint>,
-        requiredStartDirection: ViewDirection? = null
-    ) : this(id, revision, origin, immutableCopy(points), requiredStartDirection)
+        requiredStartDirection: ViewDirection? = null,
+        requiredGoalDirections: Collection<ViewDirection?> = List(points.size) { null }
+    ) : this(
+        id,
+        revision,
+        origin,
+        immutableCopy(points),
+        requiredStartDirection,
+        immutableDirections(requiredGoalDirections)
+    )
 
     init {
         require(id.isNotBlank() && id == id.trim())
         require(revision >= 0L)
         require(points.isNotEmpty()) { "AtoMissionRequest must contain at least one point" }
+        require(requiredGoalDirections.size == points.size) {
+            "AtoMissionRequest goal directions must match point count"
+        }
     }
 
     private companion object {
         fun immutableCopy(source: Collection<AtoMissionPoint>): List<AtoMissionPoint> =
+            Collections.unmodifiableList(ArrayList(source))
+
+        fun immutableDirections(source: Collection<ViewDirection?>): List<ViewDirection?> =
             Collections.unmodifiableList(ArrayList(source))
     }
 }
@@ -147,6 +162,7 @@ class AtoMissionResolver(private val world: World) {
 
         val legs = ArrayList<AtoMissionLeg>(request.points.size)
         var from = request.origin
+        var currentDirection = request.requiredStartDirection
         request.points.forEachIndexed { index, point ->
             val to = point.target
             if (wayPoints[to.id] == null) {
@@ -157,7 +173,8 @@ class AtoMissionResolver(private val world: World) {
             val expanded = when (val result = routePlanner.buildRoute(
                 fromWayPoint,
                 toWayPoint,
-                requiredStartDirection = request.requiredStartDirection.takeIf { index == 0 }
+                requiredGoalDirection = request.requiredGoalDirections[index],
+                requiredStartDirection = currentDirection
             )) {
                 is RouteBuildResult.Success -> result.route
                 is RouteBuildResult.Failure -> return AtoMissionResolutionResult.RouteUnavailable(
@@ -180,6 +197,7 @@ class AtoMissionResolver(private val world: World) {
             }
             legs += AtoMissionLeg(index, point, planned)
             from = to
+            currentDirection = expanded.segments.last().railViewRef.direction
         }
         return AtoMissionResolutionResult.Success(
             AtoMission(request.id, request.revision, request.origin, legs)

@@ -1,6 +1,7 @@
-package work.art1st.javarailways.basic.api.station
+package work.art1st.javarailways.simpleato.api.station
 
 import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.core.api.physics.rail.RailLocation
 import work.art1st.javarailways.core.api.physics.rail.RailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
@@ -37,13 +38,6 @@ data class StationBerthRef(
     companion object {
         const val NAMESPACE = "station-berth"
     }
-}
-
-enum class DoorSide {
-    NONE,
-    LEFT,
-    RIGHT,
-    BOTH
 }
 
 /**

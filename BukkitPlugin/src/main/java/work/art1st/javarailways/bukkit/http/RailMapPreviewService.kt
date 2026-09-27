@@ -4,10 +4,11 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import work.art1st.javarailways.basic.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import java.io.File
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
@@ -34,7 +35,7 @@ class RailMapPreviewService(private val mapDirectory: File) : AutoCloseable {
         val liveRails=world.allRails
         if(liveRails.size>MAX_RAILS) throw HttpFailure(413,"rail map exceeds $MAX_RAILS rails")
         val rails=liveRails.map { RailSource(it.id.toString(),it.curve) }
-        val destinations=world.basicWorldData.destinations.all().map { destination ->
+        val destinations=world.simpleAtoWorldDataOrNull?.destinations?.all().orEmpty().map { destination ->
             val role=destination.role
             // Operational roles own canonical IDs (station@berth / depot@stabling); do not leak the
             // transient W<n> display name assigned before the role dialog was saved.

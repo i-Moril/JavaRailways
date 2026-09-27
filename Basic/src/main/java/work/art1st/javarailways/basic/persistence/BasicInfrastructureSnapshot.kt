@@ -3,12 +3,6 @@ package work.art1st.javarailways.basic.persistence
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.DestinationRoleType
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
@@ -40,89 +34,6 @@ data class SavedWayPointV1(
 }
 
 @Serializable
-data class SavedOperationalDestinationV1(
-    val id: String,
-    val displayName: String,
-    val railId: String,
-    val arcLengthInAbMeters: Double,
-    val approachDirection: ViewDirection? = null,
-    val roleType: DestinationRoleType = DestinationRoleType.REGULAR,
-    val stationId: String? = null,
-    val stationDisplayName: String? = null,
-    val berthId: String? = null,
-    val doorSide: DoorSide? = null,
-    val stoppingOffsetMetersBefore: Double = 0.0,
-    val positionToleranceMeters: Double = DestinationRole.DEFAULT_POSITION_TOLERANCE_METERS,
-    val usableLengthMeters: Double? = null,
-    val defaultDwellTicks: Long = 0L,
-    val releaseDistanceMetersAfter: Double = 0.0,
-    val depotId: String? = null,
-    val stablingPointId: String? = null,
-    val depotDisplayName: String? = null,
-    val allowedTags: Set<String> = emptySet()
-) {
-    fun restore(): OperationalDestination = OperationalDestination(
-        id = id,
-        displayName = displayName,
-        railId = UUID.fromString(railId),
-        arcLengthInAbMeters = arcLengthInAbMeters,
-        approachDirection = approachDirection,
-        role = restoreRole()
-    )
-
-    private fun restoreRole(): DestinationRole = when (roleType) {
-        DestinationRoleType.REGULAR -> DestinationRole.Regular
-        DestinationRoleType.STATION_BERTH -> DestinationRole.StationBerthRole(
-            stationId = StationId(requireNotNull(stationId)),
-            stationDisplayName = requireNotNull(stationDisplayName),
-            berthId = requireNotNull(berthId),
-            doorSide = requireNotNull(doorSide),
-            stoppingOffsetMetersBefore = stoppingOffsetMetersBefore,
-            positionToleranceMeters = positionToleranceMeters,
-            usableLengthMeters = usableLengthMeters,
-            defaultDwellTicks = defaultDwellTicks,
-            releaseDistanceMetersAfter = releaseDistanceMetersAfter
-        )
-        DestinationRoleType.DEPOT_STABLING_POINT -> DestinationRole.DepotStablingPointRole(
-            depotId = requireNotNull(depotId),
-            stablingPointId = requireNotNull(stablingPointId),
-            depotDisplayName = requireNotNull(depotDisplayName),
-            usableLengthMeters = usableLengthMeters,
-            allowedTags = allowedTags
-        )
-    }
-
-    companion object {
-        fun capture(value: OperationalDestination): SavedOperationalDestinationV1 {
-            val station = value.role as? DestinationRole.StationBerthRole
-            val depot = value.role as? DestinationRole.DepotStablingPointRole
-            return SavedOperationalDestinationV1(
-                id = value.id,
-                displayName = value.displayName,
-                railId = value.railId.toString(),
-                arcLengthInAbMeters = value.arcLengthInAbMeters,
-                approachDirection = value.approachDirection,
-                roleType = value.role.type,
-                stationId = station?.stationId?.value,
-                stationDisplayName = station?.stationDisplayName,
-                berthId = station?.berthId,
-                doorSide = station?.doorSide,
-                stoppingOffsetMetersBefore = station?.stoppingOffsetMetersBefore ?: 0.0,
-                positionToleranceMeters = station?.positionToleranceMeters
-                    ?: DestinationRole.DEFAULT_POSITION_TOLERANCE_METERS,
-                usableLengthMeters = station?.usableLengthMeters ?: depot?.usableLengthMeters,
-                defaultDwellTicks = station?.defaultDwellTicks ?: 0L,
-                releaseDistanceMetersAfter = station?.releaseDistanceMetersAfter ?: 0.0,
-                depotId = depot?.depotId,
-                stablingPointId = depot?.stablingPointId,
-                depotDisplayName = depot?.depotDisplayName,
-                allowedTags = depot?.allowedTags.orEmpty()
-            )
-        }
-    }
-}
-
-@Serializable
 data class SavedRailInfrastructureMetadataV1(
     val railId: String,
     val metadata: RailInfrastructureMetadata
@@ -136,10 +47,9 @@ data class SavedRailInfrastructureMetadataV1(
 }
 
 @Serializable
-data class BasicInfrastructureSnapshotV2(
+data class BasicInfrastructureSnapshotV3(
     val formatVersion: Int,
     val infrastructureRevision: Long,
-    val destinations: List<SavedOperationalDestinationV1>,
     val wayPoints: List<SavedWayPointV1>,
     val railMetadata: List<SavedRailInfrastructureMetadataV1> = emptyList()
 ) {
@@ -148,13 +58,11 @@ data class BasicInfrastructureSnapshotV2(
             "Unsupported Basic infrastructure snapshot version: $formatVersion"
         }
         check(world.basicWorldData.wayPoints.all().isEmpty())
-        check(world.basicWorldData.destinations.all().isEmpty())
-        val missingRails = destinations.filter { saved ->
-            world.getRail(UUID.fromString(saved.railId)) == null
-        }
-        check(missingRails.isEmpty()) {
-            "Infrastructure snapshot contains destinations on missing rails: " +
-                missingRails.joinToString { "${it.id}@${it.railId}" }
+        val duplicateWayPointIds = wayPoints.groupingBy(SavedWayPointV1::id).eachCount()
+            .filterValues { it > 1 }
+            .keys
+        check(duplicateWayPointIds.isEmpty()) {
+            "Infrastructure snapshot contains duplicate WayPoints: ${duplicateWayPointIds.joinToString()}"
         }
         val missingWayPointRails = wayPoints.filter { saved ->
             world.getRail(UUID.fromString(saved.railId)) == null
@@ -172,8 +80,6 @@ data class BasicInfrastructureSnapshotV2(
             "Infrastructure snapshot contains metadata for missing rails: " +
                 missingMetadataRails.joinToString { it.railId }
         }
-        val service = OperationalDestinationService(world)
-        destinations.forEach { service.register(it.restore()) }
         wayPoints.forEach { world.basicWorldData.wayPoints.add(it.restore()) }
         world.basicWorldData.railMetadata.restore(
             railMetadata.associate { it.parsedRailId() to it.metadata }
@@ -181,19 +87,16 @@ data class BasicInfrastructureSnapshotV2(
     }
 
     companion object {
-        const val CURRENT_FORMAT_VERSION = 2
+        const val CURRENT_FORMAT_VERSION = 3
 
-        fun capture(world: World, infrastructureRevision: Long): BasicInfrastructureSnapshotV2 {
+        fun capture(
+            world: World,
+            infrastructureRevision: Long,
+            projectedWayPointIds: Set<String>
+        ): BasicInfrastructureSnapshotV3 {
             require(infrastructureRevision >= 0L)
             val data = world.basicWorldData
-            val destinations = data.destinations.all()
-            val missingRails = destinations.filter { world.getRail(it.railId) == null }
-            check(missingRails.isEmpty()) {
-                "Cannot capture destinations on missing rails: " +
-                    missingRails.joinToString { "${it.id}@${it.railId}" }
-            }
-            val destinationIds = destinations.mapTo(HashSet()) { it.id }
-            val standaloneWayPoints = data.wayPoints.all().filterNot { it.id in destinationIds }
+            val standaloneWayPoints = data.wayPoints.all().filterNot { it.id in projectedWayPointIds }
             val missingWayPointRails = standaloneWayPoints.filter { world.getRail(it.railId) == null }
             check(missingWayPointRails.isEmpty()) {
                 "Cannot capture WayPoints on missing rails: " +
@@ -204,10 +107,9 @@ data class BasicInfrastructureSnapshotV2(
             check(orphanMetadata.isEmpty()) {
                 "Cannot capture metadata for missing rails: ${orphanMetadata.joinToString()}"
             }
-            return BasicInfrastructureSnapshotV2(
+            return BasicInfrastructureSnapshotV3(
                 formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
-                destinations = destinations.map(SavedOperationalDestinationV1::capture),
                 wayPoints = standaloneWayPoints.map(SavedWayPointV1::capture),
                 railMetadata = railMetadata.map { (railId, metadata) ->
                     SavedRailInfrastructureMetadataV1.capture(railId, metadata)
@@ -224,12 +126,12 @@ object BasicInfrastructureSnapshotCodec {
         prettyPrint = true
     }
 
-    fun encode(snapshot: BasicInfrastructureSnapshotV2): String =
-        json.encodeToString(BasicInfrastructureSnapshotV2.serializer(), snapshot)
+    fun encode(snapshot: BasicInfrastructureSnapshotV3): String =
+        json.encodeToString(BasicInfrastructureSnapshotV3.serializer(), snapshot)
 
-    fun decode(data: String): BasicInfrastructureSnapshotV2 =
-        json.decodeFromString(BasicInfrastructureSnapshotV2.serializer(), data).also {
-            require(it.formatVersion == BasicInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION) {
+    fun decode(data: String): BasicInfrastructureSnapshotV3 =
+        json.decodeFromString(BasicInfrastructureSnapshotV3.serializer(), data).also {
+            require(it.formatVersion == BasicInfrastructureSnapshotV3.CURRENT_FORMAT_VERSION) {
                 "Unsupported Basic infrastructure snapshot version: ${it.formatVersion}"
             }
         }

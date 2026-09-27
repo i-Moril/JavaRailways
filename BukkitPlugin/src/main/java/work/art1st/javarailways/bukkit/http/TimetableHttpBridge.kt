@@ -17,14 +17,14 @@ import org.bukkit.event.EventHandler
 import org.bukkit.event.HandlerList
 import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldUnloadEvent
-import work.art1st.javarailways.basic.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.line.Line
 import work.art1st.javarailways.simpleato.api.line.LineCompileResult
 import work.art1st.javarailways.simpleato.api.line.LineDirection
 import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.simpleato.api.line.LinePlanner
 import work.art1st.javarailways.simpleato.api.line.LineRevisionConflict
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionProvider
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
@@ -256,7 +256,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
 
         private fun metadataJson(worldName: String) = withWorld(worldName) { bukkit, world ->
             val data = world.basicWorldData
-            val destinations = data.destinations.all()
+            val destinations = world.simpleAtoWorldData.destinations.all()
             val depotIds = buildSet {
                 destinations.mapNotNullTo(this) {
                     (it.role as? DestinationRole.DepotStablingPointRole)?.depotId
@@ -408,7 +408,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val workerSaved = plugin.timetableScriptSandbox.compileSource(source, timetableId)
             return await {
                 withWorld(worldName) { _, world ->
-                    val normalized = TimetableScriptNormalizer.normalize(workerSaved, world)
+                    val normalized = TimetableScriptNormalizer.normalize(
+                        workerSaved,
+                        world.simpleAtoWorldData.destinations
+                    )
                     val timetable = runCatching(normalized::restore).getOrElse {
                         throw HttpFailure(422, "script produced an invalid timetable: ${it.message}")
                     }
@@ -612,7 +615,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         }
                     } else {
                         val originMode = request["originDepartureMode"]?.jsonPrimitive?.content?.uppercase() ?: "AUTO"
-                        val originApproachDirection = data.destinations[selectedDestinationIds.first()]?.approachDirection
+                        val originApproachDirection = world.simpleAtoWorldData
+                            .destinations[selectedDestinationIds.first()]?.approachDirection
                         val originDirections = when (originMode) {
                             "AUTO" -> ViewDirection.entries
                             "CONTINUE" -> listOf(originApproachDirection

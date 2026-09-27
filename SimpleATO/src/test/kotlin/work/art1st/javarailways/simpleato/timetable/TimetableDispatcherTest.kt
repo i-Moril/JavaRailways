@@ -24,17 +24,17 @@ import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.depot.RollingStockState
 import work.art1st.javarailways.basic.api.depot.StablingPointRef
-import work.art1st.javarailways.basic.api.depot.DepotResetDispatchSummary
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.depot.DepotResetDispatchSummary
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
 import work.art1st.javarailways.simpleato.api.line.Line
 import work.art1st.javarailways.simpleato.api.line.LineId
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.Station
-import work.art1st.javarailways.basic.api.station.StationBerth
-import work.art1st.javarailways.basic.api.station.StationBerthRef
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.Station
+import work.art1st.javarailways.simpleato.api.station.StationBerth
+import work.art1st.javarailways.simpleato.api.station.StationBerthRef
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.api.timetable.*
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
@@ -899,7 +899,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("B", "B", returnRail.id, 50.0))
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "one")
-        data.stations.register(
+        world.simpleAtoWorldData.stations.register(
             Station(stationId, "Central", listOf(berthRef), defaultDwellTicks = 3L),
             listOf(
                 StationBerth(

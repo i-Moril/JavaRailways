@@ -9,6 +9,7 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import kotlin.math.abs
 
 sealed interface TimetableInitialPositionResult {
@@ -52,7 +53,7 @@ class TimetableInitialPositioner(private val world: World) {
                         world.basicWorldData.depots.stablingPoints(depot.id).asSequence()
                     }
                     .map { point ->
-                        val destination = world.basicWorldData.destinations[point.point.destinationId]
+                        val destination = world.simpleAtoWorldData.destinations[point.point.destinationId]
                             ?: error(
                                 "depot ${point.point.ref.depotId} point ${point.point.ref.pointId} " +
                                     "references missing destination ${point.point.destinationId}"
@@ -108,7 +109,7 @@ class TimetableInitialPositioner(private val world: World) {
     private fun resolveLocation(wayPoint: WayPoint): RailLocationWithFacing {
         val rail = world.getRail(wayPoint.railId) as? CoreRail
             ?: error("waypoint ${wayPoint.id} references missing rail ${wayPoint.railId}")
-        val direction = world.basicWorldData.destinations[wayPoint.id]?.approachDirection
+        val direction = world.simpleAtoWorldData.destinations[wayPoint.id]?.approachDirection
             ?: rail.infrastructureMetadata.operating.allowedDirection
             ?: error("waypoint ${wayPoint.id} and rail ${rail.id} define no allowed direction")
         val arcInView = when (direction) {

@@ -10,13 +10,13 @@ import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
 import work.art1st.javarailways.simpleato.api.line.Line
 import work.art1st.javarailways.simpleato.api.line.LineId
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.simpleato.timetable.TimetableAction
 import work.art1st.javarailways.simpleato.timetable.TimetableLineSpeedLimit
@@ -247,7 +247,13 @@ class IsolatedTimetableSimulationFactoryTest {
         )
         world.registerExtensionData(
             SimpleATOPlugin.INSTANCE,
-            SimpleATOWorldData(dispatcher, signalEpoch, restrictions, inspection)
+            SimpleATOWorldData(
+                dispatcher,
+                signalEpoch,
+                restrictions,
+                inspection,
+                basicData.railObjects
+            )
         )
     }
 }

@@ -4,8 +4,6 @@ import work.art1st.javarailways.basic.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.basic.api.ato.provider.AtoProviderRegistry
 import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
 import work.art1st.javarailways.basic.api.depot.DepotStore
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationStore
-import work.art1st.javarailways.basic.api.station.StationStore
 import work.art1st.javarailways.basic.pathFinding.RailMap
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
@@ -17,28 +15,20 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Basic 模块挂在每个 World 上的运营层数据容器。
  *
- * 这里保存停车点、ATO 协调器、Provider 和通用轨道运营对象等非 Core 物理数据。
- * Line 与 Timetable 等自动运营状态由 SimpleATO 自己的 world data 持有。
+ * 这里只保存通用路径点、Depot ledger、ATO 协调器、Provider 和底层轨道运营对象。
+ * Destination、Station、Line 与 Timetable 等自动运营状态由 SimpleATO 自己的 world data 持有。
  */
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
-    val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val depots: DepotStore = DepotStore(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),
-    val stations: StationStore = StationStore(railObjects),
     val turnoutSafetyDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults(),
     val railMetadata: RailInfrastructureMetadataStore = RailInfrastructureMetadataStore(),
     val trainSpeedProfiles: TrainSpeedProfileStore = TrainSpeedProfileStore()
-) {
-    init {
-        require(stations.usesRailObjectStore(railObjects)) {
-            "StationStore must use this BasicWorldData RailObjectStore"
-        }
-    }
-}
+)
 
 /** 轨道上的路径点。第一版只保存可持久化引用，不直接持有 Core 内部 location 对象。 */
 data class WayPoint(

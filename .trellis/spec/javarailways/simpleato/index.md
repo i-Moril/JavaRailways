@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前拥有每世界唯一的 `TimetableDispatcher`、Line、timetable model/store/extensions/persistence、具体`SimpleATO` controller及其可写mission/constraint/provider/publication状态、checkpoint与隔离仿真运行时、手动导航命令、临时时刻表生成、时刻表JSON展示，以及第一批外部列车限制公开契约与约束适配器。production与隔离仿真Dispatcher均只使用Basic通用route admission；旧allocator、Confirmed Route Window和null-provider fallback已删除。运行方向、Destination、Station、Depot及一批共享ATO value/safety primitive仍位于`Basic/`。因此本层状态仍是`TRANSITIONAL`，不能据此声称运行时已经完成解耦。新增或迁移ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
+本层描述处于迁移期的 `SimpleATO/` Gradle 模块。模块已经建立，当前拥有每世界唯一的 `TimetableDispatcher`、Destination、Station、Line、timetable model/store/extensions/persistence、具体`SimpleATO` controller及其可写mission/constraint/provider/publication状态、checkpoint与隔离仿真运行时、手动导航命令、临时时刻表生成、时刻表JSON展示，以及第一批外部列车限制公开契约与约束适配器。production与隔离仿真Dispatcher均只使用Basic通用route admission；旧allocator、Confirmed Route Window和null-provider fallback已删除。Depot/rolling-stock ledger及一批共享ATO value/safety primitive仍位于`Basic/`。因此本层状态仍是`TRANSITIONAL`，不能据此声称运行时已经完成解耦。新增或迁移ATO、运行方向、运营对象、时刻表、运营寻路、资源检查调度或列车限制仲裁时，必须加载本层。固定闭塞、保护区域和具体联锁安全校验属于独立信号系统插件，不属于SimpleATO或Basic的通用领域模型。
 
 SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调度和最严格限制归约。物理铁路图和列车几何由Core拥有，平台无关的纵向动力学与手柄执行由Basic拥有；资源身份校验、冻结路线的不可删除物理资源底线、物理占用、原子 claim、设备准备与尾部释放由 Basic 拥有。每一个独立信号系统由自己的Java/Kotlin插件拥有固定闭塞、保护区域、联锁规则、信号显示及可选JS/YAML配置。`SimpleATOBukkit`只作为SimpleATO的平台适配器和可复用运行时，不成为所有信号制式的领域owner。
 
@@ -16,25 +16,27 @@ SimpleATO 只拥有平台无关的运营模型、ATO/ATP决策、资源检查调
 | [Dispatcher runtime](./dispatcher-runtime.md) | 改 timetable clock/run state、车次推进、车站/车辆段动作或恢复 | `SimpleATOWorldData.dispatcher` |
 | [Timetable model 与 validation](./timetable-model-and-validation.md) | 改 authoring/runtime model、validator、store或extension | execution authority与validation gate |
 | [Timetable simulation](./simulation.md) | 改 detailed/isolated simulation | clone boundary、determinism、provider opt-in |
+| [Destinations](./destinations.md) | 创建/migrate operational stop | canonical destination与derived WayPoint transaction |
+| [Stations](./stations.md) | berth/call/dwell/allocation | exact berth、door gate、tail release |
 | [Lines](./lines.md) | 改line pattern/revision/planning | infrastructure line identity、store与shortest leg |
-| [SimpleATO 持久化](./persistence.md) | 改 Line/Dispatcher、SimpleATO infrastructure/runtime 文件或恢复顺序 | `SimpleATOInfrastructureSnapshotV1`、`SimpleATORuntimeSnapshotV1` |
+| [SimpleATO 持久化](./persistence.md) | 改 Line/Dispatcher、SimpleATO infrastructure/runtime 文件或恢复顺序 | `SimpleATOInfrastructureSnapshotV2`、`SimpleATORuntimeSnapshotV1` |
 
-后续为信号脚本、运营对象与持久化分别建立 owner spec；在对应接口冻结前，不把概念草图写成已存在 API。
+后续为信号脚本与尚未迁移的Depot/rolling-stock建立owner spec；在对应接口冻结前，不把概念草图写成已存在API。
 
 ## 迁移期规则
 
-- 当前仍位于 `Basic/` 的 Destination/Station/Depot 等运营model与共享ATO primitive继续遵守[Basic规范](../basic/index.md)，但不得据此新增长期属于Basic的运营ownership。
+- 当前仍位于 `Basic/` 的 Depot/rolling-stock与共享ATO primitive继续遵守[Basic规范](../basic/index.md)，但不得据此新增长期属于Basic的运营ownership。
 - 每一批迁移同时移动 contract、实现、测试与 composition；不得让 Basic 和 SimpleATO 同时成为同一运行状态的可写 owner。
 - SimpleATO 只提交自己选择的 topology-bound frozen route，不提交可替代物理底线的第二份资源清单。信号插件可以增加注册资源；Basic 的验证与 claim 合同见[路线资源准入](../basic/route-resource-admission.md)。
 
 当前 timetable owner slice 使用 `work.art1st.javarailways.simpleato.timetable`：
 
 - `ManualNavigationParser` 保持严格 token/JSON 语义；
-- `ManualNavigationTimetableFactory` 生成 SimpleATO 的 `Timetable` model，并暂时通过 Basic destination API 读取站台角色；
+- `ManualNavigationTimetableFactory` 生成 SimpleATO 的 `Timetable` model，并从同world `SimpleATOWorldData.destinations`读取站台角色；
 - `TimetableDumper` 按原 shape 展示 SimpleATO timetable；
 - Bukkit command 是该 slice 的 composition consumer，Basic production 不反向依赖 SimpleATO。
 
-这是单向过渡依赖，不是最终模块闭包。Timetable与Dispatcher已经连同store、extension、persistence、simulation、测试和composition一起迁移，Basic没有保留别名或转发；后续迁移其余运营对象与共享ATO contract时继续删除旧owner，而不是增加Basic→SimpleATO bridge。
+Destination、Station、Timetable与Dispatcher已经连同store、persistence、测试和composition一起迁移，Basic没有保留别名、转发或镜像store。Destination service只把通用route anchor投影到Basic WayPointStore，并为过渡期Depot role维护Basic DepotStore；这些derived records不构成第二个Destination owner。后续迁移Depot与共享ATO contract时继续删除旧owner，而不是增加Basic→SimpleATO bridge。
 
 ## 质量检查
 

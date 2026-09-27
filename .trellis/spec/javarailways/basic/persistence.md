@@ -9,18 +9,17 @@
 ## Owner、独立 documents 与精确字段
 
 ```kotlin
-data class BasicInfrastructureSnapshotV2(
+data class BasicInfrastructureSnapshotV3(
     val formatVersion: Int,
     val infrastructureRevision: Long,
-    val destinations: List<SavedOperationalDestinationV1>,
     val wayPoints: List<SavedWayPointV1>,
     val railMetadata: List<SavedRailInfrastructureMetadataV1> = emptyList()
 )
 ```
 
-Runtime `BasicRuntimeSnapshotV3(formatVersion=3,infrastructureRevision,physicsEpoch,rollingStock)`不包含Timetable或Dispatcher。删除 Line 字段后 Basic infrastructure 为format 2；两个独立boundary各自使用`encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
+Runtime `BasicRuntimeSnapshotV3(formatVersion=3,infrastructureRevision,physicsEpoch,rollingStock)`不包含Timetable或Dispatcher。Destination字段迁出后Basic infrastructure升为format 3；两个独立boundary各自使用`encodeDefaults=true/ignoreUnknownKeys=false`，writer current-only。
 
-Line、Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
+Destination、Station、Line、Timetable DTO/codec、runtime store与Dispatcher checkpoint由[SimpleATO persistence](../simpleato/persistence.md)拥有。
 
 Diagnostic独立：`AtoStallReportJson.schemaVersion=2`、`DepotResetReportJson.schemaVersion=1`。SimpleATO 的 `lineRevision`是edit revision；`infrastructureRevision`配对files；`physicsEpoch`配对publication；都非schemaVersion。
 
@@ -32,7 +31,8 @@ Bukkit outer infrastructure要求Core+Basic+SimpleATO revision相同；runtime�
 strict decode current
 → prevalidate all duplicate identities、cross-store collisions、rail/station/point/provider refs
 → require fresh target
-→ materialize canonical Basic Destinations/roles/WayPoints/metadata
+→ materialize Basic standalone WayPoints/metadata
+→ materialize canonical SimpleATO Destinations及其Station/Depot/WayPoint投影
 → validate Line StationId references and materialize SimpleATO Lines
 → materialize Basic RollingStock
 → restore SimpleATO Timetables before Dispatcher checkpoint
@@ -44,9 +44,9 @@ strict decode current
 | 条件 | result | target state |
 | --- | --- | --- |
 | unsupported/future/unknown field/invalid JSON | fail-fast | untouched |
-| orphan destination/waypoint/metadata rail | fail before materialize | fresh |
-| duplicate destination/waypoint/metadata或cross-store ID | fail before materialize | fresh |
-| SimpleATO Line missing Basic Station | fail prevalidation | fresh SimpleATO line store |
+| orphan waypoint/metadata rail | fail before materialize | fresh |
+| duplicate waypoint/metadata或cross-store ID | fail before materialize | fresh |
+| SimpleATO Destination orphan/collision或Line missing Station | fail prevalidation | fresh SimpleATO stores与Basic投影 |
 | runtime duplicate train/orphan point | fail prevalidation | fresh |
 | Core/Basic/SimpleATO pair mismatch | outer load拒绝 | 不选partial file |
 | checkpoint active run | recovery record + disabled service | 无live execution |
@@ -56,15 +56,17 @@ strict decode current
 
 ## 项目内正确示例
 
-Infrastructure capture排除Destination派生WayPoint：
+Basic capture由composition显式传入SimpleATO canonical destination ID，排除其派生WayPoint：
 
 ```kotlin
-val destinationIds = destinations.mapTo(HashSet()) { it.id }
-val standaloneWayPoints = data.wayPoints.all()
-    .filterNot { it.id in destinationIds }
+BasicInfrastructureSnapshotV3.capture(
+    world,
+    revision,
+    projectedWayPointIds = world.simpleAtoWorldData.destinations.all().mapTo(HashSet()) { it.id }
+)
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/persistence/BasicInfrastructureSnapshot.kt`。这保证canonical operational stop不会以两份权威记录重复落盘。
+Basic只接受待排除的通用derived WayPoint identity，不查询或拥有Destination；SimpleATO snapshot单独保存canonical Destination。这保证operational stop不会以两份权威记录重复落盘。
 
 ## 禁止实现
 

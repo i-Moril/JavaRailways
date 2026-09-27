@@ -18,8 +18,8 @@ import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
-import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
@@ -215,8 +215,8 @@ class IsolatedTimetableSimulationWorld private constructor(
 
         fun create(
             coreInfrastructure: CoreWorld.SavedInfrastructureV2,
-            basicInfrastructure: BasicInfrastructureSnapshotV2,
-            simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
+            basicInfrastructure: BasicInfrastructureSnapshotV3,
+            simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV2,
             workerThreads: Int,
             basicDataFactory: (CoreWorld) -> BasicWorldData,
             timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
@@ -287,6 +287,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                                 signalEpochRuntime,
                                 signalRestrictions,
                                 inspectionRuntime,
+                                isolatedWorld.basicWorldData.railObjects,
                                 timetableExtensions = timetableExtensions
                             )
                         )

@@ -15,16 +15,16 @@ import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.depot.StablingPointRef
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
 import work.art1st.javarailways.simpleato.api.line.Line
 import work.art1st.javarailways.simpleato.api.line.LineId
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.Station
-import work.art1st.javarailways.basic.api.station.StationBerth
-import work.art1st.javarailways.basic.api.station.StationBerthRef
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.Station
+import work.art1st.javarailways.simpleato.api.station.StationBerth
+import work.art1st.javarailways.simpleato.api.station.StationBerthRef
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
@@ -309,7 +309,7 @@ class TimetableValidatorTest {
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 80.0))
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "wrong-way")
-        data.stations.register(
+        world.simpleAtoWorldData.stations.register(
             Station(stationId, "Central", listOf(berthRef)),
             listOf(
                 StationBerth(

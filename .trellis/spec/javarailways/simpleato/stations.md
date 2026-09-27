@@ -1,4 +1,4 @@
-# Basic station 与 berth 契约
+# SimpleATO station 与 berth 契约
 
 ## 适用场景与用途
 
@@ -29,7 +29,7 @@ data class StationCall(
 )
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/station/Station.kt`。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/Station.kt`。
 
 `DwellPlan.earliestDepartureTick(berthedTick)=max(berthed+minimum,planned)`，overflow饱和`Long.MAX_VALUE`。
 
@@ -59,7 +59,7 @@ allocations[key] = key
 berthOwners[key.berthRef] = key
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/station/StationBerthAllocator.kt`。它确保后到列车等待而不抢占已停靠列车。
+来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/station/StationBerthAllocator.kt`。它确保后到列车等待而不抢占已停靠列车。
 
 ## 禁止实现
 
@@ -79,6 +79,6 @@ berthOwners[key.berthRef] = key
 - `TimetableStationCallDispatcherTest.kt`：door/dwell/route/tail gates与failure hold。
 
 ```bash
-./gradlew :Basic:test --tests '*Station*Test'
+./gradlew :SimpleATO:test --tests '*Station*Test'
 ./gradlew :SimpleATO:test --tests '*TimetableStationCallDispatcherTest'
 ```

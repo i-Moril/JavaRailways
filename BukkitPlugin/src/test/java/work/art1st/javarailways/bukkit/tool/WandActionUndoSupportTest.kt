@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.curve.Anchor
 import java.util.UUID
 

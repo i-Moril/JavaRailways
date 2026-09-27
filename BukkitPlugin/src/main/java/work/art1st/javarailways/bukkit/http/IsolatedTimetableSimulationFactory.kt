@@ -8,13 +8,13 @@ import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.basic.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
-import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.timetable.Timetable
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.simpleato.timetable.TimetableAction
@@ -43,8 +43,8 @@ internal data class TimetableProfileSelection(
 
 internal data class IsolatedTimetableSimulationSnapshot(
     val coreInfrastructure: CoreWorld.SavedInfrastructureV2,
-    val basicInfrastructure: BasicInfrastructureSnapshotV2,
-    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
+    val basicInfrastructure: BasicInfrastructureSnapshotV3,
+    val simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV2,
     val timetable: Timetable,
     val profilesByService: Map<String, SimulationControlProfile>,
     val gravityMetersPerSecondSquared: Double,
@@ -111,8 +111,12 @@ internal class IsolatedTimetableSimulationFactory(
         }
         return IsolatedTimetableSimulationSnapshot(
             coreInfrastructure,
-            BasicInfrastructureSnapshotV2.capture(liveWorld, revision),
-            SimpleATOInfrastructureSnapshotV1.capture(liveWorld, revision),
+            BasicInfrastructureSnapshotV3.capture(
+                liveWorld,
+                revision,
+                liveWorld.simpleAtoWorldData.destinations.all().mapTo(HashSet()) { it.id }
+            ),
+            SimpleATOInfrastructureSnapshotV2.capture(liveWorld, revision),
             timetable,
             profiles,
             gravityMetersPerSecondSquared,
@@ -294,7 +298,7 @@ internal class IsolatedTimetableSimulationFactory(
             "simulation waypoint not found: $wayPointId"
         }
         val rail = requireNotNull(world.getRail(point.railId)) { "simulation rail not found: ${point.railId}" }
-        val direction = world.basicWorldData.destinations[wayPointId]?.approachDirection ?: ViewDirection.AB
+        val direction = world.simpleAtoWorldData.destinations[wayPointId]?.approachDirection ?: ViewDirection.AB
         val view = rail.getView(direction)
         val arc = if (direction == ViewDirection.AB) point.arcLength else view.curve.totalArcLength - point.arcLength
         val head = RailLocationWithFacing(view, arc)

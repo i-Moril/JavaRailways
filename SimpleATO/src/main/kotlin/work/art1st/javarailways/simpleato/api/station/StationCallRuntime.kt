@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.station
+package work.art1st.javarailways.simpleato.api.station
 
 /** Main-thread result of resolving and queueing one StationCall for physics activation. */
 sealed interface StationCallSubmissionResult {

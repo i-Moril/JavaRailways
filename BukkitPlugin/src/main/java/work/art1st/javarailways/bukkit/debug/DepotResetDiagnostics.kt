@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.debug
 
-import work.art1st.javarailways.basic.api.depot.DepotResetReport
-import work.art1st.javarailways.basic.api.depot.DepotResetReportJson
+import work.art1st.javarailways.simpleato.depot.DepotResetReport
+import work.art1st.javarailways.simpleato.depot.DepotResetReportJson
 import java.io.File
 
 object DepotResetDiagnostics {

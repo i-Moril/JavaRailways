@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.extension.train
 
 import org.bukkit.Location
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorBindings

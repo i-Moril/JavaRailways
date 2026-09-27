@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.station
+package work.art1st.javarailways.simpleato.api.station
 
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 

@@ -85,8 +85,8 @@ class RoutePlanner(private val world: World) {
     }
 
     /**
-     * Standalone WayPoints try both allowed directions. Operational Destinations contribute their
-     * configured directed approach unless a synthetic caller supplies an explicit requirement.
+     * WayPoints contain no operating policy. Callers that own an approach requirement must pass it
+     * explicitly so this generic planner never needs to inspect SimpleATO operational state.
      */
     fun buildRoute(
         from: WayPoint,
@@ -94,25 +94,20 @@ class RoutePlanner(private val world: World) {
         requiredGoalDirection: ViewDirection? = null,
         requiredStartDirection: ViewDirection? = null
     ): RouteBuildResult {
-        val destinationStore = world.basicWorldData.destinations
-        val effectiveStartDirection = requiredStartDirection
-            ?: destinationStore[from.id]?.approachDirection
-        val effectiveGoalDirection = requiredGoalDirection
-            ?: destinationStore[to.id]?.approachDirection
         val startCandidates = resolveViews(from).filter { candidate ->
-            effectiveStartDirection == null || candidate.viewDirection == effectiveStartDirection
+            requiredStartDirection == null || candidate.viewDirection == requiredStartDirection
         }
         if (startCandidates.isEmpty()) {
             return RouteBuildResult.Failure(
-                "起点轨道或要求方向不存在: ${from.railId}/${effectiveStartDirection ?: "any"}"
+                "起点轨道或要求方向不存在: ${from.railId}/${requiredStartDirection ?: "any"}"
             )
         }
         val goalCandidates = resolveViews(to).filter { candidate ->
-            effectiveGoalDirection == null || candidate.viewDirection == effectiveGoalDirection
+            requiredGoalDirection == null || candidate.viewDirection == requiredGoalDirection
         }
         if (goalCandidates.isEmpty()) {
             return RouteBuildResult.Failure(
-                "终点轨道或要求方向不存在: ${to.railId}/${effectiveGoalDirection ?: "any"}"
+                "终点轨道或要求方向不存在: ${to.railId}/${requiredGoalDirection ?: "any"}"
             )
         }
 

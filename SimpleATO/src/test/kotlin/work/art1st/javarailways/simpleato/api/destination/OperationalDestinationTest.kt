@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.destination
+package work.art1st.javarailways.simpleato.api.destination
 
 import work.art1st.javarailways.core.physics.createRailForTest
 
@@ -11,9 +11,9 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.StationId
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.RouteBuildResult
 import work.art1st.javarailways.basic.route.RoutePlanner
@@ -21,13 +21,14 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 class OperationalDestinationTest {
     private val worlds = mutableListOf<work.art1st.javarailways.core.physics.CoreWorld>()
 
     @AfterEach
     fun unregisterWorlds() {
-        worlds.forEach(TestBasicWorldDataRegistry::unregister)
+        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
         worlds.clear()
     }
 
@@ -53,7 +54,7 @@ class OperationalDestinationTest {
     @Test
     fun `regular destinations adapt to directed mission waypoints`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -63,18 +64,28 @@ class OperationalDestinationTest {
         service.register(destination("B", rail.id, 80.0, ViewDirection.AB))
         service.register(destination("wrong-way", rail.id, 80.0, ViewDirection.BA))
 
-        val result = RoutePlanner(world).buildRoute("A", "B") as RouteBuildResult.Success
+        val result = RoutePlanner(world).buildRoute(
+            "A",
+            "B",
+            requiredGoalDirection = ViewDirection.AB,
+            requiredStartDirection = ViewDirection.AB
+        ) as RouteBuildResult.Success
 
         assertEquals(ViewDirection.AB, result.route.segments.single().railViewRef.direction)
         assertEquals(20.0, world.basicWorldData.wayPoints["A"]?.arcLength)
-        assertEquals(DestinationRoleType.REGULAR, world.basicWorldData.destinations["A"]?.role?.type)
-        assertTrue(RoutePlanner(world).buildRoute("A", "wrong-way") is RouteBuildResult.Failure)
+        assertEquals(DestinationRoleType.REGULAR, world.simpleAtoWorldData.destinations["A"]?.role?.type)
+        assertTrue(RoutePlanner(world).buildRoute(
+            "A",
+            "wrong-way",
+            requiredGoalDirection = ViewDirection.BA,
+            requiredStartDirection = ViewDirection.AB
+        ) is RouteBuildResult.Failure)
     }
 
     @Test
     fun `destinations default to no approach restriction`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -105,8 +116,8 @@ class OperationalDestinationTest {
 
         assertEquals(destination, service["unrestricted"])
         assertNull(service["missing"])
-        assertNull(world.basicWorldData.destinations["unrestricted"]?.approachDirection)
-        val berth = requireNotNull(world.basicWorldData.stations.berth(stationRole.berthRef))
+        assertNull(world.simpleAtoWorldData.destinations["unrestricted"]?.approachDirection)
+        val berth = requireNotNull(world.simpleAtoWorldData.stations.berth(stationRole.berthRef))
         assertNull(berth.approachDirection)
         assertEquals(60.0, berth.location.arcLengthIn(ViewDirection.AB), 1.0e-9)
     }
@@ -114,7 +125,7 @@ class OperationalDestinationTest {
     @Test
     fun `station destination may register a berth without door operations`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -137,14 +148,14 @@ class OperationalDestinationTest {
             )
         )
 
-        val berth = requireNotNull(world.basicWorldData.stations.berth(role.berthRef))
+        val berth = requireNotNull(world.simpleAtoWorldData.stations.berth(role.berthRef))
         assertEquals(DoorSide.NONE, berth.doorSide)
     }
 
     @Test
     fun `station destinations atomically aggregate directed passive berths`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
@@ -183,8 +194,8 @@ class OperationalDestinationTest {
             )
         )
 
-        val station = world.basicWorldData.stations[stationId]!!
-        val down = world.basicWorldData.stations.berth(secondRole.berthRef)!!
+        val station = world.simpleAtoWorldData.stations[stationId]!!
+        val down = world.simpleAtoWorldData.stations.berth(secondRole.berthRef)!!
         assertEquals(listOf(firstRole.berthRef, secondRole.berthRef), station.berthRefs)
         assertEquals(ViewDirection.BA, down.approachDirection)
         assertEquals(80.0, down.location.arcLengthIn(ViewDirection.AB), 1.0e-9)
@@ -193,14 +204,14 @@ class OperationalDestinationTest {
 
         service.remove("central@one-up")
 
-        assertEquals(listOf(secondRole.berthRef), world.basicWorldData.stations[stationId]?.berthRefs)
-        assertNull(world.basicWorldData.stations.berth(firstRole.berthRef))
+        assertEquals(listOf(secondRole.berthRef), world.simpleAtoWorldData.stations[stationId]?.berthRefs)
+        assertNull(world.simpleAtoWorldData.stations.berth(firstRole.berthRef))
     }
 
     @Test
     fun `depot destination registers one passive stabling point`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -233,7 +244,7 @@ class OperationalDestinationTest {
     @Test
     fun `rail deletion removes destinations and derived station and waypoint records`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -262,16 +273,16 @@ class OperationalDestinationTest {
             service.removeAllOnRail(rail.id).mapTo(linkedSetOf()) { it.id }
         )
 
-        assertNull(world.basicWorldData.destinations["station@platform"])
+        assertNull(world.simpleAtoWorldData.destinations["station@platform"])
         assertNull(world.basicWorldData.wayPoints["regular"])
         assertNull(world.basicWorldData.wayPoints["legacy"])
-        assertNull(world.basicWorldData.stations.berth(role.berthRef))
+        assertNull(world.simpleAtoWorldData.stations.berth(role.berthRef))
     }
 
     @Test
     fun `rail replacement migrates destination position direction and derived records`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val oldRail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -298,11 +309,11 @@ class OperationalDestinationTest {
         val migrated = service.migrateAllOnRail(oldRail.id, replacement.id)
 
         assertEquals(listOf("station@platform"), migrated.map { it.id })
-        val destination = world.basicWorldData.destinations["station@platform"]!!
+        val destination = world.simpleAtoWorldData.destinations["station@platform"]!!
         assertEquals(replacement.id, destination.railId)
         assertEquals(75.0, destination.arcLengthInAbMeters, 0.01)
         assertEquals(ViewDirection.BA, destination.approachDirection)
-        val berth = world.basicWorldData.stations.berth(role.berthRef)!!
+        val berth = world.simpleAtoWorldData.stations.berth(role.berthRef)!!
         assertEquals(replacement.id, berth.location.rail.id)
         assertEquals(ViewDirection.BA, berth.approachDirection)
         assertEquals(replacement.id, world.basicWorldData.wayPoints["legacy"]?.railId)
@@ -312,7 +323,7 @@ class OperationalDestinationTest {
     @Test
     fun `split and merge migration preserve destination arc coordinates`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val original = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -328,10 +339,10 @@ class OperationalDestinationTest {
 
         service.migrateAfterRailSplit(original.id, beforeRail.id, afterRail.id, 50.0)
 
-        assertEquals(beforeRail.id, world.basicWorldData.destinations["before"]?.railId)
-        assertEquals(25.0, world.basicWorldData.destinations["before"]?.arcLengthInAbMeters)
-        assertEquals(afterRail.id, world.basicWorldData.destinations["after"]?.railId)
-        assertEquals(25.0, world.basicWorldData.destinations["after"]?.arcLengthInAbMeters)
+        assertEquals(beforeRail.id, world.simpleAtoWorldData.destinations["before"]?.railId)
+        assertEquals(25.0, world.simpleAtoWorldData.destinations["before"]?.arcLengthInAbMeters)
+        assertEquals(afterRail.id, world.simpleAtoWorldData.destinations["after"]?.railId)
+        assertEquals(25.0, world.simpleAtoWorldData.destinations["after"]?.arcLengthInAbMeters)
         assertEquals(afterRail.id, world.basicWorldData.wayPoints["legacy"]?.railId)
         assertEquals(25.0, world.basicWorldData.wayPoints["legacy"]?.arcLength)
         val mergedCurve = beforeRail.curve.concatenate(afterRail.curve)
@@ -341,17 +352,17 @@ class OperationalDestinationTest {
 
         service.migrateAfterRailMerge(beforeRail.id, afterRail.id, merged.id, 50.0)
 
-        assertEquals(25.0, world.basicWorldData.destinations["before"]?.arcLengthInAbMeters)
-        assertEquals(75.0, world.basicWorldData.destinations["after"]?.arcLengthInAbMeters)
+        assertEquals(25.0, world.simpleAtoWorldData.destinations["before"]?.arcLengthInAbMeters)
+        assertEquals(75.0, world.simpleAtoWorldData.destinations["after"]?.arcLengthInAbMeters)
         assertEquals(75.0, world.basicWorldData.wayPoints["legacy"]?.arcLength)
         assertEquals(merged.id, world.basicWorldData.wayPoints["legacy"]?.railId)
-        assertEquals(setOf(merged.id), world.basicWorldData.destinations.all().map { it.railId }.toSet())
+        assertEquals(setOf(merged.id), world.simpleAtoWorldData.destinations.all().map { it.railId }.toSet())
     }
 
     @Test
     fun `destination replacement rolls role and legacy waypoint together`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
@@ -376,10 +387,10 @@ class OperationalDestinationTest {
             )
         )
 
-        assertNull(world.basicWorldData.destinations["old"])
+        assertNull(world.simpleAtoWorldData.destinations["old"])
         assertNull(world.basicWorldData.wayPoints["old"])
         assertEquals("station@platform", world.basicWorldData.wayPoints["station@platform"]?.id)
-        assertTrue(world.basicWorldData.stations.berth(stationRole.berthRef) != null)
+        assertTrue(world.simpleAtoWorldData.stations.berth(stationRole.berthRef) != null)
     }
 
     private fun destination(

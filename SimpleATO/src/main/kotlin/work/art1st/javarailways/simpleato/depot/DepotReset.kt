@@ -1,10 +1,13 @@
-package work.art1st.javarailways.basic.api.depot
+package work.art1st.javarailways.simpleato.depot
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import work.art1st.javarailways.basic.api.destination.DestinationRole
+import work.art1st.javarailways.basic.api.depot.DepotId
+import work.art1st.javarailways.basic.api.depot.DepotResetAssignment
+import work.art1st.javarailways.basic.api.depot.DepotResetPlanningResult
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.core.api.physics.World
@@ -13,6 +16,7 @@ import work.art1st.javarailways.core.physics.rail.SweptRailSpan
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import kotlin.math.abs
 
 private const val RESET_POSITION_EPSILON_METERS = 1.0e-6
@@ -93,6 +97,7 @@ class DepotResetCoordinator(
     @MainThread
     fun reset(depotIds: Set<DepotId>? = null): DepotResetResult {
         val worldData = world.basicWorldData
+        val operationalData = world.simpleAtoWorldData
         val resetId = "depot-reset-${System.currentTimeMillis()}"
         if (!worldData.atoCoordinator.isStalled) {
             return failed(
@@ -131,7 +136,7 @@ class DepotResetCoordinator(
                     "ROLLING_STOCK",
                     "RollingStock disappeared: ${assignment.trainId}"
                 )
-            val destination = worldData.destinations[assignment.destinationId]
+            val destination = operationalData.destinations[assignment.destinationId]
                 ?: return failed(
                     resetId,
                     plan.depotIds,

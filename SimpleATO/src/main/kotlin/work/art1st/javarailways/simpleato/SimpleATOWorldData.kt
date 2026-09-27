@@ -1,10 +1,13 @@
 package work.art1st.javarailways.simpleato
 
+import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
-import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationStore
 import work.art1st.javarailways.simpleato.api.line.LineStore
+import work.art1st.javarailways.simpleato.api.station.StationStore
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
@@ -16,10 +19,19 @@ data class SimpleATOWorldData(
     val signalEpochRuntime: SignalEpochRuntime,
     val signalRestrictions: TrainRestrictionSnapshotStore,
     val inspectionRuntime: InspectionRuntime,
+    private val sharedRailObjects: RailObjectStore,
+    val destinations: OperationalDestinationStore = OperationalDestinationStore(),
+    val stations: StationStore = StationStore(sharedRailObjects),
     val lines: LineStore = LineStore(),
     val timetables: TimetableStore = TimetableStore(),
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry()
-)
+) {
+    init {
+        require(stations.usesRailObjectStore(sharedRailObjects)) {
+            "StationStore must use the Basic world RailObjectStore"
+        }
+    }
+}
 
 @OptIn(ExtensionData::class)
 val World.simpleAtoWorldDataOrNull: SimpleATOWorldData?

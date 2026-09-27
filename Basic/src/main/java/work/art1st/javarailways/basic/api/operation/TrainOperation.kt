@@ -1,6 +1,5 @@
 package work.art1st.javarailways.basic.api.operation
 
-import work.art1st.javarailways.basic.api.station.DoorSide
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 
 /** A platform-independent operation requested by the main-thread timetable coordinator. */

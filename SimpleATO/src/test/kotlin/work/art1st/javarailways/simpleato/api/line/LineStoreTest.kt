@@ -3,7 +3,7 @@ package work.art1st.javarailways.simpleato.api.line
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.api.station.StationId
 
 class LineStoreTest {
     private fun line(id: String = "L1") = Line(

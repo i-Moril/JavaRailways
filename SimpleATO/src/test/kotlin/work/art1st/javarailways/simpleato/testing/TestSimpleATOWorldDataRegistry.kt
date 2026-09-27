@@ -50,7 +50,13 @@ internal object TestSimpleATOWorldDataRegistry {
             ?: SimpleATOPlugin(101).also { SimpleATOPlugin.INSTANCE = it }
         world.registerExtensionData(
             plugin,
-            SimpleATOWorldData(dispatcher, signalEpoch, restrictions, inspection)
+            SimpleATOWorldData(
+                dispatcher,
+                signalEpoch,
+                restrictions,
+                inspection,
+                basicData.railObjects
+            )
         )
     }
 }

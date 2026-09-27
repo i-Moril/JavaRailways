@@ -14,19 +14,20 @@ import work.art1st.javarailways.basic.api.ato.mission.AtoMissionPoint
 import work.art1st.javarailways.basic.api.ato.mission.AtoMissionRequest
 import work.art1st.javarailways.basic.api.ato.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
-import work.art1st.javarailways.basic.api.station.DwellPlan
-import work.art1st.javarailways.basic.api.station.Station
-import work.art1st.javarailways.basic.api.station.StationBerth
-import work.art1st.javarailways.basic.api.station.StationBerthDetector
-import work.art1st.javarailways.basic.api.station.StationBerthRef
-import work.art1st.javarailways.basic.api.station.StationCall
-import work.art1st.javarailways.basic.api.station.StationCallNotification
-import work.art1st.javarailways.basic.api.station.StationCallNotificationType
-import work.art1st.javarailways.basic.api.station.StationCallRequest
-import work.art1st.javarailways.basic.api.station.StationCallResolutionFailure
-import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.api.station.DwellPlan
+import work.art1st.javarailways.simpleato.api.station.Station
+import work.art1st.javarailways.simpleato.api.station.StationBerth
+import work.art1st.javarailways.simpleato.api.station.StationBerthDetector
+import work.art1st.javarailways.simpleato.api.station.StationBerthRef
+import work.art1st.javarailways.simpleato.api.station.StationCall
+import work.art1st.javarailways.simpleato.api.station.StationCallNotification
+import work.art1st.javarailways.simpleato.api.station.StationCallNotificationType
+import work.art1st.javarailways.simpleato.api.station.StationCallRequest
+import work.art1st.javarailways.simpleato.api.station.StationCallResolutionFailure
+import work.art1st.javarailways.simpleato.api.station.StationCallSubmissionResult
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -173,7 +174,7 @@ class StationCallRuntimeTest {
             fixture.ato.drainStationCallNotifications().single().type
         )
 
-        fixture.data.stations.remove(fixture.station.id)
+        fixture.world.simpleAtoWorldData.stations.remove(fixture.station.id)
         fixture.tick()
 
         assertTrue(fixture.data.atoCoordinator.isStalled)
@@ -205,13 +206,14 @@ class StationCallRuntimeTest {
             defaultDwellTicks = 20L
         )
         val station = Station(stationId, "Central", listOf(berthRef))
-        data.stations.register(station, listOf(berth))
+        world.simpleAtoWorldData.stations.register(station, listOf(berth))
         val ato = SimpleATO(train, world, KinematicTrainActuator(6.0, profile), profile) { 0.0 }
         train.setController(ato)
-        return Fixture(data, train, station, berth, ato)
+        return Fixture(world, data, train, station, berth, ato)
     }
 
     private inner class Fixture(
+        val world: work.art1st.javarailways.core.physics.CoreWorld,
         val data: BasicWorldData,
         val train: CoreTrain,
         val station: Station,

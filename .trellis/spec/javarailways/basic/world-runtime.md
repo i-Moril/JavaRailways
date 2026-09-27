@@ -4,7 +4,7 @@
 
 触发：构造/查找`BasicWorldData`、新增world store/registry、注册`RailObject`、创建/卸载Basic world data。
 
-用途：所有运营mutable state必须world-local且显式attach，防止跨world污染、test fallback进入production或Station/RailObject store不一致。
+用途：所有Basic mutable state必须world-local且显式attach，防止跨world污染或test fallback进入production。Destination/Station的world-local owner见[SimpleATO规范](../simpleato/index.md)。
 
 ## Owner、字段与lifecycle
 
@@ -14,20 +14,17 @@
 data class BasicWorldData(
     val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
-    val destinations: OperationalDestinationStore = OperationalDestinationStore(),
     val depots: DepotStore = DepotStore(),
     val atoCoordinator: AtoWorldCoordinator = AtoWorldCoordinator(),
     val atoProviders: AtoProviderRegistry = AtoProviderRegistry(),
     val railObjects: RailObjectStore = RailObjectStore(),
-    val stations: StationStore = StationStore(railObjects),
     ...
 )
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。constructor要求`StationStore`与`railObjects`为同一instance。
+来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。
 
-Line store、Timetable store、extension registry 与 Dispatcher 都不属于该container；`SimpleATOWorldData`是它们的唯一world-local owner。Basic中的Depot Reset仅依赖显式传入的
-`DepotResetDispatchParticipant`，不能通过`BasicWorldData`反向查找SimpleATO。
+Destination/Station/Line/Timetable store、extension registry 与 Dispatcher 都不属于该container；`SimpleATOWorldData`是它们的唯一world-local owner。Depot store和rolling-stock ledger暂时仍由Basic拥有；Depot reset协调器位于SimpleATO，不能让Basic反向查找SimpleATO。
 
 通用资源运行时由Bukkit composition为每个world另建一条成对生命周期记录：同一记录持有唯一
 `InfrastructureCoordinationRegistry`和`RouteResourceAdmissionRuntime`，后者复用前者完成自动进路claim、设备准备、
@@ -61,10 +58,8 @@ byRail[registered.location.rail.id]?.remove(registered)
 | 条件 | 结果 | state |
 | --- | --- | --- |
 | world无Basic data | required accessor失败 | 不创建singleton fallback |
-| StationStore引用不同RailObjectStore | constructor `require`失败 | data不attach |
 | duplicate RailObjectRef | register失败 | old object仍唯一 |
 | generic ACTIVE object unregister | check失败 | 两个indexes不变 |
-| Station remove | mark berth REMOVED→unregister→update aggregate | 不留live marker |
 | snapshot/discovery | stable ID排序/value copy | 不暴露mutable map |
 
 ## 禁止实现
@@ -74,16 +69,16 @@ byRail[registered.location.rail.id]?.remove(registered)
 - 为applied-plan dependency API与自动进路分别创建两个`InfrastructureCoordinationRegistry`；
 - accessor fallback到`TestBasicWorldDataRegistry`；
 - `BasicPlugin.INSTANCE`持有world data；
-- 单独改Destination/WayPoint/Station等多store state，不走domain service；
+- 从Basic增加Destination/Station mirror store或SimpleATO forwarding字段；
 - 因底层`ConcurrentHashMap`就声称跨store transaction原子。
 
 ## 必需测试与验证
 
-- `StationModelTest.kt`：store identity fail、world isolation、register/remove同步RailObject lifecycle。
 - `RailObjectStoreTest.kt`：duplicate ref、ACTIVE unregister failure、provider boundary store-owned removal。
 - world creation/unload integration：attach一次、restore后first wake、fixture unregister与Core resources close。
 
 ```bash
-./gradlew :Basic:test --tests '*StationModelTest' --tests '*RailObjectStoreTest'
+./gradlew :Basic:test --tests '*RailObjectStoreTest'
+./gradlew :SimpleATO:test --tests '*StationModelTest'
 ./gradlew :BukkitPlugin:test --tests '*RailWorldFactory*'
 ```

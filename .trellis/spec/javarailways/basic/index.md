@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-当前`Basic/`仍承载Destination/Station/Depot、curve/rail metadata、安全、route/resource、rolling-stock ledger、Basic snapshot，以及迁移期由SimpleATO消费的ATO value/safety primitives；Line、timetable model/store/extensions/persistence、具体`SimpleATO` controller、Dispatcher、checkpoint和隔离模拟runtime已经迁入`SimpleATO/`。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：其余运营对象会继续整体迁入`SimpleATO`；Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。迁移完成前本索引仍约束当前文件，不能据此新增长期运营ownership。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`承载Depot与rolling-stock ledger、curve/rail metadata、安全、route/resource、WayPoint、Basic snapshot，以及由SimpleATO消费的ATO value/safety primitives；Destination、Station、Line、timetable model/store/extensions/persistence、具体`SimpleATO` controller、Dispatcher、checkpoint和隔离模拟runtime由`SimpleATO/`拥有。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 
@@ -17,8 +17,6 @@
 | [列车纵向动力学](./train-longitudinal-dynamics.md) | 牵引/制动/阻力/坡度、人工或ATO手柄执行、重力注入 | Basic共享动力学、真实手柄执行与坡度制动包络 |
 | [ATO providers](./ato-providers.md) | 注册provider/boundary | world-local factory、worker purity |
 | [train operations](./train-operations.md) | door/model/announcement adapter | request/ticket/cancel/completion |
-| [Destinations](./destinations.md) | 创建/migrate operational stop | canonical destination与derived WayPoint transaction |
-| [Stations](./stations.md) | berth/call/dwell/allocation | exact berth、door gate、tail release |
 | [Depots](./depots.md) | rolling stock、storage/reset | ledger、physical selection、reset transaction |
 | [curve authoring](./curve-authoring.md) | Anchor/template/solver/measurement | stable token、SI单位、off-main build |
 | [rail infrastructure](./rail-infrastructure.md) | metadata、split/merge/turnout | metadata ownership与Core topology同步 |

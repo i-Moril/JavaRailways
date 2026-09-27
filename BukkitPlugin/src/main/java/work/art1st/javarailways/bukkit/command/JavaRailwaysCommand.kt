@@ -8,13 +8,13 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.depot.DepotId
-import work.art1st.javarailways.basic.api.depot.DepotResetCoordinator
-import work.art1st.javarailways.basic.api.depot.DepotResetResult
 import work.art1st.javarailways.basic.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.depot.StablingPointRef
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.depot.DepotResetCoordinator
+import work.art1st.javarailways.simpleato.depot.DepotResetResult
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.RouteBuildResult
 import work.art1st.javarailways.basic.route.RoutePlanner
@@ -280,7 +280,7 @@ class JavaRailwaysCommand {
                 } else {
                     sender.sendMessage("=== 路径点列表 ===")
                     wayPoints.forEach { wayPoint ->
-                        val destination = world.basicWorldData.destinations[wayPoint.id]
+                        val destination = world.simpleAtoWorldData.destinations[wayPoint.id]
                         sender.sendMessage(
                             "${wayPoint.id} (${wayPoint.displayName}) rail=${wayPoint.railId} " +
                                 "s=${"%.2f".format(wayPoint.arcLength)} " +
@@ -303,7 +303,7 @@ class JavaRailwaysCommand {
                         sender.sendMessage("显示名: ${wayPoint.displayName}")
                         sender.sendMessage("轨道: ${wayPoint.railId}")
                         sender.sendMessage("弧长: ${"%.2f".format(wayPoint.arcLength)}")
-                        val destination = world.basicWorldData.destinations[wayPoint.id]
+                        val destination = world.simpleAtoWorldData.destinations[wayPoint.id]
                         sender.sendMessage("角色: ${destination?.role?.type ?: "WAYPOINT"}")
                         sender.sendMessage("接近方向: ${destination?.approachDirection ?: "any"}")
                     }
@@ -329,7 +329,7 @@ class JavaRailwaysCommand {
                             )
                             is RailWandEditPermitAcquisition.Granted -> acquired.use {
                                 plan.requireCurrent(world)
-                                val removed = if (world.basicWorldData.destinations[id] != null) {
+                                val removed = if (world.simpleAtoWorldData.destinations[id] != null) {
                                     OperationalDestinationService(world).remove(id)?.toWayPoint()
                                 } else {
                                     store.remove(id)
@@ -418,6 +418,8 @@ class JavaRailwaysCommand {
             return true
         }
         val data = world.basicWorldData
+        val destinations = world.simpleAtoWorldData.destinations
+        val destinationService = OperationalDestinationService(world)
         val dispatcher = world.simpleAtoWorldData.dispatcher
         if (data.atoCoordinator.isStalled) {
             sender.sendMessage("导航失败：当前世界 ATO 已 Stall，请先检查诊断并执行 ato reset")
@@ -430,18 +432,10 @@ class JavaRailwaysCommand {
             sequence = navigationCounter.incrementAndGet()
             originId = "__navigate_origin_$sequence"
             timetableId = "manual-navigate-$sequence"
-        } while (data.wayPoints[originId] != null || data.destinations[originId] != null ||
+        } while (data.wayPoints[originId] != null || destinations[originId] != null ||
             world.simpleAtoWorldData.timetables[timetableId] != null)
         val serviceId = "navigate"
-        data.wayPoints.add(
-            WayPoint(
-                id = originId,
-                displayName = originId,
-                railId = head.rail.id,
-                arcLength = head.arcLengthIn(ViewDirection.AB)
-            )
-        )
-        data.destinations.add(
+        destinationService.register(
             OperationalDestination(
                 id = originId,
                 displayName = originId,
@@ -461,15 +455,13 @@ class JavaRailwaysCommand {
                 points = points
             )
         } catch (failure: Exception) {
-            data.destinations.remove(originId)
-            data.wayPoints.remove(originId)
+            destinationService.remove(originId)
             sender.sendMessage("导航构建失败: ${failure.message}")
             return true
         }
         val validation = TimetableValidator(world).validate(timetable)
         if (!validation.isSuccess) {
-            data.destinations.remove(originId)
-            data.wayPoints.remove(originId)
+            destinationService.remove(originId)
             sender.sendMessage("导航验证失败:")
             validation.errors.forEach { sender.sendMessage("- $it") }
             return true
@@ -477,8 +469,7 @@ class JavaRailwaysCommand {
         val trainControlManager = BukkitPlugin.INSTANCE.trainControlManager
         val managedSession = trainControlManager.sessionFor(train)
         if (managedSession != null && managedSession.playerId != sender.uniqueId) {
-            data.destinations.remove(originId)
-            data.wayPoints.remove(originId)
+            destinationService.remove(originId)
             sender.sendMessage("导航失败：列车正由另一名驾驶员控制")
             return true
         }
@@ -486,8 +477,7 @@ class JavaRailwaysCommand {
         dispatcher.discardReleasedManualNavigation(world, train.id)
         val controlPreparation = TrainCommand.prepareForAtoNavigation(sender, train)
         controlPreparation.failureReason?.let { reason ->
-            data.destinations.remove(originId)
-            data.wayPoints.remove(originId)
+            destinationService.remove(originId)
             sender.sendMessage("导航失败: $reason")
             return true
         }
@@ -514,8 +504,7 @@ class JavaRailwaysCommand {
         }
         dispatcher.stopFutureCycles(timetableId)
         world.simpleAtoWorldData.timetables.remove(timetableId)
-        data.destinations.remove(originId)
-        data.wayPoints.remove(originId)
+        destinationService.remove(originId)
         val start = startAttempt.getOrElse { failure ->
             restorePreviousManualControl()
             sender.sendMessage("导航启动异常: ${failure.message ?: failure::class.java.simpleName}")
@@ -609,7 +598,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("车辆段停车点不存在: $pointRef")
                     return true
                 }
-                val destination = world.basicWorldData.destinations[point.point.destinationId] ?: run {
+                val destination = world.simpleAtoWorldData.destinations[point.point.destinationId] ?: run {
                     sender.sendMessage("停车点 Destination 不存在: ${point.point.destinationId}")
                     return true
                 }
@@ -802,7 +791,10 @@ class JavaRailwaysCommand {
                                     messageTarget(Component.text("发起加载的世界已卸载或尚未初始化 JavaRailways", NamedTextColor.RED))
                                     return@runInSimulationContext
                                 }
-                                val normalized = TimetableScriptNormalizer.normalize(saved, world)
+                                val normalized = TimetableScriptNormalizer.normalize(
+                                    saved,
+                                    world.simpleAtoWorldData.destinations
+                                )
                                 val timetable = runCatching(normalized::restore).getOrElse { invalid ->
                                     val path = PluginDiagnosticLog.timetable(
                                         "LOAD_RESTORE_FAILED",

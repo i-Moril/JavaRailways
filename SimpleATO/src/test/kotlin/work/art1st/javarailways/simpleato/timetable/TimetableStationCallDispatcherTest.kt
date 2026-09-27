@@ -26,13 +26,13 @@ import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicket
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicketSnapshot
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicketState
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.DwellPlan
-import work.art1st.javarailways.basic.api.station.Station
-import work.art1st.javarailways.basic.api.station.StationBerth
-import work.art1st.javarailways.basic.api.station.StationBerthRef
-import work.art1st.javarailways.basic.api.station.StationCall
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.DwellPlan
+import work.art1st.javarailways.simpleato.api.station.Station
+import work.art1st.javarailways.simpleato.api.station.StationBerth
+import work.art1st.javarailways.simpleato.api.station.StationBerthRef
+import work.art1st.javarailways.simpleato.api.station.StationCall
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
 import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
@@ -931,7 +931,7 @@ class TimetableStationCallDispatcherTest {
             approachDirection = ViewDirection.AB,
             usableLengthMeters = 100.0
         )
-        data.stations.register(Station(stationId, "Central", listOf(berthRef)), listOf(berth))
+        world.simpleAtoWorldData.stations.register(Station(stationId, "Central", listOf(berthRef)), listOf(berth))
         val blockerId = TimetableServiceRunId("tt", "blocking")
         val mainId = TimetableServiceRunId("tt", "main")
         dispatcher.startService(world, "tt", "blocking") as TimetableServiceStartResult.Started
@@ -1025,7 +1025,7 @@ class TimetableStationCallDispatcherTest {
             approachDirection = ViewDirection.AB,
             usableLengthMeters = 100.0
         )
-        data.stations.register(Station(stationId, "Central", listOf(berthRef)), listOf(berth))
+        world.simpleAtoWorldData.stations.register(Station(stationId, "Central", listOf(berthRef)), listOf(berth))
         val firstId = TimetableServiceRunId("tt", "first")
         val secondId = TimetableServiceRunId("tt", "second")
         val firstRun = dispatcher.startService(world, "tt", "first") as TimetableServiceStartResult.Started
@@ -1201,7 +1201,7 @@ class TimetableStationCallDispatcherTest {
             doorSide = doorSide
         )
         val station = Station(stationId, "Central", listOf(berthRef))
-        data.stations.register(station, listOf(berth))
+        world.simpleAtoWorldData.stations.register(station, listOf(berth))
         return Fixture(world, data, dispatcher, train, station, berth, targetArc)
     }
 

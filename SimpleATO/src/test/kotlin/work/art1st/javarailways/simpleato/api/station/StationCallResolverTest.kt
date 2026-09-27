@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.station
+package work.art1st.javarailways.simpleato.api.station
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -6,12 +6,14 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 class StationCallResolverTest {
     @Test
@@ -50,7 +52,7 @@ class StationCallResolverTest {
         ) as StationCallResolutionResult.Failure
         assertEquals(StationCallResolutionFailure.BERTH_UNRESOLVED, missingBerth.reason)
 
-        fixture.data.stations.remove(fixture.station.id)
+        fixture.world.simpleAtoWorldData.stations.remove(fixture.station.id)
         val missingStation = resolver.resolve(
             StationCallRequest("run", WayPointRef("A"), call)
         ) as StationCallResolutionResult.Failure
@@ -81,7 +83,7 @@ class StationCallResolverTest {
             approachDirection = ViewDirection.AB
         )
         val station = Station(fixture.station.id, "Central", listOf(berthRef))
-        fixture.data.stations.register(station, listOf(berth))
+        fixture.world.simpleAtoWorldData.stations.register(station, listOf(berth))
         val unreachableCall = fixture.call(2L, berthRef = berthRef)
         val routeFailure = StationCallResolver(fixture.world).resolve(
             StationCallRequest("run", WayPointRef("A"), unreachableCall)
@@ -119,7 +121,7 @@ class StationCallResolverTest {
     ): Fixture {
         val world = createTestWorld()
         val data = BasicWorldData()
-        TestBasicWorldDataRegistry.register(world, data)
+        TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
@@ -141,7 +143,7 @@ class StationCallResolverTest {
             doorSide = DoorSide.LEFT
         )
         val station = Station(stationId, "Central", listOf(berthRef), defaultDwellTicks = 20L)
-        if (registerStation) data.stations.register(station, listOf(berth))
+        if (registerStation) world.simpleAtoWorldData.stations.register(station, listOf(berth))
         return Fixture(world, data, station, berth)
     }
 

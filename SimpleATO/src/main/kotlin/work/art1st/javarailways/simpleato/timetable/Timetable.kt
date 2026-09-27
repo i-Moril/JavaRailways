@@ -3,19 +3,19 @@ package work.art1st.javarailways.simpleato.timetable
 import work.art1st.javarailways.basic.api.depot.DepotId
 import work.art1st.javarailways.basic.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.line.LineId
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.TimetableCondition
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionScope
 import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionCall
 import work.art1st.javarailways.simpleato.api.timetable.TimetableServiceActivation
 import work.art1st.javarailways.basic.api.ato.mission.WayPointRef
-import work.art1st.javarailways.basic.api.station.DwellPlan
-import work.art1st.javarailways.basic.api.station.StationBerthRef
-import work.art1st.javarailways.basic.api.station.StationCall
-import work.art1st.javarailways.basic.api.station.StationCallRequest
-import work.art1st.javarailways.basic.api.station.StationCallResolutionResult
-import work.art1st.javarailways.basic.api.station.StationCallResolver
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.api.station.DwellPlan
+import work.art1st.javarailways.simpleato.api.station.StationBerthRef
+import work.art1st.javarailways.simpleato.api.station.StationCall
+import work.art1st.javarailways.simpleato.api.station.StationCallRequest
+import work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult
+import work.art1st.javarailways.simpleato.api.station.StationCallResolver
+import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.RouteBuildResult
@@ -484,7 +484,7 @@ class TimetableValidator(private val world: World) {
                         TimetableAction.Reverse -> {
                             val direction = requiredStartDirection
                                 ?: currentWayPointId?.let {
-                                    world.basicWorldData.destinations[it]?.approachDirection
+                                    world.simpleAtoWorldData.destinations[it]?.approachDirection
                                 }
                             direction?.opposite()
                         }
@@ -724,14 +724,14 @@ class TimetableValidator(private val world: World) {
             is TimetableAction.CallStation -> {
                 val stationId = runCatching { StationId(action.stationId) }.getOrNull()
                 val berthRef = runCatching { action.berthRef }.getOrNull()
-                val station = stationId?.let { world.basicWorldData.stations[it] }
+                val station = stationId?.let { world.simpleAtoWorldData.stations[it] }
                 when {
                     stationId == null -> errors.add("$prefix step#$stepIndex station id 非法")
                     station == null -> errors.add(
                         "$prefix step#$stepIndex station 不存在: ${action.stationId}"
                     )
                     berthRef == null || berthRef !in station.berthRefs ||
-                        world.basicWorldData.stations.berth(berthRef) == null -> errors.add(
+                        world.simpleAtoWorldData.stations.berth(berthRef) == null -> errors.add(
                         "$prefix step#$stepIndex berth 不存在: ${action.stationId}/${action.berthId}"
                     )
                 }
@@ -774,7 +774,7 @@ class TimetableValidator(private val world: World) {
                 return
             }
         }
-        val berth = world.basicWorldData.stations.berth(berthRef) ?: return
+        val berth = world.simpleAtoWorldData.stations.berth(berthRef) ?: return
         val arrivalDirection = resolved.resolved.plannedRoute.expandedRoute
             .segments.last().railViewRef.direction
         val berthArcInView = when (arrivalDirection) {
@@ -794,7 +794,8 @@ class TimetableValidator(private val world: World) {
             val route = when (val result = routePlanner.buildRoute(
                 cursor,
                 target,
-                requiredStartDirection = startDirection
+                requiredGoalDirection = destinationDirection(target),
+                requiredStartDirection = startDirection ?: destinationDirection(cursor)
             )) {
                 is RouteBuildResult.Success -> result.route
                 is RouteBuildResult.Failure -> return
@@ -814,7 +815,7 @@ class TimetableValidator(private val world: World) {
             }
             cumulative += route.totalLength
             cursor = target
-            startDirection = null
+            startDirection = route.segments.last().railViewRef.direction
         }
         val stationDistance = resolved.resolved.plannedRoute.expandedRoute.totalLength
         if (candidates.none { abs(it - stationDistance) <= 0.5 }) {
@@ -842,7 +843,9 @@ class TimetableValidator(private val world: World) {
         when (val result = routePlanner.buildRoute(
             fromWayPointId,
             toWayPointId,
+            requiredGoalDirection = destinationDirection(toWayPointId),
             requiredStartDirection = requiredStartDirection
+                ?: destinationDirection(fromWayPointId)
         )) {
             is RouteBuildResult.Success -> routes.add(result.route)
             is RouteBuildResult.Failure -> errors.add("$prefix step#$stepIndex 经路不可达: $fromWayPointId -> $toWayPointId (${result.reason})")
@@ -850,6 +853,9 @@ class TimetableValidator(private val world: World) {
     }
 
     private fun wayPointExists(id: String): Boolean = world.basicWorldData.wayPoints[id] != null
+
+    private fun destinationDirection(id: String): ViewDirection? =
+        world.simpleAtoWorldData.destinations[id]?.approachDirection
 }
 
 private fun ViewDirection.opposite(): ViewDirection = when (this) {

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.basic.api.ato.AbstractATO
 import work.art1st.javarailways.basic.api.ato.AtoPlanningContext
 import work.art1st.javarailways.basic.api.ato.AtoSafetyProfile
@@ -37,15 +38,15 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RailObservationSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
-import work.art1st.javarailways.basic.api.station.ResolvedStationCall
-import work.art1st.javarailways.basic.api.station.StationBerthDetector
-import work.art1st.javarailways.basic.api.station.StationCallNotification
-import work.art1st.javarailways.basic.api.station.StationCallNotificationType
-import work.art1st.javarailways.basic.api.station.StationCallRequest
-import work.art1st.javarailways.basic.api.station.StationCallResolutionFailure
-import work.art1st.javarailways.basic.api.station.StationCallResolutionResult
-import work.art1st.javarailways.basic.api.station.StationCallResolver
-import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
+import work.art1st.javarailways.simpleato.api.station.ResolvedStationCall
+import work.art1st.javarailways.simpleato.api.station.StationBerthDetector
+import work.art1st.javarailways.simpleato.api.station.StationCallNotification
+import work.art1st.javarailways.simpleato.api.station.StationCallNotificationType
+import work.art1st.javarailways.simpleato.api.station.StationCallRequest
+import work.art1st.javarailways.simpleato.api.station.StationCallResolutionFailure
+import work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult
+import work.art1st.javarailways.simpleato.api.station.StationCallResolver
+import work.art1st.javarailways.simpleato.api.station.StationCallSubmissionResult
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
@@ -462,7 +463,7 @@ class SimpleATO(
                     "${activeMission?.revision}"
             }
             constraintManager.remove(STATION_OWNER)
-            val berth = requireNotNull(worldData.stations.berth(resolved.berthRef)) {
+            val berth = requireNotNull(world.simpleAtoWorldData.stations.berth(resolved.berthRef)) {
                 "active StationBerth disappeared: ${resolved.berthRef}"
             }
             val arrivalDirection = resolved.plannedRoute.expandedRoute.segments.last()
@@ -799,7 +800,7 @@ class SimpleATO(
         ) {
             "active StationCall revision does not match the active Mission before departure"
         }
-        val berth = worldData.stations.berth(resolved.berthRef)
+        val berth = world.simpleAtoWorldData.stations.berth(resolved.berthRef)
         check(berth != null && berth.lifecycleState == RailObjectLifecycleState.ACTIVE &&
             worldData.railObjects.get(berth.ref) === berth
         ) {

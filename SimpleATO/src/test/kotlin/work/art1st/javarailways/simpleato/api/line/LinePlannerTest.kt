@@ -4,12 +4,12 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.StationId
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.StationId
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -18,12 +18,12 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class LinePlannerTest {
     private val worlds = mutableListOf<CoreWorld>()
-    @AfterEach fun cleanup() = worlds.forEach(TestBasicWorldDataRegistry::unregister)
+    @AfterEach fun cleanup() = worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
 
     @Test
     fun `chooses a directed berth route for each ordered station pair`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         val destinations = OperationalDestinationService(world)
         fun station(id:String, arc:Double, direction:ViewDirection = ViewDirection.AB) = OperationalDestination(
@@ -67,7 +67,7 @@ class LinePlannerTest {
     @Test
     fun `uses the exact selected berth sequence when requested`() {
         val world = createTestWorld().also(worlds::add)
-        TestBasicWorldDataRegistry.getOrCreate(world)
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(120.0, 1))
         val destinations = OperationalDestinationService(world)
         fun berth(station:String, berth:String, arc:Double, direction:ViewDirection = ViewDirection.AB) = OperationalDestination(

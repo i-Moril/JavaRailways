@@ -23,11 +23,12 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.basic.DirectionRestrictionResolver
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.DestinationRoleType
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.api.ui.config.ConfigConstraints
 import work.art1st.javarailways.basic.api.ui.config.ConfigGroup
 import work.art1st.javarailways.basic.api.ui.config.ConfigItemImpl
@@ -573,7 +574,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
         if (state.pendingDeleteWayPoint == wayPoint.id) {
             if (!mutateRailScoped(player, coreWorld, setOf(wayPoint.railId)) {
-                    if (coreWorld.basicWorldData.destinations[wayPoint.id] != null) {
+                    if (coreWorld.simpleAtoWorldData.destinations[wayPoint.id] != null) {
                         OperationalDestinationService(coreWorld).remove(wayPoint.id)
                     } else {
                         coreWorld.basicWorldData.wayPoints.remove(wayPoint.id)
@@ -761,7 +762,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val coreWorld = getCoreWorld(player) ?: return
         val playerPosition = Vector3d(player.location.x, player.location.y, player.location.z)
         val previousVisible = visibleApproachWayPoints.getOrPut(player.uniqueId) { mutableSetOf() }
-        val candidates = coreWorld.basicWorldData.destinations.all().mapNotNull { destination ->
+        val candidates = coreWorld.simpleAtoWorldData.destinations.all().mapNotNull { destination ->
             val direction = destination.approachDirection ?: return@mapNotNull null
             val rail = coreWorld.getRail(destination.railId) ?: return@mapNotNull null
             val target = rail.curve.getPointAt(destination.arcLengthInAbMeters)
@@ -835,7 +836,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val pending = pendingWayPoints[player.uniqueId]?.takeIf { it.id == wayPointId }
         val wayPoint = coreWorld.basicWorldData.wayPoints[wayPointId] ?: pending ?: return
         editingWayPoint[player.uniqueId] = wayPointId
-        val destination = coreWorld.basicWorldData.destinations[wayPointId]
+        val destination = coreWorld.simpleAtoWorldData.destinations[wayPointId]
         val role = destination?.role ?: DestinationRole.Regular
         val session = configUI.getPlayerSession(player.uniqueId)
         // Config sessions validate programmatic values immediately; use the field's valid default
@@ -871,7 +872,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val rawName = session.getValue(editKeys.name) ?: oldId
         val pending = pendingWayPoints[player.uniqueId]?.takeIf { it.id == oldId }
         val wayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: pending ?: return
-        val original = coreWorld.basicWorldData.destinations[oldId]
+        val original = coreWorld.simpleAtoWorldData.destinations[oldId]
         val updated = try {
             applyRailObjectDestinationEdit(
                 wayPoint,

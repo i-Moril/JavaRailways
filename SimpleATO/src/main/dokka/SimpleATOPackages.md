@@ -5,7 +5,15 @@ SimpleATO跨限制与资源检查共用的常量大小冻结路线绑定。它�
 # Package work.art1st.javarailways.simpleato.api.line
 
 SimpleATO拥有的运营线路身份、上下行站序、revisioned world-local store与基于Basic通用最短路能力的线路编译结果。
-Station与Destination在迁移期仍通过Basic API解析，但Line没有Basic别名或第二个可写store。
+Station与Destination由同world的SimpleATO canonical stores提供；Basic只接收显式WayPoint和方向执行通用寻路。
+
+# Package work.art1st.javarailways.simpleato.api.destination
+
+SimpleATO拥有的stable directed Destination、普通/StationBerth/DepotStablingPoint角色，以及原子维护Basic WayPoint/Depot和SimpleATO Station投影的world service。
+
+# Package work.art1st.javarailways.simpleato.api.station
+
+SimpleATO拥有的Station聚合、被动StationBerth RailObject、StationCall/DwellPlan、主线程解析和不可变停站通知。
 
 # Package work.art1st.javarailways.simpleato.api.inspection
 

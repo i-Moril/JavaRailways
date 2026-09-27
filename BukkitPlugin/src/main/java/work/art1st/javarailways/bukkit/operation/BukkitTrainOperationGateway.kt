@@ -8,7 +8,7 @@ import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicket
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicketSnapshot
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicketState
-import work.art1st.javarailways.basic.api.station.DoorSide
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
 import work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult

@@ -19,15 +19,15 @@ import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.depot.DepotTrainAllocation
-import work.art1st.javarailways.basic.api.depot.DepotResetDispatchApplyException
-import work.art1st.javarailways.basic.api.depot.DepotResetDispatchParticipant
-import work.art1st.javarailways.basic.api.depot.DepotResetDispatchSummary
 import work.art1st.javarailways.basic.api.depot.DepotStorageReservation
 import work.art1st.javarailways.basic.api.depot.DepotStorageReservationResult
 import work.art1st.javarailways.basic.api.depot.DepotTrainAllocationResult
 import work.art1st.javarailways.basic.api.depot.RollingStockState
 import work.art1st.javarailways.basic.api.depot.StablingPointRef
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationIds
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationIds
+import work.art1st.javarailways.simpleato.depot.DepotResetDispatchApplyException
+import work.art1st.javarailways.simpleato.depot.DepotResetDispatchParticipant
+import work.art1st.javarailways.simpleato.depot.DepotResetDispatchSummary
 import work.art1st.javarailways.basic.api.operation.RejectingTrainOperationGateway
 import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationExecutionResult
@@ -35,20 +35,20 @@ import work.art1st.javarailways.basic.api.operation.TrainOperationGateway
 import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicket
 import work.art1st.javarailways.basic.api.operation.TrainOperationTicketState
-import work.art1st.javarailways.basic.api.station.DoorSide
-import work.art1st.javarailways.basic.api.station.DwellPlanResolver
-import work.art1st.javarailways.basic.api.station.ResolvedStationCall
-import work.art1st.javarailways.basic.api.station.StationBerthAllocationKey
-import work.art1st.javarailways.basic.api.station.StationBerthAllocationResult
-import work.art1st.javarailways.basic.api.station.StationBerthAllocator
-import work.art1st.javarailways.basic.api.station.StationBerthOwner
-import work.art1st.javarailways.basic.api.station.StationBerthRef
-import work.art1st.javarailways.basic.api.station.StationCall
-import work.art1st.javarailways.basic.api.station.StationCallNotificationType
-import work.art1st.javarailways.basic.api.station.StationCallRequest
-import work.art1st.javarailways.basic.api.station.StationCallResolutionResult
-import work.art1st.javarailways.basic.api.station.StationCallResolver
-import work.art1st.javarailways.basic.api.station.StationCallSubmissionResult
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.simpleato.api.station.DwellPlanResolver
+import work.art1st.javarailways.simpleato.api.station.ResolvedStationCall
+import work.art1st.javarailways.simpleato.api.station.StationBerthAllocationKey
+import work.art1st.javarailways.simpleato.api.station.StationBerthAllocationResult
+import work.art1st.javarailways.simpleato.api.station.StationBerthAllocator
+import work.art1st.javarailways.simpleato.api.station.StationBerthOwner
+import work.art1st.javarailways.simpleato.api.station.StationBerthRef
+import work.art1st.javarailways.simpleato.api.station.StationCall
+import work.art1st.javarailways.simpleato.api.station.StationCallNotificationType
+import work.art1st.javarailways.simpleato.api.station.StationCallRequest
+import work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult
+import work.art1st.javarailways.simpleato.api.station.StationCallResolver
+import work.art1st.javarailways.simpleato.api.station.StationCallSubmissionResult
 import work.art1st.javarailways.simpleato.api.timetable.TimetableActivationFalseBehavior
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionResult
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionScope
@@ -776,7 +776,7 @@ class TimetableDispatcher(
                 return TimetableStationCallScheduleResult.Failure(result.message)
             }
         }
-        val berth = world.basicWorldData.stations.berth(call.berthRef)
+        val berth = world.simpleAtoWorldData.stations.berth(call.berthRef)
             ?: return TimetableStationCallScheduleResult.Failure("berth not found: ${call.berthRef}")
         val arrivalDirection = resolved.plannedRoute.expandedRoute.segments.last().railViewRef.direction
         val missionDistance = run.currentRuntime.layout.project(
@@ -842,9 +842,9 @@ class TimetableDispatcher(
         val berthRef = runCatching { spec.action.berthRef }.getOrElse {
             return it.message ?: "invalid station berth"
         }
-        val station = world.basicWorldData.stations[berthRef.stationId]
+        val station = world.simpleAtoWorldData.stations[berthRef.stationId]
             ?: return "station not found: ${berthRef.stationId}"
-        val berth = world.basicWorldData.stations.berth(berthRef)
+        val berth = world.simpleAtoWorldData.stations.berth(berthRef)
             ?: return "berth not found: $berthRef"
         val dwellPlan = DwellPlanResolver.resolve(
             station = station,
@@ -4326,7 +4326,10 @@ class TimetableDispatcher(
             revision = revision,
             origin = plan.origin,
             points = plan.points,
-            requiredStartDirection = plan.requiredStartDirection
+            requiredStartDirection = plan.requiredStartDirection,
+            requiredGoalDirections = plan.points.map { point ->
+                world.simpleAtoWorldData.destinations[point.target.id]?.approachDirection
+            }
         )
         val resolved = when (val result = AtoMissionResolver(world).resolve(request)) {
             is AtoMissionResolutionResult.Success -> result.mission
@@ -4361,7 +4364,10 @@ class TimetableDispatcher(
             revision = revision,
             origin = plan.origin,
             points = plan.points,
-            requiredStartDirection = plan.requiredStartDirection
+            requiredStartDirection = plan.requiredStartDirection,
+            requiredGoalDirections = plan.points.map { point ->
+                world.simpleAtoWorldData.destinations[point.target.id]?.approachDirection
+            }
         )
         val resolved = when (val result = AtoMissionResolver(world).resolve(request)) {
             is AtoMissionResolutionResult.Success -> result.mission
@@ -4409,7 +4415,7 @@ class TimetableDispatcher(
         val wayPoint = world.basicWorldData.wayPoints[wayPointId]
             ?: return "waypoint not found: $wayPointId"
         val trainArc = train.headLocation.arcLengthIn(ViewDirection.AB)
-        val destination = world.basicWorldData.destinations[wayPointId]
+        val destination = world.simpleAtoWorldData.destinations[wayPointId]
         val facingMismatch = destination?.approachDirection?.let { requiredDirection ->
             (train.headLocation as? work.art1st.javarailways.core.physics.rail.RailLocationWithFacing)
                 ?.facing != requiredDirection

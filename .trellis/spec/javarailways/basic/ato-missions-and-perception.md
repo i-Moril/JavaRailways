@@ -8,7 +8,7 @@
 
 ## Owner、真实类型与单位
 
-`AtoMissionRequest(id:String,revision:Long,origin:WayPointRef,points:List<AtoMissionPoint>,requiredStartDirection:ViewDirection?)`：id稳定trimmed；revision`>=0`；points非空且defensive copy。`Via`只通过；`Stop.offsetMetersBefore` finite且`>=0 m`。
+`AtoMissionRequest(id:String,revision:Long,origin:WayPointRef,points:List<AtoMissionPoint>,requiredStartDirection:ViewDirection?,requiredGoalDirections:List<ViewDirection?>)`：id稳定trimmed；revision`>=0`；points非空且defensive copy；goal direction数量必须与points一致。`Via`只通过；`Stop.offsetMetersBefore` finite且`>=0 m`。Basic不查询SimpleATO Destination；运营调用方显式提供每个目标的进站方向。Resolver将一段路线实际结束的方向作为下一段的起始方向，禁止在同一次mission中隐式掉头。
 
 `AtoMissionResolver.resolve(request): AtoMissionResolutionResult`在main执行：resolve every WayPoint → `RoutePlanner` → `PlannedRouteCompiler` → continuous legs。结果：
 
@@ -73,7 +73,7 @@ is RouteBuildResult.Failure ->
 
 ## 必需测试与验证
 
-- `AtoMissionTest.kt`：continuous legs、unresolved/unreachable、defensive copy、revision。
+- `AtoMissionTest.kt`：continuous legs、显式目标方向与跨leg方向连续性、unresolved/unreachable、defensive copy、revision。
 - `PhaseAFoundationTest.kt`：route/perception copy、unsorted rejection。
 - SimpleATO `SimpleATOTest.kt`：stale/atomic physics activation、publish boundary、duplicate/live ref Stall、transition顺序。
 - assertion必须包含failure后current mission/queue不变且world未误Stall（普通resolve failure）。

@@ -25,9 +25,9 @@ import org.bukkit.util.Transformation
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.api.destination.DestinationRole
-import work.art1st.javarailways.basic.api.destination.OperationalDestination
-import work.art1st.javarailways.basic.api.destination.OperationalDestinationService
+import work.art1st.javarailways.simpleato.api.destination.DestinationRole
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
 import work.art1st.javarailways.basic.api.ui.config.*
 import work.art1st.javarailways.basic.curve.Anchor
 import work.art1st.javarailways.basic.curve.AnchorGeometry
@@ -46,6 +46,7 @@ import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
 import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
+import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.basic.rail.CurveSafetyMetadata
 import work.art1st.javarailways.basic.rail.ParallelRailMetadata
 import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
@@ -4529,7 +4530,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return "safety.signal_present"
         }
         val basicData = coreWorld.basicWorldDataOrNull ?: return null
-        val migratableRailObjectRefs = basicData.destinations.all().asSequence()
+        val migratableRailObjectRefs = coreWorld.simpleAtoWorldData.destinations.all().asSequence()
             .filter { it.railId in railIds }
             .mapNotNull { (it.role as? DestinationRole.StationBerthRole)?.berthRef?.railObjectRef }
             .toSet()
@@ -5312,7 +5313,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         rails = rails.sortedBy { it.id },
         renderMetas = renderMetas.sortedBy { it.railId.toString() },
         railMetadata = railMetadata.toSortedMap(compareBy(UUID::toString)),
-        destinations = coreWorld.basicWorldData.destinations.all(),
+        destinations = coreWorld.simpleAtoWorldData.destinations.all(),
         wayPoints = coreWorld.basicWorldData.wayPoints.all()
     )
 
@@ -5666,7 +5667,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         editPlan: RailWandTopologyEditPlan
     ) {
         val infrastructureRestore = planOperationalInfrastructureRestore(
-            coreWorld.basicWorldData.destinations.all(),
+            coreWorld.simpleAtoWorldData.destinations.all(),
             coreWorld.basicWorldData.wayPoints.all(),
             target.destinations,
             target.wayPoints

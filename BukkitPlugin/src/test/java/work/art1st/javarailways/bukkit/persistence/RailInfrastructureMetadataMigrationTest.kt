@@ -62,11 +62,11 @@ class RailInfrastructureMetadataMigrationTest {
             }]}
         """.trimIndent()
         val legacyBasic = """
-            {"formatVersion":2,"infrastructureRevision":7,"destinations":[],"wayPoints":[],
+            {"formatVersion":3,"infrastructureRevision":7,"wayPoints":[],
              "railMetadata":[]}
         """.trimIndent()
         val simpleAto = """
-            {"formatVersion":1,"infrastructureRevision":7,"lines":[],"lineRevision":0}
+            {"formatVersion":2,"infrastructureRevision":7,"destinations":[],"lines":[],"lineRevision":0}
         """.trimIndent()
         return InfrastructureFileV2(2, 7L, legacyCore, legacyBasic, simpleAto)
     }

@@ -1,6 +1,6 @@
 package work.art1st.javarailways.simpleato.api.line
 
-import work.art1st.javarailways.basic.api.station.StationId
+import work.art1st.javarailways.simpleato.api.station.StationId
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong

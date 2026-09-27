@@ -111,7 +111,7 @@ class WandStateCodecTest {
         val state = RailObjectWandState(
             mode = RailObjectWandMode.DIRECTION_RESTRICTION,
             pendingDeleteWayPoint = "station-a",
-            defaultWayPointType = work.art1st.javarailways.basic.api.destination.DestinationRoleType.STATION_BERTH
+            defaultWayPointType = work.art1st.javarailways.simpleato.api.destination.DestinationRoleType.STATION_BERTH
         )
 
         val restored = requireNotNull(RailObjectWandStateCodec.decode(RailObjectWandStateCodec.encode(state)))

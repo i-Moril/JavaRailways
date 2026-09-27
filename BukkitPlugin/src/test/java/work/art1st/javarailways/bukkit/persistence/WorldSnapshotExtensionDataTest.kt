@@ -4,11 +4,11 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV3
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
-import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV2
 import work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -31,15 +31,15 @@ class WorldSnapshotExtensionDataTest {
     fun `split snapshot requires one infrastructure revision and physics epoch`() {
         val infrastructure = CoreWorld.SavedInfrastructureV2(CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION, 7L, emptyList())
         val runtime = CoreWorld.SavedRuntimeV1(1, 7L, 9L, emptyList())
-        val basicInfrastructure = BasicInfrastructureSnapshotV2(
-            formatVersion = BasicInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION,
+        val basicInfrastructure = BasicInfrastructureSnapshotV3(
+            formatVersion = BasicInfrastructureSnapshotV3.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
-            destinations = emptyList(),
             wayPoints = emptyList()
         )
-        val simpleAtoInfrastructure = SimpleATOInfrastructureSnapshotV1(
-            formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
+        val simpleAtoInfrastructure = SimpleATOInfrastructureSnapshotV2(
+            formatVersion = SimpleATOInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
+            destinations = emptyList(),
             lines = emptyList(),
             lineRevision = 0L
         )

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.station
+package work.art1st.javarailways.simpleato.api.station
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
+import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -38,12 +39,6 @@ class StationModelTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             DwellPlan(-1L)
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            BasicWorldData(
-                railObjects = RailObjectStore(),
-                stations = StationStore(RailObjectStore())
-            )
         }
         assertThrows(IllegalArgumentException::class.java) {
             StationCall(
@@ -91,6 +86,7 @@ class StationModelTest {
     fun `station store atomically owns passive berth rail objects`() {
         val fixture = fixture("store")
         val data = BasicWorldData()
+        val stations = StationStore(data.railObjects)
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "one")
         val berth = StationBerth(
@@ -106,20 +102,20 @@ class StationModelTest {
         )
         val station = Station(stationId, "Central", listOf(berthRef), defaultDwellTicks = 80L)
 
-        data.stations.register(station, listOf(berth))
+        stations.register(station, listOf(berth))
 
-        assertSame(station, data.stations[stationId])
-        assertSame(berth, data.stations.berth(berthRef))
+        assertSame(station, stations[stationId])
+        assertSame(berth, stations.berth(berthRef))
         assertSame(berth, data.railObjects.get(berth.ref))
         assertEquals(listOf(berth), data.railObjects.objectsOnRail(fixture.railId))
         assertEquals(RailObjectLifecycleState.ACTIVE, berth.lifecycleState)
         assertThrows(IllegalStateException::class.java) {
-            data.stations.register(station, listOf(berth))
+            stations.register(station, listOf(berth))
         }
 
-        assertSame(station, data.stations.remove(stationId))
-        assertNull(data.stations[stationId])
-        assertNull(data.stations.berth(berthRef))
+        assertSame(station, stations.remove(stationId))
+        assertNull(stations[stationId])
+        assertNull(stations.berth(berthRef))
         assertNull(data.railObjects.get(berth.ref))
         assertEquals(RailObjectLifecycleState.REMOVED, berth.lifecycleState)
     }
@@ -130,21 +126,23 @@ class StationModelTest {
         val secondFixture = fixture("second")
         val firstData = BasicWorldData()
         val secondData = BasicWorldData()
+        val firstStations = StationStore(firstData.railObjects)
+        val secondStations = StationStore(secondData.railObjects)
         val stationId = StationId("central")
         val berthRef = StationBerthRef(stationId, "one")
         val firstBerth = StationBerth(berthRef, firstFixture.location)
         val secondBerth = StationBerth(berthRef, secondFixture.location)
         val station = Station(stationId, "Central", listOf(berthRef))
 
-        firstData.stations.register(station, listOf(firstBerth))
-        secondData.stations.register(station, listOf(secondBerth))
-        firstData.stations.remove(stationId)
+        firstStations.register(station, listOf(firstBerth))
+        secondStations.register(station, listOf(secondBerth))
+        firstStations.remove(stationId)
 
-        assertNull(firstData.stations[stationId])
-        assertSame(secondBerth, secondData.stations.berth(berthRef))
+        assertNull(firstStations[stationId])
+        assertSame(secondBerth, secondStations.berth(berthRef))
         assertEquals(RailObjectLifecycleState.ACTIVE, secondBerth.lifecycleState)
-        assertNotSame(firstData.stations, secondData.stations)
-        assertTrue(secondData.stations.all().single().id == stationId)
+        assertNotSame(firstStations, secondStations)
+        assertTrue(secondStations.all().single().id == stationId)
     }
 
     private fun fixture(id: String): Fixture {

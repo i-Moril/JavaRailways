@@ -125,9 +125,10 @@ At enable/load, the plugin remains restrictive until host capabilities, persiste
 The domain migration has moved the authored definitions, graph cut, catalog/index and route-window
 matching into `SimpleSignals`, deleted the unused Basic single-window request/claim path and retained
 generic projection, turnout/diamond identity, claim, preparation, cursor/release and suffix extension
-in Basic. The remaining reviewable batches are:
+in Basic. The planning-only plugin world runtime now publishes candidate region/table pairs atomically and registers one
+fixed-route source for each exact host world load. The remaining reviewable batches are:
 
-1. establish the plugin-owned world runtime and persistence/composition around the current region model;
+1. add the plugin-owned persistence/composition boundary around that runtime;
 2. add authoring and diagnostics;
 3. connect the plugin-generated route boundary/additions through the generic contributor API.
 

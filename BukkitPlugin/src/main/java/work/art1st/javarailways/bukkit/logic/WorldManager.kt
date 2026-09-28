@@ -159,7 +159,7 @@ class WorldManager internal constructor(
             if (railWorld is CoreWorld) {
                 infrastructureResourceService?.registerWorld(
                     bukkitWorld.uid,
-                    railWorld::topologyRevision,
+                    { railWorld.topologyState },
                     railExists = { railId -> railWorld.getRail(railId) != null },
                     topologyNodeExists = { key -> railWorld.topologyState.structuralNodeWithPorts(key.ports) != null },
                     resourceExists = { resource ->

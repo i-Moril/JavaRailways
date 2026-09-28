@@ -6,9 +6,9 @@
 声明 `JavaRailways` 为必需服务器插件，并通过 Bukkit `ServicesManager` 获取宿主公开能力。它不是
 JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入宿主实现包。
 
-当前已建立部署边界、生命周期、保护区域领域核心和固定保护进路表的低频编译器。尚未建立 world runtime、
-持久化文件、固定闭塞、信号规则、渲染、命令或 JS/YAML 接口；固定进路限制也尚未注册到实际世界，
-不得把 foundation 描述为可用信号系统。
+当前已建立部署边界、保护区域领域核心、固定保护进路表的低频编译器，以及把该编译结果注册到实际world的
+planning-only runtime。尚未建立持久化文件、固定闭塞、资源申请、inspection、信号规则、渲染、命令或 JS/YAML
+接口，不得把 foundation 描述为可用信号系统。
 
 ## 工作方式
 
@@ -20,6 +20,9 @@ Paper 先启用 JavaRailways
   -> Paper 构造并启用 SimpleSignalsPlugin
   -> SimpleSignals 同步取得所需 service capabilities
   -> 缺少任一能力则 onEnable 失败，不安装部分 world state
+  -> 对已经加载的world读取host的exact immutable topology root
+  -> 用空definition发布region/table candidate并注册一个route-planning source
+  -> 后续WorldLoad在host完成注册后重复上述流程；WorldUnload丢弃local runtime
 ```
 
 当前要求的能力是 coherent observation、通用 infrastructure/resource、signal epoch source、
@@ -27,6 +30,13 @@ inspection source和route-planning restriction source五个 service。插件 des
 `api-version` 声明 Bukkit API 目标。宿主目前没有独立的数值化 signal API version，因此不能伪造
 字符串版本比较；实际 capability gate 是所需 service 类型能否全部发现。后续若宿主引入明确的
 capability descriptor，再在同一公开边界检查。
+
+每次world load拥有一个新的`SimpleSignalsWorldRuntime`。`InfrastructureResourceService.currentTopology`返回
+host当前发布的exact immutable root；runtime不取得mutable Core world。启动阶段尚无持久化，因此以definition revision 0
+原子发布空region/table集合，再通过`RoutePlanningRestrictionSourceService`为该world注册且只注册
+`simplesignals:fixed-protection-routes`一个binding。损坏world未被host注册时，查询root失败；插件只记录明确诊断并保持该world
+无runtime/无source，不安装半套状态。空region publication只保留root并使用空index，不扫描整张拓扑；相同UUID
+unload/reload先删除local runtime，再创建新runtime与binding，不能复活旧缓存。
 
 ## 保护区域领域
 
@@ -67,8 +77,11 @@ region interior slice总数为`S`，同一rail最多有`Q`个slice，publication
 topology continuation的局部邻接检查），route query仍只有Basic既有的query-graph编译和Dijkstra成本。
 region或topology publication变化而table尚未重编译时source抛出失败，不能返回旧的宽松限制。
 
-当前尚未把该source通过Bukkit world service注册，也没有table持久化/authoring入口；这些属于后续world runtime
-批次，不能把现有编译器描述为已投入生产的保护区域选路。
+world runtime的definition入口为一次更新建立全新的candidate region catalog和candidate table catalog；两者都成功后才以
+一次volatile publication替换live pair。注册到host的binding保持稳定，只读取该publication，因此已捕获的source会立即看到
+完整新pair或完整旧pair，不会看到“新region + 旧table”。拓扑变更不会触发callback内重建；在authoring/persistence层显式
+republish之前，旧source按root identity检查fail-close。当前production启动只发布空集合，非空publication由内部入口和测试
+证明；持久化与authoring仍未实现。
 
 ## 依赖与打包不变量
 
@@ -79,9 +92,9 @@ region或topology publication变化而table尚未重编译时source抛出失败�
 - Kotlin stdlib 由 Paper descriptor 的 library declaration 提供；仍不得打入插件 JAR。
 - 插件只有 `SimpleSignalsPlugin` 一个 `JavaPlugin` lifecycle owner。
 - 普通 `jar` 就是部署 artifact；不使用 shadowJar，也不把宿主 classes 打入该 JAR。
-- 当前 `onDisable` 只清除本地 capability 引用。真正注册 source/resource 后，正常停用
-  必须先清空限制与 applied-plan dependency，再调用宿主唯一 owner-unregister gate；不能提前实现
-  一套空的 lifecycle 状态机。
+- 当前 `onDisable` 只丢弃plugin-local runtime map；Bukkit已经强制禁用时由host现有`PluginDisableEvent`路径删除失效
+  planning callback。尚未实现planned-disable UI/state machine；未来正常停用仍必须先移除applied-plan dependency并调用
+  宿主唯一owner-unregister gate，不能新增第二套卸载协议。
 
 ## 开发前检查
 
@@ -102,3 +115,5 @@ git diff --check
 `verifyPluginJar` 必须证明 artifact 含 `plugin.yml`，且不含 Core、Basic、SimpleATO 或 BukkitPlugin
 宿主 package。服务发现测试必须覆盖完整 capability 集合和缺少必需 capability 时的 fail-fast。
 保护区域测试必须覆盖简单/多道岔连通内部、outside reconnect、重叠、AB/BA路线窗口、缺少entry/exit和catalog失败不替换旧snapshot。
+world runtime测试还必须覆盖空启动、非空table改变Basic实际选路、candidate失败保留旧pair、topology变化到显式republish之间
+fail-close，以及同UUID reload得到新binding。

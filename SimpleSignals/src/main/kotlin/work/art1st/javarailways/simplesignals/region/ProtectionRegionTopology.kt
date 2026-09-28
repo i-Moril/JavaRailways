@@ -54,6 +54,10 @@ internal class ProtectionRegionTopology private constructor(
         get() = topologyState.revision
 
     companion object {
+        /** Retains the exact root without indexing rails when no protection region exists. */
+        fun empty(topologyState: TopologyState): ProtectionRegionTopology =
+            ProtectionRegionTopology(topologyState, emptyMap())
+
         fun derive(topologyState: TopologyState): ProtectionRegionTopology {
             val connections = topologyState.railProjection.keys.associateWithTo(linkedMapOf()) {
                 linkedSetOf<RailEndpointRef>() to linkedSetOf<RailEndpointRef>()

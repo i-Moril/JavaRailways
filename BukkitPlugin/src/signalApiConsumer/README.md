@@ -21,8 +21,9 @@ At enable time, load required platform services from Bukkit's `ServicesManager` 
 when a required service is absent. The fixture currently proves these services:
 
 - `RailwayObservationService`: immutable coherent world/train observations and subscriptions;
-- `InfrastructureResourceService`: custom resources, route contributions, preparation, route
-  admission, applied-plan edit dependencies and the unified owner lifecycle;
+- `InfrastructureResourceService`: the exact immutable topology root, custom resources, route
+  contributions, preparation, route admission, applied-plan edit dependencies and the unified
+  owner lifecycle;
 - `SignalEpochSourceService`: complete nonempty signal-source sets installed per plugin and world;
 - `InspectionSourceService`: host-route-bound inspection providers plus authenticated dirty
   declaration publication;

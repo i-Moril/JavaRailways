@@ -152,6 +152,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 : List.of()
         );
         services.observations().latest(worldId).ifPresent(observation -> {
+            var topology = services.infrastructure().currentTopology(worldId);
+            if (topology.getRevision() != observation.getStamp().getTopologyRevision()) {
+                throw new IllegalStateException("Observation and topology root are not coherent");
+            }
             services.signalSources().replaceSources(
                 this,
                 worldId,
@@ -184,7 +188,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 worldId,
                 List.of(new RoutePlanningRestrictionBinding(
                     "example.signaladdon:route-table",
-                    topology -> RoutePlanningRestrictions.Companion.unrestricted(topology)
+                    sourceTopology -> RoutePlanningRestrictions.Companion.unrestricted(sourceTopology)
                 ))
             );
             var signalResource = new StableInfrastructureResource("example.signaladdon:signal", "home");

@@ -81,7 +81,11 @@ internal class ProtectionRegionCatalog {
         }
 
         val derivedTopology = try {
-            ProtectionRegionTopology.derive(topology)
+            if (copiedDefinitions.isEmpty()) {
+                ProtectionRegionTopology.empty(topology)
+            } else {
+                ProtectionRegionTopology.derive(topology)
+            }
         } catch (failure: Exception) {
             return@synchronized rejected(
                 ProtectionRegionValidationCode.STALE_TOPOLOGY,

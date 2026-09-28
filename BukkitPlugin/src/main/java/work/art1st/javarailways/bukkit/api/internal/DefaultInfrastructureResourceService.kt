@@ -44,6 +44,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContribut
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -52,6 +53,7 @@ internal class DefaultInfrastructureResourceService(
 ) : InfrastructureResourceService, AutoCloseable {
     private val lock = Any()
     private data class WorldRuntime(
+        val currentTopology: () -> TopologyState,
         val registry: InfrastructureCoordinationRegistry,
         var routeAdmission: RouteResourceAdmissionRuntime? = null,
         var manualTurnoutSelection: ManualTurnoutSelectionRuntime? = null,
@@ -74,7 +76,7 @@ internal class DefaultInfrastructureResourceService(
 
     fun registerWorld(
         worldId: UUID,
-        currentTopologyRevision: () -> Long,
+        currentTopology: () -> TopologyState,
         railExists: (UUID) -> Boolean = { false },
         topologyNodeExists: (StableTopologyNodeKey) -> Boolean = { false },
         resourceExists: (InfrastructureResource) -> Boolean
@@ -82,8 +84,16 @@ internal class DefaultInfrastructureResourceService(
         check(!closed) { "InfrastructureResourceService is closed" }
         check(worldId !in worlds) { "Infrastructure coordination already exists for world $worldId" }
         worlds[worldId] = WorldRuntime(
-            InfrastructureCoordinationRegistry(currentTopologyRevision, resourceExists, railExists, topologyNodeExists)
+            currentTopology = currentTopology,
+            registry = InfrastructureCoordinationRegistry(
+                { currentTopology().revision }, resourceExists, railExists, topologyNodeExists
+            )
         )
+    }
+
+    override fun currentTopology(worldId: UUID): TopologyState = synchronized(lock) {
+        check(!closed) { "InfrastructureResourceService is closed" }
+        checkNotNull(worlds[worldId]) { "Railway world is not registered: $worldId" }.currentTopology()
     }
 
     /** Completes world composition after Basic data is attached and before the first physics wake. */

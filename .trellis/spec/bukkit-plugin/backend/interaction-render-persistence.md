@@ -53,6 +53,11 @@
 Folia dispatch和具体aspect/model应用都由具体信号插件负责。现有`BukkitPlugin`内部latest-only helper只服务主插件自身
 的车辆画面与platform commit，不是`SimpleATOBukkit`或附属插件API；出现真实跨插件需求后再评审通用platform service。
 
+`InfrastructureResourceService.currentTopology(worldId)`只暴露该world runtime当前发布的exact immutable
+`TopologyState` root，不暴露mutable `World`。插件必须把派生index与该root对象身份绑定；结构编辑发布新root后由插件在
+低频publication入口显式重编译，不能在route callback里临时重建。未注册、损坏而未加载或已经unload的railway world直接
+抛出`IllegalStateException`。同UUID重新加载是新的root/binding，旧root可继续作为immutable value读取，但不能冒充新world。
+
 ## Persistence 与配置
 
 - world 保存分为 infrastructure/runtime 两文件，必须选择相同 `infrastructureRevision` 的最新 primary/backup pair。outer `InfrastructureFileV2` 包含 Core、Basic、SimpleATO 三个严格 current document，恢复顺序为 Core → Basic → SimpleATO；旧 outer format 不由 runtime reader 接受。Stage 2 ownership extraction 的真实旧源只有 outer V1 + Basic V1，纯迁移一步输出 outer V2 + Basic V2 + SimpleATO V1，不接受分批重构产生的中间版本。文件发现、dry-run、恢复点和 apply 仍由独立 09-24 迁移任务实现。写入使用 temp、backup、atomic replace fallback；transport 策略不等于 schema version。

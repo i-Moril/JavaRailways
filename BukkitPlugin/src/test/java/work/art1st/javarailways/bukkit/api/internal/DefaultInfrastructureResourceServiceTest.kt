@@ -69,6 +69,25 @@ import java.util.UUID
 
 class DefaultInfrastructureResourceServiceTest {
     @Test
+    fun `current topology returns the exact live root and same UUID reload does not revive it`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val first = buildTestTopology(7L, emptyList(), emptyMap())
+        val reloaded = buildTestTopology(8L, emptyList(), emptyMap())
+
+        service.registerWorld(worldId, { first }) { false }
+        assertSame(first, service.currentTopology(worldId))
+
+        service.removeWorld(worldId)
+        assertThrows(IllegalStateException::class.java) { service.currentTopology(worldId) }
+
+        service.registerWorld(worldId, { reloaded }) { false }
+        assertSame(reloaded, service.currentTopology(worldId))
+        service.close()
+        assertThrows(IllegalStateException::class.java) { service.currentTopology(worldId) }
+    }
+
+    @Test
     fun `applied dependency denial returns exact diagnostics without installing an edit permit`() {
         val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
@@ -161,7 +180,7 @@ class DefaultInfrastructureResourceServiceTest {
             val second = world.createRailForTest(straightCurve(0.0, 10.0, 5.0))
             CoreRail.connect(stem, first)
             CoreRail.connect(stem, second)
-            service.registerWorld(worldId, world::topologyRevision) { resource ->
+            service.registerWorld(worldId, { world.topologyState }) { resource ->
                 resource is RailIntervalResource && world.getRail(resource.railId) != null ||
                     resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
             }
@@ -217,7 +236,7 @@ class DefaultInfrastructureResourceServiceTest {
             )
         )
         val observation = routeObservation(worldId, topology.revision, 1L, firstRail, 0.0, 1.0)
-        service.registerWorld(worldId, { topology.revision }) { resource ->
+        service.registerWorld(worldId, { topology }) { resource ->
             resource is RailIntervalResource && resource.railId in setOf(firstRail, secondRail) ||
                 resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
@@ -257,7 +276,7 @@ class DefaultInfrastructureResourceServiceTest {
         val requester = plugin("signal")
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         var observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
-        service.registerWorld(worldId, { topology.revision }) { resource ->
+        service.registerWorld(worldId, { topology }) { resource ->
             resource is RailIntervalResource && resource.railId == railId
         }
         service.attachInfrastructureRuntime(
@@ -311,7 +330,7 @@ class DefaultInfrastructureResourceServiceTest {
             assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
                 admission.request(intent)).failure.code
         )
-        service.registerWorld(worldId, { topology.revision }) { false }
+        service.registerWorld(worldId, { topology }) { false }
         service.attachInfrastructureRuntime(
             worldId, TestWorld(topology), { observation }, {}, 5.0
         ) { _, _ -> }
@@ -332,7 +351,7 @@ class DefaultInfrastructureResourceServiceTest {
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
         val stalls = mutableListOf<String>()
-        service.registerWorld(worldId, { topology.revision }) { resource ->
+        service.registerWorld(worldId, { topology }) { resource ->
             resource is RailIntervalResource && resource.railId == railId
         }
         service.attachInfrastructureRuntime(
@@ -382,7 +401,7 @@ class DefaultInfrastructureResourceServiceTest {
         val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
         val stalls = mutableListOf<String>()
         service.registerRouteResourceContributor(contributor) { _, _ -> emptyList() }
-        service.registerWorld(worldId, { topology.revision }) { resource ->
+        service.registerWorld(worldId, { topology }) { resource ->
             resource is RailIntervalResource && resource.railId == railId
         }
         service.attachInfrastructureRuntime(
@@ -450,7 +469,7 @@ class DefaultInfrastructureResourceServiceTest {
                 emptyList()
             }
         }
-        service.registerWorld(worldId, { topology.revision }) { resource ->
+        service.registerWorld(worldId, { topology }) { resource ->
             resource is RailIntervalResource && resource.railId == railId ||
                 resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
@@ -557,7 +576,7 @@ class DefaultInfrastructureResourceServiceTest {
                 listOf(ContributedRouteResource(resource, RouteBoundary(20.0), descriptor))
             } else emptyList()
         }
-        service.registerWorld(worldId, { topology.revision }) { claimed ->
+        service.registerWorld(worldId, { topology }) { claimed ->
             claimed is RailIntervalResource && claimed.railId == railId ||
                 claimed is StableInfrastructureResource && service.stableResourceExists(worldId, claimed)
         }
@@ -601,7 +620,7 @@ class DefaultInfrastructureResourceServiceTest {
             worldId.toString(),
             RailwayWorldFrameSnapshot.create(1L, topology.revision, emptyList())
         )
-        service.registerWorld(worldId, { topology.revision }) { false }
+        service.registerWorld(worldId, { topology }) { false }
         service.attachInfrastructureRuntime(
             worldId, world, { observation }, {}, 5.0
         ) { reason, failure ->
@@ -876,7 +895,7 @@ class DefaultInfrastructureResourceServiceTest {
             rejectingRouteProvider { _, id -> id == "home" },
             emptyList()
         )
-        service.registerWorld(worldId, { topology.revision }) { resource ->
+        service.registerWorld(worldId, { topology }) { resource ->
             resource is RailIntervalResource && resource.railId == railId ||
                 resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
@@ -963,15 +982,16 @@ class DefaultInfrastructureResourceServiceTest {
         val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
-        var currentRevision = 7L
+        var currentTopology = buildTestTopology(7L, emptyList(), emptyMap())
         service.registerResourceProvider(
             plugin, "example.signal:signal", rejectingRouteProvider { _, _ -> true }, emptyList()
         )
-        service.registerWorld(worldId, { currentRevision }) { resource ->
+        service.registerWorld(worldId, { currentTopology }) { resource ->
             resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
 
-        currentRevision = 8L
+        currentTopology = buildTestTopology(8L, emptyList(), emptyMap())
+        assertSame(currentTopology, service.currentTopology(worldId))
         assertEquals(
             AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
             service.setAppliedPlanDependencies(
@@ -1004,7 +1024,8 @@ class DefaultInfrastructureResourceServiceTest {
     }
 
     private fun registerWorld(service: DefaultInfrastructureResourceService, worldId: UUID) {
-        service.registerWorld(worldId, { 7L }) { resource: InfrastructureResource ->
+        val topology = buildTestTopology(7L, emptyList(), emptyMap())
+        service.registerWorld(worldId, { topology }) { resource: InfrastructureResource ->
             resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
     }

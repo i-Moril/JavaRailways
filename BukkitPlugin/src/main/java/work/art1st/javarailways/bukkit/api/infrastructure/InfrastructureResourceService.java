@@ -10,6 +10,7 @@ import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionR
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult;
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState;
 
 import java.util.Collection;
 import java.util.List;
@@ -30,6 +31,19 @@ import java.util.UUID;
  * infrastructure edits; trains do not inspect them and runtime claims do not conflict with them.</p>
  */
 public interface InfrastructureResourceService {
+    /**
+     * Returns the exact immutable topology root currently published by one railway world.
+     *
+     * <p>The returned value is safe to retain and read without access to a mutable Core world. A
+     * later structural edit may publish a different root, so callers must keep the object identity
+     * with any derived indexes and explicitly rebuild them before using the newer root. World
+     * unload invalidates only future lookups; it does not mutate a root already returned.</p>
+     *
+     * @throws IllegalStateException if this service is closed or the requested railway world is
+     *                               not currently registered
+     */
+    TopologyState currentTopology(UUID worldId);
+
     /**
      * Returns the route-resource admission entry point for one plugin and railway world.
      *

@@ -4,7 +4,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
 
-private val NAMESPACED_ID = Regex("[a-z0-9_.-]+:[A-Za-z0-9_./-]+")
+internal val SIMPLE_SIGNALS_NAMESPACED_ID = Regex("[a-z0-9_.-]+:[A-Za-z0-9_./-]+")
 
 /** One authored directional cut. Facing points from outside into the protected interior. */
 internal data class ProtectionBoundaryDefinition(
@@ -12,7 +12,7 @@ internal data class ProtectionBoundaryDefinition(
     val position: RailPositionSnapshot
 ) {
     init {
-        require(NAMESPACED_ID.matches(boundaryId)) { "boundaryId must be namespaced" }
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(boundaryId)) { "boundaryId must be namespaced" }
     }
 
     val insideFacing: ViewDirection
@@ -33,7 +33,7 @@ internal data class ProtectionRegionDefinition private constructor(
     ) : this(regionId, revision, java.util.List.copyOf(boundaries))
 
     init {
-        require(NAMESPACED_ID.matches(regionId)) { "regionId must be namespaced" }
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(regionId)) { "regionId must be namespaced" }
         require(revision >= 0L) { "region revision must be non-negative" }
         require(boundaries.isNotEmpty()) { "protection region must have at least one boundary" }
         require(boundaries.map(ProtectionBoundaryDefinition::boundaryId).distinct().size == boundaries.size) {

@@ -35,9 +35,10 @@ Current extraction progress:
 
 ## Deliverable 2: SimpleSignals foundation
 
-- [x] Scaffold the independent Java/Kotlin plugin, descriptor, compile-only host dependencies, capability checks and separate JAR packaging. The descriptor hard-depends on JavaRailways and declares the Bukkit API target; the current host exposes typed services rather than a numeric signal-API version, so startup validates the four required service capabilities instead of inventing string-version comparison.
+- [x] Scaffold the independent Java/Kotlin plugin, descriptor, compile-only host dependencies, capability checks and separate JAR packaging. The descriptor hard-depends on JavaRailways and declares the Bukkit API target; the current host exposes typed services rather than a numeric signal-API version, so startup validates the five required service capabilities instead of inventing string-version comparison.
 - [ ] Establish plugin-owned world runtime, strict current-model sidecar, stable namespaced IDs and atomic primary/backup store.
 - [x] Move `ProtectionRegionDefinition`, boundary/catalog, graph-cut/interior derivation, route-window matching and validation tests out of Basic. The plugin catalog atomically publishes one topology/definition-revision snapshot and indexes candidate regions by rail; Basic still performs independent structural route validation.
+- [x] Define SimpleSignals-private fixed protection route tables and compile each region table atomically into one neutral Basic `PathReplacement`. Publication validates gate correspondence, direction, continuity and interior containment; the cached source rejects stale topology/region publications and is not yet registered into a Bukkit world.
 - [ ] Move protection-region authoring, diagnostics, RailObjectWand mode and persistence/composition callers into the plugin.
 - [x] Remove Basic's protection-region request/claim/validator API and `PROTECTION_REQUIRED` policy after confirming the generic route-resource runtime is the production path. Keep and rename the generic tail-release controller used by that runtime.
 - [ ] Add plugin-owned fixed-block definitions and the plugin-local common section observation interface if the reference rules need it.

@@ -26,6 +26,14 @@ internal sealed interface ProtectionRegionRouteMatchResult {
     data class Rejected(val diagnostics: List<ProtectionRegionDiagnostic>) : ProtectionRegionRouteMatchResult
 }
 
+/** Immutable region publication captured by low-frequency plugin compilers. */
+internal class ProtectionRegionCompilationSnapshot(
+    val topology: TopologyState,
+    val definitionRevision: Long,
+    val derivedTopology: ProtectionRegionTopology,
+    val regionsById: Map<String, ResolvedProtectionRegion>
+)
+
 /**
  * Atomically publishes plugin-owned protection definitions and their disposable topology index.
  * A rejected rebuild preserves the previous snapshot. Rebuild work occurs on authoring/load, not
@@ -112,6 +120,12 @@ internal class ProtectionRegionCatalog {
 
     fun definitions(): List<ProtectionRegionDefinition> = snapshot?.definitions.orEmpty()
 
+    /**
+     * Returns the exact immutable publication currently backing route matching.
+     * Consumers compare this object's identity to detect a later region publication.
+     */
+    fun compilationSnapshot(): ProtectionRegionCompilationSnapshot? = snapshot?.compilationSnapshot
+
     fun match(route: RouteSnapshot): ProtectionRegionRouteMatchResult {
         val captured = snapshot ?: return ProtectionRegionRouteMatchResult.Rejected(
             listOf(
@@ -155,7 +169,8 @@ internal class ProtectionRegionCatalog {
         val derivedTopology: ProtectionRegionTopology,
         val definitions: List<ProtectionRegionDefinition>,
         val regionsById: Map<String, ResolvedProtectionRegion>,
-        val regionIdsByRail: Map<UUID, Set<String>>
+        val regionIdsByRail: Map<UUID, Set<String>>,
+        val compilationSnapshot: ProtectionRegionCompilationSnapshot
     ) {
         fun equivalentTo(other: Snapshot): Boolean =
             topology === other.topology &&
@@ -177,13 +192,20 @@ internal class ProtectionRegionCatalog {
                         byRail.getOrPut(slice.railId, ::linkedSetOf) += region.definition.regionId
                     }
                 }
+                val immutableById = java.util.Map.copyOf(byId)
                 return Snapshot(
                     topology,
                     definitionRevision,
                     derivedTopology,
                     java.util.List.copyOf(definitions),
-                    java.util.Map.copyOf(byId),
-                    java.util.Map.copyOf(byRail.mapValues { java.util.Set.copyOf(it.value) })
+                    immutableById,
+                    java.util.Map.copyOf(byRail.mapValues { java.util.Set.copyOf(it.value) }),
+                    ProtectionRegionCompilationSnapshot(
+                        topology,
+                        definitionRevision,
+                        derivedTopology,
+                        immutableById
+                    )
                 )
             }
         }

@@ -81,7 +81,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [ ] Plugin persistence round-trips current fixtures and rejects/preserves corrupt or orphaned input with actionable diagnostics.
 - [ ] Unit, integration, packaging and Folia smoke checks pass.
 - [x] Mission, Line, Station and Timetable use one immutable-topology planning path; registered restrictions have identical semantics for all callers and no legacy `RailView` planner remains in production.
-- [ ] A signalling plugin can compile its private interlocking/region model into neutral suppressed traversals plus complete physical traversal macros, without permitting hybrid paths assembled from portions of different table routes; Basic neither defines the region nor accepts any expanded traversal absent from physical topology.
+- [x] A signalling plugin can compile its private interlocking/region model into neutral suppressed traversals plus complete physical traversal macros, without permitting hybrid paths assembled from portions of different table routes; Basic neither defines the region nor accepts any expanded traversal absent from physical topology. The immutable compiler exists in SimpleSignals; Bukkit world registration remains a later batch.
 
 ## Out of scope
 

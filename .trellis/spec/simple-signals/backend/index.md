@@ -6,8 +6,9 @@
 声明 `JavaRailways` 为必需服务器插件，并通过 Bukkit `ServicesManager` 获取宿主公开能力。它不是
 JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入宿主实现包。
 
-当前已建立部署边界、生命周期和保护区域领域核心。尚未建立 world runtime、持久化文件、固定闭塞、
-信号规则、渲染、命令或 JS/YAML 接口；不得把 foundation 描述为可用信号系统。
+当前已建立部署边界、生命周期、保护区域领域核心和固定保护进路表的低频编译器。尚未建立 world runtime、
+持久化文件、固定闭塞、信号规则、渲染、命令或 JS/YAML 接口；固定进路限制也尚未注册到实际世界，
+不得把 foundation 描述为可用信号系统。
 
 ## 工作方式
 
@@ -40,10 +41,34 @@ capability descriptor，再在同一公开边界检查。
 
 route-window 只描述 region entry/exit。列车需要在出口后继续申请固定闭塞或移动闭塞距离属于后续 plugin route-decision 层，不放回 region model，也不复制旧 Basic `exitClearance` 单窗口合同。
 
-固定进路表仍属于后续SimpleSignals领域功能。宿主现有的owner/world注册与中立寻路限制合同允许插件在低频编译时把
-私有区域/联锁表输出为“被替换的有向轨道区间 + 若干完整物理path”；Basic把每条path作为不可拆分
-macro参与查询，不认识region ID，也不在Dijkstra循环中回调插件。当前SimpleSignals尚未定义、持久化
-或注册具体进路表，不能把宿主source service能力描述为已经完成的保护区域选路。
+## 固定保护进路表
+
+`ProtectionRouteTableDefinition`是SimpleSignals私有的联锁选路模型。每个table以稳定namespaced ID和
+revision绑定一个region ID及其revision；每条带稳定ID的route声明entry boundary、exit boundary和从入口
+到出口的完整有向物理traversal序列。route不是Basic graph edge，也不允许调用方只提交若干可自由拼接的支路。
+
+`ProtectionRouteTableCatalog.publish`捕获`ProtectionRegionCatalog`的一个不可变publication，在authoring/load
+路径完成以下工作：
+
+1. 验证table/route ID唯一、table revision单调且region引用/revision仍匹配；
+2. 验证route精确对齐入口/出口cut，从入口的inside facing开始，从出口的outside facing结束；
+3. 验证每段位于派生region interior内，相邻段在同一rail上连续或通过Core topology允许的有向continuation相连；
+4. 把该region的全部interior slice按AB和BA两个方向输出为一个`PathReplacement.replacedTraversals`，再把
+   每条完整route输出为一个`PhysicalTraversalPath`。
+
+因此Basic会删除区域内自由通行的query edge，只把每条完整route作为不可拆分macro加入查询。同一对gate可以有
+多条route，但搜索不能把route A的前半段与route B的后半段拼成表外进路。未定义table的region不产生replacement，
+本批次不会把“存在保护区域”隐式解释成固定进路限制。
+
+所有table先全部验证和编译，成功后才原子替换cached restriction snapshot；失败保留旧snapshot。source callback
+只做`O(1)`的region publication与topology root/revision一致性检查，然后返回已缓存的Basic中立
+`RoutePlanningRestrictions`；不在Dijkstra或tick内解析region/table。设table route的总traversal数为`P`，
+region interior slice总数为`S`，同一rail最多有`Q`个slice，publication编译为`O(S+P log Q)`（另加ID检查和
+topology continuation的局部邻接检查），route query仍只有Basic既有的query-graph编译和Dijkstra成本。
+region或topology publication变化而table尚未重编译时source抛出失败，不能返回旧的宽松限制。
+
+当前尚未把该source通过Bukkit world service注册，也没有table持久化/authoring入口；这些属于后续world runtime
+批次，不能把现有编译器描述为已投入生产的保护区域选路。
 
 ## 依赖与打包不变量
 

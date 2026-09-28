@@ -17,6 +17,9 @@
   完整normalized topology candidate；world commit只复核exact root、delta rail identities/count、changed endpoint与diamond result，应用delta并publish
   prepared root。它不执行完整live inventory fingerprint、`TopologyStateBuilder.build`或同步fallback。bootstrap/load以及Core内部低层同步
   transaction仍可从live rail inventory完整构建；这些入口不得重新用于玩家在线编辑。
+- prepared update同时冻结该delta涉及的旧rail instance/absent identity、prepared新curve identity、两端structural continuation、raw crossing pair与全局rail count。
+  action异常后只以`O(delta)`复核这些旧值：完全未改或完整恢复则保持world可用；任一结构结果未恢复才fault/stall。不得为了异常判断
+  恢复`O(world)` fingerprint，也不得用“曾调用过mutation”代替最终结构检查。
 - outer structural transaction在释放write lock前比较进入/退出时的rail identity与structural adjacency；只有成功且结构确实变化时才递增一次`topologyRevision`。nested transaction不重复递增，直接add/remove rail也进入同一边界；成功no-op与完整rollback不发布新revision。
 - transaction exception不自动rollback。若异常前结构未变化，revision不变且world仍可用；若结构已经变化，revision仍保持旧值、world topology进入`RailTopologyHealth.Faulted`并Stall physics，禁止继续发布world frame或执行新结构事务，直到reload/recovery。fault record只保留稳定reason、最后成功revision、异常类型和消息，不长期持有原始`Throwable`；嵌套失败只存在于当前`RailTopologyTransactionContext`。不得把失败后的部分结构伪装成一个正常新revision。
 - `removeRail`检查target及affected rails的full train placement envelope，修复links/spatial index后移除。
@@ -124,6 +127,8 @@ UUID安装预采样实例，最后写入snapshot声明的endpoint state。普通
 install-before-remove规则不放宽。旧raw crossing去除被替换rail后与prepared crossings合并，并通过target explicit
 connections重新归一化。target topology和introduced crossings只在prepare内部用于导出removed old crossings及
 prospective crossing的existing-rail参与者，不随plan长期保留；Basic permit只提交这些current-valid身份。
+snapshot若只改变active branch selection，则它是runtime选择而非structural delta：apply更新active view，但复用exact同一个
+`TopologyState` root且revision不变；rail identity/geometry或`nextRailAtA/B`变化才构造并发布revision+1 candidate。
 async prepare只解析owner线程已捕获的current/target saved values和immutable curve geometry，不读取live mutable connection或
 active branch；回到player owner后，plan以captured endpoint state逐项复核live rail，再允许permit/apply。
 比较与target topology构建为`O(N + M + K)`，其中`M`为snapshot连接数、`K`为相关crossing数；exact geometry成本仍沿用

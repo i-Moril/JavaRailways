@@ -142,6 +142,127 @@ class CoreWorldRailTopologyTransactionTest {
     }
 
     @Test
+    fun `prepared failure before mutation keeps exact root and world usable`() {
+        val world = createTestWorld()
+        val rail = world.createRailForTest(straightCurve(0.0, 10.0))
+        val root = world.topologyState
+        val prepared = world.prepareRailRemovalTopologyUpdate(root, setOf(rail.id))
+
+        assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction(prepared) { error("failed before mutation") }
+        }
+
+        assertTrue(world.topologyState === root)
+        assertTrue(world.getRail(rail.id) === rail)
+        assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
+        world.railTopologyTransaction { }
+    }
+
+    @Test
+    fun `prepared action rejects an undeclared rail identity before mutation`() {
+        val world = createTestWorld()
+        val rail = world.createRailForTest(straightCurve(0.0, 10.0))
+        val root = world.topologyState
+        val prepared = world.prepareRailRemovalTopologyUpdate(root, setOf(rail.id))
+        val undeclaredId = UUID.randomUUID()
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction(prepared) {
+                world.createRailInTransaction(undeclaredId, straightCurve(20.0, 30.0))
+            }
+        }
+
+        assertTrue(failure.message.orEmpty().contains("undeclared rail identity"))
+        assertEquals(null, world.getRail(undeclaredId))
+        assertTrue(world.getRail(rail.id) === rail)
+        assertTrue(world.topologyState === root)
+        assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
+    }
+
+    @Test
+    fun `prepared created rail and raw crossing can roll back completely`() {
+        val world = createTestWorld()
+        world.createRailForTest(straightCurve(-5.0, 5.0))
+        val root = world.topologyState
+        val batch = world.prepareRailCreation(crossingCurve(-5.0, 5.0))
+        val plan = world.capturePreparedRailConnectionPlan(batch, emptyList())
+        val prepared = plan.prepareTopologyUpdate()
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction(prepared) {
+                val created = world.installPreparedRails(batch).single()
+                plan.apply(world, listOf(created))
+                world.removeRail(created)
+                error("failed after complete creation rollback")
+            }
+        }
+
+        assertEquals("failed after complete creation rollback", failure.message)
+        assertEquals(1, world.allRails.size)
+        assertEquals(null, world.getRail(batch.creations.single().railId))
+        assertTrue(world.topologyState === root)
+        assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
+    }
+
+    @Test
+    fun `prepared failure after complete structural rollback keeps world usable`() {
+        val world = createTestWorld()
+        val first = world.createRailForTest(straightCurve(0.0, 10.0))
+        val second = world.createRailForTest(straightCurve(10.0, 20.0))
+        val current = world.allRails.map(CoreRail::save)
+        val target = connectedSnapshot(current, first.id, second.id)
+        val plan = world.prepareRailWorldSnapshotRestore(current, target)
+        val root = world.topologyState
+
+        assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction(plan.topologyUpdate) {
+                plan.apply(world)
+                first.viewAB.activeRail = null
+                first.viewAB.mutableNextRails.clear()
+                second.viewBA.activeRail = null
+                second.viewBA.mutableNextRails.clear()
+                error("failed after rollback")
+            }
+        }
+
+        assertTrue(world.topologyState === root)
+        assertTrue(first.viewAB.mutableNextRails.isEmpty())
+        assertTrue(second.viewBA.mutableNextRails.isEmpty())
+        assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
+        world.railTopologyTransaction { }
+    }
+
+    @Test
+    fun `prepared failure after incomplete structural rollback faults world`() {
+        val world = createTestWorld()
+        val first = world.createRailForTest(straightCurve(0.0, 10.0))
+        val second = world.createRailForTest(straightCurve(10.0, 20.0))
+        val current = world.allRails.map(CoreRail::save)
+        val plan = world.prepareRailWorldSnapshotRestore(
+            current,
+            connectedSnapshot(current, first.id, second.id)
+        )
+        val revision = world.topologyRevision
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction(plan.topologyUpdate) {
+                plan.apply(world)
+                first.viewAB.activeRail = null
+                first.viewAB.mutableNextRails.clear()
+                error("failed after partial rollback")
+            }
+        }
+
+        assertEquals("failed after partial rollback", failure.message)
+        assertEquals(revision, world.topologyRevision)
+        assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
+        val editFailure = assertThrows(RailTopologyFaultedException::class.java) {
+            world.railTopologyTransaction { }
+        }
+        assertEquals("failed after partial rollback", editFailure.fault.failureMessage)
+    }
+
+    @Test
     fun `caught nested transaction failure aborts outer publication`() {
         val world = createTestWorld()
         val before = world.topologyRevision
@@ -257,5 +378,32 @@ class CoreWorldRailTopologyTransactionTest {
             Curve.RawPoint(Vector3d(fromX, 0.0, 0.0), Vector3d(tangent), Vector3d(normal), 0.0),
             Curve.RawPoint(Vector3d(toX, 0.0, 0.0), Vector3d(tangent), Vector3d(normal), toX - fromX)
         ))
+    }
+
+    private fun crossingCurve(fromZ: Double, toZ: Double): PrimeCurve {
+        val normal = Vector3d(0.0, 1.0, 0.0)
+        val tangent = Vector3d(0.0, 0.0, 1.0)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(0.0, 0.0, fromZ), Vector3d(tangent), Vector3d(normal), 0.0),
+            Curve.RawPoint(Vector3d(0.0, 0.0, toZ), Vector3d(tangent), Vector3d(normal), toZ - fromZ)
+        ))
+    }
+
+    private fun connectedSnapshot(
+        current: List<CoreRail.SavedRailV1>,
+        firstId: UUID,
+        secondId: UUID
+    ): List<CoreRail.SavedRailV1> = current.map { saved ->
+        when (saved.id) {
+            firstId.toString() -> saved.copy(
+                nextRailAtB = listOf(secondId.toString()),
+                activeTrackAtB = secondId.toString()
+            )
+            secondId.toString() -> saved.copy(
+                nextRailAtA = listOf(firstId.toString()),
+                activeTrackAtA = firstId.toString()
+            )
+            else -> saved
+        }
     }
 }

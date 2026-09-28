@@ -14,6 +14,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 
@@ -78,6 +79,7 @@ class PreparedRailWorldSnapshotPlanTest {
             }
 
             val plan = world.prepareRailWorldSnapshotRestore(current, target)
+            val revision = world.topologyRevision
 
             assertEquals(
                 setOf(
@@ -89,6 +91,46 @@ class PreparedRailWorldSnapshotPlanTest {
             world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
             assertEquals(target.associateBy { it.id }, world.allRails.map(CoreRail::save).associateBy { it.id })
             assertTrue(world.topologyState.atGradeCrossings.isEmpty())
+            assertEquals(revision + 1L, world.topologyRevision)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `active-only snapshot restore retains exact topology root and revision`() {
+        val world = createTestWorld()
+        try {
+            val source = world.createRailForTest(
+                line(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
+            )
+            val first = world.createRailForTest(
+                line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0))
+            )
+            val second = world.createRailForTest(
+                line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0))
+            )
+            CoreRail.connect(source, first)
+            CoreRail.connect(source, second)
+            source.viewAB.activeRail = first.viewAB
+            val current = world.allRails.map(CoreRail::save)
+            val target = current.map { saved ->
+                if (saved.id == source.id.toString()) {
+                    saved.copy(activeTrackAtB = second.id.toString())
+                } else {
+                    saved
+                }
+            }
+            val root = world.topologyState
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
+
+            assertSame(root, plan.topologyUpdate.targetRoot)
+            world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
+
+            assertSame(root, world.topologyState)
+            assertEquals(root.revision, world.topologyRevision)
+            assertSame(second.viewAB, source.viewAB.activeRail)
         } finally {
             world.physicsCoordinator.close()
             (world.tickManager as AutoCloseable).close()
@@ -155,6 +197,34 @@ class PreparedRailWorldSnapshotPlanTest {
             assertSame(crossing, world.getRail(crossing.id))
             assertSame(unrelated, world.getRail(unrelated.id))
             assertEquals(1, world.topologyState.atGradeCrossings.size)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `same UUID replacement requires the exact prepared curve before publication`() {
+        val world = createTestWorld()
+        try {
+            val source = world.createRailForTest(
+                line(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
+            )
+            val current = world.allRails.map(CoreRail::save)
+            val targetCurve = line(Vector3d(0.0, 0.0, 0.0), Vector3d(0.0, 0.0, 10.0))
+            val target = current.map { saved ->
+                saved.copy(curveAB = targetCurve.save() as PrimeCurveImpl.SavedPrimeCurveV1)
+            }
+            val root = world.topologyState
+            val plan = world.prepareRailWorldSnapshotRestore(current, target)
+
+            assertThrows(IllegalStateException::class.java) {
+                world.railTopologyTransaction(plan.topologyUpdate) { }
+            }
+
+            assertSame(source, world.getRail(source.id))
+            assertSame(root, world.topologyState)
+            assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
         } finally {
             world.physicsCoordinator.close()
             (world.tickManager as AutoCloseable).close()

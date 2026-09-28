@@ -98,6 +98,10 @@ Current extraction progress:
   affected rail/endpoint results and publish the prebuilt root; stale preparation rejects before action,
   with no full-world fingerprint or synchronous builder fallback. Whole-world undo/persistence capture
   remains the unfinished half of the parent item above.
+- [x] Prepared topology failure handling now compares immutable `O(delta)` base rail identities,
+  endpoint continuations and crossing pairs: failures before mutation or after complete rollback keep
+  the world healthy, while an incomplete rollback faults it. Snapshot restore reuses the exact topology
+  root for active-branch-only changes and advances the revision only for structural changes.
 - [ ] Add concurrency regressions proving signal edits and edit-permit scans do not wait for the
   cross-world simulation lock, plus track-edit tests proving another world continues ticking while a
   prepared edit is delayed.

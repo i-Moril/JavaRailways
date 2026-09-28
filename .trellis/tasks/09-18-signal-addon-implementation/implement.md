@@ -89,7 +89,7 @@ Current extraction progress:
   before the final source/publication commit. The bounded callback may only recheck identity,
   atomically rename the staged primary and swap immutable references; backup rotation/cleanup follows
   publication.
-- [ ] Audit every RailWand create/replace/split/merge/remove path. Move final normalized
+- [x] Audit every RailWand create/replace/split/merge/remove path. Move final normalized
   `TopologyState` construction and any whole-world undo/persistence capture into asynchronous prepare;
   the platform/world commit may only validate the captured root, apply the prepared delta and publish
   the prepared root for the affected world.
@@ -97,20 +97,21 @@ Current extraction progress:
   `TopologyState` on the existing async worker. Prepared commits validate the exact base root plus only
   affected rail/endpoint results and publish the prebuilt root; stale preparation rejects before action,
   with no full-world fingerprint or synchronous builder fallback.
-- [ ] RailWand structural-edit undo captures both complete `before` and `expectedAfter` values in the
+- [x] RailWand structural-edit undo captures both complete `before` and `expectedAfter` values in the
   asynchronous prepare pipeline. Core first freezes complete saved-rail values for the exact base/target roots;
   Bukkit then acquires the exact affected-infrastructure permit before a second worker stage prepares metadata,
   direction, render and operational-object values. The same permit remains held through owner revalidation and
   commit, so the prepared side-state cannot be superseded by an overlapping edit. The owner callback only consumes
   those prepared undo values and rejects a stale base root;
-  it does not rescan the world to create the undo record. Staging the remaining render sidecar writes is
-  still required before the parent item can be closed. User-triggered application of an existing undo record
+  it does not rescan the world to create the undo record. The worker now also stages the complete render sidecar
+  and old-primary recovery copy; owner publication is an identity check plus atomic rename, and commit failure restores
+  the old primary before releasing the edit permit. A per-world writer slot prevents two whole-file writers from racing,
+  while stale record snapshots reject instead of overwriting a preceding disjoint edit. User-triggered application of an existing undo record
   deliberately keeps its complete owner-thread current-state checks until non-topology stores have one reviewed
   revision/stale boundary; optimizing that separate flow is not part of this item. Transient
   `SavedRailV1.activeTrackAtA/B` is now normalized out of structural undo before/after equality. Undo apply preserves
   the live selection when it remains in the ordered target connections, otherwise selects the first target or null;
-  unrelated turnout switching therefore does not stale or overwrite the structural undo. Remaining blocker is only
-  the render sidecar staging described above.
+  unrelated turnout switching therefore does not stale or overwrite the structural undo.
 - [x] Prepared topology failure handling now compares immutable `O(delta)` base rail identities,
   endpoint continuations and crossing pairs: failures before mutation or after complete rollback keep
   the world healthy, while an incomplete rollback faults it. Snapshot restore reuses the exact topology

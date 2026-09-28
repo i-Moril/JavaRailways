@@ -97,7 +97,10 @@ wake physics + generic preTick
 结构编辑先异步准备topology candidate，随后获取exact affected-infrastructure permit；permit持有期间由worker构造whole-world undo
 `before`/`expectedAfter`，再回到owner复核exact root并提交。这样非拓扑store不会在undo capture与commit之间被重叠编辑。runtime active branch
 不属于structural undo：准备值把它归一化掉，提交不能因为无关的道岔选择变化而失败或覆盖该选择。
-剩余render sidecar encode/write若仍位于owner阶段，继续作为单独待迁移项，不能回退为transaction内的`O(world)` topology rebuild或capture。
+`RailRenderMetaStore`的整文件编码、临时文件写入和旧primary复制也在该worker阶段完成；owner只验证primary身份并原子替换文件。
+一个per-world writer slot串行化这个单文件边界，等待只发生在worker；准备值还比较捕获时的完整record集合，因而两个不相交轨道编辑
+不能用各自的旧快照覆盖对方。若Core/player提交在文件发布后失败，仍持有edit permit时原子恢复旧primary，随后异步清理staging并释放writer slot。
+正常准备和比较成本为`O(render record count)`且不阻塞physics/owner，owner publish/rollback只包含文件身份检查、rename和cache引用替换。
 
 ## 世界 lifecycle
 

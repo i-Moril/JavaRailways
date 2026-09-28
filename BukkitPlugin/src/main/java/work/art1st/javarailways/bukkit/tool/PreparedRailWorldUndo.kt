@@ -16,13 +16,26 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import java.util.UUID
 
 /** Complete before/after undo values prepared away from the Bukkit owner commit. */
-internal data class PreparedRailWorldUndo(
+internal class PreparedRailWorldUndo(
     val before: RailWorldUndoSnapshot,
     val expectedAfter: RailWorldUndoSnapshot,
     val metadataRemovals: Set<UUID>,
     val metadataAdditions: Map<UUID, RailMetadata>,
-    val renderAdditionsByRail: Map<UUID, PersistedRailRenderMeta>
-)
+    val renderAdditionsByRail: Map<UUID, PersistedRailRenderMeta>,
+    private val preparedRenderSave: RailRenderMetaStore.PreparedSave? = null
+) : AutoCloseable {
+    fun publishRenderSidecar() {
+        preparedRenderSave?.commitPrimary()
+    }
+
+    fun rollbackRenderSidecar() {
+        preparedRenderSave?.rollbackPrimary()
+    }
+
+    override fun close() {
+        preparedRenderSave?.close()
+    }
+}
 
 /** Active branch is transient runtime state and is not part of a structural RailWand undo value. */
 internal fun normalizeRailWandUndoRails(
@@ -41,7 +54,8 @@ internal fun normalizeRailWandUndoRails(
 @OptIn(Heavy::class)
 internal class PreparedRailWorldUndoBuilder private constructor(
     before: RailWorldUndoSnapshot,
-    targetRails: List<CoreRail.SavedRailV1>
+    targetRails: List<CoreRail.SavedRailV1>,
+    private val prepareRenderSave: ((List<PersistedRailRenderMeta>) -> RailRenderMetaStore.PreparedSave)?
 ) {
     private val before = before.copy(rails = normalizeRailWandUndoRails(before.rails))
     private val currentCurves = this.before.rails.associate { UUID.fromString(it.id) to it.curveAB.load(Unit) }
@@ -235,7 +249,10 @@ internal class PreparedRailWorldUndoBuilder private constructor(
             metadataAdditions = after.railMetadata.filterKeys(changedMetadata::contains),
             renderAdditionsByRail = changedRender.mapNotNull { railId ->
                 afterRender[railId]?.let { railId to it }
-            }.toMap()
+            }.toMap(),
+            preparedRenderSave = if (changedRender.isEmpty()) null else {
+                prepareRenderSave?.invoke(after.renderMetas)
+            }
         )
     }
 
@@ -243,7 +260,7 @@ internal class PreparedRailWorldUndoBuilder private constructor(
         fun fromSnapshots(
             before: RailWorldUndoSnapshot,
             targetRails: List<CoreRail.SavedRailV1>
-        ): PreparedRailWorldUndoBuilder = PreparedRailWorldUndoBuilder(before, targetRails)
+        ): PreparedRailWorldUndoBuilder = PreparedRailWorldUndoBuilder(before, targetRails, null)
 
         fun capture(
             worldId: UUID,
@@ -262,7 +279,9 @@ internal class PreparedRailWorldUndoBuilder private constructor(
                 wayPoints = coreWorld.basicWorldData.wayPoints.all()
             )
             check(editPlan.isCurrent(coreWorld)) { "RailWand undo preparation became stale" }
-            return PreparedRailWorldUndoBuilder(before, editPlan.targetRailSnapshot)
+            return PreparedRailWorldUndoBuilder(before, editPlan.targetRailSnapshot) { records ->
+                RailRenderMetaStore.prepareSave(worldId, worldName, before.renderMetas, records)
+            }
         }
     }
 }

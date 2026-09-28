@@ -15,9 +15,11 @@ import work.art1st.javarailways.bukkit.extension.rail.RailElementTemplateSnapsho
 import work.art1st.javarailways.bukkit.extension.rail.RailTemplateSnapshot
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 
 @Serializable
 internal data class RailRenderMetaFileV2(
@@ -76,6 +78,13 @@ data class PersistedRailRenderMeta(
 
 object RailRenderMetaStore {
     private const val CURRENT_VERSION = 2
+
+    internal data class FileIdentity(
+        val exists: Boolean,
+        val lastModified: Long = 0L,
+        val length: Long = 0L
+    )
+
     private data class CacheEntry(
         val lastModified: Long,
         val length: Long,
@@ -89,9 +98,10 @@ object RailRenderMetaStore {
         prettyPrint = true
     }
     private val cache: MutableMap<UUID, CacheEntry> = ConcurrentHashMap()
+    private val writers: MutableMap<UUID, Semaphore> = ConcurrentHashMap()
 
-    private fun file(worldId: UUID): File =
-        File(BukkitPlugin.INSTANCE.dataFolder, "worlds/$worldId-rail-render.json").also {
+    private fun file(worldId: UUID, dataFolder: File = BukkitPlugin.INSTANCE.dataFolder): File =
+        File(dataFolder, "worlds/$worldId-rail-render.json").also {
             it.parentFile?.mkdirs()
         }
 
@@ -106,7 +116,10 @@ object RailRenderMetaStore {
     /** File/cache-only snapshot entry for RailWand asynchronous preparation. */
     @Synchronized
     fun load(worldId: UUID, worldName: String = worldId.toString()): List<PersistedRailRenderMeta> {
-        val f = file(worldId)
+        return load(worldId, worldName, file(worldId))
+    }
+
+    private fun load(worldId: UUID, worldName: String, f: File): List<PersistedRailRenderMeta> {
         if (!f.exists()) {
             cache.remove(worldId)
             return emptyList()
@@ -134,91 +147,179 @@ object RailRenderMetaStore {
         }
     }
 
-    @Synchronized
     fun saveAll(world: World, records: List<PersistedRailRenderMeta>) {
-        if (!ensureWritable(world)) return
+        updateAll(world) { records }
+    }
 
-        val templates = LinkedHashMap<String, RailTemplateSnapshot>()
-        records.forEach { record ->
-            templates[record.templateSnapshot.templateId] = record.templateSnapshot
+    private fun updateAll(
+        world: World,
+        transform: (List<PersistedRailRenderMeta>) -> List<PersistedRailRenderMeta>
+    ) {
+        val writer = writers.computeIfAbsent(world.uid) { Semaphore(1) }
+        check(writer.tryAcquire()) { "Rail render metadata already has a prepared write for world ${world.uid}" }
+        var temp: File? = null
+        try {
+            val target = file(world)
+            val prepared = synchronized(this) {
+                if (!ensureWritable(world.uid, world.name, target)) null else {
+                    val current = load(world.uid, world.name, target)
+                    target.identity() to transform(current).toList()
+                }
+            } ?: return
+            val (expectedIdentity, nextRecords) = prepared
+            val tempFile = File(target.parentFile, "${target.name}.tmp")
+            temp = tempFile
+            tempFile.writeText(encode(nextRecords))
+            synchronized(this) {
+                check(target.identity() == expectedIdentity) {
+                    "Rail render metadata changed while the replacement was encoded: ${target.path}"
+                }
+                atomicReplace(tempFile, target)
+                cache[world.uid] = CacheEntry(target.lastModified(), target.length(), nextRecords)
+            }
+        } finally {
+            temp?.delete()
+            writer.release()
         }
-        val encoded = RailRenderMetaFileV2(
-            version = CURRENT_VERSION,
-            templates = templates.values.map { template ->
-                RailRenderTemplateV2(
-                    templateId = template.templateId,
-                    repeatLength = template.repeatLength,
-                    elements = template.elements.map { element ->
-                        RailRenderTemplateElementV2(
-                            type = element.type.name,
-                            itemStack = element.itemStack,
-                            blockMaterial = element.blockMaterial,
-                            brightnessBlock = element.brightnessBlock,
-                            brightnessSky = element.brightnessSky,
-                            offsetX = element.offsetX,
-                            offsetY = element.offsetY,
-                            offsetZ = element.offsetZ,
-                            rotationX = element.rotationX,
-                            rotationY = element.rotationY,
-                            rotationZ = element.rotationZ,
-                            scaleX = element.scaleX,
-                            scaleY = element.scaleY,
-                            scaleZ = element.scaleZ,
-                            lightProbeOffsetX = element.lightProbeOffsetX,
-                            lightProbeOffsetY = element.lightProbeOffsetY,
-                            lightProbeOffsetZ = element.lightProbeOffsetZ
-                        )
-                    }
-                )
-            },
-            rails = records.map { record ->
-                RailRenderMetaEntryV2(
-                    railId = record.railId.toString(),
-                    templateId = record.templateSnapshot.templateId,
-                    segments = record.segments.map { seg ->
-                        RailRenderSegmentV2(seg.arcStart, seg.arcEnd, seg.pointArcs)
-                    }
+    }
+
+    /**
+     * Prepares one whole-world render sidecar away from the Bukkit owner thread. The returned
+     * value keeps the per-world writer slot until it is closed, so publication and rollback are
+     * both short, deterministic file replacements rather than another full encode.
+     */
+    internal fun prepareSave(
+        worldId: UUID,
+        worldName: String,
+        expectedRecords: List<PersistedRailRenderMeta>,
+        records: List<PersistedRailRenderMeta>
+    ): PreparedSave = prepareSave(worldId, worldName, expectedRecords, records, BukkitPlugin.INSTANCE.dataFolder)
+
+    internal fun prepareSave(
+        worldId: UUID,
+        worldName: String,
+        expectedRecords: List<PersistedRailRenderMeta>,
+        records: List<PersistedRailRenderMeta>,
+        dataFolder: File
+    ): PreparedSave {
+        val writer = writers.computeIfAbsent(worldId) { Semaphore(1) }
+        writer.acquire()
+        var staged: File? = null
+        var rollback: File? = null
+        try {
+            val target = file(worldId, dataFolder)
+            val (expectedIdentity, previousRecords) = synchronized(this) {
+                val currentRecords = load(worldId, worldName, target)
+                check(currentRecords == expectedRecords) {
+                    "Rail render metadata changed while the replacement was being prepared: ${target.path}"
+                }
+                val identity = target.identity()
+                val entry = cache[worldId]
+                check(entry?.corrupted != true) {
+                    "Refusing to overwrite corrupted rail render metadata for world '$worldName' at ${target.path}. " +
+                        (entry?.errorMessage ?: "")
+                }
+                identity to currentRecords.toList()
+            }
+            staged = Files.createTempFile(target.parentFile.toPath(), "${target.name}.", ".staged").toFile()
+            staged.writeText(encode(records))
+            if (expectedIdentity.exists) {
+                rollback = Files.createTempFile(target.parentFile.toPath(), "${target.name}.", ".rollback").toFile()
+                Files.copy(
+                    target.toPath(),
+                    rollback.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.COPY_ATTRIBUTES
                 )
             }
-        )
-        val target = file(world)
-        val temp = File(target.parentFile, "${target.name}.tmp")
-        temp.writeText(json.encodeToString(encoded))
-        try {
-            java.nio.file.Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
+            return PreparedSave(
+                worldId = worldId,
+                target = target,
+                staged = staged,
+                rollback = rollback,
+                expectedIdentity = expectedIdentity,
+                previousRecords = previousRecords,
+                records = records.toList(),
+                writer = writer
             )
-        } catch (_: AtomicMoveNotSupportedException) {
-            java.nio.file.Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING
-            )
+        } catch (failure: Throwable) {
+            staged?.delete()
+            rollback?.delete()
+            writer.release()
+            throw failure
         }
-        cache[world.uid] = CacheEntry(target.lastModified(), target.length(), records.toList())
+    }
+
+    internal class PreparedSave internal constructor(
+        private val worldId: UUID,
+        private val target: File,
+        private val staged: File,
+        private val rollback: File?,
+        private val expectedIdentity: FileIdentity,
+        private val previousRecords: List<PersistedRailRenderMeta>,
+        private val records: List<PersistedRailRenderMeta>,
+        private val writer: Semaphore
+    ) : AutoCloseable {
+        private var publishedIdentity: FileIdentity? = null
+        private var rolledBack = false
+        private var closed = false
+
+        fun commitPrimary() = synchronized(RailRenderMetaStore) {
+            check(!closed) { "Prepared rail render metadata write is closed" }
+            check(publishedIdentity == null) { "Prepared rail render metadata write was already published" }
+            check(target.identity() == expectedIdentity) {
+                "Rail render metadata changed while the replacement was prepared: ${target.path}"
+            }
+            atomicReplace(staged, target)
+            val identity = target.identity()
+            publishedIdentity = identity
+            cache[worldId] = CacheEntry(identity.lastModified, identity.length, records)
+        }
+
+        fun rollbackPrimary() = synchronized(RailRenderMetaStore) {
+            check(!closed) { "Prepared rail render metadata write is closed" }
+            if (rolledBack || publishedIdentity == null) return@synchronized
+            check(target.identity() == publishedIdentity) {
+                "Published rail render metadata changed before rollback: ${target.path}"
+            }
+            if (expectedIdentity.exists) {
+                atomicReplace(requireNotNull(rollback), target)
+                val identity = target.identity()
+                cache[worldId] = CacheEntry(identity.lastModified, identity.length, previousRecords)
+            } else {
+                Files.deleteIfExists(target.toPath())
+                cache.remove(worldId)
+            }
+            rolledBack = true
+        }
+
+        override fun close() = synchronized(RailRenderMetaStore) {
+            if (closed) return@synchronized
+            closed = true
+            try {
+                staged.delete()
+                rollback?.delete()
+            } finally {
+                writer.release()
+            }
+        }
     }
 
     fun upsertRail(world: World, meta: PersistedRailRenderMeta) {
         upsertRails(world, listOf(meta))
     }
 
-    @Synchronized
     fun upsertRails(world: World, metas: Collection<PersistedRailRenderMeta>) {
         if (metas.isEmpty()) return
-        if (!ensureWritable(world)) return
-        val existing = load(world).associateBy { it.railId }.toMutableMap()
-        metas.forEach { meta -> existing[meta.railId] = meta }
-        saveAll(world, existing.values.toList())
+        updateAll(world) { current ->
+            current.associateBy { it.railId }.toMutableMap().also { existing ->
+                metas.forEach { meta -> existing[meta.railId] = meta }
+            }.values.toList()
+        }
     }
 
-    @Synchronized
     fun removeRail(world: World, railId: UUID) {
-        if (!ensureWritable(world)) return
-        val existing = load(world).filterNot { it.railId == railId }
-        saveAll(world, existing)
+        updateAll(world) { current -> current.filterNot { it.railId == railId } }
     }
 
     private fun parseFile(file: File): List<PersistedRailRenderMeta> {
@@ -284,23 +385,68 @@ object RailRenderMetaStore {
         }
     }
 
-    private fun ensureWritable(world: World): Boolean {
-        val f = file(world)
+    private fun encode(records: List<PersistedRailRenderMeta>): String {
+        val templates = LinkedHashMap<String, RailTemplateSnapshot>()
+        records.forEach { record ->
+            templates[record.templateSnapshot.templateId] = record.templateSnapshot
+        }
+        return json.encodeToString(RailRenderMetaFileV2(
+            version = CURRENT_VERSION,
+            templates = templates.values.map { template ->
+                RailRenderTemplateV2(
+                    templateId = template.templateId,
+                    repeatLength = template.repeatLength,
+                    elements = template.elements.map { element ->
+                        RailRenderTemplateElementV2(
+                            type = element.type.name,
+                            itemStack = element.itemStack,
+                            blockMaterial = element.blockMaterial,
+                            brightnessBlock = element.brightnessBlock,
+                            brightnessSky = element.brightnessSky,
+                            offsetX = element.offsetX,
+                            offsetY = element.offsetY,
+                            offsetZ = element.offsetZ,
+                            rotationX = element.rotationX,
+                            rotationY = element.rotationY,
+                            rotationZ = element.rotationZ,
+                            scaleX = element.scaleX,
+                            scaleY = element.scaleY,
+                            scaleZ = element.scaleZ,
+                            lightProbeOffsetX = element.lightProbeOffsetX,
+                            lightProbeOffsetY = element.lightProbeOffsetY,
+                            lightProbeOffsetZ = element.lightProbeOffsetZ
+                        )
+                    }
+                )
+            },
+            rails = records.map { record ->
+                RailRenderMetaEntryV2(
+                    railId = record.railId.toString(),
+                    templateId = record.templateSnapshot.templateId,
+                    segments = record.segments.map { seg ->
+                        RailRenderSegmentV2(seg.arcStart, seg.arcEnd, seg.pointArcs)
+                    }
+                )
+            }
+        ))
+    }
+
+    private fun ensureWritable(worldId: UUID, worldName: String, f: File): Boolean {
         if (!f.exists()) {
-            cache.remove(world.uid)
+            cache.remove(worldId)
             return true
         }
 
         val lastModified = f.lastModified()
         val length = f.length()
-        val entry = cache[world.uid]?.takeIf { it.lastModified == lastModified && it.length == length } ?: run {
-            load(world)
-            cache[world.uid]?.takeIf { it.lastModified == lastModified && it.length == length }
+        val entry = cache[worldId]?.takeIf { it.lastModified == lastModified && it.length == length } ?: run {
+            load(worldId, worldName, f)
+            cache[worldId]?.takeIf { it.lastModified == lastModified && it.length == length }
         }
 
         if (entry?.corrupted == true) {
             BukkitPlugin.INSTANCE.logger.severe(
-                "Refusing to overwrite corrupted rail render metadata for world '${world.name}' at ${f.path}. ${entry.errorMessage ?: ""}"
+                "Refusing to overwrite corrupted rail render metadata for world '$worldName' at ${f.path}. ${entry.errorMessage ?: ""}"
             )
             return false
         }
@@ -325,5 +471,28 @@ object RailRenderMetaStore {
             corrupted = true,
             errorMessage = detail
         )
+    }
+
+    private fun File.identity(): FileIdentity = if (exists()) {
+        FileIdentity(exists = true, lastModified = lastModified(), length = length())
+    } else {
+        FileIdentity(exists = false)
+    }
+
+    private fun atomicReplace(source: File, target: File) {
+        try {
+            Files.move(
+                source.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                source.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
     }
 }

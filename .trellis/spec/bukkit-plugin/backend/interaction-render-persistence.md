@@ -23,6 +23,71 @@
   outer Core transaction、metadata/render、player state persistence与显示刷新全部完成。MultiAction以CompletionStage逆序串行，
   不在Bukkit owner线程阻塞等待。snapshot plan统一执行准确occupancy验证；Dispatcher已经只使用common registry中的
   route claim，因此编辑器不再读取一份私有route-allocation状态。
+
+### Scenario: RailRenderMeta structural staging
+
+#### 1. Status / Scope / Trigger / Owner
+
+- Status: CURRENT；适用于RailWand create/replace/rebuild/smooth/split/merge/delete的结构编辑，不改变主动undo应用流程。
+- Trigger: `RailRenderMetaStore`是每world一个整文件sidecar，不能在owner transaction编码/写盘，也不能让不相交编辑互相覆盖。
+- Owner: BukkitPlugin的`RailRenderMetaStore`拥有transport/cache；`PreparedRailWorldUndo`只管理本次准备值的生命周期。
+
+#### 2. Module Working Model
+
+worker在exact edit permit内捕获旧render records并构造完整目标records，调用`prepareSave`写staging及旧primary恢复副本；player owner复核world/topology后执行结构transaction并调用`publishRenderSidecar`原子替换primary。若随后任一步失败，coordinator在释放permit前调用`rollbackRenderSidecar`，最后把临时文件清理交回async worker。
+
+#### 3. Internal Mechanisms & Key Algorithms
+
+- 每个world UUID对应一个writer slot；只有worker可等待该slot，physics/player owner不等待。
+- 取得slot后重新读取current records，并与undo捕获的完整旧集合比较；不相等即stale，防止后到的整文件目标覆盖先到编辑。
+- staging和rollback与primary位于同目录；publish/rollback使用atomic move，文件系统不支持时只对move使用replace fallback。
+- primary身份是`exists + lastModified + length`；它负责检测插件外或旧同步writer在prepare与publish之间的普通变化。插件内部并发还由writer slot和record equality保护。
+
+#### 4. Signatures And Contracts
+
+- `prepareSave(worldId, worldName, expectedRecords, records): PreparedSave`只能在async worker调用。
+- `PreparedSave.commitPrimary()`只做身份检查、rename和cache替换。
+- `PreparedSave.rollbackPrimary()`只在已publish时恢复旧primary；旧文件原本不存在则删除新primary。
+- `PreparedSave.close()`幂等清理临时文件并释放writer slot；`PreparedRailWorldUndo.close()`转交该生命周期。
+
+#### 5. Invariants, Lifecycle, Threading, And Versioning
+
+- edit permit从side-state捕获前一直持有到publish成功，或rollback完成；不能在rollback前释放。
+- 成功、stale、worker failure、player retired和owner exception均必须最终close。
+- publication后只有完整旧文件或完整新文件可见；cache与primary在同一store临界区切换/恢复。
+- 这是transport变化，JSON仍为RailRenderMeta schema 2，不增加reader或兼容路径。
+
+#### 6. Validation & Error Matrix
+
+- current records不等于`expectedRecords`：准备失败为stale，不写primary。
+- primary身份在prepare后变化：publication失败，不替换外部变化。
+- current primary损坏：拒绝覆盖并保留原文件。
+- owner transaction在publication后失败：先恢复旧primary，再报告原错误；rollback错误作为suppressed failure保留。
+
+#### 7. Performance, Complexity, And Degradation
+
+worker的record比较、JSON编码、旧文件复制均为`O(render record count + file bytes)`；owner publish/rollback为常数次metadata检查、rename和cache引用替换。一个world的整文件writer必须串行，拥塞时worker排队；其他world、physics和player owner不共享该slot。遗留非结构`saveAll`若发现prepared writer会立即失败，不在owner等待。
+
+#### 8. Good / Base / Bad Cases
+
+- Good: 两个world同时准备，各自独立完成。
+- Base: 同world第二个编辑等待；第一个只close未publish时，第二个继续。
+- Bad: 同world第二个编辑仍携带第一个publish前的records；必须stale失败，禁止“最后写入者覆盖全部”。
+
+#### 9. Tests Required
+
+- prepare前后断言primary直到commit都不变；commit后是current schema。
+- primary身份变化时commit拒绝且保留变化。
+- publish后rollback逐字节恢复旧primary。
+- close删除`.staged`/`.rollback`并让等待writer继续。
+- 排队writer基于旧records时失败，并确认失败路径释放slot。
+
+#### 10. Migration, Open Decisions, And Wrong vs Correct
+
+无schema migration。主动undo的完整owner-thread current-state检查仍按既有决定保留，后续只有在非拓扑store获得统一revision边界后另行评审。
+
+- Wrong: 两个编辑各自读取整文件、修改自己的rail、随后无条件写完整列表。
+- Correct: per-world串行准备，并在真正编码前验证调用方的完整base records仍是current；不current就重试整个编辑。
 - 只修改既有rail上的运营属性或对象时，使用同一个permit服务但impact只包含确切rail ID，不扩张到连接邻居、node、
   turnout或diamond。RailWand限速metadata及其undo、RailObjectWand运行方向与destination、`/jr waypoint remove`都在
   mutation前重新绑定当前topology root和rail实例，并把permit保持到Basic metadata/运营对象与相关玩家side effect完成。

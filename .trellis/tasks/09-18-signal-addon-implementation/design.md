@@ -169,9 +169,11 @@ Online editing has one cross-module latency rule. Preparation may perform work p
 asynchronous worker. Final commit is scoped to the affected world and may only perform stale/permit checks, an already-staged atomic rename and
 immutable reference swaps. It must not hold the cross-world simulation lock, rebuild a graph/index, encode a document, perform an ordinary file
 write, wait for a future or invoke Bukkit side effects. An in-progress signal epoch therefore finishes with its captured old immutable source and
-the next epoch establishes the new geometry baseline. Rail editing currently prepares curves and exact diamond geometry asynchronously, but its
-outer Core transaction still rebuilds the full normalized `TopologyState`; moving that build into the prepared value is an explicit unfinished
-acceptance item rather than being excused as a low-frequency operation.
+the next epoch establishes the new geometry baseline. Rail editing follows the same rule for curves, exact diamond geometry, normalized topology,
+whole-world undo values and the rail-render sidecar. The worker stages the complete new render file and an old-primary recovery copy under one
+per-world writer slot. The owner transaction only checks the captured file identity and renames the staged file; a later transaction failure restores
+the old primary before releasing the infrastructure edit permit. A queued edit whose captured render records are no longer current fails stale rather
+than overwriting a disjoint edit, while other worlds and physics continue independently.
 
 ## Persistence and lifecycle
 
